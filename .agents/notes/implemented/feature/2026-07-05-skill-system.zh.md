@@ -18,13 +18,13 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 本地提供方按先到先得的排名顺序扫描 cwd 敏感的项目根目录、自定义根目录和用户根目录：项目 `.dsh`、项目 `.agents`、`customSkillDirs`、用户 `.dsh`，然后是用户 `.agents`。用户 `.dsh/skills` 扫描跳过 `.system`，以免系统拥有的目录被当作普通用户内容处理。DeepSeek Harness 不随附内置系统 skill；嵌入式或远程提供方在配置后提供额外 skill。
 
-每个 skill 是 `<name>/SKILL.md` 或带 YAML frontmatter 的 `<name>.md`。`name` 和 `description` 为必填；`whenToUse`、`disableModelInvocation` 和 `metadata` 为可选。名称采用 kebab-case。YAML frontmatter 使用 `yaml` 包（package）解析，而非 `js-yaml` 或手写解析器：`yaml` 是本包有限 frontmatter 需求已声明的现代解析器，窄解析器要么拒绝用户预期可用的合法 YAML，要么膨胀为一个未经评审的 YAML 子集。
+每个 skill 是 `<name>/SKILL.md` 或带 YAML frontmatter 的 `<name>.md`。`name` 和 `description` 为必填；`whenToUse`、`metadata`、`disable-model-invocation` 和 `user-invocable` 为可选。名称采用 kebab-case。调用字段会投影到类型化的嵌套策略中，具体由[模型与用户独立调用决策](2026-07-28-skill-invocation-policy.md)定义；解析器会拒绝旧的驼峰拼写。YAML frontmatter 使用 `yaml` 包（package）解析，而非 `js-yaml` 或手写解析器：`yaml` 是本包有限 frontmatter 需求已声明的现代解析器，窄解析器要么拒绝用户预期可用的合法 YAML，要么膨胀为一个未经评审的 YAML 子集。
 
 本地 skill 的文件系统 I/O 在加载了文件系统服务时通过 `ctx.fs` 进行：项目根目录查找使用 `resolve` 和 `stat` 探测 `.git`，根目录发现使用 `listDir`，skill 读取使用 `readText`。Node 文件系统作为后备，供在不挂载 fs seam 的最小上下文中加载 `dsh-skill-local` 时使用。缺失的根目录、不可读或格式错误的 skill 文件、以及提供方 `list()` 的瞬态失败均降级为警告并跳过，使一个坏源不会导致所有 agent 请求失败；格式错误的候选项仍然快速失败，因为它们违反了提供方契约。
 
 `dsh-tool-skill` 在会话的第一个 `agent/step` 注入一个持久化的 user-role `<system-reminder>` 目录，作为带来源的 `user/message`，且仅当该 agent 的工具视图解析到本插件精确的 `skill` 注册时才注入。该目录仅包含排序后的 skill 名称与描述；不包含正文、路径、来源、提供方和路由提示。描述经过空白规范化、XML 转义，并受 `catalogDescriptionMaxLength` 上限约束，其默认值为 `500`，最小值为 `3`。完整的 skill 正文从不包含在目录中。（目录最初通过仅请求的[会话前缀 seam](../../archived/feature/2026-07-07-session-prefix.md)（已归档）传递；[统一带来源消息的决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)将其移入持久化历史。）
 
-`skill({ name })` 工具为当前 agent cwd 加载一个完整 skill，返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 提供一个目录、URL 或不透明的提供方管理的基路径，用于显式引用的脚本、参考资料和资产；资源仅按需加载，不进行目录枚举。无法解析的名称报告该 skill 未知或不再可用；无效名称和标记了 `disableModelInvocation` 的 skill 保留不同的工具错误。工具结果是面向模型的可见披露路径。
+注册表的 `list()` 返回全部胜出摘要，而模型与用户消费方应用[独立调用策略决策](2026-07-28-skill-invocation-policy.md)定义的调用判定。`skill({ name })` 工具为当前 agent cwd 加载一个模型可调用的 skill，返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 提供一个目录、URL 或不透明的提供方管理的基路径，用于显式引用的脚本、参考资料和资产；资源仅按需加载，不进行目录枚举。无法解析的名称报告该 skill 未知或不再可用；无效名称和 `invocation.modelInvocable` 为 `false` 的 skill 保留不同的工具错误。工具结果是面向模型的可见披露路径。
 
 数据结构与目录/工具契约记录在 [skills.md](../../../../docs/core-data-structures/skills.md) 中，服务签名见生成的[服务目录](../../../../docs/cordis-catalog/services.md)。
 
@@ -52,4 +52,4 @@ agent-core 主干包含一个目录贡献者、一个本地提供方和一个面
 
 ## 延后
 
-Fork 的 skill 上下文（`context: fork`）、参数声明与提示（`arguments` 和 `argument-hint`）、以及逐 skill 的工具约束（`allowed-tools` 和 `disallowed-tools`）不在已交付的契约范围内。注册表、本地提供方和面向模型的工具不解析、不广播、也不执行这些字段，`user-invocable` frontmatter 字段同样不会被解析。直接用户调用本身则作为消费方层面的能力交付：TUI 前门基于注册表现有的 `list()` 与 `get()` 方法提供手动 `/skill:<name>` 命令，无需变更注册表、提供方或工具契约——见 [TUI skill 斜杠命令](2026-07-21-tui-skill-slash-command.md)。
+Fork 的 skill 上下文（`context: fork`）、参数声明与提示（`arguments` 和 `argument-hint`）、以及逐 skill 的工具约束（`allowed-tools` 和 `disallowed-tools`）不在已交付的契约范围内。注册表、本地提供方和面向模型的工具不解析、不广播、也不执行这些字段。直接用户调用作为 TUI 功能交付，基于共享调用策略和受信的 `get()` 原语；见 [TUI skill 斜杠命令](2026-07-21-tui-skill-slash-command.md)。

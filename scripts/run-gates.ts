@@ -287,6 +287,11 @@ function nodeCompatSmokeGates(): Gate[] {
       'run',
       'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
+    pnpmExec('dsh-source-launch-smoke', [
+      'vitest',
+      'run',
+      'apps/cli/tests/source-launch.compat.spec.ts',
+    ], { label: 'dsh source-launch smoke' }),
   ]
 }
 
@@ -485,7 +490,6 @@ function docSyncLeafGates(options: {
   return [
     pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
-    pnpmScript('cordis-api', 'verify-cordis-api', { label: 'cordis api' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),

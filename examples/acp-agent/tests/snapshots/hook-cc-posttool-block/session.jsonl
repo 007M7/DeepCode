@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"669e8682-49fc-4dff-9bc7-6280e283cbe4","createdAt":1783962504097,"cwd":"/var/folders/2c/psb0_fmx7hbgz558xjt_f0l00000gn/T/acp-snap-cwd-WxJGUY","delegationDepth":0}
+{"type":"session","version":0,"id":"669e8682-49fc-4dff-9bc7-6280e283cbe4","createdAt":1783962504097,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783962504115,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783962504117,"data":{"content":[{"type":"text","text":"Call the bash tool to run exactly: echo HELLO. If the first tool result is rejected, retry that command once. Quote the final tool result verbatim and stop."}],"source":{"kind":"user"},"role":"user","id":"775ddb99-fdd1-404f-ba14-4cc37b6ac2c8"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783962504117,"data":{"title":"Call the bash tool to","messageSeqs":[1],"source":{"kind":"fallback"}}}

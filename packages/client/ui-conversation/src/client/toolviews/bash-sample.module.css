@@ -1,4 +1,18 @@
-/* Bash toolview: same geometry/tokens as ToolRow (figma Bash · description). */
+/* Bash toolview: same geometry/tokens as ToolRow (figma Bash · description),
+   plus the terminal card the row stacks under its summary line. */
+
+/* Summary line over the terminal card; the summary row keeps its own 24px
+   height, so the card is a column around it rather than a change to it. */
+.card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Row indentation matches ToolRow's expanded bodies (16px leading + 6px gap),
+   and replaces the primitive's standalone vertical margin with the flow's. */
+.terminal {
+  margin: 4px 0 4px 22px;
+}
 
 .root {
   position: relative; /* sweep-glare overlay anchor */

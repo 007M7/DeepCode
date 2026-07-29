@@ -132,17 +132,31 @@ export interface SessionSummary {
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean
   /**
-   * Derived emptiness bit: true while the session log holds zero events (no
-   * user message yet). Clients hide blank sessions from lists and reuse them
-   * for New Session on the same workspace. Always false for cold sessions —
-   * lazy persistence keeps a never-appended session out of the store, so a
-   * listed cold session necessarily has events.
+   * Derived conversation-not-started bit: true while no turn has run (no
+   * prompt was accepted yet). Standalone plugin events — command lifecycle
+   * records, plan/mode, titles, goals — do not open a turn and therefore do
+   * not clear it. Clients hide blank sessions from lists and reuse them for
+   * New Session on the same workspace. Always false for cold sessions —
+   * lazy persistence keeps a never-appended session out of the store, and a
+   * listed cold session's log holds its turns.
    */
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
   parentSessionId?: SessionId
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
+  /**
+   * Projection baseline for this row, with zero log loads: attached sessions
+   * read the registry's live watermark cut; cold sessions read the persisted
+   * projection cache's stored rows — as stale as that session's last durable
+   * checkpoint (`asOfSeq` says exactly how stale), never wrong, and directly
+   * seedable into the client's per-session value store under its
+   * higher-seq-wins rule (a list baseline can never overwrite a newer push
+   * frame). Absent when no value is available (no registry, no cache row for
+   * a cold session, or a fail-soft cache read miss); a listing client treats
+   * absence as "no title yet", exactly like a blank session.
+   */
+  projections?: SessionProjectionsBlock
 }
 
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
@@ -194,10 +208,28 @@ export interface SessionsApi {
   }>):
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
-  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
+  /**
+   * Renames a session: appends a `session/title` event with the `user`
+   * source, which pins the title against automatic regeneration. The
+   * normalized accepted title and the title event's seq return so the caller
+   * can settle its projection cell without waiting for the push frame. A
+   * title that normalizes to empty fails with `title-invalid`.
+   */
+  rename(request: RpcRequest<{ sessionId: SessionId; title: string }>):
+  Promise<RpcResponse<{ title: string; seq: number }>>
+
+  /**
+   * Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer.
+   * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
+   * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
+   * successful command returns ok with the command slot (its success text, when the command produced
+   * one — carried for future rendering; the state change is the feedback). A usage/state error is an
+   * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
+   */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
-  Promise<RpcResponse<{ accepted: true }>>
+  Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
+
 }

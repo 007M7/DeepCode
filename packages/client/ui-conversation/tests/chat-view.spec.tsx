@@ -371,6 +371,42 @@ describe('ChatView', () => {
     expect(view.queryByLabelText('回到底部')).toBeNull()
   })
 
+  it('entering the at-bottom threshold does not snap the remaining scroll distance', () => {
+    const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const scroller = view.container.querySelector('[class*="scroll"]') as HTMLDivElement
+    Object.defineProperty(scroller, 'scrollHeight', { value: 1000, writable: true })
+    Object.defineProperty(scroller, 'clientHeight', { value: 300, writable: true })
+    // Inside FOLLOW_THRESHOLD (24) but not flush with the floor — the chrome
+    // re-render from setAtBottom must not force scrollTop to scrollHeight.
+    scroller.scrollTop = 690 // distance-to-bottom = 10
+    fireEvent.scroll(scroller)
+    expect(view.queryByLabelText('回到底部')).toBeNull()
+    expect(scroller.scrollTop).toBe(690)
+  })
+
+  it('under data-conversation-scroll, bottom-follow targets the host scrollport', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollHeight', { value: 2000, writable: true, configurable: true })
+    Object.defineProperty(host, 'clientHeight', { value: 500, writable: true, configurable: true })
+    Object.defineProperty(host, 'scrollTop', { value: 0, writable: true, configurable: true })
+    document.body.appendChild(host)
+    try {
+      const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+      const view = render(<h.ChatView {...h.props} />, { container: host })
+      // Open jump uses the host, not the local .scroll node.
+      expect(host.scrollTop).toBe(2000)
+      host.scrollTop = 100
+      fireEvent.scroll(host)
+      expect(view.getByLabelText('回到底部')).toBeTruthy()
+      fireEvent.click(view.getByLabelText('回到底部'))
+      expect(host.scrollTop).toBe(2000)
+    } finally {
+      host.remove()
+    }
+  })
+
   it('paging button loads older and shows its busy label', () => {
     const h = makeHarness({ nodes: [user(5, 'later')], hasMore: true })
     const view = render(<h.ChatView {...h.props} />)
@@ -392,13 +428,18 @@ describe('ChatView', () => {
     expect(lv.getByText('载入历史…')).toBeTruthy()
   })
 
-  it('pending interactions render placeholder cards', () => {
+  it('pending waits leave the flow entirely — questions and approvals both take over the composer', () => {
     const h = makeHarness({
-      pending: [new PendingWait('approval', RpcId('r1'), SID,
-        { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn())],
+      pending: [
+        new PendingWait('approval', RpcId('r1'), SID,
+          { approvalId: 'ap1', toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn()),
+        new PendingWait('question', RpcId('r2'), SID,
+          { questions: [{ id: 'q1', question: '选择' }] }, vi.fn()),
+      ],
     })
     const view = render(<h.ChatView {...h.props} />)
-    expect(view.getByText(/等待审批/)).toBeTruthy()
+    expect(view.queryByText(/等待回答/)).toBeNull()
+    expect(view.queryByText(/等待审批/)).toBeNull()
   })
 
   it('renders command nodes as durable rows: settled text, error state, executing spinner, run-less soft-fall', () => {

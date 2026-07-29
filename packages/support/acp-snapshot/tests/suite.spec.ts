@@ -177,12 +177,17 @@ describe('defineAcpSnapshotSuite: refresh write-back', () => {
     const schemas = readFileSync(join(refreshDir, 'pin-turn', 'tool-schemas.expected.json'), 'utf8')
     expect(schemas).toContain('"description": "D1"')
     expect(schemas).not.toContain('"name":"stale"')
+
+    const pinSession = readFileSync(join(refreshDir, 'pin-turn', 'session.jsonl'), 'utf8')
+    expect(pinSession).toContain('"cwd":"{{cwd}}"')
   })
 })
 
 describe('defineAcpSnapshotSuite: record inventory write-back', () => {
   it('creates a missing primary fixture and prunes stale child fixtures', () => {
-    expect(readFileSync(join(recordDir, 'rec-pin', 'session.jsonl'), 'utf8')).toContain('"type":"session"')
+    const fixture = readFileSync(join(recordDir, 'rec-pin', 'session.jsonl'), 'utf8')
+    expect(fixture).toContain('"type":"session"')
+    expect(fixture).toContain('"cwd":"{{cwd}}"')
     expect(() => readFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'utf8')).toThrow()
   })
 })

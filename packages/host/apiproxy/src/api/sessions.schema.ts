@@ -37,7 +37,7 @@ export const sessionEventSchema = z.object({
   surfaceOp: z.unknown().optional(),
 }) as unknown as z.ZodType<SessionEvent>
 
-/** SessionSummary row of session.list. */
+/** SessionSummary row of session.list (`projections` reuses the history block's shape and schema). */
 export const sessionSummarySchema = z.object({
   sessionId: sessionIdSchema,
   updatedAt: z.number(),
@@ -45,7 +45,8 @@ export const sessionSummarySchema = z.object({
   blank: z.boolean(),
   parentSessionId: sessionIdSchema.optional(),
   cwd: z.string().optional(),
-}) satisfies z.ZodType<Wire<SessionSummary>>
+  projections: z.lazy(() => sessionProjectionsBlockSchema).optional(),
+}) as unknown as z.ZodType<Wire<SessionSummary>>
 
 /** session.list request payload (cursor is a reserved seat, unimplemented in v1). */
 export const sessionListRequestSchema = z.object({
@@ -53,9 +54,9 @@ export const sessionListRequestSchema = z.object({
 }) satisfies z.ZodType<Wire<RequestPayload<'session.list'>>>
 
 /** session.list response value. */
-export const sessionListValueSchema = z.object({
+export const sessionListValueSchema: z.ZodType<Wire<ResponseValue<'session.list'>>> = z.object({
   items: z.array(sessionSummarySchema),
-}) satisfies z.ZodType<Wire<ResponseValue<'session.list'>>>
+})
 
 /** session.create request payload (at most one of workspaceId / cwd). */
 export const sessionCreateRequestSchema = z.object({
@@ -71,6 +72,18 @@ export const sessionCreateRequestSchema = z.object({
 export const sessionCreateValueSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.create'>>>
+
+/** session.rename request payload (raw title; host-side normalization decides acceptance). */
+export const sessionRenameRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  title: z.string(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.rename'>>>
+
+/** session.rename response value (the normalized accepted title and its event seq). */
+export const sessionRenameValueSchema = z.object({
+  title: z.string().min(1),
+  seq: z.number().int().nonnegative(),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.rename'>>>
 
 /** session.history request payload (beforeSeq/maxMessages page backwards from the window tail). */
 export const sessionHistoryRequestSchema = z.object({
@@ -192,9 +205,13 @@ export const sessionPromptRequestSchema = z.object({
   content: z.array(contentBlockSchema),
 }) as unknown as z.ZodType<RequestPayload<'session.prompt'>>
 
-/** session.prompt response value. */
+/** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */
 export const sessionPromptValueSchema = z.object({
   accepted: z.literal(true),
+  command: z.object({
+    kind: z.literal('success'),
+    text: z.string().optional(),
+  }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
 
 /** session.cancel request payload. */

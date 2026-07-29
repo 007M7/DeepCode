@@ -456,7 +456,9 @@ describe('approval policy (the approval/policy fold)', () => {
     await ctx.plugin(ApprovalService, { policy: 'never' })
     ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
     const { agent, session } = sessionAgent('sess-gate-3')
+    expect(ctx.approval.overrideOf(session)).toBeUndefined()
     setApprovalPolicy(session, 'ask')
+    expect(ctx.approval.overrideOf(session)).toBe('ask')
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('allowed-once')
     setApprovalPolicy(session, 'never')
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
@@ -505,6 +507,18 @@ describe('approval policy (the approval/policy fold)', () => {
     appendHeader(session, `persona\n\n${NEVER_SENTENCE}\n${NEVER_MARKER}`)
     await preStep(ctx, agent)
     expect(injected).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
+  })
+
+  it('attributes a constructor-seeded policy event to delegation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ApprovalService)
+    const { agent, session, injected } = sessionAgent('sess-narr-inherited')
+    appendHeader(session, ASK_MARKER)
+    session.append('approval/policy', { policy: 'never', source: 'delegation' })
+
+    await preStep(ctx, agent)
+
+    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
   })
 
   it('narrates a config default drift from the logged ask marker', async () => {

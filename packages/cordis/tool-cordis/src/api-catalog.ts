@@ -150,6 +150,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },
+      {
+        signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
+        jsDoc: '/**\n * Read the session override without applying the configured default.\n * @param session - session whose log supplies the override.\n * @returns the last logged policy, or `undefined` without one.\n */',
+      },
     ],
   },
   {
@@ -257,6 +261,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract compactRegion( start: number, end: number, agent: CompactAgentContext, signal?: AbortSignal, ): Promise<CompactionResult>',
         jsDoc: '/**\n * Forcibly compact a range of surface nodes into a single summary node.\n * `start` and `end` name an inclusive span by surface position, not numeric seq\n * order; replacements can make visible seqs non-monotonic. Both edges must be\n * balanced so assistant tool calls remain paired with their results. A model-\n * backed implementation forwards cancellation and rejects active, missing,\n * reversed, or unbalanced ranges. The target session is `agent.session`.\n * Its replacement user message must use {@link COMPACT_CHECKPOINT_SOURCE}.\n * Use {@link toolPairingBalancedBefore} and {@link toolPairingBalancedAfter}\n * for the edge checks.\n *\n * @param start - first surface seq, inclusive.\n * @param end - last surface seq, inclusive.\n * @param agent - context whose session is mutated and whose routing options guide summarization.\n * @param signal - optional cancellation; model-backed implementations must forward it.\n * @throws when compaction is active or the range is missing, reversed, or unbalanced.\n * @returns the appended event seqs, summary, replaced range, and token accounting.\n */',
+      },
+    ],
+  },
+  {
+    key: 'directoryPicker',
+    summary: 'Abstract directory-picking service.',
+    methods: [
+      {
+        signature: 'abstract capability(): DirectoryPickerCapability',
+        jsDoc: '/**\n * The backend\'s interaction capability.\n * @returns the discriminated capability consumers switch on.\n */',
       },
     ],
   },
@@ -411,6 +425,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Resolve the preset matching the effective knob values. A still-matching\n * last selection wins shared-bundle ties; otherwise the first table match\n * wins, or {@link CUSTOM_PRESET} when no entry matches.\n * @param events - the session\'s events in log order.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
       },
       {
+        signature: 'selectFor(state: KnobState): PermissionSelect',
+        jsDoc: '/**\n * Build the whole select value for one folded knob state: every table\n * option in declaration order, `custom` appended exactly while derived.\n * @param state - the folded knob overrides.\n * @returns the `permissions` projection payload.\n */',
+      },
+      {
         signature: 'resolve(name: string): PresetSpec',
         jsDoc: '/**\n * Resolve a preset\'s knob bundle.\n * @param name - the preset name to resolve.\n * @returns the configured bundle.\n * @throws when `name` is not in the table.\n */',
       },
@@ -433,8 +451,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the logged plan state and any selected state awaiting a boundary.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
       },
       {
-        signature: 'set(agent: Agent, active: boolean): void',
-        jsDoc: '/**\n * Select whether plan mode should be active from the next request boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
+        signature: 'set(agent: Agent, active: boolean): \'committed\' | \'queued\' | \'cancelled\' | \'noop\'',
+        jsDoc: '/**\n * Select whether plan mode should be active. Between turns the change\n * commits immediately — no request boundary would arrive until the next\n * prompt, so a queued intent would hang (the open-turn fold is the idle\n * signal: agent status stays `running` through post-turn checkpointing,\n * where a boundary equally never comes). During an open turn the\n * selection is held as pending intent for the next in-turn request\n * boundary. Repeated selection of the current or already-pending state is\n * a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n * @returns what happened: `committed` (logged now), `queued` (awaiting the\n * next boundary), `cancelled` (an opposite pending selection was cleared;\n * the logged state already matches), or `noop` (already in that state).\n */',
       },
     ],
   },
@@ -471,7 +489,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Deliver an allowed signal through an owned backend session.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param signal - allowed POSIX signal name.\n * @returns delivered foreground process-group identity.\n */',
       },
       {
-        signature: 'async kill(owner: Agent, id: PtySessionId, reason = \'model request\'): Promise<boolean>',
+        signature: 'async kill(owner: Agent, id: PtySessionId, reason: string = \'model request\'): Promise<boolean>',
         jsDoc: '/**\n * Close one owned session and remove it only after quiescent backend cleanup.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param reason - diagnostic cleanup reason.\n * @returns true for a newly closed session, false when the same close is already in flight.\n */',
       },
       {
@@ -498,6 +516,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
         jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
       },
+      {
+        signature: 'overrideOf(session: Session): SandboxMode | undefined',
+        jsDoc: '/**\n * Read the session override without applying the deployment default.\n * @param session - session whose log supplies the override.\n * @returns the last logged mode, or `undefined` without one.\n */',
+      },
     ],
   },
   {
@@ -518,11 +540,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * Returned events are detached, and every identified message is deeply\n * frozen; malformed identified messages reject before any stored event is returned.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
+        jsDoc: '/**\n * Load a header and balanced contiguous log. A complete interrupted final\n * turn is preserved and durably closed with missing tool errors plus any open\n * step and turn boundaries; only a torn final record is discarded. Unknown\n * versions and corruption in the committed prefix reject. Implementations\n * MUST NOT crash-repair an identity still bound to a live Session: a balanced\n * live log may return with its stored header as a durable snapshot, while an\n * open live turn rejects.\n * A coordinator-backed cold load reserves the identity across storage awaits,\n * so concurrent publication of a same-id live Session rejects.\n * Returned events are detached, and every identified message is deeply\n * frozen. Coordinator-backed implementations upgrade supported pre-identity\n * message events before validation; other malformed messages reject before\n * any stored event is returned.\n * @param id - the persisted session to reload.\n * @returns the header and a log ending on a balanced `turn/end`.\n */',
       },
       {
         signature: 'abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
-        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values with deeply frozen identified messages, so observers cannot mutate message\n * identity/content or backend-owned state. Malformed identified messages reject.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+        jsDoc: '/**\n * Inspect a header and its valid contiguous stored prefix without repairing\n * a torn tail, closing an interrupted turn, or publishing coordinator state.\n * This read is serialized with writes for the same id and returns detached\n * values with upgraded, deeply frozen identified messages, so observers\n * cannot mutate message identity/content or backend-owned state. Other\n * malformed messages reject.\n * @param id - the persisted session to inspect.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and valid stored event prefix exactly as observed.\n */',
+      },
+      {
+        signature: 'abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>',
+        jsDoc: '/**\n * Read the stored events from `fromSeq` onward — the read-from-seq\n * primitive for read models that resume from a watermark (e.g. a persisted\n * projection cache folding only the tail past its checkpoint). Like\n * {@link inspect} it is non-mutating and detached: no torn-tail truncation,\n * no synthetic closers, no coordinator-state publication; only events from\n * the valid contiguous stored prefix are returned, so a torn fragment never\n * reaches the caller. `fromSeq` at or beyond the stored prefix returns an\n * empty event list (never an error). Backends whose medium can seek by seq\n * (SQLite) read only the suffix; sequential media (JSONL, both encodings)\n * still parse the whole artifact and skip forward — the primitive bounds\n * what is RETURNED and refolded, not every backend\'s physical read.\n * @param id - the persisted session to read.\n * @param fromSeq - first event seq to include; a non-negative safe integer.\n * @param signal - optional cancellation for queued and backend read work.\n * @returns the header and the stored events with `seq >= fromSeq`.\n */',
       },
       {
         signature: 'abstract list(signal?: AbortSignal): Promise<SessionHeader[]>',
@@ -531,6 +557,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>',
         jsDoc: '/**\n * List materialized sessions with cheap per-log change tokens.\n *\n * Repeated observations of an unchanged log return the same revision. A\n * successful mutating {@link load} repair changes the next listed revision.\n * Revisions also distinguish independently backed stores so backend-local\n * counters cannot compare equal across different persistence sources.\n * @param signal - optional cancellation for backend snapshot-listing work.\n * @returns one header and opaque revision per materialized session without loading full logs.\n */',
+      },
+    ],
+  },
+  {
+    key: 'sessionProjectionCache',
+    summary: 'The persisted projection cache service.',
+    methods: [
+      {
+        signature: 'cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined',
+        jsDoc: '/**\n * The zero-I/O listing read: whole values viewed straight from the stored\n * rows (version-matching keys only), each cut carried with its watermark\n * so a client value store can seed under its higher-seq-wins rule — as\n * stale as the last durable checkpoint but never wrong, and never from an\n * unrelated log (the caller\'s header is the identity witness). Fresher\n * paths (the history tail baseline, {@link coldSnapshot}) supersede these\n * values whenever a session is actually opened.\n * @param meta - the listed session\'s header (identity witness; no log read).\n * @returns the cut (`asOfSeq` = lowest served-row watermark), or\n *   `undefined` when no usable row exists for this lifecycle.\n */',
+      },
+      {
+        signature: 'async write(session: Session): Promise<void>',
+        jsDoc: '/**\n * Durably checkpoint one live session NOW (both mandatory points call\n * this; tests and carriers may too). The registry cut is snapshotted at\n * this boundary (states are live references), then the whole record is\n * replaced. NOT fail-soft — callers on the fail-soft paths contain it.\n * @param session - the live session to checkpoint.\n * @returns resolution after durability and event emission.\n */',
+      },
+      {
+        signature: 'async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot>',
+        jsDoc: '/**\n * Cold-read one persisted session\'s projections with zero full-log load:\n * cached rows + a persistence `readFrom` tail from the registry\'s restore\n * floor, refolded by the registry and written back (fail-soft) so the next\n * cold read starts closer. A cache row invalidated by a shrunk log\n * (crash-repair truncation) triggers one full re-read from seq 0 — the\n * ladder\'s slow rung, still no crash. Rejects when the session has no\n * persisted log (`not found` from the persistence seam).\n * @param id - the persisted session to read.\n * @param signal - optional cancellation for the persistence reads.\n * @returns the snapshot cut at the stored log end.\n */',
       },
     ],
   },
@@ -549,6 +593,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'snapshot(session: Session): ProjectionSnapshot',
         jsDoc: '/**\n * One consistent cut over every registered unit for one session, read from\n * the watermark cache (missing cells fold lazily over the in-memory log).\n * Fully synchronous — every value and `asOfSeq` reflect the same log\n * position. Each value passes its unit\'s schema before leaving.\n * @param session - the session whose projection values are read.\n * @returns the snapshot; `values` is empty when no unit is registered.\n */',
+      },
+      {
+        signature: 'checkpoint(session: Session): ProjectionCheckpoint',
+        jsDoc: '/**\n * State-level checkpoint of every registered unit for one session, read\n * from the watermark cache (missing cells fold lazily over the in-memory\n * log). This is the write side of the persisted projection cache: the\n * returned rows are the `(key → {ver, seq, val})` part of the durable\n * `(sessionId, key, ver, seq, val)`\n * rows. Every `val` is a DETACHED structured clone — never the live\n * cell reference: the watermark cache is this registry\'s authoritative\n * mutable state, and a caller reaching the live reference could corrupt\n * every subsequent snapshot and frame through it (plain JSON by the unit\n * contract, so the clone is total).\n * @param session - the session whose unit states are checkpointed.\n * @returns one row per registered key; empty when no unit is registered.\n */',
+      },
+      {
+        signature: 'restoreFloor(checkpoint: ProjectionCheckpoint): number | undefined',
+        jsDoc: '/**\n * The stored seq a {@link restore} tail read over `checkpoint` must start\n * at: one event BELOW the lowest usable watermark (a row is usable when\n * its `ver` matches the live unit\'s `stateVersion`; an absent or mismatched row\n * pulls the floor to `0` — that key must refold the full log). The\n * one-below anchor is load-bearing: the tail then proves how far the\n * stored log still extends, so {@link restore} can detect a log that\n * shrank below a row\'s watermark (crash-repair truncation) instead of\n * serving the stale row as current — an empty tail read from the anchor\n * yields an end below every watermark and the restore rejects for a full\n * re-read.\n * @param checkpoint - persisted rows for one session (possibly stale or empty).\n * @returns the seq to hand the persistence `readFrom`, or `undefined`\n *   when no unit is registered (no read needed — {@link restore} would\n *   serve empty values regardless).\n */',
+      },
+      {
+        signature: 'viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap>',
+        jsDoc: '/**\n * View a checkpoint\'s rows without any log read: for every registered\n * unit whose row\'s `ver` matches, serve the schema-validated\n * `view` of the stored state; mismatched or absent rows leave their key\n * absent (a cold or listing consumer treats it as not-yet-available and a\n * fuller read path refolds it). The zero-I/O rung of the read ladder —\n * values are as stale as their rows, never wrong.\n * @param checkpoint - persisted rows for one session (possibly stale or empty).\n * @returns whole values per key with a usable row; empty when none.\n */',
+      },
+      {
+        signature: 'restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number): { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }',
+        jsDoc: '/**\n * Cold read: fold every registered unit over a stored log suffix, seeding\n * each from its checkpoint row when usable — the one read recipe (cached\n * state + forward tail replay + `view`) applied without a live `Session`.\n * Call with the events returned by a persistence\n * `readFrom(id, restoreFloor(checkpoint))` and that same floor as\n * `baseSeq`; the floor\'s one-below anchor makes the supplied end honest,\n * so a shrunk log is detected here. A row is usable iff its\n * `ver` matches the live unit\'s `stateVersion`, it does not predate `baseSeq`\n * (`seq >= baseSeq - 1`), and it does not claim events past the\n * supplied end (`seq <= endSeq`); an unusable row is discarded\n * and its key refolds from `init` — which is only sound over the full\n * log, so a discarded row with `baseSeq > 0` throws (the caller re-reads\n * from seq 0, e.g. after a crash-repair truncation shrank the log below\n * a row\'s watermark).\n * @param checkpoint - persisted rows for one session (possibly stale or empty).\n * @param events - the stored events with `seq >= baseSeq`, in seq order.\n * @param baseSeq - the seq `events` starts at (its first event\'s seq when non-empty).\n * @returns the snapshot cut at the supplied log end (`asOfSeq` is the last\n *   supplied event\'s seq, `baseSeq - 1` for an empty tail) plus the\n *   refreshed checkpoint rows at that cut, ready for a durable write-back.\n */',
       },
     ],
   },
@@ -619,7 +679,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Exact-read consumer that prepares immutable cross-session message context.',
     methods: [
       {
-        signature: 'async listCandidates( agent: Agent, query = \'\', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
+        signature: 'async listCandidates( agent: Agent, query: string = \'\', limit: number = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
         jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd/title substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
       },
       {
@@ -675,6 +735,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the latest folded title from one live or replayed session.\n * @param session - session whose log is the title source of truth.\n * @returns latest title snapshot, or `undefined` before eligible input.\n */',
       },
       {
+        signature: 'rename(session: Session, title: string): SessionTitleSnapshot',
+        jsDoc: '/**\n * Accept an explicit user title. Appends a `session/title` event with the\n * `user` source, which pins the title: in-flight automatic generation is\n * superseded and later user messages schedule none (an explicit\n * {@link SessionTitleService.refresh} remains the deliberate unpin).\n * @param session - exact live session to rename.\n * @param title - raw user input; normalized before acceptance.\n * @returns the accepted title snapshot.\n * @throws {SessionTitleInvalidError} when the title normalizes to empty.\n * @throws {Error} when the session is not live or the service is disposed.\n */',
+      },
+      {
         signature: 'async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>',
         jsDoc: '/**\n * Explicitly retry the registered provider, or materialize the built-in\n * fallback when no provider is registered.\n * @param session - exact live session to refresh.\n * @param signal - optional caller cancellation.\n * @returns latest accepted title, or `undefined` when no eligible text exists.\n */',
       },
@@ -689,16 +753,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Registry of skill providers.',
     methods: [
       {
-        signature: 'registerProvider(provider: SkillProvider): () => void',
-        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param provider - the provider to register by `provider.name`.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
+        signature: 'registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void',
+        jsDoc: '/**\n * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and\n * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters\n * the provider and invalidates catalog caches.\n * @param create - synchronous factory receiving this registration\'s lifecycle and invalidation control.\n * @returns the exact Cordis effect disposer that unregisters this provider;\n *   composite effects may yield it directly to preserve teardown ordering.\n */',
       },
       {
         signature: 'register(skill: SkillRegistration): () => void',
-        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the complete skill definition to expose for discovery.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
+        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
       },
       {
         signature: 'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
-        jsDoc: '/**\n * List model-invocable skill summaries for a workspace. Lookup options and\n * provider candidates are readonly same-process values borrowed throughout\n * discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries, excluding skills disabled for model invocation.\n */',
+        jsDoc: '/**\n * List invocation-neutral skill summaries for a workspace. Consumers apply\n * model or user invocation policy at their operational boundary. Lookup\n * options and provider candidates are readonly same-process values borrowed\n * throughout discovery.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns all sorted winning summaries.\n */',
+      },
+      {
+        signature: 'async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>',
+        jsDoc: '/**\n * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.\n * Incomplete observations are never cached, allowing consumers to retain last-good state and\n * retry on their next request boundary.\n * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.\n * @returns sorted summaries plus discovery-completeness state.\n */',
       },
       {
         signature: 'async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>',
@@ -931,6 +999,40 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession',
         jsDoc: '/**\n * Queue an interactive overlay owned by the calling plugin fiber.\n *\n * The TUI displays one overlay at a time in FIFO order. Disposing the caller\n * removes a queued overlay or closes an active one before plugin teardown\n * settles. This live presentation is neither logged nor replayed.\n *\n * @param request - component factory, layout constraints, and cancellation.\n * @returns the effect-owned overlay session.\n * @throws when the TUI has begun shutting down.\n */',
+      },
+    ],
+  },
+  {
+    key: 'typert',
+    summary: 'Registry of generated schemas and package reflection.',
+    methods: [
+      {
+        signature: 'register(contribution: TypertContribution): () => void',
+        jsDoc: '/**\n * Register one generated contribution atomically for the calling fiber.\n * Duplicate package-face identities or schema keys reject the whole batch.\n * @param contribution - generated schemas and package metadata.\n * @returns the exact effect disposer that removes this contribution.\n */',
+      },
+      {
+        signature: 'get(key: string): TypertSchemaRecord | undefined',
+        jsDoc: '/**\n * Look up one schema by `<package>#<name>`.\n * @param key - global schema key.\n * @returns the live schema record, or `undefined` when absent.\n */',
+      },
+      {
+        signature: 'resolve(key: string): TypertSchemaRecord',
+        jsDoc: '/**\n * Resolve one required schema.\n * @param key - global schema key.\n * @returns the live schema record.\n * @throws when the key is malformed, the package face is absent, or the schema is not contributed.\n */',
+      },
+      {
+        signature: 'list(filter: TypertSchemaFilter = {}): TypertSchemaRecord[]',
+        jsDoc: '/**\n * Enumerate live schemas in registration order.\n * @param filter - optional package and face restriction.\n * @returns matching schema records.\n */',
+      },
+      {
+        signature: 'getPackage(packageName: string, face: TypertFace = \'host\'): TypertPackageRecord | undefined',
+        jsDoc: '/**\n * Look up generated reflection for one package face.\n * @param packageName - exact npm package name.\n * @param face - face to query; defaults to the host runtime.\n * @returns the live package record, or `undefined` when absent.\n */',
+      },
+      {
+        signature: 'listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]',
+        jsDoc: '/**\n * Enumerate generated package reflection in registration order.\n * @param filter - optional package and face restriction.\n * @returns matching package records.\n */',
+      },
+      {
+        signature: 'toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema',
+        jsDoc: '/**\n * Project a live Zod schema to JSON Schema without caching the result.\n * @param key - global schema key.\n * @param params - Zod projection parameters.\n * @returns a fresh JSON Schema document.\n */',
       },
     ],
   },
@@ -1207,32 +1309,11 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
   },
   {
-    name: 'slash/input-begin-command',
-    mode: 'bail',
-    signature: '\'slash/input-begin-command\'(request: BeginCommandRequest): true | undefined',
-    jsDoc: '/**\n * Applies one command claim to the scoped Input. Dispatched with the\n * session\'s scope carrier; the owning session\'s input listener returns\n * `true` only after the phase and span CAS checks pass and the machine\n * actually mutated — producers treat anything else as "not applied".\n * @param request - Claim and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Applies one command claim to the scoped Input.',
-  },
-  {
-    name: 'slash/input-consume-token',
-    mode: 'bail',
-    signature: '\'slash/input-consume-token\'(request: ConsumeTokenRequest): true | undefined',
-    jsDoc: '/**\n * Consumes one command token after business success (popup settle /\n * menu-pick execute). Same carrier routing and applied-truth contract.\n * @param request - Exact span or bare-token guard.\n * @mode bail\n */',
-    summary: 'Consumes one command token after business success (popup settle / menu-pick execute).',
-  },
-  {
-    name: 'slash/input-insert-reference',
-    mode: 'bail',
-    signature: '\'slash/input-insert-reference\'(request: InsertReferenceRequest): true | undefined',
-    jsDoc: '/**\n * Inserts one reference into the scoped Input (same carrier routing and\n * applied-truth contract as begin-command).\n * @param request - Reference and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).',
-  },
-  {
-    name: 'slash/input-insert-text',
-    mode: 'bail',
-    signature: '\'slash/input-insert-text\'(request: InsertTextRequest): true | undefined',
-    jsDoc: '/**\n * Replaces the trigger token span with literal text — the plain-text\n * reference path (decision 21). Same carrier routing and applied-truth\n * contract; the draft gains ordinary characters, no occurrence entry.\n * @param request - Replacement text and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Replaces the trigger token span with literal text — the plain-text reference path (decision 21).',
+    name: 'skills/change',
+    mode: 'emit',
+    signature: '\'skills/change\'(): void',
+    jsDoc: '/**\n * A skill provider, runtime contribution, or provider-backed catalog may\n * have changed. This is an unfiltered invalidation notification; consumers\n * refetch the catalog for their own lookup options. Listener failures are\n * contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'A skill provider, runtime contribution, or provider-backed catalog may have changed.',
   },
   {
     name: 'subagent/end',
@@ -1604,6 +1685,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
   },
   {
+    name: 'DirectoryEntry',
+    declaration: 'export interface DirectoryEntry {\n    name: string;\n    path: string;\n    hidden: boolean;\n}',
+  },
+  {
+    name: 'DirectoryListing',
+    declaration: 'export interface DirectoryListing {\n    path: string;\n    home: string;\n    crumbs: DirectoryEntry[];\n    entries: DirectoryEntry[];\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'DirectoryPickerBrowseCapability',
+    declaration: 'export interface DirectoryPickerBrowseCapability {\n    kind: \'browse\';\n    list(path?: string, signal?: AbortSignal): Promise<DirectoryListing>;\n    createDirectory(path: string, name: string): Promise<string>;\n}',
+  },
+  {
+    name: 'DirectoryPickerCapabilities',
+    declaration: 'export interface DirectoryPickerCapabilities {\n    native: DirectoryPickerNativeCapability;\n    browse: DirectoryPickerBrowseCapability;\n}',
+  },
+  {
+    name: 'DirectoryPickerCapability',
+    declaration: 'export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities];',
+  },
+  {
+    name: 'DirectoryPickerNativeCapability',
+    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
+  },
+  {
     name: 'Domain',
     declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
   },
@@ -1768,6 +1873,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KnobState',
+    declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
+  },
+  {
     name: 'KvTable',
     declaration: 'export interface KvTable<K extends string, V> {\n    get(key: K): V | undefined;\n    entries(): IterableIterator<[\n        K,\n        V\n    ]>;\n    keys(): IterableIterator<K>;\n    readonly size: number;\n    put(key: K, value: V): Promise<void>;\n    delete(key: K): Promise<boolean>;\n    update(key: K, fn: (current: V) => V): Promise<V>;\n}',
   },
@@ -1836,6 +1945,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
   },
   {
+    name: 'PermissionSelect',
+    declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
+  },
+  {
     name: 'PreparedLlmCall',
     declaration: 'export interface PreparedLlmCall {\n    readonly config: LlmCallConfig;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
   },
@@ -1854,6 +1967,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ProjectionChangeListener',
     declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: number) => void;',
+  },
+  {
+    name: 'ProjectionCheckpoint',
+    declaration: 'export type ProjectionCheckpoint = Record<string, ProjectionCheckpointRow>;',
+  },
+  {
+    name: 'ProjectionCheckpointRow',
+    declaration: 'export interface ProjectionCheckpointRow {\n    ver: number;\n    seq: number;\n    val: unknown;\n}',
   },
   {
     name: 'ProjectionDefinition',
@@ -2225,7 +2346,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionTitleSource',
-    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n};',
+    declaration: 'export type SessionTitleSource = {\n    readonly kind: \'fallback\';\n} | {\n    readonly kind: \'provider\';\n    readonly provider: SessionTitleProviderId;\n    readonly model?: SessionTitleModelProvenance;\n} | {\n    readonly kind: \'user\';\n};',
   },
   {
     name: 'SessionTitleUserMessage',
@@ -2236,8 +2357,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SkillCandidate extends SkillSummary {\n    readonly rank: number;\n    readonly locator: unknown;\n    readonly path?: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
   },
   {
+    name: 'SkillCatalogSnapshot',
+    declaration: 'export interface SkillCatalogSnapshot {\n    readonly skills: SkillSummary[];\n    readonly complete: boolean;\n}',
+  },
+  {
     name: 'SkillDefinition',
     declaration: 'export interface SkillDefinition extends SkillSummary {\n    readonly content: string;\n    readonly path?: string;\n    readonly metadata?: Readonly<Record<string, unknown>>;\n}',
+  },
+  {
+    name: 'SkillInvocationPolicy',
+    declaration: 'export interface SkillInvocationPolicy {\n    readonly modelInvocable: boolean;\n    readonly userInvocable: boolean;\n}',
   },
   {
     name: 'SkillLookupOptions',
@@ -2245,11 +2374,19 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillProvider',
-    declaration: 'export interface SkillProvider {\n    readonly name: string;\n    readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[]>;\n    readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>;\n}',
+    declaration: 'export interface SkillProvider {\n    readonly name: string;\n    readonly list: (options: SkillLookupOptions) => Promise<readonly SkillCandidate[] | SkillProviderObservation>;\n    readonly get: (candidate: SkillCandidate, options: SkillLookupOptions) => Promise<SkillDefinition | undefined>;\n}',
+  },
+  {
+    name: 'SkillProviderControl',
+    declaration: 'export interface SkillProviderControl {\n    readonly signal: AbortSignal;\n    readonly invalidate: () => void;\n}',
+  },
+  {
+    name: 'SkillProviderObservation',
+    declaration: 'export interface SkillProviderObservation {\n    readonly candidates: readonly SkillCandidate[];\n    readonly complete: boolean;\n}',
   },
   {
     name: 'SkillRegistration',
-    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'provider\'> & {\n    readonly provider?: string;\n};',
+    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'invocation\' | \'provider\'> & {\n    readonly invocation?: SkillInvocationPolicy;\n    readonly provider?: string;\n};',
   },
   {
     name: 'SkillResourceBase',
@@ -2261,7 +2398,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly disableModelInvocation?: boolean;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SpillLocator',
@@ -2566,6 +2703,62 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TurnTriggerMap',
     declaration: 'export interface TurnTriggerMap {\n    message: {\n        kind: \'message\';\n        source: MessageSource;\n    };\n    retry: {\n        kind: \'retry\';\n    };\n    injection: {\n        kind: \'injection\';\n        source: MessageSource;\n    };\n}',
+  },
+  {
+    name: 'TypertContribution',
+    declaration: 'export interface TypertContribution {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly schemas: readonly TypertSchema[];\n    readonly model: TypertPackageModel;\n}',
+  },
+  {
+    name: 'TypertDocTag',
+    declaration: 'export interface TypertDocTag {\n    readonly name: string;\n    readonly argument?: string;\n    readonly comment?: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'TypertDocumentation',
+    declaration: 'export interface TypertDocumentation {\n    readonly description?: string;\n    readonly summary?: string;\n    readonly tags: readonly TypertDocTag[];\n    readonly jsDoc?: string;\n}',
+  },
+  {
+    name: 'TypertEventModel',
+    declaration: 'export interface TypertEventModel extends TypertDocumentation {\n    readonly name: string;\n    readonly mode?: string;\n    readonly signature: string;\n}',
+  },
+  {
+    name: 'TypertMemberModel',
+    declaration: 'export interface TypertMemberModel {\n    readonly kind: \'property\' | \'method\' | \'getter\' | \'setter\' | \'call\' | \'construct\' | \'index\';\n    readonly name: string;\n    readonly signature: string;\n    readonly summary?: string;\n    readonly jsDoc?: string;\n}',
+  },
+  {
+    name: 'TypertObjectModel',
+    declaration: 'export interface TypertObjectModel extends TypertDocumentation {\n    readonly name: string;\n    readonly exportName: string;\n    readonly members: readonly TypertMemberModel[];\n    readonly types: readonly TypertTypeModel[];\n}',
+  },
+  {
+    name: 'TypertPackageFilter',
+    declaration: 'export interface TypertPackageFilter {\n    readonly package?: string;\n    readonly face?: TypertFace;\n}',
+  },
+  {
+    name: 'TypertPackageModel',
+    declaration: 'export interface TypertPackageModel {\n    readonly services: readonly TypertServiceModel[];\n    readonly events: readonly TypertEventModel[];\n    readonly objects: readonly TypertObjectModel[];\n}',
+  },
+  {
+    name: 'TypertPackageRecord',
+    declaration: 'export interface TypertPackageRecord {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly key: string;\n    readonly model: TypertPackageModel;\n}',
+  },
+  {
+    name: 'TypertSchema',
+    declaration: 'export interface TypertSchema {\n    readonly name: string;\n    readonly schema: z.ZodType;\n}',
+  },
+  {
+    name: 'TypertSchemaFilter',
+    declaration: 'export interface TypertSchemaFilter {\n    readonly package?: string;\n    readonly face?: TypertFace;\n}',
+  },
+  {
+    name: 'TypertSchemaRecord',
+    declaration: 'export interface TypertSchemaRecord extends TypertSchema {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly key: string;\n}',
+  },
+  {
+    name: 'TypertServiceModel',
+    declaration: 'export interface TypertServiceModel extends TypertDocumentation {\n    readonly key: string;\n    readonly exportName: string;\n    readonly members: readonly TypertMemberModel[];\n    readonly types: readonly TypertTypeModel[];\n}',
+  },
+  {
+    name: 'TypertTypeModel',
+    declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
   },
   {
     name: 'UserInteractionProvider',

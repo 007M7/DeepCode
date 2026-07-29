@@ -179,37 +179,37 @@
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalView",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalSnapshotChangeMeta",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalClearChangeMeta",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalMessageSource",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "CreateGoalRequest",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "EditGoalRequest",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/goal.md",
       "symbol": "GoalChanged",
-      "source": "packages/goal/goal/src/types.ts"
+      "source": "packages/goal/goal/src/domain.ts"
     },
     {
       "doc": "docs/core-data-structures/commands.md",
@@ -966,7 +966,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillInvocationPolicy",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillSummary",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillCatalogSnapshot",
       "source": "packages/skill/skill/src/index.ts"
     },
     {
@@ -991,7 +1001,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderObservation",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillProvider",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderControl",
       "source": "packages/skill/skill/src/index.ts"
     },
     {

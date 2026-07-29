@@ -45,7 +45,7 @@ export interface Config {
  * project directory and the fallback parent for name-created Workspaces.
  */
 export class ApiProxyService extends Service implements ApiProxy {
-  static inject = ['agents', 'llm', 'sessions', 'tools', 'userInteraction', 'workspace']
+  static inject = ['agents', 'directoryPicker', 'llm', 'sessions', 'tools', 'userInteraction', 'workspace']
 
   static Config: z<Config> = z.object({
     provider: z.string().required(),
@@ -57,6 +57,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly workspace: ApiProxy['workspace']
   readonly host: ApiProxy['host']
   readonly commands: ApiProxy['commands']
+  readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
   readonly events: ApiProxy['events']
   readonly respond: ApiProxy['respond']
@@ -74,6 +75,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.workspace = api.workspace
     this.host = api.host
     this.commands = api.commands
+    this.goals = api.goals
     this.skills = api.skills
     this.events = api.events
     // createApiProxy returns closures (no `this` capture); bind only satisfies

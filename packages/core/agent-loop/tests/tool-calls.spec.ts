@@ -9,7 +9,7 @@ import { createUserMessage, CallId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmService from '@deepseek-ai/dsh-llm'
-import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRegistry, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_REGISTRY_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop, { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
@@ -611,5 +611,68 @@ describe('tool-call scheduler: abort handling', () => {
         },
         error: { name: 'AbortError', code: TOOL_ABORTED_BEFORE_DISPATCH },
       })
+  })
+})
+
+describe('tool-call scheduler: failure quiescence', () => {
+  it('stops new dispatches and drains started bodies before surfacing the first failure', async () => {
+    const adapter = new MockAdapter([
+      multiCall([
+        { id: 'c1', name: 'p', args: { id: '1' } },
+        { id: 'c2', name: 'p', args: { id: '2' } },
+        { id: 'c3', name: 'p', args: { id: '3' } },
+      ]),
+    ])
+    const ctx = await harness(adapter, 3)
+    const gated = gatedParallelTool('p')
+    ctx.tools.register(gated.tool)
+    // The registry contains expected failures as results; replace its internal
+    // view only to inject the invariant violation this boundary must contain.
+    const scheduler = ctx.tools[TOOL_REGISTRY_SCHEDULER]
+    const prepare = scheduler.prepare.bind(scheduler)
+    const dispatch = scheduler.dispatch.bind(scheduler)
+    const prepareGate = Promise.withResolvers<undefined>()
+    let thirdPrepareEntered = false
+    scheduler.prepare = async (exec) => {
+      const prepared = await prepare(exec)
+      if (exec.callId === CallId('c3')) {
+        thirdPrepareEntered = true
+        await prepareGate.promise
+      }
+      return prepared
+    }
+    const schedulerError = new Error('scheduler exploded')
+    const drainedError = new Error('sibling failed while draining')
+    let rejectFirst: ((error: Error) => void) | undefined
+    scheduler.dispatch = exec => exec.callId === CallId('c1')
+      ? new Promise((_resolve, reject) => { rejectFirst = reject })
+      : dispatch(exec).then(() => { throw drainedError })
+    const agent = ctx.agentLoop.create(SessionId('scheduler-failure'), { provider: 'mock', model: 'mock' })
+    const errors: unknown[] = []
+    ctx.on('agent/error', (subject, _turn, _step, error) => {
+      if (subject === agent) errors.push(error)
+    })
+    let idle = false
+    const idlePromise = waitForIdle(ctx, agent).then(() => { idle = true })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await until(() => gated.started.includes('2') && thirdPrepareEntered && rejectFirst !== undefined)
+    rejectFirst?.(schedulerError)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    prepareGate.resolve(undefined)
+    await new Promise<void>(resolve => setImmediate(resolve))
+
+    const startedBeforeDrain = [...gated.started]
+    const idleBeforeDrain = idle
+    const errorsBeforeDrain = [...errors]
+    for (const id of gated.pending()) gated.release(id)
+    await idlePromise
+
+    expect(startedBeforeDrain).toEqual(['2'])
+    expect(idleBeforeDrain).toBe(false)
+    expect(errorsBeforeDrain).toEqual([])
+    expect(gated.pending()).toEqual([])
+    expect(errors).toEqual([schedulerError])
+    expect(errors[0]).toBe(schedulerError)
   })
 })

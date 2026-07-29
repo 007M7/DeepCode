@@ -46,7 +46,7 @@ export interface StorageForms {}
  */
 export class Storage extends Service {
   /** Named backend table; multiple backends stay mounted side by side. */
-  readonly backend = new BackendRegistry()
+  readonly backend: BackendRegistry = new BackendRegistry()
 
   private readonly forms = new Map<keyof StorageForms, unknown>()
 

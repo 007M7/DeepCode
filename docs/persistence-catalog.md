@@ -130,11 +130,15 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
  * from the prompt section and the narrator's notices). The LAST such
- * event is the session's override ({@link effectiveApprovalPolicy});
- * who asked for it is derivable from position (an event after the log's
- * last `request/header` was a runtime switch by the user).
+ * event is the session's override ({@link effectiveApprovalPolicy}).
+ * `source: 'delegation'` marks an override seeded into a child; an absent
+ * source is a runtime switch.
  */
-'approval/policy': { policy: ApprovalPolicy }
+'approval/policy': {
+  policy: ApprovalPolicy
+  /** Marks an override seeded into a child at delegation. */
+  source?: 'delegation'
+}
 ```
 
 Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approval/src/index.ts)
@@ -209,7 +213,7 @@ Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/in
 'compact/end': { turn: number; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:40`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:44`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -231,6 +235,8 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
  */
 'compact/summary': {
   summary: ContentBlock[]
+  /** Complete provider output before the backend's safe summary projection. */
+  rawOutput?: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
   shadowedTokenCount: number
@@ -245,10 +251,12 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
   model: string
   /** The generation cap the summarize call sent, when one applied. */
   maxTokens?: number
+  /** Provider-reported token usage for the summarization request, when emitted. */
+  usage?: TokenUsage
 }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
 Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
 
@@ -342,7 +350,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:49`](../packages/ui/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -357,7 +365,7 @@ Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:41`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 
@@ -382,14 +390,17 @@ Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/
  * The session's sandbox mode was switched — log-only (like `approval/*`;
  * NOT a surface event, carries no `surfaceOp`): durable and replayable,
  * never in the model transcript. The LAST such event is the session's
- * override ({@link effectiveSandboxMode}); who asked for it is derivable
- * from position (an event after the log's last `request/header*` was a
- * runtime switch by the user; see the tool layer's narrator).
+ * override ({@link effectiveSandboxMode}). `source: 'delegation'` marks
+ * an override seeded into a child; an absent source is a runtime switch.
  */
-'sandbox/mode': { mode: SandboxMode }
+'sandbox/mode': {
+  mode: SandboxMode
+  /** Marks an override seeded into a child at delegation. */
+  source?: 'delegation'
+}
 ```
 
-Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
+Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `session/*`
 
@@ -405,7 +416,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:34`](../packages/s
 
 Types: [SessionTitleEventData](core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:96`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:100`](../packages/session-title/session-title/src/index.ts)
 
 #### `session/title-llm-request` — log-only
 

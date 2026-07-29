@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// StatsLine (rendered inside the chat view body): totals derivation + the RFC
+// StatsLine (composer.dock entry): totals derivation + the RFC
 // hard acceptance — zero renders during streaming. Bash sample row: the
 // canonical sub-agent differential decided INSIDE the component off the
 // standard useSessions kit (no registry predicates — tool ring dissolved).
@@ -123,8 +123,8 @@ describe('bash sample row', () => {
     return createSnapshotStore<SessionListState>({
       ids: [ROOT, CHILD],
       byId: {
-        [ROOT]: { id: ROOT, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 },
-        [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, blank: false, updatedAt: 0 },
+        [ROOT]: { id: ROOT, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 },
+        [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, waitingApproval: false, blank: false, updatedAt: 0 },
       },
       current: undefined,
       phase: 'ready',
@@ -158,7 +158,7 @@ describe('bash sample row', () => {
     const orphan = 'late-child' as SessionId
     store.update((d) => {
       d.ids.push(orphan)
-      d.byId[orphan] = { id: orphan, title: 'l', displayTitle: 'l', running: false, blank: false, updatedAt: 0 }
+      d.byId[orphan] = { id: orphan, title: 'l', displayTitle: 'l', running: false, waitingApproval: false, blank: false, updatedAt: 0 }
     })
     const view = render(<BashRow {...rowProps(orphan, { store })} />)
     expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()

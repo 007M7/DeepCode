@@ -80,6 +80,62 @@ const MARKDOWN_FIXTURE = [
 
 const USER_MARKDOWN_LITERAL = '用户字面量：# 不渲染 `code` [link](https://example.com)'
 
+/**
+ * SGR wrapper for the terminal output sample below: authoring the escapes as
+ * `\u001b` keeps literal control bytes out of this source file.
+ * @param code - the SGR parameter (an ANSI color or attribute number).
+ * @param body - the text the attribute applies to.
+ * @returns the body wrapped in the attribute and a reset.
+ */
+function sgr(code: number, body: string): string {
+  return `\u001b[${code}m${body}\u001b[0m`
+}
+
+/**
+ * Terminal output sample for fixture turn 65, authored to carry every feature
+ * the terminal card draws that turn 60's two prompt rows cannot reach:
+ * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
+ * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
+ * rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
+ * height cap collapses the middle. The exit status is authored separately in
+ * TERMINAL_EXIT_STATUS and deliberately absent from this text: the real bash
+ * presenter CONSUMES its `[exit code: N]` marker out of the body, because a
+ * terminal card shows the exit as its own pill and leaving the marker in would
+ * render it twice (packages/bash/tool-bash/src/render.ts).
+ */
+const TERMINAL_OUTPUT_FIXTURE = [
+  sgr(1, 'Running 4 checks'),
+  `${sgr(32, '\u2713')} typecheck                                          1.82s`,
+  `${sgr(32, '\u2713')} lint                                               0.94s`,
+  `${sgr(32, '\u2713')} duplication                                        2.10s`,
+  `${sgr(31, '\u2717')} unit                                               8.41s`,
+  '',
+  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.spec.tsx'),
+  `  ${sgr(31, 'FAIL')} caps output at the configured line budget`,
+  '    expected 16 lines, received 24',
+  '',
+  'NAME                        LINES    BRANCHES    FUNCTIONS    UNCOVERED',
+  'TerminalBlock.tsx           100%     100%        100%         -',
+  'ansi.ts                     100%     100%        100%         -',
+  'clipboard.ts                100%     100%        100%         -',
+  'CodeBlock.tsx               98.4%    96.2%       100%         41-43',
+  'highlight.ts                100%     100%        100%         -',
+  'Pill.tsx                    100%     100%        100%         -',
+  'StateDot.tsx                100%     100%        100%         -',
+  'markdown/Markdown.tsx       100%     100%        100%         -',
+  '',
+  sgr(31, '1 of 4 checks failed'),
+].join('\n')
+
+/**
+ * Exit status for each terminal sample, keyed by its output text. Authored
+ * alongside the sample rather than parsed back out of its trailing marker,
+ * which is the bash tool's own job and not something to reimplement here.
+ */
+const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: string }> = {
+  [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
+}
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -170,7 +226,9 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  toolTurn(60, 'fx-bash', '{"command":"ls -la","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
+  // A two-line command, so the fixture covers the terminal card's one-row-per-
+  // command-line prompt (and that the card still marks the call exactly once).
+  toolTurn(60, 'fx-bash', '{"command":"ls -la\\necho done","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
@@ -224,8 +282,22 @@ function buildAlphaLog(): SessionEvent[] {
     { content: '实现 fixture 样本', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
+  // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
+  // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
+  // whose prompt label is its last segment, and a non-zero exit authored beside
+  // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
+  // `[exit code: N]` marker, since the real presenter consumes that one out of
+  // the body. Named `bash`, so it also covers
+  // the keyed toolview row (turn 60's `fx-bash` covers the render-site fallback
+  // row) — the two chat-row shapes the terminal card renders in.
+  //
+  // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
+  // next `turn/start`, so a turn appended after it would leave the dock's plan
+  // strip empty and take the todo surfaces' own coverage with it.
+  toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -250,7 +322,10 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     return undefined
   }
   switch (name) {
+    // Both names present the same terminal card: `fx-bash` lands on the
+    // render-site fallback row, `bash` on the keyed BashRow registration.
     case 'fx-bash':
+    case 'bash':
       return { card: 'terminal', title: str(args.command), cwd: str(args.cwd, '/tmp/fixture'), description: 'fixture 终端样本' }
     case 'fx-write':
       return {
@@ -271,7 +346,10 @@ function presentResult(name: string, argsRaw: string, resultText: string): ToolR
   if (call === undefined) return undefined
   switch (call.card) {
     case 'terminal':
-      return { card: 'terminal', output: resultText, exitCode: 0 }
+      // The sample's own exit status, authored beside it: re-parsing the
+      // trailing marker here would duplicate the bash tool's `parseExitStatus`,
+      // which this client-side fixture cannot import.
+      return { card: 'terminal', output: resultText, ...(TERMINAL_EXIT_STATUS[resultText] ?? { exitCode: 0 }) }
     case 'diff':
       return { card: 'diff', diffs: call.diffs }
     case 'generic':
@@ -302,7 +380,73 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
   return undefined
 }
 
+/**
+ * Fixture parallel of the plan unit's double-event fold: `command/run`
+ * records named `plan` set the wanted target (`off` → false, else true);
+ * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
+ * boundary (the fixture's agent/step parallel).
+ */
+function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
+  let active = false
+  let wanted: boolean | null = null
+  for (const event of log) {
+    const item = event as unknown as { type: string; data?: Record<string, unknown> }
+    if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
+      const args = item.data['args']
+      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+    } else if (item.type === 'plan/mode') {
+      active = item.data?.['active'] === true
+      wanted = null
+    }
+  }
+  return { active, pending: wanted !== null && wanted !== active, wanted }
+}
+
+/** The plan projection's wire view over the full log. */
+function planViewOf(log: readonly SessionEvent[]): { active: boolean; pending: boolean } {
+  const plan = foldPlan(log)
+  return { active: plan.active, pending: plan.pending }
+}
+
 /** Fixture parallel of the host's projection units: whole current values per key over the full log. */
+/** Fixture preset table (the host PermissionService defaults). */
+const PERMISSION_PRESETS: Record<string, { sandbox: string; approval: string; description: string }> = {
+  'workspace-write': { sandbox: 'workspace-write', approval: 'ask', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+  'danger-full-access': { sandbox: 'danger-full-access', approval: 'never', description: 'Full file access without approval prompts.' },
+}
+
+/** Host permissions-unit parallel: fold the three knob events, derive the select over the fixture defaults. */
+function permissionSelectOf(
+  log: readonly SessionEvent[],
+): { options: { value: string; name: string; description?: string }[]; currentValue: string } {
+  let preset: string | null = null
+  let sandbox = 'workspace-write'
+  let approval = 'ask'
+  for (const event of log) {
+    const item = event as { type: string; data: Record<string, unknown> }
+    if (item.type === 'permission/preset') preset = item.data['preset'] as string
+    else if (item.type === 'sandbox/mode') sandbox = item.data['mode'] as string
+    else if (item.type === 'approval/policy') approval = item.data['policy'] as string
+  }
+  const matches = (spec: { sandbox: string; approval: string }): boolean => spec.sandbox === sandbox && spec.approval === approval
+  let currentValue = 'custom'
+  const folded = preset === null ? undefined : PERMISSION_PRESETS[preset]
+  if (preset !== null && folded !== undefined && matches(folded)) {
+    currentValue = preset
+  } else {
+    for (const [name, spec] of Object.entries(PERMISSION_PRESETS)) {
+      if (matches(spec)) { currentValue = name; break }
+    }
+  }
+  return {
+    options: [
+      ...Object.entries(PERMISSION_PRESETS).map(([value, spec]) => ({ value, name: value, description: spec.description })),
+      ...currentValue === 'custom' ? [{ value: 'custom', name: 'Custom', description: 'Current sandbox and approval settings do not match a preset.' }] : [],
+    ],
+    currentValue,
+  }
+}
+
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
@@ -311,6 +455,12 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   }
   // Always present (tool-todo unit composed): null when no plan stands.
   values['todos'] = backscanTodos(log) ?? null
+  // Always present (permission service composed): the whole select.
+  values['permissions'] = permissionSelectOf(log)
+  // Always present (plan-mode unit composed): the {active, pending} view.
+  values['plan'] = planViewOf(log)
+  // Always present (GoalService unit composed): null before create / after clear.
+  values['goal'] = backscanGoal(log)
   return values
 }
 
@@ -323,6 +473,14 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
     if (!Object.hasOwn(values, 'title')) return []
     return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
   }
+  // Goal fold: a round-zero goal-sourced user message advances the goal unit.
+  if (type === 'user/message') {
+    const source = (event as unknown as { data?: { source?: { kind?: string; round?: number } } }).data?.source
+    if (source?.kind === 'goal' && source.round === 0) {
+      return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
+    }
+    return []
+  }
   // Standing-plan fold: writes replace the list; turn/start clears it (null).
   if (type === 'todo/write' || type === 'turn/start') {
     return [{
@@ -330,6 +488,27 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       sessionId: id,
       key: 'todos',
       value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  // Knob fold: any of the three whole-value knob events advances the select.
+  if (type === 'permission/preset' || type === 'sandbox/mode' || type === 'approval/policy') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'permissions',
+      value: permissionSelectOf(log),
+      seq: event.seq,
+    }]
+  }
+  // The plan unit advances on its two folded event kinds.
+  if (type === 'plan/mode' || (type === 'command/run'
+    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'plan',
+      value: planViewOf(log),
       seq: event.seq,
     }]
   }
@@ -379,6 +558,55 @@ function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
     if (event.type === 'todo/write') return event.data.todos
   }
   return undefined
+}
+
+/** Fixture-local mirror of the goal projection value (dsh-goal's GoalProjection shape). */
+interface FxGoalProjection {
+  goal: {
+    id: string
+    revision: number
+    objective: string
+    phase: 'active' | 'paused' | 'blocked' | 'complete'
+    maxGoalRounds: number
+  }
+  roundsStarted: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** One durable goal change riding a round-zero goal-sourced user message. */
+type FxGoalChange =
+  | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
+  | {
+    kind: 'goal/change'
+    version: 1
+    operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete'
+    goal: FxGoalProjection['goal']
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+  }
+
+/**
+ * Current goal projection over the full log (host parallel: the GoalService
+ * unit's last-wins fold of goal/change whole values; clear returns null).
+ */
+function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i] as unknown as {
+      type: string
+      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+    } | undefined
+    if (event === undefined || event.type !== 'user/message') continue
+    const source = event.data?.source
+    if (source?.kind !== 'goal' || source.round !== 0) continue
+    const change = source.change
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (change === undefined || change.kind !== 'goal/change') continue
+    if (change.operation === 'clear') return null
+    return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+  }
+  return null
 }
 
 interface StreamConn<F> {
@@ -475,9 +703,43 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     updatedAt: fixtureEpoch,
   }]
   let nextWorkspace = 1
+
+  // In-memory browse tree behind the fixture's `browse` picker capability —
+  // deterministic content mirroring the design mock so assembled Web tests
+  // and snapshots can walk it. Leaves are materialized lazily: a child listed
+  // by its parent lists as empty until something is created inside it.
+  const FIXTURE_HOME = '/home/fixture'
+  const directoryTree = new Map<string, string[]>([
+    ['/', ['home']],
+    ['/home', ['fixture']],
+    [FIXTURE_HOME, ['Documents', 'Downloads', '.config']],
+    [`${FIXTURE_HOME}/Documents`, [
+      'project', 'deepseek-iOS', 'deepseek-android', 'deepseek-platform',
+      'deepseek-web', 'deepseek-harness', 'deepseek-app', 'deepseek-landing-blog',
+    ]],
+  ])
+  const childrenOf = (path: string): string[] | undefined => {
+    const known = directoryTree.get(path)
+    if (known !== undefined) return known
+    const parent = path.slice(0, path.lastIndexOf('/')) || '/'
+    const name = path.slice(path.lastIndexOf('/') + 1)
+    return directoryTree.get(parent)?.includes(name) === true ? [] : undefined
+  }
+  const crumbsOf = (path: string): { name: string; path: string; hidden: boolean }[] => {
+    const crumbs = [{ name: '/', path: '/', hidden: false }]
+    let acc = ''
+    for (const segment of path.split('/').filter(Boolean)) {
+      acc += `/${segment}`
+      crumbs.push({ name: segment, path: acc, hidden: false })
+    }
+    return crumbs
+  }
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
-  /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
+  /** Resident pending approval (stable rpcId: every mux open replays the same id while unanswered, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
+  const pendingApprovalId = 'fx-approval-1' as Extract<MuxFrame, { type: 'approval/requested' }>['approvalId']
+  /** Cleared once answered through respond; replay stops and approval/resolved is broadcast. */
+  let approvalPending = true
   const pendingQuestionRpcId = mint()
   let questionPending = true
   const fixtureQuestions: Extract<MuxFrame, { type: 'question/requested' }>['questions'] = [
@@ -570,6 +832,47 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       : { type: 'session/event', sessionId: id, event, view })
     // Host eager-drive parallel: a unit-advancing event pushes its finished value.
     for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
+  }
+
+  /** Append one goal/change as its round-zero goal-sourced user message (host GoalService parallel). */
+  const appendGoalChange = (id: SessionId, change: FxGoalChange): FxGoalProjection => {
+    const ref = change.operation === 'clear' ? change.cleared : change.goal
+    const payload = change.operation === 'clear'
+      ? { cleared: change.cleared, clearedAt: change.clearedAt }
+      : { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    append(id, {
+      type: 'user/message', surfaceOp: 'append',
+      data: userMessage(
+        text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
+        { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
+      ),
+    })
+    return backscanGoal(logOf(id)) as FxGoalProjection
+  }
+
+  /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
+  const fxMutateGoal = (
+    request: RpcRequest<{ sessionId: SessionId; ref: { id: string; revision: number } }>,
+    ref: { id: string; revision: number },
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
+    const missing = requireSession(request)
+    if (missing !== undefined) return missing
+    const id = request.payload.sessionId
+    const current = backscanGoal(logOf(id))
+    if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
+      return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+    }
+    const goal = next(current)
+    if (goal === undefined) {
+      return err(request, { code: 'internal', message: `invalid goal transition from "${current.goal.phase}"`, details: { goalCode: 'GOAL_INVALID_TRANSITION' } })
+    }
+    const projection = appendGoalChange(id, {
+      kind: 'goal/change', version: 1,
+      operation: goal.phase === current.goal.phase ? 'edit' : goal.phase === 'paused' ? 'pause' : goal.phase === 'active' ? 'resume' : 'complete',
+      goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: Date.now(),
+    })
+    return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -718,6 +1021,27 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         if (options.dropSessionCreateResponse) throw new Error('fixture: dropped session.create response after publication')
         return ok(request, { sessionId: created.sessionId })
       },
+      rename: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const { sessionId, title } = request.payload
+        const normalized = title.trim().replace(/\s+/g, ' ')
+        if (normalized.length === 0) {
+          return err(request, {
+            code: 'title-invalid',
+            message: 'session title must contain visible characters',
+            details: { sessionId },
+          })
+        }
+        // The append emits the session/event and its session/projection frame
+        // (host parallel); the unary response settles the caller first.
+        append(sessionId, {
+          type: 'session/title',
+          data: { title: normalized, messageSeqs: [], source: { kind: 'user' } },
+        })
+        const appended = logOf(sessionId).at(-1) as SessionEvent
+        return ok(request, { title: normalized, seq: appended.seq })
+      },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
@@ -804,6 +1128,12 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+        // Boundary flush parallel (the host's agent/step seam): an outstanding
+        // /plan selection commits as plan/mode inside the opened turn.
+        const plan = foldPlan(logOf(id))
+        if (plan.wanted !== null && plan.wanted !== plan.active) {
+          append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+        }
         append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
         startReply(
           id,
@@ -833,7 +1163,42 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
-      pickDirectory: request => ok(request, { path: null }),
+      // Deterministic native pick: the keyless lanes drive the full
+      // pick-then-adopt path without an OS chooser (design-mock content,
+      // same tree the browse primitives serve).
+      pickDirectory: request => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
+      listDirectory: (request) => {
+        const target = request.payload.path ?? FIXTURE_HOME
+        const children = childrenOf(target)
+        if (children === undefined) {
+          return err(request, { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } })
+        }
+        return ok(request, {
+          path: target,
+          home: FIXTURE_HOME,
+          crumbs: crumbsOf(target),
+          entries: [...children].sort((a, b) => a.localeCompare(b))
+            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
+          // The fixture tree is tiny; no level ever reaches a backend bound.
+          truncated: false,
+        })
+      },
+      createDirectory: (request) => {
+        const parent = request.payload.path
+        const children = childrenOf(parent)
+        if (children === undefined) {
+          return err(request, { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } })
+        }
+        // Same root special case as listDirectory's entry paths: a plain join
+        // under '/' would mint '//name' and fork the tree's identity.
+        const target = parent === '/' ? `/${request.payload.name}` : `${parent}/${request.payload.name}`
+        if (children.includes(request.payload.name)) {
+          return err(request, { code: 'directory-exists', message: `${target} already exists`, details: { path: target } })
+        }
+        directoryTree.set(parent, [...children, request.payload.name])
+        directoryTree.set(target, [])
+        return ok(request, { path: target })
+      },
       openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
@@ -934,7 +1299,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           commands: [
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
-            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+            { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+            { name: 'permission', description: 'Switch the permission preset (sandbox mode + approval policy)', input: { hint: '<preset>' } },
+            { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
           ],
         })
       },
@@ -950,15 +1317,72 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
         const args = match?.[2] ?? ''
+        // /permission mirrors the host handler: switch through the knob
+        // events (each append pushes a permissions projection frame).
+        if (name === 'permission') {
+          const preset = args.trim()
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const spec = PERMISSION_PRESETS[preset]
+          if (preset === '') {
+            const current = permissionSelectOf(logOf(id)).currentValue
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Current permission preset: ${current}. Available: ${Object.keys(PERMISSION_PRESETS).join(', ')}.` } })
+          } else if (spec === undefined) {
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown permission preset ${JSON.stringify(preset)} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+          } else {
+            if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
+            append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
+            append(id, { type: 'approval/policy', data: { policy: spec.approval } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Permission preset: ${preset}.` } })
+          }
+          return ok(request, { matched: true as const, commandId })
+        }
+        if (name === 'goal') {
+          // Host parallel: /goal with an objective creates (or reports) the
+          // current goal; the command lifecycle pair brackets the mutation.
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const objective = args.trim()
+          const current = backscanGoal(logOf(id))
+          let text: string
+          if (objective === '') {
+            text = current === null ? 'No goal is set. Usage: /goal <objective>' : `Current goal: ${current.goal.objective}`
+          } else if (current !== null && current.goal.phase !== 'complete') {
+            text = `A goal already exists (${current.goal.objective}). Clear it first.`
+          } else {
+            const created = appendGoalChange(id, {
+              kind: 'goal/change', version: 1, operation: 'create',
+              goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective, phase: 'active', maxGoalRounds: 256 },
+              roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+            })
+            text = `Goal created: ${created.goal.objective}`
+          }
+          append(id, { type: 'command/done', data: { commandId, kind: 'success', text } })
+          return ok(request, { matched: true as const, commandId })
+        }
+        // Host parallel: /plan on an idle fixture session commits plan/mode
+        // immediately (the boundary flush covers only a running turn), so the
+        // outcome copy matches the immediate branch of the host handler.
+        const running = summaryOf(id)?.running === true
         const outcomes: Record<string, string> = {
           compact: 'fixture：已压缩（假动作）',
           echo: args.trim(),
-          'goal-fixture': `fixture：goal 已设置（${id}）`,
+          plan: args.trim() === 'off'
+            ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
+            : (running
+              ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+              : 'Plan mode on. Use /plan off to leave.'),
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
         const commandId = `fx-cmd-${logOf(id).length}` as CommandId
         append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        if (name === 'plan' && !running) {
+          const plan = foldPlan(logOf(id))
+          if (plan.wanted !== null && plan.wanted !== plan.active) {
+            append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+          }
+        }
         append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
         return ok(request, { matched: true as const, commandId })
       },
@@ -972,6 +1396,62 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
           ],
         })
+      },
+    },
+    goals: {
+      // Mutation-only mirror of the host handlers: each verb CAS-checks the
+      // projected current goal, appends the whole-value change (the mux
+      // stream and projection frame ride the shared append path), and
+      // acknowledges with the new ref only.
+      create: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current !== null && current.goal.phase !== 'complete') {
+          return err(request, { code: 'internal', message: `goal "${current.goal.id}" already exists`, details: { goalCode: 'GOAL_ALREADY_EXISTS' } })
+        }
+        const projection = appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'create',
+          goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective: request.payload.objective, phase: 'active', maxGoalRounds: request.payload.maxGoalRounds ?? 256 },
+          roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        })
+        return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
+      },
+      edit: request => fxMutateGoal(request, request.payload.ref, current => ({
+        ...current.goal,
+        revision: current.goal.revision + 1,
+        ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
+        ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+      })),
+      pause: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
+          : undefined
+      )),
+      resume: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
+          : undefined
+      )),
+      complete: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'complete'
+          ? undefined
+          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
+      )),
+      clear: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current === null || current.goal.id !== request.payload.ref.id || current.goal.revision !== request.payload.ref.revision) {
+          return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+        }
+        appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'clear',
+          cleared: { id: current.goal.id, revision: current.goal.revision + 1 }, clearedAt: Date.now(),
+        })
+        return ok(request, { cleared: true as const })
       },
     },
     events: {
@@ -991,14 +1471,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             conn.push({ rpcId: mint(), payload: { type: 'session/projection', sessionId: s.sessionId, key, value: values[key], seq: log.length - 1 } })
           }
         }
-        conn.push({
-          rpcId: pendingApprovalRpcId,
-          payload: {
-            type: 'approval/requested', sessionId: sid('fx-alpha'),
-            approvalId: 'fx-approval-1' as MuxFrame extends never ? never : Extract<MuxFrame, { type: 'approval/requested' }>['approvalId'],
-            toolName: 'dangerous_tool', reason: 'fixture 常驻占位审批（可见不可答）',
-          },
-        })
+        if (approvalPending) {
+          conn.push({
+            rpcId: pendingApprovalRpcId,
+            payload: {
+              type: 'approval/requested', sessionId: sid('fx-alpha'),
+              approvalId: pendingApprovalId,
+              toolName: 'dangerous_tool', reason: 'fixture 常驻审批（可答：批准/拒绝后消失）',
+            },
+          })
+        }
         if (questionPending) {
           conn.push({
             rpcId: pendingQuestionRpcId,
@@ -1036,6 +1518,19 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
     },
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Same routing discipline as the host: rpcId first, then the payload's
+      // audit correlation; a settled or unknown id is not-pending.
+      if (message.rpcId === pendingApprovalRpcId) {
+        if (!approvalPending) return Promise.resolve({ accepted: false, reason: 'not-pending' })
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const value = message.result.value as { approvalId?: unknown; outcome?: unknown }
+        if (value.approvalId !== pendingApprovalId || (value.outcome !== 'allowed-once' && value.outcome !== 'rejected')) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approvalPending = false
+        emitMux({ type: 'approval/resolved', sessionId: sid('fx-alpha'), approvalId: pendingApprovalId, outcome: value.outcome })
+        return Promise.resolve({ accepted: true })
+      }
       if (!questionPending || message.rpcId !== pendingQuestionRpcId) {
         return Promise.resolve({ accepted: false, reason: 'not-pending' })
       }
@@ -1090,10 +1585,13 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.history': return this.api.sessions.history(request)
       case 'session.models': return this.api.sessions.models(request)
       case 'session.selectModel': return this.api.sessions.selectModel(request)
+      case 'session.rename': return this.api.sessions.rename(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
+      case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
+      case 'host.createDirectory': return this.api.host.createDirectory(request)
       case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
@@ -1104,6 +1602,12 @@ export class FixtureApiClient extends AbstractApiClient {
       // The in-memory execute never blocks, so a never-aborting signal is faithful here.
       case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'goal.create': return this.api.goals.create(request)
+      case 'goal.edit': return this.api.goals.edit(request)
+      case 'goal.pause': return this.api.goals.pause(request)
+      case 'goal.resume': return this.api.goals.resume(request)
+      case 'goal.complete': return this.api.goals.complete(request)
+      case 'goal.clear': return this.api.goals.clear(request)
     }
   }
 

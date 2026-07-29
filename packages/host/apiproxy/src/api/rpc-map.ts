@@ -9,6 +9,7 @@ import type { HostApi } from './host.ts'
 import type { WorkspaceApi } from './workspace.ts'
 import type { CommandsApi } from './commands.ts'
 import type { SkillsApi } from './skills.ts'
+import type { GoalsApi } from './goals.ts'
 import type { RpcResponse } from './rpc.ts'
 
 /**
@@ -22,10 +23,13 @@ export interface RpcMethodMap {
   'session.history': SessionsApi['history']
   'session.models': SessionsApi['models']
   'session.selectModel': SessionsApi['selectModel']
+  'session.rename': SessionsApi['rename']
   'session.prompt': SessionsApi['prompt']
   'session.cancel': SessionsApi['cancel']
   'host.describe': HostApi['describe']
   'host.pickDirectory': HostApi['pickDirectory']
+  'host.listDirectory': HostApi['listDirectory']
+  'host.createDirectory': HostApi['createDirectory']
   'host.openPath': HostApi['openPath']
   'workspace.list': WorkspaceApi['list']
   'workspace.create': WorkspaceApi['create']
@@ -35,6 +39,12 @@ export interface RpcMethodMap {
   'command.list': CommandsApi['list']
   'command.execute': CommandsApi['execute']
   'skill.list': SkillsApi['list']
+  'goal.create': GoalsApi['create']
+  'goal.edit': GoalsApi['edit']
+  'goal.pause': GoalsApi['pause']
+  'goal.resume': GoalsApi['resume']
+  'goal.complete': GoalsApi['complete']
+  'goal.clear': GoalsApi['clear']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

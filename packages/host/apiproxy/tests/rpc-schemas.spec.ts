@@ -12,7 +12,11 @@ import {
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
   sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
-import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
+import {
+  hostCreateDirectoryRequestSchema, hostCreateDirectoryValueSchema,
+  hostDescribeRequestSchema, hostDescribeValueSchema,
+  hostListDirectoryRequestSchema, hostListDirectoryValueSchema,
+} from '../src/api/host.schema.ts'
 import {
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
@@ -28,6 +32,7 @@ import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
+import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -63,11 +68,16 @@ describe('rpcErrorSchema', () => {
       details: { provider: 'p', model: 'm' },
     }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
+    expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
+    expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
+    expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
   it('rejects a known code with missing details', () => {
     expect(() => rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: {} })).toThrow()
+    expect(() => rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: {} })).toThrow()
+    expect(() => rpcErrorSchema.parse({ code: 'command-error', message: 'm' })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'nope', message: 'm', details: {} })).toThrow()
   })
 })
@@ -205,6 +215,11 @@ describe('sessions domain schemas', () => {
     expect(prompt.mode).toBe('queue')
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
+    // The command slot appears only when the prompt dispatched a slash command.
+    const dispatched = sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success', text: 'Goal set' } })
+    expect(dispatched.command?.text).toBe('Goal set')
+    expect(sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success' } }).command).toEqual({ kind: 'success' })
+    expect(() => sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'failure' } })).toThrow()
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
@@ -217,6 +232,26 @@ describe('host domain schemas', () => {
     const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
     expect(value.attachedSessions).toBe(2)
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
+  })
+
+  it('validates the browse listing/creation payloads', () => {
+    expect(hostListDirectoryRequestSchema.parse({})).toEqual({})
+    expect(hostListDirectoryRequestSchema.parse({ path: '/x' })).toEqual({ path: '/x' })
+    const listing = hostListDirectoryValueSchema.parse({
+      path: '/home/u/p',
+      home: '/home/u',
+      crumbs: [{ name: '/', path: '/', hidden: false }, { name: 'p', path: '/home/u/p', hidden: false }],
+      entries: [{ name: '.dot', path: '/home/u/p/.dot', hidden: true }],
+      truncated: false,
+    })
+    expect(listing.entries[0]?.hidden).toBe(true)
+    // The flag is part of the wire value, not an optional decoration.
+    expect(() => hostListDirectoryValueSchema.parse({ path: '/x', home: '/x', crumbs: [], entries: [] })).toThrow()
+    expect(hostCreateDirectoryRequestSchema.parse({ path: '/x', name: 'new' })).toEqual({ path: '/x', name: 'new' })
+    for (const name of ['', ' ', '.', '..', 'a/b', 'a\\b']) {
+      expect(() => hostCreateDirectoryRequestSchema.parse({ path: '/x', name })).toThrow()
+    }
+    expect(hostCreateDirectoryValueSchema.parse({ path: '/x/new' })).toEqual({ path: '/x/new' })
   })
 })
 
@@ -309,6 +344,15 @@ describe('skills domain schemas', () => {
     expect(value.skills[0]?.whenToUse).toBe('when committing')
     expect(value.skills[1]?.whenToUse).toBeUndefined()
     expect(() => skillEntrySchema.parse({ name: '', description: 'd' })).toThrow()
+  })
+})
+
+describe('goals domain schemas', () => {
+  it('requires at least one replacement field for goal.edit', () => {
+    const ref = { id: 'g1', revision: 1 }
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, objective: 'updated' }).objective).toBe('updated')
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, maxGoalRounds: 3 }).maxGoalRounds).toBe(3)
+    expect(() => goalEditRequestSchema.parse({ sessionId: 's1', ref })).toThrow()
   })
 })
 

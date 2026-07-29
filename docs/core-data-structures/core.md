@@ -477,7 +477,10 @@ type AgentCancelCause =
 `Agent` is an interface over the public live-agent contract. Concrete drivers own the `followup`/`steer`/`inject` aliases and route them through `send`'s (`target` × `wakeup`) matrix.
 
 ```ts type-equiv
-/** Public live-agent handle with aliases over the unified delivery primitive. */
+/**
+ * Public live-agent handle with aliases over the unified delivery primitive.
+ * @typert object
+ */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId

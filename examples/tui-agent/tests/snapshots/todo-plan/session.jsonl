@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"b0f1f758-dcf0-474e-851d-e62c11ec0a09","createdAt":1783352057652,"cwd":"/tmp/acp-snap-cwd-AYilT7","delegationDepth":0}
+{"type":"session","version":0,"id":"b0f1f758-dcf0-474e-851d-e62c11ec0a09","createdAt":1783352057652,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":1783352057655,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783352057655,"data":{"content":[{"type":"text","text":"Use the todo_write tool to record a plan with exactly three todos: \"read the code\" (in_progress), \"write the fix\" (pending), \"run the tests\" (pending). Send all three in one todo_write call. Then reply with the single word DONE and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"step/start","seq":2,"time":1783352057657,"data":{"turn":1,"step":1}}
