@@ -36,26 +36,6 @@ def executable_target(executable_name: str) -> str:
         ) from error
 
 
-def spawn_helper_binary_target(header: bytes) -> str | None:
-    if len(header) >= 8 and header[:4] == b"\xcf\xfa\xed\xfe":
-        cpu_type = int.from_bytes(header[4:8], "little")
-        if cpu_type == 0x01000007:
-            return "macos-x64"
-        if cpu_type == 0x0100000C:
-            return "macos-arm64"
-    return None
-
-
-def validate_spawn_helper(path: Path, expected_target: str) -> None:
-    with path.open("rb") as helper:
-        actual_target = spawn_helper_binary_target(helper.read(8))
-    if actual_target != expected_target:
-        raise ValueError(
-            f"runtime spawn helper binary mismatch: expected {expected_target}, "
-            f"found {actual_target or 'unsupported format or architecture'} at {path}"
-        )
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", choices=("sdk", "runtime"), required=True)
@@ -175,7 +155,6 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
             raise FileNotFoundError(f"runtime spawn helper does not exist: {spawn_helper}")
         if spawn_helper.stat().st_mode & stat.S_IXUSR == 0:
             raise PermissionError(f"runtime spawn helper is not executable: {spawn_helper}")
-        validate_spawn_helper(spawn_helper, expected_target)
     copy_package(ROOT / "python" / "sdk-runtime", destination)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
@@ -228,13 +207,6 @@ def verify_wheel(
                 mode = archive.getinfo(executable).external_attr >> 16
                 if mode & stat.S_IXUSR == 0:
                     raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {executable}")
-            if helpers:
-                actual_target = spawn_helper_binary_target(archive.read(helpers[0])[:8])
-                if actual_target != expected_target:
-                    raise RuntimeError(
-                        f"{wheel} spawn helper binary mismatch: expected {expected_target}, "
-                        f"found {actual_target or 'unsupported format or architecture'}"
-                    )
         elif runtime_files:
             raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":

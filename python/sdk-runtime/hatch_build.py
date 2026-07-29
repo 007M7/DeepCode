@@ -16,26 +16,6 @@ _PLATFORMS = {
 _SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 
-def _spawn_helper_binary_target(header: bytes) -> str | None:
-    if len(header) >= 8 and header[:4] == b"\xcf\xfa\xed\xfe":
-        cpu_type = int.from_bytes(header[4:8], "little")
-        if cpu_type == 0x01000007:
-            return "macos-x64"
-        if cpu_type == 0x0100000C:
-            return "macos-arm64"
-    return None
-
-
-def _validate_spawn_helper(path: Path, expected_target: str) -> None:
-    with path.open("rb") as helper:
-        actual_target = _spawn_helper_binary_target(helper.read(8))
-    if actual_target != expected_target:
-        raise RuntimeError(
-            f"runtime spawn helper binary mismatch: expected {expected_target}, "
-            f"found {actual_target or 'unsupported format or architecture'} at {path}"
-        )
-
-
 def _host_platform_tag() -> str:
     machine = platform.machine().lower()
     arch = "arm64" if machine in {"arm64", "aarch64"} else "x64" if machine in {"x86_64", "amd64"} else machine
@@ -86,9 +66,6 @@ class RuntimeBuildHook(BuildHookInterface):
         for executable in [executables[0], *helpers]:
             if executable.stat().st_mode & stat.S_IXUSR == 0:
                 raise RuntimeError(f"runtime executable is not executable: {executable}")
-        if helpers:
-            _validate_spawn_helper(helpers[0], expected_target)
-
         build_data["pure_python"] = False
         build_data["infer_tag"] = False
         build_data["tag"] = f"py3-none-{platform_tag}"

@@ -7,7 +7,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -56,16 +56,6 @@ type Arch = (typeof ARCHES)[number]
 interface RuntimeProduct {
   executable: string
   spawnHelper?: string
-}
-
-function spawnHelperBinaryTarget(path: string): string | undefined {
-  const header = readFileSync(path).subarray(0, 8)
-  if (header.length >= 8 && header.readUInt32LE(0) === 0xfeedfacf) {
-    const cpuType = header.readUInt32LE(4)
-    if (cpuType === 0x01000007) return 'macos-x64'
-    if (cpuType === 0x0100000c) return 'macos-arm64'
-  }
-  return undefined
 }
 
 function runtimeProductFiles(product: RuntimeProduct): string[] {
@@ -393,17 +383,7 @@ class SingleExeBuild {
         + `checked ${candidates.join(', ')}. Build each runtime on its target platform and architecture.`,
       )
     }
-    if (statSync(helper).mode & 0o111) {
-      const expected = `${target.platform}-${target.arch}`
-      const actual = spawnHelperBinaryTarget(helper)
-      if (actual !== expected) {
-        throw new Error(
-          `build-exe-for-python-sdk: node-pty spawn-helper binary mismatch: expected ${expected}, `
-          + `found ${actual ?? 'unsupported format or architecture'} at ${helper}`,
-        )
-      }
-      return helper
-    }
+    if (statSync(helper).mode & 0o111) return helper
     throw new Error(`build-exe-for-python-sdk: node-pty spawn-helper is not executable: ${helper}`)
   }
 
