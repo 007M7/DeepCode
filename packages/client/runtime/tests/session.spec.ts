@@ -301,6 +301,32 @@ describe('prompt and cancel errors', () => {
   })
 })
 
+describe('rename', () => {
+  it('settles the title projection cell from the unary response (higher-seq-wins vs the push frame)', async () => {
+    const { api, session } = makeSession()
+    api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
+    const result = await session.rename('  正名  ')
+    expect(result).toMatchObject({ ok: true, value: { title: '正名', seq: 7 } })
+    expect(api.callsOf('session.rename')).toMatchObject([{ sessionId: SID, title: '  正名  ' }])
+    expect(session.projections.faceOf('title').getSnapshot()).toBe('正名')
+    // A stale lower-seq apply (the push-frame path routes into this same
+    // store) must not roll the settled value back.
+    session.projections.apply('title', '旧名', 3)
+    expect(session.projections.faceOf('title').getSnapshot()).toBe('正名')
+  })
+
+  it('returns the business error untouched and folds a transport throw to internal', async () => {
+    const { api, session } = makeSession()
+    api.onRename = () => Promise.resolve(err({ code: 'title-invalid', message: 'empty', details: { sessionId: SID } }))
+    const rejected = await session.rename('   ')
+    expect(rejected).toMatchObject({ ok: false, error: { code: 'title-invalid' } })
+    expect(session.projections.faceOf('title').getSnapshot()).toBeUndefined()
+    api.onRename = () => Promise.reject(new Error('rename transport down'))
+    const folded = await session.rename('x')
+    expect(folded).toMatchObject({ ok: false, error: { code: 'internal' } })
+  })
+})
+
 describe('pending interactions', () => {
   it('adds approval/question on requested and removes them on resolved', async () => {
     const { session } = makeSession()

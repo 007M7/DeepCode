@@ -943,6 +943,33 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         if (options.dropSessionCreateResponse) throw new Error('fixture: dropped session.create response after publication')
         return ok(request, { sessionId: created.sessionId })
       },
+      rename: (request) => {
+        const { sessionId, title } = request.payload
+        const source = summaryOf(sessionId)
+        if (source === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${sessionId}`,
+            details: { sessionId },
+          })
+        }
+        const normalized = title.trim().replace(/\s+/g, ' ')
+        if (normalized.length === 0) {
+          return err(request, {
+            code: 'title-invalid',
+            message: `rename rejected for session ${sessionId}: empty title`,
+            details: { sessionId },
+          })
+        }
+        // The append emits the session/event and its session/projection frame
+        // (host parallel); the unary response settles the caller first.
+        append(sessionId, {
+          type: 'session/title',
+          data: { title: normalized, messageSeqs: [], source: { kind: 'user' } },
+        })
+        const log = logOf(sessionId)
+        return ok(request, { title: normalized, seq: log.length - 1 })
+      },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
@@ -1486,6 +1513,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.history': return this.api.sessions.history(request)
       case 'session.models': return this.api.sessions.models(request)
       case 'session.selectModel': return this.api.sessions.selectModel(request)
+      case 'session.rename': return this.api.sessions.rename(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
