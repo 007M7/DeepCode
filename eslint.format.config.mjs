@@ -49,4 +49,11 @@ export default [
       }],
     },
   },
+  {
+    // TypeGraph coverage must retain source-authored syntax that the normal quote rule forbids.
+    files: ['packages/typert/generator/tests/fixtures/type-model/packages/host/src/models.ts'],
+    rules: {
+      '@stylistic/quotes': 'off',
+    },
+  },
 ]

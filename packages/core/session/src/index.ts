@@ -353,6 +353,7 @@ const attachments = new WeakMap<Session, SessionEntry>()
  *
  * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
  * Seeding with an existing event log replays/forks a session.
+ * @typert object
  */
 export class Session {
   private log: SessionEvent[] = []

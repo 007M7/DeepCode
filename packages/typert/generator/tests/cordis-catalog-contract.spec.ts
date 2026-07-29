@@ -1,5 +1,5 @@
 /**
- * Contract and negative-path tests for the cordis catalog generator
+ * Model-extraction and negative-path contracts for the Cordis catalog generator
  * (`scripts/gen-cordis-catalog.ts`).
  */
 
@@ -7,16 +7,91 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { collectEvents, collectServices, renderEvents, renderServices } from '../../../../scripts/gen-cordis-catalog.ts'
+import {
+  collectEvents as collectEventsWithPolicy,
+  collectServices as collectServicesWithPolicy,
+  renderEvents as renderEventsWithPolicy,
+  renderServices as renderServicesWithPolicy,
+} from '../src/cordis-catalog.ts'
+import type {
+  CordisCatalogPolicy,
+  EventEntry,
+  ServiceEntry,
+} from '../src/cordis-catalog.ts'
+
+const TEST_POLICY: CordisCatalogPolicy = {
+  linkedTypePages: { SessionEvent: 'core.md' },
+  foundationTypeNames: new Set(['AbortSignal', 'Promise', 'Readonly']),
+  typeLinkExemptions: { PresetSpec: 'fixture deployment metadata' },
+  inheritedEvents: [],
+  inheritedServices: [],
+}
+
+function collectEvents(root: string): EventEntry[] {
+  return collectEventsWithPolicy(root, TEST_POLICY)
+}
+
+function collectServices(root: string): ServiceEntry[] {
+  return collectServicesWithPolicy(root, TEST_POLICY)
+}
+
+function renderEvents(events: EventEntry[]): string {
+  return renderEventsWithPolicy(events, TEST_POLICY)
+}
+
+function renderServices(services: ServiceEntry[]): string {
+  return renderServicesWithPolicy(services, TEST_POLICY)
+}
+
+const TYPE_FIXTURES = [
+  'export interface FixtureEntry {}',
+  'interface SessionEvent {}',
+  'interface PresetSpec {}',
+  'interface MissingOne {}',
+  'type missingTwo = string',
+  'interface MissingServiceType {}',
+  '',
+].join('\n')
+
+/** Materialize one independently compilable package and its host aggregate. */
+function writeProject(root: string, source: string): void {
+  const packageRoot = join(root, 'packages', 'group', 'fix')
+  const sourceRoot = join(packageRoot, 'src')
+  mkdirSync(sourceRoot, { recursive: true })
+  writeFileSync(join(root, 'tsconfig.host.json'), JSON.stringify({
+    files: [],
+    references: [{ path: './packages/group/fix' }],
+  }))
+  writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
+    name: '@fixture/fix',
+    private: true,
+    type: 'module',
+    exports: {
+      '.': {
+        types: './lib/types/index.d.ts',
+        default: './lib/index.js',
+      },
+    },
+  }))
+  writeFileSync(join(packageRoot, 'tsconfig.json'), JSON.stringify({
+    compilerOptions: {
+      composite: true,
+      module: 'ESNext',
+      moduleResolution: 'Bundler',
+      rootDir: 'src',
+      target: 'ES2022',
+    },
+    include: ['src'],
+  }))
+  writeFileSync(join(sourceRoot, 'index.ts'), `${TYPE_FIXTURES}${source}`)
+}
 
 /** Write a fixture package exposing one `interface Events` block and return the
  * scan root to hand `collectEvents`. */
 function fixtureRoot(eventsBlock: string): string {
   const root = mkdtempSync(join(tmpdir(), 'cordis-catalog-'))
-  const dir = join(root, 'packages', 'group', 'fix', 'src')
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(
-    join(dir, 'index.ts'),
+  writeProject(
+    root,
     `declare module 'cordis' {\n  interface Events {\n${eventsBlock}\n  }\n}\n`,
   )
   return root
@@ -27,10 +102,8 @@ function fixtureRoot(eventsBlock: string): string {
  * `collectServices`. */
 function serviceFixtureRoot(classSource: string): string {
   const root = mkdtempSync(join(tmpdir(), 'cordis-catalog-'))
-  const dir = join(root, 'packages', 'group', 'fix', 'src')
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(
-    join(dir, 'index.ts'),
+  writeProject(
+    root,
     `declare module 'cordis' {\n  interface Context {\n    fix: FixService\n  }\n}\n\n${classSource}\n`,
   )
   return root
@@ -95,9 +168,9 @@ describe('gen-cordis-catalog collectEvents', () => {
       'fix/two',
       'packages/group/fix/src/index.ts',
       'missingTwo',
-      'Add it to LINK_MAP',
-      'FOUNDATION_TYPE_NAMES',
-      'TYPE_LINK_EXEMPTIONS',
+      'Add it to linkedTypePages',
+      'foundationTypeNames',
+      'typeLinkExemptions',
     ].join('[\\s\\S]*'))
     expect(() => collectEvents(make(
       '    /**\n     * First.\n     * @param value - first value.\n     * @mode emit\n     */\n    \'fix/one\'(value: MissingOne): void\n    /**\n     * Second.\n     * @param value - second value.\n     * @mode emit\n     */\n    \'fix/two\'(value: missingTwo): void',
@@ -222,7 +295,7 @@ export class FixService {
   it('hard-errors on an unannotated (inferred) return type', () => {
     expect(() => collectServices(makeService(
       '/** Fixture service. */\nexport class FixService {\n  /**\n   * Do the thing.\n   * @param id - which thing.\n   */\n  run(id: string) { return id }\n}',
-    ))).toThrow(/no return type annotation/)
+    ))).toThrow(/missing an explicit type annotation/)
   })
 
   it('hard-errors on a service class with no JSDoc', () => {
