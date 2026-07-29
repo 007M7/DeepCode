@@ -375,7 +375,9 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
               ))}
             </div>
           )}
-          {pending.map(item => <PendingCard key={item.key} item={item} />)}
+          {pending.map(item => item.kind === 'approval'
+            ? <PendingCard key={item.key} item={item} />
+            : null)}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
           {running && <TurnDots />}

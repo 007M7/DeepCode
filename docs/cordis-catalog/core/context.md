@@ -256,7 +256,7 @@ Read a service from the store without the inject requirement.
 
 **Returns** the service value, or `undefined` when not (yet) provided.
 
-[Source](../../../vendor/cordis/src/reflect.ts#L16)
+[Source](../../../vendor/cordis/src/reflect.ts#L17)
 
 ### ctx.set(name, value)
 
@@ -281,7 +281,7 @@ Only the fiber that provided the service may set it; setting an unprovided name 
 - `name` — the service name.
 - `value` — the new service value.
 
-[Source](../../../vendor/cordis/src/reflect.ts#L28)
+[Source](../../../vendor/cordis/src/reflect.ts#L29)
 
 ### ctx.provide(name, value)
 
@@ -311,7 +311,7 @@ The service becomes visible to dependents in the same isolation scope once the f
 
 **Returns** a disposer that unregisters the service.
 
-[Source](../../../vendor/cordis/src/reflect.ts#L43)
+[Source](../../../vendor/cordis/src/reflect.ts#L44)
 
 ### ctx.accessor(name, options)
 
@@ -335,7 +335,7 @@ The accessor is removed when the current fiber unloads. Throws if the name is al
 - `name` — the context property name.
 - `options` — the `get` hook and optional `set` hook.
 
-[Source](../../../vendor/cordis/src/reflect.ts#L55)
+[Source](../../../vendor/cordis/src/reflect.ts#L56)
 
 ### ctx.mixin(name, mixins)
 
@@ -361,4 +361,4 @@ Each mixed-in key becomes an accessor that forwards to the service (binding meth
 - `name` — the context property holding the source service.
 - `mixins` — keys to forward, or a source-key → ctx-key map.
 
-[Source](../../../vendor/cordis/src/reflect.ts#L66)
+[Source](../../../vendor/cordis/src/reflect.ts#L67)

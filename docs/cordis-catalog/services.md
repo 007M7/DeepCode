@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:220`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:215`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -242,11 +242,18 @@ Approval service that applies session policy before answerers and logs every ask
  *   append commit point.
  */
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
+
+/**
+ * Read the session override without applying the configured default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged policy, or `undefined` without one.
+ */
+overrideOf(session: Session): ApprovalPolicy | undefined
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:213`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:217`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -668,7 +675,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:197`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -859,18 +866,27 @@ Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/
 get(agent: Agent): { active: boolean; pending?: boolean }
 
 /**
- * Select whether plan mode should be active from the next request boundary.
- * Repeated selection of the current or already-pending state is a no-op.
+ * Select whether plan mode should be active. Between turns the change
+ * commits immediately — no request boundary would arrive until the next
+ * prompt, so a queued intent would hang (the open-turn fold is the idle
+ * signal: agent status stays `running` through post-turn checkpointing,
+ * where a boundary equally never comes). During an open turn the
+ * selection is held as pending intent for the next in-turn request
+ * boundary. Repeated selection of the current or already-pending state is
+ * a no-op.
  *
  * @param agent The agent to switch.
  * @param active Whether plan mode should be active.
+ * @returns what happened: `committed` (logged now), `queued` (awaiting the
+ * next boundary), `cancelled` (an opposite pending selection was cleared;
+ * the logged state already matches), or `noop` (already in that state).
  */
-set(agent: Agent, active: boolean): void
+set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop'
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:142`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -992,9 +1008,16 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
  * @returns the fully resolved per-call mode and absolute workspace root.
  */
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
+
+/**
+ * Read the session override without applying the deployment default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged mode, or `undefined` without one.
+ */
+overrideOf(session: Session): SandboxMode | undefined
 ```
 
-Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md)
+Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../../packages/sandbox/sandbox-policy/src/index.ts)
 

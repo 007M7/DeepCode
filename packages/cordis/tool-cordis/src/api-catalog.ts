@@ -150,6 +150,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: 'async request(req: ApprovalRequest): Promise<ApprovalOutcome>',
         jsDoc: '/**\n * Ask the composed answerers to decide one readonly same-process request.\n * The service borrows the request, agent, session, and live signal directly.\n * The request requires an open turn because the audit pair must be enclosed\n * by the durable log\'s commit/replay boundary; an idle ask rejects before\n * appending anything. The answerer phase always produces an outcome: an\n * aborted signal yields `\'cancelled\'`, a missing or throwing answerer yields\n * `\'unavailable\'` (fail closed), and a rogue non-vocabulary return value is\n * normalized to `\'unavailable\'`. A failure that prevents either audit append\n * from committing still rejects because returning an unlogged decision would\n * violate the pair. Session contains post-commit observer failures, so an\n * authoritative append cannot reject the request or suppress its matching\n * audit event.\n * @param req - the pending decision (agent, tool identity, reason, signal).\n * @returns the closed outcome; `\'allowed-once\'` is the only grant.\n * @throws when no turn is open or either audit event fails before the session\n *   append commit point.\n */',
       },
+      {
+        signature: 'overrideOf(session: Session): ApprovalPolicy | undefined',
+        jsDoc: '/**\n * Read the session override without applying the configured default.\n * @param session - session whose log supplies the override.\n * @returns the last logged policy, or `undefined` without one.\n */',
+      },
     ],
   },
   {
@@ -433,8 +437,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the logged plan state and any selected state awaiting a boundary.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
       },
       {
-        signature: 'set(agent: Agent, active: boolean): void',
-        jsDoc: '/**\n * Select whether plan mode should be active from the next request boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
+        signature: 'set(agent: Agent, active: boolean): \'committed\' | \'queued\' | \'cancelled\' | \'noop\'',
+        jsDoc: '/**\n * Select whether plan mode should be active. Between turns the change\n * commits immediately — no request boundary would arrive until the next\n * prompt, so a queued intent would hang (the open-turn fold is the idle\n * signal: agent status stays `running` through post-turn checkpointing,\n * where a boundary equally never comes). During an open turn the\n * selection is held as pending intent for the next in-turn request\n * boundary. Repeated selection of the current or already-pending state is\n * a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n * @returns what happened: `committed` (logged now), `queued` (awaiting the\n * next boundary), `cancelled` (an opposite pending selection was cleared;\n * the logged state already matches), or `noop` (already in that state).\n */',
       },
     ],
   },
@@ -497,6 +501,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
         jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
+      },
+      {
+        signature: 'overrideOf(session: Session): SandboxMode | undefined',
+        jsDoc: '/**\n * Read the session override without applying the deployment default.\n * @param session - session whose log supplies the override.\n * @returns the last logged mode, or `undefined` without one.\n */',
       },
     ],
   },

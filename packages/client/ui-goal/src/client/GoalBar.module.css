@@ -1,0 +1,120 @@
+/* GoalBar: the goal strip docked above the composer card. The dock mirrors
+   InputBar's horizontal geometry (32px side padding, 776px centered cap)
+   plus the mock's 12px inset, so the bar's edges land 12px inside the
+   composer card's edges in both the capped and the squeezed regimes. The
+   negative bottom margin eats InputBar's 8px top padding and tucks the
+   bar's square bottom edge 2px under the composer card's top edge (the
+   card, later in DOM order, paints over it). All states share one fixed
+   38px height so switching between them never resizes the strip. */
+
+.dock {
+  padding: 0 44px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 752px;
+  height: 38px;
+  margin: 0 auto -10px;
+  padding: 0 14px;
+  border-radius: 14px 14px 0 0;
+  /* Translucent hover gray doubles as the mock's #F5F6F7 over the white
+     base and lifts the strip off the composer card in dark mode. */
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.sparkle {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.label {
+  flex: none;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.objective {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Inline edit form ---- */
+
+.objectiveInput {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-base);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  outline: none;
+}
+
+.objectiveInput:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.objectiveInput::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+/* ---- Icon actions ---- */
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
