@@ -87,19 +87,29 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## Summaries, candidates, and complete definitions
 
-`SkillSummary` is the registry's model-invocable summary shape. Consumers choose which fields to render; the session catalog uses only `name` and `description`, never the body or absolute file path. `disableModelInvocation` hides a skill from model listings while allowing trusted code to load it by name.
+`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans, and every resolved summary, candidate, and definition carries it without turning arbitrary frontmatter into the domain model.
 
 ```ts type-equiv
-/** Model-visible skill metadata returned by `ctx.skills.list()` and rendered into request guidance. */
+/** Invocation controls shared by skill discovery consumers. */
+interface SkillInvocationPolicy {
+  /** Whether model-facing catalogs and loaders include this skill. */
+  readonly modelInvocable: boolean
+  /** Whether human-facing command catalogs and loaders include this skill. */
+  readonly userInvocable: boolean
+}
+```
+
+```ts type-equiv
+/** Invocation-neutral skill metadata returned by `ctx.skills.list()`. */
 interface SkillSummary {
-  /** Kebab-case identifier used with the `skill` tool. */
+  /** Kebab-case identifier used to address the skill. */
   readonly name: string
-  /** Short routing description shown to the model. */
+  /** Short routing description shown by discovery consumers. */
   readonly description: string
-  /** Optional extra routing guidance shown to the model. */
+  /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Whether the skill is hidden from model listings while remaining loadable by trusted callers. */
-  readonly disableModelInvocation?: boolean
+  /** Resolved model and user invocation controls. */
+  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -109,12 +119,14 @@ interface SkillSummary {
 }
 ```
 
-`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure or a catalog that kept changing during discovery. `skills` contains the sorted summaries collected in that observation; `complete` is true only when every registered provider completed without a concurrent catalog revision. Incomplete snapshots are not cached, allowing a consumer to retain its last-good model catalog and retry.
+`ctx.skills.list()` preserves all four policy combinations. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the corresponding required field. A model-only skill sets `{ modelInvocable: true, userInvocable: false }`, a user-only skill sets `{ modelInvocable: false, userInvocable: true }`, and setting both fields to `false` keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`, defaults omitted fields to `true`, and projects every parsed skill into this normalized policy.
+
+`SkillCatalogSnapshot` distinguishes authoritative absence from transient provider failure or a catalog that kept changing during discovery. `skills` contains the sorted invocation-neutral summaries collected in that observation; `complete` is true only when every registered provider completed without a concurrent catalog revision. Incomplete snapshots are not cached, allowing each consumer to retain its last-good filtered catalog and retry.
 
 ```ts type-equiv
 /** One catalog observation plus whether discovery completed within a stable catalog revision. */
 interface SkillCatalogSnapshot {
-  /** Sorted model-invocable summaries collected in this observation. */
+  /** Sorted invocation-neutral summaries collected in this observation. */
   readonly skills: SkillSummary[]
   /** Whether every registered provider completed without a concurrent catalog revision. */
   readonly complete: boolean
@@ -159,11 +171,16 @@ interface SkillDefinition extends SkillSummary {
 }
 ```
 
-Runtime skills use the same complete shape and participate in the same first-wins collection order. The returned disposer removes the contribution and invalidates discovery caches.
+Runtime skill inputs may omit invocation controls and the provider label. The registry resolves both defaults once, then uses the same complete definition shape and first-wins collection order as providers. The returned disposer removes the contribution and invalidates discovery caches.
 
 ```ts type-equiv
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider?: string }
+type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
+  /** Invocation controls; omission permits both model and user surfaces. */
+  readonly invocation?: SkillInvocationPolicy
+  /** Provider label; omission uses the registry-owned runtime provider. */
+  readonly provider?: string
+}
 ```
 
 ## Lookup and configuration
@@ -198,4 +215,4 @@ interface Config {
 
 Before each later model step, the consumer applies exact tool visibility and digests the exact rendered entries between the `<available_skills>` tags from a complete snapshot. It derives the comparison baseline from the same entries in the newest recognizable visible catalog message sourced by the plugin. A changed digest appends a durable full replacement through `agent.inject()`; deleting every skill appends an explicit empty replacement. Incomplete snapshots preserve the last-good model view. If compaction hides every historical catalog message, the next complete snapshot re-establishes the current catalog; an empty view with no prior catalog emits nothing. These catalog messages are session history, not World State.
 
-The model-facing `skill({ name })` tool validates the kebab-case name, rereads the complete definition for the calling agent cwd, reports an unresolved skill as unknown or no longer available, rejects `disableModelInvocation` skills, and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. Body-only edits therefore change later tool calls without producing catalog messages or rewriting earlier tool results.
+The model-facing `skill({ name })` tool validates the kebab-case name, finds the summary in the invocation-neutral catalog, rejects it before loading unless `isModelInvocable` permits access, then rereads the complete definition for the calling agent cwd and rechecks the policy before returning content. It reports an unresolved skill as unknown or no longer available and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. Body-only edits therefore change later tool calls without producing catalog messages or rewriting earlier tool results.

@@ -24,6 +24,7 @@
     "apps/web/tests/code-mode-round.e2e.ts",
     "apps/web/tests/cordis-tool-round.e2e.ts",
     "apps/web/tests/message-actions.e2e.ts",
+    "apps/web/tests/skill-invocation-policy.e2e.ts",
     "apps/cli/tests/**/*.ts",
     "examples/*/src/**/*.ts",
     "examples/*/start.ts",
