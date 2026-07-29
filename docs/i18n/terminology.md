@@ -116,7 +116,6 @@
 | extension | 扩展 | | | |
 | extension point | 扩展点 | | | 注意与 `seam` 区分 |
 | fail-fast | 快速失败 | | | |
-| fail-open | 故障放行 | 故障放行（fail-open） | 故障开放 | 与 `fail-fast` 对称；指无法判定时放行而非阻断 |
 | fenced code block | 围栏代码块 | | | 沿用 MDN 中文翻译 |
 | fingerprint | 指纹 | | | 通用内容指纹；双语配对机制使用 sidecar record 记录两侧 blob hash |
 | finish reason | 结束原因 | | | |
