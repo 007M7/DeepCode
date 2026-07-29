@@ -24,6 +24,7 @@ import {
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
+  matchesMatcher,
   mergeHookOutputs,
   runHook,
   type HookOutput,
@@ -34,7 +35,7 @@ import {
 // declarations (declaration-merged into cordis `Events` by dsh-subagent) so the
 // SubagentStart/SubagentStop listeners below type-check.
 import type {} from '@deepseek-ai/dsh-subagent'
-import { parseClaudeConfig, type ParsedClaudeConfig } from './config.ts'
+import { parseClaudeConfig, type ClaudeHookConfig } from './config.ts'
 
 export const name = 'hooks-claude'
 // `bash` is required to run hooks; the rest are read opportunistically via
@@ -99,37 +100,26 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
   // Parse once at load. A read or parse failure logs and registers nothing.
-  let result: ParsedClaudeConfig
+  let parsed: ClaudeHookConfig = {}
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
-    result = parseClaudeConfig(raw, {
+    const result = parseClaudeConfig(raw, {
       ...config.pluginRoot !== undefined ? { pluginRoot: config.pluginRoot } : {},
       ...config.projectDir !== undefined ? { projectDir: config.projectDir } : {},
     })
+    parsed = result.config
+    for (const s of result.skipped) {
+      ctx.logger.warn(`hooks-claude: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
+    }
   } catch (error: unknown) {
     ctx.logger.warn(`hooks-claude: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
 
-  const parsed = result.config
-  // Parsing validates through this same registry, so admission and runtime do
-  // not construct separate matcher instances.
-  const matchers = result.matchers
-
   // Emit-shaped points run detached, so track their chains; disposal aborts
-  // active hooks and drains continuations before releasing matchers.
+  // active hooks and drains continuations before resolving.
   const detached = createDetachedRuns()
-  ctx.effect(() => async () => {
-    try {
-      await detached.drain()
-    } finally {
-      matchers.dispose()
-    }
-  }, 'hooks-claude: drain detached hook runs and dispose matchers')
-
-  for (const s of result.skipped) {
-    ctx.logger.warn(`hooks-claude: skipping unsupported "${s.type}" hook on ${s.event} (only command hooks run)`)
-  }
+  ctx.effect(() => () => detached.drain(), 'hooks-claude: drain detached hook runs')
 
   /**
    * Run every command hook configured for `point` whose matcher selects
@@ -157,7 +147,7 @@ export function apply(ctx: Context, config: Config): void {
     const projectDir = config.projectDir ?? workdir
     const hookEnv = projectDir !== undefined ? { CLAUDE_PROJECT_DIR: projectDir } : undefined
     for (const group of groups) {
-      if (!matchers.matches(group.matcher, matchQuery)) continue
+      if (!matchesMatcher(group.matcher, matchQuery, 'claude')) continue
       for (const hook of group.hooks) {
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session

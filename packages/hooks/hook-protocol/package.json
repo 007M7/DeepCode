@@ -26,9 +26,6 @@
     "src"
   ],
   "license": "BSD-3-Clause",
-  "dependencies": {
-    "rregex": "1.12.0"
-  },
   "peerDependencies": {
     "@deepseek-ai/dsh-bash": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",

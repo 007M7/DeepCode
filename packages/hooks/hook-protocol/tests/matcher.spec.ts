@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compileMatchers, matcherDiagnostic, matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
+import { matcherDiagnostic, matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
 
 describe('matchesMatcher — match-all sentinels (both dialects)', () => {
   for (const mode of ['claude', 'codex'] as const) {
@@ -34,24 +34,17 @@ describe('matchesMatcher — claude dialect (literal-or-regex)', () => {
   })
 })
 
-describe('matchesMatcher — codex dialect (literal-or-Rust-regex)', () => {
-  it('a word pattern uses Codex exact-match semantics', () => {
+describe('matchesMatcher — codex dialect (always regex)', () => {
+  it('a word pattern is an unanchored regex (substring matches, unlike claude literal)', () => {
     expect(matchesMatcher('Bash', 'Bash', 'codex')).toBe(true)
-    expect(matchesMatcher('Bash', 'BashOutput', 'codex')).toBe(false)
+    // codex has NO literal fast path: "Bash" is /Bash/, so it DOES match a substring
+    expect(matchesMatcher('Bash', 'BashOutput', 'codex')).toBe(true)
   })
 
   it('regex alternation and anchors work', () => {
     expect(matchesMatcher('Edit|Write', 'Edit', 'codex')).toBe(true)
     expect(matchesMatcher('^Bash$', 'Bash', 'codex')).toBe(true)
     expect(matchesMatcher('^Bash$', 'BashOutput', 'codex')).toBe(false)
-  })
-
-  it('uses Rust regex syntax and matching semantics', () => {
-    expect(matchesMatcher('(?i)bash', 'xxBASHyy', 'codex')).toBe(true)
-    expect(matchesMatcher('(?x)^ b a s h $ # policy matcher', 'bash', 'codex')).toBe(true)
-    expect(matchesMatcher('^\\p{Greek}+$', 'αβ', 'codex')).toBe(true)
-    // JavaScript accepts look-around, but Rust regex deliberately does not.
-    expect(matchesMatcher('(?=Bash)', 'Bash', 'codex')).toBe(false)
   })
 })
 
@@ -72,42 +65,10 @@ describe('matcherDiagnostic — parse-time diagnostics', () => {
     expect(matcherDiagnostic('Edit|Write', 'claude')).toBeUndefined()
     expect(matcherDiagnostic('^Bash$', 'claude')).toBeUndefined()
     expect(matcherDiagnostic('Edit|Write', 'codex')).toBeUndefined()
-    expect(matcherDiagnostic('(?i)bash', 'codex')).toBeUndefined()
-    expect(matcherDiagnostic('(?x)^ b a s h $ # policy matcher', 'codex')).toBeUndefined()
   })
 
   it('returns a stable diagnostic for invalid regexes in either dialect', () => {
     expect(matcherDiagnostic('(', 'claude')).toBe('invalid claude regex matcher "("')
     expect(matcherDiagnostic('[', 'codex')).toBe('invalid codex regex matcher "["')
-    expect(matcherDiagnostic('(?=Bash)', 'codex')).toBe('invalid codex regex matcher "(?=Bash)"')
-  })
-})
-
-describe('compileMatchers — config-lifetime reuse', () => {
-  it('compiles a finite set, contains unknown patterns, and stops after disposal', () => {
-    const matchers = compileMatchers([undefined, 'Edit|Write', '(?i)^bash$', '['], 'codex')
-
-    expect(matchers.matches(undefined, 'anything')).toBe(true)
-    expect(matchers.matches('Edit|Write', 'Write')).toBe(true)
-    expect(matchers.matches('Edit|Write', 'WriteFile')).toBe(false)
-    expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(true)
-    expect(matchers.matches('[', 'anything')).toBe(false)
-    expect(matchers.matches('not-compiled', 'not-compiled')).toBe(false)
-    expect(matchers.diagnostic('(?i)^bash$')).toBeUndefined()
-    expect(matchers.diagnostic('[')).toBe('invalid codex regex matcher "["')
-    expect(matchers.diagnostic('not-compiled')).toBeUndefined()
-
-    matchers.dispose()
-    expect(matchers.matches(undefined, 'anything')).toBe(false)
-    expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(false)
-    expect(matchers.diagnostic('[')).toBeUndefined()
-    expect(() => { matchers.dispose() }).not.toThrow()
-  })
-
-  it('reuses JavaScript regexes too', () => {
-    const matchers = compileMatchers(['^Bash$', '^Bash$'], 'claude')
-    expect(matchers.matches('^Bash$', 'Bash')).toBe(true)
-    expect(matchers.matches('^Bash$', 'BashOutput')).toBe(false)
-    matchers.dispose()
   })
 })

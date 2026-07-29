@@ -1,14 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { parseClaudeConfig as parseRawClaudeConfig, substituteCommand } from '@deepseek-ai/dsh-hooks-claude/src/config.ts'
-
-const matcherSets: Array<ReturnType<typeof parseRawClaudeConfig>['matchers']> = []
-afterEach(() => { for (const matchers of matcherSets.splice(0)) matchers.dispose() })
-
-function parseClaudeConfig(...args: Parameters<typeof parseRawClaudeConfig>): ReturnType<typeof parseRawClaudeConfig> {
-  const result = parseRawClaudeConfig(...args)
-  matcherSets.push(result.matchers)
-  return result
-}
+import { describe, expect, it } from 'vitest'
+import { parseClaudeConfig, substituteCommand } from '@deepseek-ai/dsh-hooks-claude/src/config.ts'
 
 describe('substituteCommand', () => {
   it('replaces CLAUDE_PLUGIN_ROOT and CLAUDE_PROJECT_DIR (all occurrences)', () => {
@@ -71,13 +62,6 @@ describe('parseClaudeConfig', () => {
   it('omits the matcher key when the group has none (match-all)', () => {
     const { config } = parseClaudeConfig({ Stop: [{ hooks: [{ type: 'command', command: 's.sh' }] }] })
     expect('matcher' in config.Stop![0]!).toBe(false)
-  })
-
-  it('returns the same validated matcher registry for runtime use', () => {
-    const { matchers } = parseClaudeConfig({
-      PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: 'x.sh' }] }],
-    })
-    expect(matchers.matches('^Bash$', 'Bash')).toBe(true)
   })
 
   it('rejects an invalid regex matcher with its event name', () => {

@@ -1,10 +1,9 @@
 /**
  * Bridge for unmodified Codex command hooks on harness interception seams. It
- * supports five points (SessionStart, prompt/tool pre/post, Stop), native
- * literal-or-Rust-regex matchers, snake_case payloads without a trailing
- * newline, no hook environment or command substitution, and no pre-tool
- * approval or rewrite path; only blocking decisions are honored. Shared
- * execution and parsing live in
+ * supports five points (SessionStart, prompt/tool pre/post, Stop), regex-only
+ * matchers, snake_case payloads without a trailing newline, no hook environment
+ * or command substitution, and no pre-tool approval or rewrite path; only
+ * blocking decisions are honored. Shared execution and parsing live in
  * `dsh-hook-protocol`; see the
  * [hook-bridges Agent Note](../../../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md).
  * @module @deepseek-ai/dsh-hooks-codex
@@ -28,13 +27,14 @@ import {
   createDetachedRuns,
   DEFAULT_HOOK_TIMEOUT_MS,
   DEFAULT_STDERR_SUMMARY_MAX_CHARS,
+  matchesMatcher,
   mergeHookOutputs,
   runHook,
   type HookOutput,
   type MatcherGroup,
   type MergedHookOutcome,
 } from '@deepseek-ai/dsh-hook-protocol'
-import { parseCodexConfig, type ParsedCodexConfig } from './config.ts'
+import { parseCodexConfig, type CodexHookConfig } from './config.ts'
 /* jscpd:ignore-end */
 
 export const name = 'hooks-codex'
@@ -83,37 +83,26 @@ export function apply(ctx: Context, config: Config): void {
   const stderrSummaryMaxChars = config.stderrSummaryMaxChars ?? DEFAULT_STDERR_SUMMARY_MAX_CHARS
   assertPositiveInteger('stderrSummaryMaxChars', stderrSummaryMaxChars)
   const defaultTimeoutMs = config.defaultTimeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS
-  let result: ParsedCodexConfig
+  let parsed: CodexHookConfig = {}
   try {
     const raw: unknown = JSON.parse(readFileSync(config.configPath, 'utf8'))
-    result = parseCodexConfig(raw)
+    const result = parseCodexConfig(raw)
+    parsed = result.config
+    for (const s of result.skipped) {
+      ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
+    }
   } catch (error: unknown) {
     ctx.logger.warn(`hooks-codex: could not load hook config "${config.configPath}": ${String(error)} — no hooks registered`)
     return
   }
 
-  const parsed = result.config
   const model = config.model ?? ''
-  // Parsing validates through this same registry, so no native regex is rebuilt
-  // between config admission and runtime matching.
-  const matchers = result.matchers
 
   // SessionStart is the one emit-shaped (detached) point Codex has: track its
   // run chains so disposal aborts a still-running hook process and drains the
-  // continuation before releasing matchers (docs/defensive-patterns.md:
-  // dispose must reach quiescence).
+  // continuation (docs/defensive-patterns.md: dispose must reach quiescence).
   const detached = createDetachedRuns()
-  ctx.effect(() => async () => {
-    try {
-      await detached.drain()
-    } finally {
-      matchers.dispose()
-    }
-  }, 'hooks-codex: drain detached hook runs and dispose matchers')
-
-  for (const s of result.skipped) {
-    ctx.logger.warn(`hooks-codex: skipping ${s.reason} on ${s.event} (only sync command hooks run)`)
-  }
+  ctx.effect(() => () => detached.drain(), 'hooks-codex: drain detached hook runs')
 
   /**
    * Run and fold one configured Codex hook point.
@@ -137,11 +126,9 @@ export function apply(ctx: Context, config: Config): void {
     // Run hooks in the agent's session workspace so relative paths address the
     // user's project rather than the server launch directory.
     const workdir = opts.agent?.session.header.cwd
-    // Keep each dialect's audit stamping readable beside its payload mapping.
-    /* jscpd:ignore-start */
     for (const group of groups) {
-      // The protocol library owns Codex's exact-literal/Rust-regex split.
-      if (!matchers.matches(group.matcher, matchQuery)) continue
+      // Codex always interprets matchers as regexes; it has no literal fast path.
+      if (!matchesMatcher(group.matcher, matchQuery, 'codex')) continue
       for (const hook of group.hooks) {
         const handlerId = nextHandlerId(point)
         const session = opts.agent?.session
@@ -151,7 +138,6 @@ export function apply(ctx: Context, config: Config): void {
             ...group.matcher !== undefined ? { matcher: group.matcher } : {},
           })
         }
-        /* jscpd:ignore-end */
         const { output, durationMs } = await runHook(ctx.bash, hook, {
           payload,
           defaultTimeoutMs,

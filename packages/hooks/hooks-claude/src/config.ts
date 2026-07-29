@@ -6,11 +6,7 @@
  * @module @deepseek-ai/dsh-hooks-claude/config
  */
 
-import {
-  compileMatchers,
-  type CompiledMatchers,
-  type MatcherGroup,
-} from '@deepseek-ai/dsh-hook-protocol'
+import { matcherDiagnostic, type MatcherGroup } from '@deepseek-ai/dsh-hook-protocol'
 
 const CLAUDE_EVENTS = [
   'SessionStart',
@@ -35,8 +31,6 @@ export interface SkippedHook {
 export interface ParsedClaudeConfig {
   config: ClaudeHookConfig
   skipped: SkippedHook[]
-  /** Config-scoped matcher registry; the caller owns and must dispose it. */
-  matchers: CompiledMatchers
 }
 
 /** Substitution variables applied to each `command` string at parse time. */
@@ -74,7 +68,6 @@ export function substituteCommand(command: string, vars: SubstitutionVars): stri
  * command. Matcher fields on UserPromptSubmit and Stop are discarded because those events have no
  * matcher subject. A matcher-bearing supported runnable group with an invalid regex throws a
  * `SyntaxError`, allowing the bridge to reject the complete config before listener registration.
- * Validation and runtime matching share the returned compiled registry; its caller must dispose it.
  *
  * @param raw - the parsed JSON config: a settings object with a `hooks` key, or the bare
  *   event map.
@@ -88,54 +81,43 @@ export function parseClaudeConfig(raw: unknown, vars: SubstitutionVars = {}): Pa
   // Accept either `{ hooks: { … } }` (a settings file) or the bare event map.
   const root = asObject(raw)
   const hooksMap = root ? asObject(root.hooks) ?? root : undefined
-  if (hooksMap) {
-    for (const event of CLAUDE_EVENTS) {
-      const rawGroups = hooksMap[event]
-      if (!Array.isArray(rawGroups)) continue
-      const groups: MatcherGroup[] = []
-      for (const rawGroup of rawGroups) {
-        const group = asObject(rawGroup)
-        if (!group || !Array.isArray(group.hooks)) continue
-        const commands: MatcherGroup['hooks'] = []
-        for (const rawHook of group.hooks) {
-          const hook = asObject(rawHook)
-          if (!hook) continue
-          const type = typeof hook.type === 'string' ? hook.type : 'command'
-          if (type !== 'command') {
-            skipped.push({ event, type })
-            continue
-          }
-          if (typeof hook.command !== 'string') continue
-          commands.push({
-            command: substituteCommand(hook.command, vars),
-            ...typeof hook.timeout === 'number' ? { timeoutSec: hook.timeout } : {},
-          })
+  if (!hooksMap) return { config, skipped }
+
+  for (const event of CLAUDE_EVENTS) {
+    const rawGroups = hooksMap[event]
+    if (!Array.isArray(rawGroups)) continue
+    const groups: MatcherGroup[] = []
+    for (const rawGroup of rawGroups) {
+      const group = asObject(rawGroup)
+      if (!group || !Array.isArray(group.hooks)) continue
+      const commands: MatcherGroup['hooks'] = []
+      for (const rawHook of group.hooks) {
+        const hook = asObject(rawHook)
+        if (!hook) continue
+        const type = typeof hook.type === 'string' ? hook.type : 'command'
+        if (type !== 'command') {
+          skipped.push({ event, type })
+          continue
         }
-        if (commands.length === 0) continue
-        const matcher = event === 'UserPromptSubmit' || event === 'Stop'
-          ? undefined
-          : typeof group.matcher === 'string' ? group.matcher : undefined
-        groups.push({
-          ...matcher !== undefined ? { matcher } : {},
-          hooks: commands,
+        if (typeof hook.command !== 'string') continue
+        commands.push({
+          command: substituteCommand(hook.command, vars),
+          ...typeof hook.timeout === 'number' ? { timeoutSec: hook.timeout } : {},
         })
       }
-      if (groups.length > 0) config[event] = groups
+      if (commands.length === 0) continue
+      const matcher = event === 'UserPromptSubmit' || event === 'Stop'
+        ? undefined
+        : typeof group.matcher === 'string' ? group.matcher : undefined
+      const diagnostic = matcherDiagnostic(matcher, 'claude')
+      if (diagnostic !== undefined) throw new SyntaxError(`${diagnostic} on event ${JSON.stringify(event)}`)
+      groups.push({
+        ...matcher !== undefined ? { matcher } : {},
+        hooks: commands,
+      })
     }
+    if (groups.length > 0) config[event] = groups
   }
 
-  /* jscpd:ignore-start -- dialect-local event diagnostics intentionally stay beside parsing. */
-  const entries = Object.entries(config).flatMap(([event, groups]) => (
-    groups.map(group => ({ event, matcher: group.matcher }))
-  ))
-  const matchers = compileMatchers(new Set(entries.map(entry => entry.matcher)), 'claude')
-  for (const { event, matcher } of entries) {
-    const diagnostic = matchers.diagnostic(matcher)
-    if (diagnostic === undefined) continue
-    matchers.dispose()
-    throw new SyntaxError(`${diagnostic} on event ${JSON.stringify(event)}`)
-  }
-  /* jscpd:ignore-end */
-
-  return { config, skipped, matchers }
+  return { config, skipped }
 }

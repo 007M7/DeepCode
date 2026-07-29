@@ -1,14 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { parseCodexConfig as parseRawCodexConfig, CODEX_EVENTS } from '@deepseek-ai/dsh-hooks-codex/src/config.ts'
-
-const matcherSets: Array<ReturnType<typeof parseRawCodexConfig>['matchers']> = []
-afterEach(() => { for (const matchers of matcherSets.splice(0)) matchers.dispose() })
-
-function parseCodexConfig(...args: Parameters<typeof parseRawCodexConfig>): ReturnType<typeof parseRawCodexConfig> {
-  const result = parseRawCodexConfig(...args)
-  matcherSets.push(result.matchers)
-  return result
-}
+import { describe, expect, it } from 'vitest'
+import { parseCodexConfig, CODEX_EVENTS } from '@deepseek-ai/dsh-hooks-codex/src/config.ts'
 
 describe('parseCodexConfig', () => {
   it('honors only the five bridge-supported Codex events, dropping the rest', () => {
@@ -70,22 +61,15 @@ describe('parseCodexConfig', () => {
     expect('matcher' in config.Stop![0]!).toBe(false)
   })
 
-  it('keeps a valid Rust-regex matcher when present', () => {
-    const { config, matchers } = parseCodexConfig({ PreToolUse: [{ matcher: '(?i)^bash$', hooks: [{ type: 'command', command: 'b.sh' }] }] })
-    expect(config.PreToolUse![0]!.matcher).toBe('(?i)^bash$')
-    expect(matchers.matches('(?i)^bash$', 'BASH')).toBe(true)
+  it('keeps a matcher when present', () => {
+    const { config } = parseCodexConfig({ PreToolUse: [{ matcher: '^Bash$', hooks: [{ type: 'command', command: 'b.sh' }] }] })
+    expect(config.PreToolUse![0]!.matcher).toBe('^Bash$')
   })
 
   it('rejects an invalid regex matcher with its event name', () => {
     expect(() => parseCodexConfig({
       PreToolUse: [{ matcher: '[', hooks: [{ type: 'command', command: 's.sh' }] }],
     })).toThrow('invalid codex regex matcher "[" on event "PreToolUse"')
-  })
-
-  it('rejects JavaScript-only regex syntax that Codex cannot execute', () => {
-    expect(() => parseCodexConfig({
-      PreToolUse: [{ matcher: '(?=Bash)', hooks: [{ type: 'command', command: 's.sh' }] }],
-    })).toThrow('invalid codex regex matcher "(?=Bash)" on event "PreToolUse"')
   })
 
   it('discards matcher fields on events without matcher subjects before validation', () => {

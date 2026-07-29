@@ -10,4 +10,4 @@ The hooks subsystem lets users extend the agent at lifecycle points the way Clau
 | `hooks-claude/` | Bridge for a Claude Code `hooks.json` / settings | plugin |
 | `hooks-codex/` | Bridge for a Codex `hooks.json` | plugin |
 
-Codex deliberately reimplements a *subset* of the Claude Code protocol (same `hooks.json` shape, 5 events vs CC's many, command-only, a Rust-regex matcher dialect, no env/substitution), so `hook-protocol` owns the genuinely-identical primitives and each bridge owns only what differs (its per-event stdin payload, env, and the mapping of a hook's neutral outcome onto the harness's typed Decisions). See [hook-protocol/README.md](hook-protocol/README.md).
+Codex deliberately reimplements a *subset* of the Claude Code protocol (same `hooks.json` shape, 5 events vs CC's many, command-only, regex-only matcher, no env/substitution), so `hook-protocol` owns the genuinely-identical primitives and each bridge owns only what differs (its per-event stdin payload, env, and the mapping of a hook's neutral outcome onto the harness's typed Decisions). See [hook-protocol/README.md](hook-protocol/README.md).

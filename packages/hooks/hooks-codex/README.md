@@ -7,7 +7,7 @@ A cordis plugin that runs the supported subset of a user's existing **Codex** ho
 This bridge implements a deliberate subset of Codex's current hook protocol:
 
 - **Five of ten hook points:** `PreToolUse`, `PostToolUse`, `SessionStart`, `UserPromptSubmit`, and `Stop`.
-- **Native Codex matcher semantics:** pure word/pipe patterns are exact alternatives; other patterns are unanchored Rust `regex` expressions (including inline flags such as `(?i)`).
+- **Regex-only matchers** (no literal fast path; the matcher is always an unanchored regex).
 - **snake_case stdin payloads** with `turn_id`/`model` extras, written **without** a trailing newline.
 - **No Codex plugin env injection and no config-time placeholder substitution** (the command still receives the executor's environment and runs through its shell).
 - **No pre-tool approval or rewrite path** — a hook can block, but the bridge does not pre-approve or replace tool input.
@@ -34,7 +34,7 @@ In a `cordis.yml`:
     model: deepseek-v4
 ```
 
-The config is parsed **once** at load. `configPath` is **process-level** — a relative path resolves against the process launch cwd at load time, not per-session (`TODO(per-session-hook-config)`). A read/parse failure is contained (logs + registers nothing); an invalid regex matcher on an event that consumes matchers is one such failure and reports its pattern and event. Non-literal Rust-regex patterns are interned across reloads under a process budget of 128 distinct patterns: once full, a new distinct pattern is rejected before WASM construction with a capacity diagnostic, while already interned patterns remain usable; restarting the process resets the budget. Only sync `type: 'command'` hooks run — a non-command or `async: true` hook is parsed-and-skipped with a warning. A hook accepts `timeout` or the `timeoutSec` alias; one that sets neither runs under the protocol's reference default (`DEFAULT_HOOK_TIMEOUT_MS` from `dsh-hook-protocol`, 10 minutes). Events outside the five bridge-supported points are dropped at parse.
+The config is parsed **once** at load. `configPath` is **process-level** — a relative path resolves against the process launch cwd at load time, not per-session (`TODO(per-session-hook-config)`). A read/parse failure is contained (logs + registers nothing); an invalid regex matcher on an event that consumes matchers is one such failure and reports its pattern and event. Only sync `type: 'command'` hooks run — a non-command or `async: true` hook is parsed-and-skipped with a warning. A hook accepts `timeout` or the `timeoutSec` alias; one that sets neither runs under the protocol's reference default (`DEFAULT_HOOK_TIMEOUT_MS` from `dsh-hook-protocol`, 10 minutes). Events outside the five bridge-supported points are dropped at parse.
 
 The hooks themselves run in the agent's session workspace: for the agent-scoped points the bridge passes the session's `cwd` as the hook process's working directory, so a hook operates in the user's project tree, not the server launch dir.
 
