@@ -30,6 +30,11 @@ import * as toolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as uiTui from '@deepseek-ai/dsh-tui'
 
 export const name = 'tui-demo'
+
+// The bundle's own fallback stays project-local: a plugin must never assume
+// the user's shared session store. The dsh launcher's SESSIONS_ROOT_KEY slot
+// (opaque here — the CLI resolves it to DSH_HOME/sessions) carries any
+// shared-store policy, and explicit config wins over both.
 const DEFAULT_PERSISTENCE_ROOT = './.sessions'
 
 // Each front door keeps a complete Loader contract so its deployment config is
@@ -53,7 +58,12 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
+  /**
+   * Directory for JSONL sessions and the derived query index. Precedence:
+   * this explicit config, then the launcher's opaque `SESSIONS_ROOT_KEY` boot
+   * slot (the dsh CLI resolves it to `DSH_HOME/sessions`), then a project-local
+   * `./.sessions` fallback — the bundle itself never assumes a global store.
+   */
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
@@ -61,13 +71,6 @@ export interface Config {
   sessionReferences?: SessionReferenceConfig
   /** TUI transcript's optional first line; absent renders nothing on start. */
   welcome?: string
-  /**
-   * Shell command template the TUI prints on exit and lists under `/resume`,
-   * with `{session}` replaced by the live session id (forwarded to the front
-   * door). Set it to a command that resumes the session, e.g.
-   * `dsh --resume {session}`.
-   */
-  resumeCommand?: string
   /** Full-screen TUI presentation settings. */
   ui?: uiTui.TuiConfig
   /** Skill registry, local-provider, and model-facing consumer config. */
@@ -78,8 +81,6 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
   goals?: agentCore.GoalConfig | false
-  /** Persisted session id to resume instead of creating a fresh session. */
-  resumeSessionId?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
@@ -94,33 +95,38 @@ export const Config: z<Config> = z.object({
   tools: ToolRegistry.Config,
   dshHome: z.string(),
   sessionTitle: agentCore.SessionTitleConfigSchema,
-  persistenceRoot: z.string().default(DEFAULT_PERSISTENCE_ROOT),
+  // No schema default: schemastery would materialize it before composeTuiApp
+  // runs, shadowing the launcher's SESSIONS_ROOT_KEY slot for a Loader mount.
+  persistenceRoot: z.string(),
   persistenceCompression: JsonlCompressionSchema,
   sessionReferences: SessionReferenceService.Config,
   welcome: z.string(),
-  resumeCommand: z.string(),
   ui: uiTui.TuiConfigSchema,
   skills: agentCore.SkillConfigSchema,
   toolBash: agentCore.ToolBashConfigSchema,
   toolTasks: z.union([z.const(false), agentCore.ToolTasksConfigSchema]),
   goals: z.union([z.const(false), agentCore.GoalConfigSchema]),
-  resumeSessionId: z.string(),
   workspaceContext: z.union([z.const(false), workspaceContext.Config]).required(),
 })
 /* jscpd:ignore-end */
 
 /**
  * Compose the spine, TUI, JSONL persistence, and user-question tool around one
- * exact fresh or resumed session identity. The TUI subscribes to startup
- * failures before the spine creates the agent.
+ * exact fresh or resumed session identity, taken from the launcher's
+ * {@link uiTui.MAIN_SESSION_ID_KEY} slot. The TUI subscribes to startup failures
+ * before the spine creates the agent.
  * @param ctx - context receiving the app's child plugins.
  * @param config - validated app configuration.
  */
 export function composeTuiApp(ctx: Context, config: Config): void {
-  const resumeSessionId = config.resumeSessionId === '' ? undefined : config.resumeSessionId
-  const sessionId = SessionId(resumeSessionId ?? `main-session-${randomUUID()}`)
+  // The launcher, not the deployment config, owns `main`'s session identity: it
+  // reaches a Loader-mounted bundle only through this context slot. A launcher
+  // that supplies an id knows whether that session already exists, so it also
+  // states whether to load persisted history. No launcher means mint one here.
+  const identity = ctx.get(uiTui.MAIN_SESSION_ID_KEY)
+  const sessionId = SessionId(identity?.id ?? `main-session-${randomUUID()}`)
   const goals = config.goals ?? {}
-  const persistenceRoot = config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT
+  const persistenceRoot = config.persistenceRoot ?? ctx.get(uiTui.SESSIONS_ROOT_KEY) ?? DEFAULT_PERSISTENCE_ROOT
   ctx.plugin(CommandService)
   if (goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(SessionPersistenceJsonl, {
@@ -135,7 +141,6 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   ctx.plugin(uiTui, {
     ...config.ui,
     ...config.welcome === undefined ? {} : { welcome: config.welcome },
-    ...config.resumeCommand === undefined ? {} : { resumeCommand: config.resumeCommand },
     sessionId,
   })
   ctx.plugin(agentCore, {
@@ -146,7 +151,9 @@ export function composeTuiApp(ctx: Context, config: Config): void {
       provider: config.provider,
       model: config.model,
       cwd: process.cwd(),
-      ...resumeSessionId === undefined ? { sessionId } : { resumeSessionId: sessionId },
+      // `resumeSessionId` requires existing persisted history and rejects a
+      // missing log, so only a launcher that asked to resume takes that path.
+      ...identity?.resume === true ? { resumeSessionId: sessionId } : { sessionId },
     }],
   })
   ctx.plugin(toolAskUser)

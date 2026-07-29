@@ -8,6 +8,7 @@
 
 import { fileURLToPath } from 'node:url'
 import { AppCLIEntry } from './app-cli-entry.ts'
+import { registerLiveSessions } from './register-session.ts'
 
 const CONFIG_PATH = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 
@@ -40,6 +41,7 @@ export async function runWeb(
     ...trustedHosts !== undefined && { trustedHosts },
   })
   const { ctx, port: boundPort } = await entry.run()
+  await registerLiveSessions(ctx)
 
   let exiting = false
   const shutdown = (code: number): void => {

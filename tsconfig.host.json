@@ -86,6 +86,7 @@
     { "path": "./packages/goal/goal-session" },
     { "path": "./packages/goal/command-goal" },
     { "path": "./packages/context/time-context" },
+    { "path": "./packages/context/tmux-context" },
     { "path": "./packages/context/session-reference" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },
@@ -165,6 +166,7 @@
     { "path": "./packages/todo/tool-todo" },
     { "path": "./packages/plan/plan-mode" },
     { "path": "./packages/guard/repeat-tool-guard" },
+    { "path": "./packages/guard/source-guard" },
     { "path": "./packages/cordis/tool-cordis" },
     { "path": "./packages/hooks/hook-protocol" },
     { "path": "./packages/hooks/hooks-claude" },
@@ -182,6 +184,9 @@
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-local" },
     { "path": "./packages/lsp/tool-lsp" },
+    { "path": "./packages/session-registry/session-registry" },
+    { "path": "./packages/session-registry/session-registry-file" },
+    { "path": "./packages/session-registry/session-registry-live" },
     { "path": "./apps/cli" }
   ]
 }

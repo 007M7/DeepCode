@@ -172,6 +172,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections.',
   },
   {
+    key: 'sessionRegistry',
+    pkg: 'session-registry',
+    title: 'Live-session registry',
+    mode: 'seam',
+    implementations: ['session-registry-file'],
+    consumers: ['session-registry-live'],
+    note: 'Seam contract for live-session records; the file backend owns the lock-guarded medium, liveness is derived from the recorded pid at read time, and the publisher mirrors lifecycle and title events for `dsh list-sessions`.',
+  },
+  {
     key: 'sessionQuery',
     pkg: 'session-query',
     title: 'Session reads, traces, filters, and search',

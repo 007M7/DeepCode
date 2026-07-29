@@ -39,15 +39,15 @@ Swappable LLM, bash, filesystem, and other capability providers remain in the le
 | `toolTasks` | owner defaults | Background-task control-tool config, or `false` |
 | `goals` | owner defaults | Persisted goal-domain and model-tool config; `false` removes the goal stack and `/goal` producer |
 | `workspaceContext` | required | Workspace-instruction config, or `false` |
-| `persistenceRoot` | `./.sessions` | JSONL persistence root and parent of the derived `session-query.db` index |
+| `persistenceRoot` | `./.sessions` (launcher boot slot overrides) | JSONL persistence root and parent of the derived `session-query.db` index |
 | `persistenceCompression` | `'zstd'` | JSONL artifact encoding (`'zstd'` or raw `'none'`) |
 | `sessionReferences` | service defaults | Cross-session candidate and snapshot limits routed to `dsh-session-reference` |
 | `welcome` | `ready.` | TUI subtitle |
-| `resumeCommand` | — | Exit and no-host fallback command template; the selector itself uses session query and host handoff |
 | `ui` | owner defaults | TUI presentation settings such as reasoning, color, and card height |
-| `resumeSessionId` | — | Exact persisted session to resume |
 
-Fresh runs mint a `main-session-<uuid>` session id and pass it to both the TUI and configured agent. Resumed runs bind both components to `resumeSessionId`. The TUI mounts before the spine so it can render a matching config-start failure instead of leaving a blank terminal. The app composes persistence and session query for `/resume`; an embedding host may additionally provide `tuiResumeHost` for in-place process handoff.
+Session identity is launcher-owned rather than configurable: a launcher provides `MAIN_SESSION_ID_KEY` on the boot context, and this app binds both the TUI and the configured agent to that id, loading persisted history only when the launcher also set `resume`. With no such slot the app mints a `main-session-<uuid>` and creates it fresh. The TUI mounts before the spine so it can render a matching config-start failure instead of leaving a blank terminal. The app composes persistence and session query for `/resume`; a launcher may additionally provide `tuiResumeHost` for in-place process handoff and `TUI_GOODBYE_MESSAGE_KEY` for the line printed on exit.
+
+`persistenceRoot` defaults to project-local `./.sessions`: an app bundle must not assume the user's shared session store. A launcher that wants one store across every cwd states that policy through the `SESSIONS_ROOT_KEY` boot slot (`ctx.provide` before any Loader entry mounts) — the dsh CLI provides its Harness-home root there, so its `/resume` lists sessions from every workspace. Precedence is explicit config, then the launcher slot, then the project-local default.
 
 ## Front door
 

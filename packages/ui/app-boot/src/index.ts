@@ -157,17 +157,6 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
 }
 
 /**
- * Context key a bin sets through {@link boot}'s `prepare` hook to hand a resume
- * session id to the booted config: `ctx.provide(RESUME_SESSION_ID_KEY, id)`
- * makes `id` readable as the bare identifier `resumeSessionId` in a config
- * `!!js` expression. The value is the bin's already-parsed id (or `undefined`),
- * so resuming a session needs no environment variable. A bin that never
- * provides it leaves the identifier undeclared, so configs read it defensively
- * (`typeof resumeSessionId === 'string' ? resumeSessionId : undefined`).
- */
-export const RESUME_SESSION_ID_KEY = 'resumeSessionId'
-
-/**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
  * tree settles. Entry names load through the Loader's internal module loader
  * against `baseUrl` (the config directory), which may live outside

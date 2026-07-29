@@ -59,6 +59,8 @@ flowchart LR
   cfg --> plugin_tui_fs_policy
   plugin_tui_tool_fs["tool-fs<br/>@deepseek-ai/dsh-tool-fs"]
   cfg --> plugin_tui_tool_fs
+  plugin_tui_source_guard["source-guard<br/>@deepseek-ai/dsh-source-guard"]
+  cfg --> plugin_tui_source_guard
   plugin_tui_tool_fs_search["tool-fs-search<br/>@deepseek-ai/dsh-tool-fs-search"]
   cfg --> plugin_tui_tool_fs_search
   plugin_tui_timeout_policy["timeout-policy<br/>@deepseek-ai/dsh-timeout-policy"]
@@ -93,6 +95,7 @@ flowchart LR
 | `fs-local` | `@deepseek-ai/dsh-fs-local` |
 | `fs-policy` | `@deepseek-ai/dsh-fs-policy` |
 | `tool-fs` | `@deepseek-ai/dsh-tool-fs` |
+| `source-guard` | `@deepseek-ai/dsh-source-guard` |
 | `tool-fs-search` | `@deepseek-ai/dsh-tool-fs-search` |
 | `timeout-policy` | `@deepseek-ai/dsh-timeout-policy` |
 | `spill-local` | `@deepseek-ai/dsh-spill-local` |

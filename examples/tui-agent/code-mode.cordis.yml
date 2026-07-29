@@ -10,9 +10,7 @@
         config:
           provider: deepseek
           model: deepseek-v4-pro
-          resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
           persistenceRoot: './.sessions'
-          resumeCommand: 'dsh --resume {session}'
           workspaceContext:
             maxBytes: 65536
           tools:

@@ -689,6 +689,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionRegistry',
+    summary: 'Cross-process live-session registry.',
+    methods: [
+      {
+        signature: 'abstract register(registration: SessionRegistration): Promise<() => Promise<void>>',
+        jsDoc: '/**\n * Publish this process\'s record, replacing any stale record for the same\n * session id, and prune records whose process is gone.\n * @param registration - the session, surface, and workspace to publish.\n * @returns the effect disposer that removes this record again; awaiting it\n * waits for the removal to reach durability.\n */',
+      },
+      {
+        signature: 'abstract retitle(sessionId: SessionId, title: string): Promise<void>',
+        jsDoc: '/**\n * Replace the recorded title of a session this process registered.\n *\n * Titles arrive after registration and can be revised, so this is the one\n * mutable field. Only a record matching this process and incarnation is\n * touched, leaving a same-id record owned by another process alone. An unknown\n * session id is a no-op rather than an error: a title can resolve after the\n * session\'s record has already been removed.\n * @param sessionId - the session whose recorded title changes.\n * @param title - the new title text.\n */',
+      },
+      {
+        signature: 'abstract list(): Promise<SessionRegistryRecord[]>',
+        jsDoc: '/**\n * List live sessions, pruning records whose process no longer exists.\n * @returns one record per live registered session, newest registration last.\n */',
+      },
+    ],
+  },
+  {
     key: 'sessions',
     summary: 'In-memory session store (`ctx.sessions`).',
     methods: [
@@ -1544,6 +1562,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BashSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
   },
   {
+    name: 'BootId',
+    declaration: 'export type BootId = Branded<\'BootId\'>;',
+  },
+  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
@@ -2246,6 +2268,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionReferenceInput',
     declaration: 'export interface SessionReferenceInput {\n    sessionId: SessionId;\n    label?: string;\n}',
+  },
+  {
+    name: 'SessionRegistration',
+    declaration: 'export interface SessionRegistration {\n    sessionId: SessionId;\n    cwd: string;\n    title?: string;\n}',
+  },
+  {
+    name: 'SessionRegistryRecord',
+    declaration: 'export interface SessionRegistryRecord {\n    readonly sessionId: SessionId;\n    readonly pid: number;\n    readonly cwd: string;\n    readonly startedAt: number;\n    readonly bootId: BootId;\n    readonly title?: string;\n}',
   },
   {
     name: 'SessionResultFilter',

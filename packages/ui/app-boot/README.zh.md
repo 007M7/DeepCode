@@ -11,8 +11,7 @@
 | `installFailLoud(binName, proc?)` | 将 `boot()` 之后未处理的 Loader rejection 转换为一行带标签的 stderr 消息并执行 `exit(1)`；返回卸载函数（供测试使用） |
 | `assertEntriesLoaded(ctx, binName)` | 树结算后，如果其中存在已启用但没有 fiber 的条目，则抛出异常，并以 Cordis 启动故障的形式报告每个未解析插件的名称 |
 | `loadPersonalPatches(binName, dir?)` | 解析 Harness home 中可选的 `config.yaml`（默认使用 [`resolveDshHome()`](../../util/paths/README.md)：先取 `$DSH_HOME`，否则取 `~/.dsh`）：其顶层是一个 YAML 数组，内容为 include 的 `PatchOptions`（按 id 定位的配置覆盖、`insert` 列表，允许 `!!js`）；文件不存在时返回 `undefined`，文件不可读、不可解析或内容不是数组时抛出异常 |
-| `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，在插件挂载前执行可选的宿主准备操作（例如 `ctx.provide(RESUME_SESSION_ID_KEY, id)`），再挂载 Loader/include 树并等待其结算，断言所有条目均已加载，最后返回根上下文 |
-| `RESUME_SESSION_ID_KEY` | bin 通过 `boot` 的 `prepare` 钩子设置的上下文键，用于把要恢复的会话 id 交给已启动配置；配置以裸标识符 `resumeSessionId` 在 `!!js` 表达式中读取它，因此恢复操作无需环境变量 |
+| `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，在插件挂载前执行可选的宿主准备操作（`prepare` 正是 bin 提供由启动器拥有、供已挂载应用读取的上下文插槽之处，例如 [`MAIN_SESSION_ID_KEY`](../tui/README.md)），再挂载 Loader/include 树并等待其结算，断言所有条目均已加载，最后返回根上下文 |
 | `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）自身源代码 checkout 的磁盘路径；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 

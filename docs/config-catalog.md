@@ -1153,6 +1153,26 @@ export interface Config {
 
 Source: [`packages/context/session-reference/src/config.ts:11`](../packages/context/session-reference/src/config.ts)
 
+## `@deepseek-ai/dsh-session-registry-file`
+
+```ts config-catalog
+/**
+ * Plugin config as callers write it: `root` is required — a cwd fallback would
+ * scatter registries — while the lock tunables are optional because
+ * `static Config` supplies their defaults.
+ */
+export interface Config {
+  /** Directory holding the registry file; created `0o700` on demand. */
+  root: string
+  /** Milliseconds after which a held lock is considered abandoned and reclaimed. */
+  lockStaleMs?: number
+  /** Retries before a contended acquisition fails loud. */
+  lockRetries?: number
+}
+```
+
+Source: [`packages/session-registry/session-registry-file/src/index.ts:43`](../packages/session-registry/session-registry-file/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-telemetry-otel`
 
 Requires: `sessions`
@@ -1262,6 +1282,38 @@ export interface Config {
 ```
 
 Source: [`packages/skill/skill-local/src/index.ts:41`](../packages/skill/skill-local/src/index.ts)
+
+## `@deepseek-ai/dsh-source-guard`
+
+Requires: `fs`
+
+```ts config-catalog
+/**
+ * Plugin config, validated by the same-named schemastery schema plus the
+ * load-time checks in `apply` (misconfiguration fails loud: an empty `tools`
+ * list, a blank `requiredSkill`, or a relative `protectedCheckout` throws at
+ * plugin load, never a silent fall-back).
+ */
+export interface Config {
+  /** Skill whose loaded presence in the session lifts the denial (default `dsh-customize`). */
+  requiredSkill?: string
+  /** Tool names to gate (default `['write', 'edit']`). */
+  tools?: string[]
+  /**
+   * Absolute path inside the checkout this guard protects. Its worktree
+   * supplies BOTH protected identities: the repository (targets in any other
+   * repository are ignored) and the exact branch (only that branch's worktree
+   * is protected). Defaults to this module's own location, which resolves the
+   * checkout the running harness was launched from — the live deployment,
+   * whatever its branch is named. Set it explicitly to guard a different
+   * checkout, or when the harness runs from an installed copy whose own
+   * location is not a checkout at all.
+   */
+  protectedCheckout?: string
+}
+```
+
+Source: [`packages/guard/source-guard/src/index.ts:30`](../packages/guard/source-guard/src/index.ts)
 
 ## `@deepseek-ai/dsh-spill-local`
 
@@ -1540,6 +1592,20 @@ export interface Config {
 ```
 
 Source: [`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
+
+## `@deepseek-ai/dsh-tmux-context`
+
+Requires: `agents`
+
+```ts config-catalog
+/** Per-turn tmux-location scheduling. Invalid values fail plugin load. */
+export interface Config {
+  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible change. */
+  refreshIntervalMs?: number
+}
+```
+
+Source: [`packages/context/tmux-context/src/index.ts:33`](../packages/context/tmux-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-token-meter`
 
@@ -1960,7 +2026,12 @@ export interface Config {
   dshHome?: string
   /** Fallback session-title limits forwarded through agent-spine-demo. */
   sessionTitle?: NonNullable<agentCore.Config['sessionTitle']>
-  /** Directory for JSONL sessions and the derived query index. Defaults to `./.sessions`. */
+  /**
+   * Directory for JSONL sessions and the derived query index. Precedence:
+   * this explicit config, then the launcher's opaque `SESSIONS_ROOT_KEY` boot
+   * slot (the dsh CLI resolves it to `DSH_HOME/sessions`), then a project-local
+   * `./.sessions` fallback — the bundle itself never assumes a global store.
+   */
   persistenceRoot?: string
   /** JSONL artifact encoding; defaults to checksummed Zstandard frames. */
   persistenceCompression?: JsonlCompression
@@ -1968,13 +2039,6 @@ export interface Config {
   sessionReferences?: SessionReferenceConfig
   /** TUI transcript's optional first line; absent renders nothing on start. */
   welcome?: string
-  /**
-   * Shell command template the TUI prints on exit and lists under `/resume`,
-   * with `{session}` replaced by the live session id (forwarded to the front
-   * door). Set it to a command that resumes the session, e.g.
-   * `dsh --resume {session}`.
-   */
-  resumeCommand?: string
   /** Full-screen TUI presentation settings. */
   ui?: uiTui.TuiConfig
   /** Skill registry, local-provider, and model-facing consumer config. */
@@ -1985,8 +2049,6 @@ export interface Config {
   toolTasks?: NonNullable<agentCore.Config['toolTasks']>
   /** Persisted same-session goals; owner defaults enable them, or false disables the stack and command. */
   goals?: agentCore.GoalConfig | false
-  /** Persisted session id to resume instead of creating a fresh session. */
-  resumeSessionId?: string
   /** Controls automatic AGENTS.md/CLAUDE.md loading; configure a byte budget or set `false`. */
   workspaceContext: agentCore.Config['workspaceContext']
 }
@@ -1994,7 +2056,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`SessionReferenceConfig`](#deepseek-aidsh-session-reference) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/tui-demo/src/index.ts:39`](../packages/examples/tui-demo/src/index.ts)
+Source: [`packages/examples/tui-demo/src/index.ts:44`](../packages/examples/tui-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -2231,6 +2293,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session-projection/session-projection/src/index.ts`](../packages/session-projection/session-projection/src/index.ts))
+- `@deepseek-ai/dsh-session-registry-live` — requires `sessions` · `sessionRegistry` ([`packages/session-registry/session-registry-live/src/index.ts`](../packages/session-registry/session-registry-live/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-local` ([`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts))
@@ -2253,6 +2316,7 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-session-query` — abstract `SessionQueryService` ([`packages/session-query/session-query/src/index.ts`](../packages/session-query/session-query/src/index.ts))
+- `@deepseek-ai/dsh-session-registry` — abstract `SessionRegistry` ([`packages/session-registry/session-registry/src/index.ts`](../packages/session-registry/session-registry/src/index.ts))
 - `@deepseek-ai/dsh-spill` — abstract `SpillStore` ([`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts))
 - `@deepseek-ai/dsh-subprocess` — abstract `SubprocessService` ([`packages/subprocess/subprocess/src/index.ts`](../packages/subprocess/subprocess/src/index.ts))
 - `@deepseek-ai/dsh-tasks` — abstract `TaskService` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))

@@ -14,6 +14,7 @@ import type { MuxFrame } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AppCLIEntry } from './app-cli-entry.ts'
+import { registerLiveSessions } from './register-session.ts'
 
 /** Outcome of one headless turn: aggregated final text plus the turn-end reason kind. */
 interface TurnOutcome {
@@ -80,6 +81,7 @@ export async function runHeadless(task: string): Promise<void> {
     port: 0,
   })
   const { ctx, port } = await entry.run()
+  await registerLiveSessions(ctx)
   const dispose = async (): Promise<void> => { await ctx.fiber.dispose() }
   // The headless session is web-observable while it runs (same composition).
   process.stderr.write(`dsh: observing at http://127.0.0.1:${String(port)}\n`)

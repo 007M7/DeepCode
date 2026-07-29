@@ -18,7 +18,7 @@ import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
 import { assertEntriesLoaded, installFailLoud, loadEnv } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
@@ -178,11 +178,11 @@ export class AppCLIEntry {
       overrides.set(entryId, bag)
     }
 
-    // Source 0: computed engineering defaults. The session store defaults to
-    // a global dir under the Harness home ($DSH_HOME, else ~/.dsh) so history
-    // is shared across every cwd, not a project-local ./.sessions. The profile
+    // Source 0: computed engineering defaults. The session store is the one
+    // shared root every dsh surface resolves, so history follows the user across
+    // working directories instead of splitting per project. The profile
     // (Source 1) overwrites this same field via last-write-wins in put().
-    put('session-persistence-jsonl', 'root', join(resolveDshHome(), 'sessions'))
+    put('session-persistence-jsonl', 'root', resolveSessionsRoot())
 
     // Source 1: profile json (missing file = empty; unmapped key = loud).
     for (const [key, value] of Object.entries(this.readProfile())) {
@@ -208,6 +208,7 @@ export class AppCLIEntry {
     // Source 3: the frontend dist — an assembly fact of this app, never yml
     // user config. Workspace knowledge stays here.
     put('webserver', 'distIndex', this.resolveDistIndex())
+
 
     this.patches = [...overrides.entries()].map(([id, bag]) => {
       const yml = rows.get(id)

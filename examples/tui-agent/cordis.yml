@@ -47,15 +47,11 @@
   config:
     provider: deepseek
     model: deepseek-v4-pro
-    # `dsh --resume <id>` provides the session id on the boot context (the ids
-    # live under ./.sessions); with no flag the identifier is undefined and a
-    # fresh session starts each run. The typeof guard tolerates a launcher that
-    # never provides the slot, reading undefined rather than throwing.
-    resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
-    persistenceRoot: './.sessions'
-    # Printed on exit and listed by `/resume`; `{session}` fills the live id.
-    # `dsh --resume <id>` resumes that session, so run it from this cwd.
-    resumeCommand: 'dsh --resume {session}'
+    # Session identity and the resume command printed on exit are launcher-owned:
+    # `dsh` provides both on the boot context, so `--resume <id>` and the exit
+    # hint need no key here. `persistenceRoot` is omitted: the dsh launcher
+    # supplies its shared Harness-home store through a boot slot, and a bare
+    # example boot falls back to the bundle's project-local `./.sessions`.
     workspaceContext:
       maxBytes: 65536
     ui:
@@ -168,6 +164,15 @@
 
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+
+# Refuses write/edit inside the dsh checkout this launcher runs from, on that
+# checkout's own branch, until the session loads dsh-customize — the skill whose
+# workflow (task worktree, then integrate under the staging lock) the refusal
+# points at. Inert everywhere else: another repository, a task worktree nested
+# under the protected one, a sibling checkout on a different branch, and any
+# workspace outside a dsh source install all pass through untouched.
+- id: source-guard
+  name: '@deepseek-ai/dsh-source-guard'
 
 # Bash-backed discovery tools (glob/grep): fixed ripgrep commands through the
 # local bash executor above — not ctx.fs. Capped results save the complete

@@ -1,5 +1,5 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -78,6 +78,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
     env: { DSH_PERMISSION_MODE: 'never' },
     configPath: AGENT.configPath,
     workspaceParent: tmpdir(),
+    prepareCwd: async (cwd) => { await writeFile(join(cwd, 'prepared.marker'), 'prepared\n') },
   },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },

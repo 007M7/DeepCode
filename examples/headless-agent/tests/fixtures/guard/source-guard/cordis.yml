@@ -1,0 +1,38 @@
+# Test-only composition: the model attempts one `write` into a staging-shaped
+# git fixture, so the guard's denial is observed through the real Loader and app.
+- id: source-guard-mock-llm
+  name: './mock-llm.ts'
+
+# Managed child-process groups for the bash executor (spawn/kill/output plumbing).
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+
+- id: fs
+  name: '@deepseek-ai/dsh-fs-local'
+
+# Read-before-edit policy: without it the write would resolve `createIfAbsent`
+# and the transcript would not show the guard as the sole reason for refusal.
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+# Mounts the guard with `protectedCheckout` resolved against the process cwd, so
+# it arms for the staging fixture the smoke builds there rather than for the
+# checkout running the test (the config default is this module's own location).
+- id: source-guard-fixture
+  name: './mount-guard.ts'
+
+- id: cli-agent
+  name: '@deepseek-ai/dsh-cli-demo'
+  config:
+    provider: source-guard-mock
+    model: source-guard-mock
+    persona: 'Test the source guard.'
+    persistenceRoot: './.sessions'
+    persistenceCompression: none
+    workspaceContext: false

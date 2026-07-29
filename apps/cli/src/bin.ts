@@ -43,6 +43,22 @@ switch (invocation.mode) {
     await runTui(invocation.config, invocation.resume)
     break
   }
+  case 'meta': {
+    const { runMeta } = await import('./tui.ts')
+    await runMeta(invocation.resume)
+    break
+  }
+  case 'list-sessions': {
+    const { runListSessions } = await import('./list-sessions.ts')
+    await runListSessions(invocation.json)
+    break
+  }
+  case 'migrate':
+  case 'upgrade': {
+    const { runSkillSession } = await import('./tui.ts')
+    await runSkillSession(`dsh-${invocation.mode}`)
+    break
+  }
   default:
     invocation satisfies never
     throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)

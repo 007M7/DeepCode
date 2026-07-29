@@ -2,9 +2,9 @@
  * Commander adapter for the `dsh` command-line entry: the one place argv is
  * parsed and routed to a mode. `bin.ts` switches on the returned discriminant
  * and dynamic-imports that mode's module. One program: the default (no
- * subcommand) is the TUI/headless surface with option-only flags; `web` is a
- * real subcommand. Commander owns `--help`/`--version` and parse errors — it
- * prints and exits at the point of failure (a domain failure routes through
+ * subcommand) is the TUI/headless surface with option-only flags; `meta` and
+ * `web` are real subcommands. Commander owns `--help`/`--version` and parse
+ * errors — it prints and exits at the point of failure (a domain failure routes through
  * `command.error`), so this returns only a resolved mode.
  * @module @deepseek-ai/dsh/args
  */
@@ -22,6 +22,39 @@ interface TuiInvocation {
 interface HeadlessInvocation {
   mode: 'headless'
   prompt: string
+}
+
+/**
+ * Interactive TUI over this harness checkout: `dsh meta`. Identical to
+ * {@link TuiInvocation} except the workspace is the launcher's own source tree
+ * rather than the invoking directory. No `--config`: booting a foreign tree
+ * against the harness workspace is the `--config` case, not this one.
+ */
+interface MetaInvocation {
+  mode: 'meta'
+  resume?: string
+}
+
+/**
+ * Guided fresh-session entries: `dsh migrate` seeds the first turn with the
+ * `dsh-migrate` skill, `dsh upgrade` with `dsh-upgrade`. Each always mints a
+ * fresh session in the invoking directory and takes no options — `--resume`,
+ * `--config`, and `-p` are rejected as mistyped, so there is nothing to carry.
+ */
+interface SkillSessionInvocation {
+  mode: 'migrate' | 'upgrade'
+}
+
+/**
+ * List live sessions: `dsh list-sessions` (alias `dsh ps`). A read-only surface
+ * that boots no agent tree — it reads the cross-process session registry and
+ * exits. `json` selects the machine-readable form over the human table. There
+ * is no workspace filter: the listing is always every live session, whatever
+ * directory it runs in.
+ */
+interface ListSessionsInvocation {
+  mode: 'list-sessions'
+  json: boolean
 }
 
 /**
@@ -45,7 +78,13 @@ interface WebInvocation {
 }
 
 /** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = TuiInvocation | HeadlessInvocation | WebInvocation
+export type DshInvocation =
+  | TuiInvocation
+  | HeadlessInvocation
+  | MetaInvocation
+  | SkillSessionInvocation
+  | ListSessionsInvocation
+  | WebInvocation
 
 /** Raw web-subcommand options straight from Commander. */
 interface WebOptions {
@@ -86,13 +125,22 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
   const program = new Command()
     .name('dsh')
     .version(version, '-V, --version', 'output the version number')
-    .description('dsh: interactive TUI (default), headless task, and browser UI')
+    .description('dsh: DeepSeek Harness — an interactive coding agent for your terminal.\nRun `dsh` with no arguments to start a session in the current directory.')
+    // The default surface takes no positional task, so `dsh "task"` fails
+    // commander's arity check with no hint; these examples are where a first
+    // reader learns the entry points and that a one-shot task rides `-p`.
+    .addHelpText('after', `
+Examples:
+  dsh                     start an interactive session in this directory
+  dsh -p "run the tests"  answer one task, print the result, and exit
+  dsh --resume <id>       continue a past session (list ids with \`dsh ps\`)
+`)
     .exitOverride()
     // Default surface: option-only (no positional), so `web` can be a real
     // subcommand without a positional collision.
-    .option('--config <path>', 'boot an alternate cordis.yml instead of the shipped tree (TUI mode)')
-    .option('-p, --prompt <task>', 'run one headless turn for this task, print the result, and exit')
-    .option('--resume <id>', 'resume the persisted session with this id (TUI mode)')
+    .option('-p, --prompt <task>', 'answer this task without the interactive UI, then exit')
+    .option('--resume <id>', 'continue a past session by id (list ids with `dsh ps`)')
+    .option('--config <path>', 'start with an alternate plugin configuration file')
     .action((options: { config?: string; prompt?: string; resume?: string }) => {
       if (options.prompt !== undefined) {
         // A headless prompt owns the invocation; an empty task has nothing to
@@ -115,23 +163,82 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       }
     })
 
-  const web = program.command('web').description('serve the browser UI (host/port default to the shipped config)')
+  // Commander parses the parent (default-surface) options on either side of a
+  // subcommand into `program.opts()`. For a subcommand that shares none of them,
+  // a leaked `--config`/`-p`/`--resume` is a mistyped invocation that must fail
+  // loud rather than silently run and drop the input.
+  const rejectParentOptions = (command: string): void => {
+    const parent = program.opts<{ config?: string; prompt?: string; resume?: string }>()
+    if (parent.config !== undefined || parent.prompt !== undefined || parent.resume !== undefined) {
+      program.error(`error: ${command} takes none of --config, -p/--prompt, or --resume`)
+    }
+  }
+
+  // Registration order is the rendered help order, so daily use comes first
+  // and the harness-development surfaces (`web --dev`, `meta`) come last.
+  // `migrate` and `upgrade` are guided fresh-session entries: they take no
+  // options and always mint a fresh session, so nothing is left to carry. Each
+  // description names the outcome, not the skill the first turn invokes.
+  const guided = {
+    migrate: 'import settings from another coding agent (Claude Code, Codex, opencode)',
+    upgrade: 'update this dsh installation to the latest version',
+  } as const
+  for (const mode of ['migrate', 'upgrade'] as const) {
+    program
+      .command(mode)
+      .description(guided[mode])
+      .action(() => {
+        rejectParentOptions(mode)
+        resolved = { mode }
+      })
+  }
+
+  program
+    .command('list-sessions')
+    .alias('ps')
+    .description('list sessions running right now')
+    .option('--json', 'print the records as a JSON array instead of a table')
+    .action((options: { json?: boolean }) => {
+      rejectParentOptions('list-sessions')
+      resolved = { mode: 'list-sessions', json: options.json === true }
+    })
+
+  // Host and port name no default: the CLI passes neither through when the flag
+  // is absent, so the shipped `cordis.yml` value stands and restating it here
+  // would duplicate a fact this file does not own.
+  const web = program.command('web').description('serve the browser UI on the configured host and port')
   web
-    .option('--host <host>', 'override the config bind host (127.0.0.1 or 0.0.0.0)')
-    .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
-    .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
-    .option('--workspace-root <path>', 'parent directory for name-created workspaces')
+    .option('--host <host>', 'bind host; pass 0.0.0.0 to reach it from another machine')
+    .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
+    .option('--dev', 'developer mode: hot-reload the browser client')
+    .option('--workspace-root <path>', 'parent directory for workspaces created from the browser UI')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .action((options: WebOptions) => {
-      // Commander parses the parent (default-surface) options on either side of
-      // the subcommand into `program.opts()`. `web` shares none of them, so a
-      // leaked `--config`/`-p`/`--resume` is a mistyped invocation that must
-      // fail loud rather than silently start the web server and drop it.
-      const parent = program.opts<{ config?: string; prompt?: string; resume?: string }>()
-      if (parent.config !== undefined || parent.prompt !== undefined || parent.resume !== undefined) {
-        program.error('error: web takes none of --config, -p/--prompt, or --resume')
-      }
+      rejectParentOptions('web')
       resolved = resolveWeb(options)
+    })
+
+  // `--resume` is NOT redeclared here: an option a subcommand shares with its
+  // parent parses into `program.opts()` and leaves the subcommand's own options
+  // empty, so redeclaring it would silently drop the id. Commander therefore
+  // omits it from this subcommand's option list, hence the trailing help text.
+  program
+    .command('meta')
+    .description('work on the dsh source that runs this command, from any directory')
+    .addHelpText('after', '\nAccepts --resume <id> to resume a persisted session from this checkout.\n')
+    .action(() => {
+      // Commander parses the parent (default-surface) options on either side of
+      // the subcommand into `program.opts()`. `meta` accepts only `--resume`, so
+      // a leaked `--config`/`-p` is a mistyped invocation that must fail loud
+      // rather than silently be dropped.
+      const parent = program.opts<{ config?: string; prompt?: string; resume?: string }>()
+      if (parent.config !== undefined || parent.prompt !== undefined) {
+        program.error('error: meta takes neither --config nor -p/--prompt')
+      }
+      // Same reason as the default surface: an empty id would start a fresh
+      // session downstream instead of failing the mistyped resume.
+      if (parent.resume === '') program.error('error: --resume needs a session id')
+      resolved = { mode: 'meta', ...parent.resume !== undefined && { resume: parent.resume } }
     })
 
   try {

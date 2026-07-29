@@ -47,6 +47,10 @@ flowchart LR
   pkg_workspace["workspace"]
   svc_workspace["ctx.workspace<br/>Workspace entity registry"]
   pkg_apiproxy["apiproxy"]
+  pkg_session_registry["session-registry"]
+  svc_sessionRegistry["ctx.sessionRegistry<br/>Live-session registry"]
+  pkg_session_registry_file["session-registry-file"]
+  pkg_session_registry_live["session-registry-live"]
   svc_sessionQuery["ctx.sessionQuery<br/>Session reads, traces, filters, and search"]
   pkg_session_reference["session-reference"]
   pkg_tool_session_query["tool-session-query"]
@@ -197,6 +201,8 @@ flowchart LR
   pkg_session_query --> svc_sessionQuery
   pkg_session_query_sqlite --> svc_sessionQuery
   pkg_session_reference --> svc_sessionReferences
+  pkg_session_registry --> svc_sessionRegistry
+  pkg_session_registry_file --> svc_sessionRegistry
   pkg_session_telemetry --> svc_telemetry
   pkg_session_telemetry_otel --> svc_telemetry
   pkg_session_title --> svc_sessionTitle
@@ -279,6 +285,7 @@ flowchart LR
   svc_sessionQuery --> pkg_session_reference
   svc_sessionQuery --> pkg_tool_session_query
   svc_sessionReferences --> pkg_tui
+  svc_sessionRegistry --> pkg_session_registry_live
   svc_sessions --> pkg_agent
   svc_sessions --> pkg_agent_loop
   svc_sessions --> pkg_cli_demo
@@ -339,6 +346,7 @@ flowchart LR
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
 | `ctx.workspace` | `core` | [`workspace`](../packages/workspace/workspace) | - | `apiproxy` | - | Owns WorkspaceId-branded records over the domain facility; stable sessionIds accounts drive Host RPC and GUI projections. |
+| `ctx.sessionRegistry` | `seam` | [`session-registry`](../packages/session-registry/session-registry) | [`session-registry-file`](../packages/session-registry/session-registry-file) | [`session-registry-live`](../packages/session-registry/session-registry-live) | - | Seam contract for live-session records; the file backend owns the lock-guarded medium, liveness is derived from the recorded pid at read time, and the publisher mirrors lifecycle and title events for `dsh list-sessions`. |
 | `ctx.sessionQuery` | `seam` | [`session-query`](../packages/session-query/session-query) | [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | [`session-reference`](../packages/context/session-reference), [`tool-session-query`](../packages/session-query/tool-session-query) | - | The interface supplies exact reads, filters, and traces; its concrete backend adds full-text reconciliation, ranking, snippets, and cursor generations, while the model consumer owns workspace authority and cursor-free rendering. |
 | `ctx.sessionReferences` | `core` | [`session-reference`](../packages/context/session-reference) | - | [`tui`](../packages/ui/tui) | - | Projects bounded current-surface conversation snapshots into durable untrusted message context; host adapters own mention syntax. |
 | `ctx.sessionTitle` | `seam` | [`session-title`](../packages/session-title/session-title) | [`session-title-first-message-llm`](../packages/session-title/session-title-first-message-llm), [`session-title-all-messages-llm`](../packages/session-title/session-title-all-messages-llm) | - | - | Owns the deterministic fallback, latest-title fold, and sole optional asynchronous provider registration. |

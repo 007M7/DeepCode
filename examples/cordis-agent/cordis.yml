@@ -60,7 +60,6 @@
   config:
     provider: deepseek
     model: deepseek-v4-pro
-    resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
     persistenceRoot: './.sessions'
     workspaceContext:
       maxBytes: 65536

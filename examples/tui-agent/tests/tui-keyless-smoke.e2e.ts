@@ -365,11 +365,11 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('must be a top-level YAML array of loader patch entries')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('routes the --resume flag into the config resume intake, failing loud on a missing id', async () => {
-    // The flag path end to end: apps/cli parses `--resume missing-session` and
-    // provides the id on the boot context, the shipped config's `!!js` reads it
-    // as a bare identifier, and the resume fails loud — proving the printed
-    // `dsh --resume <id>` hint reaches the config resume intake with no env var.
+  it('routes the --resume flag into the launcher session-identity slot, failing loud on a missing id', async () => {
+    // The flag path end to end: apps/cli parses `--resume missing-session`,
+    // provides it as the launcher-owned identity on the boot context, and the
+    // resume fails loud — proving the printed hint reaches the app's resume
+    // intake with no config key and no environment variable.
     const output = await smoke({
       label: 'dsh resume flag failure',
       tempDirPrefix: 'dsh-resume-flag-',
@@ -378,6 +378,70 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       expectedExitCode: 1,
     })
     expect(output).toContain('ui-tui: session "missing-session" failed to start:')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('prints the launcher-owned resume command on exit, naming the booted config', async () => {
+    // The exit line is built by apps/cli from this invocation, so it must carry
+    // `--config`: a hint that omitted it would resume into the default tree.
+    const output = await smoke({
+      label: 'dsh goodbye message',
+      tempDirPrefix: 'dsh-goodbye-',
+      binScript: dshBinScript,
+      configPath: scriptedConfigPath,
+      actions: [{ waitFor: 'scripted TUI ready.', send: '/exit\r' }],
+    })
+    expect(output).toMatch(/To resume this session: dsh --resume=main-session-[0-9a-f-]{36} --config/)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('keeps resume working when the personal overlay replaces the whole tui-agent config', async () => {
+    // Loader patches replace a targeted `config` key wholesale, so a personal
+    // overlay that omits a resume key used to silently disable the exit hint.
+    // Launcher-owned identity and exit line make that unreachable.
+    const output = await smoke({
+      label: 'dsh overlay keeps resume',
+      tempDirPrefix: 'dsh-overlay-resume-',
+      binScript: dshBinScript,
+      configArgs: [],
+      prepare: seedWorkspace({
+        personal: {
+          'config.yaml': [
+            '- id: tui-agent',
+            "  name: '@deepseek-ai/dsh-tui-demo'",
+            '  config:',
+            '    provider: deepseek',
+            '    model: deepseek-v4-flash',
+            '    workspaceContext: false',
+            '    welcome: OVERLAY REPLACED THE CONFIG.',
+            '',
+          ].join('\n'),
+        },
+      }),
+      actions: [{ waitFor: 'OVERLAY REPLACED THE CONFIG.', send: '/exit\r' }],
+    })
+    expect(output).toMatch(/To resume this session: dsh --resume=main-session-[0-9a-f-]{36}/)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('reports a failing bash command exactly once, as the terminal card exit pill', async () => {
+    // The model-facing result ends in `[exit code: 3]`, which the terminal card
+    // consumes into its own `[exit 3]` pill. Rendering both would report the same
+    // exit twice, so the marker must not survive into the card body.
+    const output = await smoke({
+      label: 'tui-agent bash exit pill',
+      tempDirPrefix: 'dsh-bash-exit-pill-',
+      configPath: scriptedConfigPath,
+      actions: [
+        ...SELECT_PRO_MODEL,
+        {
+          waitFor: 'Model selected: tui-scripted/tui-scripted-model-pro.',
+          send: 'Run the failing scripted command.\r',
+        },
+        { waitFor: 'Scripted bash failure observed.', send: '/exit\r' },
+      ],
+    })
+    // The command really ran: its stdout is in the card body.
+    expect(output).toContain('SCRIPTED_BASH_FAILED')
+    expect(output).toContain('[exit 3]')
+    expect(output).not.toContain('[exit code: 3]')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('tells the model its source path and offers the bundled maintenance skills', async () => {

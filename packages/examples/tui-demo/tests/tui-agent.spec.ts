@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { MAIN_SESSION_ID_KEY, SESSIONS_ROOT_KEY, type MainSessionIdentity } from '@deepseek-ai/dsh-tui'
 import * as tuiAgent from '../src/index.ts'
 
 interface PluginCall {
@@ -10,12 +12,21 @@ interface PluginCall {
   readonly config: unknown
 }
 
-function recordingContext(): { readonly ctx: Context; readonly calls: PluginCall[] } {
+/**
+ * Record the composed plugin tree. `identity` stands in for the launcher-owned
+ * {@link MAIN_SESSION_ID_KEY} slot; omitting it means no launcher chose a session.
+ */
+function recordingContext(
+  identity?: MainSessionIdentity,
+  sessionsRoot?: string,
+): { readonly ctx: Context; readonly calls: PluginCall[] } {
   const calls: PluginCall[] = []
   const ctx = {
     plugin(plugin: { name?: string }, config?: unknown) {
       calls.push({ name: plugin.name ?? '', config })
     },
+    get: (key: string) => key === MAIN_SESSION_ID_KEY ? identity
+      : key === SESSIONS_ROOT_KEY ? sessionsRoot : undefined,
   } as unknown as Context
   return { ctx, calls }
 }
@@ -39,7 +50,6 @@ describe('dsh-tui-demo app', () => {
         maxReferenceBytes: 1234,
       },
       welcome: 'TUI ready',
-      resumeCommand: 'dsh --resume {session}',
       ui: { theme: { color: false }, maxToolOutputLines: 3 },
       skills: { tool: { catalogDescriptionMaxLength: 8 } },
       toolBash: { enableRunInBackground: false },
@@ -71,7 +81,6 @@ describe('dsh-tui-demo app', () => {
     const tuiConfig = calls[8]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({
       welcome: 'TUI ready',
-      resumeCommand: 'dsh --resume {session}',
       theme: { color: false },
       maxToolOutputLines: 3,
     })
@@ -100,16 +109,46 @@ describe('dsh-tui-demo app', () => {
     })
   })
 
-  it('resumes the configured session and applies runtime defaults', () => {
-    const { ctx, calls } = recordingContext()
+  it('uses the launcher sessions-root slot through schema-normalized config', () => {
+    // The Loader normalizes config through the schemastery Config BEFORE apply
+    // runs. A schema .default() on persistenceRoot would materialize here and
+    // permanently shadow the launcher slot — the regression this test pins.
+    const normalized = tuiAgent.Config({
+      provider: 'mock',
+      model: 'mock-model',
+      workspaceContext: false,
+    } as never)
+    expect(normalized.persistenceRoot).toBeUndefined()
+
+    const { ctx, calls } = recordingContext(undefined, '/launcher/sessions')
+    tuiAgent.composeTuiApp(ctx, normalized)
+    expect(calls[2]?.config).toMatchObject({ root: '/launcher/sessions' })
+    expect(calls[4]?.config).toEqual({ path: join('/launcher/sessions', 'session-query.db') })
+  })
+
+  it('lets an explicit persistenceRoot win over the launcher slot', () => {
+    const { ctx, calls } = recordingContext(undefined, '/launcher/sessions')
     tuiAgent.composeTuiApp(ctx, {
       provider: 'mock',
       model: 'mock-model',
-      resumeSessionId: 'persisted-session',
+      persistenceRoot: '/explicit/root',
+      workspaceContext: false,
+    })
+    expect(calls[2]?.config).toEqual({ root: '/explicit/root' })
+  })
+
+  it('loads persisted history for a launcher-selected resume identity', () => {
+    // The bundle default stays project-local: shared-store policy is the
+    // launcher's, which patches `persistenceRoot` itself (the dsh CLI does).
+    const { ctx, calls } = recordingContext({ id: SessionId('persisted-session'), resume: true })
+    tuiAgent.composeTuiApp(ctx, {
+      provider: 'mock',
+      model: 'mock-model',
       workspaceContext: false,
     })
 
     expect(calls[2]?.config).toEqual({ root: './.sessions' })
+    expect(calls[4]?.config).toEqual({ path: join('./.sessions', 'session-query.db') })
     expect(calls[5]?.config).toEqual({})
     // No configured welcome forwards none: the TUI banner sweeps in without a subtitle.
     expect(calls[8]?.config).toEqual({ sessionId: 'persisted-session' })
@@ -119,12 +158,24 @@ describe('dsh-tui-demo app', () => {
     })
   })
 
-  it('normalizes an empty resume id and routes apply through the same composition', () => {
+  it('creates a launcher-minted identity fresh rather than loading history', () => {
+    const { ctx, calls } = recordingContext({ id: SessionId('minted-session'), resume: false })
+    tuiAgent.composeTuiApp(ctx, {
+      provider: 'mock',
+      model: 'mock-model',
+      workspaceContext: false,
+    })
+
+    expect(calls[8]?.config).toEqual({ sessionId: 'minted-session' })
+    expect((calls[9]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
+      .toMatchObject({ id: 'main', sessionId: 'minted-session' })
+  })
+
+  it('mints a fresh session with no launcher slot and routes apply through the same composition', () => {
     const { ctx, calls } = recordingContext()
     tuiAgent.apply(ctx, {
       provider: 'mock',
       model: 'mock-model',
-      resumeSessionId: '',
       goals: false,
       workspaceContext: false,
     })
