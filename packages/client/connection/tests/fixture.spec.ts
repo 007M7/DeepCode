@@ -72,8 +72,19 @@ describe('createFixtureApi', () => {
     // Fixture composes the todos + plan units (host parallel when tool-todo
     // and plan-mode are mounted): the empty-log values.
     expect(empty.result.value).toEqual({
-      events: [], hasMore: false,
-      projections: { asOfSeq: -1, values: { goal: null, todos: null, plan: { active: false, pending: false } } },
+      events: [], hasMore: false, projections: { asOfSeq: -1, values: {
+        todos: null,
+        // Permission unit composed: the composition-default select.
+        permissions: {
+          options: [
+            { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+            { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access without approval prompts.' },
+          ],
+          currentValue: 'workspace-write',
+        },
+        plan: { active: false, pending: false },
+        goal: null,
+      } },
     })
   })
 
@@ -208,7 +219,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 7) abort.abort()
+        if (envelopes.length >= 8) abort.abort()
       }
       return envelopes
     }
@@ -216,15 +227,16 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    // Projection baseline frames follow the subscribed frame (title + todos + plan + goal units).
+    // Projection baseline frames follow the subscribed frame (title + todos + permissions + plan + goal units).
     expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
-    expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
-    expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
-    expect(first[5]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[5]?.rpcId).toBe(first[5]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[6]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[6]?.rpcId).toBe(first[6]?.rpcId)
+    expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'permissions' })
+    expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
+    expect(first[5]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
+    expect(first[6]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[6]?.rpcId).toBe(first[6]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[7]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[7]?.rpcId).toBe(first[7]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
@@ -309,6 +321,44 @@ describe('createFixtureApi', () => {
       type: 'client-response', rpcId: cancelQuestion.rpcId,
       result: { ok: false, error: { code: 'cancelled', message: 'skip', details: {} } },
     })).toEqual({ accepted: true })
+  })
+
+  it('respond answers the resident approval once: routing, validation, resolved broadcast, then not-pending', async () => {
+    const api = createFixtureApi()
+    // Discover the resident approval's stable rpcId from the mux baseline.
+    const abort = new AbortController()
+    const seen: { rpcId: string; frame: MuxFrame }[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.mux(req({}), abort.signal)) seen.push({ rpcId: envelope.rpcId, frame: envelope.payload })
+    })()
+    await vi.waitFor(() => {
+      expect(seen.some(s => s.frame.type === 'approval/requested')).toBe(true)
+    })
+    const requested = seen.find(s => s.frame.type === 'approval/requested')
+    if (requested === undefined || requested.frame.type !== 'approval/requested') throw new Error('unreachable')
+    const approvalId = requested.frame.approvalId
+
+    // Routed but malformed answers.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: false, error: { code: 'internal', message: 'x', details: {} } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { approvalId: 'wrong', outcome: 'rejected' } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { approvalId, outcome: 'maybe' } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    // The real answer settles the question and broadcasts resolved.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { sessionId: sid('fx-alpha'), approvalId, outcome: 'allowed-once' } } }))
+      .toEqual({ accepted: true })
+    await vi.waitFor(() => {
+      expect(seen.some(s => s.frame.type === 'approval/resolved' && s.frame.outcome === 'allowed-once')).toBe(true)
+    })
+    // Settled: a duplicate answer is late, and a fresh mux open replays nothing.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { sessionId: sid('fx-alpha'), approvalId, outcome: 'rejected' } } }))
+      .toEqual({ accepted: false, reason: 'not-pending' })
+    abort.abort()
+    await consuming
+    const abort2 = new AbortController()
+    const replayed = await collect(api.events.mux(req({}), abort2.signal), abort2, frames => frames.length === 2)
+    expect(replayed.some(f => f.type === 'approval/requested')).toBe(false)
   })
 
   it('describe answers the fixture identity', async () => {

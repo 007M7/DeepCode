@@ -16,6 +16,8 @@ TUI 界面：
 
 Web 和无头界面启动同一个共享组合（`cordis.yml`）：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
+已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
+
 `DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：可选值为 `native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 协议接口）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam：Loader 组合是静态的，因此该设置作用于整个进程；待 Web UI 负责逐会话工具模式选择后便会移除。TUI 界面会忽略该变量（其配置树固定了自身模式）。
 
 ## 安装（开发机）
@@ -26,6 +28,6 @@ Web 和无头界面启动同一个共享组合（`cordis.yml`）：两者都将�
 ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh
 ```
 
-源码启动会通过 Node 的 `--experimental-transform-types` 运行 `apps/cli/src/bin.ts`；`scripts/tspath-loader.ts` 只会将 tsconfig 的 `paths` 映射投射到模块解析中，而不会转换代码。从 CLI 源码入口可达的每个模块都遵守 Node transform-types 契约：会被擦除的绑定使用 `import type`，export 使用原生 ESM，整个依赖图不含 TSX/JSX，也不依赖仅由 tsx/esbuild 提供的转换。设置 `TSX_TSCONFIG_PATH` 时，loader 会读取该路径（相对路径从调用方的 cwd 解析），否则读取仓库根 tsconfig；它使用根目录的 TypeScript 开发工具，而不是应用依赖。仅当 workspace import 是包自身引用或已声明的运行时依赖时，loader 才会映射该 import。TUI 配置通过 `examples/package.json` 解析裸插件，而 Web／无头 `cordis.yml` 则通过本包的 `dependencies` 解析；`verify-cordis-config` 要求每个已配置的裸插件均已声明，同时允许存在无关依赖。
+源码启动会通过 tsx 的 ESM-only hook（`node --import tsx/esm`）运行 `apps/cli/src/bin.ts`，由它转换 TypeScript 并将根 tsconfig 的 `paths` 映射投射到模块解析中。不使用 Node 原生 TypeScript 模式：Node 26 移除了 `--experimental-transform-types`，而 strip-only 模式无法接受源码图依赖的语法（vendor 中的参数属性、装饰器、运行时 enum/namespace）。CJS hook 保持关闭，因为源码图是纯 ESM，而 CJS 解析器会增加约 0.4s 启动耗时。`bin/dsh` 将 `TSX_TSCONFIG_PATH` 固定到 checkout 的根 tsconfig，使解析与 cwd 无关；node-compat 门禁 `dsh-source-launch-smoke` 会在每条受支持的 Node 版本线上运行这一精确启动向量。tsx 应用 `paths` 映射时不检查依赖声明，声明完整性由静态门禁保障：TUI 配置通过 `examples/package.json` 解析裸插件，Web／无头 `cordis.yml` 通过本包的 `dependencies` 解析；`verify-cordis-config` 要求每个已配置的裸插件均已声明，同时允许存在无关依赖。
 
 `pnpm run dsh` 从仓库根目录运行同一入口并直接转发参数，例如 `pnpm run dsh -p "task"`。构建形式（`lib/bin.js`，通过 `pnpm run build`）会在普通 Node 下启动同一配置。

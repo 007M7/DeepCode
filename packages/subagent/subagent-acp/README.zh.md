@@ -6,15 +6,15 @@ ACP（Agent Client Protocol）提供方会在全新的子进程中运行每个 s
 
 ## 启动与所有权
 
-`start(request)` 先解析子 agent 的工作目录，再依次执行 `spawn` → ACP `initialize` → `newSession`，然后才兑现。因此，兑现表示远程会话已就绪，所有权也已转移给调用方。派生、初始化、新建会话或发布前取消失败时，只有在子进程已回收后才会拒绝；工作目录解析失败则会在派生任何内容前拒绝。
+`start(request)` 先解析子 agent 的工作目录，再依次执行 `spawn` → ACP `initialize` → `newSession`，然后才兑现。因此，兑现表示远程会话已就绪，所有权也已转移给调用方。spawn、初始化、新建会话或发布前取消失败时，只有在子进程已回收后才会拒绝；工作目录解析失败则会在尚未 spawn 任何内容时拒绝。
 
 工作目录优先使用已配置的 `cwd` 覆盖值，否则使用执行委派的父会话 cwd，绝不使用服务器进程自身的 cwd，因为同一个服务器进程会服务来自多个工作区的会话。从父级取得的值必须是绝对路径，指向 harness 可以进入的目录（具备搜索权限，这是子进程 cwd 的要求）；解析后的同一路径同时作为子进程 cwd 和 ACP `session/new` 工作区。
 
 返回的运行 id 在父级命名空间中生成。子服务器的会话 id 只用于 ACP 协议调用，因为 ACP 只保证它在该全新子进程中唯一；若将其用作父级生命周期 id，可能与另一个远程运行或本地 agent 冲突。
 
-发布后，提供方发送提示词，并把流式 `agent_message_chunk` 文本收集到 `SubagentResult.output`。提示词/传输失败会以 `stopReason: 'error'` 兑现；如果必需的请求信号或 dispose 请求了取消，则以 `aborted` 兑现。
+发布后，提供方发送提示词，并把流式 `agent_message_chunk` 文本收集到 `SubagentResult.output`。提示词/传输失败会以 `stopReason: 'error'` 兑现；如果必需的请求信号或 dispose（资源释放）请求了取消，则以 `aborted` 兑现。
 
-`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后经由该 seam 的动词运行本后端自有的拆卸阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），最后进行有界的整树退出等待；若仍有存活进程，则拒绝。每次运行都使用全新进程；尚未实现进程池。
+`dispose()` 是幂等的。它会移除信号监听器，在可行时请求 ACP 取消，然后经由该 seam 的动词运行本后端自有的拆卸阶梯（`disposeAcpChild`）：先关闭 stdin 并等待 `disposeEofGraceMs` 让子进程协作式完全停稳，再触发句柄的 `terminate()` 升级（SIGTERM、spawn 宽限期、SIGKILL——Windows 直接强制终止），最后进行有界的整树退出等待；若仍有存活进程，则拒绝。每次运行都使用全新进程；尚未实现进程池。
 
 ## 能力与上下文
 
@@ -25,7 +25,7 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 | 键 | 默认值 | 含义 |
 |---|---|---|
 | `providerName` | `acp` | `ctx.subagents` 上的注册表名称。 |
-| `command` | 必填 | 每次运行时派生的可执行文件。 |
+| `command` | 必填 | 每次运行时 spawn 的可执行文件。 |
 | `args` | `[]` | 命令参数。 |
 | `cwd` | 父会话 cwd | 子进程及其 ACP 会话的工作目录覆盖值；不得为空。相对值会在加载时以 harness 启动目录为基准解析，结果必须指向 harness 可以进入的目录。 |
 | `permission` | `reject` | 自动回答权限请求：拒绝，或选择第一个允许形态的选项。 |
@@ -57,9 +57,9 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 ## 进程边界
 
-子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除名称形似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 以 inherit 方式直通父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
+子进程经由 [`dsh-subprocess`](../../subprocess/subprocess/README.md) seam spawn：共享的凭据清除先移除疑似凭据的环境变量和环境中已有的 `DSH_*` 名称，显式 `config.env` 值在清除之后合并（有意转发的 `DEEPSEEK_API_KEY` 会保留下来，`DSH_PERMISSION_MODE` 这类 `DSH_*` 部署事实也以同样的方式到达子进程——清除只丢弃其陈旧的同名环境值），stderr 会继承到父进程自身的流，dispose 则以本插件配置的宽限期运行该 seam 的协作式 stdin EOF→SIGTERM→SIGKILL 阶梯。ACP 协议格式（wire format）是真正的序列化边界；同进程 subagent 值不会为防御目的而克隆。
 
-本包没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘 0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
+本包（package）没有默认导出。否则 Cordis loader 的解包会隐藏具名 `inject` 元数据；见[事故复盘（postmortem）0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)。
 
 无密钥测试通过真实 stdio 驱动脚本化 ACP 子进程，其中包括一个由 Loader 组合的 stdio 应用，用于端到端证明父会话 cwd 继承。带密钥 e2e 会驱动仓库中的真实 ACP agent；没有 `DEEPSEEK_API_KEY` 时自行跳过。
 
@@ -87,17 +87,17 @@ ACP 不声明任何启动时能力，因为当前进程无法强制执行远程�
 
 #### Token 影响
 
-父级输入只增加最终结果或错误，其内容依赖数据，并保留到上下文压缩为止。该提供方自身不会添加父级 schema。
+父级输入只增加最终结果或错误，其内容依赖数据，并保留到压缩（compaction）为止。该提供方自身不会添加父级 schema。
 
 #### KV Cache 影响
 
 仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
-- **每次运行使用全新进程**：持久进程池属于后续优化（见 [seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)）。
+- **每次运行使用全新进程**：持久进程池属于后续优化（见 [seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)）。
 - **仅支持本地工作区**：解析后的 cwd 是交给同一台机器上子进程的本地路径；远程 ACP agent 的工作区映射需要独立的后端能力，本包尚未设计。
 - **不支持可选启动时能力**：该提供方无法在远程进程内应用本地 harness 的 `outputSchema`、深度上限、工具过滤器或 persona，因此不会声明这些能力；服务会拒绝需要它们的请求。
-- **只收集已提交的 `agent_message_chunk` 文本**：自动化服务器把推理、工具活动、计划和其他 trace 数据保留在子 agent 会话日志中，不通过 ACP 发出。
+- **只收集已提交的 `agent_message_chunk` 文本**：自动化服务器把推理（reasoning）、工具活动、计划和其他 trace 数据保留在子 agent 会话日志中，不通过 ACP 发出。
 - **权限提示自动回答**（`permission: allow | reject`）：当前版本不会把子 agent 的 `session/request_permission` 呈现给人。
 - **没有快照层回放覆盖率**（`TODO(acp-subagent-replay)`）：ACP 子 agent 拥有独立进程和独立回放形态，该工作延期处理。

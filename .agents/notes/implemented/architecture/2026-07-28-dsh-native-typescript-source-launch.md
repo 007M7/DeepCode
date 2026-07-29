@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-07-28-dsh-native-typescript-source-launch.zh.md)
 
+> The Node-native launch vector is superseded by [dsh source launch through the tsx ESM hook](2026-07-29-dsh-source-launch-tsx-esm.md): Node 26.0.0 removed `--experimental-transform-types`, and the paths loader described here is deleted. The Cordis-config declaration gate (`verify-cordis-config`), the app-boot fail-loud plugin diagnostic, and the vendored `import type` marks remain current.
+
 ## Problem
 
 The `dsh` source entry point originally used `tsx` to run `apps/cli/src/bin.ts`, with the same third-party loader implicitly handling both TypeScript transformation and the root tsconfig's `paths` resolution. With Node handling TypeScript natively, it does not apply tsconfig path mappings; resolving through package exports would instead mix potentially stale or nonexistent `lib/` artifacts into the source launch.

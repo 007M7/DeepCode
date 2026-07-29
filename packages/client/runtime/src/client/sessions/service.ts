@@ -40,6 +40,8 @@ export interface SessionSummary {
   cwd?: string
   parentId?: SessionId
   running: boolean
+  /** An approval question is pending on this session (sidebar amber-dot state). */
+  waitingApproval: boolean
   /**
    * Empty-log bit (host summary derivation mirror). New Session reuses a blank
    * one targeting the same workspace. Filtering stays with the consumer: the
@@ -292,6 +294,11 @@ export class SessionsService implements ISessions {
     this.manager.handleConnected()
   }
 
+  /** Drop generation-scoped live interaction state the moment a connection generation dies. */
+  handleDisconnected(): void {
+    this.manager.handleDisconnected()
+  }
+
   /**
    * Create a session on the host. Resolution guarantee: by the time the
    * promise resolves, the created session is in the list store and
@@ -463,6 +470,7 @@ export class SessionsService implements ISessions {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
+        waitingApproval: entry.waitingApproval,
         blank: entry.blank,
         updatedAt: entry.updatedAt,
         ...(entry.title !== undefined ? { title: entry.title } : {}),
