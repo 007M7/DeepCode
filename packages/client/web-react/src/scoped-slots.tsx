@@ -5,12 +5,12 @@
 import { Component, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
   SlotOwnershipError, StaleAuthorizationError,
-  type ChainRenderOpts, type RenderOpts, type SessionMaybeProvideInfo, type SessionProvideInfo,
-  type SlotRenderer, type SlotRendererHost, type SlotScope, type StoredEntry,
+  type ChainRenderOpts, type HostObservable, type RenderOpts, type SessionMaybeProvideInfo,
+  type SessionProvideInfo, type SlotRenderer, type SlotRendererHost, type SlotScope, type StoredEntry,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HostContext, SessionMaybeProvider, SessionProvider, SlotAssemblyError, maybeObservableHook,
-  observableHook, useHost, useSessionMaybeProvideInfo,
+  observableHook, projectionHook, useHost, useSessionMaybeProvideInfo,
 } from './session-provider.tsx'
 
 type InjectedProps = Record<string, unknown>
@@ -96,7 +96,26 @@ function runInject(entry: StoredEntry, info: SessionMaybeProvideInfo | undefined
   const args: unknown[] = []
   if (info !== undefined) args.push(info.sessionId)
   if (actions !== undefined) args.push(actions)
-  return (inject as (...args: unknown[]) => InjectedProps)(...args)
+  return bindInjectHooks((inject as (...args: unknown[]) => InjectedProps)(...args))
+}
+
+/**
+ * Bind an inject face's reserved `hooks` compartment (bare observable
+ * sources, see HooksSources) into `use<Name>` selector hooks — the
+ * registrant-private twin of the provide-bundle binding in standardKit.
+ * Runs once per cached inject result; hook identity rides observableHook's
+ * per-source cache.
+ */
+function bindInjectHooks(face: InjectedProps): InjectedProps {
+  const sources = face['hooks']
+  if (sources === undefined) return face
+  const { hooks: _hooks, ...rest } = face
+  const bound: InjectedProps = rest
+  for (const [name, source] of Object.entries(sources as Record<string, HostObservable<unknown>>)) {
+    const hookName = `use${name[0]?.toUpperCase() ?? ''}${name.slice(1)}`
+    bound[hookName] = observableHook(source)
+  }
+  return bound
 }
 
 function cachedRootInject(entry: StoredEntry, actions: object | undefined): InjectedProps {
@@ -219,6 +238,9 @@ function standardKit(
     }
     Object.assign(kit, info.props)
     kit['sessionId'] = info.sessionId
+    // The useProjection seat (fifth framework hook): key-addressed cell
+    // reader, bound per provide bundle (cached by info identity).
+    kit['useProjection'] = projectionHook(info)
   }
   const store = scope === 'session-maybe' && info?.sessionId === undefined
     ? undefined

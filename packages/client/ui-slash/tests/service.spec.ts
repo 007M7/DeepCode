@@ -126,6 +126,18 @@ describe('registerSource', () => {
     slash.registerSource(deferredSource('/', 'beta').source)
   })
 
+  it('a source registered after controller birth warms in every live controller', async () => {
+    const { slash, mint } = await serviceBench()
+    const ca = slash.sessionOf(mint('a').actx)
+    const cb = slash.sessionOf(mint('b').actx)
+    const late = deferredSource('/', 'late', { lexicon: () => ['fresh'] })
+    slash.registerSource(late.source)
+    expect(late.warm).toHaveBeenNthCalledWith(1, { sessionId: sid('a') })
+    expect(late.warm).toHaveBeenNthCalledWith(2, { sessionId: sid('b') })
+    expect(ca.lexicon.getSnapshot().get('/')).toEqual(['fresh'])
+    expect(cb.lexicon.getSnapshot().get('/')).toEqual(['fresh'])
+  })
+
   it('HMR shape: dispose of the registering fiber removes the source', async () => {
     const { root, slash, mint } = await serviceBench()
     const controller = slash.sessionOf(mint('a').actx)
@@ -513,7 +525,7 @@ describe('lexicon', () => {
       skill,
       lexSource('@', 'subagent', ['worker-1']),
     ])
-    const rolls = controller.lexicon()
+    const rolls = controller.lexicon.getSnapshot()
     expect([...rolls.keys()]).toEqual(['/', '@'])
     expect(rolls.get('/')).toEqual(['commit-helper', 'review'])
     expect(rolls.get('@')).toEqual(['worker-1'])
@@ -522,7 +534,7 @@ describe('lexicon', () => {
 
   it('an undefined answer (roll not hot) is skipped without seeding the trigger', () => {
     const { controller } = controllerBench([lexSource('/', 'skill', undefined)])
-    expect(controller.lexicon().size).toBe(0)
+    expect(controller.lexicon.getSnapshot().size).toBe(0)
   })
 
   it('two sources on one trigger concatenate in registration order', () => {
@@ -531,9 +543,62 @@ describe('lexicon', () => {
       lexSource('/', 'prompt', ['c']),
       lexSource('@', 'subagent', undefined), // not hot: '@' stays absent
     ])
-    const rolls = controller.lexicon()
+    const rolls = controller.lexicon.getSnapshot()
     expect(rolls.get('/')).toEqual(['b', 'a', 'c'])
     expect(rolls.has('@')).toBe(false)
+  })
+
+  it('a source lexicon notification republishes the aggregated store', () => {
+    let roll: readonly string[] | undefined = undefined
+    let notify: (() => void) | undefined
+    const source: SlashSource = {
+      trigger: '/',
+      name: 'skill',
+      candidates: () => Promise.resolve([]),
+      onPick: () => undefined,
+      lexicon: () => roll,
+      subscribeLexicon: (_session, listener) => {
+        notify = listener
+        return () => { notify = undefined }
+      },
+    }
+    const { controller } = controllerBench([source])
+    expect(controller.lexicon.getSnapshot().size).toBe(0)
+    const seen: number[] = []
+    controller.lexicon.subscribe(() => { seen.push(controller.lexicon.getSnapshot().size) })
+    roll = ['commit-helper']
+    notify?.()
+    expect(controller.lexicon.getSnapshot().get('/')).toEqual(['commit-helper'])
+    expect(seen).toEqual([1])
+    controller.dispose()
+    expect(notify).toBeUndefined()
+  })
+
+  it('a source registered after scope birth is warmed and folded into the live lexicon', () => {
+    const { controller, sources } = controllerBench([])
+    expect(controller.lexicon.getSnapshot().size).toBe(0)
+    const warm = vi.fn()
+    const late: SlashSource = {
+      trigger: '/',
+      name: 'late',
+      candidates: () => Promise.resolve([]),
+      onPick: () => undefined,
+      warm,
+      lexicon: () => ['fresh'],
+    }
+    sources.push(late)
+    controller.sourceAdded(late)
+    expect(warm).toHaveBeenCalledWith({ sessionId: sid('a') })
+    expect(controller.lexicon.getSnapshot().get('/')).toEqual(['fresh'])
+  })
+
+  it('a removed source leaves the aggregated lexicon', () => {
+    const src = lexSource('/', 'skill', ['gone'])
+    const { controller, sources } = controllerBench([src])
+    expect(controller.lexicon.getSnapshot().get('/')).toEqual(['gone'])
+    sources.splice(sources.indexOf(src), 1)
+    controller.sourceRemoved(src)
+    expect(controller.lexicon.getSnapshot().size).toBe(0)
   })
 })
 

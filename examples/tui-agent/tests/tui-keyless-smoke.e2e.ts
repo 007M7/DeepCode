@@ -1,3 +1,4 @@
+import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -53,10 +54,22 @@ async function seedResumeSession(cwd: string): Promise<void> {
   const meta: SessionHeader = { version: 0, id, createdAt: 1_700_000_000_000, cwd: sessionCwd }
   const events: SessionEvent[] = [
     { type: 'turn/start', seq: 0, time: 1_700_000_000_001, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: { content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: createUserMessage({
+      content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: 1_700_000_000_003, data: { turn: 1, step: 1 } },
     { type: 'request/header', seq: 3, time: 1_700_000_000_004, data: { header: { config: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, reason: 'initial' } },
-    { type: 'assistant/message', seq: 4, time: 1_700_000_000_005, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'persisted answer' }], provenance: { provider: 'tui-scripted', model: 'tui-scripted-model' } }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 4, time: 1_700_000_000_005, data: {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'persisted answer' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'tui-scripted', model: 'tui-scripted-model' },
+        },
+      }),
+    }, surfaceOp: 'append' },
     { type: 'step/end', seq: 5, time: 1_700_000_000_006, data: { turn: 1, step: 1 } },
     { type: 'session/title', seq: 6, time: 1_700_000_000_007, data: { title: 'Resume selector design', messageSeqs: [1], source: { kind: 'fallback' } } },
     { type: 'todo/write', seq: 7, time: 1_700_000_000_008, data: { todos: [{ content: 'Preserve restored state', status: 'in_progress' }] } },
@@ -136,14 +149,14 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
       actions: [
         { waitFor: 'main-session-', send: '/plan' },
         { waitFor: '[off|message] — Enter or leave plan mode', send: '\r' },
-        { waitFor: 'Entering plan mode (applies from the next step). Use /plan off to leave.', send: '/exit\r' },
+        { waitFor: 'Plan mode on. Use /plan off to leave.', send: '/exit\r' },
       ],
     })
     expect(output).toContain('DEEPSEEK')
     expect(output).toContain('HARNESS')
     expect(output).toContain('main-session-')
     expect(output).toContain('[off|message] — Enter or leave plan mode')
-    expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
+    expect(output).toContain('Plan mode on. Use /plan off to leave.')
     // Borderless: no box-drawing frame around the banner.
     expect(output).not.toContain('╭')
     expect(output).not.toContain('╮')
@@ -170,15 +183,15 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
         // Gating /status on it keeps the assertion race-free; the diagnostics
         // card is then exercised through the same real Loader/PTY composition.
         { waitFor: 'scripted session title — DeepSeek Harness', send: '/plan off\r' },
-        { waitFor: 'Leaving plan mode (applies from the next step).', send: 'Confirm the scripted run left plan mode.\r' },
+        { waitFor: 'Plan mode off.', send: 'Confirm the scripted run left plan mode.\r' },
         { waitFor: 'Default mode confirmed.', send: '/status\r' },
         { waitFor: 'Session status', send: '/exit\r' },
       ],
     })
     expect(output).toContain('I need one decision before I continue.')
     expect(output).toContain('Reasoning effort: Max.')
-    expect(output).toContain('Entering plan mode (applies from the next step). Use /plan off to leave.')
-    expect(output).toContain('Leaving plan mode (applies from the next step).')
+    expect(output).toContain('Plan mode on. Use /plan off to leave.')
+    expect(output).toContain('Plan mode off.')
     expect(output).toContain('Default mode confirmed.')
     expect(output).toContain(String.raw`\x1b]2;MODEL_CONTROLLED\x07`)
     expect(output).toContain(String.raw`\x1b[999CMODEL_CURSOR`)

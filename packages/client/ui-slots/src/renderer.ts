@@ -44,6 +44,15 @@ export interface SessionMaybeProvideInfo {
   hooks: Record<string, HostObservable<unknown> | undefined>
   /** Static plain-member roster; values are undefined with the session. */
   props: Record<string, unknown>
+  /**
+   * Key-addressed projection value sources (the useProjection framework seat,
+   * session-projection RFC). Unlike `hooks`, the key space is open — values
+   * arrive from host-computed push frames — so the render side binds per
+   * resolved key instead of per static roster member. Faces are always
+   * defined per key (absence is an `undefined` snapshot); the whole member is
+   * absent with the session.
+   */
+  projections?: { faceOf(key: string): HostObservable<unknown> } | undefined
 }
 
 /** Definite per-session standard props resolved for strict session slots. */
@@ -105,18 +114,14 @@ export interface SlotRendererHost {
   sessions: {
     /** Session list source backing the useSessions standard hook. */
     list: HostObservable<unknown>
-    /** Current-session source used by SessionProvider. */
-    current: HostObservable<string | undefined>
-    /** Resolve a definite session bundle, or undefined when the id is unknown. */
-    provideInfo(id: string): SessionProvideInfo | undefined
     /**
-     * Resolve the current-session-optional standard props bundle. The result
-     * always carries the static provider roster, even when `id` is absent or
-     * cannot resolve to a live session.
-     * @param id - current session id, when selected.
-     * @returns the optional provide info.
+     * Atomic current-session provide projection used by SessionProvider:
+     * selection changes and provider-roster changes publish through this one
+     * source, so a stable current id cannot strand mounted entries on an
+     * obsolete hook/prop schema. Carries the static roster with sessionId
+     * undefined while no current session resolves.
      */
-    maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo
+    provideInfo: HostObservable<SessionMaybeProvideInfo>
   }
   /** Workspace-side standard-kit sources. */
   workspaces: {

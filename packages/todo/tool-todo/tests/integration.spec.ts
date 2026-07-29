@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -59,12 +60,12 @@ describe('todo_write tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-todo'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'plan a two-step task' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'plan a two-step task' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const log = agent.session.events
     expect(findEvent(log, 'tool/call').data.name).toBe('todo_write')
-    expect(findEvent(log, 'tool/result').data.isError).toBe(false)
+    expect(findEvent(log, 'tool/result').data.message.content[0].isError).toBe(false)
 
     const todoEvent = findEvent(log, 'todo/write')
     expect(todoEvent.data.todos).toEqual([
@@ -87,7 +88,7 @@ describe('todo_write tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-todo-2'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'plan then update' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'plan then update' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const todoEvents = agent.session.events.filter(e => e.type === 'todo/write')

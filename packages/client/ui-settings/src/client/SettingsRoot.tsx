@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconCloseOutline16, IconDataOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SettingsRootComponentProps } from './contract/slots.ts'
+import type { SettingsRootComponentProps, SettingsSectionRow } from './contract/slots.ts'
 import css from './SettingsRoot.module.css'
 
 /** Nav glyph by section id; unknown ids fall back to the settings gear. */
@@ -20,7 +20,7 @@ function navIcon(id: string) {
 }
 
 type PanelProps = {
-  rows: ReturnType<SettingsRootComponentProps['sections']>
+  rows: readonly SettingsSectionRow[]
   renderSlot: SettingsRootComponentProps['renderSlot']
   onClose: () => void
 }
@@ -92,20 +92,14 @@ function SettingsPanel({ rows, renderSlot, onClose }: PanelProps) {
  * @returns the settings shell element tree.
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
-  const { wide, subscribeSections, sectionsVersion, sections, renderSlot } = props
+  const { wide, useSections, renderSlot } = props
   const [open, setOpen] = useState(false)
   const close = useCallback(() => { setOpen(false) }, [])
 
   // The ledger tick keeps the nav rows fresh: registrants re-register with
   // freshly localized text on locale change, and the trigger/header/close
   // seats re-render through their own outlets' subscriptions.
-  // State = ledger version: same-version notifications dedupe to no render.
-  const [, setSectionsRev] = useState(() => sectionsVersion())
-  useEffect(
-    () => subscribeSections(() => { setSectionsRev(sectionsVersion()) }),
-    [subscribeSections, sectionsVersion],
-  )
-  const rows = sections()
+  const rows = useSections(s => s)
 
   return (
     <>

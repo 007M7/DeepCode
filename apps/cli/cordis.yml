@@ -19,6 +19,13 @@
 - id: session
   name: '@deepseek-ai/dsh-session'
 
+# Projection registry: drives every registered domain unit over committed
+# session events and serves finished values (history-tail projections block +
+# session/projection frames). Without this row every domain's optional unit
+# injection stays silent — no block, no frames, no titles/todos on the web.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
 - id: session-title
   name: '@deepseek-ai/dsh-session-title'
   config:
@@ -109,6 +116,16 @@
 - id: workspace
   name: '@deepseek-ai/dsh-workspace'
 
+# Persisted projection cache: durable per-session checkpoints of every
+# registered projection unit (json backend → ./.storages/session_projcache.json,
+# beside workspace.json), throttled between the two mandatory points
+# (turn/end + detach), serving cold listings without full-log loads.
+- id: session-projection-cache
+  name: '@deepseek-ai/dsh-session-projection-cache'
+  config:
+    writeEveryEvents: 200
+    writeIntervalMs: 5000
+
 # Managed child-process groups for the bash executor (spawn/kill/output plumbing).
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
@@ -157,6 +174,18 @@
 # command.execute; the web '/' menu is a pure projection of this registry.
 - id: commands
   name: '@deepseek-ai/dsh-commands'
+
+# Goal service + automatic same-session continuation + the /goal command.
+# The GoalService registers the 'goal' session projection unit; the web
+# GoalBar reads it through useProjection.
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+
+- id: goal-session
+  name: '@deepseek-ai/dsh-goal-session'
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
 
 # Plan mode registers /plan (the first real command on the web surface).
 # Section text mirrors examples/tui-agent/cordis.yml (the reference
@@ -309,9 +338,17 @@
 - id: ui-subagent
   name: '@deepseek-ai/dsh-client-ui-subagent'
 
+# Goal surface: GoalBar in the input dock over the goal session projection.
+- id: ui-goal
+  name: '@deepseek-ai/dsh-client-ui-goal'
+
 # Model selection: the /model popupSelect + composer seat over session.models.
 - id: ui-model
   name: '@deepseek-ai/dsh-client-ui-model'
+
+# Plan control: the composer plan seat over the plan projection + /plan channel.
+- id: ui-plan
+  name: '@deepseek-ai/dsh-client-ui-plan'
 
 - id: ui-question
   name: '@deepseek-ai/dsh-client-ui-question'

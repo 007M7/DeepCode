@@ -62,7 +62,7 @@ pnpm run clean:
 tsx scripts/clean.ts
 ```
 
-`pnpm run demo:*` still runs `src` directly through tsx and root paths, without a compile step.
+The source-mode demos run through their declared TypeScript launchers and the root paths map. The `dsh` TUI chain uses Node's native transform plus its app-owned paths loader, the Web demo builds its required artifacts before entering that same CLI source chain, and the other source demos continue to use tsx.
 
 ## Alternatives considered
 
@@ -75,7 +75,7 @@ tsx scripts/clean.ts
 
 Build responsibilities are clearer:
 
-- Each module under `packages/<group>/<pkg>` and `vendor/*` has one local tsconfig for build, typecheck, and tools that run source directly, such as `tsx` and `vitest`.
+- Each module under `packages/<group>/<pkg>` and `vendor/*` has one local tsconfig for build, typecheck, and tools that run source directly, such as the `dsh` source loader, `tsx`, and `vitest`.
 - The `build` command drives the root solution graph. `tsc -b` owns the publishable per-module `.js` and `.d.ts` output, and the bundler owns only `lib/index.*`.
     - `lib/types/*.d.ts` and `.d.ts.map` are the publish declaration output.
     - `lib/types/*.d.ts` uses explicit `.ts` relative specifiers, which TypeScript's NodeNext/Node16 resolver maps to sibling `.d.ts` files.

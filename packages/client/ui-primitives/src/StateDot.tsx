@@ -1,14 +1,18 @@
 // StateDot: session state indicator (figma nodes 14:3303/3305/3312, 122:9182).
 // done/warning/error: 10x10 halo (same color, 10% opacity) around a 6x6 solid
-// core. ongoing: 10x10 ring, 1px inside stroke, color fading out along a
-// linear gradient, spinning. Colors resolve through --dsw-* tokens only.
+// core. ongoing: a pixel-art chase — the 8 outer cells of a 3x3 matrix light
+// up clockwise with a stepped trail. Colors resolve through --dsw-* tokens only.
 
-import { useId } from 'react'
 import clsx from 'clsx'
 import css from './StateDot.module.css'
 
 /** Four-color session state semantic (green done / amber approval-waiting / blue running ring / red error). */
 export type StateDotState = 'done' | 'warning' | 'ongoing' | 'error'
+
+/** Outer 3x3 matrix cells (2px pixels on a 10px grid), clockwise from top-left. */
+const MATRIX_CELLS: readonly (readonly [number, number])[] = [
+  [0, 0], [4, 0], [8, 0], [8, 4], [8, 8], [4, 8], [0, 8], [0, 4],
+]
 
 /**
  * Render a state dot.
@@ -22,25 +26,29 @@ export function StateDot({ state, size = 10, className }: {
   size?: number
   className?: string
 }) {
-  const gradientId = useId()
   if (state === 'ongoing') {
     return (
       <svg
-        className={clsx(css.ring, className)}
+        className={clsx(css.matrix, className)}
         data-state="ongoing"
         width={size}
         height={size}
         viewBox="0 0 10 10"
+        shapeRendering="crispEdges"
         aria-hidden="true"
       >
-        <defs>
-          {/* Gradient handles from the figma node: (0.1,0) -> (0.85,1). */}
-          <linearGradient id={gradientId} x1="1" y1="0" x2="8.5" y2="10" gradientUnits="userSpaceOnUse">
-            <stop className={css.stopFrom} offset="0" />
-            <stop className={css.stopTo} offset="1" />
-          </linearGradient>
-        </defs>
-        <circle cx="5" cy="5" r="4.5" fill="none" strokeWidth="1" stroke={`url(#${gradientId})`} />
+        {MATRIX_CELLS.map(([x, y], index) => (
+          <rect
+            key={`${x}-${y}`}
+            className={css.cell}
+            x={x}
+            y={y}
+            width="2"
+            height="2"
+            /* Negative delay phases the chase so every cell animates from mount. */
+            style={{ animationDelay: `${(index - MATRIX_CELLS.length) * 125}ms` }}
+          />
+        ))}
       </svg>
     )
   }

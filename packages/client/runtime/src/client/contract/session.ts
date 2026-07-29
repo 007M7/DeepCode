@@ -1,0 +1,56 @@
+/**
+ * The outward session face. Feature packages never see the concrete Session
+ * class: components read conversation state through `useSession` (the
+ * ObservableSnapshot half), and orchestration code calls the behavior verbs
+ * below — nothing else. Widening this interface is the explicit act of
+ * widening what features may do to a session (and what every test fixture
+ * must stub); runtime-internal entry points (history staging, wire-frame
+ * dispatch) stay on the class, invisible out here.
+ */
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { RpcResult, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { ConversationSnapshot } from '../sessions/conversation.ts'
+import type { ObservableSnapshot } from './store.ts'
+
+/** Key-addressed projection read face (the useProjection resolution path; see ProjectionValueStore). */
+export interface ProjectionsFace {
+  /**
+   * The identity-stable bare observable for one projection key (absence is
+   * an `undefined` snapshot, never a missing face).
+   * @param key - projection key.
+   * @returns the key's value face.
+   */
+  faceOf(key: string): ObservableSnapshot<unknown>
+}
+
+/** Identity plus the behavior verbs features may invoke on a session. */
+export interface ISession {
+  /** The session's host identity (agent id — same axis). */
+  readonly sessionId: SessionId
+  /** Host-computed projection values by key (the useProjection seat). */
+  readonly projections: ProjectionsFace
+  /**
+   * Send a prompt into the session.
+   * @param content - model-facing content blocks.
+   * @param mode - 'queue' appends a turn; 'steer' interrupts the running one.
+   * @returns acceptance, or the business error (also mirrored into snapshot.promptError).
+   */
+  prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>>
+  /**
+   * Cancel the running turn.
+   * @returns acceptance, or the business error.
+   */
+  cancel(): Promise<RpcResult<{ accepted: true }>>
+  /**
+   * Extend the history window backwards (older messages pagination).
+   * @returns completion; failures land in snapshot.openState/loadingOlder.
+   */
+  loadOlder(): Promise<void>
+}
+
+/**
+ * The full outward face: behavior verbs plus the conversation read side
+ * (the `useSession` hook source). This is the type carried by
+ * `SessionBinding.session` and the provide channel.
+ */
+export type SessionFace = ISession & ObservableSnapshot<ConversationSnapshot>

@@ -10,8 +10,8 @@
  */
 
 import type { Context } from 'cordis'
-import { assertNever, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
-import type { Session, UserMessageData } from '@deepseek-ai/dsh-session'
+import { assertNever, createToolResultMessage, type ToolCallBlock } from '@deepseek-ai/dsh-llm'
+import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { TOOL_ABORTED_BEFORE_DISPATCH, TOOL_REGISTRY_SCHEDULER, type ToolExecutionInput, type ToolExecutionMode, type ToolExecutionResult, type ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 /** One tool call after argument parsing, ready to schedule. */
@@ -57,7 +57,7 @@ export async function executeToolCalls(
   step: number,
   toolCalls: ToolCallBlock[],
   signal: AbortSignal,
-  acceptContext: (context: UserMessageData) => void,
+  acceptContext: (context: UserMessage) => void,
 ): Promise<{ concluded: boolean }> {
   const agent = ctx.agents.requireInitiator()
   const { session } = agent
@@ -119,7 +119,7 @@ async function runGroup(
   group: PlannedCall[],
   mode: ToolExecutionMode['kind'],
   signal: AbortSignal,
-  acceptContext: (context: UserMessageData) => void,
+  acceptContext: (context: UserMessage) => void,
 ): Promise<GroupOutcome> {
   const { session } = ctx.agents.requireInitiator()
   const { maxParallelToolCalls } = ctx.agentLoop.config
@@ -246,13 +246,14 @@ function appendToolResult(
   result: ToolExecutionResult,
   callSeq: number,
 ): void {
-  session.append('tool/result', {
-    turn, step,
-    // Correlation stays with the loop's authoritative model-transcript call id;
-    // registry results deliberately do not duplicate it.
+  const message = createToolResultMessage({
     callId: block.id,
     content: result.content,
     isError: result.isError,
+  })
+  session.append('tool/result', {
+    turn, step,
+    message,
     ...result.error?.info ? { error: result.error.info } : {},
     // The tool's private presentation payload (e.g. a result-time diff),
     // persisted so a UI bridge reproduces the card on replay.

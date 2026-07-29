@@ -11,6 +11,7 @@
 
 import type { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
 import { loadBaselineInstructionSet } from './files.ts'
@@ -115,20 +116,20 @@ export function apply(ctx: Context, config: Config): void {
       { includeBaselineScopes: false, signal },
     )
     if (update !== undefined) {
-      agent.inject({ content: update.context.content, source: update.context.source })
+      agent.inject(update.context)
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
     const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent)
     if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
-      agent.inject({
+      agent.inject(createUserMessage({
         content: baselineMessage.content,
         source: {
           kind: 'workspace-instructions',
           baseline: true,
           changes: [...baseline.changes.values()],
         },
-      })
+      }))
     }
     baselineLoaded.add(agent.session)
   })

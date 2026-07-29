@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compact'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, resolveRetryPolicy , createMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { CallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -192,16 +192,22 @@ function overflowHistorySeed(): SessionEvent[] {
       turn,
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `${sentinel} ${'old context '.repeat(200)}` }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     session.append('step/start', { turn, step: 1 })
     session.append('assistant/message', {
-      provenance: { provider: 'mock', model: 'mock' },
       turn,
       step: 1,
-      content: [{ type: 'text', text: `historical response ${turn} ${'detail '.repeat(200)}` }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: `historical response ${turn} ${'detail '.repeat(200)}` }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
     }, { surfaceOp: 'append' })
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
@@ -220,7 +226,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
         provider: 'unconfigured-agent-fallback',
         model: 'unconfigured-agent-fallback',
       })
-      agent.followup({ content: [{ type: 'text', text: 'do a routed multi-step task' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do a routed multi-step task' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
       expect(agent.session.requestHeader()?.config.model).toBe('mock')
@@ -238,7 +244,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('post-step-order'), { provider: 'mock', model: 'mock' })
-      agent.followup({ content: [{ type: 'text', text: 'do tool work' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do tool work' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -270,7 +276,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
     const { ctx } = await harness(8)
     try {
       const agent = ctx.agentLoop.create(SessionId('repro'), { provider: 'mock', model: 'mock' })
-      agent.followup({ content: [{ type: 'text', text: 'do a long multi-step task' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'do a long multi-step task' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
       const events = [...agent.session.events]
@@ -331,7 +337,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
           },
         })
 
-        agent.followup({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } })
+        agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } }))
         await agent.whenIdle()
 
         expect(adapter.conversationRequests).toHaveLength(2)
@@ -402,7 +408,7 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
         seed: overflowHistorySeed(),
         agentOptions: { provider: 'mock', model: 'mock' },
       })
-      agent.followup({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'continue from history' }], source: { kind: 'user' } }))
       await agent.whenIdle()
 
       expect(adapter.conversationRequests).toHaveLength(3)

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import type { PiAiReplayState } from '../src/replay.ts'
@@ -58,7 +58,10 @@ afterEach(async () => {
 })
 
 function ask(text: string): Message[] {
-  return [{ role: 'user', content: [{ type: 'text', text }] }]
+  return [createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
 }
 
 function textOf(result: AssembledResult): string {
@@ -76,7 +79,9 @@ function expectFinish(result: AssembledResult, expected: 'stop' | 'tool-calls'):
 }
 
 function expectNativeReplay(result: AssembledResult, profile: ProviderCase): PiAiReplayState {
-  const replayState = result.message.provenance?.replayState
+  const replayState = result.message.source.kind === 'model'
+    ? result.message.source.replayState
+    : undefined
   expect(replayState).toMatchObject({
     kind: 'pi-ai',
     version: 1,
@@ -141,14 +146,14 @@ for (const profile of providerCases) {
           messages: [
             ...prompt,
             first.message,
-            {
-              role: 'user',
+            createUserMessage({
               content: [{
                 type: 'tool-result',
                 toolCallId: CallId(call!.id),
                 content: [{ type: 'text', text: 'The code blue means ocean.' }],
               }],
-            },
+              source: { kind: 'plugin', plugin: 'test' },
+            }),
           ],
           tools: [lookupTool],
           maxTokens: 2048,

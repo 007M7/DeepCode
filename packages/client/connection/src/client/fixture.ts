@@ -5,8 +5,27 @@
 // prompt triggers a chunked streaming replay; cancel stops the replay; resident pending
 // approval/question requests exercise replay and composer takeover with stable rpcIds.
 
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+import {
+  createAssistantMessage,
+  createToolResultMessage,
+  createUserMessage,
+} from '@deepseek-ai/dsh-llm/message'
+import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type {
+  AssistantMessage,
+  ContentBlock,
+  MessageSource,
+  ToolResultMessage,
+  UserMessage,
+} from '@deepseek-ai/dsh-llm'
+import type {
+  SessionEvent,
+  SessionId,
+  TodoItem,
+} from '@deepseek-ai/dsh-session/types'
+// Type-only: the brand constructor is host-side; the fixture casts at its
+// wire-fabrication boundary (the schema layer's one-cast-point posture).
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
@@ -22,6 +41,21 @@ function rpcRequest<P>(payload: P): RpcRequest<P> {
 
 function text(t: string): ContentBlock[] {
   return [{ type: 'text', text: t }]
+}
+
+function userMessage(content: ContentBlock[], source: MessageSource = { kind: 'user' }): UserMessage {
+  return createUserMessage({ content, source })
+}
+
+function assistantMessage(content: ContentBlock[]): AssistantMessage {
+  return createAssistantMessage({
+    content,
+    source: { provider: 'fixture', model: 'fx-1' },
+  })
+}
+
+function toolResultMessage(callId: string, content: ContentBlock[], isError: boolean): ToolResultMessage {
+  return createToolResultMessage({ callId: CallId(callId), content, isError })
 }
 
 const MARKDOWN_FIXTURE = [
@@ -83,10 +117,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
     const userSeq = push({
       type: 'user/message', surfaceOp: 'append',
-      data: {
-        content: text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`),
-        source: { kind: 'user' },
-      },
+      data: userMessage(text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`)),
     })
     if (turn === 0) {
       push({
@@ -95,7 +126,7 @@ function buildAlphaLog(): SessionEvent[] {
       })
     }
     if (turn % 9 === 4) {
-      push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`[fixture] 上下文注入（turn ${turn}）`), source: { kind: 'plugin', plugin: 'fixture' } } })
+      push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`[fixture] 上下文注入（turn ${turn}）`), { kind: 'plugin', plugin: 'fixture' }) })
     }
     push({ type: 'step/start', data: { turn, step: 0 } })
     const withTool = turn % 5 === 2
@@ -106,19 +137,19 @@ function buildAlphaLog(): SessionEvent[] {
     if (withTool) {
       const callId = `fx-call-${turn}`
       blocks.push({ type: 'tool-call', id: callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } as ContentBlock)
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, content: blocks, provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'echo', arguments: `{"text":"turn ${turn}"}` } })
-      push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, callId, content: text(`ECHO: TURN ${turn}`), isError: turn % 25 === 12 } })
+      push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, message: toolResultMessage(callId, text(`ECHO: TURN ${turn}`), turn % 25 === 12) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
       push({ type: 'step/start', data: { turn, step: 1 } })
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 1, content: text(`工具结果已消化（turn ${turn}）。`), provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 1, message: assistantMessage(text(`工具结果已消化（turn ${turn}）。`)) } })
       push({ type: 'step/end', data: { turn, step: 1 } })
     } else {
-      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, content: blocks, provenance: { provider: 'fixture', model: 'fx-1' } } })
+      push({ type: 'assistant/message', surfaceOp: 'append', data: { turn, step: 0, message: assistantMessage(blocks) } })
       push({ type: 'step/end', data: { turn, step: 0 } })
     }
     if (turn % 13 === 6) {
-      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, content: text(`插话 ${turn}：fixture steering 消息。`), source: { kind: 'user' } } })
+      push({ type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(text(`插话 ${turn}：fixture steering 消息。`)) } })
     }
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
@@ -128,14 +159,14 @@ function buildAlphaLog(): SessionEvent[] {
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：${name} 样本。`), source: { kind: 'user' } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：${name} 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
       type: 'assistant/message', surfaceOp: 'append',
-      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name, arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+      data: { turn, step: 0, message: assistantMessage([{ type: 'tool-call', id: callId, name, arguments: args } as ContentBlock]) },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name, arguments: args } })
-    push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, callId, content: text(resultText), isError: false } })
+    push({ type: 'tool/result', surfaceOp: 'append', data: { turn, step: 0, message: toolResultMessage(callId, text(resultText), false) } })
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
@@ -156,11 +187,11 @@ function buildAlphaLog(): SessionEvent[] {
       + 'return { listing, demo }'
     const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-    push({ type: 'user/message', surfaceOp: 'append', data: { content: text(`问题 ${turn}：run_code 样本。`), source: { kind: 'user' } } })
+    push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：run_code 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
       type: 'assistant/message', surfaceOp: 'append',
-      data: { turn, step: 0, content: [{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock], provenance: { provider: 'fixture', model: 'fx-1' } },
+      data: { turn, step: 0, message: assistantMessage([{ type: 'tool-call', id: callId, name: 'run_code', arguments: args } as ContentBlock]) },
     })
     push({ type: 'tool/call', data: { turn, step: 0, callId, name: 'run_code', arguments: args } })
     const dispatchPair = (n: number, name: string, dispatchArgs: Record<string, unknown>, resultText: string, isError = false): void => {
@@ -181,7 +212,7 @@ function buildAlphaLog(): SessionEvent[] {
     dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
     push({
       type: 'tool/result', surfaceOp: 'append',
-      data: { turn, step: 0, callId, content: text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), isError: false },
+      data: { turn, step: 0, message: toolResultMessage(callId, text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), false) },
     })
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
@@ -255,13 +286,13 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
     return view === undefined ? undefined : { for: 'call', view }
   }
   if (event.type === 'tool/result') {
-    const callId = String(event.data.callId)
+    const callId = String(event.data.message.source.callId)
     for (let i = log.length - 1; i >= 0; i--) {
       const candidate = log[i]
       /* v8 ignore next -- dense-array guard: i stays within [0, log.length),
       so the undefined arm needs a sparse log no code path builds. */
       if (candidate !== undefined && candidate.type === 'tool/call' && String(candidate.data.callId) === callId) {
-        const resultText = event.data.content.map(b => (b.type === 'text' ? b.text : '')).join('')
+        const resultText = event.data.message.content[0].content.map(b => (b.type === 'text' ? b.text : '')).join('')
         const view = presentResult(candidate.data.name, candidate.data.arguments, resultText)
         return view === undefined ? undefined : { for: 'result', view }
       }
@@ -271,18 +302,89 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
   return undefined
 }
 
-/** Fold the latest fixture title into the host's control-frame projection. */
-function titleFrameOf(id: SessionId, log: readonly SessionEvent[]): Extract<MuxFrame, { type: 'session/title' }> | undefined {
-  const event = log.findLast(item => (item as { type: string }).type === 'session/title')
-  if (event === undefined) return undefined
-  const titleEvent = event as unknown as { seq: number; time: number; data: { title: string } }
-  return {
-    type: 'session/title',
-    sessionId: id,
-    title: titleEvent.data.title,
-    eventSeq: titleEvent.seq,
-    updatedAt: titleEvent.time,
+/**
+ * Fixture parallel of the plan unit's double-event fold: `command/run`
+ * records named `plan` set the wanted target (`off` → false, else true);
+ * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
+ * boundary (the fixture's agent/step parallel).
+ */
+function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
+  let active = false
+  let wanted: boolean | null = null
+  for (const event of log) {
+    const item = event as unknown as { type: string; data?: Record<string, unknown> }
+    if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
+      const args = item.data['args']
+      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+    } else if (item.type === 'plan/mode') {
+      active = item.data?.['active'] === true
+      wanted = null
+    }
   }
+  return { active, pending: wanted !== null && wanted !== active, wanted }
+}
+
+/** The plan projection's wire view over the full log. */
+function planViewOf(log: readonly SessionEvent[]): { active: boolean; pending: boolean } {
+  const plan = foldPlan(log)
+  return { active: plan.active, pending: plan.pending }
+}
+
+/** Fixture parallel of the host's projection units: whole current values per key over the full log. */
+function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
+  if (titleEvent !== undefined) {
+    values['title'] = (titleEvent as unknown as { data: { title: string } }).data.title
+  }
+  // Always present (tool-todo unit composed): null when no plan stands.
+  values['todos'] = backscanTodos(log) ?? null
+  // Always present (plan-mode unit composed): the {active, pending} view.
+  values['plan'] = planViewOf(log)
+  // Always present (GoalService unit composed): null before create / after clear.
+  values['goal'] = backscanGoal(log)
+  return values
+}
+
+/** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
+function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
+  const type = (event as { type: string }).type
+  if (type === 'session/title') {
+    const values = projectionValuesOf(log)
+    /* v8 ignore next -- the advancing title event is in the log, so the key is present. */
+    if (!Object.hasOwn(values, 'title')) return []
+    return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
+  }
+  // Goal fold: a round-zero goal-sourced user message advances the goal unit.
+  if (type === 'user/message') {
+    const source = (event as unknown as { data?: { source?: { kind?: string; round?: number } } }).data?.source
+    if (source?.kind === 'goal' && source.round === 0) {
+      return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
+    }
+    return []
+  }
+  // Standing-plan fold: writes replace the list; turn/start clears it (null).
+  if (type === 'todo/write' || type === 'turn/start') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'todos',
+      value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  // The plan unit advances on its two folded event kinds.
+  if (type === 'plan/mode' || (type === 'command/run'
+    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'plan',
+      value: planViewOf(log),
+      seq: event.seq,
+    }]
+  }
+  return []
 }
 
 /**
@@ -316,13 +418,67 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
-/** Current todo projection over the full log (host parallel: latest todo/write, last write wins). */
+/**
+ * Current plan projection over the full log (host parallel: latest todo/write
+ * with no later turn/start; a new turn retires the previous plan).
+ */
 function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
   for (let i = log.length - 1; i >= 0; i--) {
     const event = log[i]
-    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+    if (event === undefined) continue
+    if (event.type === 'turn/start') return undefined
+    if (event.type === 'todo/write') return event.data.todos
   }
   return undefined
+}
+
+/** Fixture-local mirror of the goal projection value (dsh-goal's GoalProjection shape). */
+interface FxGoalProjection {
+  goal: {
+    id: string
+    revision: number
+    objective: string
+    phase: 'active' | 'paused' | 'blocked' | 'complete'
+    maxGoalRounds: number
+  }
+  roundsStarted: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** One durable goal change riding a round-zero goal-sourced user message. */
+type FxGoalChange =
+  | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
+  | {
+    kind: 'goal/change'
+    version: 1
+    operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete'
+    goal: FxGoalProjection['goal']
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+  }
+
+/**
+ * Current goal projection over the full log (host parallel: the GoalService
+ * unit's last-wins fold of goal/change whole values; clear returns null).
+ */
+function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i] as unknown as {
+      type: string
+      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+    } | undefined
+    if (event === undefined || event.type !== 'user/message') continue
+    const source = event.data?.source
+    if (source?.kind !== 'goal' || source.round !== 0) continue
+    const change = source.change
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (change === undefined || change.kind !== 'goal/change') continue
+    if (change.operation === 'clear') return null
+    return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+  }
+  return null
 }
 
 interface StreamConn<F> {
@@ -512,10 +668,49 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     emitMux(view === undefined
       ? { type: 'session/event', sessionId: id, event }
       : { type: 'session/event', sessionId: id, event, view })
-    if ((event as { type: string }).type === 'session/title') {
-      // The raw title is already in this log, so the latest-title fold must find it.
-      emitMux(titleFrameOf(id, log) as Extract<MuxFrame, { type: 'session/title' }>)
+    // Host eager-drive parallel: a unit-advancing event pushes its finished value.
+    for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
+  }
+
+  /** Append one goal/change as its round-zero goal-sourced user message (host GoalService parallel). */
+  const appendGoalChange = (id: SessionId, change: FxGoalChange): FxGoalProjection => {
+    const ref = change.operation === 'clear' ? change.cleared : change.goal
+    const payload = change.operation === 'clear'
+      ? { cleared: change.cleared, clearedAt: change.clearedAt }
+      : { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    append(id, {
+      type: 'user/message', surfaceOp: 'append',
+      data: userMessage(
+        text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
+        { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
+      ),
+    })
+    return backscanGoal(logOf(id)) as FxGoalProjection
+  }
+
+  /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
+  const fxMutateGoal = (
+    request: RpcRequest<{ sessionId: SessionId; ref: { id: string; revision: number } }>,
+    ref: { id: string; revision: number },
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
+    const missing = requireSession(request)
+    if (missing !== undefined) return missing
+    const id = request.payload.sessionId
+    const current = backscanGoal(logOf(id))
+    if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
+      return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
     }
+    const goal = next(current)
+    if (goal === undefined) {
+      return err(request, { code: 'internal', message: `invalid goal transition from "${current.goal.phase}"`, details: { goalCode: 'GOAL_INVALID_TRANSITION' } })
+    }
+    const projection = appendGoalChange(id, {
+      kind: 'goal/change', version: 1,
+      operation: goal.phase === current.goal.phase ? 'edit' : goal.phase === 'paused' ? 'pause' : goal.phase === 'active' ? 'resume' : 'complete',
+      goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: Date.now(),
+    })
+    return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -544,7 +739,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     /** Log append + mux emit (the normal live path). */
     appendUser(id: string, msg: string): void {
-      append(sid(id), { type: 'user/message', surfaceOp: 'append', data: { content: text(msg), source: { kind: 'user' } } })
+      append(sid(id), { type: 'user/message', surfaceOp: 'append', data: userMessage(text(msg)) })
     },
     /** Append a later durable title revision through the normal raw-event + control-frame path. */
     appendTitle(id: string, title: string): void {
@@ -608,8 +803,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         type: 'assistant/message',
         surfaceOp: 'append',
         data: {
-          turn: scenario.turn, step: 1, content: text('重试后的完整回复'),
-          provenance: { provider: 'fixture', model: 'fx-1' },
+          turn: scenario.turn,
+          step: 1,
+          message: assistantMessage(text('重试后的完整回复')),
         },
       })
       append(sessionId, { type: 'step/end', data: { turn: scenario.turn, step: 1 } })
@@ -619,7 +815,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     /** Log append WITHOUT the mux emit: a frame lost in transit — history still serves it, the client must repull. */
     appendSilent(id: string, msg: string): void {
       const log = logOf(sid(id))
-      log.push({ type: 'user/message', surfaceOp: 'append', seq: log.length, time: Date.now(), data: { content: text(msg), source: { kind: 'user' } } } as unknown as SessionEvent)
+      log.push({ type: 'user/message', surfaceOp: 'append', seq: log.length, time: Date.now(), data: userMessage(text(msg)) } as unknown as SessionEvent)
     },
     /** End every open stream generator (client sees both streams close -> reconnect + resync path). */
     breakStreams(): void {
@@ -640,7 +836,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       replays.delete(id)
       const done = pieces.slice(0, i).join('')
       append(id, { type: 'assistant/chunk', data: { turn, step, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: done } } } })
-      append(id, { type: 'assistant/message', surfaceOp: 'append', data: { turn, step, content: text(aborted ? `${done}（已中断）` : done), provenance: { provider: 'fixture', model: 'fx-1' } } })
+      append(id, { type: 'assistant/message', surfaceOp: 'append', data: { turn, step, message: assistantMessage(text(aborted ? `${done}（已中断）` : done)) } })
       append(id, { type: 'step/end', data: { turn, step } })
       append(id, { type: 'turn/end', data: { turn, reason: { kind: aborted ? 'cancelled' : 'completed' } } })
       setRunning(id, false)
@@ -734,14 +930,18 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
         const page = pageOf(log, request.payload.beforeSeq, request.payload.maxMessages ?? 50)
-        // Tail page carries the session-level todo projection (host parallel: full-log backscan).
-        const todos = request.payload.beforeSeq === undefined ? backscanTodos(log) : undefined
+        // Tail page carries the projections block (host parallel: one consistent
+        // cut over the registered units; asOfSeq = window tail seq, -1 on an
+        // empty log — the host's session.seq-1 convention).
+        const projections = request.payload.beforeSeq === undefined
+          ? { asOfSeq: log.length - 1, values: projectionValuesOf(log) }
+          : undefined
         const doomed = failNextHistory
         failNextHistory = false
         const delay = historyDelayMs
         if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
         if (doomed) throw new Error('fixture: simulated history transport failure')
-        return ok(request, { ...page, ...todos === undefined ? {} : { todos } })
+        return ok(request, { ...page, ...projections === undefined ? {} : { projections } })
       },
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
@@ -805,14 +1005,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           // Steering: insert a steering message into the current turn; the replay continues.
           /* v8 ignore next -- the ?? arm needs a missing counter, but a live replay implies a prior prompt already set it. */
           const turn = (nextTurn.get(id) ?? 1) - 1
-          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, content, source: { kind: 'user' } } })
+          append(id, { type: 'steering/message', surfaceOp: 'append', data: { turn, message: userMessage(content) } })
           return ok(request, { accepted: true as const })
         }
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
-        append(id, { type: 'user/message', surfaceOp: 'append', data: { content, source: { kind: 'user' } } })
+        // Boundary flush parallel (the host's agent/step seam): an outstanding
+        // /plan selection commits as plan/mode inside the opened turn.
+        const plan = foldPlan(logOf(id))
+        if (plan.wanted !== null && plan.wanted !== plan.active) {
+          append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+        }
+        append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
         startReply(
           id,
           turn,
@@ -842,6 +1048,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
       pickDirectory: request => ok(request, { path: null }),
+      openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
       list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
@@ -941,29 +1148,71 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           commands: [
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
-            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+            { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+            { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
           ],
         })
       },
+      // Pure admission, mirroring the host: an admitted command logs the
+      // command/run + command/done lifecycle pair (mux-broadcast by append),
+      // and the response only reports resolution.
       execute: (request) => {
         const missing = requireSession(request)
         if (missing !== undefined) return missing
-        const line = request.payload.line.trim()
-        const match = /^\/(\S+)(?:\s+(.*))?$/.exec(line)
+        const id = request.payload.sessionId
+        // Structured split mirroring the host parser: name + verbatim rawInput
+        // (separator whitespace included) — the run payload carries no line.
+        const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
-        if (name === 'compact' || name === 'echo') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: name === 'echo' ? (match?.[2] ?? '') : 'fixture：已压缩（假动作）' },
-          })
+        const args = match?.[2] ?? ''
+        if (name === 'goal') {
+          // Host parallel: /goal with an objective creates (or reports) the
+          // current goal; the command lifecycle pair brackets the mutation.
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const objective = args.trim()
+          const current = backscanGoal(logOf(id))
+          let text: string
+          if (objective === '') {
+            text = current === null ? 'No goal is set. Usage: /goal <objective>' : `Current goal: ${current.goal.objective}`
+          } else if (current !== null && current.goal.phase !== 'complete') {
+            text = `A goal already exists (${current.goal.objective}). Clear it first.`
+          } else {
+            const created = appendGoalChange(id, {
+              kind: 'goal/change', version: 1, operation: 'create',
+              goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective, phase: 'active', maxGoalRounds: 256 },
+              roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+            })
+            text = `Goal created: ${created.goal.objective}`
+          }
+          append(id, { type: 'command/done', data: { commandId, kind: 'success', text } })
+          return ok(request, { matched: true as const, commandId })
         }
-        if (name === 'goal-fixture') {
-          return ok(request, {
-            matched: true as const,
-            result: { kind: 'success' as const, text: `fixture：goal 已设置（${request.payload.sessionId}）` },
-          })
+        // Host parallel: /plan on an idle fixture session commits plan/mode
+        // immediately (the boundary flush covers only a running turn), so the
+        // outcome copy matches the immediate branch of the host handler.
+        const running = summaryOf(id)?.running === true
+        const outcomes: Record<string, string> = {
+          compact: 'fixture：已压缩（假动作）',
+          echo: args.trim(),
+          plan: args.trim() === 'off'
+            ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
+            : (running
+              ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+              : 'Plan mode on. Use /plan off to leave.'),
         }
-        return ok(request, { matched: false as const })
+        const text = name === undefined ? undefined : outcomes[name]
+        if (name === undefined || text === undefined) return ok(request, { matched: false as const })
+        const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+        append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        if (name === 'plan' && !running) {
+          const plan = foldPlan(logOf(id))
+          if (plan.wanted !== null && plan.wanted !== plan.active) {
+            append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+          }
+        }
+        append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
+        return ok(request, { matched: true as const, commandId })
       },
     },
     skills: {
@@ -977,6 +1226,62 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         })
       },
     },
+    goals: {
+      // Mutation-only mirror of the host handlers: each verb CAS-checks the
+      // projected current goal, appends the whole-value change (the mux
+      // stream and projection frame ride the shared append path), and
+      // acknowledges with the new ref only.
+      create: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current !== null && current.goal.phase !== 'complete') {
+          return err(request, { code: 'internal', message: `goal "${current.goal.id}" already exists`, details: { goalCode: 'GOAL_ALREADY_EXISTS' } })
+        }
+        const projection = appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'create',
+          goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective: request.payload.objective, phase: 'active', maxGoalRounds: request.payload.maxGoalRounds ?? 256 },
+          roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        })
+        return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
+      },
+      edit: request => fxMutateGoal(request, request.payload.ref, current => ({
+        ...current.goal,
+        revision: current.goal.revision + 1,
+        ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
+        ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+      })),
+      pause: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
+          : undefined
+      )),
+      resume: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
+          : undefined
+      )),
+      complete: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'complete'
+          ? undefined
+          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
+      )),
+      clear: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current === null || current.goal.id !== request.payload.ref.id || current.goal.revision !== request.payload.ref.revision) {
+          return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+        }
+        appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'clear',
+          cleared: { id: current.goal.id, revision: current.goal.revision + 1 }, clearedAt: Date.now(),
+        })
+        return ok(request, { cleared: true as const })
+      },
+    },
     events: {
       async *mux(_request, signal) {
         const conn = new FxInbox<MuxFrame>()
@@ -986,9 +1291,13 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         // Open baseline: subscribed sessions + pending interactions replayed with stable rpcIds.
         for (const s of sessions) {
           if (!s.running) continue
-          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: (logs.get(s.sessionId)?.length ?? 0) - 1 } })
-          const title = titleFrameOf(s.sessionId, logs.get(s.sessionId) ?? [])
-          if (title !== undefined) conn.push({ rpcId: mint(), payload: title })
+          const log = logs.get(s.sessionId) ?? []
+          conn.push({ rpcId: mint(), payload: { type: 'session/subscribed', sessionId: s.sessionId, lastSeq: log.length - 1 } })
+          // Post-subscribe projection baseline (host parallel: recomputed unit values ride push frames).
+          const values = projectionValuesOf(log)
+          for (const key of Object.keys(values)) {
+            conn.push({ rpcId: mint(), payload: { type: 'session/projection', sessionId: s.sessionId, key, value: values[key], seq: log.length - 1 } })
+          }
         }
         conn.push({
           rpcId: pendingApprovalRpcId,
@@ -1093,6 +1402,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
+      case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)
@@ -1102,6 +1412,12 @@ export class FixtureApiClient extends AbstractApiClient {
       // The in-memory execute never blocks, so a never-aborting signal is faithful here.
       case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'goal.create': return this.api.goals.create(request)
+      case 'goal.edit': return this.api.goals.edit(request)
+      case 'goal.pause': return this.api.goals.pause(request)
+      case 'goal.resume': return this.api.goals.resume(request)
+      case 'goal.complete': return this.api.goals.complete(request)
+      case 'goal.clear': return this.api.goals.clear(request)
     }
   }
 

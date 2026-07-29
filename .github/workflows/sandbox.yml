@@ -1,15 +1,16 @@
-# Sandbox CI: the keyless real-kernel confinement proofs. A separate workflow
-# from ci.yml because the axis is different — these jobs fan out over
-# OS×runner (kernel capabilities), not node versions. The Landlock launcher
-# arrives from the registry with `pnpm install` (the npm package family
+# Sandbox CI: the keyless real-kernel confinement proofs. This master-only
+# reference stays outside the pull-request verdict; rationale lives in
+# .agents/notes/implemented/process/2026-07-21-serial-cross-platform-ci-reference.md.
+# A separate workflow from ci.yml because the axis is different — these jobs
+# fan out over OS×runner (kernel capabilities), not node versions. The Landlock
+# launcher arrives from the registry with `pnpm install` (the npm package family
 # `node-addon-landlock-run`, built and released from its own repository), so
 # these legs exercise the true consumer path — nothing is compiled here.
 name: Sandbox
 
 on:
   push:
-    branches: [main, master]
-  pull_request:
+    branches: [master]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

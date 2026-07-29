@@ -63,16 +63,11 @@ export interface CreateAgentOptions {
     readonly delegationDepth?: number
   }
   /**
-   * Seed events to reconstruct the child session's log from (the fork lineage
-   * primitive). When present, the factory creates the session with this event
-   * prefix so `deriveMessages()`/`lastTurnNumber` continue from it — used by the
-   * in-process FORK subagent backend to seed a child with a balanced
-   * completed-turn prefix of the parent's log. The prefix MUST be contiguous
-   * from seq 0, carry only lossless-JSON data, and be balanced (no open
-   * turn/step, no dangling tool-call), or the session constructor (and the
-   * dev-mode invariants replay) reject it. The factory passes the raw seed to
-   * the session's durable validator/snapshot boundary. Absent for a fresh
-   * (spawn) child.
+   * Initial replay/fork history. A fork supplies a balanced completed-turn
+   * prefix of the parent's log. The complete seed must be contiguous from seq
+   * 0, carry only lossless-JSON data, and contain no open turn/step or dangling
+   * tool call. The factory passes it to the session's durable
+   * validator/snapshot boundary before publication.
    */
   readonly seed?: readonly SessionEvent[]
   /** Per-agent options (model, …). */

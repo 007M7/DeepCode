@@ -1,5 +1,6 @@
-/* Chat flow: block gap 16 between narration/bubbles/tool groups (figma);
-   tool rows inside a group gap 10. Input padding cap rides the skeleton. */
+/* Chat flow: one 16px rhythm everywhere — between blocks (prose <-> tool
+   runs) via the column gap and between consecutive tool rows via the group
+   gap. Input padding cap rides the skeleton. */
 
 .root {
   position: relative;
@@ -30,7 +31,7 @@
 .toolGroup {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .callRow {
@@ -49,6 +50,35 @@
   margin: 4px 0 2px 22px;
   padding-left: 8px;
   border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* Turn loader: one row of four 2.5px pixels (StateDot blue) chasing left to
+   right with a stepped trail — flat keyframe holds, no tweening. Phase
+   offsets come from per-rect animation-delay (index * -250ms) set inline
+   by the component. */
+.turnDots {
+  align-self: flex-start;
+  flex: none;
+  display: flex;
+  align-items: center;
+  /* One message line box: the dots center inside the text line height. */
+  height: 26px;
+  /* Same pin as StateDot: ongoing blue has no alias token (business-primary
+     is the 500 step, not this 450). */
+  color: var(--dsw-static-deepseek-450);
+}
+
+.turnDotCell {
+  fill: currentColor;
+  opacity: 0.15;
+  animation: dsh-turn-dots-chase 1s infinite;
+}
+
+@keyframes dsh-turn-dots-chase {
+  0%, 24.9% { opacity: 1; }
+  25%, 49.9% { opacity: 0.6; }
+  50%, 74.9% { opacity: 0.35; }
+  75%, 100% { opacity: 0.15; }
 }
 
 .hint {

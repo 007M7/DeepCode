@@ -59,6 +59,8 @@ jobs:
           persist-credentials: false
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -96,7 +98,7 @@ jobs:
           tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
           apps/*/lib packages/*/*/lib vendor/*/lib
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: node-24-built-tree
           path: ${{ runner.temp }}/node-24-built-tree.tar.gz
@@ -126,6 +128,8 @@ jobs:
           persist-credentials: false
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -204,6 +208,8 @@ jobs:
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -240,44 +246,7 @@ jobs:
           exit "$sandbox_status"
 
       - name: Run compatibility, snapshot, and artifact gates
-        run: |
-          pnpm run check:ci:lint &
-          lint_pid=$!
-          pnpm run check:node-compat &
-          compat_pid=$!
-          DSH_EXAMPLE_MODE=lib pnpm run test:snapshot &
-          snapshot_pid=$!
-          pnpm run publint &
-          publint_pid=$!
-          pnpm run verify-node-next-types &
-          node_next_pid=$!
-          pnpm run verify-built-package-invariants &
-          built_invariants_pid=$!
-          DSH_EXAMPLE_MODE=lib pnpm exec vitest run --config vitest.e2e.config.ts \
-            examples/headless-agent/tests/keyless-smoke.e2e.ts \
-            examples/tui-agent/tests/tui-keyless-smoke.e2e.ts \
-            packages/examples/cli-demo/tests/built-bin.e2e.ts \
-            packages/examples/acp-demo/tests/built-bin.e2e.ts \
-            packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts \
-            packages/workflow/workflow-workerthread/tests/built-worker.e2e.ts \
-            packages/code-runtime/code-runtime-worker/tests/built-lib.e2e.ts &
-          built_bin_pid=$!
-
-          final_status=0
-          capture_status() {
-            local child_status=0
-            wait "$1" || child_status=$?
-            if (( final_status == 0 && child_status != 0 )); then
-              final_status=$child_status
-            fi
-          }
-          for child_pid in \
-            "$lint_pid" "$compat_pid" "$snapshot_pid" \
-            "$publint_pid" "$node_next_pid" "$built_invariants_pid" "$built_bin_pid"
-          do
-            capture_status "$child_pid"
-          done
-          exit "$final_status"
+        run: pnpm run check:ci:consumers
 
 
   node-compat:
@@ -304,6 +273,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -355,6 +326,8 @@ jobs:
           persist-credentials: false
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -455,6 +428,8 @@ jobs:
           fetch-depth: 2
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -532,6 +507,8 @@ jobs:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -565,6 +542,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -596,6 +575,8 @@ jobs:
           /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       - uses: actions/setup-node@v6
         with:
@@ -688,6 +669,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       # The Windows lanes deliberately skip the store cache like the required
       # windows job; an empty cache input disables setup-node's caching.
@@ -777,6 +760,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
 
       # Unlike the larger-runner suite, both platforms cache the store here:
       # the consolidated topology measures cache mechanics as workload.

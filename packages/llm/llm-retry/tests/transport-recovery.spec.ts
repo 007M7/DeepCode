@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -66,7 +67,7 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 
 function sendAndWait(ctx: Context, agent: Agent): Promise<void> {
   const idle = waitForIdle(ctx, agent)
-  agent.followup({ content: [{ type: 'text', text: 'recover through the provider boundary' }], source: { kind: 'user' } })
+  agent.followup(createUserMessage({ content: [{ type: 'text', text: 'recover through the provider boundary' }], source: { kind: 'user' } }))
   return idle
 }
 
@@ -204,7 +205,9 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
       apiKey: 'mock-key',
       successText: 'recovered after timeout',
     })
-    context = await harness(server.baseURL, { streamIdleTimeoutMs: 30 })
+    // This crosses the real HTTP idle timer, so leave scheduler slack between
+    // the stalled attempt and the mock server's immediate successful response.
+    context = await harness(server.baseURL, { streamIdleTimeoutMs: 1_000 })
     const agent = context.agentLoop.create(SessionId('wire-stall'), {
       provider: 'deepseek',
       model: 'mock-model',
@@ -216,7 +219,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data.failure.code))
       .toEqual(['TIMEOUT'])
     expect(finalAssistantText(agent)).toBe('recovered after timeout')
-  })
+  }, 10_000)
 
   it('stops after the configured transport retry budget is exhausted', async () => {
     const server = await start(['connection_reset', 'connection_reset', 'connection_reset'], {

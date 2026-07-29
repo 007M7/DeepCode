@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给两个 manager。客户端 Session 一律由 Host 出生（一次 `session.create` 同瞬产出 Session+Agent+cwd）；客户端不持有任何实体化之前的会话状态——Agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时出生，随 prune 死亡。契约：api-contracts v3 §4。`ConversationSnapshot` 携带 `todos`——会话当前的 todo 投影：取自尾页 history 携带的全量 log 值（host 计算，独立于分页窗口），跨往前翻页保留，并被每次实时 `todo/write` 覆盖（后写胜出）。尾页响应省略该字段即表示 log 中没有任何 `todo/write`，因此列表复位为空——log 从未留下的计划（写入因 host 崩溃丢失）会在下一次打开或 resync 时消失。
+客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给两个 manager。客户端 Session 一律由 Host 出生（一次 `session.create` 同瞬产出 Session+Agent+cwd）；客户端不持有任何实体化之前的会话状态——Agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时出生，随 prune 死亡。契约：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，由历史尾页的 `projections` 块播种，并经 `session/projection` 帧按 seq 高者胜更新；领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。
 
 ## Workspace 与 Session 列表
 
@@ -43,5 +43,5 @@ Session 对象会在事件 wire 边界验证由插件负责、按提供方路由
 ## 已知限制与暂缓事项
 
 - **`loader.unload` 是 stub（抛出 not-implemented）**：完整链路（fiber 释放 → 注册级联 → 样式移除）随 HMR 项目落地。
-- **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的 Session 精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ Session 位于 stage）；在 staged 状态下被移除的 Session，其 scope 会冻结保留，直到 stage 转向其他 Session，而非直到真实观察者数量降为零。解析（`provideInfo()`／`binding()`／`scope()`）只是纯寻址，可安全用于渲染。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
+- **scope 拆卸由阶段驱动，目前只能有一个占用者**：已 staged 的 Session 精确跟随 `list.current`（staging 就是打开信号：事件窗口打开 ⟺ Session 位于 stage）；在 staged 状态下被移除的 Session，其 scope 会冻结保留，直到 stage 转向其他 Session，而非直到真实观察者数量降为零。解析（`binding()`／`scope()`）只是纯寻址，可安全用于渲染；渲染层经 `currentProvideInfo` observable 读取当前 bundle。并发 pane 落地时，staged 状态可以扩展为多 pane 列表。
 - **插件组合包从该包执行值导入时必须使用 `/client` 子路径**：裸包名不在 loader external 表中，会内联第二个模块实例；其私有 scope-tag Symbol 永远无法匹配（空状态 P0 事故复盘）。

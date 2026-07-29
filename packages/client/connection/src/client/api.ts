@@ -9,9 +9,10 @@ export type {
   ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
   WorkspaceApi, WorkspaceId, WorkspaceView,
-  CommandsApi, CommandDescriptor, CommandExecuteResult, SkillsApi, SkillEntry,
+  CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelTarget, SessionModels,
+  GoalsApi, GoalRef,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 export type {

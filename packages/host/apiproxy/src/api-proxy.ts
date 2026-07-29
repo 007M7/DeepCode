@@ -9,14 +9,13 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentMessage, AgentMessageId, AgentStatus,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
 } from '@deepseek-ai/dsh-agent'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { JsonValue, Session, SessionEvent, SessionHeader, SessionId, TodoItem } from '@deepseek-ai/dsh-session'
+import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -25,10 +24,17 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
-  MuxFrame, QuestionResponsePayload, SessionSummary, ToolEventView,
+  ApiProxy, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
+  MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSummary, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+// Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
+import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
+import type {} from '@deepseek-ai/dsh-session-projection-cache'
+// GoalError narrows domain rejections to their stable codes at the wire boundary.
+import { GoalError } from '@deepseek-ai/dsh-goal'
+import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -40,6 +46,7 @@ import type {
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
 import { pickNativeDirectory } from './native-directory-picker.ts'
+import { openNativePath } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
@@ -129,26 +136,20 @@ function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
 }
 
-type SessionTitleFrame = Extract<MuxFrame, { type: 'session/title' }>
-
-/** Project the latest durable title without exposing title-generation policy. */
-function titleFrame(session: Session): SessionTitleFrame | undefined {
-  const title = foldSessionTitle(session.events)
-  if (title === undefined) return undefined
-  return {
-    type: 'session/title',
-    sessionId: session.id,
-    title: title.title,
-    eventSeq: title.eventSeq,
-    updatedAt: title.updatedAt,
-  }
-}
-
-/** Queue the subscription baseline followed by its optional title snapshot. */
+/** Queue the subscription baseline frame. */
 function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Session): void {
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
-  const title = titleFrame(session)
-  if (title !== undefined) queue.push(frame(title))
+}
+
+/**
+ * Whether the session's conversation has started: no turn has run yet (a
+ * turn is one model-loop execution). Standalone plugin events — command
+ * lifecycle records, plan/mode, titles, goals — never open a turn, so
+ * running `/plan` or `/goal` on a fresh session keeps it blank
+ * (list-hidden, reusable).
+ */
+function sessionBlank(session: Session): boolean {
+  return !session.events.some(event => event.type === 'turn/start')
 }
 
 /** SessionSummary projection for attached (in-memory) sessions. */
@@ -157,7 +158,7 @@ function summarize(session: Session, running: boolean): SessionSummary {
     sessionId: session.id,
     updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
     running,
-    blank: session.events.length === 0,
+    blank: sessionBlank(session),
     ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
     ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
   }
@@ -182,8 +183,9 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
     sessionId: meta.id,
     updatedAt,
     running: false,
-    // Lazy persistence keeps never-appended sessions out of list(): a cold
-    // session necessarily has events, so blank is constantly false here.
+    // Lazy persistence keeps never-appended sessions out of list(); reading
+    // a cold log to check for turns would defeat the index read, so a listed
+    // cold session is served as not-blank (its log holds its conversation).
     blank: false,
     ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
     /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
@@ -203,13 +205,12 @@ export interface ApiProxyDefaults {
   workspaceRoot: string
   /** Native single-directory picker; injectable for carrier tests. */
   pickDirectory?: (signal: AbortSignal) => Promise<string | null>
+  /** Native open-with-default-application; injectable for carrier tests. */
+  openPath?: (path: string, signal: AbortSignal) => Promise<void>
 }
 
 /** The tool/call payload fields the presenter path reads. */
 interface ToolCallData { callId: string; name: string; arguments: string }
-/** The tool/result payload fields the presenter path reads. */
-interface ToolResultData { callId: string; content: ContentBlock[]; isError: boolean; meta?: JsonValue }
-
 /** One host-owned question wait, addressed by the stable server-request id. */
 interface PendingQuestion {
   rpcId: RpcId
@@ -256,10 +257,16 @@ function viewFor(ctx: Context, event: SessionEvent, argsFor: (callId: string) =>
       return view === undefined ? undefined : { for: 'call', view }
     }
     if (event.type === 'tool/result') {
-      const { callId, content, isError, meta } = event.data as ToolResultData
+      const { message, meta } = event.data
+      const [result] = message.content
+      const callId = message.source.callId
       const call = argsFor(callId) as { name: string; args: unknown } | undefined
       if (call === undefined) return undefined
-      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, { content, isError, ...meta === undefined ? {} : { meta } })
+      const view = ctx.tools.get(call.name)?.presentResult?.(call.args, {
+        content: result.content,
+        isError: result.isError === true,
+        ...meta === undefined ? {} : { meta },
+      })
       return view === undefined ? undefined : { for: 'result', view }
     }
   } catch (error: unknown) {
@@ -292,13 +299,41 @@ function backscanArgs(events: readonly SessionEvent[], callId: string): { name: 
   return undefined
 }
 
-/** Current todo projection: the latest `todo/write` over the full log (whole-list replace ⇒ last write wins); undefined when none. */
-function backscanTodos(events: readonly SessionEvent[]): TodoItem[] | undefined {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i]
-    if (event !== undefined && event.type === 'todo/write') return event.data.todos
+/**
+ * The projection baseline for one history tail page: the registry's
+ * watermark-cache snapshot — one fully synchronous read (no await between the
+ * page slice and this), so all values and `asOfSeq` form a single consistent
+ * cut and `asOfSeq` equals the window tail event seq. The carrier holds zero
+ * domain knowledge (each value passed its unit's own schema inside the
+ * registry). An absent registry means the deployment has no projection seam:
+ * the whole block is absent and clients treat every key as capability-absent.
+ */
+function projectionsFor(ctx: Context, agent: Agent): SessionProjectionsBlock | undefined {
+  const registry = ctx.get('sessionProjections')
+  if (registry === undefined) return undefined
+  return registry.snapshot(agent.session)
+}
+
+/**
+ * The projection baseline of one session.list row, fail-soft: attached
+ * sessions cut the registry's live watermark cache; cold sessions view the
+ * persisted projection cache's identity-checked stored rows (zero log loads
+ * either way — the listing use case the cache exists for). The block shape
+ * (values + asOfSeq) matches the history tail's, so a client seeds its
+ * value store under the same higher-seq-wins rule. Any failure — and an
+ * empty value set — yields an absent block: a listing without projections
+ * is degraded, never broken.
+ */
+function listProjectionsFor(ctx: Context, meta: SessionHeader, session: Session | undefined): SessionProjectionsBlock | undefined {
+  try {
+    const block = session !== undefined
+      ? ctx.get('sessionProjections')?.snapshot(session)
+      : ctx.get('sessionProjectionCache')?.cachedSnapshot(meta)
+    return block !== undefined && Object.keys(block.values).length > 0 ? block : undefined
+  } catch (error) {
+    ctx.logger.warn(`session.list: projection column for "${meta.id}" failed (serving the row without it): ${String(error)}`)
+    return undefined
   }
-  return undefined
 }
 
 /**
@@ -417,42 +452,53 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     for (const queue of muxQueues) queue.push(envelope)
   }
 
+  // Projection change feed → session/projection push frames. The carrier
+  // mints the wire frame (the seam package holds no wire vocabulary); the
+  // child activates only when a projection registry is composed, and the
+  // subscription unwinds with this gateway's fiber.
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.onChanged((session, key, value, seq) => {
+      broadcast({ type: 'session/projection', sessionId: session.id, key, value, seq })
+    })
+  })
+
   /**
-   * Per-session inbox mirror serving the mux-open queue snapshot (the same
-   * refresh-recovery baseline as pending questions). Keyed by the stable
-   * AgentMessageId: every enqueued id receives exactly one terminal
-   * `agent/inbox/dequeue` OR `agent/inbox/discard` (the inbox contract), so
-   * the mirror needs no consumption heuristics or sweeps beyond disposal.
+   * Per-session inbox occurrence mirror serving the mux-open queue snapshot
+   * (the same refresh-recovery baseline as pending questions). Each terminal
+   * inbox event retires one matching occurrence, so repeated sends of the same
+   * identified message remain visible until every occurrence is claimed.
    */
-  const queuedMirror = new Map<SessionId, Map<AgentMessageId, { message: AgentMessage; steering: boolean }>>()
+  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean }[]>()
   ctx.effect(() => {
-    const retire = (agent: Agent, id: AgentMessageId): void => {
+    const retire = (agent: Agent, id: MessageId, placement?: InboxPlacement): void => {
       const entries = queuedMirror.get(agent.id)
       if (entries === undefined) return
-      entries.delete(id)
-      if (entries.size === 0) queuedMirror.delete(agent.id)
+      const index = entries.findIndex(entry =>
+        entry.message.id === id
+        && (placement === undefined || entry.steering === (placement === 'steering')))
+      if (index !== -1) entries.splice(index, 1)
+      if (entries.length === 0) queuedMirror.delete(agent.id)
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: AgentMessage, placement) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
-          entries = new Map<AgentMessageId, { message: AgentMessage; steering: boolean }>()
+          entries = []
           queuedMirror.set(agent.id, entries)
         }
         const steering = placement === 'steering'
-        entries.set(message.id, { message, steering })
+        entries.push({ message, steering })
         broadcast({
           type: 'session/queued',
           sessionId: agent.id,
-          content: message.content,
-          source: message.source,
+          message,
           steering,
         })
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: AgentMessage) => {
-        retire(agent, message.id)
+      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage, placement) => {
+        retire(agent, message.id, placement)
       }),
-      ctx.on('agent/inbox/discard', (agent: Agent, messages: AgentMessage[]) => {
+      ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
         for (const message of messages) retire(agent, message.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
@@ -638,6 +684,38 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return operation
   }
 
+  /** Resolve the goal service; absent = the deployment did not compose @deepseek-ai/dsh-goal. */
+  function goalService(): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
+    const goals = ctx.get('goals')
+    if (goals === undefined) {
+      return { error: { code: 'internal', message: 'goal service is absent: this deployment does not mount @deepseek-ai/dsh-goal in its composition (cordis.yml or explicit assembly)', details: {} } }
+    }
+    return goals
+  }
+
+  /** Map one goal-domain rejection to the wire error (stable GoalError codes ride in details). */
+  function goalError(request: RpcRequest<unknown>, error: unknown): RpcResponse<never> {
+    const details = error instanceof GoalError ? { goalCode: error.code } : {}
+    return err(request, { code: 'internal', message: String(error), details })
+  }
+
+  /** Resolve a session's agent, apply one goal mutation, and acknowledge with the new CAS ref. */
+  async function mutateGoal(
+    request: RpcRequest<{ sessionId: SessionId }>,
+    mutation: (goals: NonNullable<ReturnType<typeof ctx.get<'goals'>>>, agent: Agent) => CoreGoalRef,
+  ): Promise<RpcResponse<{ ref: GoalRef }>> {
+    const goals = goalService()
+    if ('error' in goals) return err(request, goals.error)
+    const found = await agentFor(request.payload.sessionId)
+    if ('error' in found) return err(request, found.error)
+    try {
+      const ref = mutation(goals, found.agent)
+      return ok(request, { ref: { id: ref.id, revision: ref.revision } })
+    } catch (error: unknown) {
+      return goalError(request, error)
+    }
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -647,13 +725,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async list(request) {
         const items = ctx.sessions.list().map((session) => {
           const agent = ctx.agents.get(session.id)
-          return summarize(session, agent?.status === 'running')
+          const projections = listProjectionsFor(ctx, session.header, session)
+          return {
+            ...summarize(session, agent?.status === 'running'),
+            ...projections === undefined ? {} : { projections },
+          }
         })
         const attached = new Set(items.map(item => item.sessionId))
         const persistence = ctx.get('sessionPersistence')
         if (persistence !== undefined) {
           const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+          items.push(...await Promise.all(cold.map(async (meta) => {
+            // Cold rows read the persisted projection cache only — never a
+            // log load; a session without a cache row simply has no column.
+            const projections = listProjectionsFor(ctx, meta, undefined)
+            return {
+              ...await summarizeCold(persistence, meta),
+              ...projections === undefined ? {} : { projections },
+            }
+          })))
         }
         items.sort((a, b) => b.updatedAt - a.updatedAt)
         return ok(request, { items })
@@ -711,6 +801,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, beforeSeq, maxMessages } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
+        // Everything below the resume above is synchronous: the page slice,
+        // the seq read, and the projection walk see one un-torn session state.
         const page = paginate(found.agent.session.events, beforeSeq, maxMessages ?? DEFAULT_MAX_MESSAGES)
         // Views are computed against the registry at pagination time; result
         // pairing scans within the page only (message-boundary pagination keeps
@@ -719,11 +811,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           const view = viewFor(ctx, event, callId => backscanArgs(page.events, callId))
           return { event, ...view === undefined ? {} : { view } }
         })
-        // Tail page carries the session-level todo projection over the FULL
-        // log (the page window may not contain the last todo/write; a paged
-        // client cannot reconstruct session-level state from it).
-        const todos = beforeSeq === undefined ? backscanTodos(found.agent.session.events) : undefined
-        return ok(request, { events: entries, hasMore: page.hasMore, ...todos === undefined ? {} : { todos } })
+        // Baseline rider: tail page only — loadOlder (beforeSeq present) is
+        // the one path that never needs a fresh projection baseline.
+        const projections = beforeSeq === undefined ? projectionsFor(ctx, found.agent) : undefined
+        return ok(request, {
+          events: entries,
+          hasMore: page.hasMore,
+          ...projections === undefined ? {} : { projections },
+        })
       },
 
       async models(request) {
@@ -835,8 +930,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
         try {
-          if (mode === 'steer') agent.steer({ content, source })
-          else agent.followup({ content, source })
+          const message: UserMessage = createUserMessage({ content, source })
+          if (mode === 'steer') agent.steer(message)
+          else agent.followup(message)
         } catch (error: unknown) {
           // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
@@ -1012,6 +1108,28 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
       },
+
+      async openPath(request, signal) {
+        try {
+          const open = defaults.openPath
+            ?? ((path: string, openSignal: AbortSignal) => openNativePath(path, openSignal))
+          await open(request.payload.path, signal)
+          return ok(request, { opened: true as const })
+        } catch (error: unknown) {
+          if (signal.aborted) {
+            return err(request, {
+              code: 'cancelled',
+              message: 'path open was aborted',
+              details: {},
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `path open failed: ${error instanceof Error ? error.message : String(error)}`,
+            details: {},
+          })
+        }
+      },
     },
 
     commands: {
@@ -1039,15 +1157,66 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         try {
-          const result = await commands.execute(found.agent, line, signal)
-          if (result === undefined) return ok(request, { matched: false })
-          return ok(request, {
-            matched: true,
-            result: { kind: result.kind, ...result.text === undefined ? {} : { text: result.text } },
-          })
+          // Pure admission: the executor's durable command/run + command/done
+          // pair (broadcast on the mux stream) carries the outcome; the
+          // response reports whether the line resolved to a handler, plus the
+          // minted pairing id so the issuing client can correlate its request
+          // with the flow node the lifecycle events produce.
+          const execution = await commands.execute(found.agent, line, signal)
+          return ok(request, execution === undefined
+            ? { matched: false }
+            : { matched: true, commandId: execution.commandId })
         } catch (error: unknown) {
           if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
           return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })
+        }
+      },
+    },
+
+    goals: {
+      // Mutations only — the read side is the 'goal' session projection.
+      // Every verb resolves the session's agent (agentFor: implicit cold
+      // resume, the command.* precedent) and acknowledges with the new CAS
+      // ref; the committed goal/change event carries the whole value to every
+      // client through the projection frames.
+      async create(request) {
+        const { objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, (goals, agent) => goals.create(agent, {
+          objective,
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
+      },
+
+      async edit(request) {
+        const { ref, objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, (goals, agent) => goals.edit(agent, ref, {
+          ...(objective !== undefined ? { objective } : {}),
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
+      },
+
+      async pause(request) {
+        return mutateGoal(request, (goals, agent) => goals.pause(agent, request.payload.ref))
+      },
+
+      async resume(request) {
+        return mutateGoal(request, (goals, agent) => goals.resume(agent, request.payload.ref))
+      },
+
+      async complete(request) {
+        return mutateGoal(request, (goals, agent) => goals.complete(agent, request.payload.ref))
+      },
+
+      async clear(request) {
+        const goals = goalService()
+        if ('error' in goals) return err(request, goals.error)
+        const found = await agentFor(request.payload.sessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          goals.clear(found.agent, request.payload.ref)
+          return ok(request, { cleared: true as const })
+        } catch (error: unknown) {
+          return goalError(request, error)
         }
       },
     },
@@ -1116,12 +1285,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
         for (const [sessionId, entries] of queuedMirror) {
-          for (const entry of entries.values()) {
+          for (const entry of entries) {
             queue.push(frame({
               type: 'session/queued',
               sessionId,
-              content: entry.message.content,
-              source: entry.message.source,
+              message: entry.message,
               steering: entry.steering,
             }))
           }
@@ -1147,10 +1315,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const view = viewFor(ctx, event, callId =>
               openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId))
             queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
-            if (event.type === 'session/title') {
-              // The accepted raw event is already in session.events, so the fold must find it.
-              queue.push(frame(titleFrame(session) as SessionTitleFrame))
-            }
           }),
           ctx.on('session/created', (session: Session) => {
             subscribeSession(queue, session)
@@ -1176,8 +1340,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               type: 'host/session-added',
               sessionId: session.id,
               // Derived at frame time like summarize(); a just-created session
-              // has no events yet, so this is constantly true in practice.
-              blank: session.events.length === 0,
+              // has run no turn yet, so this is constantly true in practice.
+              blank: sessionBlank(session),
               ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
               // cwd rides the frame so the client list needs no refresh to group the new session.
               ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },

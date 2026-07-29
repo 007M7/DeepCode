@@ -42,6 +42,10 @@
   cursor: pointer;
 }
 
+.selector:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .chevron {
   flex: none;
 }

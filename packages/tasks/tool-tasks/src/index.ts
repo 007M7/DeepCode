@@ -8,7 +8,7 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { TextRetainer } from '@deepseek-ai/dsh-retention'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition, ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -225,13 +225,13 @@ export function apply(ctx: Context, config: Config): void {
   // with it.
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
-    owner.inject({
+    owner.inject(createUserMessage({
       content: [{
         type: 'text',
         text: fitCompletionNotice(snapshot),
       }],
       source: { kind: 'plugin', plugin: 'tool-tasks' },
-    })
+    }))
   })
 
   ctx.tools.register(defineTool({

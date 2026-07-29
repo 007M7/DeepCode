@@ -1,14 +1,18 @@
 /** The default composer body: the 'conversation.composer.bar' slot entry
  * (decision 20). Machine state arrives through the standard provide channel
  * (useInput + inputActions); the keyboard/DOM command face and stop arrive
- * through this entry's own inject; layout-phase inputs (variant, placeholder,
+ * through this entry's own inject, whose hooks compartment binds
+ * useNotices/useLexicon; layout-phase inputs (variant, placeholder,
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the `plan` projection key merge (the TodoDock posture — the
+// composer reads a host-computed value; the domain owns the key).
+import type {} from '@deepseek-ai/dsh-plan-mode/client'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import css from './InputBar.module.css'
@@ -27,18 +31,18 @@ const READONLY_OPTIONS: readonly { id: string; label: string }[] = [
 ]
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, renderSlot,
+  useSession, useInput, inputActions, keyboard, stop, renderSlot, useNotices, useLexicon, useProjection,
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
-  const noticeStore = keyboard.notices
-  const notice = useSyncExternalStore(
-    (fn: () => void) => noticeStore.subscribe(fn),
-    () => noticeStore.getSnapshot(),
-  )
+  const notice = useNotices(s => s)
+  const lexicon = useLexicon(s => s)
   const promptError = useSession(s => s.promptError)
   const running = useSession(s => s.running)
   const disabled = useSession(s => s.removed)
+  // Plan mode swaps the textarea placeholder (the projection is the folded
+  // host value; owner-prop placeholders — hero, session-unavailable — win).
+  const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
   // Prompt failures are ordinary failures (no create/attach transaction
   // exists anymore): the strip renders promptError, the draft stays in the
   // machine, and the user resubmits.
@@ -244,7 +248,7 @@ export function InputBar({
   // claim token highlights through behind the textarea glyphs; each U+FFFC
   // placeholder renders as a chip (the textarea's own glyph is invisible, the
   // backdrop chip supplies the visual); the claim hint is ghost text.
-  const deco = deriveDecorations(input, keyboard.lexicon())
+  const deco = deriveDecorations(input, lexicon)
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
@@ -336,7 +340,9 @@ export function InputBar({
             disabled={locked}
             readOnly={machineBusy}
             data-phase={input.phase}
-            placeholder={placeholder ?? (disabled ? 'Session unavailable' : 'Message the agent')}
+            placeholder={placeholder ?? (disabled
+              ? 'Session unavailable'
+              : planActive ? 'describe your task to generate plan' : 'Message the agent')}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}
@@ -363,18 +369,18 @@ export function InputBar({
               <IconPlusOutline16 size={14} />
             </button>
             <div className={css.modes}>
-              {renderSlot('conversation.input.plan', { locked })}
               {accessSelect}
+              {renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
           </div>
           <div className={css.trailing}>
             {rightItems}
             {renderSlot('conversation.input.model', { locked })}
-            {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />}
+            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             <button
               type="button"
-              className={clsx(css.primary, running && css.stopping)}
+              className={css.primary}
               aria-label={primaryLabel}
               title={primaryLabel}
               disabled={!running && (empty || disabled || machineBusy)}
@@ -383,11 +389,11 @@ export function InputBar({
             >
               {running ? (
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
+                  <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                 </svg>
               ) : (
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <path d="M8 13V3.8M8 3.8L3.8 8M8 3.8L12.2 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
                 </svg>
               )}
             </button>

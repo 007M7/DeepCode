@@ -53,7 +53,7 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
         continue
       }
       if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
-        const joined = event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
+        const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
         if (joined !== '') text = joined
       }
       if (event.type === 'turn/end' && event.data.turn === targetTurn) {

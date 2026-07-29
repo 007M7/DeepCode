@@ -457,6 +457,8 @@ describe('completion notices', () => {
     await tick()
     expect(inject).toHaveBeenCalledTimes(1)
     expect(inject).toHaveBeenCalledWith({
+      id: expect.any(String) as unknown,
+      role: 'user',
       content: [{ type: 'text', text: 'background task bash-1 (bash: pnpm test) finished [status: completed, exit code: 0]. Read its output with task_output.' }],
       source: { kind: 'plugin', plugin: 'tool-tasks' },
     })
@@ -479,6 +481,8 @@ describe('completion notices', () => {
     expect(inject).toHaveBeenNthCalledWith(
       1,
       {
+        id: expect.any(String) as unknown,
+        role: 'user',
         content: [{ type: 'text', text: 'background task subagent-1\n[notice truncated]\nDone; task_output.' }],
         source: { kind: 'plugin', plugin: 'tool-tasks' },
       },

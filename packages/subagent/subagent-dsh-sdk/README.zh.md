@@ -6,7 +6,7 @@ SDK provider 把每个子代理作为一个完整的 DeepSeek Harness 运行时�
 
 ## 启动与所有权
 
-`start(request)` 先解析子进程工作目录，经 `DeepSeekHarness` 生成运行时，并在履行前完成 `initialize` 握手（携带配置的 `provider`/`model` 路由）。因此履行意味着子运行时已就绪、所有权已移交调用方。生成、握手或发布前取消的失败只在子进程被收割之后拒绝；工作目录解析失败在生成任何东西之前拒绝。
+`start(request)` 先解析子进程工作目录，经 `DeepSeekHarness` 生成运行时，并在履行前完成 `initialize` 握手（携带配置的 `provider`/`model` 路由及可选的 `maxTokens` 输出上限）。因此履行意味着子运行时已就绪、所有权已移交调用方。生成、握手或发布前取消的失败只在子进程被收割之后拒绝；工作目录解析失败在生成任何东西之前拒绝。
 
 工作目录的解析与 ACP 后端完全一致，经由接缝共享的进程外助手（[`dsh-subagent`](../subagent/README.md)）：设置了 `cwd` 覆盖则用之（加载时校验一次），否则用发起委托的父会话 cwd——绝不用服务器进程自己的 cwd。解析出的路径同时成为子进程 cwd 与其 SDK 会话的工作区 cwd。
 
@@ -32,6 +32,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 | `cwd` | 父会话 cwd | 工作目录覆盖；校验规则与 [`subagent-acp`](../subagent-acp/README.md) 相同。 |
 | `provider` | `deepseek` | 写入子进程 `initialize` 的 provider 路由。 |
 | `model` | `deepseek-v4-flash` | 写入子进程 `initialize` 的模型。 |
+| `maxTokens` | provider 默认值 | 写入子进程 `initialize` 的单次请求输出 token 上限；对子根 Agent 及其进程内后代生效。 |
 | `env` | `{}` | 在凭据擦除后的父环境之上叠加的显式子环境（例如子进程自己的 `DEEPSEEK_API_KEY`，或 `DSH_CORDIS_CONFIG`）。 |
 | `shutdownTimeoutMs` | `1000` | 处置期间协议 `shutdown` 交换的时限。 |
 | `disposeEofGraceMs` | `6000` | stdin EOF 之后、平台终止之前的宽限。 |
@@ -44,6 +45,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
     providerName: dsh-sdk
     command: node
     args: ['./packages/examples/jsonrpc-demo/lib/bin.js', './examples/jsonrpc-agent/cordis.yml']
+    maxTokens: 49152
     env:
       DEEPSEEK_API_KEY: !!js process.env.DEEPSEEK_API_KEY
 - id: tool-subagent

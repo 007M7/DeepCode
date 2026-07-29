@@ -27,7 +27,7 @@ export interface AcpConfig {
 
 Depends on: `Stream` (`@agentclientprotocol/sdk`)
 
-Source: [`packages/acp/acp/src/index.ts:56`](../packages/acp/acp/src/index.ts)
+Source: [`packages/acp/acp/src/index.ts:57`](../packages/acp/acp/src/index.ts)
 
 ## `@deepseek-ai/dsh-acp-demo`
 
@@ -108,7 +108,7 @@ export interface Config {
 
 Depends on: [`AgentOptions`](core-data-structures/core.md) · [`SessionId`](core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:147`](../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:155`](../packages/core/agent-loop/src/index.ts)
 
 ## `@deepseek-ai/dsh-agent-spine-demo`
 
@@ -421,7 +421,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/goal/goal/src/index.ts:55`](../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:118`](../packages/goal/goal/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-claude`
 
@@ -457,7 +457,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-claude/src/index.ts:45`](../packages/hooks/hooks-claude/src/index.ts)
+Source: [`packages/hooks/hooks-claude/src/index.ts:46`](../packages/hooks/hooks-claude/src/index.ts)
 
 ## `@deepseek-ai/dsh-hooks-codex`
 
@@ -482,7 +482,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/hooks/hooks-codex/src/index.ts:43`](../packages/hooks/hooks-codex/src/index.ts)
+Source: [`packages/hooks/hooks-codex/src/index.ts:44`](../packages/hooks/hooks-codex/src/index.ts)
 
 ## `@deepseek-ai/dsh-host-apiproxy`
 
@@ -846,7 +846,7 @@ export interface PlanModeConfig {
 }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:57`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:68`](../packages/plan/plan-mode/src/index.ts)
 
 ## `@deepseek-ai/dsh-pty-local`
 
@@ -921,7 +921,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/guard/repeat-tool-guard/src/index.ts:27`](../packages/guard/repeat-tool-guard/src/index.ts)
+Source: [`packages/guard/repeat-tool-guard/src/index.ts:28`](../packages/guard/repeat-tool-guard/src/index.ts)
 
 ## `@deepseek-ai/dsh-sandbox-local`
 
@@ -1048,6 +1048,27 @@ export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 
 Source: [`packages/session-persistence/session-persistence-sqlite/src/index.ts:58`](../packages/session-persistence/session-persistence-sqlite/src/index.ts)
 
+## `@deepseek-ai/dsh-session-projection-cache`
+
+Requires: `storageDomain` · `sessionProjections` · `sessionPersistence` · `sessions`
+
+```ts config-catalog
+/**
+ * Plugin config. Both throttle triggers are deployment choices with no
+ * universally correct value, so the composition states them explicitly
+ * (cordis.yml); the two mandatory write points (`turn/end` and session
+ * disposal) are policy, not tunables, and always fire.
+ */
+export interface Config {
+  /** Committed events per session that force a durable checkpoint write between mandatory points. */
+  writeEveryEvents: number
+  /** Longest time (milliseconds) a dirty checkpoint may stay unwritten between mandatory points. */
+  writeIntervalMs: number
+}
+```
+
+Source: [`packages/session-projection/session-projection-cache/src/index.ts:42`](../packages/session-projection/session-projection-cache/src/index.ts)
+
 ## `@deepseek-ai/dsh-session-query-sqlite`
 
 Requires: `sessions`
@@ -1149,7 +1170,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-title/session-title/src/index.ts:69`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:75`](../packages/session-title/session-title/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 
@@ -1397,6 +1418,8 @@ export interface Config {
   provider: string
   /** Model the child runtime initializes with (default `deepseek-v4-flash`). */
   model: string
+  /** Optional per-request output-token cap for the child runtime. */
+  maxTokens?: number
   /**
    * Extra environment variables for the child process — e.g. the child
    * runtime's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG` naming its
@@ -1483,7 +1506,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/context/time-context/src/index.ts:19`](../packages/context/time-context/src/index.ts)
+Source: [`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-token-meter`
 
@@ -1666,7 +1689,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/skill/tool-skill/src/index.ts:20`](../packages/skill/tool-skill/src/index.ts)
+Source: [`packages/skill/tool-skill/src/index.ts:21`](../packages/skill/tool-skill/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 
@@ -1969,7 +1992,7 @@ export interface Config {
 export type ApprovalPolicy = 'ask' | 'never'
 ```
 
-Source: [`packages/ui/user-approval/src/index.ts:198`](../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:202`](../packages/ui/user-approval/src/index.ts)
 
 ## `@deepseek-ai/dsh-web`
 
@@ -2149,9 +2172,11 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-runtime` ([`packages/client/runtime/src/index.ts`](../packages/client/runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-command` ([`packages/client/ui-command/src/index.ts`](../packages/client/ui-command/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-conversation` ([`packages/client/ui-conversation/src/index.ts`](../packages/client/ui-conversation/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-goal` ([`packages/client/ui-goal/src/index.ts`](../packages/client/ui-goal/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-layout` ([`packages/client/ui-layout/src/index.ts`](../packages/client/ui-layout/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-model` ([`packages/client/ui-model/src/index.ts`](../packages/client/ui-model/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-models` ([`packages/client/ui-models/src/index.ts`](../packages/client/ui-models/src/index.ts))
+- `@deepseek-ai/dsh-client-ui-plan` ([`packages/client/ui-plan/src/index.ts`](../packages/client/ui-plan/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-question` — requires `tools` · `userInteraction` ([`packages/client/ui-question/src/index.ts`](../packages/client/ui-question/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings` ([`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-settings-general` ([`packages/client/ui-settings-general/src/index.ts`](../packages/client/ui-settings-general/src/index.ts))
@@ -2171,6 +2196,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-pty` ([`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
+- `@deepseek-ai/dsh-session-projection` ([`packages/session-projection/session-projection/src/index.ts`](../packages/session-projection/session-projection/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-local` ([`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts))
@@ -2206,6 +2232,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-agent-loop-testkit` ([`packages/support/agent-loop-testkit/src/index.ts`](../packages/support/agent-loop-testkit/src/index.ts))
 - `@deepseek-ai/dsh-app-boot` ([`packages/ui/app-boot/src/index.ts`](../packages/ui/app-boot/src/index.ts))
 - `@deepseek-ai/dsh-brand` ([`packages/util/brand/src/index.ts`](../packages/util/brand/src/index.ts))
+- `@deepseek-ai/dsh-client-test-runtime` ([`packages/client/test-runtime/src/index.ts`](../packages/client/test-runtime/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-primitives` ([`packages/client/ui-primitives/src/index.ts`](../packages/client/ui-primitives/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-slots` ([`packages/client/ui-slots/src/index.ts`](../packages/client/ui-slots/src/index.ts))
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))

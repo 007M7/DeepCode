@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:188`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:196`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:220`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:215`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -242,11 +242,18 @@ Approval service that applies session policy before answerers and logs every ask
  *   append commit point.
  */
 async request(req: ApprovalRequest): Promise<ApprovalOutcome>
+
+/**
+ * Read the session override without applying the configured default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged policy, or `undefined` without one.
+ */
+overrideOf(session: Session): ApprovalPolicy | undefined
 ```
 
-Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md)
+Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:213`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:217`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -413,17 +420,29 @@ find(agent: Agent, name: string): CommandDefinition | undefined
 
 /**
  * Parse and execute a known command without sending it to the model.
+ *
+ * A resolved command's lifecycle is logged: `command/run` is appended
+ * before the handler is invoked and `command/done` after settlement (a
+ * thrown or aborted handler settles as `kind: 'error'`). Both are direct
+ * log-only appends — no turn wraps them, and persistence drains them at
+ * ordinary checkpoints. Admission misses (syntax or unknown name) log
+ * nothing — they never entered a handler. A `command/run` append failure
+ * fails the execution loud; a `command/done` append failure on the
+ * handler-failure path is contained so the handler's own error stays the
+ * reported failure.
+ *
  * @param agent - exact receiving agent.
  * @param line - complete slash-command line.
  * @param signal - cancellation signal owned by the UI request.
- * @returns a detached result, or `undefined` when syntax or name does not resolve.
+ * @returns the settled execution (result + lifecycle pairing id), or
+ *   `undefined` when syntax or name does not resolve.
  */
-async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandResult | undefined>
+async execute( agent: Agent, line: string, signal: AbortSignal, ): Promise<CommandExecution | undefined>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md) · [CommandResult](../core-data-structures/commands.md)
+Types: [Agent](../core-data-structures/core.md) · [CommandDefinition](../core-data-structures/commands.md) · [CommandDescriptor](../core-data-structures/commands.md)
 
-Source: [`packages/ui/commands/src/index.ts:227`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:278`](../../packages/ui/commands/src/index.ts)
 
 ## `ctx.compact` — `CompactService` (abstract seam)
 
@@ -656,7 +675,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:134`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:197`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -787,7 +806,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:189`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:191`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -847,18 +866,27 @@ Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/
 get(agent: Agent): { active: boolean; pending?: boolean }
 
 /**
- * Select whether plan mode should be active from the next request boundary.
- * Repeated selection of the current or already-pending state is a no-op.
+ * Select whether plan mode should be active. Between turns the change
+ * commits immediately — no request boundary would arrive until the next
+ * prompt, so a queued intent would hang (the open-turn fold is the idle
+ * signal: agent status stays `running` through post-turn checkpointing,
+ * where a boundary equally never comes). During an open turn the
+ * selection is held as pending intent for the next in-turn request
+ * boundary. Repeated selection of the current or already-pending state is
+ * a no-op.
  *
  * @param agent The agent to switch.
  * @param active Whether plan mode should be active.
+ * @returns what happened: `committed` (logged now), `queued` (awaiting the
+ * next boundary), `cancelled` (an opposite pending selection was cleared;
+ * the logged state already matches), or `noop` (already in that state).
  */
-set(agent: Agent, active: boolean): void
+set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop'
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:141`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -980,9 +1008,16 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
  * @returns the fully resolved per-call mode and absolute workspace root.
  */
 resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy
+
+/**
+ * Read the session override without applying the deployment default.
+ * @param session - session whose log supplies the override.
+ * @returns the last logged mode, or `undefined` without one.
+ */
+overrideOf(session: Session): SandboxMode | undefined
 ```
 
-Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md)
+Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/sandbox/sandbox-policy/src/index.ts:68`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
@@ -1029,6 +1064,10 @@ abstract append(id: SessionId, events: readonly SessionEvent[]): Promise<void>
  * open live turn rejects.
  * A coordinator-backed cold load reserves the identity across storage awaits,
  * so concurrent publication of a same-id live Session rejects.
+ * Returned events are detached, and every identified message is deeply
+ * frozen. Coordinator-backed implementations upgrade supported pre-identity
+ * message events before validation; other malformed messages reject before
+ * any stored event is returned.
  * @param id - the persisted session to reload.
  * @returns the header and a log ending on a balanced `turn/end`.
  */
@@ -1038,12 +1077,33 @@ abstract load(id: SessionId): Promise<{ meta: SessionHeader; events: SessionEven
  * Inspect a header and its valid contiguous stored prefix without repairing
  * a torn tail, closing an interrupted turn, or publishing coordinator state.
  * This read is serialized with writes for the same id and returns detached
- * values, so observers cannot mutate backend-owned state.
+ * values with upgraded, deeply frozen identified messages, so observers
+ * cannot mutate message identity/content or backend-owned state. Other
+ * malformed messages reject.
  * @param id - the persisted session to inspect.
  * @param signal - optional cancellation for queued and backend read work.
  * @returns the header and valid stored event prefix exactly as observed.
  */
 abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+/**
+ * Read the stored events from `fromSeq` onward — the read-from-seq
+ * primitive for read models that resume from a watermark (e.g. a persisted
+ * projection cache folding only the tail past its checkpoint). Like
+ * {@link inspect} it is non-mutating and detached: no torn-tail truncation,
+ * no synthetic closers, no coordinator-state publication; only events from
+ * the valid contiguous stored prefix are returned, so a torn fragment never
+ * reaches the caller. `fromSeq` at or beyond the stored prefix returns an
+ * empty event list (never an error). Backends whose medium can seek by seq
+ * (SQLite) read only the suffix; sequential media (JSONL, both encodings)
+ * still parse the whole artifact and skip forward — the primitive bounds
+ * what is RETURNED and refolded, not every backend's physical read.
+ * @param id - the persisted session to read.
+ * @param fromSeq - first event seq to include; a non-negative safe integer.
+ * @param signal - optional cancellation for queued and backend read work.
+ * @returns the header and the stored events with `seq >= fromSeq`.
+ */
+abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
 /**
  * Lightweight listing from metadata, without a full-log parse.
@@ -1068,6 +1128,162 @@ abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot
 Types: [SessionEvent](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md) · [SessionLocation](../core-data-structures/persistence.md) · [SessionPersistenceSnapshot](../core-data-structures/persistence.md)
 
 Source: [`packages/session-persistence/session-persistence/src/index.ts:52`](../../packages/session-persistence/session-persistence/src/index.ts)
+
+## `ctx.sessionProjectionCache` — `SessionProjectionCache`
+
+The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus two mandatory points — `turn/end` and session disposal (the live-to-cold moment) — and serves the cold-read ladder: cached row, persistence `readFrom` tail, registry `restore`, durable write-back. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write or cold read.
+
+```ts cordis-catalog
+/**
+ * The zero-I/O listing read: whole values viewed straight from the stored
+ * rows (version-matching keys only), each cut carried with its watermark
+ * so a client value store can seed under its higher-seq-wins rule — as
+ * stale as the last durable checkpoint but never wrong, and never from an
+ * unrelated log (the caller's header is the identity witness). Fresher
+ * paths (the history tail baseline, {@link coldSnapshot}) supersede these
+ * values whenever a session is actually opened.
+ * @param meta - the listed session's header (identity witness; no log read).
+ * @returns the cut (`asOfSeq` = lowest served-row watermark), or
+ *   `undefined` when no usable row exists for this lifecycle.
+ */
+cachedSnapshot(meta: SessionHeader): ProjectionSnapshot | undefined
+
+/**
+ * Durably checkpoint one live session NOW (both mandatory points call
+ * this; tests and carriers may too). The registry cut is snapshotted at
+ * this boundary (states are live references), then the whole record is
+ * replaced. NOT fail-soft — callers on the fail-soft paths contain it.
+ * @param session - the live session to checkpoint.
+ * @returns resolution after durability and event emission.
+ */
+async write(session: Session): Promise<void>
+
+/**
+ * Cold-read one persisted session's projections with zero full-log load:
+ * cached rows + a persistence `readFrom` tail from the registry's restore
+ * floor, refolded by the registry and written back (fail-soft) so the next
+ * cold read starts closer. A cache row invalidated by a shrunk log
+ * (crash-repair truncation) triggers one full re-read from seq 0 — the
+ * ladder's slow rung, still no crash. Rejects when the session has no
+ * persisted log (`not found` from the persistence seam).
+ * @param id - the persisted session to read.
+ * @param signal - optional cancellation for the persistence reads.
+ * @returns the snapshot cut at the stored log end.
+ */
+async coldSnapshot(id: SessionId, signal?: AbortSignal): Promise<ProjectionSnapshot>
+```
+
+Types: [Session](../core-data-structures/session.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
+
+Source: [`packages/session-projection/session-projection-cache/src/index.ts:71`](../../packages/session-projection/session-projection-cache/src/index.ts)
+
+## `ctx.sessionProjections` — `SessionProjectionRegistry`
+
+`ctx.sessionProjections`: the projection unit table and its drive. The service subscribes to `session/event` once; every committed event passes every registered unit's `apply` (eager drive), and a changed state reference notifies the change feed with the schema-validated view. Cells build lazily — a unit registered after events flowed, or a session older than the registry, folds `init` over the in-memory log on first touch (event or read). Registration is an effect (disposer rides the calling fiber): an unloaded domain plugin's key disappears from snapshots and clients read it as capability absence. Duplicate keys throw. Domain plugins register under `ctx.inject(['sessionProjections'], …)` so headless assemblies without the registry stay unaffected.
+
+```ts cordis-catalog
+/**
+ * Register one domain's unit. The registration is an effect on the calling
+ * context's fiber: disposing the fiber (or calling the returned disposer)
+ * removes the key — and the unit's cached cells — from subsequent drives
+ * and snapshots.
+ * @param definition - key, boundary schema, pure unit functions, and stateVersion.
+ * @returns the exact disposer that unregisters this unit.
+ */
+register<K extends keyof SessionProjectionMap, S>(definition: ProjectionDefinition<K, S>): () => void
+
+/**
+ * Subscribe to the change feed. The registration is an effect on the
+ * calling context's fiber.
+ * @param listener - called once per unit whose state reference changed, per committed event.
+ * @returns the exact disposer that unsubscribes.
+ */
+onChanged(listener: ProjectionChangeListener): () => void
+
+/**
+ * One consistent cut over every registered unit for one session, read from
+ * the watermark cache (missing cells fold lazily over the in-memory log).
+ * Fully synchronous — every value and `asOfSeq` reflect the same log
+ * position. Each value passes its unit's schema before leaving.
+ * @param session - the session whose projection values are read.
+ * @returns the snapshot; `values` is empty when no unit is registered.
+ */
+snapshot(session: Session): ProjectionSnapshot
+
+/**
+ * State-level checkpoint of every registered unit for one session, read
+ * from the watermark cache (missing cells fold lazily over the in-memory
+ * log). This is the write side of the persisted projection cache: the
+ * returned rows are the `(key → {ver, seq, val})` part of the durable
+ * `(sessionId, key, ver, seq, val)`
+ * rows. Every `val` is a DETACHED structured clone — never the live
+ * cell reference: the watermark cache is this registry's authoritative
+ * mutable state, and a caller reaching the live reference could corrupt
+ * every subsequent snapshot and frame through it (plain JSON by the unit
+ * contract, so the clone is total).
+ * @param session - the session whose unit states are checkpointed.
+ * @returns one row per registered key; empty when no unit is registered.
+ */
+checkpoint(session: Session): ProjectionCheckpoint
+
+/**
+ * The stored seq a {@link restore} tail read over `checkpoint` must start
+ * at: one event BELOW the lowest usable watermark (a row is usable when
+ * its `ver` matches the live unit's `stateVersion`; an absent or mismatched row
+ * pulls the floor to `0` — that key must refold the full log). The
+ * one-below anchor is load-bearing: the tail then proves how far the
+ * stored log still extends, so {@link restore} can detect a log that
+ * shrank below a row's watermark (crash-repair truncation) instead of
+ * serving the stale row as current — an empty tail read from the anchor
+ * yields an end below every watermark and the restore rejects for a full
+ * re-read.
+ * @param checkpoint - persisted rows for one session (possibly stale or empty).
+ * @returns the seq to hand the persistence `readFrom`, or `undefined`
+ *   when no unit is registered (no read needed — {@link restore} would
+ *   serve empty values regardless).
+ */
+restoreFloor(checkpoint: ProjectionCheckpoint): number | undefined
+
+/**
+ * View a checkpoint's rows without any log read: for every registered
+ * unit whose row's `ver` matches, serve the schema-validated
+ * `view` of the stored state; mismatched or absent rows leave their key
+ * absent (a cold or listing consumer treats it as not-yet-available and a
+ * fuller read path refolds it). The zero-I/O rung of the read ladder —
+ * values are as stale as their rows, never wrong.
+ * @param checkpoint - persisted rows for one session (possibly stale or empty).
+ * @returns whole values per key with a usable row; empty when none.
+ */
+viewCheckpoint(checkpoint: ProjectionCheckpoint): Partial<SessionProjectionMap>
+
+/**
+ * Cold read: fold every registered unit over a stored log suffix, seeding
+ * each from its checkpoint row when usable — the one read recipe (cached
+ * state + forward tail replay + `view`) applied without a live `Session`.
+ * Call with the events returned by a persistence
+ * `readFrom(id, restoreFloor(checkpoint))` and that same floor as
+ * `baseSeq`; the floor's one-below anchor makes the supplied end honest,
+ * so a shrunk log is detected here. A row is usable iff its
+ * `ver` matches the live unit's `stateVersion`, it does not predate `baseSeq`
+ * (`seq >= baseSeq - 1`), and it does not claim events past the
+ * supplied end (`seq <= endSeq`); an unusable row is discarded
+ * and its key refolds from `init` — which is only sound over the full
+ * log, so a discarded row with `baseSeq > 0` throws (the caller re-reads
+ * from seq 0, e.g. after a crash-repair truncation shrank the log below
+ * a row's watermark).
+ * @param checkpoint - persisted rows for one session (possibly stale or empty).
+ * @param events - the stored events with `seq >= baseSeq`, in seq order.
+ * @param baseSeq - the seq `events` starts at (its first event's seq when non-empty).
+ * @returns the snapshot cut at the supplied log end (`asOfSeq` is the last
+ *   supplied event's seq, `baseSeq - 1` for an empty tail) plus the
+ *   refreshed checkpoint rows at that cut, ready for a durable write-back.
+ */
+restore(checkpoint: ProjectionCheckpoint, events: readonly SessionEvent[], baseSeq: number): { snapshot: ProjectionSnapshot; checkpoint: ProjectionCheckpoint }
+```
+
+Types: [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
+
+Source: [`packages/session-projection/session-projection/src/index.ts:156`](../../packages/session-projection/session-projection/src/index.ts)
 
 ## `ctx.sessionQuery` — `SessionQueryService` (abstract seam)
 
@@ -1224,7 +1440,7 @@ async prepare( agent: Agent, content: ContentBlock[], references: SessionReferen
 
 Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [PreparedReferencedMessage](../core-data-structures/session-reference.md) · [SessionReferenceCandidate](../core-data-structures/session-reference.md) · [SessionReferenceInput](../core-data-structures/session-reference.md)
 
-Source: [`packages/context/session-reference/src/index.ts:69`](../../packages/context/session-reference/src/index.ts)
+Source: [`packages/context/session-reference/src/index.ts:70`](../../packages/context/session-reference/src/index.ts)
 
 ## `ctx.sessions` — `SessionStore`
 
@@ -1321,28 +1537,6 @@ announce(session: Session): void
 async flush(session: Session): Promise<void>
 
 /**
- * Append one plugin-declared log-only event without borrowing the agent
- * loop's lifecycle. An open turn receives the event directly and remains
- * responsible for its ordinary checkpoint. A closed log receives one
- * zero-step turn around the event, followed by an awaited flush.
- *
- * Once the synthetic `turn/start` commits, this method always attempts its
- * matching `turn/end` and flush, including when the target append fails.
- * Detachment requested by an event or flush listener is deferred until that
- * sequence settles, so publication cannot switch from a live scoped session
- * to an unobserved bare `Session` halfway through the update.
- *
- * @param session - exact live session that owns the target log.
- * @param type - event type opted into {@link OutOfBandSessionEventMap} by its owner.
- * @param data - typed JSON payload for the target event.
- * @param trigger - plugin-owned turn trigger used only when the log is closed.
- * @returns the accepted target event with its assigned sequence and timestamp.
- * @throws when the session is detached, another out-of-band append is active,
- *   event acceptance fails, the synthetic turn cannot close, or flushing fails.
- */
-async appendOutOfBand<T extends OutOfBandSessionEventType>( session: Session, type: T, data: SessionEventMap[T], trigger: TurnTrigger, ): Promise<SessionEvent<T>>
-
-/**
  * Look up a live session.
  * @param id - the session id to look up.
  * @returns the session, or undefined when no live session has that id.
@@ -1356,9 +1550,10 @@ get(id: SessionId): Session | undefined
 list(): Session[]
 
 /**
- * Create a live child session from a turn-enclosed prefix of a live source.
+ * Create a live child session from a stable prefix of a live source.
  * `boundary` is an inclusive source event seq; omitted means the source's
- * current last event. A non-empty selected slice must end at `turn/end`.
+ * current last event. The selected slice may end with a between-turn event
+ * but must not end inside an open turn.
  *
  * @param source - Live source session object or id.
  * @param boundary - Inclusive source event seq to fork through; omitted means
@@ -1371,9 +1566,9 @@ list(): Session[]
 fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
 ```
 
-Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [OutOfBandSessionEventType](../core-data-structures/session.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md) · [SessionEventMap](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md) · [TurnTrigger](../core-data-structures/session.md)
+Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:614`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:694`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1391,7 +1586,7 @@ get(session: Session): SessionTitleSnapshot | undefined
  * Explicitly retry the registered provider, or materialize the built-in
  * fallback when no provider is registered.
  * @param session - exact live session to refresh.
- * @param signal - optional caller cancellation; an in-progress fallback append may finish durably before rejection.
+ * @param signal - optional caller cancellation.
  * @returns latest accepted title, or `undefined` when no eligible text exists.
  */
 async refresh(session: Session, signal?: AbortSignal): Promise<SessionTitleSnapshot | undefined>
@@ -1407,7 +1602,7 @@ register(provider: SessionTitleProvider): () => Promise<void>
 
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
-Source: [`packages/session-title/session-title/src/index.ts:283`](../../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:240`](../../packages/session-title/session-title/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1851,7 +2046,7 @@ pruneSession(session: Session): PruneResult
 
 Types: [ContentBlock](../core-data-structures/core.md) · [PruneResult](../core-data-structures/compaction.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/compact/compact-tool-result-prune/src/index.ts:39`](../../packages/compact/compact-tool-result-prune/src/index.ts)
+Source: [`packages/compact/compact-tool-result-prune/src/index.ts:40`](../../packages/compact/compact-tool-result-prune/src/index.ts)
 
 ## `ctx.tools` — `ToolRegistry`
 
@@ -1957,7 +2152,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:188`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:187`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 
