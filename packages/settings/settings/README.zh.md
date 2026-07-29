@@ -11,7 +11,8 @@
 - `get(ns)` — 解析值；未注册时为 `undefined`。
 - `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经 provider 持久化后提交。校验失败在持久化前拒绝；只读 provider（`writable: false`）拒绝一切写入。同一 namespace 的写入按调用顺序串行。
 - `replace(ns, section)` — 整体替换用户分节：merge 表达不了的删除/重置路径（`replace({})` 重新继承 `base` 与 schema 默认值）。
-- 解析值是深冻结快照；每次提交后观察者收到 `(next, prev)`；观察者异常——同步抛出与异步拒绝——均被隔离。
+- 解析值是深冻结快照。每次提交后观察者收到 `(next, prev)`：同一回调的调用异步、逐次、按提交顺序执行（慢的旧调用绝不会覆盖更新的结果），异常——同步抛出与异步拒绝——均被隔离。`settings/updated` 事件逐 listener 扇出，一个抛错的 listener 不会饿死其余 listener。
+- 服务卸载先拒绝新写入并排干全部排队写入后才完成；registrant fiber 在写入途中被 dispose 时，该写入仍到达存储，但不向任何人提交或通知。
 
 ## Provider 契约
 

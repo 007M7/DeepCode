@@ -146,6 +146,23 @@ describe('persist', () => {
     expect((await readdir(dir)).sort()).toEqual(['settings.yaml'])
   })
 
+  it('serializes cross-namespace writes into one on-disk document', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const ctx = await boot({ path, watch: false })
+    const alpha = ctx.settings.register(settingsNamespace('alpha'), ThemeSchema)
+    const beta = ctx.settings.register(settingsNamespace('beta'), ThemeSchema)
+    await Promise.all([
+      alpha.update({ theme: 'light' }),
+      beta.update({ fontSize: 20 }),
+    ])
+    const text = await readFile(path, 'utf8')
+    expect(text).toContain('alpha:')
+    expect(text).toContain('beta:')
+    expect(alpha.get().theme).toBe('light')
+    expect(beta.get().fontSize).toBe(20)
+  })
+
   it('never follows a planted symlink at a temp path and never leaves the document a symlink', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
@@ -209,6 +226,9 @@ describe('persist', () => {
     await chmod(dir, 0o700)
     expect((await readdir(dir)).sort()).toEqual(['settings.yaml'])
     expect(scope.get().theme).toBe('light')
+    // The failed persist must not poison the document write chain.
+    await scope.update({ theme: 'dark' })
+    expect(scope.get().theme).toBe('dark')
   })
 
   it('round-trips a json document', async () => {

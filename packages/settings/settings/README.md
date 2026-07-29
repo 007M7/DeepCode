@@ -11,7 +11,8 @@ Abstract user-settings seam (`ctx.settings`). One provider holds a raw document 
 - `get(ns)` — resolved value, `undefined` while unregistered.
 - `update(ns, patch)` — deep-merges the plain-object patch into the user section only (never the `base`), validates the resolved candidate, persists through the provider, then commits. Validation failure rejects before anything is persisted; a read-only provider (`writable: false`) rejects every write. Writes to one namespace are serialized in call order.
 - `replace(ns, section)` — sets the user section wholesale: the removal/reset path a merge cannot express (`replace({})` re-inherits `base` and schema defaults).
-- Resolved values are deep-frozen snapshots; watchers receive `(next, prev)` after each commit, and watcher failures — sync throws and async rejections alike — are contained.
+- Resolved values are deep-frozen snapshots. Watchers receive `(next, prev)` after each commit: invocations of one callback run asynchronously, one at a time, in commit order (a slow stale invocation can never apply after a newer one), and failures — sync throws and async rejections alike — are contained. The `settings/updated` event fans out one listener at a time, so one throwing listener cannot starve the rest.
+- Service teardown refuses new writes and drains every queued write before disposal completes; a write whose registrant fiber was disposed mid-flight still reaches storage but commits and notifies nobody.
 
 ## Provider contract
 

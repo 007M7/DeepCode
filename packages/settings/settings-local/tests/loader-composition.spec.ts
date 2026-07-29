@@ -1,7 +1,9 @@
 /**
  * Real-composition guard: the provider and a consumer plugin boot from a
- * test-only cordis.yml through the actual Loader + Include path, and an
- * external edit of settings.yaml hot-publishes into the consumer's scope.
+ * test-only cordis.yml through the actual Loader + Include path, an external
+ * edit of settings.yaml hot-publishes into the consumer's scope, and the same
+ * consumer booted WITHOUT a settings entry keeps its entry-config resolution —
+ * the documented optional-inject fallback.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -39,33 +41,50 @@ afterEach(async () => {
 interface ConsumerState {
   scope: SettingsScope<ThemeConfig> | undefined
   seen: ThemeConfig[]
+  /** What the consumer is actually running with, settings or not. */
+  applied: ThemeConfig | undefined
 }
 
-async function loadComposition(): Promise<{ ctx: Context; state: ConsumerState; settingsPath: string }> {
+async function loadComposition(
+  options?: { withSettings?: boolean },
+): Promise<{ ctx: Context; state: ConsumerState; settingsPath: string }> {
+  const withSettings = options?.withSettings ?? true
   root = await mkdtemp(join(tmpdir(), 'dsh-settings-composition-'))
   const settingsPath = join(root, 'settings.yaml')
   await writeFile(settingsPath, 'ui-theme:\n  theme: light\n')
 
-  const state: ConsumerState = { scope: undefined, seen: [] }
+  const state: ConsumerState = { scope: undefined, seen: [], applied: undefined }
   const consumer = {
     name: 'settings-consumer',
-    inject: ['settings'],
     apply: (ctx: Context) => {
-      const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {
-        base: { fontSize: 16 },
+      // The documented consumer shape: no hard dependency — entry config alone
+      // is the running state, and the scoped inject overlays the user layer
+      // only while a settings service exists.
+      const base: Partial<ThemeConfig> = { fontSize: 16 }
+      state.applied = ThemeSchema(base as ThemeConfig)
+      ctx.inject(['settings'], (child: Context) => {
+        const scope = child.settings.register(settingsNamespace('ui-theme'), ThemeSchema, { base })
+        state.scope = scope
+        state.applied = scope.get()
+        scope.watch((next) => {
+          state.seen.push(next)
+          state.applied = next
+        })
       })
-      state.scope = scope
-      scope.watch((next) => { state.seen.push(next) })
     },
   }
 
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
-    '- id: settings',
-    "  name: '@deepseek-ai/dsh-settings-local'",
-    '  config:',
-    `    path: ${JSON.stringify(settingsPath)}`,
-    '    debounceMs: 10',
+    ...withSettings
+      ? [
+        '- id: settings',
+        "  name: '@deepseek-ai/dsh-settings-local'",
+        '  config:',
+        `    path: ${JSON.stringify(settingsPath)}`,
+        '    debounceMs: 10',
+      ]
+      : [],
     '- id: consumer',
     '  name: test-settings-consumer',
     '',
@@ -100,7 +119,9 @@ describe('settings-local real composition', () => {
     const { ctx, state, settingsPath } = await loadComposition()
 
     // Composition resolution: user layer over the consumer's composition base.
-    expect(state.scope!.get()).toEqual({ theme: 'light', fontSize: 16 })
+    await vi.waitFor(() => {
+      expect(state.scope!.get()).toEqual({ theme: 'light', fontSize: 16 })
+    })
     expect(ctx.get('settings')!.describe().map(entry => entry.ns)).toEqual(['ui-theme'])
 
     await writeFile(settingsPath, 'ui-theme:\n  theme: dark\n  fontSize: 20\n')
@@ -108,5 +129,17 @@ describe('settings-local real composition', () => {
       expect(state.scope!.get()).toEqual({ theme: 'dark', fontSize: 20 })
     }, { timeout: 5000 })
     expect(state.seen.at(-1)).toEqual({ theme: 'dark', fontSize: 20 })
+  })
+
+  it('boots the same consumer without a settings entry and keeps entry-config resolution', async () => {
+    const { ctx, state } = await loadComposition({ withSettings: false })
+
+    // No settings service anywhere in the composition…
+    expect(ctx.get('settings')).toBeUndefined()
+    // …so the consumer runs on schema defaults plus its composition base, and
+    // never receives a scope.
+    expect(state.applied).toEqual({ theme: 'dark', fontSize: 16 })
+    expect(state.scope).toBeUndefined()
+    expect(state.seen).toEqual([])
   })
 })

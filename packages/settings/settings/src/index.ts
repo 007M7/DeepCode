@@ -58,8 +58,9 @@ export interface SettingsScope<T> {
   /** Current resolved value: schema defaults, then `base`, then the user layer. */
   get(): T
   /**
-   * Observe committed changes to this namespace's resolved value. A callback
-   * may be async; a rejection is contained and logged like a sync throw.
+   * Observe committed changes to this namespace's resolved value. Invocations
+   * of one callback run asynchronously, one at a time, in commit order; a
+   * rejection is contained and logged like a sync throw.
    * @param callback - invoked after each commit with the next and previous values.
    * @returns the disposer removing this observer.
    */
@@ -149,6 +150,13 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value)
 }
 
+/** One registered watcher and its serialized invocation chain. */
+interface SettingsWatcher {
+  callback: (next: never, prev: never) => void | Promise<void>
+  /** Settled tail: invocations of this callback run one at a time, in commit order. */
+  tail: Promise<void>
+}
+
 /** One live namespace registration owned by a registrant fiber. */
 interface SettingsRegistration {
   ns: SettingsNamespace
@@ -156,7 +164,7 @@ interface SettingsRegistration {
   base: unknown
   applies: SettingsApplies
   resolved: unknown
-  watchers: Set<(next: never, prev: never) => void | Promise<void>>
+  watchers: Set<SettingsWatcher>
 }
 
 /**
@@ -171,6 +179,13 @@ export abstract class Settings extends Service {
   private document: Record<string, unknown> = {}
   /** Per-namespace write chains; settled tails, so a failure never poisons the queue. */
   private readonly writeQueues = new Map<SettingsNamespace, Promise<unknown>>()
+  /** Set at service dispose: refuse new writes while queued ones drain. */
+  private stopped = false
+
+  /** Opaque read of {@link stopped}: control flow cannot narrow it across awaits. */
+  private isStopped(): boolean {
+    return this.stopped
+  }
 
   constructor(ctx: Context) {
     super(ctx, 'settings')
@@ -178,10 +193,17 @@ export abstract class Settings extends Service {
 
   /**
    * Load the provider's document once and publish it before the service
-   * becomes injectable. Providers with their own init (watchers, connections)
-   * delegate here first via `yield* super[Service.init]()`.
+   * becomes injectable, and register the write-drain teardown. Providers with
+   * their own init (watchers, connections) delegate here first via
+   * `yield* super[Service.init]()`; their disposers then run before the drain.
    */
-  async* [Service.init](): AsyncGenerator<() => void, void, void> {
+  async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
+    yield async () => {
+      // Teardown: refuse new writes, then wait until every queued write chain
+      // settles so disposal completes only once storage is quiescent.
+      this.stopped = true
+      await Promise.allSettled([...this.writeQueues.values()])
+    }
     this.publish(await this.load())
   }
 
@@ -230,8 +252,9 @@ export abstract class Settings extends Service {
     return {
       get: () => registration.resolved as T,
       watch: (callback) => {
-        registration.watchers.add(callback)
-        return () => registration.watchers.delete(callback)
+        const watcher: SettingsWatcher = { callback: callback, tail: Promise.resolve() }
+        registration.watchers.add(watcher)
+        return () => registration.watchers.delete(watcher)
       },
       update: patch => this.update(ns, patch),
       replace: section => this.replace(ns, section),
@@ -287,27 +310,50 @@ export abstract class Settings extends Service {
 
   /** Validate a write, then queue it on the namespace's serialized write chain. */
   private write(ns: SettingsNamespace, input: object, mode: 'merge' | 'replace'): Promise<void> {
+    const verb = mode === 'merge' ? 'update' : 'replace'
     const registration = this.registrations.get(ns)
     if (registration === undefined) {
       throw new Error(`settings namespace "${ns}" is not registered`)
+    }
+    if (this.isStopped()) {
+      throw new Error(`settings service is disposed: "${ns}" cannot be written`)
     }
     if (!this.writable) {
       throw new Error(`settings provider is read-only: "${ns}" cannot be updated in-process`)
     }
     if (!isPlainObject(input)) {
-      throw new TypeError(`settings ${mode === 'merge' ? 'update' : 'replace'} for "${ns}" must be a plain object`)
+      throw new TypeError(`settings ${verb} for "${ns}" must be a plain object`)
+    }
+    // Snapshot at call time: the queue must never read a caller-owned object
+    // the caller may keep mutating while the write waits its turn.
+    let snapshot: Record<string, unknown>
+    try {
+      snapshot = structuredClone(input)
+    } catch {
+      throw new TypeError(`settings ${verb} for "${ns}" must be JSON-shaped (structured-cloneable) data`)
     }
     const previous = this.writeQueues.get(ns) ?? Promise.resolve()
     // Chain past a failed predecessor: one rejected write must not poison the
     // namespace queue for every later caller.
     const run = previous.catch(() => undefined).then(async () => {
+      if (this.isStopped()) {
+        throw new Error(`settings service was disposed before the queued "${ns}" ${verb} ran`)
+      }
+      if (this.registrations.get(ns) !== registration) {
+        throw new Error(`settings namespace "${ns}" registration was disposed before the queued ${verb} ran`)
+      }
       const section = mode === 'merge'
-        ? mergeLayers(this.section(ns) ?? {}, input) as Record<string, unknown>
-        : structuredClone(input)
+        ? mergeLayers(this.section(ns) ?? {}, snapshot) as Record<string, unknown>
+        : snapshot
       const next = deepFreeze(this.resolve(registration.schema, registration.base, section))
       await this.persist(ns, section)
+      // The write reached storage either way; the cache must say so. Commit
+      // only when this registration is still the namespace owner — a fiber
+      // disposed (or replaced) mid-persist must not receive the notification.
       this.document[ns] = section
-      this.commit(registration, next, 'update')
+      if (this.registrations.get(ns) === registration && !this.isStopped()) {
+        this.commit(registration, next, 'update')
+      }
     })
     this.writeQueues.set(ns, run)
     return run
@@ -358,29 +404,35 @@ export abstract class Settings extends Service {
     if (deepEqualJson(next, prev)) return
     registration.resolved = next
     for (const watcher of [...registration.watchers]) {
+      // Serialize per watcher: invocations of one callback run one at a time
+      // in commit order, so a slow stale invocation can never apply after a
+      // newer one. Sync throws and async rejections land in the same handler.
+      watcher.tail = watcher.tail
+        .then(() => watcher.callback(next as never, prev as never))
+        .then(() => undefined, (error: unknown) => {
+          this.warnWatcherFailure(registration.ns, error)
+        })
+    }
+    // Fan the event out one listener at a time (the plain emit stops at the
+    // first throwing listener, starving the rest). Invariant violations are
+    // harness-fatal by design and rethrow after every listener ran; any other
+    // failure is contained so one broken observer cannot wedge the commit
+    // path (and, through it, a provider's reload loop).
+    let invariantFailure: unknown
+    const args = ['settings/updated', registration.ns, next, prev, source]
+    for (const listener of this.ctx.events.dispatch('emit', args) as Array<(...listenerArgs: unknown[]) => unknown>) {
       try {
-        // A watcher may be async: adopt its promise so a rejection is contained
-        // here instead of surfacing as an unhandled rejection.
-        const outcome = watcher(next as never, prev as never) as unknown
-        if (outcome instanceof Promise) {
-          outcome.catch((error: unknown) => {
-            this.warnWatcherFailure(registration.ns, error)
-          })
-        }
+        listener(registration.ns, next, prev, source)
       } catch (error) {
-        this.warnWatcherFailure(registration.ns, error)
+        if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
+          invariantFailure ??= error
+          continue
+        }
+        this.ctx.logger.warn('settings: a settings/updated listener for "%s" failed', registration.ns)
+        this.ctx.logger.warn(error)
       }
     }
-    try {
-      this.ctx.emit('settings/updated', registration.ns, next, prev, source)
-    } catch (error) {
-      // Invariant violations are harness-fatal by design; any other listener
-      // failure is contained so one broken observer cannot wedge the commit
-      // path (and, through it, a provider's reload loop).
-      if ((error as { code?: unknown } | null)?.code === 'INVARIANT') throw error
-      this.ctx.logger.warn('settings: a settings/updated listener for "%s" failed', registration.ns)
-      this.ctx.logger.warn(error)
-    }
+    if (invariantFailure !== undefined) throw invariantFailure as Error
   }
 
   /** Contained-watcher diagnostic shared by the sync and async failure paths. */

@@ -87,6 +87,8 @@ export class SettingsLocal extends Settings {
   private text: string | undefined
   /** Serializes watcher-triggered reloads so reads never interleave. */
   private refreshTask: Promise<void> = Promise.resolve()
+  /** Serializes whole-document writes across namespace queues; settled tail. */
+  private persistChain: Promise<void> = Promise.resolve()
   /** Set at dispose: refuse new watcher events and let in-flight work no-op. */
   private closed = false
 
@@ -121,7 +123,17 @@ export class SettingsLocal extends Settings {
     return doc
   }
 
-  protected async persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
+  protected persist(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
+    // One document backs every namespace, so writes from different namespace
+    // queues must serialize here: each render must see the text the previous
+    // write committed, or the loser's section silently vanishes from disk.
+    // The stored tail is settled on both outcomes, so chaining needs no catch.
+    const task = this.persistChain.then(() => this.persistSection(ns, section))
+    this.persistChain = task.then(() => undefined, () => undefined)
+    return task
+  }
+
+  private async persistSection(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
     const output = this.spec.format === 'yaml'
       ? this.renderYaml(ns, section)
       : this.renderJson(ns, section)

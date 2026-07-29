@@ -19,6 +19,7 @@ Defaulting is one explicit `resolveSpec(config)` step; an unsupported extension 
 
 - **Boot fails loud, reload keeps last-good.** An existing-but-invalid document fails plugin load; once live, an unreadable or unparsable edit warns and keeps the last good sections. A missing document resolves every namespace from defaults and `base`; deleting it publishes the same empty state.
 - **Write-back is atomic, owner-only, and symlink-proof.** `persist` exclusive-creates a random-suffix temp sibling with mode `0600` (`wx` refuses to follow a planted symlink) and renames over the target, cleaning the temp up on failure. YAML writes patch one namespace in the comment-preserving document; JSON re-serializes.
+- **Cross-namespace writes serialize on one document.** Every namespace shares the file, so persists from different namespace queues chain internally; each render sees the text the previous write committed.
 - **Dispose quiesces.** Teardown stops accepting watcher events, closes the watcher, then waits out any queued or in-flight reload, so nothing publishes after disposal.
 - **Self-write suppression by content.** The provider caches the last good text; a watcher event whose content equals the cache (its own write included) is a no-op.
 

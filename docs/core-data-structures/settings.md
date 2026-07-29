@@ -46,8 +46,9 @@ interface SettingsScope<T> {
   /** Current resolved value: schema defaults, then `base`, then the user layer. */
   get(): T
   /**
-   * Observe committed changes to this namespace's resolved value. A callback
-   * may be async; a rejection is contained and logged like a sync throw.
+   * Observe committed changes to this namespace's resolved value. Invocations
+   * of one callback run asynchronously, one at a time, in commit order; a
+   * rejection is contained and logged like a sync throw.
    * @param callback - invoked after each commit with the next and previous values.
    * @returns the disposer removing this observer.
    */

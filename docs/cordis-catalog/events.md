@@ -662,7 +662,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:96`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:97`](../../packages/settings/settings/src/index.ts)
 
 ## `slash/*`
 

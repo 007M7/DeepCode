@@ -52,9 +52,10 @@ const NestedSchema: z<NestedConfig> = z.object({
 
 async function boot(options?: ConstructorParameters<typeof MemorySettings>[1]) {
   const ctx = new Context()
-  await ctx.plugin(MemorySettings, options)
+  const fiber = ctx.plugin(MemorySettings, options)
+  await fiber
   const provider = ctx.get('settings') as MemorySettings
-  return { ctx, provider }
+  return { ctx, provider, fiber }
 }
 
 /** Record every settings/updated emission. */
@@ -341,6 +342,144 @@ describe('review regressions', () => {
   })
 })
 
+describe('second review regressions', () => {
+  it('runs every settings/updated listener even when an earlier one throws', async () => {
+    const { ctx, provider } = await boot()
+    ctx.on('settings/updated', () => {
+      throw new Error('first listener boom')
+    })
+    const second = vi.fn()
+    ctx.on('settings/updated', second)
+    ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    provider.pushExternal({ 'ui-theme': { theme: 'light' } })
+    expect(second).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an update queued after the registrant fiber disposed', async () => {
+    const { ctx } = await boot()
+    let scope: SettingsScope<ThemeConfig> | undefined
+    const fiber = ctx.plugin({
+      inject: ['settings'],
+      apply: (child: Context) => {
+        scope = child.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+      },
+    })
+    await fiber
+    await fiber.dispose()
+    await expect(scope!.update({ theme: 'light' })).rejects.toThrow(/disposed|not registered/)
+  })
+
+  it('does not notify a registrant disposed while its update was in flight', async () => {
+    const { ctx, provider } = await boot({ persistDelayMs: 30 })
+    const events = recordUpdates(ctx)
+    let scope: SettingsScope<ThemeConfig> | undefined
+    const watcher = vi.fn()
+    const fiber = ctx.plugin({
+      inject: ['settings'],
+      apply: (child: Context) => {
+        scope = child.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+        scope.watch(watcher)
+      },
+    })
+    await fiber
+    const pending = scope!.update({ theme: 'light' })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await fiber.dispose()
+    await pending.catch(() => undefined)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(watcher).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+    // The persist was already in flight, so storage keeps the write — but no
+    // commit reached the disposed registration.
+    expect(provider.doc['ui-theme']).toEqual({ theme: 'light' })
+  })
+
+  it('drains in-flight writes at service dispose and rejects later ones', async () => {
+    const { ctx, provider, fiber } = await boot({ persistDelayMs: 20 })
+    const service = ctx.settings
+    const scope = service.register(settingsNamespace('ui-theme'), ThemeSchema)
+    const pending = scope.update({ theme: 'light' })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await fiber.dispose()
+    // The teardown drained the in-flight write before completing…
+    await pending.catch(() => undefined)
+    const persistedAtDispose = provider.persisted.length
+    expect(persistedAtDispose).toBe(1)
+    // …and afterwards nothing writes and new writes reject.
+    await expect(service.update(settingsNamespace('ui-theme'), { theme: 'dark' }))
+      .rejects.toThrow(/disposed|not registered/)
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect(provider.persisted.length).toBe(persistedAtDispose)
+  })
+
+  it('serializes invocations of one async watcher in commit order', async () => {
+    const { ctx, provider } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    const applied: number[] = []
+    let firstCall = true
+    scope.watch(async (next) => {
+      // The first (stale) invocation is slow; unserialised it would finish
+      // last and clobber the newer applied state.
+      const delay = firstCall ? 30 : 0
+      firstCall = false
+      await new Promise(resolve => setTimeout(resolve, delay))
+      applied.push(next.fontSize)
+    })
+    provider.pushExternal({ 'ui-theme': { fontSize: 1 } })
+    provider.pushExternal({ 'ui-theme': { fontSize: 2 } })
+    await vi.waitFor(() => {
+      expect(applied).toHaveLength(2)
+    })
+    expect(applied).toEqual([1, 2])
+  })
+
+  it('rejects a plain object that is not structured-cloneable', async () => {
+    const { ctx } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await expect(scope.update({ theme: () => 'dark' }))
+      .rejects.toThrow(/JSON-shaped/)
+  })
+
+  it('rejects a write still queued when the service disposes', async () => {
+    const { ctx, fiber } = await boot({ persistDelayMs: 20 })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    const first = scope.update({ theme: 'light' })
+    const second = scope.update({ fontSize: 20 })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await fiber.dispose()
+    await first
+    await expect(second).rejects.toThrow(/disposed before the queued/)
+  })
+
+  it('rejects a write still queued when the registrant disposes', async () => {
+    const { ctx } = await boot({ persistDelayMs: 20 })
+    let scope: SettingsScope<ThemeConfig> | undefined
+    const fiber = ctx.plugin({
+      inject: ['settings'],
+      apply: (child: Context) => {
+        scope = child.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+      },
+    })
+    await fiber
+    const first = scope!.update({ theme: 'light' })
+    const second = scope!.update({ fontSize: 20 })
+    await new Promise(resolve => setTimeout(resolve, 5))
+    await fiber.dispose()
+    await first
+    await expect(second).rejects.toThrow(/registration was disposed before the queued/)
+  })
+
+  it('snapshots the patch at call time so caller mutation cannot leak in', async () => {
+    const { ctx } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    const patch = { fontSize: 18 }
+    const pending = scope.update(patch)
+    patch.fontSize = 99
+    await pending
+    expect(scope.get().fontSize).toBe(18)
+  })
+})
+
 describe('publish', () => {
   it('notifies watchers of an external change with source provider', async () => {
     const { ctx, provider } = await boot()
@@ -349,10 +488,12 @@ describe('publish', () => {
     const watcher = vi.fn()
     scope.watch(watcher)
     provider.pushExternal({ 'ui-theme': { theme: 'light' } })
-    expect(watcher).toHaveBeenCalledWith(
-      { theme: 'light', fontSize: 14 },
-      { theme: 'dark', fontSize: 14 },
-    )
+    await vi.waitFor(() => {
+      expect(watcher).toHaveBeenCalledWith(
+        { theme: 'light', fontSize: 14 },
+        { theme: 'dark', fontSize: 14 },
+      )
+    })
     expect(events[0]!.source).toBe('provider')
   })
 
@@ -410,7 +551,9 @@ describe('watch', () => {
     const second = vi.fn()
     scope.watch(second)
     provider.pushExternal({ 'ui-theme': { theme: 'light' } })
-    expect(second).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => {
+      expect(second).toHaveBeenCalledTimes(1)
+    })
     expect(events).toHaveLength(1)
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 14 })
   })

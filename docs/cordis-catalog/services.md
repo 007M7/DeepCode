@@ -1442,7 +1442,7 @@ async replace(ns: SettingsNamespace, section: object): Promise<void>
 
 Types: [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:168`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:176`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
