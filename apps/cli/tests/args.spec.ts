@@ -27,6 +27,7 @@ describe('parseDshArgs', () => {
   it('routes each mode by its shape: default TUI, -p headless, meta and web subcommands', () => {
     expect(parse([])).toEqual({ mode: 'tui' })
     expect(parse(['--config', 'custom.yml'])).toEqual({ mode: 'tui', config: 'custom.yml' })
+    expect(parse(['--config-replace', 'tree.yml'])).toEqual({ mode: 'tui', configReplace: 'tree.yml' })
     expect(parse(['--resume', 'sess', '--config', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
     // `meta` accepts `--resume` but does not redeclare it: a shared option parses
@@ -58,6 +59,8 @@ describe('parseDshArgs', () => {
     expect(exitCode(['--resume='])).toBe(1)
     expect(exitCode(['-p', ''])).toBe(1)
     expect(exitCode(['-p', 'x', '--config', 'c.yml'])).toBe(1)
+    expect(exitCode(['-p', 'x', '--config-replace', 'tree.yml'])).toBe(1)
+    expect(exitCode(['--config', 'c.yml', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['-p', 'x', '--resume', 's'])).toBe(1)
     expect(exitCode(['--bogus'])).toBe(1)
     expect(exitCode(['bogus-positional'])).toBe(1)
@@ -66,17 +69,20 @@ describe('parseDshArgs', () => {
     expect(exitCode(['web', '-p', 'task'])).toBe(1)
     expect(exitCode(['web', '--resume', 's'])).toBe(1)
     expect(exitCode(['--config', 'c.yml', 'web'])).toBe(1)
+    expect(exitCode(['--config-replace', 'tree.yml', 'web'])).toBe(1)
     // Same rule for credential setup: it shares no option with the default
     // surface, so a leaked flag is a typo, not something to ignore.
     // `meta` fixes its own config tree and is interactive, so --config/-p are
     // rejected; an empty id is swallowed downstream exactly as above.
     expect(exitCode(['meta', '--resume='])).toBe(1)
     expect(exitCode(['meta', '--config', 'c.yml'])).toBe(1)
+    expect(exitCode(['meta', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['meta', '-p', 'task'])).toBe(1)
     // `migrate`/`upgrade` take no options: any leaked default-surface flag is a
     // mistyped invocation, not a silently-dropped input.
     expect(exitCode(['migrate', '--resume', 's'])).toBe(1)
     expect(exitCode(['migrate', '--config', 'c.yml'])).toBe(1)
+    expect(exitCode(['migrate', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['migrate', '-p', 'task'])).toBe(1)
     expect(exitCode(['upgrade', '--resume', 's'])).toBe(1)
     expect(exitCode(['upgrade', '--config', 'c.yml'])).toBe(1)

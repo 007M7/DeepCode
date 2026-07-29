@@ -226,9 +226,9 @@ Examples:
       // the subcommand into `program.opts()`. `meta` accepts only `--resume`, so
       // a leaked `--config`/`-p` is a mistyped invocation that must fail loud
       // rather than silently be dropped.
-      const parent = program.opts<{ config?: string; prompt?: string; resume?: string }>()
-      if (parent.config !== undefined || parent.prompt !== undefined) {
-        program.error('error: meta takes neither --config nor -p/--prompt')
+      const parent = program.opts<{ config?: string; configReplace?: string; prompt?: string; resume?: string }>()
+      if (parent.config !== undefined || parent.configReplace !== undefined || parent.prompt !== undefined) {
+        program.error('error: meta takes none of --config, --config-replace, or -p/--prompt')
       }
       // Same reason as the default surface: an empty id would start a fresh
       // session downstream instead of failing the mistyped resume.
