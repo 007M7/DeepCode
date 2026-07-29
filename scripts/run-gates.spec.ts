@@ -42,6 +42,18 @@ function withPnpmEntrypoint<T>(action: () => T): T {
   }
 }
 
+function withEnv<T>(name: string, value: string | undefined, action: () => T): T {
+  const previous = process.env[name]
+  if (value === undefined) Reflect.deleteProperty(process.env, name)
+  else process.env[name] = value
+  try {
+    return action()
+  } finally {
+    if (previous === undefined) Reflect.deleteProperty(process.env, name)
+    else process.env[name] = previous
+  }
+}
+
 describe('gate graph validation', () => {
   it.each([
     'ci-primary',
@@ -93,6 +105,32 @@ describe('gate graph validation', () => {
     expect(execute).toHaveBeenCalledOnce()
     expect(execute).toHaveBeenCalledWith(root)
     expect(results[0]).toMatchObject({ gate: dependent, status: 'skipped', error: 'dependency failed or skipped: root' })
+  })
+})
+
+describe('Oxlint gate', () => {
+  it('uses the package script when no worker bound is configured', () => {
+    const subject = withEnv('DSH_OXLINT_THREADS', undefined, () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+
+    expect(subject).toMatchObject({
+      id: 'lint',
+      displayCommand: 'pnpm run lint',
+      command: process.execPath,
+      args: ['/private/pnpm.cjs', 'run', 'lint'],
+    })
+  })
+
+  it('surfaces the configured worker bound on the shared package script', () => {
+    const subject = withEnv('DSH_OXLINT_THREADS', '4', () =>
+      withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
+
+    expect(subject).toMatchObject({
+      id: 'lint',
+      displayCommand: 'DSH_OXLINT_THREADS=4 pnpm run lint',
+      command: process.execPath,
+      args: ['/private/pnpm.cjs', 'run', 'lint'],
+    })
   })
 })
 

@@ -8,7 +8,7 @@
  * consumer `declare module` augmentation merges with declarations lexically in
  * the augmented module, not with re-exports.
  */
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents --
+/* oxlint-disable typescript/no-redundant-type-constituents --
  * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap is empty
  * in THIS compilation unit (so the intersection reads as `never`), but every
  * consumer merges keys in and the intersection is what keeps them string-typed.
@@ -423,7 +423,7 @@ interface ErasedOptions {
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
   store?: StoreDecl | undefined
   locale?: string | undefined
-  /* eslint-disable-next-line @typescript-eslint/no-explicit-any --
+  /* oxlint-disable-next-line typescript/no-explicit-any --
    * implementation-signature position only (both public overloads type inject
    * exactly); `never[]` would fail overload-to-implementation compatibility
    * against the per-declaration InjectParams tuples. */

@@ -4,7 +4,7 @@
  * preference row into the settings General section — the locale feature owns
  * its own settings surface.
  */
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents --
+/* oxlint-disable typescript/no-redundant-type-constituents --
  * `keyof LocaleNamespaceMap & string` is the declare-merge key pattern (see
  * ui-slots): in THIS unit the map holds only this package's own merges, but
  * consumers merge more namespaces in and the intersection keeps them

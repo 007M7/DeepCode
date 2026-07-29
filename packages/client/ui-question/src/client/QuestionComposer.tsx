@@ -41,7 +41,7 @@ export function parseQuestionTitle(title: string): string {
 /** Return whether a textarea key event belongs to an active IME composition. */
 function isComposing(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
   // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  // oxlint-disable-next-line typescript/no-deprecated
   return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
 }
 
@@ -70,9 +70,9 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
   // failure messages (finished strings from the wire) pass through verbatim.
   const [error, setError] = useState<{ key: 'error.incomplete' | 'error.unanswered' } | { text: string } | null>(null)
   // index stays in bounds (every setIndex site clamps) and drafts mirrors questions 1:1.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const question = questions[index]!
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const draft = drafts[index]!
   const hasOptions = (question.options?.length ?? 0) > 0
 
