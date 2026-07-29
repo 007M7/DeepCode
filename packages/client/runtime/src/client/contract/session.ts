@@ -42,10 +42,24 @@ export interface ISession {
    */
   cancel(): Promise<RpcResult<{ accepted: true }>>
   /**
+   * Rename this session (explicit user title; pins it against automatic
+   * regeneration).
+   * @param title - raw title text (the host normalizes acceptance).
+   * @returns the normalized accepted title and its event seq, or the business error.
+   */
+  rename(title: string): Promise<RpcResult<{ title: string; seq: number }>>
+  /**
    * Extend the history window backwards (older messages pagination).
    * @returns completion; failures land in snapshot.openState/loadingOlder.
    */
   loadOlder(): Promise<void>
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  command(line: string): Promise<RpcResult<{ matched: boolean }>>
 }
 
 /**

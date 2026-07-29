@@ -115,9 +115,9 @@ export function HeroShell({ children }: HeroShellProps) {
           Let&apos;s start building
         </div>
         <div className={css.body}>
-          {/* The resident composer (rendered by ConversationRoot at its stable
-              tree position; the workspace row rides its accessory hole) is
-              CSS-positioned into this gap during the hero phase — see
+          {/* The resident composer (ConversationRoot wrapActiveBody seat; the
+              workspace row rides the stack above the card) is CSS-centered in
+              the session scroll body during hero — see
               ConversationRoot.module.css [data-phase='hero']. */}
         </div>
       </div>

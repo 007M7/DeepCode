@@ -93,11 +93,27 @@ export class FixtureSession implements SessionFace {
   }
 
   /**
+   * Fail-loud stub; supply `command` on the fixture's session face to exercise it.
+   * @returns never — always throws.
+   */
+  command(): never {
+    throw new Error(`test session "${this.sessionId}": command is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
    * Fail-loud stub; supply `loadOlder` on the fixture's session face to exercise it.
    * @returns never — always throws.
    */
   loadOlder(): never {
     throw new Error(`test session "${this.sessionId}": loadOlder is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
+   * Fail-loud stub; supply `rename` on the fixture's session face to exercise it.
+   * @returns never — always throws.
+   */
+  rename(): never {
+    throw new Error(`test session "${this.sessionId}": rename is not stubbed — supply it on the fixture's session face`)
   }
 }
 
@@ -183,6 +199,7 @@ export class TestSessions implements ISessions {
       id,
       displayTitle: fixture.id,
       running: false,
+      waitingApproval: false,
       blank: false,
       updatedAt: this.records.size + 1,
       ...fixture.summary,
@@ -218,6 +235,20 @@ export class TestSessions implements ISessions {
   async updateSnapshot(id: string, mutate: (draft: ConversationSnapshot) => void): Promise<void> {
     const record = this.require(id)
     await this.stabilize(() => { record.snapshot.update(mutate) })
+  }
+
+  /**
+   * Update a session's list row (the wire-echo stand-in: title settles,
+   * running flips — components subscribed via useSessions re-render).
+   * @param id - session id.
+   * @param patch - summary fields to merge over the row.
+   */
+  async updateSummary(id: string, patch: Partial<Omit<SessionSummary, 'id'>>): Promise<void> {
+    const record = this.require(id)
+    record.summary = { ...record.summary, ...patch }
+    await this.stabilize(() => {
+      this.list.update((draft) => { draft.byId[id as SessionId] = record.summary })
+    })
   }
 
   /**

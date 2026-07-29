@@ -10,6 +10,7 @@ Zero-dependency primitives shared across the other groups. A package lands here 
 | `paths/` | Canonical single-root `DSH_HOME` resolution plus shared filesystem path constants and helpers for harness user data (no harness deps) |
 | `timeout/` | The timing/classification half of a timeout — `clampTimeout`/`deadline`/`timeoutOf`/`TimeoutReason` (pure functions, no harness deps); termination stays in each capability |
 | `retention/` | Bounded model-facing output — `ItemRetainer`/`TextRetainer` + neutral notice helpers (pure, no harness deps); business semantics stay in each tool |
+| `native-command/` | No-shell `execFile` runner for host-native OS integrations — utf8 capture, abort propagation, Windows hide (no harness deps); command choice stays in each caller |
 
 `dsh-brand` is the canonical case: it owns ONLY the `Branded<B>` helper, so a capability package can brand the ids it owns (`dsh-tasks`'s `TaskId`, `dsh-session`'s `SessionId`, …) by depending on `dsh-brand` alone, without pulling in an unrelated package just to reach `Branded`.
 

@@ -10,7 +10,7 @@
  * through the three framework shares — zero cordis or framework imports,
  * zero self-made hooks.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { computeColumns } from './columns.ts'
@@ -86,12 +86,26 @@ function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart:
 /** The three-column frame (see module doc). */
 export function AppFrame({
   useStore,
+  useSessions,
   actions,
   renderSlot,
 }: AppFrameProps) {
   const panels = useStore(s => s)
+  const detailsSession = useSessions((s) => {
+    const current = s.current
+    return current !== undefined && s.byId[current]?.blank === false ? current : undefined
+  })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
+
+  const lastSession = useRef(detailsSession)
+  useLayoutEffect(() => {
+    if (detailsSession === undefined) return
+    if (lastSession.current !== undefined && lastSession.current !== detailsSession) {
+      actions.closeDetails()
+    }
+    lastSession.current = detailsSession
+  }, [actions, detailsSession])
 
   // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
   useEffect(() => {
@@ -113,12 +127,12 @@ export function AppFrame({
     }
   }, [])
 
-  const cols = computeColumns(viewport, panels.sidebar, panels.details)
+  const cols = computeColumns(viewport, panels.sidebar, detailsSession === undefined ? 0 : panels.details)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
   // The drag base is the rendered width captured at drag start (grabbing a
-  // concession-clamped panel must not jump back to the persisted preference);
+  // concession-clamped panel must not jump back to the stored preference);
   // it stays frozen for the whole gesture so dx deltas do not compound.
   const sidebarBase = useRef(0)
   const detailsBase = useRef(0)

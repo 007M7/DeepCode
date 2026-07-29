@@ -255,10 +255,10 @@ describe('stdin and extra env (set by in-process plugins)', () => {
   })
 
   it('an explicit extra env entry overrides the credential scrub', async () => {
-    // EXPLICIT_OVERRIDE_KEY matches the credential scrub pattern, yet an explicit
+    // EXPLICIT_OVERRIDE_PASSWORD matches the credential scrub pattern, yet an explicit
     // entry is still honored — the scrub only drops AMBIENT process.env creds.
-    const result = await finish(spawnSubprocess(spec('echo "$EXPLICIT_OVERRIDE_KEY"', {
-      env: { EXPLICIT_OVERRIDE_KEY: 'explicit-wins' },
+    const result = await finish(spawnSubprocess(spec('echo "$EXPLICIT_OVERRIDE_PASSWORD"', {
+      env: { EXPLICIT_OVERRIDE_PASSWORD: 'explicit-wins' },
     })))
     expect(result.stdout.text).toBe('explicit-wins\n')
   })
@@ -748,13 +748,17 @@ describe('environment and spill-file hardening', () => {
   it('scrubs credential-shaped and ambient DSH env vars from child processes', async () => {
     process.env.DSH_TEST_API_KEY = 'super-secret'
     process.env.DSH_TEST_TOKEN = 'also-secret'
+    process.env.SUBPROCESS_TEST_PASSWORD = 'password-secret'
     process.env.DSH_TEST_PLAIN = 'visible'
     try {
-      const result = await finish(spawnSubprocess(spec('echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${DSH_TEST_PLAIN:-absent}]"')))
-      expect(result.stdout.text.trim()).toBe('[absent|absent|absent]')
+      const result = await finish(spawnSubprocess(spec(
+        'echo "[${DSH_TEST_API_KEY:-absent}|${DSH_TEST_TOKEN:-absent}|${SUBPROCESS_TEST_PASSWORD:-absent}|${DSH_TEST_PLAIN:-absent}]"',
+      )))
+      expect(result.stdout.text.trim()).toBe('[absent|absent|absent|absent]')
     } finally {
       delete process.env.DSH_TEST_API_KEY
       delete process.env.DSH_TEST_TOKEN
+      delete process.env.SUBPROCESS_TEST_PASSWORD
       delete process.env.DSH_TEST_PLAIN
     }
   })

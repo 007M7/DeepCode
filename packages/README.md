@@ -11,6 +11,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | Group | Role | Release expectation |
 |---|---|---|
 | [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
+| [`typert/`](typert/README.md) | Type graph generation, artifact loading, and runtime registry | Product — stable surface |
 | [`goal/`](goal/README.md) | Persisted same-session goal state and lifecycle | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
@@ -44,6 +45,8 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
 | [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server | Product — stable surface |
 | [`ui/`](ui/README.md) | TUI and JSON-RPC integrations, approval/interaction seams, ask-user tool | Product — stable surface |
+| [`host/`](host/README.md) | Web-GUI host half: API gateway + HTTP route server | Product — stable surface |
+| [`client/`](client/README.md) | Web-GUI browser half: shell, wire, object services, slots, `ui-*` plugins | Product — stable surface |
 | [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |

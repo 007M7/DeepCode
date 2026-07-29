@@ -83,7 +83,7 @@ function progressLabel(todos: readonly TodoItem[]): string {
 }
 
 export function TodoPanel({ todos }: TodoPanelProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
   if (todos.length === 0) return null
 
   return (

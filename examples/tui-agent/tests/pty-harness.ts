@@ -1,6 +1,7 @@
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { execa } from 'execa'
 import { resolveExampleLaunch, type ExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
@@ -36,7 +37,16 @@ while time.monotonic() < deadline:
         if chunk:
             output.extend(chunk)
     while action_index < len(actions) and actions[action_index]["waitFor"].encode() in output:
-        os.write(fd, actions[action_index]["send"].encode())
+        action = actions[action_index]
+        if "writeFile" in action:
+            target = os.path.join(cwd, action["writeFile"]["path"])
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write(action["writeFile"]["content"])
+            if "send" in action:
+                os.write(fd, action["send"].encode())
+        else:
+            os.write(fd, action["send"].encode())
         action_index += 1
     waited, candidate = os.waitpid(pid, os.WNOHANG)
     if waited == pid:
@@ -56,11 +66,14 @@ if actual_exit != int(expected_exit):
     sys.exit(125)
 `
 
-/** One terminal action sent after its marker has rendered. */
-interface TuiPtyAction {
-  readonly waitFor: string
-  readonly send: string
-}
+/** One terminal input or workspace mutation performed after its marker renders. */
+type TuiPtyAction =
+  | { readonly waitFor: string; readonly send: string }
+  | {
+    readonly waitFor: string
+    readonly writeFile: { readonly path: string; readonly content: string }
+    readonly send?: string
+  }
 
 /** Inputs for a keyless real-Loader TUI process smoke. */
 export interface TuiPtySmokeOptions {
@@ -157,7 +170,16 @@ async function runWindowsPtySmoke(
     terminal.onData((chunk) => {
       output += chunk
       while (actionIndex < actions.length && output.includes(actions[actionIndex]!.waitFor)) {
-        terminal.write(actions[actionIndex]!.send)
+        const action = actions[actionIndex]!
+        if ('writeFile' in action) {
+          const target = join(cwd, action.writeFile.path)
+          mkdirSync(dirname(target), { recursive: true })
+          writeFileSync(target, action.writeFile.content)
+          const input = action.send
+          if (input !== undefined) terminal.write(input)
+        } else {
+          terminal.write(action.send)
+        }
         actionIndex += 1
       }
     })

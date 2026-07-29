@@ -2,8 +2,8 @@
  * Server side of the fetch carrier: maps an ApiProxy onto a pure
  * WHATWG Request->Response function. Two-level parse: full form (type/rpcId/method +
  * path==method) -> payload dispatched per method. HTTP status expresses only the carrier
- * (404 unknown path / 400 non-JSON body / 500 handler crash); business errors are always
- * 200 + ServerResponse.
+ * (404 unknown path / 415 non-JSON media type / 400 non-JSON body / 500 handler crash);
+ * business errors are always 200 + ServerResponse.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -21,10 +21,13 @@ import {
   sessionListRequestSchema,
   sessionModelsRequestSchema,
   sessionPromptRequestSchema,
+  sessionRenameRequestSchema,
   sessionSelectModelRequestSchema,
 } from '../api/sessions.schema.ts'
 import {
-  hostDescribeRequestSchema, hostOpenPathRequestSchema, hostPickDirectoryRequestSchema,
+  hostCreateDirectoryRequestSchema, hostDescribeRequestSchema,
+  hostListDirectoryRequestSchema, hostOpenPathRequestSchema,
+  hostPickDirectoryRequestSchema,
 } from '../api/host.schema.ts'
 import {
   workspaceCreateRequestSchema,
@@ -66,10 +69,13 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
+  'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
+  'host.listDirectory': { schema: hostListDirectoryRequestSchema, invoke: (api, r, signal) => api.host.listDirectory(r, signal) },
+  'host.createDirectory': { schema: hostCreateDirectoryRequestSchema, invoke: (api, r) => api.host.createDirectory(r) },
   'host.openPath': { schema: hostOpenPathRequestSchema, invoke: (api, r, signal) => api.host.openPath(r, signal) },
   'workspace.list': { schema: workspaceListRequestSchema, invoke: (api, r) => api.workspace.list(r) },
   'workspace.create': { schema: workspaceCreateRequestSchema, invoke: (api, r) => api.workspace.create(r) },
@@ -203,6 +209,17 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
 
       if (req.method !== 'POST' || !path.startsWith('/api/')) {
         return new Response('not found', { status: 404 })
+      }
+
+      // Cross-site write fence: browsers send "simple" POSTs (text/plain,
+      // form encodings) without a CORS preflight, so a malicious page could
+      // otherwise execute side-effectful RPCs blind — the response stays
+      // unreadable cross-origin, but session.prompt would still run. Only the
+      // JSON media type is accepted; anything else is forced into a preflight
+      // this server never answers. 415 = carrier layer, like the 400 below.
+      const mediaType = req.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+      if (mediaType !== 'application/json') {
+        return new Response('content type must be application/json', { status: 415 })
       }
 
       let body: unknown

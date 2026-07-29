@@ -110,8 +110,8 @@ export class SessionReferenceService extends Service {
    */
   async listCandidates(
     agent: Agent,
-    query = '',
-    limit = this.config.candidateLimit,
+    query: string = '',
+    limit: number = this.config.candidateLimit,
     signal?: AbortSignal,
   ): Promise<SessionReferenceCandidate[]> {
     if (!Number.isSafeInteger(limit) || limit <= 0) {
