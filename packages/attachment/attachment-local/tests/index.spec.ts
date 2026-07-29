@@ -48,6 +48,9 @@ describe('local attachment service', () => {
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         'base64',
       ))
+      const limited = new LocalAttachmentStore(new Context(), { dshHome, maxImageBytes: 1 })
+      await expect(limited.validateImage({ data: valid, mediaType: 'image/png' }))
+        .rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
       await expect(service.validateImage({ data: valid, mediaType: 'image/png' })).resolves.toBeUndefined()
       expect(existsSync(service.root)).toBe(false)
     } finally {
