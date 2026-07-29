@@ -53,7 +53,7 @@
 
 # The session store root is the launcher's policy, not a plugin's: `dsh` shares
 # one store under the Harness home across every cwd, so `/resume` and
-# `dsh ps` span workspaces. Without a launcher the project-local fallback keeps
+# `/resume` spans workspaces. Without a launcher the project-local fallback keeps
 # an embedder's sessions beside its project.
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'

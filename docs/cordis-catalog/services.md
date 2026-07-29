@@ -1464,44 +1464,6 @@ Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-s
 
 Source: [`packages/context/session-reference/src/index.ts:70`](../../packages/context/session-reference/src/index.ts)
 
-## `ctx.sessionRegistry` — `SessionRegistry` (abstract seam)
-
-Cross-process live-session registry. Reads prune dead records, so every returned record's process existed at observation time. Backends serialize mutations against concurrent registrars — other processes and overlapping calls in this one — so records are never lost to a torn read-modify-write.
-
-```ts cordis-catalog
-/**
- * Publish this process's record, replacing any stale record for the same
- * session id, and prune records whose process is gone.
- * @param registration - the session, surface, and workspace to publish.
- * @returns the effect disposer that removes this record again; awaiting it
- * waits for the removal to reach durability.
- */
-abstract register(registration: SessionRegistration): Promise<() => Promise<void>>
-
-/**
- * Replace the recorded title of a session this process registered.
- *
- * Titles arrive after registration and can be revised, so this is the one
- * mutable field. Only a record matching this process and incarnation is
- * touched, leaving a same-id record owned by another process alone. An unknown
- * session id is a no-op rather than an error: a title can resolve after the
- * session's record has already been removed.
- * @param sessionId - the session whose recorded title changes.
- * @param title - the new title text.
- */
-abstract retitle(sessionId: SessionId, title: string): Promise<void>
-
-/**
- * List live sessions, pruning records whose process no longer exists.
- * @returns one record per live registered session, newest registration last.
- */
-abstract list(): Promise<SessionRegistryRecord[]>
-```
-
-Types: [SessionId](../core-data-structures/core.md)
-
-Source: [`packages/session-registry/session-registry/src/index.ts:44`](../../packages/session-registry/session-registry/src/index.ts)
-
 ## `ctx.sessions` — `SessionStore`
 
 In-memory session store (`ctx.sessions`).

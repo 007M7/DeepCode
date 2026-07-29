@@ -229,8 +229,6 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   DirectoryPickerCapability: 'picker interaction contract is owned by packages/host/directory-picker/README.md',
   CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
   Domain: 'domain interface is owned by packages/storage/storage-domain/README.md',
-  SessionRegistration: 'registry publication input is owned by packages/session-registry/session-registry/README.md',
-  SessionRegistryRecord: 'live-session record vocabulary is owned by packages/session-registry/session-registry/README.md',
   DomainChanged: 'event-local snapshot is owned by packages/storage/storage-domain/src/events.ts',
   DomainFacility: 'domain form facility is owned by packages/storage/storage-domain/README.md',
   DomainImpl: 'domain implementation contract is owned by packages/storage/storage-domain/README.md',

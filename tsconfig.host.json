@@ -181,9 +181,6 @@
     { "path": "./packages/lsp/lsp" },
     { "path": "./packages/lsp/lsp-local" },
     { "path": "./packages/lsp/tool-lsp" },
-    { "path": "./packages/session-registry/session-registry" },
-    { "path": "./packages/session-registry/session-registry-file" },
-    { "path": "./packages/session-registry/session-registry-live" },
     { "path": "./apps/cli" }
   ]
 }

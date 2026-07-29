@@ -43,7 +43,6 @@ The shared base states that precedence in the row itself: `apps/cli/base.cordis.
 ## Consequences
 
 - Sessions already stored under a project-local `./.sessions` disappear from `/resume`. This is the accepted cost of no migration.
-- One shared root makes the pre-existing absence of a cross-process session lock reachable in one step: colliding used to require two terminals in the same directory, and is now one Tab away. `record.live` comes from the in-process `SessionQueryService`, so preflight rejects only sessions live in *this* runtime, while the JSONL backend takes no lock and two processes appending one log with independent `seq` counters would interleave. Closing this is no longer speculative hardening: `SessionRegistry.list()` already publishes live sessions cross-process under the same Harness home for `dsh list-sessions`, so consulting it in `summarizeResumeCandidate` is a small follow-up. It stays out of this change as pre-existing scope.
 - A resumed session can change the process's working directory, so a foreign resume is not a pure transcript restoration — every path-resolving tool moves with it.
 - The Harness home now holds session logs for every project on the machine. Its growth is no longer bounded by one checkout, and no retention policy is introduced here.
 

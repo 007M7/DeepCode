@@ -1153,26 +1153,6 @@ export interface Config {
 
 Source: [`packages/context/session-reference/src/config.ts:11`](../packages/context/session-reference/src/config.ts)
 
-## `@deepseek-ai/dsh-session-registry-file`
-
-```ts config-catalog
-/**
- * Plugin config as callers write it: `root` is required — a cwd fallback would
- * scatter registries — while the lock tunables are optional because
- * `static Config` supplies their defaults.
- */
-export interface Config {
-  /** Directory holding the registry file; created `0o700` on demand. */
-  root: string
-  /** Milliseconds after which a held lock is considered abandoned and reclaimed. */
-  lockStaleMs?: number
-  /** Retries before a contended acquisition fails loud. */
-  lockRetries?: number
-}
-```
-
-Source: [`packages/session-registry/session-registry-file/src/index.ts:43`](../packages/session-registry/session-registry-file/src/index.ts)
-
 ## `@deepseek-ai/dsh-session-telemetry-otel`
 
 Requires: `sessions`
@@ -2194,7 +2174,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session-projection/session-projection/src/index.ts`](../packages/session-projection/session-projection/src/index.ts))
-- `@deepseek-ai/dsh-session-registry-live` — requires `sessions` · `sessionRegistry` ([`packages/session-registry/session-registry-live/src/index.ts`](../packages/session-registry/session-registry-live/src/index.ts))
 - `@deepseek-ai/dsh-storage` ([`packages/storage/storage/src/index.ts`](../packages/storage/storage/src/index.ts))
 - `@deepseek-ai/dsh-subagent` ([`packages/subagent/subagent/src/index.ts`](../packages/subagent/subagent/src/index.ts))
 - `@deepseek-ai/dsh-subprocess-local` ([`packages/subprocess/subprocess-local/src/index.ts`](../packages/subprocess/subprocess-local/src/index.ts))
@@ -2217,7 +2196,6 @@ Abstract service classes — a deployment loads a concrete implementation packag
 - `@deepseek-ai/dsh-sandbox` — abstract `SandboxProvider` ([`packages/sandbox/sandbox/src/index.ts`](../packages/sandbox/sandbox/src/index.ts))
 - `@deepseek-ai/dsh-session-persistence` — abstract `SessionPersistence` ([`packages/session-persistence/session-persistence/src/index.ts`](../packages/session-persistence/session-persistence/src/index.ts))
 - `@deepseek-ai/dsh-session-query` — abstract `SessionQueryService` ([`packages/session-query/session-query/src/index.ts`](../packages/session-query/session-query/src/index.ts))
-- `@deepseek-ai/dsh-session-registry` — abstract `SessionRegistry` ([`packages/session-registry/session-registry/src/index.ts`](../packages/session-registry/session-registry/src/index.ts))
 - `@deepseek-ai/dsh-spill` — abstract `SpillStore` ([`packages/spill/spill/src/index.ts`](../packages/spill/spill/src/index.ts))
 - `@deepseek-ai/dsh-subprocess` — abstract `SubprocessService` ([`packages/subprocess/subprocess/src/index.ts`](../packages/subprocess/subprocess/src/index.ts))
 - `@deepseek-ai/dsh-tasks` — abstract `TaskService` ([`packages/tasks/tasks/src/index.ts`](../packages/tasks/tasks/src/index.ts))

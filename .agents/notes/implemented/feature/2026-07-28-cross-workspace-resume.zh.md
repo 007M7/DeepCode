@@ -43,7 +43,6 @@ dsh 启动器通过启动槽位提供其 Harness home 下的同一个会话根�
 ## Consequences
 
 - 已经存放在项目本地 `./.sessions` 下的会话会从 `/resume` 中消失。这是不做迁移所接受的代价。
-- 同一个共享根目录让原本就缺失的跨进程会话锁一步之内即可触达：过去要造成冲突需要在同一个目录里开两个终端，如今只差一次 Tab。`record.live` 来自进程内的 `SessionQueryService`，因此预检只会拒绝在*本*运行时中处于活跃状态的会话，而 JSONL 后端不加任何锁，两个进程用各自独立的 `seq` 计数器追加同一份日志会互相交错。解决这一点已不再是投机性加固：`SessionRegistry.list()` 已经为 `dsh list-sessions` 在同一个 Harness home 下跨进程发布活跃会话，因此在 `summarizeResumeCandidate` 中查询它是一项小的后续工作。它作为既有范围之外的问题不纳入本次改动。
 - 恢复一个会话可以改变进程的工作目录，因此恢复外部会话不是单纯的 transcript 还原——每个解析路径的工具都会随之移动。
 - Harness home 现在保存着这台机器上每个项目的会话日志。它的增长不再受单个 checkout 约束，而本记录也没有引入任何保留策略。
 
