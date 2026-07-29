@@ -555,8 +555,15 @@ describe('plugin registration and config', () => {
       baseURL: server.url,
     })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
+    expect(ctx.llm.listConfigurableProviders()).toEqual([{
+      provider: 'deepseek-official',
+      displayName: 'DeepSeek',
+      settingsNs: 'llm-deepseek',
+      settingsPath: [],
+    }])
     await fiber.dispose()
     expect(ctx.llm.listProviders()).toEqual([])
+    expect(ctx.llm.listConfigurableProviders()).toEqual([])
   })
 
   it('registers retryPolicy from the provider config', async () => {
