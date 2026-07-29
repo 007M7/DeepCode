@@ -176,6 +176,36 @@ describe('approval pending registry', () => {
     abort.abort()
   })
 
+  it('an ask whose signal aborted before dispatch settles cancelled without publishing', async () => {
+    // The service checks the signal, then dispatch rides a microtask: an
+    // abort in that window must not register a dead listener and strand the
+    // entry (zombie frame on every replay). Drive the waterfall directly
+    // with a pre-aborted signal to hit the answerer's register-path guard.
+    const { ctx, api } = await harness()
+    const abort = new AbortController()
+    const mux = openMux(api, abort)
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('approval/asked', { id: 'pre-aborted' as ApprovalRequestId, toolName: 'bash' })
+    const agent = { session } as unknown as Agent
+    const cancelled = new AbortController()
+    cancelled.abort()
+    const outcome = await ctx.waterfall(
+      'approval/request',
+      { agent, toolName: 'bash', signal: cancelled.signal },
+      () => Promise.resolve('unavailable' as const),
+    )
+    expect(outcome).toBe('cancelled')
+    // Nothing was published: a fresh mux open replays no approval frame.
+    const abort2 = new AbortController()
+    const mux2 = openMux(api, abort2)
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(mux2.envelopes.some(e => e.payload.type === 'approval/requested')).toBe(false)
+    abort2.abort()
+    abort.abort()
+    void mux
+  })
+
   it('gateway teardown settles pending approvals as cancelled (question-provider parity)', async () => {
     // Mount the proxy on its own fiber so disposal exercises the teardown
     // effect while an ask is still pending.

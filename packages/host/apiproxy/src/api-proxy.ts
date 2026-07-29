@@ -617,6 +617,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       for (const pending of [...pendingApprovals.values()]) pending.resolve('cancelled')
     }, 'api-proxy: approval registry teardown')
     ctx.on('approval/request', (req, next) => {
+      // Dispatch rides a microtask behind the service's own signal check: an
+      // abort landing in that window would register the abort listener AFTER
+      // the signal fired — never invoked, entry pending forever, zombie frame
+      // on every mux replay. Settle synchronously instead of publishing.
+      if (req.signal?.aborted === true) return Promise.resolve<ApprovalOutcome>('cancelled')
       // The audit pair `approval/asked` is already appended by the service
       // before dispatch, but dispatch rides a microtask: parallel tool calls
       // can append several asked events before any answerer runs. THIS
@@ -634,7 +639,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           decided.add(event.data.id)
         } else if (event.type === 'approval/asked') {
           if (decided.has(event.data.id) || claimed.has(event.data.id)) continue
-          if (req.callId !== undefined && event.data.callId !== req.callId) continue
+          // Symmetric pairing: a callId-bearing ask only takes its own call's
+          // record, and a callId-less ask only takes a callId-less record —
+          // so neither shape can steal the other's audit id under parallel
+          // asks. (Today every producer — the tool executor — passes callId;
+          // the callId-less arm guards any future non-tool asker.)
+          if ((req.callId ?? null) !== (event.data.callId ?? null)) continue
           approvalId = event.data.id
           break
         }
