@@ -82,11 +82,11 @@ const SCENARIOS: SdkScenario[] = [
   },
   {
     name: 'persistent-tools',
-    prompt: 'Prove that bash state persists, then create and edit the exact file {{cwd}}/note.txt.',
+    prompt: 'Prove that bash state persists. Then create {{cwd}}/note.txt with a tab-indented line, view it, and replace that literal tab-indented line.',
     sessionId: 'persistent-tools-snapshot',
     children: 0,
     configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },
-    expectedFiles: { 'note.txt': 'beta\n' },
+    expectedFiles: { 'note.txt': 'target:\n\tnew\n' },
     expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
   },
 ]

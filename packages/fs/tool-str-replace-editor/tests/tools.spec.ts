@@ -470,11 +470,13 @@ describe('tool-str-replace-editor', () => {
     const { ctx, root, owner } = await setup()
     const path = join(root, 'Makefile')
     await writeFile(path, 'target:\n\told\nremove\n')
+    expect(text(await call(ctx, owner, { command: 'view', path })))
+      .toContain('     2  \told')
     await call(ctx, owner, {
       command: 'str_replace',
       path,
-      old_str: 'old',
-      new_str: 'new',
+      old_str: '\told',
+      new_str: '\tnew',
     })
     await call(ctx, owner, {
       command: 'str_replace',

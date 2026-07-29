@@ -35,23 +35,6 @@ function maybeTruncate(content: string, maxOutputChars: number): string {
     : content.slice(0, maxOutputChars) + TRUNCATED_MESSAGE
 }
 
-function expandTabs(content: string, tabSize = 8): string {
-  let column = 0
-  let result = ''
-  for (const character of content) {
-    if (character === '\t') {
-      const spaces = tabSize - (column % tabSize)
-      result += ' '.repeat(spaces)
-      column += spaces
-      continue
-    }
-    result += character
-    if (character === '\n' || character === '\r') column = 0
-    else column += 1
-  }
-  return result
-}
-
 function codepointCompare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
@@ -192,9 +175,9 @@ function formatFileView(
       : allLines.slice(initialLine - 1, finalLine)
     prompt += ` with view_range=[${initialLine}, ${finalLine}]`
   }
-  const numbered = expandTabs(lines
-    .map((line, index) => `${String(initialLine + index).padStart(6, ' ')}\t${line}`)
-    .join('\n'))
+  const numbered = lines
+    .map((line, index) => `${String(initialLine + index).padStart(6, ' ')}  ${line}`)
+    .join('\n')
   return maybeTruncate(`${prompt}:\n${numbered}\n`, maxOutputChars)
 }
 
