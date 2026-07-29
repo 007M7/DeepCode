@@ -104,7 +104,7 @@
       "@deepseek-ai/dsh-host-*/invariant": ["./packages/host/*/src/invariant.ts"],
       "@deepseek-ai/dsh-client-*/invariant": ["./packages/client/*/src/invariant.ts"],
       "@deepseek-ai/dsh-client-*/client": ["./packages/client/*/src/client"],
-      // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
+       // One wildcard maps every @deepseek-ai/dsh-<name> to its source. Package
       // dir names are unique across groups, so first-on-disk-wins resolution is
       // unambiguous; adding a package under an existing group needs no edit
       // here. The aggregates' project references (tsconfig.host.json /
@@ -135,6 +135,8 @@
       "@deepseek-ai/dsh-client-ui-slash": ["./packages/client/ui-slash/src"],
       "@deepseek-ai/dsh-client-ui-command": ["./packages/client/ui-command/src"],
       "@deepseek-ai/dsh-client-ui-model": ["./packages/client/ui-model/src"],
+      "@deepseek-ai/dsh-client-ui-goal": ["./packages/client/ui-goal/src"],
+      "@deepseek-ai/dsh-client-ui-permission": ["./packages/client/ui-permission/src"],
       "@deepseek-ai/dsh-client-ui-skill": ["./packages/client/ui-skill/src"],
       "@deepseek-ai/dsh-client-ui-subagent": ["./packages/client/ui-subagent/src"],
       "@deepseek-ai/dsh-client-ui-plan": ["./packages/client/ui-plan/src"],
