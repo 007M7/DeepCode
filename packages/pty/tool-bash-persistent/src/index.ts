@@ -1,0 +1,380 @@
+/**
+ * Model-facing persistent `bash` tool over the owner-scoped PTY seam.
+ * @module @deepseek-ai/dsh-tool-bash-persistent
+ */
+
+import { randomUUID } from 'node:crypto'
+import type { Context } from 'cordis'
+import z from 'schemastery'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { PtyReadResult, PtySendResult, PtySessionId } from '@deepseek-ai/dsh-pty'
+import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+
+const TRUNCATED_MESSAGE = '<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of what you are looking for.</NOTE>'
+const LOST_PREFIX_MESSAGE = '<response clipped><NOTE>The beginning of this command output was dropped by the terminal scrollback limit. The following text is the earliest retained output.</NOTE>\n'
+const SHELL_RESET_MESSAGE = 'The persistent bash shell was reset; the next bash call starts from the workspace with a fresh current directory and environment.'
+const SHELL_PROMPT = '__DSH_PERSISTENT_BASH_PROMPT__ '
+const TIMEOUT_CODE = 'PERSISTENT_BASH_TIMEOUT'
+const SCROLLBACK_PAGE_LINES = 1_000
+
+const DEFAULT_DESCRIPTION = 'Run commands in a persistent bash shell. State, including the current directory and exported environment variables, persists across calls for this agent.'
+
+interface ResolvedConfig {
+  backendType: string
+  timeoutMs: number
+  maxOutputChars: number
+  description: string
+}
+
+interface CommandMarkers {
+  start: string
+  end: string
+}
+
+interface RetainedOutput {
+  text: string
+  truncated: boolean
+}
+
+interface CapturedOutput {
+  text: string
+  incomplete: boolean
+}
+
+interface PersistentShells {
+  get(owner: Agent, signal: AbortSignal): Promise<PtySessionId>
+  reset(owner: Agent, reason: string): Promise<void>
+}
+
+function maybeTruncate(content: string, maxOutputChars: number, incomplete = false): string {
+  if (content.length <= maxOutputChars && !incomplete) return content
+  return content.length <= maxOutputChars
+    ? content + TRUNCATED_MESSAGE
+    : content.slice(0, maxOutputChars) + TRUNCATED_MESSAGE
+}
+
+function markers(): CommandMarkers {
+  const nonce = randomUUID()
+  return {
+    start: `__DSH_PERSISTENT_BASH_START_${nonce}__`,
+    end: `__DSH_PERSISTENT_BASH_END_${nonce}:`,
+  }
+}
+
+function quoteForBash(value: string): string {
+  return `$'${value
+    .replaceAll('\\', '\\\\')
+    .replaceAll("'", "\\'")
+    .replaceAll('\r', '\\r')
+    .replaceAll('\n', '\\n')}'`
+}
+
+function wrapCommand(command: string, marker: CommandMarkers): string {
+  // Keep the wrapper on one physical line. An interactive bash prints PS2 for
+  // embedded newlines before executing the buffer, which would leak terminal
+  // prompts and marker source text into the model-facing result.
+  return `printf '%s\\n' ${quoteForBash(marker.start)}; eval -- ${quoteForBash(command)}; __dsh_persistent_bash_status=$?; printf '%s%s\\n' ${quoteForBash(marker.end)} "$__dsh_persistent_bash_status"`
+}
+
+function stripPrompt(text: string): string {
+  let result = text
+  while (result.endsWith(`${SHELL_PROMPT}\r\n`) || result.endsWith(`${SHELL_PROMPT}\n`)) {
+    result = result.slice(0, result.endsWith('\r\n')
+      ? -SHELL_PROMPT.length - 2
+      : -SHELL_PROMPT.length - 1)
+  }
+  while (result.endsWith(SHELL_PROMPT)) {
+    result = result.slice(0, -SHELL_PROMPT.length)
+  }
+  return result.endsWith('\n') ? result.slice(0, -1) : result
+}
+
+function commandOutput(
+  snapshot: RetainedOutput,
+  marker: CommandMarkers,
+): CapturedOutput | undefined {
+  const text = snapshot.text
+  const end = text.lastIndexOf(marker.end)
+  if (end < 0) return undefined
+  const startMarker = text.lastIndexOf(marker.start, end)
+  const start = startMarker < 0 ? 0 : startMarker + marker.start.length
+  return {
+    text: stripPrompt(text.slice(start, end).replace(/^\r?\n/, '')),
+    incomplete: startMarker < 0 || snapshot.truncated,
+  }
+}
+
+function promptCompleted(result: PtySendResult): boolean {
+  return result.viewport.endsWith(SHELL_PROMPT)
+    || result.viewport.endsWith(`${SHELL_PROMPT}\r\n`)
+    || result.viewport.endsWith(`${SHELL_PROMPT}\n`)
+}
+
+function partialOutput(
+  snapshot: RetainedOutput,
+  marker: CommandMarkers,
+  fallback: string,
+): CapturedOutput {
+  const startMarker = snapshot.text.lastIndexOf(marker.start)
+  if (startMarker >= 0) {
+    return {
+      text: stripPrompt(snapshot.text.slice(startMarker + marker.start.length).replace(/^\r?\n/, '')),
+      incomplete: snapshot.truncated,
+    }
+  }
+  return {
+    text: stripPrompt(fallback),
+    incomplete: snapshot.truncated,
+  }
+}
+
+async function pause(): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, 25))
+}
+
+function nextScrollbackOffset(page: PtyReadResult, offset: number): number | undefined {
+  if (page.text.length === 0 || page.lineEnd <= offset) return undefined
+  return page.lineEnd
+}
+
+function retainedScrollback(
+  ctx: Context,
+  owner: Agent,
+  id: PtySessionId,
+): RetainedOutput {
+  const pages: string[] = []
+  let offset = 0
+  let truncated = false
+  while (true) {
+    const page = ctx.pty.read(owner, id, { offset, count: SCROLLBACK_PAGE_LINES })
+    truncated ||= page.truncated
+    if (page.text.length > 0) pages.unshift(page.text)
+    const next = nextScrollbackOffset(page, offset)
+    if (next === undefined || next >= page.totalLines) break
+    offset = next
+  }
+  return { text: pages.join('\n'), truncated }
+}
+
+function renderCaptured(output: CapturedOutput, maxOutputChars: number): string {
+  const rendered = maybeTruncate(output.text, maxOutputChars, output.incomplete)
+  return output.incomplete && output.text.length > 0
+    ? LOST_PREFIX_MESSAGE + rendered
+    : rendered
+}
+
+function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShells {
+  const pending = new WeakMap<Agent, Promise<PtySessionId>>()
+  const live = new Map<Agent, PtySessionId>()
+  const ownerCleanupInstalled = new WeakSet<Agent>()
+
+  const close = async (owner: Agent, id: PtySessionId, reason: string): Promise<void> => {
+    if (!ctx.pty.list(owner).some(snapshot => snapshot.sessionId === id)) return
+    await ctx.pty.kill(owner, id, reason)
+  }
+
+  ctx.effect(() => async () => {
+    const closing = [...live].map(async ([owner, id]) => { await close(owner, id, 'tool-bash-persistent disposed') })
+    await Promise.all(closing)
+    live.clear()
+  }, 'tool-bash-persistent shell cleanup')
+
+  const reset = async (owner: Agent, reason: string): Promise<void> => {
+    pending.delete(owner)
+    const id = live.get(owner)
+    live.delete(owner)
+    if (id !== undefined) await close(owner, id, reason)
+  }
+
+  const get = (owner: Agent, signal: AbortSignal): Promise<PtySessionId> => {
+    const existing = pending.get(owner)
+    if (existing !== undefined) return existing
+    const creating = (async () => {
+      try {
+        const cwd = owner.session.header.cwd
+        const spawned = await ctx.pty.spawn(owner, {
+          type: config.backendType,
+          ...cwd === undefined ? {} : { cwd },
+        }, signal)
+        live.set(owner, spawned.sessionId)
+        if (!ownerCleanupInstalled.has(owner)) {
+          ownerCleanupInstalled.add(owner)
+          owner.ctx.effect(() => () => {
+            pending.delete(owner)
+            live.delete(owner)
+          }, 'tool-bash-persistent owner cache cleanup')
+        }
+        const setup = ctx.pty.startSend(owner, spawned.sessionId, {
+          text: `stty -echo; PS1=${quoteForBash(SHELL_PROMPT)}`,
+          submit: true,
+          signal,
+        })
+        const result = await setup.done
+        if (result.sessionStatus.kind === 'exited' || result.waitReason === 'timeout') {
+          throw new Error('persistent bash shell did not accept initialization')
+        }
+        return spawned.sessionId
+      } catch (error: unknown) {
+        await reset(owner, 'persistent bash initialization failed')
+        throw error
+      }
+    })()
+    pending.set(owner, creating)
+    return creating
+  }
+
+  return { get, reset }
+}
+
+async function executeCommand(
+  ctx: Context,
+  shells: PersistentShells,
+  owner: Agent,
+  command: string,
+  config: ResolvedConfig,
+  upstream: AbortSignal,
+): Promise<string> {
+  using commandDeadline = deadline(upstream, config.timeoutMs, TIMEOUT_CODE)
+  const id = await shells.get(owner, commandDeadline.signal)
+  const marker = markers()
+  const wrapped = wrapCommand(command, marker)
+  let first = true
+  let fallback = ''
+
+  while (true) {
+    const operation = ctx.pty.startSend(owner, id, {
+      text: first ? wrapped : '',
+      submit: first,
+      signal: commandDeadline.signal,
+    })
+    first = false
+    const result = await operation.done
+    fallback += result.viewport
+    const snapshot = retainedScrollback(ctx, owner, id)
+    const timedOut = timeoutOf(commandDeadline.signal, TIMEOUT_CODE)
+    if (timedOut !== undefined) {
+      const partial = renderCaptured(
+        partialOutput(snapshot, marker, fallback),
+        config.maxOutputChars,
+      )
+      await shells.reset(owner, 'persistent bash command timed out')
+      return [
+        `Your command timed out after ${Math.round(timedOut.timeoutMs / 1000)} seconds or experienced an OOM error. Below is partial output:`,
+        partial,
+        SHELL_RESET_MESSAGE,
+      ].join('\n')
+    }
+    const complete = commandOutput(snapshot, marker)
+    if (complete !== undefined) return renderCaptured(complete, config.maxOutputChars)
+    if (result.sessionStatus.kind === 'exited') {
+      await shells.reset(owner, 'persistent bash shell exited')
+      return [
+        renderCaptured(partialOutput(snapshot, marker, fallback), config.maxOutputChars),
+        SHELL_RESET_MESSAGE,
+      ].filter(part => part.length > 0).join('\n')
+    }
+    if (commandDeadline.signal.aborted) {
+      await shells.reset(owner, 'persistent bash command aborted')
+      commandDeadline.signal.throwIfAborted()
+    }
+    if (promptCompleted(result)) {
+      return maybeTruncate(stripPrompt(fallback), config.maxOutputChars, result.truncated)
+    }
+    await pause()
+  }
+}
+
+/**
+ * Register the model-facing persistent `bash` tool.
+ * @param ctx - plugin context carrying tools and the owner-scoped PTY service.
+ * @param config - selected PTY backend and command deadline.
+ */
+function registerPersistentBash(ctx: Context, config: ResolvedConfig): void {
+  const shells = persistentShells(ctx, config)
+  const queues = new WeakMap<Agent, Promise<void>>()
+
+  const serialized = async <T>(owner: Agent, operation: () => Promise<T>): Promise<T> => {
+    const prior = queues.get(owner) ?? Promise.resolve()
+    const run = prior.then(operation, operation)
+    const tail = run.then(() => undefined, () => undefined)
+    queues.set(owner, tail)
+    try {
+      return await run
+    } finally {
+      if (queues.get(owner) === tail) queues.delete(owner)
+    }
+  }
+
+  ctx.tools.register(defineTool({
+    name: 'bash',
+    description: config.description,
+    parameters: {
+      command: {
+        type: 'string',
+        required: true,
+        description: 'The bash command to run. Relative path is preferred in the command.',
+      },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: value }],
+    },
+    async execute(args, exec) {
+      if (args.command.trim().length === 0) throw new Error('command must be a non-empty string')
+      const owner = exec.agent
+      if (owner === undefined) throw new Error('bash requires an owning agent session')
+      return serialized(owner, async () => {
+        exec.signal.throwIfAborted()
+        return executeCommand(ctx, shells, owner, args.command, config, exec.signal)
+      })
+    },
+    presentCall: args => ({ card: 'terminal', title: args.command }),
+  }))
+}
+
+export const name = 'tool-bash-persistent'
+export const inject = ['tools', 'pty']
+
+/** Configuration for the persistent Bash tool. */
+export interface Config {
+  /** PTY backend used for each owner-isolated persistent shell (default `shell`). */
+  backendType?: string
+  /** Wall-clock limit for one command (default 300000). */
+  timeoutMs?: number
+  /** Maximum returned command-output characters before clipping (default 16000). */
+  maxOutputChars?: number
+  /** Model-facing tool description; deployments may describe their environment. */
+  description?: string
+}
+
+/** Runtime configuration schema for the persistent Bash tool. */
+export const Config: z<Config> = z.object({
+  backendType: z.string().default('shell'),
+  timeoutMs: z.number().default(300_000),
+  maxOutputChars: z.number().default(16_000),
+  description: z.string().default(DEFAULT_DESCRIPTION),
+})
+
+/** Register one owner-scoped persistent `bash` tool. */
+export function apply(ctx: Context, config: Config): void {
+  const resolved: ResolvedConfig = {
+    backendType: config.backendType ?? 'shell',
+    timeoutMs: config.timeoutMs ?? 300_000,
+    maxOutputChars: config.maxOutputChars ?? 16_000,
+    description: config.description ?? DEFAULT_DESCRIPTION,
+  }
+  if (resolved.backendType.trim().length === 0) {
+    throw new Error('tool-bash-persistent: backendType must be non-empty')
+  }
+  if (!Number.isSafeInteger(resolved.timeoutMs) || resolved.timeoutMs <= 0) {
+    throw new Error('tool-bash-persistent: timeoutMs must be a positive safe integer')
+  }
+  if (!Number.isSafeInteger(resolved.maxOutputChars) || resolved.maxOutputChars <= 0) {
+    throw new Error('tool-bash-persistent: maxOutputChars must be a positive safe integer')
+  }
+  if (resolved.description.trim().length === 0) {
+    throw new Error('tool-bash-persistent: description must be non-empty')
+  }
+  registerPersistentBash(ctx, resolved)
+}

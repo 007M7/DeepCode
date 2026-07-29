@@ -25,6 +25,14 @@ CODE_PROMPT = "Use run_code to compute the packaged worker smoke value."
 CODE_WORKER_TEXT = "code worker smoke ok"
 WORKFLOW_PROMPT = "Use workflow to compute the packaged worker smoke value without agents."
 WORKFLOW_WORKER_TEXT = "workflow worker smoke ok"
+PERSISTENT_TOOLS_PROMPT = "Exercise the packaged persistent Bash and string-replacement editor."
+PERSISTENT_TOOLS_TEXT = "persistent tools smoke ok"
+PERSISTENT_EDITOR_PATH: str | None = None
+PERSISTENT_BASH_COMMAND = (
+    "counter=$(( ${counter:-0} + 1 )); export counter; "
+    "printf 'COUNT=%s CWD=%s\\n' \"$counter\" \"$PWD\"; "
+    "if [ \"$counter\" -eq 1 ]; then cd /tmp; fi"
+)
 SNAPSHOT_PROMPT = "Run the advanced packaged-runtime snapshot scenario."
 SNAPSHOT_SESSION_ID = "advanced-executable"
 SNAPSHOT_DIRECT_CHILD_PROMPT = "Reply with exactly DIRECT_CHILD_OK and nothing else."
@@ -96,6 +104,49 @@ CUSTOM_CORDIS = """\
 - id: cordis-tool
   name: '@deepseek-ai/dsh-tool-cordis'
 """
+PERSISTENT_TOOLS_CORDIS = """\
+- id: jsonrpc
+  name: '@deepseek-ai/dsh-jsonrpc'
+- id: llm
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: danger-full-access
+    workspaceRoot: !!js process.env.DSH_CWD
+- id: pty
+  name: '@deepseek-ai/dsh-pty'
+- id: pty-local
+  name: '@deepseek-ai/dsh-pty-local'
+- id: fs
+  name: '@deepseek-ai/dsh-fs-local'
+  config:
+    cwd: !!js process.env.DSH_CWD
+- id: agent-core
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    includeHarnessIdentity: false
+    persona: 'You are a helpful software engineer assistant.'
+    workspaceContext: false
+    skills:
+      enabled: false
+    toolBash: false
+    toolTasks: false
+- id: sessions
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SESSION_ROOT
+    compression: 'none'
+- id: persistent-bash
+  name: '@deepseek-ai/dsh-tool-bash-persistent'
+- id: str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+"""
 
 
 class MockModelHandler(BaseHTTPRequestHandler):
@@ -132,6 +183,9 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
     if latest.get("role") == "tool":
         call_id, tool_name = latest_tool_call(messages)
         tool_text = message_text(latest.get("content"))
+        persistent = persistent_tool_followup(body, call_id, tool_name, tool_text)
+        if persistent is not None:
+            return persistent
         advanced = advanced_tool_followup(body, call_id, tool_name, tool_text)
         if advanced is not None:
             return advanced
@@ -144,6 +198,15 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
         raise AssertionError(f"unexpected tool follow-up: {tool_name}")
 
     prompt = message_text(latest.get("content"))
+    if prompt == PERSISTENT_TOOLS_PROMPT:
+        names = advertised_tool_names(body)
+        if names != {"bash", "str_replace_editor"}:
+            raise AssertionError(f"persistent tools smoke advertised unexpected tools: {names}")
+        return tool_call_chunks(
+            "persistent-bash-1",
+            "bash",
+            {"command": PERSISTENT_BASH_COMMAND},
+        )
     if prompt == SNAPSHOT_DIRECT_CHILD_PROMPT:
         return text_chunks("DIRECT_CHILD_OK")
     if prompt == SNAPSHOT_WORKFLOW_CHILD_PROMPT:
@@ -176,6 +239,44 @@ def completion_chunks(body: dict[str, object]) -> list[dict[str, object]]:
             },
         )
     return text_chunks(EXPECTED_TEXT)
+
+
+def persistent_tool_followup(
+    body: dict[str, object],
+    call_id: str,
+    tool_name: str,
+    tool_text: str,
+) -> list[dict[str, object]] | None:
+    """Verify packaged PTY persistence, then invoke the packaged editor."""
+    if not call_id.startswith("persistent-"):
+        return None
+    if call_id == "persistent-bash-1" and tool_name == "bash":
+        if "COUNT=1" not in tool_text:
+            raise AssertionError(f"first persistent bash call lost its output: {tool_text}")
+        return tool_call_chunks(
+            "persistent-bash-2",
+            "bash",
+            {"command": PERSISTENT_BASH_COMMAND},
+        )
+    if call_id == "persistent-bash-2" and tool_name == "bash":
+        if "COUNT=2 CWD=/tmp" not in tool_text:
+            raise AssertionError(f"persistent bash did not retain state: {tool_text}")
+        if PERSISTENT_EDITOR_PATH is None:
+            raise AssertionError("persistent editor smoke path was not initialized")
+        return tool_call_chunks(
+            "persistent-editor",
+            "str_replace_editor",
+            {
+                "command": "create",
+                "path": PERSISTENT_EDITOR_PATH,
+                "file_text": "created by packaged editor\n",
+            },
+        )
+    if call_id == "persistent-editor" and tool_name == "str_replace_editor":
+        if "New file created successfully" not in tool_text:
+            raise AssertionError(f"packaged editor did not create its file: {tool_text}")
+        return text_chunks(PERSISTENT_TOOLS_TEXT)
+    raise AssertionError(f"unexpected persistent-tools follow-up: {call_id} {tool_name}: {tool_text}")
 
 
 def advanced_tool_followup(
@@ -357,14 +458,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("all", "sdk-default", "sdk-custom", "sdk-snapshot", "direct"),
+        choices=("all", "sdk-default", "sdk-custom", "sdk-persistent", "sdk-snapshot", "direct"),
         default="all",
     )
     parser.add_argument("--exe", type=Path)
     parser.add_argument("--update-snapshots", action="store_true")
     args = parser.parse_args()
-    if args.scenario in {"all", "sdk-custom", "sdk-snapshot", "direct"} and args.exe is None:
-        parser.error("--exe is required for custom, snapshot, and direct scenarios")
+    if args.scenario in {"all", "sdk-custom", "sdk-persistent", "sdk-snapshot", "direct"} and args.exe is None:
+        parser.error("--exe is required for custom, persistent, snapshot, and direct scenarios")
     if args.update_snapshots and args.scenario not in {"all", "sdk-snapshot"}:
         parser.error("--update-snapshots requires --scenario sdk-snapshot or all")
     if args.exe is not None and not args.exe.is_file():
@@ -376,6 +477,9 @@ def main() -> None:
         if args.scenario in {"all", "sdk-custom"}:
             assert args.exe is not None
             smoke_sdk_custom(model.url, args.exe.resolve())
+        if args.scenario in {"all", "sdk-persistent"}:
+            assert args.exe is not None
+            smoke_sdk_persistent_tools(model.url, args.exe.resolve())
         if args.scenario in {"all", "sdk-snapshot"}:
             assert args.exe is not None
             smoke_sdk_snapshot(model.url, args.exe.resolve(), args.update_snapshots)
@@ -437,6 +541,41 @@ def smoke_sdk_custom(base_url: str, executable: Path) -> None:
         assert workflow_result.status == "ok", workflow_result
         assert workflow_result.final_response == WORKFLOW_WORKER_TEXT, workflow_result.final_response
         assert_session_log(sessions, root, EXPECTED_TEXT, CODE_WORKER_TEXT, WORKFLOW_WORKER_TEXT)
+
+
+def smoke_sdk_persistent_tools(base_url: str, executable: Path) -> None:
+    """Exercise native PTY state and the editor through the packaged executable."""
+    global PERSISTENT_EDITOR_PATH
+    from deepseek_harness import DeepSeekHarness
+
+    with tempfile.TemporaryDirectory(prefix="dsh-sdk-persistent-tools-") as temporary:
+        root = Path(temporary).resolve()
+        PERSISTENT_EDITOR_PATH = str(root / "created.txt")
+        sessions = root / "sessions"
+        cordis = root / "cordis.yml"
+        cordis.write_text(PERSISTENT_TOOLS_CORDIS)
+        with DeepSeekHarness(
+            provider="deepseek",
+            model="smoke-model",
+            cwd=str(root),
+            session_root=str(sessions),
+            cordis=str(cordis),
+            runtime_bin=str(executable),
+            api_key="sk-keyless-smoke",
+            base_url=base_url,
+            request_timeout_seconds=60,
+        ) as harness:
+            result = harness.run(PERSISTENT_TOOLS_PROMPT, session_id="persistent-tools-smoke")
+
+        assert result.status == "ok", result
+        event_text = json.dumps(result.events)
+        if PERSISTENT_TOOLS_TEXT not in event_text:
+            raise AssertionError(f"packaged tools run emitted no final response: {result.events}")
+        created = root / "created.txt"
+        if created.read_text() != "created by packaged editor\n":
+            raise AssertionError(f"packaged editor wrote unexpected content: {created.read_text()!r}")
+        assert_session_log(sessions, root, PERSISTENT_TOOLS_TEXT, "COUNT=1", "COUNT=2 CWD=/tmp")
+    PERSISTENT_EDITOR_PATH = None
 
 
 def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) -> None:

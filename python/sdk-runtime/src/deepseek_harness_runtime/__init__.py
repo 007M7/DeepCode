@@ -3,9 +3,10 @@
 Two runtime carriers coexist under ``runtime/``, both injected by the repo's
 ``scripts/build-exe-for-python-sdk.ts`` build (neither is checked into git):
 
-- **exe (production)**: single-file executables named
+- **exe (production)**: single-file Node executables named
   ``dsh-jsonrpc-agent-pkg-<platform>-<arch>`` (platform in {linux, macos}, arch in
-  {x64, arm64}); the target machine needs no Node installation.
+  {x64, arm64}) plus a sibling ``-spawn-helper`` used by ``node-pty``; the
+  target machine needs no Node installation.
 - **node (dev-only)**: the full deploy closure under ``runtime/node/``
   (``package.json`` + ``node_modules/``), executed as ``node
   runtime/node/node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js`` on a
@@ -27,6 +28,7 @@ import sys
 from pathlib import Path
 
 PACKAGE_METADATA_FILENAME = "deepseek-harness-runtime.json"
+SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 RUNTIME_MODE_ENV_VAR = "DSH_RUNTIME_MODE"
 
@@ -80,6 +82,12 @@ def bundled_runtime_path() -> Path:
     if not path.is_file():
         raise FileNotFoundError(
             f"deepseek-harness-runtime-bin is missing the runtime executable at {path}. "
+            + _EXE_ACQUISITION_HINT
+        )
+    helper = Path(f"{path}{SPAWN_HELPER_SUFFIX}")
+    if not helper.is_file():
+        raise FileNotFoundError(
+            f"deepseek-harness-runtime-bin is missing the node-pty spawn helper at {helper}. "
             + _EXE_ACQUISITION_HINT
         )
     return path
@@ -144,6 +152,7 @@ def _node_launch_args() -> tuple[str, str]:
 __all__ = [
     "PACKAGE_METADATA_FILENAME",
     "RUNTIME_MODE_ENV_VAR",
+    "SPAWN_HELPER_SUFFIX",
     "bundled_default_config_path",
     "bundled_package_dir",
     "bundled_runtime_path",

@@ -33,9 +33,11 @@ import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import LocalTaskService from '@deepseek-ai/dsh-tasks-local'
 import * as ToolAskUser from '@deepseek-ai/dsh-tool-ask-user'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolBashPersistent from '@deepseek-ai/dsh-tool-bash-persistent'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import PtyService from '@deepseek-ai/dsh-pty'
 import * as ToolPty from '@deepseek-ai/dsh-tool-pty'
 import * as ToolGoal from '@deepseek-ai/dsh-tool-goal'
@@ -216,6 +218,32 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'Ships in examples/cordis-agent only (a deliberate opt-in — temporary Plugin code reaches the real runtime, see .agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md). Plugins created by cordis_mount may register ADDITIONAL model-visible tools until unmounted or DSH restarts; a full changed request header logs those tool-set changes.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-bash-persistent',
+    dir: 'tool-bash-persistent',
+    source: 'packages/pty/tool-bash-persistent/src/index.ts',
+    requires: ['ctx.tools', 'ctx.pty', 'an owning Agent at execution time'],
+    writes: ['tool/call', 'PTY shell state', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(PtyService)
+      await ctx.plugin(ToolBashPersistent)
+    },
+    note:
+      'One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-str-replace-editor',
+    dir: 'tool-str-replace-editor',
+    source: 'packages/fs/tool-str-replace-editor/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs'],
+    writes: ['tool/call', 'fs/observed after successful file operations', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(ToolStrReplaceEditor)
+    },
+    note:
+      'Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal surface.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs',

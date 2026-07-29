@@ -22,6 +22,7 @@ PLATFORMS = {
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
     "macos-arm64": ("macosx_11_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
 }
+SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 
 def main() -> None:
@@ -136,6 +137,11 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
         raise FileNotFoundError(f"runtime executable does not exist: {executable}")
     if executable.stat().st_mode & stat.S_IXUSR == 0:
         raise PermissionError(f"runtime executable is not executable: {executable}")
+    spawn_helper = Path(f"{executable}{SPAWN_HELPER_SUFFIX}")
+    if not spawn_helper.is_file():
+        raise FileNotFoundError(f"runtime spawn helper does not exist: {spawn_helper}")
+    if spawn_helper.stat().st_mode & stat.S_IXUSR == 0:
+        raise PermissionError(f"runtime spawn helper is not executable: {spawn_helper}")
     copy_package(ROOT / "python" / "sdk-runtime", destination)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
@@ -143,6 +149,9 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
     destination_executable = runtime_dir / executable_name
     shutil.copyfile(executable, destination_executable)
     destination_executable.chmod(executable.stat().st_mode & 0o777)
+    destination_helper = runtime_dir / f"{executable_name}{SPAWN_HELPER_SUFFIX}"
+    shutil.copyfile(spawn_helper, destination_helper)
+    destination_helper.chmod(spawn_helper.stat().st_mode & 0o777)
 
 
 def verify_wheel(
@@ -161,16 +170,24 @@ def verify_wheel(
             raise RuntimeError(f"{wheel} has wrong WHEEL tags: {wheel_metadata.get_all('Tag')}")
         if metadata.get("Version") != version:
             raise RuntimeError(f"{wheel} has version {metadata.get('Version')}, expected {version}")
-        executables = [name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name]
+        runtime_files = [
+            name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name
+        ]
+        helpers = [name for name in runtime_files if name.endswith(SPAWN_HELPER_SUFFIX)]
+        executables = [name for name in runtime_files if not name.endswith(SPAWN_HELPER_SUFFIX)]
         if package == "runtime":
             assert platform is not None
             if len(executables) != 1 or not executables[0].endswith(f"/runtime/{platform[1]}"):
                 raise RuntimeError(f"{wheel} must contain exactly {platform[1]}, found {executables}")
-            mode = archive.getinfo(executables[0]).external_attr >> 16
-            if mode & stat.S_IXUSR == 0:
-                raise RuntimeError(f"{wheel} runtime executable lost its executable bit")
-        elif executables:
-            raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {executables}")
+            expected_helper = f"{platform[1]}{SPAWN_HELPER_SUFFIX}"
+            if len(helpers) != 1 or not helpers[0].endswith(f"/runtime/{expected_helper}"):
+                raise RuntimeError(f"{wheel} must contain exactly {expected_helper}, found {helpers}")
+            for executable in [executables[0], helpers[0]]:
+                mode = archive.getinfo(executable).external_attr >> 16
+                if mode & stat.S_IXUSR == 0:
+                    raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {executable}")
+        elif runtime_files:
+            raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":
             requirements = metadata.get_all("Requires-Dist") or []
             expected_requirement = f"deepseek-harness-runtime-bin=={version}"

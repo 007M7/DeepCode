@@ -8,7 +8,7 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
-import { copyFile, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 
@@ -19,6 +19,7 @@ const DEPLOY_ROOT_PACKAGE = 'dsh-jsonrpc-agent-pkg'
 /** The app entry inside the deployed closure. */
 const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js'
 const OUTPUT_BASENAME = 'dsh-jsonrpc-agent-pkg'
+const SPAWN_HELPER_SUFFIX = '-spawn-helper'
 /** Default Node major; SEA mode requires at least Node 22. */
 const DEFAULT_NODE_RANGE = 'node24'
 /** Pinned for reproducible builds. */
@@ -51,6 +52,11 @@ const PLATFORMS = ['linux', 'macos'] as const
 const ARCHES = ['x64', 'arm64'] as const
 type Platform = (typeof PLATFORMS)[number]
 type Arch = (typeof ARCHES)[number]
+
+interface RuntimeProduct {
+  executable: string
+  spawnHelper: string
+}
 
 function isPlatform(value: string): value is Platform {
   return (PLATFORMS as readonly string[]).includes(value)
@@ -254,6 +260,8 @@ class SingleExeBuild {
       '--config.node-linker=hoisted',
       '--config.auto-install-peers=false',
       '--config.link-workspace-packages=true',
+      // The production closure intentionally omits patched dev-only packages.
+      '--config.allow-unused-patches=true',
       this.staging,
     ])
     if (this.cli.dryRun) {
@@ -287,8 +295,9 @@ class SingleExeBuild {
    * @param target - the pkg target triple to build.
    * @returns the canonical product path `<out>/dsh-jsonrpc-agent-pkg-<platform>-<arch>`.
    */
-  async pack(target: Target): Promise<string> {
+  async pack(target: Target): Promise<RuntimeProduct> {
     const product = join(this.outDir, `${OUTPUT_BASENAME}-${target.platform}-${target.arch}`)
+    const spawnHelper = `${product}${SPAWN_HELPER_SUFFIX}`
     if (!this.cli.dryRun) mkdirSync(this.outDir, { recursive: true })
     await this.run(`pkg ${target.spec}`, pnpmBin(), [
       'dlx',
@@ -303,22 +312,59 @@ class SingleExeBuild {
     if (!this.cli.dryRun && !existsSync(product)) {
       throw new Error(`build-exe-for-python-sdk: product ${product} is missing after the pkg run; inspect ${this.outDir}.`)
     }
-    return product
+    if (this.cli.dryRun) {
+      console.log(`build-exe-for-python-sdk: [dry-run] copy target node-pty spawn-helper to ${spawnHelper}`)
+    } else {
+      const source = this.resolveSpawnHelper(target)
+      await copyFile(source, spawnHelper)
+      await chmod(spawnHelper, statSync(source).mode & 0o777)
+    }
+    return { executable: product, spawnHelper }
+  }
+
+  /**
+   * Resolve the node-pty helper that matches a pkg target.
+   * @param target - the pkg target whose helper must be shipped.
+   * @returns a physical executable outside pkg's virtual snapshot.
+   */
+  private resolveSpawnHelper(target: Target): string {
+    const nodePtyRoot = join(this.staging, 'node_modules', 'node-pty')
+    const nativePlatform = target.platform === 'macos' ? 'darwin' : 'linux'
+    const candidates = [
+      join(nodePtyRoot, 'prebuilds', `${nativePlatform}-${target.arch}`, 'spawn-helper'),
+    ]
+    const hostPlatform = process.platform === 'darwin' ? 'macos' : process.platform
+    const hostArch = process.arch === 'x64' || process.arch === 'arm64' ? process.arch : undefined
+    if (target.platform === hostPlatform && target.arch === hostArch) {
+      candidates.push(join(nodePtyRoot, 'build', 'Release', 'spawn-helper'))
+    }
+    const helper = candidates.find(candidate => existsSync(candidate))
+    if (helper === undefined) {
+      throw new Error(
+        `build-exe-for-python-sdk: node-pty spawn-helper for ${target.platform}-${target.arch} is missing; `
+        + `checked ${candidates.join(', ')}. Build each runtime on its target platform and architecture.`,
+      )
+    }
+    if (statSync(helper).mode & 0o111) return helper
+    throw new Error(`build-exe-for-python-sdk: node-pty spawn-helper is not executable: ${helper}`)
   }
 
   /**
    * Print each product path and, outside dry-run mode, its size.
    * @param products - the product paths returned by {@link pack}.
    */
-  printProducts(products: string[]): void {
+  printProducts(products: RuntimeProduct[]): void {
     console.log(this.cli.dryRun ? 'build-exe-for-python-sdk: [dry-run] would produce:' : 'build-exe-for-python-sdk: products:')
     for (const product of products) {
       if (this.cli.dryRun) {
-        console.log(`  ${product}`)
+        console.log(`  ${product.executable}`)
+        console.log(`  ${product.spawnHelper}`)
         continue
       }
-      const megabytes = statSync(product).size / (1024 * 1024)
-      console.log(`  ${product}  (${megabytes.toFixed(1)} MB)`)
+      for (const path of [product.executable, product.spawnHelper]) {
+        const megabytes = statSync(path).size / (1024 * 1024)
+        console.log(`  ${path}  (${megabytes.toFixed(1)} MB)`)
+      }
     }
   }
 
@@ -327,19 +373,24 @@ class SingleExeBuild {
    * carrier is already in place, and `dist-exe/` retains upload copies.
    * @param products - the product paths returned by {@link pack}.
    */
-  async syncToPythonRuntime(products: string[]): Promise<void> {
+  async syncToPythonRuntime(products: RuntimeProduct[]): Promise<void> {
     const destDir = resolve(root, PYTHON_RUNTIME_DIR)
     if (this.cli.dryRun) {
       for (const product of products) {
-        console.log(`build-exe-for-python-sdk: [dry-run] cp ${product} ${join(destDir, basename(product))}`)
+        for (const path of [product.executable, product.spawnHelper]) {
+          console.log(`build-exe-for-python-sdk: [dry-run] cp ${path} ${join(destDir, basename(path))}`)
+        }
       }
       return
     }
     mkdirSync(destDir, { recursive: true })
     for (const product of products) {
-      const destination = join(destDir, basename(product))
-      await copyFile(product, destination)
-      console.log(`build-exe-for-python-sdk: synced ${destination}`)
+      for (const path of [product.executable, product.spawnHelper]) {
+        const destination = join(destDir, basename(path))
+        await copyFile(path, destination)
+        await chmod(destination, statSync(path).mode & 0o777)
+        console.log(`build-exe-for-python-sdk: synced ${destination}`)
+      }
     }
   }
 
@@ -358,7 +409,12 @@ class SingleExeBuild {
     }
     console.log(`build-exe-for-python-sdk: ${label}: ${printable}`)
     await new Promise<void>((resolvePromise, reject) => {
-      const child = spawn(command, args, { cwd: root, stdio: 'inherit' })
+      const child = spawn(command, args, {
+        cwd: root,
+        stdio: 'inherit',
+        // Artifact builds must not mutate or validate a developer's Git hooks.
+        env: { ...process.env, CI: 'true' },
+      })
       child.once('error', (error) => {
         reject(new Error(`build-exe-for-python-sdk: ${label} failed to spawn: ${error.message} (${printable})`))
       })
@@ -383,7 +439,7 @@ async function main(): Promise<void> {
   await pipeline.build()
   await pipeline.deployStaging()
   await pipeline.injectPkgConfig()
-  const products: string[] = []
+  const products: RuntimeProduct[] = []
   for (const target of cli.targets) products.push(await pipeline.pack(target))
   pipeline.printProducts(products)
   await pipeline.syncToPythonRuntime(products)

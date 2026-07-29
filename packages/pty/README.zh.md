@@ -9,5 +9,6 @@
 | [`pty`](pty/README.md)（`@deepseek-ai/dsh-pty`） | 后端注册表、品牌化 id、精确的 Agent 所有权、会话操作与等待完成的清理 | `ctx.pty` |
 | `pty-local`（`@deepseek-ai/dsh-pty-local`） | 本地 `node-pty` 后端、就绪检测、有界终端状态、沙箱与进程会话监管 | 注册到 `ctx.pty` |
 | `tool-pty`（`@deepseek-ai/dsh-tool-pty`） | 6 个面向模型的工具，并为后台发送集成通用任务 | 注册到 `ctx.tools` |
+| `tool-bash-persistent`（`@deepseek-ai/dsh-tool-bash-persistent`） | 一个由所有者隔离可复用 PTY shell 支撑的模型可见 `bash` | 消费 `ctx.pty`，注册到 `ctx.tools` |
 
 设计与暂缓边界记录在[持久 PTY Agent Note](../../.agents/notes/implemented/feature/2026-07-16-persistent-pty-sessions.md) 中。
