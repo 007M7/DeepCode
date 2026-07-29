@@ -944,20 +944,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         return ok(request, { sessionId: created.sessionId })
       },
       rename: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
         const { sessionId, title } = request.payload
-        const source = summaryOf(sessionId)
-        if (source === undefined) {
-          return err(request, {
-            code: 'session-not-found',
-            message: `no session ${sessionId}`,
-            details: { sessionId },
-          })
-        }
         const normalized = title.trim().replace(/\s+/g, ' ')
         if (normalized.length === 0) {
           return err(request, {
             code: 'title-invalid',
-            message: `rename rejected for session ${sessionId}: empty title`,
+            message: 'session title must contain visible characters',
             details: { sessionId },
           })
         }
@@ -967,8 +961,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           type: 'session/title',
           data: { title: normalized, messageSeqs: [], source: { kind: 'user' } },
         })
-        const log = logOf(sessionId)
-        return ok(request, { title: normalized, seq: log.length - 1 })
+        const appended = logOf(sessionId).at(-1) as SessionEvent
+        return ok(request, { title: normalized, seq: appended.seq })
       },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []

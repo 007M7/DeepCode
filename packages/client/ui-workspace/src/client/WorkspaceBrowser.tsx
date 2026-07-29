@@ -316,13 +316,14 @@ export function WorkspaceBrowser({
 
   // Session rename dialog (same browser-owned pattern as workspace rename;
   // sessions have no client-side name-conflict rule — the host normalizes).
+  // Unlike workspace rename, an unchanged title is NOT blocked: confirming
+  // the current automatic title is the gesture that pins it.
   const [sessionRenameTarget, setSessionRenameTarget] = useState<{ sessionId: SessionNode['id']; currentTitle: string } | null>(null)
   const [sessionRenameDraft, setSessionRenameDraft] = useState('')
   const [sessionRenaming, setSessionRenaming] = useState(false)
   const [sessionRenameError, setSessionRenameError] = useState<string | null>(null)
   const sessionRenameTrimmed = sessionRenameDraft.trim()
-  const sessionRenameBlocked = sessionRenaming || sessionRenameTrimmed === ''
-    || sessionRenameTarget === null || sessionRenameTrimmed === sessionRenameTarget.currentTitle
+  const sessionRenameBlocked = sessionRenaming || sessionRenameTrimmed === '' || sessionRenameTarget === null
   const closeSessionRename = () => {
     if (sessionRenaming) return
     setSessionRenameTarget(null)
