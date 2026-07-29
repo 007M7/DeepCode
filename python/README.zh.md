@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-以子进程方式驱动 DeepSeek Harness 的 Python 包：客户端 SDK spawn `dsh-jsonrpc-agent` 二进制，并通过 stdio 上按行分隔的 JSON-RPC 与之通信。运行时载体是本仓库产出的单文件可执行文件；设计、构建与验收细节见 [.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)。
+以子进程方式驱动 DeepSeek Harness 的 Python 包：客户端 SDK 启动 `dsh-jsonrpc-agent` 二进制，并通过 stdio 上按行分隔的 JSON-RPC 与之通信。运行时载体是本仓库产出的单文件可执行文件；设计、构建与验收细节见 [.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md](../.agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md)。
 
 ## 包
 
 | 目录 | 分发名 / 模块 | 职责 |
 |---|---|---|
-| [sdk](sdk/) | `deepseek-harness` / `deepseek_harness` | 客户端 SDK：高层回合 API `DeepSeekHarness` 与低层 JSON-RPC 客户端 `HarnessClient` |
+| [sdk](sdk/) | `deepseek-harness` / `deepseek_harness` | 客户端 SDK：高层轮次 API `DeepSeekHarness` 与低层 JSON-RPC 客户端 `HarnessClient` |
 | [sdk-runtime](sdk-runtime/) | `deepseek-harness-runtime-bin` / `deepseek_harness_runtime` | 运行时载体：定位内置的运行时二进制，并携带默认的 agent（智能体）配置 |
 
 ## 构建运行时可执行文件
@@ -63,7 +63,7 @@ pip install --find-links dist-python deepseek-harness=="$version"
 
 ## 零配置语义
 
-运行时二进制本身始终要求显式配置（`$DSH_CORDIS_CONFIG`，或作为首个 argv 参数的配置路径），没有内置兜底，也只启动配置里列出的内容。零配置是 SDK 包装层的行为：调用方没有使用任何显式通道时，客户端把运行时包检入的默认配置（[runtime/cordis.yml](sdk-runtime/src/deepseek_harness_runtime/runtime/cordis.yml)）注入 `DSH_CORDIS_CONFIG`；任一显式通道存在即优先采用，并禁用注入。注入条件的完整定义见 [sdk README](sdk/README.md)，默认配置的内容与硬语义见 [sdk-runtime README](sdk-runtime/README.md)。
+运行时二进制本身始终要求显式配置（`$DSH_CORDIS_CONFIG`，或作为首个 argv 参数的配置路径），没有内置兜底，也只启动配置里列出的内容。零配置是 SDK 包装层的行为：调用方没有使用任何显式通道时，客户端把运行时包中检入的默认配置（[runtime/cordis.yml](sdk-runtime/src/deepseek_harness_runtime/runtime/cordis.yml)）注入 `DSH_CORDIS_CONFIG`；任一显式通道存在即优先采用，并禁用注入。注入条件的完整定义见 [sdk README](sdk/README.md)，默认配置的内容与强制语义见 [sdk-runtime README](sdk-runtime/README.md)。
 
 可执行文件也支持直接调用；在 NDJSON JSON-RPC 交互期间保持 stdin 打开，并显式提供配置：
 
@@ -73,4 +73,4 @@ DSH_CORDIS_CONFIG=/absolute/path/cordis.yml ./dsh-jsonrpc-agent-pkg-macos-arm64
 
 ## 测试布局
 
-`test_client.py` 完全无需密钥（对端是 Python 假运行时）。`test_bundled_runtime.py` 逐个启动内置载体，某个载体产物缺失时跳过对应用例。`test_runtime_resolution.py` 覆盖载体解析规则，不 spawn 任何进程。
+`test_client.py` 完全无需密钥（对端是 Python 假运行时）。`test_bundled_runtime.py` 逐个启动内置载体，某个载体产物缺失时跳过对应用例。`test_runtime_resolution.py` 覆盖载体解析规则，不启动任何进程。

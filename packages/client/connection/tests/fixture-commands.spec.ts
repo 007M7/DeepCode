@@ -23,7 +23,7 @@ describe('createFixtureApi commands/skills', () => {
     expect(response.rpcId).toBe(request.rpcId)
     if (!response.result.ok) throw new Error('list failed')
     const commands = response.result.value.commands
-    expect(commands.map(c => c.name)).toEqual(['compact', 'echo', 'goal', 'plan'])
+    expect(commands.map(c => c.name)).toEqual(['compact', 'echo', 'goal', 'permission', 'plan'])
     // input hint rides only the commands declaring it.
     const echo = commands.find(c => c.name === 'echo')
     expect(echo?.input?.hint).toBeTruthy()

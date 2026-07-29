@@ -376,3 +376,62 @@ describe('connected generation', () => {
     })
   })
 })
+
+describe('waiting-approval list bit', () => {
+  it('lights on requested, survives replay duplicates, and clears on resolved — without instantiation', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    // Mux-open replay of the same question (same approvalId) is idempotent.
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    manager.handleMuxEnvelope({ rpcId: 'rx' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'ap1' as never, outcome: 'allowed-once' as never } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+  })
+
+  it('clears only when the last outstanding question resolves; session-removed drops the bit', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
+    manager.handleMuxEnvelope({ rpcId: 'r1' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a1' as never, toolName: 'rm' } })
+    manager.handleMuxEnvelope({ rpcId: 'r2' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a2' as never, toolName: 'rm' } })
+    manager.handleMuxEnvelope({ rpcId: 'rx' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'a1' as never, outcome: 'rejected' as never } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    manager.handleMuxEnvelope({ rpcId: 'ry' as never, payload: { type: 'approval/resolved', sessionId: S1, approvalId: 'a2' as never, outcome: 'rejected' as never } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    // Removed sessions drop their bit outright.
+    manager.handleMuxEnvelope({ rpcId: 'r3' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'a3' as never, toolName: 'rm' } })
+    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-removed', sessionId: S1 } })
+    expect(manager.getListSnapshot().items).toHaveLength(0)
+  })
+
+  it('drops stale bits at generation death — BEFORE the reopen replay re-adds still-pending questions', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+    // Generation death clears (resolved-while-disconnected questions send no frame)…
+    manager.handleDisconnected()
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(false)
+    // …and a replayed frame arriving before onConnected (stream open precedes
+    // the readiness handshake) survives the later handleConnected untouched.
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    manager.handleConnected()
+    expect(manager.getListSnapshot().items[0]?.waitingApproval).toBe(true)
+  })
+
+  it('generation death drops buffered answerable frames (a dead generation cannot be answered)', () => {
+    const manager = new SessionManager(new FakeApiClient())
+    manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', sessionId: S1, blank: false } })
+    // Buffered pre-instantiation: an approval pair and a queued row.
+    manager.handleMuxEnvelope({ rpcId: 'ra' as never, payload: { type: 'approval/requested', sessionId: S1, approvalId: 'ap1' as never, toolName: 'rm' } })
+    manager.handleMuxEnvelope({ rpcId: 'q1' as never, payload: { type: 'question/requested', sessionId: S1, questions: [] } })
+    manager.handleDisconnected()
+    // Instantiate after the death sweep: no zombie interaction replays (the
+    // pendingBuffers held only dead-generation rpcIds), so the session mints
+    // no pending waits.
+    const session = manager.get(S1)
+    expect(session.getSnapshot().pending).toEqual([])
+  })
+})
