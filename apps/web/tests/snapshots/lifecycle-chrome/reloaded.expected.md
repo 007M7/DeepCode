@@ -1,13 +1,19 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Reply with the single word" [disabled]
-    - text: · 1 turns
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Waterfall"
 - text: Reply with the single word LIGHTHOUSE and stop.
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
 - button "Think The user wants me to reply with a single word. Let me comply.":
+  - img
   - img
   - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
@@ -15,10 +21,12 @@
 - textbox "Message the agent"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]

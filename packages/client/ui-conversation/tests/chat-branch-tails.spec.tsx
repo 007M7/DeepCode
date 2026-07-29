@@ -1,18 +1,14 @@
 // @vitest-environment jsdom
 // Remaining chat branch tails: MessageItem context/unknown/steering arms,
-// user IconActions, StatsLine no-cache join, PendingCard reason strip,
+// user IconActions, StatsLine no-cache join,
 // AssistantMarkdown single-line reasoning. (Tool-row dispatch tails live
 // with the keyed-slot machinery specs since the tool ring dissolved into
 // renderSlot.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { MessageItem } from '../src/client/chat/MessageItem.tsx'
-import { PendingCard } from '../src/client/chat/PendingCard.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 
@@ -114,13 +110,6 @@ describe('MessageItem arms', () => {
 })
 
 describe('small branch tails', () => {
-  it('PendingCard approval reason renders when present', () => {
-    const view = render(
-      <PendingCard item={new PendingWait('approval', RpcId('r1'), 's1' as SessionId, { approvalId: 'a1', toolName: 'rm', reason: 'careful' } as PendingWait<'approval'>['payload'], vi.fn())} />,
-    )
-    expect(view.getByText('careful')).toBeTruthy()
-  })
-
   it('AssistantMarkdown single-line reasoning summary skips the newline cut', () => {
     const view = render(
       <AssistantMarkdown blocks={[{ kind: 'reasoning', text: 'one-liner' }]} streaming={false} />,
