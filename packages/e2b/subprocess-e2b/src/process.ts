@@ -84,10 +84,10 @@ type CommandSettlement =
   | { kind: 'result'; result: CommandResult }
   | { kind: 'error'; error: unknown }
 
-function withinMs<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
-  return new Promise<T | undefined>((resolve) => {
+function withinMs(settlement: Promise<CommandSettlement>, timeoutMs: number): Promise<CommandSettlement | undefined> {
+  return new Promise<CommandSettlement | undefined>((resolve) => {
     const timer = setTimeout(() => { resolve(undefined) }, timeoutMs)
-    void promise.then((value) => {
+    void settlement.then((value) => {
       clearTimeout(timer)
       resolve(value)
     })
@@ -563,8 +563,8 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         return { exitCode, signal: null }
       }
       if (completed !== undefined) return this.commandOutcome(completed)
-      // TODO(e2b-status-watch): Replace collect/inherit polling when E2B can
-      // observe direct-command exit independently of descendant-held output.
+      // TODO(e2b-status-watch): Replace collect/inherit control-plane polling
+      // when E2B can observe direct-command exit independently of descendant-held output.
       completed = await Promise.race([settlement, waitTick().then(() => undefined)])
     }
   }
