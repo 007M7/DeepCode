@@ -68,7 +68,12 @@ export class EntryGroup {
     const newMap = Object.fromEntries(config.map(options => [options.id, options]))
 
     try {
-      for (const options of config) await this.create(options)
+      const outcomes = await Promise.allSettled(config.map(options => this.create(options)))
+      const failures = outcomes
+        .filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+        .map(outcome => outcome.reason)
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) throw new AggregateError(failures, 'loader entries failed to apply')
       for (const id of Object.keys(oldMap)) {
         if (!newMap[id]) await this.remove(id, true)
       }

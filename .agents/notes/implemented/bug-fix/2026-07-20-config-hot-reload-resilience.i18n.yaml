@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-20-config-hot-reload-resilience.md
-2026-07-20-config-hot-reload-resilience.md: f3c36f8055179870c19c9d1ce99c3533fe602aa6
-2026-07-20-config-hot-reload-resilience.zh.md: 72ef2ebfa582dcc614198ed094c9b58ea1713460
+2026-07-20-config-hot-reload-resilience.md: 0f15bb0aaacb6e06c416cbe35b44155279497eee
+2026-07-20-config-hot-reload-resilience.zh.md: 8a185c1915b5247150d8bb1dd5c42d69bd4f2a35
