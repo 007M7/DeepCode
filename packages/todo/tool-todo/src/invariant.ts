@@ -12,7 +12,15 @@ export const name = 'tool-todo-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Validate one whole-list todo snapshot before it reaches the durable log. */
+/**
+ * Validate one whole-list todo snapshot before it reaches the durable log.
+ *
+ * Deliberately silent on how many items are `in_progress`. That is the tool's
+ * per-deployment policy (`Config.allowParallelInProgress`), not a durable-shape
+ * rule: a log written while parallel work was allowed must still replay after a
+ * deployment tightens the policy, so tying the invariant to the current config
+ * would reject history that was valid when it was written.
+ */
 function validateTodos(value: unknown, fail: InvariantFailure): void {
   if (!Array.isArray(value)) fail('todo/write todos must be an array')
   const seen = new Set<string>()

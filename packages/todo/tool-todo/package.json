@@ -32,6 +32,7 @@
   ],
   "license": "BSD-3-Clause",
   "dependencies": {
+    "schemastery": "^3.18.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

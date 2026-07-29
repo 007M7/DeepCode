@@ -4727,6 +4727,9 @@ importers:
 
   packages/todo/tool-todo:
     dependencies:
+      schemastery:
+        specifier: ^3.18.0
+        version: 3.18.0
       zod:
         specifier: ^4.4.3
         version: 4.4.3

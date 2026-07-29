@@ -10,11 +10,10 @@ The [original `todo_write` design](2026-06-29-todo-write-tool.md) enforced at mo
 
 ## Decision
 
-Remove the single-`in_progress` cap everywhere it was enforced and let any number of tasks be `in_progress`:
+Make the single-`in_progress` cap a deployment policy instead of a fixed rule, defaulting to allowing several:
 
-- `execute` in `packages/todo/tool-todo/src/index.ts` no longer counts `in_progress` items; the `at most one task may be in_progress` error is gone from the tool's stable failure set.
-- The durable-log invariant in `packages/todo/tool-todo/src/invariant.ts` no longer rejects snapshots with several active items, so previously-persisted logs are unaffected and parallel snapshots replay cleanly.
-- The tool description now instructs the model to mark every actively-worked task `in_progress` — several during parallel work, one for sequential work — and to keep at least one while work remains.
+- `packages/todo/tool-todo/src/index.ts` gains `Config.allowParallelInProgress` (default `true`). At `true`, `execute` accepts any number of active items and the description instructs the model to mark every actively-worked task — several during parallel work, one for sequential work — keeping at least one while work remains. At `false`, the description asks for exactly one and `execute` rejects a call marking more.
+- The durable-log invariant in `packages/todo/tool-todo/src/invariant.ts` no longer rejects snapshots with several active items, and does not follow the config, so previously-persisted logs are unaffected and parallel snapshots replay cleanly under either policy.
 
 The remaining coded invariants are unchanged: non-empty trimmed unique `content`, valid status enum. This supersedes the "at most one active" clause of the [original design's validation decision](2026-06-29-todo-write-tool.md); the rest of that Agent Note (whole-list replace, log-backed state, single owner) stands.
 
@@ -22,10 +21,19 @@ The remaining coded invariants are unchanged: non-empty trimmed unique `content`
 
 A coded invariant can only see the list, not the runtime: whether two `in_progress` items are legitimate depends on whether work is actually running concurrently, which the tool cannot observe. Enforcing a cap was therefore wrong in exactly the cases parallelism made it matter, and any replacement (for example, capping active items at the live subagent count) would couple the tool to runtimes it deliberately knows nothing about. The discipline of matching `in_progress` marks to genuinely concurrent work moves to the tool description, the same place ordering and list freshness already live.
 
+## The policy is a deployment choice
+
+Whether concurrent active tasks are legitimate depends on runtime concurrency the tool cannot observe — but whether a deployment's agents ever run work concurrently is knowable at composition time. That makes the policy a `Config` field rather than a constant: `allowParallelInProgress` (default `true`) is set from cordis.yml, and a deployment whose agents never fan out can restore the single-active discipline.
+
+The flag moves the model-facing instruction and the accepted input together. Splitting them would be the bug: a description asking for one active task while `execute` accepts several teaches the model a rule the tool does not hold, and the reverse rejects calls the description invited. Only the active-status clause of the description varies, because that is the only instruction the policy changes.
+
+The durable-log invariant deliberately does NOT follow the flag. A log written while parallel work was allowed must still replay after a deployment tightens the policy, so tying `invariant.ts` to the current config would reject history that was valid when it was written. The invariant stays silent on the active count; the tool is where the policy applies, at the moment of the write.
+
 ## Alternatives considered
 
 - **Keep the cap and add an explicit parallel opt-in flag** — an extra argument on every call to serve the common case; the flag would be noise for sequential work and still unverifiable.
-- **Cap active items at a configured maximum** — any fixed number is arbitrary, and a deployment-varying tunable for list coherence has no principled value.
+- **Cap active items at a configured maximum** — any fixed number is arbitrary. This is why the config field is a boolean policy switch and not a count: "may several tasks be active" is a property of the deployment, while "at most N" invents a threshold nothing can justify.
+- **Hardcode the parallel policy** — the first revision of this branch did, which is what made `allowParallelInProgress` necessary: a deployment running strictly sequential agents had no way back to the discipline it wanted.
 
 ## The display surfaces are part of the change
 
@@ -39,4 +47,4 @@ Splitting the count into its own span puts it outside the `.summary` rule, so it
 
 ## Consequences
 
-A todo list can now faithfully mirror parallel execution, and every UI renders several active markers at once: the TUI's per-status prefix needed no change, the plan strip's header counts the active items, and the row needed the derivation above. The tool no longer rejects a formerly-invalid snapshot shape, so the change is compatible with every previously valid call; only the error path was removed. The model-facing description changed, which re-recorded the tool-catalog page and every `tool-schemas.expected.json` sidecar carrying the todo schema (seven of the eight in the tree). Scenarios composing an identical header share one sidecar through `toolSchemasSource` rather than each keeping a copy, so the count tracks distinct header compositions, not scenarios; a branch changing the tool description still has to refresh whichever sidecars landed after it branched — `pnpm run test:snapshot:refresh` does it keylessly. The web fixture's todo sample now runs two items `in_progress`, so the assembled web transcript replays a parallel plan and would fail again if either surface returned to single-active derivation.
+A todo list can now faithfully mirror parallel execution, and every UI renders several active markers at once: the TUI's per-status prefix needed no change, the plan strip's header counts the active items, and the row needed the derivation above. Under the default policy the tool no longer rejects a formerly-invalid snapshot shape, so the change is compatible with every previously valid call; a deployment that sets `allowParallelInProgress: false` keeps the old rejection, and the durable-log invariant accepts both. The model-facing description changed, which re-recorded the tool-catalog page and every `tool-schemas.expected.json` sidecar carrying the todo schema (seven of the eight in the tree). Scenarios composing an identical header share one sidecar through `toolSchemasSource` rather than each keeping a copy, so the count tracks distinct header compositions, not scenarios; a branch changing the tool description still has to refresh whichever sidecars landed after it branched — `pnpm run test:snapshot:refresh` does it keylessly. The web fixture's todo sample now runs two items `in_progress`, so the assembled web transcript replays a parallel plan and would fail again if either surface returned to single-active derivation.

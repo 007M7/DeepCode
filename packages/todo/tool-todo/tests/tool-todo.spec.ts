@@ -26,11 +26,11 @@ function agentWithSession(id = 'parent-1'): Agent & { session: Session } {
   return { id: SessionId(id), session } as unknown as Agent & { session: Session }
 }
 
-async function setup(): Promise<Context> {
+async function setup(config: tool.Config = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
-  await ctx.plugin(tool)
+  await ctx.plugin(tool, config)
   return ctx
 }
 
@@ -138,6 +138,62 @@ describe('dsh-tool-todo', () => {
       counts: { pending: 1, inProgress: 2, completed: 0 },
     })
     expect(agent.session.events.findLast(e => e.type === 'todo/write')!.data.todos).toEqual(todos)
+  })
+
+  describe('allowParallelInProgress: false', () => {
+    const parallel = [
+      { content: 'run subagent a', status: 'in_progress' },
+      { content: 'run subagent b', status: 'in_progress' },
+    ]
+
+    it('rejects a call marking several items in_progress', async () => {
+      const ctx = await setup({ allowParallelInProgress: false })
+      const agent = agentWithSession('single-active')
+      const result = await callTodo(ctx, { todos: parallel }, { agent })
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('at most one task may be in_progress')
+      // A rejected call must not reach the durable log.
+      expect(agent.session.events.some(e => e.type === 'todo/write')).toBe(false)
+    })
+
+    it('still accepts one active item', async () => {
+      const ctx = await setup({ allowParallelInProgress: false })
+      const todos: TodoItem[] = [
+        { content: 'run subagent a', status: 'in_progress' },
+        { content: 'run subagent b', status: 'pending' },
+      ]
+      const result = await callTodo(ctx, { todos })
+      expect(result.isError).toBe(false)
+    })
+
+    it('an explicit true accepts a parallel write, like the omitted default', async () => {
+      const ctx = await setup({ allowParallelInProgress: true })
+      const result = await callTodo(ctx, { todos: parallel })
+      expect(result.isError).toBe(false)
+    })
+
+    it('defaults to parallel for a direct apply, which bypasses the schema default', async () => {
+      // Composing through ctx.plugin lets schemastery fill the field; a caller
+      // invoking apply() itself hands over a config object with it absent, so
+      // the policy default has to hold on that path too.
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      tool.apply(ctx, {})
+      const result = await callTodo(ctx, { todos: parallel })
+      expect(result.isError).toBe(false)
+    })
+
+    it('instructs the model to keep at most one active, and the default instructs parallel', async () => {
+      const single = await setup({ allowParallelInProgress: false })
+      const singleDesc = single.tools.schemas().find(s => s.name === 'todo_write')!.description
+      expect(singleDesc).toContain('Keep AT MOST ONE todo `in_progress`')
+      expect(singleDesc).not.toContain('several at once')
+
+      const parallelDesc = (await setup()).tools.schemas().find(s => s.name === 'todo_write')!.description
+      expect(parallelDesc).toContain('several at once when work genuinely runs in parallel')
+      expect(parallelDesc).not.toContain('AT MOST ONE')
+    })
   })
 
   it.each([
