@@ -26,7 +26,7 @@ Shared lifecycle owner for one E2B sandbox. The filesystem and subprocess adapte
 
 Construction starts one sandbox creation. Before resolving `getSandbox()`, the service creates `cwd` and the private `cwd/.dsh-e2b` adapter-state directory, verifies that the reserved path is a real directory rather than a symlink or another file type, then sets it to mode `0700`. Each adapter-internal E2B command shell receives a fresh randomized root-level `HOME`, so the SDK's fixed login shell does not resolve profile files from the mutable user home before the control command.
 
-Disposal first prevents new handle acquisition, then awaits setup and deletes the sandbox. A `SandboxNotFoundError` means expiry or another owner already deleted it and is accepted as quiescence. Initial directory setup failure also deletes the newly created sandbox; if that rollback fails, disposal retries it before releasing ownership. Provider plugins must load after this owner and dispose before it.
+Disposal first prevents new handle acquisition, then awaits setup and deletes the sandbox. A `SandboxNotFoundError` means expiry or another owner already deleted it and is accepted as quiescence. Initial directory setup failure makes one deletion attempt; the configured E2B timeout bounds a second failure. Provider plugins must load after this owner and dispose before it.
 
 ## Model Experience
 

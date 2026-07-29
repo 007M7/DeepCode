@@ -180,7 +180,7 @@ describe('E2BSandboxService', () => {
     await fiber.dispose()
   })
 
-  it('preserves the setup failure even when cleanup also fails', async () => {
+  it('preserves the setup failure after its one rollback attempt fails', async () => {
     const fixture = fakeSandbox()
     fixture.run.mockRejectedValueOnce(new Error('chmod failed'))
     fixture.kill.mockRejectedValueOnce(new Error('cleanup failed'))
@@ -191,23 +191,7 @@ describe('E2BSandboxService', () => {
     expect(fixture.kill).toHaveBeenCalledOnce()
 
     await fiber.dispose()
-    expect(fixture.kill).toHaveBeenCalledTimes(2)
-  })
-
-  it.each([
-    ['retries a still-failing rollback', new Error('retry failed')],
-    ['accepts a setup sandbox that expired before retry', new SandboxNotFoundError('sandbox expired')],
-  ])('%s during disposal', async (_label, retryError) => {
-    const fixture = fakeSandbox()
-    fixture.run.mockRejectedValueOnce(new Error('chmod failed'))
-    fixture.kill.mockRejectedValueOnce(new Error('cleanup failed')).mockRejectedValueOnce(retryError)
-    sdk.create.mockResolvedValue(fixture.sandbox)
-    const ctx = new Context()
-    const fiber = await ctx.plugin(E2BSandboxService, { apiKey: 'test-key' })
-
-    await expect(ctx.e2b.getSandbox()).rejects.toThrow('chmod failed')
-    await fiber.dispose()
-    expect(fixture.kill).toHaveBeenCalledTimes(2)
+    expect(fixture.kill).toHaveBeenCalledOnce()
   })
 
   it.each([

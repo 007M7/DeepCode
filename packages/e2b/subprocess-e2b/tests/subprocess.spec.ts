@@ -808,7 +808,7 @@ describe('E2BSubprocessHandle', () => {
     await flush()
     handle.terminate()
     await vi.waitFor(() => { expect(fake.handle.kills).toBe(1) })
-    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(handle.waitForExit()).rejects.toThrow('remained live after force termination')
     expect(fake.alive).toBe(true)
 
     fake.delaysKill = false
@@ -884,7 +884,7 @@ describe('E2BSubprocessHandle', () => {
 
     handle.terminate()
     await vi.waitFor(() => { expect(fake.handle.kills).toBe(1) })
-    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(handle.waitForExit()).rejects.toThrow('remained live after force termination')
     fake.alive = false
     handle.terminate()
     await expect(handle.waitForExit()).resolves.toBe(true)
@@ -941,7 +941,7 @@ describe('E2BSubprocessHandle', () => {
     await vi.waitFor(() => { expect(fake.startOptions).toBeDefined() })
 
     handle.terminate()
-    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(handle.waitForExit()).rejects.toThrow('remained live after force termination')
 
     fake.handle.killError = undefined
     handle.terminate()
@@ -960,7 +960,7 @@ describe('E2BSubprocessHandle', () => {
     )
     await vi.waitFor(() => { expect(absentGroup.startOptions).toBeDefined() })
     absentHandle.terminate()
-    await expect(absentHandle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(absentHandle.waitForExit()).rejects.toThrow('remained live after force termination')
     absentGroup.handle.killError = undefined
     absentHandle.terminate()
     await expect(absentHandle.waitForExit()).resolves.toBe(true)
@@ -978,7 +978,7 @@ describe('E2BSubprocessHandle', () => {
     )
     await vi.waitFor(() => { expect(optimisticSdk.startOptions).toBeDefined() })
     optimisticHandle.terminate()
-    await expect(optimisticHandle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(optimisticHandle.waitForExit()).rejects.toThrow('remained live after force termination')
     optimisticHandle.terminate()
     await expect(optimisticHandle.waitForExit()).resolves.toBe(true)
     optimisticSdk.releaseProcessGroupRead()
@@ -1322,7 +1322,7 @@ describe('E2BSubprocessHandle', () => {
     await expect(absent.waitForExit()).resolves.toBe(true)
   })
 
-  it('preserves publication and rollback failures when cleanup cannot be verified', async () => {
+  it('preserves publication failure and reports cleanup that cannot be verified', async () => {
     const fake = new FakeSandbox()
     fake.processGroupId = 'not-a-pid\n'
     fake.signalError = new Error('rollback signal failed')
@@ -1341,11 +1341,10 @@ describe('E2BSubprocessHandle', () => {
     const failures = Array.from(failure.errors as Iterable<unknown>)
     expect(failures).toHaveLength(2)
     expect(failures[0]).toBeInstanceOf(Error)
-    expect(failures[1]).toBeInstanceOf(AggregateError)
-    if (!(failures[0] instanceof Error) || !(failures[1] instanceof AggregateError)) throw new Error('expected nested errors')
+    expect(failures[1]).toBeInstanceOf(Error)
+    if (!(failures[0] instanceof Error) || !(failures[1] instanceof Error)) throw new Error('expected nested errors')
     expect(failures[0].message).toContain('invalid process-group id')
-    expect(failures[1].message).toBe('subprocess-e2b: force termination failed through both process-group and SDK transports')
-    expect(Array.from(failures[1].errors as Iterable<unknown>)).toContainEqual(new Error('rollback signal failed'))
+    expect(failures[1].message).toContain('remained live after force termination')
     expect(fake.handle.kills).toBe(1)
     const bounded = new AbortController()
     const waiting = handle.waitForExit(bounded.signal)
@@ -1494,7 +1493,7 @@ describe('E2BSubprocessHandle', () => {
     await flush()
 
     handle.terminate()
-    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(handle.waitForExit()).rejects.toThrow('remained live after force termination')
     fake.handle.killError = undefined
     handle.terminate()
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
@@ -1507,7 +1506,7 @@ describe('E2BSubprocessHandle', () => {
     const raced = new E2BSubprocessHandle(runtime(missingGroup), spec({ graceMs: 1 }), '/runtime/group-exit-race')
     await flush()
     raced.terminate()
-    await expect(raced.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(raced.waitForExit()).rejects.toThrow('remained live after force termination')
     missingGroup.handle.killError = undefined
     raced.terminate()
     await expect(raced.waitForExit()).resolves.toBe(true)
@@ -1522,7 +1521,7 @@ describe('E2BSubprocessHandle', () => {
     await flush()
 
     handle.terminate()
-    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(handle.waitForExit()).rejects.toThrow('remained live after force termination')
     expect(fake.alive).toBe(true)
 
     fake.sdkKillStops = true
@@ -1581,7 +1580,7 @@ describe('E2BSubprocessService', () => {
     await flush()
 
     await expect(fiber.dispose()).resolves.toBeUndefined()
-    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    await expect(handle.waitForExit()).rejects.toThrow('remained live after force termination')
 
     fake.handle.killError = undefined
     handle.terminate()

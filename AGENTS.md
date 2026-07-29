@@ -14,12 +14,12 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   core/        product API spine: session, system-prompt, tools, agent, agent-loop
   typert/      type graph generator, loader, and runtime registry
   llm/         LLM seam + DeepSeek adapters (direct-fetch + pi-ai design twin)
-  e2b/         E2B POC: sandbox owner + FS/subprocess adapters
+  e2b/         E2B POC: sandbox + FS/subprocess adapters
   bash/        bash executor seam + local impl + model-facing bash tools
   subprocess/  subprocess seam + local process-tree impl
   pty/         persistent PTY seam/backend/tools
-  fs/          filesystem seam + local impl + policy gate + read/write/edit tools
-  lsp/         language-server seam + local stdio provider + model-facing lsp tool
+  fs/          filesystem seam/backends/policy/tools
+  lsp/         language-server seam/local backend/tool
   skill/       skill provider registry + local impl + catalog/loader tool
   web/         web seam + search/fetch providers + model-facing web tools
   compact/     compaction seam + basic backend

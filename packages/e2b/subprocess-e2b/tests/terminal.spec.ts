@@ -871,23 +871,6 @@ describe('E2B subprocess terminal service', () => {
     expect(fake.createOptions).toBeUndefined()
   })
 
-  it('retains failed terminal setup cleanup for disposal retry', async () => {
-    const fake = new FakeTerminalSandbox()
-    fake.sendError = new Error('bootstrap failed')
-    fake.clearOnTerm = false
-    fake.clearOnKill = false
-    const { ctx, fiber } = await service(fake)
-
-    await expect(ctx.subprocess.spawnTerminal(spec({ graceMs: 1 }))).rejects.toThrow('bootstrap failed')
-    expect(fake.groups).toEqual([123])
-    expect(fake.handle.disconnects).toBe(0)
-
-    fake.clearOnKill = true
-    await fiber.dispose()
-    expect(fake.groups).toEqual([])
-    expect(fake.handle.disconnects).toBe(1)
-  })
-
   it('releases naturally settled terminals and validates terminal requests', async () => {
     const { ctx, fiber, fake } = await service()
     for (const request of [

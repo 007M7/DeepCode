@@ -636,35 +636,18 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async forceKillGroup(sandbox: Sandbox, handle: CommandHandle, processGroupId: number): Promise<void> {
-    let groupFailure: unknown
     try {
-      if (!await this.signalGroup(sandbox, processGroupId, 'KILL')) {
-        groupFailure = new Error('process-group KILL did not report delivery')
-      }
-    } catch (error: unknown) {
-      groupFailure = error
+      await this.signalGroup(sandbox, processGroupId, 'KILL')
+    } catch (_processGroupKillFailure) {
+      // SDK kill and the final liveness probe remain independent cleanup paths.
     }
-    let handleFailure: unknown
     try {
-      if (!await handle.kill()) handleFailure = new Error('E2B SDK kill did not report command termination')
-    } catch (error: unknown) {
-      handleFailure = error
+      await handle.kill()
+    } catch (_sdkKillFailure) {
+      // The final liveness probe, not either transport's self-report, proves cleanup.
     }
-    let proofFailure: unknown
-    try {
-      if (await this.waitForGroupExit(sandbox, processGroupId)) return
-      proofFailure = new Error(`remote process group ${processGroupId} remained live after force termination`)
-    } catch (error: unknown) {
-      proofFailure = error
-    }
-    throw new AggregateError(
-      [
-        ...(groupFailure === undefined ? [] : [groupFailure]),
-        ...(handleFailure === undefined ? [] : [handleFailure]),
-        proofFailure,
-      ],
-      'subprocess-e2b: force termination failed through both process-group and SDK transports',
-    )
+    if (await this.waitForGroupExit(sandbox, processGroupId)) return
+    throw new Error(`subprocess-e2b: remote process group ${processGroupId} remained live after force termination`)
   }
 
   private async waitForGroupExit(sandbox: Sandbox, processGroupId: number): Promise<boolean> {

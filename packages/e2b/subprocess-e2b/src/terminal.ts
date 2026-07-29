@@ -485,14 +485,12 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
  * @param runtime - Shared E2B sandbox owner.
  * @param spec - Fully specified terminal-process request.
  * @param stateDir - Private remote directory for one startup transaction.
- * @param retainFailedCleanup - Optional owner for retrying a cleanup transaction that could not prove quiescence.
  * @returns The live subprocess terminal handle.
  */
 export async function spawnE2BTerminal(
   runtime: E2BSandboxService,
   spec: SubprocessTerminalSpawnSpec,
   stateDir: string,
-  retainFailedCleanup?: (cleanup: () => Promise<void>) => void,
 ): Promise<E2BTerminalHandle> {
   const sandbox = await runtime.getSandbox()
   spec.signal?.throwIfAborted()
@@ -562,7 +560,7 @@ export async function spawnE2BTerminal(
     output.destroy()
     let terminalQuiescent = handle === undefined
     let stateRemoved = !stateDirectoryCreated
-    const retryCleanup = async (): Promise<void> => {
+    const cleanup = async (): Promise<void> => {
       const failures: Error[] = []
       if (!terminalQuiescent && handle !== undefined) {
         try {
@@ -588,9 +586,10 @@ export async function spawnE2BTerminal(
       }
     }
     try {
-      await retryCleanup()
+      await cleanup()
     } catch (cleanupError: unknown) {
-      retainFailedCleanup?.(retryCleanup)
+      // TODO(e2b-terminal-setup-rollback): Retain retry state only if a real
+      // double failure must be recovered before sandbox disposal or timeout.
       throw new AggregateError([asError(error), asError(cleanupError)], asError(error).message)
     }
     throw error

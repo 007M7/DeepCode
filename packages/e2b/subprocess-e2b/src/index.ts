@@ -29,7 +29,6 @@ export class E2BSubprocessService extends SubprocessService {
   private readonly live = new Set<E2BSubprocessHandle>()
   private readonly terminals = new Set<SubprocessTerminalHandle>()
   private readonly terminalSetups = new Map<Promise<void>, AbortController>()
-  private readonly failedTerminalSetupCleanups = new Set<() => Promise<void>>()
   private disposing = false
 
   /** @inheritdoc */
@@ -51,7 +50,6 @@ export class E2BSubprocessService extends SubprocessService {
       await Promise.all([...this.terminalSetups.keys()])
       const handles = [...this.live]
       const terminals = [...this.terminals]
-      const failedTerminalSetupCleanups = [...this.failedTerminalSetupCleanups]
       const pending: Promise<unknown>[] = []
       for (const handle of handles) {
         handle.terminate()
@@ -62,9 +60,6 @@ export class E2BSubprocessService extends SubprocessService {
       }
       for (const terminal of terminals) {
         pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
-      }
-      for (const cleanup of failedTerminalSetupCleanups) {
-        pending.push(cleanup().then(() => { this.failedTerminalSetupCleanups.delete(cleanup) }))
       }
       const outcomes = await Promise.allSettled(pending)
       for (const outcome of outcomes) {
@@ -155,7 +150,6 @@ export class E2BSubprocessService extends SubprocessService {
         this.ctx.e2b,
         { ...spec, signal: setupSignal },
         stateDir,
-        (cleanup) => { this.failedTerminalSetupCleanups.add(cleanup) },
       )
       this.terminals.add(terminal)
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- Remote allocation yields to disposal.

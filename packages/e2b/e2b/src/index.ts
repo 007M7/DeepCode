@@ -85,7 +85,6 @@ export class E2BSandboxService extends Service {
 
   private readonly config: ResolvedConfig
   private readonly ready: Promise<Sandbox>
-  private failedSetupSandbox: Sandbox | undefined
   private disposed = false
 
   constructor(ctx: Context, config: Config) {
@@ -108,21 +107,18 @@ export class E2BSandboxService extends Service {
 
     ctx.effect(() => async () => {
       this.disposed = true
-      let sandbox = this.failedSetupSandbox
-      if (sandbox === undefined) {
-        try {
-          sandbox = await this.ready
-        } catch {
-          sandbox = this.failedSetupSandbox
-        }
+      let sandbox: Sandbox
+      try {
+        sandbox = await this.ready
+      } catch (_sandboxSetupFailure) {
+        // open() either acquired no sandbox or already made the POC's one rollback attempt.
+        return
       }
-      if (sandbox === undefined) return
       try {
         await sandbox.kill()
       } catch (error: unknown) {
         if (!(error instanceof SandboxNotFoundError)) throw error
       }
-      this.failedSetupSandbox = undefined
     }, 'e2b sandbox teardown')
   }
 
@@ -174,10 +170,9 @@ export class E2BSandboxService extends Service {
     } catch (error: unknown) {
       try {
         await sandbox.kill()
-      } catch (_cleanupFailure) {
-        // Preserve the setup failure as the public error while retaining the
-        // created handle for the service disposer to retry this rollback.
-        this.failedSetupSandbox = sandbox
+      } catch (_sandboxSetupRollbackFailure) {
+        // TODO(e2b-setup-rollback): Add retry state only if a real double failure
+        // outlives E2B's configured sandbox timeout.
       }
       throw error
     }
