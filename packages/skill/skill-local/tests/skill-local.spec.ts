@@ -244,7 +244,11 @@ describe('LocalSkillProvider', () => {
       'rich-skill',
       'user-only-skill',
     ])
+    expect(flatSummary.invocation).toEqual({ modelInvocable: true, userInvocable: true })
     expect(await ctx.skills.get('flat-skill')).toBeUndefined()
+    expect(await ctx.skills.get('no-trailing-body')).toMatchObject({
+      invocation: { modelInvocable: true, userInvocable: true },
+    })
     expect(await ctx.skills.get('user-only-skill')).toMatchObject({
       invocation: { modelInvocable: false, userInvocable: true },
       content: 'User-only.',

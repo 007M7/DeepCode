@@ -62,7 +62,7 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## Summaries, candidates, and complete definitions
 
-`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans without turning arbitrary frontmatter into the domain model.
+`SkillSummary` is the registry's invocation-neutral summary shape. Consumers choose which entries and fields to render; the model session catalog uses only model-invocable `name` and `description`, never the body or absolute file path. `SkillInvocationPolicy` normalizes the two independent invocation controls into positive booleans, and every resolved summary, candidate, and definition carries it without turning arbitrary frontmatter into the domain model.
 
 ```ts type-equiv
 /** Invocation controls shared by skill discovery consumers. */
@@ -83,8 +83,8 @@ interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Optional model and user invocation controls. */
-  readonly invocation?: SkillInvocationPolicy
+  /** Resolved model and user invocation controls. */
+  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -94,7 +94,7 @@ interface SkillSummary {
 }
 ```
 
-`ctx.skills.list()` preserves all four policy combinations. An absent `invocation` object permits both surfaces; when present, both booleans are required. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the corresponding positive field. A model-only skill sets `{ modelInvocable: true, userInvocable: false }`, a user-only skill sets `{ modelInvocable: false, userInvocable: true }`, and setting both fields to `false` keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`, applies their defaults, and projects them into this normalized policy.
+`ctx.skills.list()` preserves all four policy combinations. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the corresponding required field. A model-only skill sets `{ modelInvocable: true, userInvocable: false }`, a user-only skill sets `{ modelInvocable: false, userInvocable: true }`, and setting both fields to `false` keeps the skill available only through trusted `ctx.skills.get()` callers. The local provider reads the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`, defaults omitted fields to `true`, and projects every parsed skill into this normalized policy.
 
 `SkillCandidate` is the provider-to-registry shape. `locator` is opaque provider state; the registry only stores it and gives it back to the winning provider's `get()`.
 
@@ -134,11 +134,16 @@ interface SkillDefinition extends SkillSummary {
 }
 ```
 
-Runtime skills use the same complete shape and participate in the same first-wins collection order. The returned disposer removes the contribution and invalidates discovery caches.
+Runtime skill inputs may omit invocation controls and the provider label. The registry resolves both defaults once, then uses the same complete definition shape and first-wins collection order as providers. The returned disposer removes the contribution and invalidates discovery caches.
 
 ```ts type-equiv
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider?: string }
+type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
+  /** Invocation controls; omission permits both model and user surfaces. */
+  readonly invocation?: SkillInvocationPolicy
+  /** Provider label; omission uses the registry-owned runtime provider. */
+  readonly provider?: string
+}
 ```
 
 ## Lookup and configuration

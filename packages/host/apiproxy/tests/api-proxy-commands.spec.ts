@@ -187,6 +187,7 @@ describe('skill.list', () => {
         return Promise.resolve([
           {
             name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing',
+            invocation: { modelInvocable: true, userInvocable: true },
             source: 'custom', provider: 'probe', rank: 0, locator: null,
           },
           {

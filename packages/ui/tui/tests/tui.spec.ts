@@ -4014,7 +4014,13 @@ describe('skill slash command', () => {
             listCalls += 1
             if (listCalls === 1) return Promise.resolve<SkillSummary[]>([])
             if (listCalls === 2) {
-              return Promise.resolve<SkillSummary[]>([{ name: 'demo-skill', description: 'demo', source: 'runtime', provider: 'runtime' }])
+              return Promise.resolve<SkillSummary[]>([{
+                name: 'demo-skill',
+                description: 'demo',
+                invocation: { modelInvocable: true, userInvocable: true },
+                source: 'runtime',
+                provider: 'runtime',
+              }])
             }
             return new Promise<SkillSummary[]>((resolve) => { resolvePendingList = resolve })
           },
@@ -4031,8 +4037,21 @@ describe('skill slash command', () => {
     await tick()
     await dispose(result)
 
-    resolvePendingList?.([{ name: 'other-skill', description: 'late', source: 'runtime', provider: 'runtime' }])
-    pendingGet[0]?.resolve({ name: 'demo-skill', description: 'late', source: 'runtime', provider: 'runtime', content: 'late body' })
+    resolvePendingList?.([{
+      name: 'other-skill',
+      description: 'late',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'runtime',
+      provider: 'runtime',
+    }])
+    pendingGet[0]?.resolve({
+      name: 'demo-skill',
+      description: 'late',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'runtime',
+      provider: 'runtime',
+      content: 'late body',
+    })
     await tick()
     expect(result.agent.sent).toEqual([])
     expect(result.terminal.output).not.toContain('late body')
@@ -4043,6 +4062,7 @@ describe('renderSkillInvocation', () => {
   const skill: SkillDefinition = {
     name: 'demo-skill',
     description: 'Demo skill',
+    invocation: { modelInvocable: true, userInvocable: true },
     source: 'runtime',
     provider: 'runtime',
     content: 'Body text.',

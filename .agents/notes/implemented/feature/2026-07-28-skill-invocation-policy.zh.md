@@ -12,11 +12,11 @@ skill 注册表最初将发现操作视为模型目录：`ctx.skills.list()` 会
 
 ## 决策
 
-`SkillSummary` 包含一个可选且类型明确的 `invocation: SkillInvocationPolicy` 对象。该对象存在时，`modelInvocable: boolean` 和 `userInvocable: boolean` 都是必填、正向且对称的字段；未来的 frontmatter 键只有在具备消费方和执行契约后，才会进入领域模型。本地提供方仍将 frontmatter 解析为开放的 `Record<string, unknown>`，然后只把已识别字段及其默认值投影到规范化的类型化策略中。
+`SkillSummary` 包含一个必填且类型明确的 `invocation: SkillInvocationPolicy` 对象，其 `modelInvocable: boolean` 和 `userInvocable: boolean` 字段为正向且对称。只有显式输入 seam 可以省略它：未提供策略的运行时 `SkillRegistration`，以及两个调用键均未提供的本地 frontmatter，都会在生成候选项或定义前解析为 `{ modelInvocable: true, userInvocable: true }`。未来的 frontmatter 键只有在具备消费方和执行契约后，才会进入领域模型；本地提供方仍将 frontmatter 解析为开放的 `Record<string, unknown>`，然后只把已识别字段及其默认值投影到规范化的类型化策略中。
 
-`ctx.skills.list()` 返回所有胜出的摘要，不再替任何调用接口选择策略。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别读取对应的正向字段；策略缺失时两个接口均允许调用。`ctx.skills.get()` 保持策略无关，因为可信内部调用方可能需要任意定义；对外消费方则必须在展示或加载 skill 之前执行自身对应的判定函数。
+`ctx.skills.list()` 返回所有胜出的摘要，不再替任何调用接口选择策略。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别直接读取对应的正向字段。`ctx.skills.get()` 保持策略无关，因为可信内部调用方可能需要任意定义；对外消费方则必须在展示或加载 skill 之前执行自身对应的判定函数。
 
-本地提供方只接受拼写完全一致的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`。它接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0`，与 Claude skills 实际支持的布尔写法一致。它将 `disable-model-invocation` 映射为相反的正向字段，并在任一键存在时填充另一个字段的默认值。外部使用的驼峰式拼写会被拒绝，并产生有针对性的警告；本仓库尚处于发布前阶段，因此不为磁盘格式保留兼容别名。
+本地提供方只接受拼写完全一致的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`。它接受 YAML 布尔值，以及不区分大小写的 `true`/`false`、`yes`/`no`、`on`/`off` 和 `1`/`0`，与 Claude skills 实际支持的布尔写法一致。它将 `disable-model-invocation` 映射为相反的正向字段，即使两个键都不存在，也会根据默认值填充两个正向字段。外部使用的驼峰式拼写会被拒绝，并产生有针对性的警告；本仓库尚处于发布前阶段，因此不为磁盘格式保留兼容别名。
 
 面向模型的 `dsh-tool-skill` 目录和 loader 执行 `isModelInvocable`。TUI 的 `/skill:` 自动补全与精确名称 loader 在本地执行用户字段，因此仅允许用户调用的 skill 即使不出现在模型发现结果中，仍会在此处显示并可加载，同时不会将可选的 skill peer 变成运行时导入。浏览器的 `skill.list` RPC 提供的是由用户选择、但仍要求模型加载的引用，因此只公开同时允许模型和用户调用的 skill；本次改动不新增让浏览器直接加载 skill 的 RPC。
 
@@ -24,7 +24,7 @@ skill 注册表最初将发现操作视为模型目录：`ctx.skills.list()` 会
 
 | 策略 | 模型侧接口 | 用户侧接口 |
 |---|---|---|
-| 无策略，或 `{ modelInvocable: true, userInvocable: true }` | 包含 | 包含 |
+| `{ modelInvocable: true, userInvocable: true }` | 包含 | 包含 |
 | `{ modelInvocable: true, userInvocable: false }` | 包含 | 排除 |
 | `{ modelInvocable: false, userInvocable: true }` | 排除 | 包含 |
 | `{ modelInvocable: false, userInvocable: false }` | 排除 | 排除 |

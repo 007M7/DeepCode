@@ -13,7 +13,7 @@ This package owns the `ctx.skills` interface. It does not know whether skills co
 - `ctx.skills.registerProvider(provider): () => void` Registers a readonly provider by unique `provider.name`. Duplicate provider names throw, and `runtime` is reserved for `ctx.skills.register(...)`. The registry borrows the provider object and invokes its methods directly. The registration is effect-scoped and HMR-safe, and the exact Cordis disposer supports ordered composite teardown.
 - `ctx.skills.list({ cwd?, signal? })` Borrows the readonly lookup options, then returns every winning summary for the current workspace, merged across providers and sorted by name. The result is invocation-neutral; consumers apply `isModelInvocable(skill)` or `isUserInvocable(skill)` at their own boundary.
 - `ctx.skills.get(name, { cwd?, signal? })` Uses the same readonly options and winning candidate for discovery and loading, rechecks cancellation after discovery or a cache hit, races provider loading against the signal, validates the loaded definition, then returns it regardless of invocation policy.
-- `ctx.skills.register(skill): () => void` Registers a readonly runtime embedded skill, adding `provider: "runtime"` when omitted. Same-name runtime registrations are first-wins: a duplicate logs a warning and gets a no-op disposer. Successful registrations return the exact Cordis disposer for ordered composite teardown.
+- `ctx.skills.register(skill): () => void` Registers a readonly runtime embedded skill, adding the all-invocable policy and `provider: "runtime"` when omitted. Same-name runtime registrations are first-wins: a duplicate logs a warning and gets a no-op disposer. Successful registrations return the exact Cordis disposer for ordered composite teardown.
 
 ### Config
 
@@ -23,16 +23,16 @@ This package owns the `ctx.skills` interface. It does not know whether skills co
 
 ### Invocation policy
 
-`SkillSummary.invocation` is an optional typed policy object. When present, its required positive booleans `modelInvocable` and `userInvocable` describe the two surfaces independently; omitting the object preserves the default model-and-user behavior. The registry keeps all four combinations so one discovery result can serve model-facing tools, human-facing commands, and trusted internal callers without conflating their catalogs.
+`SkillSummary.invocation` is a required typed policy object whose positive booleans `modelInvocable` and `userInvocable` describe the two surfaces independently. Providers return this resolved shape on every candidate and definition; only the `SkillRegistration` input may omit it, in which case `register()` supplies `{ modelInvocable: true, userInvocable: true }`. The registry keeps all four combinations so one discovery result can serve model-facing tools, human-facing commands, and trusted internal callers without conflating their catalogs.
 
 | Policy | Model | User |
 |---|---|---|
-| no `invocation`, or `{ modelInvocable: true, userInvocable: true }` | included | included |
+| `{ modelInvocable: true, userInvocable: true }` | included | included |
 | `{ modelInvocable: true, userInvocable: false }` | included | excluded |
 | `{ modelInvocable: false, userInvocable: true }` | excluded | included |
 | `{ modelInvocable: false, userInvocable: false }` | excluded | excluded |
 
-`isModelInvocable(skill)` and `isUserInvocable(skill)` read the matching positive field, with an absent policy permitting both surfaces. `ctx.skills.get()` remains the trusted, policy-neutral loading primitive, so every user- or model-facing consumer must enforce the predicate that matches its surface before exposing or loading a skill.
+`isModelInvocable(skill)` and `isUserInvocable(skill)` read the matching positive field directly. `ctx.skills.get()` remains the trusted, policy-neutral loading primitive, so every user- or model-facing consumer must enforce the predicate that matches its surface before exposing or loading a skill.
 
 ## Provider Contract
 
@@ -44,7 +44,7 @@ Contract violations fail fast. A rejected `list()` is treated as a transient sou
 
 ## Runtime Skills
 
-`ctx.skills.register(...)` is a convenience for embedded runtime skills. Runtime skills use rank `250`: project providers can override them, while they override the shipped local provider's custom and user roots. Runtime definitions and nested resource metadata are borrowed readonly; the service only materializes the top-level definition needed to supply the default `provider`. Registration is first-wins within runtime contributions, so a duplicate contribution cannot remove the active one through its disposer.
+`ctx.skills.register(...)` is a convenience for embedded runtime skills. Runtime skills use rank `250`: project providers can override them, while they override the shipped local provider's custom and user roots. Runtime definitions and nested resource metadata are borrowed readonly; the service materializes one top-level definition to supply omitted invocation and provider defaults. Registration is first-wins within runtime contributions, so a duplicate contribution cannot remove the active one through its disposer.
 
 ## Consumer boundary
 

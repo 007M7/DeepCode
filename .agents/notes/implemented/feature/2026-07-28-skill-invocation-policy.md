@@ -12,11 +12,11 @@ The local parser also exposed an internal camel-case spelling as frontmatter. Su
 
 ## Decision
 
-`SkillSummary` carries an optional typed `invocation: SkillInvocationPolicy` object. When present, its `modelInvocable: boolean` and `userInvocable: boolean` fields are both required, positive, and symmetric; future frontmatter keys remain outside the domain model until a consumer and enforcement contract exist. The local provider still parses frontmatter as an open `Record<string, unknown>`, then projects only recognized fields and their defaults into the normalized typed policy.
+`SkillSummary` carries a required typed `invocation: SkillInvocationPolicy` object whose `modelInvocable: boolean` and `userInvocable: boolean` fields are positive and symmetric. Omission exists only at explicit input seams: a runtime `SkillRegistration` without a policy and local frontmatter without either invocation key resolve to `{ modelInvocable: true, userInvocable: true }` before producing candidates or definitions. Future frontmatter keys remain outside the domain model until a consumer and enforcement contract exist; the local provider still parses frontmatter as an open `Record<string, unknown>`, then projects only recognized fields and their defaults into the normalized typed policy.
 
-`ctx.skills.list()` returns every winning summary and no longer chooses an invocation surface. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the matching positive field; an absent policy permits both surfaces. `ctx.skills.get()` remains policy-neutral because trusted internal callers may need any definition, while a public consumer must enforce its own predicate before advertising or loading a skill.
+`ctx.skills.list()` returns every winning summary and no longer chooses an invocation surface. `isModelInvocable(skill)` and `isUserInvocable(skill)` read the matching positive field directly. `ctx.skills.get()` remains policy-neutral because trusted internal callers may need any definition, while a public consumer must enforce its own predicate before advertising or loading a skill.
 
-The local provider accepts the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`. It accepts YAML booleans plus case-insensitive `true`/`false`, `yes`/`no`, `on`/`off`, and `1`/`0`, matching the practical boolean forms accepted by Claude skills. It maps `disable-model-invocation` to the inverse positive field and fills the other field's default whenever either key is present. Camel-case external spellings are rejected with a targeted warning; this pre-release repository does not keep an on-disk compatibility alias.
+The local provider accepts the exact kebab-case frontmatter keys `disable-model-invocation` and `user-invocable`. It accepts YAML booleans plus case-insensitive `true`/`false`, `yes`/`no`, `on`/`off`, and `1`/`0`, matching the practical boolean forms accepted by Claude skills. It maps `disable-model-invocation` to the inverse positive field and fills both positive fields from their defaults even when neither key is present. Camel-case external spellings are rejected with a targeted warning; this pre-release repository does not keep an on-disk compatibility alias.
 
 The model-facing `dsh-tool-skill` catalog and loader enforce `isModelInvocable`. The TUI `/skill:` autocomplete and exact loader enforce the user field locally, so a user-only skill is visible and loadable there even when it is absent from model discovery, without turning the optional skill peer into a runtime import. The browser `skill.list` RPC serves a user-selected reference that still asks the model to load the skill, so it exposes the intersection of model- and user-invocable skills; no direct browser skill-loading RPC is added.
 
@@ -24,7 +24,7 @@ These rules permit all four combinations:
 
 | Policy | Model surface | User surface |
 |---|---|---|
-| no policy, or `{ modelInvocable: true, userInvocable: true }` | included | included |
+| `{ modelInvocable: true, userInvocable: true }` | included | included |
 | `{ modelInvocable: true, userInvocable: false }` | included | excluded |
 | `{ modelInvocable: false, userInvocable: true }` | excluded | included |
 | `{ modelInvocable: false, userInvocable: false }` | excluded | excluded |

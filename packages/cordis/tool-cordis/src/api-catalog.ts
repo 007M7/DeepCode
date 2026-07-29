@@ -754,7 +754,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'register(skill: SkillRegistration): () => void',
-        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the complete skill definition to expose for discovery.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
+        jsDoc: '/**\n * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which\n * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and\n * receives a no-op disposer so it cannot remove the winner.\n * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.\n * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.\n */',
       },
       {
         signature: 'async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>',
@@ -2353,7 +2353,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillRegistration',
-    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'provider\'> & {\n    readonly provider?: string;\n};',
+    declaration: 'export type SkillRegistration = Omit<SkillDefinition, \'invocation\' | \'provider\'> & {\n    readonly invocation?: SkillInvocationPolicy;\n    readonly provider?: string;\n};',
   },
   {
     name: 'SkillResourceBase',
@@ -2365,7 +2365,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSummary',
-    declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation?: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
+    declaration: 'export interface SkillSummary {\n    readonly name: string;\n    readonly description: string;\n    readonly whenToUse?: string;\n    readonly invocation: SkillInvocationPolicy;\n    readonly source: SkillSource;\n    readonly provider: string;\n    readonly resourceBase?: SkillResourceBase;\n}',
   },
   {
     name: 'SpillLocator',

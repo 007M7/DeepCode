@@ -75,7 +75,7 @@ interface ParsedSkill {
   name: string
   description: string
   whenToUse?: string
-  invocation?: SkillInvocationPolicy
+  invocation: SkillInvocationPolicy
   metadata?: Record<string, unknown>
   content: string
 }
@@ -137,7 +137,7 @@ export class LocalSkillProvider implements SkillProvider {
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
-      ...parsed.invocation !== undefined ? { invocation: parsed.invocation } : {},
+      invocation: parsed.invocation,
       source: candidate.source,
       provider: this.name,
       resourceBase: { kind: 'directory', path: locator.directory },
@@ -185,7 +185,7 @@ async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillCandida
       name: parsed.name,
       description: parsed.description,
       ...parsed.whenToUse !== undefined ? { whenToUse: parsed.whenToUse } : {},
-      ...parsed.invocation !== undefined ? { invocation: parsed.invocation } : {},
+      invocation: parsed.invocation,
       provider: 'local',
       source: root.source,
       rank: root.rank,
@@ -275,7 +275,7 @@ async function parseSkillFile(path: string, ctx: Context, signal?: AbortSignal, 
     name,
     description,
     ...optionalString(parsed.data, 'whenToUse'),
-    ...invocation === undefined ? {} : { invocation },
+    invocation,
     ...optionalMetadata(parsed.data),
     content: parsed.body.trim(),
   }
@@ -428,13 +428,12 @@ function optionalString(data: Record<string, unknown>, key: string): { [K in typ
   return typeof value === 'string' && value.length > 0 ? { [key]: value } : {}
 }
 
-function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy | undefined {
+function parseInvocationPolicy(data: Record<string, unknown>): SkillInvocationPolicy {
   rejectLegacyInvocationKey(data, 'disableModelInvocation', 'disable-model-invocation')
   rejectLegacyInvocationKey(data, 'modelInvocable', 'disable-model-invocation')
   rejectLegacyInvocationKey(data, 'userInvocable', 'user-invocable')
   const disableModelInvocation = frontmatterBoolean(data, 'disable-model-invocation')
   const userInvocable = frontmatterBoolean(data, 'user-invocable')
-  if (disableModelInvocation === undefined && userInvocable === undefined) return undefined
   return {
     modelInvocable: disableModelInvocation !== true,
     userInvocable: userInvocable !== false,

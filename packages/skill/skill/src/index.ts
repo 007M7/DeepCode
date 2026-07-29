@@ -52,8 +52,8 @@ export interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Optional model and user invocation controls. */
-  readonly invocation?: SkillInvocationPolicy
+  /** Resolved model and user invocation controls. */
+  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -85,7 +85,12 @@ export interface SkillDefinition extends SkillSummary {
 }
 
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-export type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider?: string }
+export type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
+  /** Invocation controls; omission permits both model and user surfaces. */
+  readonly invocation?: SkillInvocationPolicy
+  /** Provider label; omission uses the registry-owned runtime provider. */
+  readonly provider?: string
+}
 
 /** Caller context used for cwd-sensitive and abortable provider work. */
 export interface SkillLookupOptions {
@@ -97,20 +102,20 @@ export interface SkillLookupOptions {
 
 /**
  * Return whether a skill may be advertised to and loaded by a model.
- * @param skill - skill metadata carrying optional invocation controls.
- * @returns whether the normalized policy permits model invocation.
+ * @param skill - skill metadata carrying resolved invocation controls.
+ * @returns whether the policy permits model invocation.
  */
 export function isModelInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
-  return skill.invocation?.modelInvocable !== false
+  return skill.invocation.modelInvocable
 }
 
 /**
  * Return whether a skill may be advertised to and loaded by a human-facing command.
- * @param skill - skill metadata carrying optional invocation controls.
- * @returns whether the normalized policy permits user invocation.
+ * @param skill - skill metadata carrying resolved invocation controls.
+ * @returns whether the policy permits user invocation.
  */
 export function isUserInvocable(skill: Pick<SkillSummary, 'invocation'>): boolean {
-  return skill.invocation?.userInvocable !== false
+  return skill.invocation.userInvocable
 }
 
 /** Provider interface for one source of skills, such as local directories or a remote registry. */
@@ -171,7 +176,7 @@ export class SkillService extends Service {
 
   private readonly collectCacheMaxEntries: number
   private readonly providers = new Map<string, { provider: SkillProvider; order: number }>()
-  private readonly runtime = new Map<string, SkillRegistration>()
+  private readonly runtime = new Map<string, SkillDefinition>()
   private readonly collectCache = new Map<string, IndexedCandidate[]>()
   private providerRevision = 0
   private nextProviderOrder = 0
@@ -219,7 +224,7 @@ export class SkillService extends Service {
    * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
    * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
    * receives a no-op disposer so it cannot remove the winner.
-   * @param skill - the complete skill definition to expose for discovery.
+   * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
    * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
    */
   register(skill: SkillRegistration): () => void {
@@ -229,15 +234,20 @@ export class SkillService extends Service {
       this.ctx.logger.warn(`runtime skill "${skill.name}" ignored because it is already registered`)
       return () => {}
     }
+    const definition: SkillDefinition = {
+      ...skill,
+      invocation: skill.invocation ?? { modelInvocable: true, userInvocable: true },
+      provider: skill.provider ?? RUNTIME_PROVIDER,
+    }
     const runtime = this.runtime
     const updateRevision = (): void => { this.runtimeRevision += 1 }
     const invalidateCache = (): void => { this.invalidateCache() }
     const dispose = this.ctx.effect(function* () {
-      runtime.set(skill.name, skill)
+      runtime.set(definition.name, definition)
       updateRevision()
       invalidateCache()
       yield () => {
-        runtime.delete(skill.name)
+        runtime.delete(definition.name)
         updateRevision()
         invalidateCache()
       }
@@ -375,19 +385,18 @@ const RUNTIME_SKILL_PROVIDER: SkillProvider = {
     return Promise.resolve([])
   },
   get(candidate) {
-    const skill = candidate.locator as SkillRegistration
-    return Promise.resolve({ ...skill, provider: skill.provider ?? RUNTIME_PROVIDER })
+    return Promise.resolve(candidate.locator as SkillDefinition)
   },
 }
 
-function runtimeCandidate(skill: SkillRegistration): SkillCandidate {
+function runtimeCandidate(skill: SkillDefinition): SkillCandidate {
   return {
     name: skill.name,
     description: skill.description,
     ...skill.whenToUse !== undefined ? { whenToUse: skill.whenToUse } : {},
-    ...skill.invocation !== undefined ? { invocation: skill.invocation } : {},
+    invocation: skill.invocation,
     source: skill.source,
-    provider: skill.provider ?? RUNTIME_PROVIDER,
+    provider: skill.provider,
     ...skill.resourceBase !== undefined ? { resourceBase: skill.resourceBase } : {},
     rank: RUNTIME_RANK,
     locator: skill,
@@ -464,7 +473,7 @@ function toSummary(skill: SkillDefinition | SkillCandidate): SkillSummary {
     name,
     description,
     ...whenToUse !== undefined ? { whenToUse } : {},
-    ...invocation !== undefined ? { invocation } : {},
+    invocation,
     source,
     provider,
     ...resourceBase !== undefined ? { resourceBase } : {},

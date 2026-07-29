@@ -62,7 +62,7 @@ type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | '
 
 ## 摘要、候选项与完整定义
 
-`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 将两个独立调用控制规范化为正向布尔值，而不会把任意 frontmatter 纳入领域模型。
+`SkillSummary` 是注册表中与调用策略无关的摘要形状。消费方自行选择渲染哪些条目和字段；模型会话目录仅使用模型可调用 skill 的 `name` 和 `description`，从不使用正文或绝对文件路径。`SkillInvocationPolicy` 将两个独立调用控制规范化为正向布尔值，且每个已解析的摘要、候选项和定义都携带该策略，而不会把任意 frontmatter 纳入领域模型。
 
 ```ts type-equiv
 /** Invocation controls shared by skill discovery consumers. */
@@ -83,8 +83,8 @@ interface SkillSummary {
   readonly description: string
   /** Optional extra routing guidance. */
   readonly whenToUse?: string
-  /** Optional model and user invocation controls. */
-  readonly invocation?: SkillInvocationPolicy
+  /** Resolved model and user invocation controls. */
+  readonly invocation: SkillInvocationPolicy
   /** Discovery source that produced this winning skill. */
   readonly source: SkillSource
   /** Provider that owns this skill body. */
@@ -94,7 +94,7 @@ interface SkillSummary {
 }
 ```
 
-`ctx.skills.list()` 保留全部四种策略组合。缺少 `invocation` 对象时两个接口均允许调用；该对象存在时，两个布尔字段都为必填。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别读取对应的正向字段。仅供模型调用的 skill 设置 `{ modelInvocable: true, userInvocable: false }`，仅供用户调用的 skill 设置 `{ modelInvocable: false, userInvocable: true }`，两个字段均设为 `false` 后，该 skill 只能由受信的 `ctx.skills.get()` 调用方获取。本地提供方读取名称完全匹配的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`，应用其默认值，再将其投影到这个规范化策略中。
+`ctx.skills.list()` 保留全部四种策略组合。`isModelInvocable(skill)` 和 `isUserInvocable(skill)` 分别读取对应的必填字段。仅供模型调用的 skill 设置 `{ modelInvocable: true, userInvocable: false }`，仅供用户调用的 skill 设置 `{ modelInvocable: false, userInvocable: true }`，两个字段均设为 `false` 后，该 skill 只能由受信的 `ctx.skills.get()` 调用方获取。本地提供方读取名称完全匹配的 kebab-case frontmatter 键 `disable-model-invocation` 和 `user-invocable`，将省略的字段默认为 `true`，并为每个解析出的 skill 生成这个规范化策略。
 
 `SkillCandidate` 是提供方到注册表的形状。`locator` 是提供方的不透明状态；注册表只存储它并在调用获胜提供方的 `get()` 时传回。
 
@@ -134,11 +134,16 @@ interface SkillDefinition extends SkillSummary {
 }
 ```
 
-运行时 skill 使用相同的完整形状，参与相同的先到先得收集顺序。返回的 disposer 移除该贡献并使发现缓存失效。
+运行时 skill 输入可以省略调用控制和提供方标签。注册表会一次性补全这两项默认值，随后使用与提供方相同的完整定义形状和先到先得收集顺序。返回的 disposer 移除该贡献并使发现缓存失效。
 
 ```ts type-equiv
 /** Runtime skill contribution accepted by `ctx.skills.register()`. */
-type SkillRegistration = Omit<SkillDefinition, 'provider'> & { readonly provider?: string }
+type SkillRegistration = Omit<SkillDefinition, 'invocation' | 'provider'> & {
+  /** Invocation controls; omission permits both model and user surfaces. */
+  readonly invocation?: SkillInvocationPolicy
+  /** Provider label; omission uses the registry-owned runtime provider. */
+  readonly provider?: string
+}
 ```
 
 ## 查找与配置

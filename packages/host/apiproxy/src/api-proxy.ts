@@ -16,7 +16,6 @@ import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { isModelInvocable, isUserInvocable } from '@deepseek-ai/dsh-skill'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -36,8 +35,9 @@ import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
-// Type-only edge: resolves `ctx.get('commands')` and the `commands/change` event.
+// Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-skill'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
 // Side-effect type import: resolves the `approval/request` waterfall and
@@ -1426,7 +1426,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         try {
           const skills = (await skillRegistry.list({ cwd }))
-            .filter(skill => isModelInvocable(skill) && isUserInvocable(skill))
+            .filter(skill => skill.invocation.modelInvocable && skill.invocation.userInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,

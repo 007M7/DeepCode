@@ -14,6 +14,7 @@ function memorySkill(name: string, description: string, rank: number, body = `${
   return {
     name,
     description,
+    invocation: { modelInvocable: true, userInvocable: true },
     provider: 'memory',
     source: 'memory',
     rank,
@@ -57,6 +58,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'shadowed',
           description: 'Higher priority',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'override',
           source: 'override',
           rank: 5,
@@ -82,6 +84,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'same-rank-skill',
           description: 'Same rank',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'same-rank',
           source: 'same-rank',
           rank: 10,
@@ -136,9 +139,11 @@ describe('SkillService registry', () => {
 
     const listed = await ctx.skills.list()
     expect(listed.map(skill => skill.name)).toEqual(['both', 'model-only', 'trusted-only', 'user-only'])
+    expect(listed.find(skill => skill.name === 'both')?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
     expect(listed.filter(isModelInvocable).map(skill => skill.name)).toEqual(['both', 'model-only'])
     expect(listed.filter(isUserInvocable).map(skill => skill.name)).toEqual(['both', 'user-only'])
     expect(await ctx.skills.get('trusted-only')).toMatchObject({ content: 'trusted-only body.' })
+    expect((await ctx.skills.get('both'))?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
   })
 
   it('validates parsed candidate fields', async () => {
@@ -224,6 +229,7 @@ describe('SkillService registry', () => {
     const candidate: SkillCandidate = {
       name: 'skill-a',
       description: 'Skill A',
+      invocation: { modelInvocable: true, userInvocable: true },
       provider: 'contextual',
       source: 'test',
       rank: 1,
@@ -258,6 +264,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'cached-skill',
           description: 'Cached skill',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'cached',
           source: 'test',
           rank: 1,
@@ -295,6 +302,7 @@ describe('SkillService registry', () => {
         resolve({
           name: 'held-skill',
           description: 'Held skill',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'held',
           source: 'test',
           content: 'Held body.',
@@ -307,6 +315,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'held-skill',
           description: 'Held skill',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'held',
           source: 'test',
           rank: 1,
@@ -481,6 +490,7 @@ describe('SkillService registry', () => {
         list: () => Promise.resolve([{
           name: skillName,
           description: 'Candidate',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: providerName,
           source: 'test',
           rank: 1,
