@@ -6548,6 +6548,9 @@ importers:
       node-addon-require-builtin:
         specifier: ^0.1.3
         version: 0.1.3
+      pnpm:
+        specifier: 11.7.0
+        version: 11.7.0
 
   vendor/logger-console:
     dependencies:
@@ -10949,6 +10952,11 @@ packages:
   playwright@1.61.1:
     resolution: {integrity: sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==}
     engines: {node: '>=18'}
+    hasBin: true
+
+  pnpm@11.7.0:
+    resolution: {integrity: sha512-GcyFLBIMcSV2DyRD7mvgyltA+fUFmN4aCaHxd1A+AQ5Xwjx3ZG4B52HeWb+HT7IqM5jDOrlpH8E+uUa28PTWIA==}
+    engines: {node: '>=22.13'}
     hasBin: true
 
   points-on-curve@0.2.0:
@@ -16386,6 +16394,8 @@ snapshots:
       playwright-core: 1.61.1
     optionalDependencies:
       fsevents: 2.3.2
+
+  pnpm@11.7.0: {}
 
   points-on-curve@0.2.0: {}
 
