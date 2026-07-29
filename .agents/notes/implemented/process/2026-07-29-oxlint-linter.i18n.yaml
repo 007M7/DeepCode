@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-07-29-oxlint-linter.md
-2026-07-29-oxlint-linter.md: c1876b09dbdddecef30ab718005b949f21e3e93c
-2026-07-29-oxlint-linter.zh.md: bfb60cc7f5d95b460d36a2041196c7fa922cc439
+2026-07-29-oxlint-linter.md: 41a50a9d08819809f954aa99007081f270692f38
+2026-07-29-oxlint-linter.zh.md: 1ad72a00cb921ed688363583d56634f52b355b4e
