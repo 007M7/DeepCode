@@ -72,6 +72,9 @@ CUSTOM_CORDIS = """\
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
     workspaceContext: false
+    skills:
+      enabled: false
+    toolBash: false
     tools:
       mode: both
 - id: sessions
@@ -79,10 +82,6 @@ CUSTOM_CORDIS = """\
   config:
     root: !!js process.env.DSH_SESSION_ROOT
     compression: 'none'
-- id: bash
-  name: '@deepseek-ai/dsh-bash-local'
-  config:
-    cwd: !!js process.env.DSH_CWD
 - id: code-runtime
   name: '@deepseek-ai/dsh-code-runtime-worker'
 - id: subagents
@@ -874,6 +873,8 @@ def normalize_snapshot_value(
         normalized["createdAt"] = 0
     if "seq" in normalized and "time" in normalized:
         normalized["time"] = 0
+    if isinstance(normalized.get("id"), str) and normalized.get("role") in ("assistant", "user"):
+        normalized["id"] = "{{messageId}}"
     scrub_snapshot_header(normalized)
     return normalized
 
