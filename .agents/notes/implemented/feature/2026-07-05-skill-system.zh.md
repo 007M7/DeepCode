@@ -24,7 +24,7 @@ DeepSeek Harness 使用同一原语，使项目特定的评审、插件编写和
 
 `dsh-tool-skill` 在会话的第一个 `agent/step` 注入一个持久化的 user-role `<system-reminder>` 目录，作为带来源的 `user/message`，且仅当该 agent 的工具视图解析到本插件精确的 `skill` 注册时才注入。该目录仅包含排序后的 skill 名称与描述；不包含正文、路径、来源、提供方和路由提示。描述经过空白规范化、XML 转义，并受 `catalogDescriptionMaxLength` 上限约束，其默认值为 `500`，最小值为 `3`。完整的 skill 正文从不包含在目录中。（目录最初通过仅请求的[会话前缀 seam](../../archived/feature/2026-07-07-session-prefix.md)（已归档）传递；[统一带来源消息的决策](../architecture/2026-07-22-unified-send-and-coalesced-user-messages.md)将其移入持久化历史。）
 
-注册表的 `list()` 返回全部胜出摘要，而模型与用户消费方应用[独立调用策略决策](2026-07-28-skill-invocation-policy.md)定义的调用判定。`skill({ name })` 工具为当前 agent cwd 加载一个模型可调用的 skill，返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 提供一个目录、URL 或不透明的提供方管理的基路径，用于显式引用的脚本、参考资料和资产；资源仅按需加载，不进行目录枚举。无法解析的名称报告该 skill 未知或不再可用；无效名称和标记了 `invocation.disableModelInvocation` 的 skill 保留不同的工具错误。工具结果是面向模型的可见披露路径。
+注册表的 `list()` 返回全部胜出摘要，而模型与用户消费方应用[独立调用策略决策](2026-07-28-skill-invocation-policy.md)定义的调用判定。`skill({ name })` 工具为当前 agent cwd 加载一个模型可调用的 skill，返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 提供一个目录、URL 或不透明的提供方管理的基路径，用于显式引用的脚本、参考资料和资产；资源仅按需加载，不进行目录枚举。无法解析的名称报告该 skill 未知或不再可用；无效名称和 `invocation.modelInvocable` 为 `false` 的 skill 保留不同的工具错误。工具结果是面向模型的可见披露路径。
 
 数据结构与目录/工具契约记录在 [skills.md](../../../../docs/core-data-structures/skills.md) 中，服务签名见生成的[服务目录](../../../../docs/cordis-catalog/services.md)。
 
