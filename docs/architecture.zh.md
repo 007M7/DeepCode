@@ -97,10 +97,10 @@ forever:
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
-        exclusive -> one-call barrier
-        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
-        each model-order result -> ordered tools/post-execute -> 'tool/result'
+        exclusive -> barrier
+        parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
+        start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        model-order result -> ordered tools/post-execute -> 'tool/result'
       drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn

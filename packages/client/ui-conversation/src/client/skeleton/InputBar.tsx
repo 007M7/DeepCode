@@ -13,6 +13,8 @@ import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
 import type {} from '@deepseek-ai/dsh-plan-mode/client'
+// Type-only: the `goal` projection key merge (hint disambiguation).
+import type {} from '@deepseek-ai/dsh-goal/client'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import { PermissionSelect } from './PermissionSelect.tsx'
@@ -27,7 +29,7 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, command, renderSlot, useNotices, useLexicon, useProjection,
+  useSession, useInput, inputActions, keyboard, stop, command, translateHint, renderSlot, useNotices, useLexicon, useProjection,
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
@@ -39,6 +41,8 @@ export function InputBar({
   // Plan mode swaps the textarea placeholder (the projection is the folded
   // host value; owner-prop placeholders — hero, session-unavailable — win).
   const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
+  // Absent (undefined: no frame yet) and cleared (null) both mean no goal.
+  const hasGoal = useProjection('goal', goal => goal != null)
   // Prompt failures are ordinary failures (no create/attach transaction
   // exists anymore): the strip renders promptError, the draft stays in the
   // machine, and the user resubmits.
@@ -296,7 +300,12 @@ export function InputBar({
     }
     pushPlain(draft.length)
     if (deco.hint !== null) {
-      backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{deco.hint}</span>)
+      // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
+      const commandName = input.claim?.token.slice(1).trim() ?? ''
+      const hintKey = commandName === 'goal' && hasGoal ? 'goal.active' : commandName
+      const translated = translateHint(hintKey)
+      const displayHint = translated !== hintKey ? translated : deco.hint
+      backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
   }
 
@@ -312,7 +321,7 @@ export function InputBar({
           {notice.text}
         </div>
       )}
-      <div className={css.card}>
+      <div className={css.card} data-composer-card>
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {/* Mirror-div auto-grow: the hidden mirror renders draft+'\n' and stretches the wrapper
@@ -329,7 +338,7 @@ export function InputBar({
             data-phase={input.phase}
             placeholder={placeholder ?? (disabled
               ? 'Session unavailable'
-              : planActive ? 'describe your task to generate plan' : 'Message the agent')}
+              : planActive ? translateHint('placeholder.plan') : translateHint('placeholder.default'))}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}

@@ -257,6 +257,8 @@ export interface ComposerBarInjected {
    * Resolves admission: false = rejected/unmatched/transport failure.
    */
   command: (line: string) => Promise<boolean>
+  /** Locale-aware hint translator for claimed command placeholders. */
+  translateHint: (key: string) => string
   /** Registrant hooks compartment: the renderer binds these to useNotices/useLexicon. */
   hooks: {
     /** Latest surfaced notice (null after none; seq keys re-render of repeats). */

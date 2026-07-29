@@ -42,6 +42,7 @@ interface BenchOptions {
   promptError?: ConversationSnapshot['promptError']
   variant?: 'hero' | 'composer'
   placeholder?: string
+  translateHint?: (key: string) => string
   accessory?: React.ReactNode
   overlay?: React.ReactNode
   leftItems?: React.ReactNode
@@ -100,6 +101,11 @@ function bench(over?: BenchOptions) {
     useLexicon: bindSnapshotSelector(shell.lexicon),
     stop,
     command: () => Promise.resolve(true),
+    // Mirrors the en 'command.hint' locale entries the production apply wires in.
+    translateHint: over?.translateHint ?? ((key: string) => ({
+      'placeholder.default': 'Message the agent',
+      'placeholder.plan': 'describe your task to generate plan',
+    } as Record<string, string>)[key] ?? key),
     renderSlot,
     variant: over?.variant ?? 'composer',
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
@@ -292,6 +298,19 @@ describe('decorations', () => {
     expect(view.container.querySelector('[data-decoration="token"]')).not.toBeNull()
   })
 
+  it('a locale entry for the claimed command overrides the raw claim hint (trailing-space token)', () => {
+    const dict: Record<string, string> = { goal: '输入目标，智能体将持续执行' }
+    const { view, shell } = bench({ translateHint: key => dict[key] ?? key })
+    act(() => {
+      shell.setDraft('/goal ')
+      shell.beginCommand(
+        { token: '/goal ', hint: '[<objective>|clear|edit <objective>|pause|resume]', submit: () => Promise.resolve({ kind: 'success' as const }) },
+        { start: 0, end: 6, draftRev: shell.snapshot.draftRev },
+      )
+    })
+    expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('输入目标，智能体将持续执行')
+  })
+
   it('an inserted reference renders as a chip at its placeholder offset', () => {
     const { view, shell } = bench()
     act(() => {
@@ -374,7 +393,7 @@ describe('placeholder chrome and control seats', () => {
     const { view, slotCalls } = bench()
     expect(view.getByLabelText('Add attachment')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.
-    expect(view.queryByLabelText('Access mode')).toBeNull()
+    expect(view.queryByLabelText(/^Access mode/)).toBeNull()
     // Both seats dispatched, nothing rendered.
     expect(slotCalls.map(c => c.key)).toEqual(['conversation.input.plan', 'conversation.input.model'])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
@@ -390,15 +409,19 @@ describe('placeholder chrome and control seats', () => {
       currentValue: 'workspace-write',
     }
     const { view } = bench({ permissions })
-    const select = view.getByLabelText('Access mode') as HTMLSelectElement
-    expect(select.value).toBe('workspace-write')
-    // Title-case display is presentation only; the option values stay machine names.
-    expect([...select.options].map(o => o.textContent)).toEqual(['Workspace Write', 'Danger Full Access'])
-    fireEvent.change(select, { target: { value: 'danger-full-access' } })
+    const trigger = view.getByLabelText(/^Access mode/) as HTMLButtonElement
+    // Title-case display is presentation only; the menu ids stay machine names.
+    expect(trigger.textContent).toBe('Workspace Write')
+    fireEvent.click(trigger)
+    const items = view.getAllByRole('menuitem')
+    expect(items.map(o => o.textContent)).toEqual(['Workspace Write', 'Danger Full Access'])
+    fireEvent.click(items[1]!)
     // Optimistic pick + disable until admission resolves (command stub resolves true).
-    expect(select.disabled).toBe(true)
+    const busy = view.getByLabelText(/^Access mode/) as HTMLButtonElement
+    expect(busy.textContent).toBe('Danger Full Access')
+    expect(busy.disabled).toBe(true)
     await act(async () => {})
-    expect(select.disabled).toBe(false)
+    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('a registered entry fills its seat and receives the locked owner prop', () => {
@@ -420,9 +443,9 @@ describe('placeholder chrome and control seats', () => {
     const permissions = { options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' }
     const { view } = bench({ disabled: true, permissions })
     expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
-    expect((view.getByLabelText('Access mode') as HTMLSelectElement).disabled).toBe(true)
+    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(true)
     cleanup()
     const live = bench({ running: true, permissions })
-    expect((live.view.getByLabelText('Access mode') as HTMLSelectElement).disabled).toBe(false)
+    expect((live.view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(false)
   })
 })

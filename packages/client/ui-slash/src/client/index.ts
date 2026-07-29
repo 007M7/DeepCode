@@ -4,6 +4,8 @@
  * self-registers into the conversation.input.overlay slot. Frozen pipeline
  * contract in ./contract.ts; sources register through ctx.slash alone.
  */
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { SlashService } from './service.ts'
 import type { MenuViewInjected } from './slots.ts'
@@ -29,8 +31,11 @@ declare module 'cordis' {
   }
 }
 
-/** Required services: controller resolution reads the session scope tree. */
-export const inject = ['sessions']
+/** Namespace owning the candidate-menu copy: group titles keyed by source name plus the pending row. */
+const MENU_NS = 'slash.menu'
+
+/** Required services: controller resolution reads the session scope tree; the menu copy is localized. */
+export const inject = ['sessions', 'locale']
 
 /**
  * Client plugin body: mount the service, then register MenuView into the
@@ -39,6 +44,13 @@ export const inject = ['sessions']
  */
 export function apply(ctx: ClientContext): void {
   ctx.plugin(SlashService)
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(MENU_NS, 'zh', { command: '命令', skill: '技能', subagent: '子智能体', loading: '正在加载…' }),
+      ctx.locale.register(MENU_NS, 'en', { command: 'Commands', skill: 'Skills', subagent: 'Subagents', loading: 'Loading…' }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-slash: menu dictionaries')
   // Conditional mount: 'conversation.input.overlay' is declared by the
   // conversation composer entry, and the conversation service is mounted
   // after that declaration lands on the ledger — its presence is the
@@ -59,6 +71,8 @@ export function apply(ctx: ClientContext): void {
         return {
           menu: controller.menu,
           onPick: (source, index) => { controller.pick(source, index) },
+          onDismiss: () => { controller.dismiss() },
+          t: scope.locale.bind(MENU_NS),
         }
       },
     }, MenuView), 'ui-slash: MenuView overlay registration')
