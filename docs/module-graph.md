@@ -180,7 +180,6 @@ flowchart TD
     pkg_agent_spine_demo["agent-spine-demo"]
     pkg_cli_demo["cli-demo"]
     pkg_jsonrpc_demo["jsonrpc-demo"]
-    pkg_tui_demo["tui-demo"]
   end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
@@ -935,24 +934,6 @@ flowchart TD
   pkg_cli_demo --> pkg_session_persistence_jsonl
   pkg_cli_demo --> pkg_tools
   pkg_cli_demo --> pkg_workspace_context
-  pkg_tui_demo --> pkg_agent
-  pkg_tui_demo --> pkg_agent_loop
-  pkg_tui_demo --> pkg_agent_spine_demo
-  pkg_tui_demo --> pkg_command_goal
-  pkg_tui_demo --> pkg_commands
-  pkg_tui_demo --> pkg_invariants
-  pkg_tui_demo --> pkg_llm
-  pkg_tui_demo --> pkg_session
-  pkg_tui_demo --> pkg_session_checkpoint_policy
-  pkg_tui_demo --> pkg_session_persistence_jsonl
-  pkg_tui_demo --> pkg_session_query
-  pkg_tui_demo --> pkg_session_query_sqlite
-  pkg_tui_demo --> pkg_session_reference
-  pkg_tui_demo --> pkg_tool_ask_user
-  pkg_tui_demo --> pkg_tools
-  pkg_tui_demo --> pkg_tui
-  pkg_tui_demo --> pkg_user_interaction
-  pkg_tui_demo --> pkg_workspace_context
   pkg_sdk_client --> pkg_invariants
   pkg_sdk_client --> pkg_llm
   pkg_sdk_client --> pkg_sdk_protocol
