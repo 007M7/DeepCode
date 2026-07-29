@@ -57,6 +57,8 @@ interface SdkScenario {
   configs?: { live: string; replay: string }
   /** Cwd-relative files whose final contents are part of the scenario contract. */
   expectedFiles?: Readonly<Record<string, string>>
+  /** Assembled model-facing tool names and required argument keys. */
+  expectedTools?: Readonly<Record<string, readonly string[]>>
 }
 
 const SCENARIOS: SdkScenario[] = [
@@ -85,6 +87,7 @@ const SCENARIOS: SdkScenario[] = [
     children: 0,
     configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },
     expectedFiles: { 'note.txt': 'beta\n' },
+    expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
   },
 ]
 
@@ -110,6 +113,20 @@ async function persistedLogs(sessionsRoot: string): Promise<PersistedLog[]> {
     const header = JSON.parse(content.slice(0, content.indexOf('\n'))) as Record<string, unknown>
     return { path, content, header }
   }))
+}
+
+interface LoggedRequestHeader {
+  type?: string
+  data?: { header?: { tools?: Array<{ name: string; parameters: { required?: string[] } }> } }
+}
+
+function assembledToolRequirements(log: PersistedLog): Record<string, string[]> {
+  const event = log.content.trimEnd().split('\n')
+    .map(line => JSON.parse(line) as LoggedRequestHeader)
+    .find(candidate => candidate.type === 'request/header')
+  const tools = event?.data?.header?.tools
+  if (tools === undefined) throw new Error('session log has no request/header tools')
+  return Object.fromEntries(tools.map(tool => [tool.name, tool.parameters.required ?? []]))
 }
 
 function contextOf(logs: readonly { content: string; header: Record<string, unknown> }[], cwd: string): NormalizeContext {
@@ -337,6 +354,11 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       expect(result.status).toBe('ok')
       expect(notifications.at(-1)?.method).toBe('session.finished')
       expect(observedFiles).toEqual(scenario.expectedFiles ?? {})
+      if (scenario.expectedTools !== undefined) {
+        const parent = ordered[0]
+        if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
+        expect(assembledToolRequirements(parent)).toEqual(scenario.expectedTools)
+      }
       if (scenario.children > 0) {
         expect(notifications.some(n => n.method === 'subagent.started')).toBe(true)
         expect(notifications.some(n => n.method === 'subagent.finished')).toBe(true)
