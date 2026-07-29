@@ -597,7 +597,7 @@ export class Session {
     for (const seq of nodes.slice(this.derivedNodes)) {
       // Surface sequences are built from this.log — seq is always a valid
       // index by construction. The non-null assertion expresses that invariant.
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      // oxlint-disable-next-line typescript/no-non-null-assertion
       const msg = this.deriveEventMessage(this.log[seq]!)
       // A surface node is one of the five message-producing types, but an
       // empty-content assistant/message (a max-tokens step that hosts only
@@ -912,7 +912,7 @@ export class SessionStore extends Service {
       } catch (error: unknown) {
         // Preserve the listener's exact rejection value; flush is a caller-owned
         // failure boundary, and Cordis listeners may throw arbitrary values.
-        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
         return Promise.reject(error)
       }
     }))

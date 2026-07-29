@@ -103,7 +103,7 @@ export function applyGoalProjection(state: GoalProjection | null, event: Session
   // Session-log data is a durable boundary: the static type promises the kind,
   // but a foreign or corrupted change record must degrade to same-reference,
   // never feed the zod parse in the registry drive.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- durable-boundary guard
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- durable-boundary guard
   if (change === undefined || change.kind !== 'goal/change') return state
   if (change.operation === 'clear') return null
   return {

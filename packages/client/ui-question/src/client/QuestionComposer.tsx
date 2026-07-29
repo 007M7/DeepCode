@@ -37,7 +37,7 @@ export function parseRecommendedLabel(label: string): { label: string; recommend
 /** Return whether a text-field key event belongs to an active IME composition. */
 function isComposing(event: KeyboardEvent<HTMLTextAreaElement | HTMLInputElement>): boolean {
   // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
-  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  // oxlint-disable-next-line typescript/no-deprecated
   return event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
 }
 
@@ -70,9 +70,9 @@ function QuestionFlow({ pending, t, useLocale }: {
   const [busy, setBusy] = useState<'answer' | 'cancel' | null>(null)
   const [error, setError] = useState<Feedback | null>(null)
   // index stays in bounds (every setIndex site clamps) and drafts mirrors questions 1:1.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const question = questions[index]!
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const draft = drafts[index]!
   const hasOptions = (question.options?.length ?? 0) > 0
 
