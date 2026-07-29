@@ -6,9 +6,9 @@ spawn 提供方会在当前进程中创建一个全新的子 `Agent`。子 agent
 
 ## 行为
 
-`start(request)` 不提供初始内容，直接委托给 [`startInProcessRun`](../subagent-inprocess/README.md)，并在子 agent 发布后才返回。子 agent 获得父 agent 的工作目录/会话谱系，并默认继承父 agent 模型（除非覆盖），但以空对话开始运行。
+`start(request)` 不传入 seed，直接委托给 [`startInProcessRun`](../subagent-inprocess/README.md)，并在子 agent 发布后才返回。子 agent 获得父 agent 的工作目录/会话谱系，并默认继承父 agent 模型（除非覆盖），但以空对话开始运行。
 
-共享驱动器负责深度检查、persona 与工具过滤器设置、结构化输出、必需信号取消、单次执行、结果读取和完全停稳后的 dispose（资源释放）。启动失败不会留下已发布的子 agent；提供方插件在完成后卸载，也不会撤销由持有方拥有的运行。
+共享驱动器负责深度检查、persona 与工具过滤器设置、结构化输出、通过必需的信号执行取消、单次执行、结果读取和完全停稳后的 dispose（资源释放）。启动遭拒不会留下已发布的子 agent；启动调用兑现后卸载提供方，也不会撤销由持有方拥有的运行。
 
 ## 能力
 
@@ -30,7 +30,7 @@ spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona:
 
 #### Token 影响
 
-子 agent 为全新的独立上下文和历史支付 token 成本；不会复制父 agent 历史 token。persona 会改变该子 agent 的重复提示词成本，过滤则会改变其 schema 或生成 SDK 的成本。
+子 agent 会为全新的独立上下文和历史消耗 token；不会复制父 agent 历史的 token。persona 会改变该子 agent 反复使用的提示词成本，过滤则会改变其 schema 或生成 SDK 的成本。
 
 #### KV Cache 影响
 
@@ -50,7 +50,7 @@ spawn 声明 `{ outputSchema: true, depthLimit: true, toolFilter: true, persona:
 
 仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **运行不公开 `sendMessage`/`resume`**：进程内运行不具备这些可选运行时能力。
-- **全新表示不含父 agent transcript**：子 agent 会继承 cwd、谱系、模型及显式配置的 persona/工具限制，但不继承父 agent 的任何对话；需要已完成轮次上下文时，请使用 fork 提供方。
+- **全新表示不含父 agent transcript（文本记录）**：子 agent 会继承 cwd、谱系、模型及显式配置的 persona/工具限制，但不继承父 agent 的任何对话；需要已完成轮次上下文时，请使用 fork 提供方。

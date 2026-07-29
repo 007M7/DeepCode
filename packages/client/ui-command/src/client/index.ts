@@ -21,7 +21,7 @@ export { filterOptions, PopupSelectController } from './popup.ts'
 export type { PopupSelectDeps, PopupSpec, PopupState, TokenSegment } from './popup.ts'
 export type { PopupSelectInjected } from './PopupSelectView.tsx'
 export type {
-  CommandContribution, CommandServiceContract, CommandUiSpec, SelectOption,
+  CommandContribution, CommandDecoration, CommandServiceContract, CommandUiSpec, SelectOption,
 } from './contract.ts'
 
 declare module 'cordis' {

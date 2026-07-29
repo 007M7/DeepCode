@@ -1,12 +1,20 @@
-/* Assistant flow body: full-width narration (figma 16/28), block gap 16. */
+/* Assistant flow body: full-width narration (figma 16/28), block gap 16.
+   IconActions sit below the body with an explicit 16px top margin (figma
+   43:32997) — separate from the body's internal gap so the footer spacing
+   stays fixed when the body is a single block. */
 
 .root {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   font-size: 16px;
   line-height: 28px;
   color: var(--dsw-alias-label-primary);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 /* Interrupted-turn terminal marker: quiet inline tag, no animation. */
@@ -18,4 +26,19 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 18px;
+}
+
+/* Finalized footer offset (figma 43:32997); chrome lives in MessageIconActions. */
+.actions {
+  margin-top: 16px;
+  /* Optical align with 28px icon hit targets that pad 6px past the glyph. */
+  margin-left: -6px;
+}
+
+/* Hover-capable pointers: reveal shared actions on root hover/focus. */
+@media (hover: hover) {
+  .root:hover .actions,
+  .root:focus-within .actions {
+    opacity: 1;
+  }
 }
