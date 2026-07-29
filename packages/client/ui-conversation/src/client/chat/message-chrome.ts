@@ -1,7 +1,10 @@
 // Shared chrome helpers for user/assistant IconActions rows: clipboard write
 // and the compact date+clock label from a session-event epoch.
 
-/** Best-effort clipboard write; rejections stay swallowed (no success chrome). */
+/**
+ * Best-effort clipboard write; rejections stay swallowed (no success chrome).
+ * @param text - Plain text to place on the clipboard.
+ */
 export async function writeClipboard(text: string): Promise<void> {
   // lib.dom types clipboard non-optional, but insecure contexts omit it —
   // that runtime gap is exactly what this guard detects.
