@@ -24,7 +24,6 @@ import type {
 // Session selection controls for the SessionProvider and useSessions stubs.
 const selectedSession = { current: 's-test' as SessionId | undefined }
 const selectedSessionBlank = { current: false }
-const sessionsPhase = { current: 'ready' as SessionListState['phase'] }
 const baselinesReady = { current: true }
 
 // Render-prop contract stub fed through the standard seat prop (the renderer
@@ -56,7 +55,6 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
 function mountFrame() {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
   const instance = createLayoutStore().create()
-  instance.actions.openDetails() // seed: sidebar at default 280, details open at default 360
   const slotCalls: { key: string; props: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, props: owner })
@@ -74,7 +72,7 @@ function mountFrame() {
         ? {}
         : { [current]: { id: current, displayTitle: 'Test', running: false, blank: selectedSessionBlank.current, updatedAt: 1 } },
       current,
-      phase: sessionsPhase.current,
+      phase: 'ready',
     } as SessionListState
     return sel(sessionState)
   }) as never
@@ -116,9 +114,7 @@ beforeEach(() => {
   frameWidth = 1920
   selectedSession.current = 's-test' as SessionId
   selectedSessionBlank.current = false
-  sessionsPhase.current = 'ready'
   baselinesReady.current = true
-  localStorage.clear() // the layout store persists; instances must not bleed across tests
   vi.useFakeTimers()
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => setTimeout(() => { cb(0) }, 16) as unknown as number)
@@ -176,7 +172,7 @@ describe('AppFrame', () => {
     expect(slotCalls.map(c => c.key)).toContain('details')
   })
 
-  it('closes details when the ready current Session changes, including New Session, and keeps it closed on return', () => {
+  it('ignores unselected states and closes only when the Session id changes', () => {
     const { frame, instance, rerenderFrame } = mountFrame()
     expect(tracks(frame)).toEqual([280, 360])
 
@@ -189,31 +185,30 @@ describe('AppFrame', () => {
     selectedSessionBlank.current = true
     act(() => { rerenderFrame() })
     expect(tracks(frame)).toEqual([280, 0])
+    expect(instance.getSnapshot().details).toBe(360)
 
-    selectedSession.current = 's-test' as SessionId
+    selectedSession.current = 's-next' as SessionId
     selectedSessionBlank.current = false
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 0])
+    expect(tracks(frame)).toEqual([280, 360])
 
-    act(() => { instance.actions.openDetails() })
     selectedSession.current = undefined
+    act(() => { rerenderFrame() })
+    expect(tracks(frame)).toEqual([280, 0])
+    selectedSession.current = 's-test' as SessionId
     act(() => { rerenderFrame() })
     expect(tracks(frame)).toEqual([280, 0])
   })
 
-  it('preserves open details across active-session baseline restore but closes it for an initial New Session view', () => {
-    sessionsPhase.current = 'pending'
-    const active = mountFrame()
-    expect(tracks(active.frame)).toEqual([280, 360])
-    sessionsPhase.current = 'ready'
-    act(() => { active.rerenderFrame() })
-    expect(tracks(active.frame)).toEqual([280, 360])
-    active.unmount()
+  it('keeps the default details width when the first Session materializes', () => {
+    selectedSession.current = undefined
+    const { frame, instance, rerenderFrame } = mountFrame()
+    expect(tracks(frame)).toEqual([280, 0])
+    expect(instance.getSnapshot().details).toBe(360)
 
-    selectedSession.current = 's-blank' as SessionId
-    selectedSessionBlank.current = true
-    const blank = mountFrame()
-    expect(tracks(blank.frame)).toEqual([280, 0])
+    selectedSession.current = 's-first' as SessionId
+    act(() => { rerenderFrame() })
+    expect(tracks(frame)).toEqual([280, 360])
   })
 
   it('sidebar slot receives live concession output as owner props', () => {

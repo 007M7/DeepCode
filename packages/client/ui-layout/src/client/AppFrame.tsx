@@ -91,33 +91,21 @@ export function AppFrame({
   renderSlot,
 }: AppFrameProps) {
   const panels = useStore(s => s)
-  const sessionsPhase = useSessions(s => s.phase)
   const detailsSession = useSessions((s) => {
     const current = s.current
-    if (current === undefined) return undefined
-    const session = s.byId[current]
-    return session !== undefined && !session.blank ? current : undefined
+    return current !== undefined && s.byId[current]?.blank === false ? current : undefined
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
-  // The first ready active Session is baseline restoration, so its persisted
-  // panel may remain open. New Session has no inspectable selection, and any
-  // later details owner change closes the root-scoped column before paint.
-  const detailsBaselineReady = useRef(false)
-  const previousDetailsSession = useRef(detailsSession)
+  const lastSession = useRef(detailsSession)
   useLayoutEffect(() => {
-    if (sessionsPhase !== 'ready') return
-    if (!detailsBaselineReady.current) {
-      detailsBaselineReady.current = true
-      previousDetailsSession.current = detailsSession
-      if (detailsSession === undefined) actions.closeDetails()
-      return
+    if (detailsSession === undefined) return
+    if (lastSession.current !== undefined && lastSession.current !== detailsSession) {
+      actions.closeDetails()
     }
-    if (previousDetailsSession.current === detailsSession) return
-    previousDetailsSession.current = detailsSession
-    actions.closeDetails()
-  }, [actions, detailsSession, sessionsPhase])
+    lastSession.current = detailsSession
+  }, [actions, detailsSession])
 
   // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
   useEffect(() => {
@@ -139,12 +127,12 @@ export function AppFrame({
     }
   }, [])
 
-  const cols = computeColumns(viewport, panels.sidebar, panels.details)
+  const cols = computeColumns(viewport, panels.sidebar, detailsSession === undefined ? 0 : panels.details)
   const colsRef = useRef(cols)
   colsRef.current = cols
 
   // The drag base is the rendered width captured at drag start (grabbing a
-  // concession-clamped panel must not jump back to the persisted preference);
+  // concession-clamped panel must not jump back to the stored preference);
   // it stays frozen for the whole gesture so dx deltas do not compound.
   const sidebarBase = useRef(0)
   const detailsBase = useRef(0)
