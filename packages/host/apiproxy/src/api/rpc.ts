@@ -44,6 +44,13 @@ export interface RpcErrorDetailsMap {
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
   'unknown-command': {}
+  /**
+   * A settings write was refused (schema validation, unknown namespace,
+   * read-only provider, or storage failure); the message is the seam's text.
+   */
+  'settings-rejected': { ns: string }
+  /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
+  'credential-rejected': { ref: string }
   'internal': {}
 }
 

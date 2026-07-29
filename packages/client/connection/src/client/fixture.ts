@@ -28,7 +28,7 @@ import type {
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -97,6 +97,35 @@ const OPENAI_REASONING = {
     { id: 'max', name: 'Max' },
   ],
   defaultEffort: 'medium',
+}
+
+/** Catalog served by `session.models` and `llm.models` alike (fresh copies per call). */
+function fixtureModelGroups(): ModelProviderGroup[] {
+  return [
+    {
+      id: 'deepseek-official',
+      name: 'DeepSeek',
+      models: [
+        {
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek-V4-Flash',
+          description: '快速响应',
+          reasoning: DEEPSEEK_REASONING,
+        },
+        {
+          id: 'deepseek-v4-pro',
+          name: 'DeepSeek-V4-Pro',
+          description: '复杂任务',
+          reasoning: DEEPSEEK_REASONING,
+        },
+      ],
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
+    },
+  ]
 }
 
 function sid(id: string): SessionId {
@@ -558,6 +587,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     session.sessionId,
     { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
+  /** Credential store double: set/unset flip the describe badge, values never read back. */
+  const fixtureCredentials = new Map<string, string>()
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -879,31 +910,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
           ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-        groups: [
-          {
-            id: 'deepseek-official',
-            name: 'DeepSeek',
-            models: [
-              {
-                id: 'deepseek-v4-flash',
-                name: 'DeepSeek-V4-Flash',
-                description: '快速响应',
-                reasoning: DEEPSEEK_REASONING,
-              },
-              {
-                id: 'deepseek-v4-pro',
-                name: 'DeepSeek-V4-Pro',
-                description: '复杂任务',
-                reasoning: DEEPSEEK_REASONING,
-              },
-            ],
-          },
-          {
-            id: 'openai',
-            name: 'OpenAI',
-            models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
-          },
-        ],
+        groups: fixtureModelGroups(),
         failures: [],
       }),
       selectModel: (request) => {
@@ -1276,6 +1283,50 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
       },
     },
+    settings: {
+      // The fixture registers no namespaces yet: the Models surface renders
+      // its provider list from llm.providers alone, and a real settings form
+      // rides the HTTP transport (a hand-written schema envelope here would
+      // drift from schemastery's real serialization).
+      describe: request => ok(request, { writable: true, namespaces: [] }),
+      update: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: no settings namespaces are registered',
+        details: { ns: request.payload.ns },
+      }),
+      replace: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: no settings namespaces are registered',
+        details: { ns: request.payload.ns },
+      }),
+    },
+    credentials: {
+      describe: request => ok(request, {
+        credentials: Object.fromEntries(request.payload.refs.map(ref => [ref, {
+          configured: fixtureCredentials.has(ref),
+          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
+          writable: true,
+        }])),
+      }),
+      set: (request) => {
+        fixtureCredentials.set(request.payload.ref, request.payload.value)
+        return ok(request, {})
+      },
+      unset: (request) => {
+        fixtureCredentials.delete(request.payload.ref)
+        return ok(request, {})
+      },
+    },
+    llm: {
+      providers: request => ok(request, {
+        providers: [
+          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+        ],
+      }),
+      models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
+    },
     respond(message: ClientResponse): Promise<RpcReceipt> {
       if (!questionPending || message.rpcId !== pendingQuestionRpcId) {
         return Promise.resolve({ accepted: false, reason: 'not-pending' })
@@ -1351,6 +1402,14 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'goal.resume': return this.api.goals.resume(request)
       case 'goal.complete': return this.api.goals.complete(request)
       case 'goal.clear': return this.api.goals.clear(request)
+      case 'settings.describe': return this.api.settings.describe(request)
+      case 'settings.update': return this.api.settings.update(request)
+      case 'settings.replace': return this.api.settings.replace(request)
+      case 'credentials.describe': return this.api.credentials.describe(request)
+      case 'credentials.set': return this.api.credentials.set(request)
+      case 'credentials.unset': return this.api.credentials.unset(request)
+      case 'llm.providers': return this.api.llm.providers(request)
+      case 'llm.models': return this.api.llm.models(request)
     }
   }
 

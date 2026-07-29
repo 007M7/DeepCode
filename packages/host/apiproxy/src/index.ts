@@ -59,6 +59,9 @@ export class ApiProxyService extends Service implements ApiProxy {
   readonly commands: ApiProxy['commands']
   readonly goals: ApiProxy['goals']
   readonly skills: ApiProxy['skills']
+  readonly settings: ApiProxy['settings']
+  readonly credentials: ApiProxy['credentials']
+  readonly llm: ApiProxy['llm']
   readonly events: ApiProxy['events']
   readonly respond: ApiProxy['respond']
 
@@ -77,6 +80,9 @@ export class ApiProxyService extends Service implements ApiProxy {
     this.commands = api.commands
     this.goals = api.goals
     this.skills = api.skills
+    this.settings = api.settings
+    this.credentials = api.credentials
+    this.llm = api.llm
     this.events = api.events
     // createApiProxy returns closures (no `this` capture); bind only satisfies
     // the unbound-method lint without changing behavior.

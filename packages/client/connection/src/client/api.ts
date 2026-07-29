@@ -13,6 +13,8 @@ export type {
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
   ModelReasoningEffort, ModelTarget, SessionModels,
   GoalsApi, GoalRef,
+  SettingsApi, SettingsNamespaceView, SettingsSecretView,
+  CredentialsApi, CredentialView, ConfigurableProviderView, LlmApi,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 export type {

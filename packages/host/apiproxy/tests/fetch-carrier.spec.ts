@@ -155,6 +155,36 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
       },
     },
+    settings: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, namespaces: [] } } }
+      },
+      async update(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+      async replace(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+    },
+    credentials: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { credentials: {} } } }
+      },
+      async set(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+      async unset(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+    },
+    llm: {
+      async providers(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { providers: [] } } }
+      },
+      async models(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { groups: [], failures: [] } } }
+      },
+    },
     events: {
       mux: (_request, signal) => stream(muxFrames, signal),
       host: (_request, signal) => stream(hostFrames, signal),

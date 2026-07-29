@@ -16,6 +16,22 @@ export const name = 'client-connection'
 export const inject = ['httpServer', 'apiProxy']
 
 /**
+ * Methods gated on the trusted same-origin loopback check. Native dialogs act
+ * on the host machine; settings and credential writes mutate the user's
+ * configuration and secret store. Under `--host 0.0.0.0` every other method
+ * is reachable LAN-wide, but these stay browser-same-origin-on-loopback until
+ * a real authentication layer exists.
+ */
+const PRIVILEGED_METHODS = new Set([
+  'host.pickDirectory',
+  'host.openPath',
+  'settings.update',
+  'settings.replace',
+  'credentials.set',
+  'credentials.unset',
+])
+
+/**
  * Mounts the API gateway under the browser transport prefix.
  * @param ctx - Host plugin context.
  */
@@ -26,8 +42,8 @@ export function apply(ctx: Context): void {
     path: API_PATH,
     handler: async (req, res) => {
       const pathname = new URL(req.url ?? '/', 'http://dsh.internal').pathname
-      if ((pathname === `${API_PATH}/host.pickDirectory`
-        || pathname === `${API_PATH}/host.openPath`)
+      if (pathname.startsWith(`${API_PATH}/`)
+        && PRIVILEGED_METHODS.has(pathname.slice(API_PATH.length + 1))
         && !isTrustedNativeDialogRequest(req)) {
         res.writeHead(403)
         res.end('forbidden')

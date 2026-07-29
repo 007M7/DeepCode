@@ -24,9 +24,9 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
-  MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSummary, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
+  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSummary,
+  SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -38,6 +38,12 @@ import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
+// The settings/credentials seams: brand guards run at this wire boundary; the
+// service reads stay optional (`ctx.get`) so a composition without either
+// provider still serves every other domain.
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsDescriptor, SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -86,6 +92,82 @@ function paginate(
 /** Wrap an ok result echoing the request's rpcId. */
 function ok<T>(request: RpcRequest<unknown>, value: T): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: true, value } }
+}
+
+/**
+ * Build the provider/model catalog over every registered route. Shared by the
+ * session-scoped `session.models` (which passes the session's current target
+ * so an unlisted current model still renders selectable) and the host-scoped
+ * `llm.models` (no current). Per-provider failures ride `failures` without
+ * failing the sound groups; groups that advertise nothing are dropped.
+ */
+async function buildModelCatalog(
+  ctx: Context,
+  current?: { provider: string; model: string },
+): Promise<{ groups: ModelProviderGroup[]; failures: ModelCatalogFailure[] }> {
+  const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
+    try {
+      const advertised = await ctx.llm.listModels(provider.id)
+      const models = [...advertised]
+      if (
+        current !== undefined
+        && provider.id === current.provider
+        && !models.some(model => model.id === current.model)
+      ) {
+        models.push({
+          provider: provider.id,
+          id: current.model,
+          name: current.model,
+        })
+      }
+      const entries = await Promise.all(models.map(async (model) => {
+        const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
+        const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
+          ? undefined
+          : {
+            efforts: resolved.reasoning.efforts.map(effort => ({
+              id: effort.id,
+              name: effort.name,
+              ...effort.description === undefined
+                ? {}
+                : { description: effort.description },
+            })),
+            ...resolved.reasoning.defaultEffort === undefined
+              ? {}
+              : { defaultEffort: resolved.reasoning.defaultEffort },
+          }
+        return {
+          id: model.id,
+          name: model.name,
+          ...model.description === undefined ? {} : { description: model.description },
+          ...current !== undefined
+            && provider.id === current.provider
+            && model.id === current.model
+            && !advertised.some(candidate => candidate.id === current.model)
+            ? { unlisted: true as const }
+            : {},
+          ...reasoning === undefined ? {} : { reasoning },
+        }
+      }))
+      const group: ModelProviderGroup = {
+        id: provider.id,
+        name: provider.name,
+        models: entries,
+      }
+      return { kind: 'group' as const, group }
+    } catch (error: unknown) {
+      const failure: ModelCatalogFailure = {
+        id: provider.id,
+        name: provider.name,
+        message: error instanceof Error ? error.message : String(error),
+      }
+      return { kind: 'failure' as const, failure }
+    }
+  }))
+  return {
+    groups: catalog.flatMap(item => item.kind === 'group' ? [item.group] : []).filter(group => group.models.length > 0),
+    failures: catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : []),
+  }
 }
 
 /** Wrap an error result echoing the request's rpcId. */
@@ -716,6 +798,69 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
+  /** Missing-service report shared by the settings domain (skills-domain stance). */
+  function settingsAbsent(): RpcError {
+    return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-local) in its composition', details: {} }
+  }
+
+  /** Missing-service report shared by the credentials domain. */
+  function credentialsAbsent(): RpcError {
+    return { code: 'internal', message: 'credentials service is absent: this deployment does not mount a credential provider (e.g. @deepseek-ai/dsh-credentials-local) in its composition', details: {} }
+  }
+
+  /** Map one redacted seam descriptor to its wire view. */
+  function namespaceView(descriptor: SettingsDescriptor): SettingsNamespaceView {
+    return {
+      ns: String(descriptor.ns),
+      schema: descriptor.schema,
+      value: descriptor.value,
+      ...descriptor.base === undefined ? {} : { base: descriptor.base },
+      ...descriptor.user === undefined ? {} : { user: descriptor.user },
+      applies: descriptor.applies,
+      secrets: (descriptor.secrets ?? []).map(secret => ({ path: [...secret.path], set: secret.set })),
+    }
+  }
+
+  /**
+   * Run one settings write (merge or wholesale replace) and acknowledge with
+   * the namespace's new redacted view. Every seam refusal — unknown or
+   * invalid namespace, read-only provider, schema validation, storage —
+   * becomes one `settings-rejected` carrying the seam's own message.
+   */
+  async function settingsWrite(
+    request: RpcRequest<unknown>,
+    ns: string,
+    mode: 'update' | 'replace',
+    section: object,
+  ): Promise<RpcResponse<SettingsNamespaceView>> {
+    const settings = ctx.get('settings')
+    if (settings === undefined) return err(request, settingsAbsent())
+    const rejected = (error: unknown): RpcResponse<SettingsNamespaceView> => err(request, {
+      code: 'settings-rejected',
+      message: error instanceof Error ? error.message : String(error),
+      details: { ns },
+    })
+    let branded: SettingsNamespace
+    try {
+      branded = settingsNamespace(ns)
+    } catch (error: unknown) {
+      return rejected(error)
+    }
+    try {
+      if (mode === 'update') await settings.update(branded, section)
+      else await settings.replace(branded, section)
+    } catch (error: unknown) {
+      return rejected(error)
+    }
+    const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === branded)
+    if (descriptor === undefined) {
+      // The write committed but the namespace vanished before this read: only
+      // a concurrent registrant disposal can produce it.
+      return err(request, { code: 'internal', message: `settings namespace "${ns}" was disposed after the ${mode}`, details: {} })
+    }
+    return ok(request, namespaceView(descriptor))
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -826,70 +971,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
         const current = targetFor(found.agent).current
-        const catalog = await Promise.all(ctx.llm.listProviders().map(async (provider) => {
-          try {
-            const advertised = await ctx.llm.listModels(provider.id)
-            const models = [...advertised]
-            if (
-              provider.id === current.provider
-              && !models.some(model => model.id === current.model)
-            ) {
-              models.push({
-                provider: provider.id,
-                id: current.model,
-                name: current.model,
-              })
-            }
-            const entries = await Promise.all(models.map(async (model) => {
-              const resolved = await ctx.llm.resolveModelInfo(provider.id, model.id)
-              const reasoning: ModelReasoning | undefined = resolved.reasoning === undefined
-                ? undefined
-                : {
-                  efforts: resolved.reasoning.efforts.map(effort => ({
-                    id: effort.id,
-                    name: effort.name,
-                    ...effort.description === undefined
-                      ? {}
-                      : { description: effort.description },
-                  })),
-                  ...resolved.reasoning.defaultEffort === undefined
-                    ? {}
-                    : { defaultEffort: resolved.reasoning.defaultEffort },
-                }
-              return {
-                id: model.id,
-                name: model.name,
-                ...model.description === undefined ? {} : { description: model.description },
-                ...provider.id === current.provider
-                  && model.id === current.model
-                  && !advertised.some(candidate => candidate.id === current.model)
-                  ? { unlisted: true as const }
-                  : {},
-                ...reasoning === undefined ? {} : { reasoning },
-              }
-            }))
-            const group: ModelProviderGroup = {
-              id: provider.id,
-              name: provider.name,
-              models: entries,
-            }
-            return { kind: 'group' as const, group }
-          } catch (error: unknown) {
-            const failure: ModelCatalogFailure = {
-              id: provider.id,
-              name: provider.name,
-              message: error instanceof Error ? error.message : String(error),
-            }
-            return { kind: 'failure' as const, failure }
-          }
-        }))
-        const groups = catalog.flatMap(item => item.kind === 'group' ? [item.group] : [])
-        const failures = catalog.flatMap(item => item.kind === 'failure' ? [item.failure] : [])
-        return ok(request, {
-          current: { ...current },
-          groups: groups.filter(group => group.models.length > 0),
-          failures,
-        })
+        const { groups, failures } = await buildModelCatalog(ctx, current)
+        return ok(request, { current: { ...current }, groups, failures })
       },
 
       async selectModel(request) {
@@ -1265,6 +1348,101 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
     },
 
+    settings: {
+      describe(request) {
+        const settings = ctx.get('settings')
+        if (settings === undefined) return Promise.resolve(err(request, settingsAbsent()))
+        return Promise.resolve(ok(request, {
+          writable: settings.writable,
+          namespaces: settings.describe({ redactSecrets: true }).map(namespaceView),
+        }))
+      },
+      update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch),
+      replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section),
+    },
+
+    credentials: {
+      async describe(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const entries = await Promise.all(request.payload.refs.map(async (ref) => {
+          const info = await credentials.describe(credentialRef(ref))
+          const view: CredentialView = {
+            configured: info.configured,
+            ...info.source === undefined ? {} : { source: info.source },
+            writable: info.writable,
+          }
+          return [ref, view] as const
+        }))
+        return ok(request, { credentials: Object.fromEntries(entries) })
+      },
+
+      async set(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const { ref, value } = request.payload
+        try {
+          await credentials.set(credentialRef(ref), value)
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'credential-rejected',
+            message: error instanceof Error ? error.message : String(error),
+            details: { ref },
+          })
+        }
+        return ok(request, {})
+      },
+
+      async unset(request) {
+        const credentials = ctx.get('credentials')
+        if (credentials === undefined) return err(request, credentialsAbsent())
+        const { ref } = request.payload
+        try {
+          await credentials.unset(credentialRef(ref))
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'credential-rejected',
+            message: error instanceof Error ? error.message : String(error),
+            details: { ref },
+          })
+        }
+        return ok(request, {})
+      },
+    },
+
+    llm: {
+      providers(request) {
+        const registered = ctx.llm.listProviders()
+        const active = new Set(registered.map(provider => provider.id))
+        const directory = ctx.llm.listConfigurableProviders()
+        const declared = new Set(directory.map(entry => entry.provider))
+        const views = directory.map(entry => ({
+          provider: entry.provider,
+          displayName: entry.displayName,
+          settingsNs: entry.settingsNs,
+          settingsPath: [...entry.settingsPath],
+          active: active.has(entry.provider),
+        }))
+        // Routes registered without a directory declaration still appear —
+        // they exist and serve models — just with no settings address.
+        for (const provider of registered) {
+          if (declared.has(provider.id)) continue
+          views.push({
+            provider: provider.id,
+            displayName: provider.name,
+            settingsNs: '',
+            settingsPath: [],
+            active: true,
+          })
+        }
+        return Promise.resolve(ok(request, { providers: views }))
+      },
+
+      async models(request) {
+        return ok(request, await buildModelCatalog(ctx))
+      },
+    },
+
     events: {
       mux(_request, signal) {
         const queue = new FrameQueue<RpcRequest<MuxFrame>>()
@@ -1391,6 +1569,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           ctx.on('commands/change', () => {
             queue.push(frame({ type: 'host/commands-changed' }))
+          }),
+          ctx.on('settings/updated', (ns) => {
+            queue.push(frame({ type: 'host/settings-changed', ns: String(ns) }))
+          }),
+          ctx.on('credentials/updated', (ref) => {
+            queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))
+          }),
+          ctx.on('llm/adapters-updated', () => {
+            queue.push(frame({ type: 'host/models-changed' }))
           }),
         ]
         return queue.iterate(signal, () => { for (const dispose of disposers) dispose() })

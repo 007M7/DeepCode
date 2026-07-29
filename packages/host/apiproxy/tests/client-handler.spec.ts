@@ -24,6 +24,9 @@ function scriptedApi(overrides: {
   skills?: Partial<ApiProxy['skills']>
   events?: Partial<ApiProxy['events']>
   goals?: Partial<ApiProxy['goals']>
+  settings?: Partial<ApiProxy['settings']>
+  credentials?: Partial<ApiProxy['credentials']>
+  llm?: Partial<ApiProxy['llm']>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
@@ -78,6 +81,23 @@ function scriptedApi(overrides: {
       clear: err,
       ...overrides.goals,
     },
+    settings: {
+      describe: r => ok(r, { writable: true, namespaces: [] }),
+      update: err,
+      replace: err,
+      ...overrides.settings,
+    },
+    credentials: {
+      describe: r => ok(r, { credentials: {} }),
+      set: err,
+      unset: err,
+      ...overrides.credentials,
+    },
+    llm: {
+      providers: r => ok(r, { providers: [] }),
+      models: r => ok(r, { groups: [], failures: [] }),
+      ...overrides.llm,
+    },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
   }
@@ -85,6 +105,15 @@ function scriptedApi(overrides: {
 
 function client(api: ApiProxy, timeoutMs?: number): InProcessApiClient {
   return new InProcessApiClient(toFetchHandler(api), timeoutMs)
+}
+
+/** Wrap one scripted method to record its invocation into `seen` before responding. */
+function recorderInto(seen: { method: string; payload: unknown }[]) {
+  return <P, V>(method: string, respond: (r: RpcRequest<P>) => Promise<RpcResponse<V>>) =>
+    (r: RpcRequest<P>): Promise<RpcResponse<V>> => {
+      seen.push({ method, payload: r.payload })
+      return respond(r)
+    }
 }
 
 describe('unary round trip', () => {
@@ -424,11 +453,7 @@ describe('goals unary surface', () => {
 
   it('round-trips every goal method with its own payload and value shape', async () => {
     const seen: { method: string; payload: unknown }[] = []
-    const record = <P, V>(method: string, respond: (r: RpcRequest<P>) => Promise<RpcResponse<V>>) =>
-      (r: RpcRequest<P>): Promise<RpcResponse<V>> => {
-        seen.push({ method, payload: r.payload })
-        return respond(r)
-      }
+    const record = recorderInto(seen)
     const api = scriptedApi({
       goals: {
         create: record('goal.create', r => ok(r, ack)),
@@ -540,5 +565,76 @@ describe('envelope tap', () => {
     await tapped.sessions.list({})
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(batches).toEqual([])
+  })
+})
+
+describe('config unary surface', () => {
+  it('round-trips every settings/credentials/llm method with its own payload and value shape', async () => {
+    const seen: { method: string; payload: unknown }[] = []
+    const record = recorderInto(seen)
+    const view = {
+      ns: 'llm-deepseek',
+      schema: { uid: 1, refs: { 1: { type: 'object' } } },
+      value: { baseURL: 'https://next' },
+      user: { baseURL: 'https://next' },
+      applies: 'live' as const,
+      secrets: [{ path: ['apiKey'], set: true }],
+    }
+    const providerRow = {
+      provider: 'openai',
+      displayName: 'openai',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'openai'],
+      active: false,
+    }
+    const group = { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'Flash' }] }
+    const api = scriptedApi({
+      settings: {
+        describe: record('settings.describe', r => ok(r, { writable: true, namespaces: [view] })),
+        update: record('settings.update', r => ok(r, view)),
+        replace: record('settings.replace', r => ok(r, view)),
+      },
+      credentials: {
+        describe: record('credentials.describe', r => ok(r, { credentials: { OPENAI_API_KEY: { configured: true, source: 'file', writable: true } } })),
+        set: record('credentials.set', r => ok(r, {})),
+        unset: record('credentials.unset', r => ok(r, {})),
+      },
+      llm: {
+        providers: record('llm.providers', r => ok(r, { providers: [providerRow] })),
+        models: record('llm.models', r => ok(r, { groups: [group], failures: [] })),
+      },
+    })
+    const c = client(api)
+
+    const described = await c.settings.describe({})
+    expect(described.result).toEqual({ ok: true, value: { writable: true, namespaces: [view] } })
+    const updated = await c.settings.update({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
+    expect(updated.result).toEqual({ ok: true, value: view })
+    const replaced = await c.settings.replace({ ns: 'llm-deepseek', section: {} })
+    expect(replaced.result).toEqual({ ok: true, value: view })
+    const creds = await c.credentials.describe({ refs: ['OPENAI_API_KEY'] })
+    expect(creds.result).toEqual({ ok: true, value: { credentials: { OPENAI_API_KEY: { configured: true, source: 'file', writable: true } } } })
+    expect((await c.credentials.set({ ref: 'OPENAI_API_KEY', value: 'sk-x' })).result).toEqual({ ok: true, value: {} })
+    expect((await c.credentials.unset({ ref: 'OPENAI_API_KEY' })).result).toEqual({ ok: true, value: {} })
+    const providers = await c.llm.providers({})
+    expect(providers.result).toEqual({ ok: true, value: { providers: [providerRow] } })
+    const models = await c.llm.models({})
+    expect(models.result).toEqual({ ok: true, value: { groups: [group], failures: [] } })
+
+    expect(seen.map(call => call.method)).toEqual([
+      'settings.describe', 'settings.update', 'settings.replace',
+      'credentials.describe', 'credentials.set', 'credentials.unset',
+      'llm.providers', 'llm.models',
+    ])
+    expect(seen[1]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
+    expect(seen[4]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
+  })
+
+  it('rejects an invalid credential reference name at the carrier boundary', async () => {
+    const api = scriptedApi()
+    const response = await client(api).credentials.set({ ref: 'not a var', value: 'x' })
+    expect(response.result.ok).toBe(false)
+    if (response.result.ok) throw new Error('unreachable')
+    expect(response.result.error.code).toBe('bad-request')
   })
 })

@@ -1,0 +1,63 @@
+/**
+ * settings domain contract: the web face of the user-settings seam
+ * (`ctx.settings`). Every payload that leaves this domain is redacted by the
+ * seam (`describe({ redactSecrets: true })` semantics): `role('secret')`
+ * fields never ride a response in any layer, and the `secrets` slot list is
+ * how a form learns a write-only field exists and whether it is configured.
+ */
+
+import type { RpcRequest, RpcResponse } from './rpc.ts'
+
+/** One schema-declared secret slot inside a redacted namespace value. */
+export interface SettingsSecretView {
+  /** Path from the section root to the removed field. */
+  path: string[]
+  /** Whether the slot currently holds a value (the value itself never rides). */
+  set: boolean
+}
+
+/** Wire view of one registered settings namespace. */
+export interface SettingsNamespaceView {
+  /** Namespace key (`llm-deepseek`, `llm-pi-ai`, …). */
+  ns: string
+  /** Serialized schemastery schema envelope (`schema.toJSON()`); rehydrate with `new Schema(json)`. */
+  schema: unknown
+  /** Redacted resolved value (schema defaults → composition base → user layer). */
+  value: unknown
+  /** Redacted composition base layer, when the registrant declared one. */
+  base?: unknown
+  /** Redacted raw user section, when one exists; a field's presence here marks it user-overridden. */
+  user?: unknown
+  /** When the owner applies changes. */
+  applies: 'live' | 'restart'
+  /** Every schema-declared secret slot with its configured state. */
+  secrets: SettingsSecretView[]
+}
+
+/** Settings-domain unary methods (the map keys settings.* of RpcMethodMap). */
+export interface SettingsApi {
+  /**
+   * Describe every registered namespace: redacted layered values plus the
+   * serialized schema a client renders its form from. `writable: false`
+   * (read-only provider) tells the client to disable every write control.
+   */
+  describe(request: RpcRequest<{}>): Promise<RpcResponse<{ writable: boolean; namespaces: SettingsNamespaceView[] }>>
+
+  /**
+   * Merge a patch into one namespace's user layer (validate → persist →
+   * commit). Secret-role fields may be INCLUDED in the patch (write-only
+   * direction); a form that leaves a secret untouched simply omits it and the
+   * merge preserves the stored value. Responds with the namespace's new
+   * redacted view; a schema or storage rejection is `settings-rejected`.
+   */
+  update(request: RpcRequest<{ ns: string; patch: object }>): Promise<RpcResponse<SettingsNamespaceView>>
+
+  /**
+   * Replace one namespace's user section wholesale — the removal/reset path a
+   * merge cannot express (`section: {}` resets to composition defaults). Keys
+   * absent from `section` are dropped, secrets included: a client must first
+   * fold the descriptor's `user` layer (and re-supply any secret it wants to
+   * keep) or accept the reset.
+   */
+  replace(request: RpcRequest<{ ns: string; section: object }>): Promise<RpcResponse<SettingsNamespaceView>>
+}
