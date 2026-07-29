@@ -4,7 +4,7 @@ title "DSH snapshot"
 cursor hidden column=6 viewportRow=4 bufferRow=4
 buffer
 0| "                                                                                            "
-1| "  Resume session (1 of 2)                                                                   "
+1| "  Resume session (1 of 3)                                                                   "
   style 2-24 fg=bright-magenta bold
 2| "                                                                                            "
 3| "  ╭──────────────────────────────────────────────────────────────────────────────────────╮  "
@@ -16,9 +16,9 @@ buffer
 5| "  ╰──────────────────────────────────────────────────────────────────────────────────────╯  "
   style 2-89 dim
 6| "                                                                                            "
-7| "  this workspace /workspace/project  ⇥ all workspaces (3)                                   "
-  style 2-34 fg=bright-magenta
-  style 35-56 dim
+7| "  all workspaces (3)  ⇥ this workspace (2)                                                  "
+  style 2-19 fg=bright-magenta
+  style 20-41 dim
 8| "                                                                                            "
 9| "  ❯ Untitled session                                                                        "
   style 2-19 fg=bright-magenta bold
@@ -26,19 +26,24 @@ buffer
   style 2-67 dim
 11| "    current · live · main-session                                                           "
   style 2-32 dim
-12| "    unavailable: current session                                                            "
+12| "    workspace /workspace/project                                                            "
+  style 2-31 dim
+13| "    unavailable: current session                                                            "
   style 2-31 fg=yellow
-13| "    Resume selector design                                                                  "
-14| "    2024-01-01T00:00:08.000Z · turn 1: completed · deepseek/deepseek-v4-pro                 "
+14| "    Other workspace work                                                                    "
+15| "    2024-02-02T00:00:08.000Z · turn 1: completed · deepseek/deepseek-v4-pro                 "
   style 2-74 dim
-15| "    persisted · earlier-session                                                             "
+16| "    persisted · elsewhere-session                                                           "
+  style 2-32 dim
+17| "    workspace /workspace/other                                                              "
+  style 2-29 dim
+18| "    Resume selector design                                                                  "
+19| "    2024-01-01T00:00:08.000Z · turn 1: completed · deepseek/deepseek-v4-pro                 "
+  style 2-74 dim
+20| "    persisted · earlier-session                                                             "
   style 2-30 dim
-16| "                                                                                            "
-17| "                                                                                            "
-18| "                                                                                            "
-19| "                                                                                            "
-20| "                                                                                            "
-21| "                                                                                            "
+21| "    workspace /workspace/project                                                            "
+  style 2-31 dim
 22| "                                                                                            "
 23| "                                                                                            "
 24| "                                                                                            "

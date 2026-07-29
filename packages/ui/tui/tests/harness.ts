@@ -71,6 +71,8 @@ export interface TuiHarnessOptions {
     load?(id: ReturnType<typeof SessionId>): Promise<{ meta: SessionHeader; events: Session['events'] }>
   }
   handoffResume?: TuiRuntime['handoffResume']
+  /** Host-supplied exit line; absent exercises the no-message path. */
+  goodbyeMessage?: TuiRuntime['goodbyeMessage']
   /** Set false to exercise the optional session-query degradation path. */
   mountSessionQuery?: boolean
 }
@@ -253,6 +255,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
     ...(options.handoffResume === undefined ? {} : { handoffResume: options.handoffResume }),
+    ...(options.goodbyeMessage === undefined ? {} : { goodbyeMessage: options.goodbyeMessage }),
     gitBranch: options.gitBranch ?? (() => 'tui-staging'),
   })
   return { ctx, session, agent, terminal, exit, controller }
