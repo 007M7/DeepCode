@@ -151,7 +151,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
   }) as unknown as ConversationSessionProps['renderSlot']
   return render(
     <ConversationSession
-      composer={null}
+      composer={<textarea aria-label="Message" />}
       sessionId={SID}
       SessionProvider={({ children }) => children(SID)}
       useSession={useSession}
@@ -203,6 +203,7 @@ describe('tab switching in ConversationRoot', () => {
     expect(screen.queryByRole('columnheader')).toBeNull()
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Trajectory timeline' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Collapse turns' }))
     expect(view.container.querySelector('[data-collapsed-summary="turn"]')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Expand turns' }))

@@ -217,8 +217,8 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
   })
 
-  it('keeps pending takeover interaction accessible outside the Chat view', () => {
-    const b = mount(conversationSnapshot({ pending: [{} as never] }))
+  it('keeps the composer accessible under the Trajectory view', () => {
+    const b = mount(conversationSnapshot())
     act(() => { b.chat.actions.setView('trajectory') })
     expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
     expect(b.view.getByRole('textbox')).toBeTruthy()
