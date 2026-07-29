@@ -67,7 +67,10 @@ export class LocalSubprocessService extends SubprocessService {
         pending.push(terminal.waitForExit().then(() => { this.terminals.delete(terminal) }))
       }
       this.live.clear()
-      await Promise.all(pending)
+      const outcomes = await Promise.allSettled(pending)
+      for (const outcome of outcomes) {
+        if (outcome.status === 'rejected') throw outcome.reason
+      }
       await rm(this.runtimeRoot, { recursive: true, force: true })
     }, 'local subprocess teardown')
   }
@@ -106,7 +109,7 @@ export class LocalSubprocessService extends SubprocessService {
       ? (environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';')
       : ['']
     return path.split(delimiter).flatMap(directory =>
-      directory === '' ? [] : extensions.map(extension => resolve(this.cwd, directory, command + extension)))
+      extensions.map(extension => resolve(this.cwd, directory, command + extension)))
   }
 
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {

@@ -1,7 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { rm, stat } from 'node:fs/promises'
-import { basename, delimiter, dirname, relative } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import type { SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -42,6 +42,9 @@ describe('LocalSubprocessService', () => {
     expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), {
       PATH: relative(process.cwd(), dirname(process.execPath)) || '.',
     })).toBe(process.execPath)
+    Reflect.set(ctx.subprocess, 'cwd', dirname(process.execPath))
+    expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), { PATH: '' }))
+      .toBe(process.execPath)
     await expect(ctx.subprocess.resolveExecutable('')).rejects.toThrow('must be non-empty')
     await expect(ctx.subprocess.resolveExecutable('dsh-command-that-does-not-exist', { PATH: '' }))
       .rejects.toThrow('was not found on PATH')
@@ -54,7 +57,7 @@ describe('LocalSubprocessService', () => {
     await fiber.dispose()
   })
 
-  it('builds Windows executable candidates without empty PATH entries', async () => {
+  it('builds Windows executable candidates with case-insensitive overrides', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
     const service = ctx.subprocess as LocalSubprocessService
@@ -64,13 +67,13 @@ describe('LocalSubprocessService', () => {
     const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     try {
       expect(Object.keys(childEnv()).filter(key => key.toUpperCase() === 'PATH')).toHaveLength(1)
-      const explicit = childEnv({ Path: `${delimiter}/bin`, PathExt: '.EXE;.CMD' })
+      const explicit = childEnv({ Path: '/bin', PathExt: '.EXE;.CMD' })
       expect(Object.keys(explicit).filter(key => key.toUpperCase() === 'PATH')).toEqual(['Path'])
       expect(Object.keys(explicit).filter(key => key.toUpperCase() === 'PATHEXT')).toEqual(['PathExt'])
       expect(candidates('tool', explicit)).toEqual(['/bin/tool.EXE', '/bin/tool.CMD'])
       expect(candidates('tool', { Path: '/ambient', PATH: '/explicit', PATHEXT: '.EXE' }))
         .toEqual(['/explicit/tool.EXE'])
-      expect(candidates('tool.exe', {})).toEqual([])
+      expect(candidates('tool.exe', {})).toEqual([resolve(process.cwd(), 'tool.exe')])
       expect(candidates('tool', { PATH: '/bin' })).toHaveLength(4)
     } finally {
       platform.mockRestore()
@@ -116,12 +119,12 @@ describe('LocalSubprocessService', () => {
     expect(terminals.size).toBe(0)
   })
 
-  it('retains an owned terminal when disposal cleanup rejects', async () => {
+  it('waits for every terminal cleanup and retains rejections', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
     const service = ctx.subprocess
     const runtimeRoot = service.runtimeRoot
-    const terminal: SubprocessTerminalHandle = {
+    const failedTerminal: SubprocessTerminalHandle = {
       pid: 1,
       output: new PassThrough(),
       done: Promise.resolve({ exitCode: 0, signal: null }),
@@ -131,11 +134,26 @@ describe('LocalSubprocessService', () => {
       terminate: vi.fn(),
       waitForExit: vi.fn(async () => { throw new Error('retryable cleanup failure') }),
     }
+    let finishCleanup!: () => void
+    const cleanup = new Promise<boolean>((resolve) => {
+      finishCleanup = () => { resolve(true) }
+    })
+    const drainingTerminal: SubprocessTerminalHandle = {
+      ...failedTerminal,
+      terminate: vi.fn(),
+      waitForExit: vi.fn(() => cleanup),
+    }
     const terminals = (service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
-    terminals.add(terminal)
+    terminals.add(failedTerminal)
+    terminals.add(drainingTerminal)
 
-    await fiber.dispose()
-    expect(terminals).toEqual(new Set([terminal]))
+    let disposed = false
+    const disposing = fiber.dispose().then(() => { disposed = true })
+    await new Promise(resolve => setImmediate(resolve))
+    expect(disposed).toBe(false)
+    finishCleanup()
+    await disposing
+    expect(terminals).toEqual(new Set([failedTerminal]))
     expect((await stat(runtimeRoot)).isDirectory()).toBe(true)
     await rm(runtimeRoot, { recursive: true, force: true })
   })
