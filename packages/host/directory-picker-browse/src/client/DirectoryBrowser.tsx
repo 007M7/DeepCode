@@ -233,10 +233,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     })
   }, [launchListing])
 
-  // An editing-time pick parks focus on the selection after commit; the
-  // flag is set by select() and consumed by the refocus effect below the
-  // miller-row ref.
+  // Editor-close focus parking (consumed by the refocus effect below the
+  // miller-row ref): a pick parks on the selection's row, Enter and an
+  // input-focused Escape park on the crumb edit zone that replaces the
+  // input. Pointer-out cancels never set (or clear) these — yanking focus
+  // back from wherever the user clicked would be worse than the fall.
   const refocusPick = useRef(false)
+  const refocusEditZone = useRef(false)
+  const pathInputRef = useRef<HTMLInputElement | null>(null)
+  const editZoneRef = useRef<HTMLButtonElement | null>(null)
 
   /** Select a row of the listed level and preview its children on the right. */
   const select = useCallback((entry: DirectoryEntry) => {
@@ -373,17 +378,33 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     const row = millerRowRef.current
     if (row !== null && childPath !== undefined) row.scrollLeft = row.scrollWidth
   }, [childPath])
-  // An editing-time pick unmounts the focused input, and a right-pane pick
-  // additionally replaces the picked button's whole column (advance swaps
-  // both panes): park focus on the selection's row — aria-current in the
-  // freshly rendered left pane — after commit, so keyboard traversal stays
-  // inside the dialog (the Modal has no focus trap).
+  // Every editor exit that would drop focus to body re-parks it after
+  // commit, so keyboard traversal stays inside the dialog (the Modal has no
+  // focus trap): a pick lands on the selection's row — aria-current in the
+  // freshly rendered left pane, which survives even a right-pane advance
+  // replacing the picked button's column — while Enter and an input-focused
+  // Escape land on the crumb edit zone that replaces the input.
   useEffect(() => {
-    if (!refocusPick.current) return
-    refocusPick.current = false
-    /* v8 ignore next 2 -- narrowing guard: the pick that set the flag just rendered its aria-current row inside the miller row. */
-    const row = millerRowRef.current?.querySelector<HTMLButtonElement>('button[aria-current="true"]')
-    row?.focus()
+    if (pathDraft !== null) return
+    if (refocusPick.current) {
+      refocusPick.current = false
+      refocusEditZone.current = false
+      const rowHost = millerRowRef.current
+      /* v8 ignore next -- narrowing guard: the miller row is mounted whenever a pick just committed. */
+      if (rowHost === null) return
+      const row = rowHost.querySelector<HTMLButtonElement>('button[aria-current="true"]')
+      /* v8 ignore next -- narrowing guard: the pick that set the flag just rendered its aria-current row. */
+      if (row === null) return
+      row.focus()
+      return
+    }
+    if (refocusEditZone.current) {
+      refocusEditZone.current = false
+      const zone = editZoneRef.current
+      /* v8 ignore next -- narrowing guard: crumb mode renders the edit zone whenever the editor just closed. */
+      if (zone === null) return
+      zone.focus()
+    }
   })
 
   if (!open) return null
@@ -424,6 +445,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           // document listener — the same containment the input previously
           // provided for itself.
           event.stopPropagation()
+          // Escape while the input holds focus is about to unmount it; with
+          // focus already parked on a row, that row survives the cancel and
+          // keeps focus naturally.
+          if (document.activeElement === pathInputRef.current) refocusEditZone.current = true
           cancelPathEdit()
         }}
         // Focus leaving THIS dialog card while editing cancels like Escape.
@@ -442,6 +467,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
           /* v8 ignore next -- narrowing guard: this scope always renders inside the Modal card. */
           if (card === null) return
           if (event.relatedTarget instanceof Node && card.contains(event.relatedTarget)) return
+          // The user moved focus out of the card themselves: cancel without
+          // re-parking (a lingering Enter-failure flag must not yank focus
+          // back either).
+          refocusEditZone.current = false
           cancelPathEdit()
         }}
       >
@@ -475,6 +504,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                     // listing itself fails, typing an absolute path is the one
                     // remaining way forward.
                     disabled={parentInert}
+                    ref={editZoneRef}
                     onClick={() => {
                     // Opening the editor supersedes any pending listing: a
                     // settlement landing before the first keystroke would
@@ -502,6 +532,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   value={pathDraft}
                   aria-label={t('browser.editPath')}
                   autoFocus
+                  ref={pathInputRef}
                   disabled={parentInert}
                   onChange={(event) => {
                   // Editing the draft supersedes any in-flight navigation:
@@ -521,7 +552,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                       // Trim only detects a blank draft; the Host gets the
                       // original text — a real directory name may end in
                       // whitespace, and trimming would list its sibling.
-                      if (pathDraft.trim() !== '') navigate(pathDraft)
+                      if (pathDraft.trim() !== '') {
+                        // Success will unmount the still-focused input; park
+                        // focus on the returning crumb edit zone (a failure
+                        // keeps the editor, so the flag waits until close).
+                        refocusEditZone.current = true
+                        navigate(pathDraft)
+                      }
                     }
                   }}
                 />
@@ -586,8 +623,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
             onMouseDown={draftPending ? (event) => { event.preventDefault() } : undefined}
             onClick={() => { setShowHidden(prev => !prev) }}
           >
-            {showHidden && <IconCheckOutline16 size={14} />}
             {t('browser.showHidden')}
+            {/* Trailing check (Menu's selected vocabulary): the label never
+              * shifts when the pressed state toggles. */}
+            {showHidden && <IconCheckOutline16 size={14} />}
           </button>
           <span className={css.footerGap} />
           <Button variant="outline" className={clsx(css.footerAction)} disabled={parentInert} onClick={onClose}>{t('browser.cancel')}</Button>

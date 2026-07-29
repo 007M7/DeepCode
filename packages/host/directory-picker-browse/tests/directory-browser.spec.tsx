@@ -227,6 +227,9 @@ describe('DirectoryBrowser', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
     expect(columns()).toHaveLength(1)
+    // The submitted navigation unmounted the focused input; focus parks on
+    // the crumb edit zone that replaced it.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const again = screen.getByLabelText<HTMLInputElement>('browser.editPath')
     fireEvent.change(again, { target: { value: '   ' } })
@@ -234,6 +237,8 @@ describe('DirectoryBrowser', () => {
     expect(b.listDirectory).toHaveBeenCalledTimes(2)
     fireEvent.keyDown(again, { key: 'Escape' })
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // Escape with focus in the input parks focus on the returning edit zone.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
   })
 
   it('prefix-filters the listed level from the draft tail, dot revealing hidden matches', async () => {
@@ -324,9 +329,12 @@ describe('DirectoryBrowser', () => {
     // Tab parked focus on the result row; Escape must still mean "leave
     // path editing", not "close the whole dialog".
     const row = rowButton(screen.getByRole('listitem'))
+    row.focus()
     fireEvent.keyDown(row, { key: 'Escape' })
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
     expect(b.onClose).not.toHaveBeenCalled()
+    // Focus was already on a surviving row, so nothing re-parks it.
+    expect(document.activeElement).toBe(row)
     // With no draft left, Escape falls through to the Modal and closes.
     fireEvent.keyDown(row, { key: 'Escape' })
     expect(b.onClose).toHaveBeenCalledTimes(1)
