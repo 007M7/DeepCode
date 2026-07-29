@@ -184,6 +184,24 @@ describe('parseAnsiLines: backspaces', () => {
     ])
   })
 
+  it('steps over an SGR sequence instead of erasing its bytes', () => {
+    // `abc` reset then two backspaces then `XY`: erasing the reset's bytes would
+    // corrupt it and repaint the rest of the line with whatever the remainder
+    // parses as. The visible result is `aXY`, still red, with the reset intact.
+    expect(parseAnsiLines(`${sgr('31', 'abc')}${BS}${BS}XY`)).toEqual([[
+      { text: 'a', style: { color: 'var(--dsw-alias-state-error-primary)' } },
+      { text: 'XY', style: undefined },
+    ]])
+  })
+
+  it('erases across a style boundary without dropping the styles between', () => {
+    // The backspace reaches back past the reset to the last printed character.
+    expect(parseAnsiLines(`${sgr('32', 'ok')}${ESC}[31m${BS}bad`)).toEqual([[
+      { text: 'o', style: { color: 'var(--dsw-alias-state-success-primary)' } },
+      { text: 'bad', style: { color: 'var(--dsw-alias-state-error-primary)' } },
+    ]])
+  })
+
   it('applies the overwrite after a carriage-return redraw, not before', () => {
     // The redraw wins first; the backspace then erases inside what survived.
     expect(onlySpan(`old\rnew${BS}`)).toEqual({ text: 'ne', style: undefined })

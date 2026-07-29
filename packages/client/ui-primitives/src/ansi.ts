@@ -114,14 +114,49 @@ function applyCarriageReturns(text: string): string {
  */
 function applyBackspaces(text: string): string {
   if (!text.includes('\u0008')) return text
-  return text.split('\n').map((line) => {
-    const kept: string[] = []
-    for (const char of line) {
-      if (char === '\u0008') kept.pop()
-      else kept.push(char)
+  return text.split('\n').map(applyBackspacesToLine).join('\n')
+}
+
+/**
+ * One line's backspaces, resolved over VISIBLE characters only. A CSI sequence
+ * moves no cursor, so it must survive intact: erasing its bytes would corrupt
+ * the sequence and repaint the rest of the output with whatever the mangled
+ * remainder parses as. The sequences are therefore held as indivisible units
+ * that a backspace steps over on its way to the last printed character, and a
+ * unit already erased stays erased so a run's own color still applies to what
+ * remains of it.
+ * @param line - one output line, still carrying its CSI sequences.
+ * @returns the line with each backspace applied to the character before it.
+ */
+function applyBackspacesToLine(line: string): string {
+  if (!line.includes('\u0008')) return line
+  const units: { text: string; visible: boolean }[] = []
+  // Same shape anser splits on: CSI ... final byte. Matched here so a sequence
+  // is one unit rather than a run of erasable characters.
+  const csi = /\u001b\[[\u0030-\u003f]*[\u0020-\u002f]*[\u0040-\u007e]/g
+  let at = 0
+  for (const match of line.matchAll(csi)) {
+    for (const char of line.slice(at, match.index)) units.push({ text: char, visible: true })
+    units.push({ text: match[0], visible: false })
+    at = match.index + match[0].length
+  }
+  for (const char of line.slice(at)) units.push({ text: char, visible: true })
+
+  const kept: { text: string; visible: boolean }[] = []
+  for (const unit of units) {
+    if (unit.visible && unit.text === '\u0008') {
+      // Walk back past any escapes to the last printed character and drop it,
+      // keeping those escapes so the surviving text stays styled as authored.
+      for (let index = kept.length - 1; index >= 0; index--) {
+        if (kept[index]?.visible !== true) continue
+        kept.splice(index, 1)
+        break
+      }
+      continue
     }
-    return kept.join('')
-  }).join('\n')
+    kept.push(unit)
+  }
+  return kept.map(unit => unit.text).join('')
 }
 
 /**

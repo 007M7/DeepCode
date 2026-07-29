@@ -153,6 +153,32 @@ describe('terminalCardModel', () => {
     }))?.card.cwd).toBe('../elsewhere')
   })
 
+  it('keeps a UNC server and share as an unpoppable root', () => {
+    // Windows cannot climb above a share, so `..` from the share root stays put.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '..' }),
+    }), '\\\\server\\share')?.card.cwd).toBe('\\\\server\\share')
+    // Below the share it pops normally, keeping the UNC separators.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '..' }),
+    }), '\\\\server\\share\\app')?.card.cwd).toBe('\\\\server\\share')
+    // Several `..` cannot escape the root either.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '../../..' }),
+    }), '\\\\server\\share\\app')?.card.cwd).toBe('\\\\server\\share')
+  })
+
+  it('draws a bare $ when the window dropped the call head, rather than guessing', () => {
+    // A truncated call carries no cwd anywhere: the result view has none, and
+    // the original call may have used an explicit workdir. Falling back to the
+    // session workspace here would name a directory the card cannot know.
+    expect(terminalCardModel(settled({
+      call: null, callView: null, resultView: resultTerminal({ title: 'ls -la' }),
+    }), '/w/app')?.card.cwd).toBeUndefined()
+    // A present call view that omits its cwd still means the workspace.
+    expect(terminalCardModel(settled(), '/w/app')?.card.cwd).toBe('/w/app')
+  })
+
   it('carries the call view\'s description, which the contract renders above the card', () => {
     expect(terminalCardModel(settled())?.description).toBe('List files')
     expect(terminalCardModel(running())?.description).toBe('List files')
@@ -229,6 +255,16 @@ describe('chat row terminal body', () => {
     expect([...rows].map(row => row.textContent)).toEqual(['$ls -la', '$echo done'])
     // Still one dot for the call, on the first row.
     expect(view.container.querySelectorAll('[data-terminal] [data-state]')).toHaveLength(1)
+  })
+
+  it('the fallback row shows the presenter description, not the args summary', () => {
+    // Any terminal-declaring tool without its own keyed row lands here, so the
+    // contract's above-card description has to win at this render site as well.
+    const view = render(<GenericToolCard {...ownerProps(settled({
+      callView: callTerminal({ description: 'Terminal 3' }),
+    }))} />)
+    expect(view.getByText('Terminal 3')).toBeTruthy()
+    expect(view.queryByText('List files')).toBeNull()
   })
 
   it('a running terminal call expands to the prompt line with no output yet', () => {

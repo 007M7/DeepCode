@@ -68,31 +68,59 @@ function resolveTerminalCwd(viewCwd: string | undefined, sessionCwd: string | un
  * running, so a joined `/w/app/..` must display as `w`, not as `..`. Separators
  * are preserved as authored (a Windows path keeps its backslashes) because this
  * value is only ever displayed; a `..` that would climb past the root is
- * dropped, which is what a filesystem does with it.
+ * dropped, which is what a filesystem does with it. A UNC path's `server` and
+ * `share` are part of its root, not poppable segments: Windows cannot climb
+ * above a share, so `\\\\server\\share` with a `..` stays there.
  * @param path - a joined or absolute path, possibly carrying `.`/`..` segments.
  * @returns the same path with those segments resolved.
  */
 function normalizeSegments(path: string): string {
   if (!/(?:^|[/\\])\.\.?(?:[/\\]|$)/.test(path)) return path
+  // A UNC path is `\\\\server\\share\\...`: the server and share form the root,
+  // so they are split off here and neither is a segment `..` may pop. Its
+  // separator is fixed to a backslash, since a joined relative part may have
+  // introduced a forward slash that UNC syntax does not use.
+  const unc = /^[/\\]{2}([^/\\]+)[/\\]+([^/\\]+)/.exec(path)
+  if (unc !== null) {
+    // Both groups are mandatory in the pattern, so destructuring types them as
+    // strings without an assertion.
+    const [matched, server, share] = unc
+    const root = `\\\\${String(server)}\\${String(share)}`
+    // Rooted: what follows the share hangs off it, so a `..` at the top is
+    // dropped rather than kept — Windows cannot climb above a share.
+    const rest = collapse(path.slice(matched.length), true)
+    return rest === '' ? root : `${root}\\${rest}`
+  }
   const backslashed = path.includes('\\') && !path.includes('/')
   const separator = backslashed ? '\\' : '/'
-  const leading = /^[/\\]/.test(path) ? separator : ''
+  const rooted = /^[/\\]/.test(path)
   const drive = /^[A-Za-z]:/.exec(path)?.[0] ?? ''
+  const body = collapse(path.slice(drive.length), rooted || drive !== '', separator)
+  const leading = rooted ? separator : ''
+  return drive === '' ? `${leading}${body}` : `${drive}${rooted ? leading : separator}${body}`
+}
+
+/**
+ * Collapse the `.`/`..` segments of a path body against a known root state.
+ * @param body - the path after any drive letter or UNC root.
+ * @param rooted - the body hangs off a root, so a `..` at its top is dropped
+ *   the way a filesystem drops one; without a root the `..` is kept, since it
+ *   stays meaningful against a cwd this function cannot see.
+ * @param separator - separator to rejoin with (default `/`).
+ * @returns the collapsed body, without leading or trailing separators.
+ */
+function collapse(body: string, rooted: boolean, separator = '/'): string {
   const kept: string[] = []
-  for (const segment of path.slice(drive.length).split(/[/\\]/)) {
+  for (const segment of body.split(/[/\\]/)) {
     if (segment === '' || segment === '.') continue
     if (segment === '..') {
-      // Nothing to climb from: at a root the segment is dropped, matching the
-      // filesystem; on a relative path the `..` has to stay, since it is still
-      // meaningful against a cwd this function cannot see.
       if (kept.length > 0 && kept[kept.length - 1] !== '..') kept.pop()
-      else if (leading === '' && drive === '') kept.push(segment)
+      else if (!rooted) kept.push(segment)
       continue
     }
     kept.push(segment)
   }
-  const body = kept.join(separator)
-  return drive === '' ? `${leading}${body}` : `${drive}${leading === '' ? separator : leading}${body}`
+  return kept.join(separator)
 }
 
 /**
@@ -146,7 +174,12 @@ export function terminalCardModel(block: ToolCallBlock, sessionCwd?: string): Te
       // (the presentation contract's replacement-title rule); the call title is
       // what a result without one keeps.
       command: result.title ?? call?.title ?? '',
-      cwd: resolveTerminalCwd(call?.cwd, sessionCwd),
+      // Only a PRESENT call view can mean "omitted the cwd, so use the
+      // workspace". When the window dropped the call head there is no cwd
+      // anywhere — the result view carries none — and the original call may
+      // well have used an explicit workdir, so the prompt draws a bare `$`
+      // rather than naming a directory this card cannot know.
+      cwd: call === null ? undefined : resolveTerminalCwd(call.cwd, sessionCwd),
       output: result.output,
       exitCode: result.exitCode,
       signal: result.signal,
