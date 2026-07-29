@@ -500,6 +500,9 @@ export class SlotCore {
    * @returns disposer removing the registration and its declarations
    * (idempotent; stale disposers after a cascade are no-ops).
    */
+  /* jscpd:ignore-start -- the two register overloads are deliberately
+   * parallel declarations differing only in the inject share; folding them
+   * would lose the per-overload inference of I. */
   register<
     K extends keyof SlotMap & string,
     const D extends ChildrenDecl = Record<never, never>,
@@ -537,6 +540,7 @@ export class SlotCore {
       & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I, NoInfer<M>, NoInfer<N>>>
       & RendersCheck<C, D>,
   ): () => void
+  /* jscpd:ignore-end */
   register(options: ErasedOptions, component: unknown): () => void {
     const rec = this.records.get(options.name)
     if (!rec?.spec) {
