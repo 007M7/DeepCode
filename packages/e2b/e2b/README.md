@@ -24,7 +24,7 @@ Shared lifecycle owner for one E2B sandbox. The filesystem and subprocess adapte
 
 `apiKey` is optional and otherwise reads `E2B_API_KEY`; the key configures the host SDK connection and is never installed in the sandbox. `cwd` defaults to `/home/user/workspace` and must be an absolute POSIX path. `timeoutMs` defaults to five minutes. `onTimeout` is `pause` by default and accepts `pause | kill`; it applies only when this service creates a sandbox. Pause-on-timeout enables E2B auto-resume so the shared SDK handle wakes on its next operation. `onDispose` defaults to `kill` and accepts `kill | pause | leave`.
 
-Set `sandboxId` to reconnect a running or paused sandbox instead of creating one. E2B resumes a paused sandbox during connect; `template` is creation-only and cannot accompany `sandboxId`. Omitting `template` uses E2B's default base template.
+Set `sandboxId` to reconnect a running or paused sandbox instead of creating one. E2B resumes a paused sandbox during connect; `template` and `onTimeout` are creation-only and cannot accompany `sandboxId`. Omitting `template` uses E2B's default base template.
 
 ## Lifecycle and ownership
 

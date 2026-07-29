@@ -24,7 +24,7 @@
 
 `apiKey` 可省略；省略时读取 `E2B_API_KEY`。该密钥只配置宿主 SDK 连接，绝不会安装进沙箱。`cwd` 默认为 `/home/user/workspace`，并且必须是绝对 POSIX 路径。`timeoutMs` 默认为 5 分钟。`onTimeout` 默认为 `pause`，接受 `pause | kill`；它只在本服务创建沙箱时生效。超时时 pause 会启用 E2B 自动恢复，使共享 SDK 句柄在下一次操作时唤醒。`onDispose` 默认为 `kill`，接受 `kill | pause | leave`。
 
-设置 `sandboxId` 可重新连接正在运行或已经暂停的沙箱，而不是创建新沙箱。连接时，E2B 会恢复已经暂停的沙箱；`template` 仅用于创建，不能与 `sandboxId` 同时使用。省略 `template` 时使用 E2B 的默认基础模板。
+设置 `sandboxId` 可重新连接正在运行或已经暂停的沙箱，而不是创建新沙箱。连接时，E2B 会恢复已经暂停的沙箱；`template` 和 `onTimeout` 仅用于创建，不能与 `sandboxId` 同时使用。省略 `template` 时使用 E2B 的默认基础模板。
 
 ## 生命周期与所有权
 

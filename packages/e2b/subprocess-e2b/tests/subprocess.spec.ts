@@ -116,6 +116,7 @@ class FakeSandbox {
   environmentRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
   processGroupId = '4242\n'
   exitStatus = ''
+  statusReads = 0
   readonly processGroupReads: string[] = []
   afterStatusRead: (() => void) | undefined
   beforeProbe: (() => void) | undefined
@@ -222,6 +223,7 @@ class FakeSandbox {
           this.statusError = undefined
           throw error
         }
+        this.statusReads += 1
         this.afterStatusRead?.()
         return this.exitStatus
       },
@@ -415,9 +417,10 @@ describe('E2BSubprocessHandle', () => {
     expect(command).not.toContain('explicit-secret')
     expect(command).not.toContain('hyphen-value')
     expect(command).not.toContain('${!dsh_e2b_name}')
-    expect(fake.commandsSeen).toContain(
-      'set -o pipefail; printf \'%s\' "$PWD" | base64 -w 0; printf \'\\n\'; env -0 | base64 -w 0',
-    )
+    const environmentProbe = fake.commandsSeen.find(value => value.includes('env -0 | base64'))
+    expect(environmentProbe).toContain('getent passwd "$(id -u)"')
+    expect(environmentProbe).toContain('test -n "$dsh_e2b_home" -a -d "$dsh_e2b_home"')
+    expect(environmentProbe).not.toContain('"$PWD"')
     expect(command).toContain('mapfile -d')
     expect(command).toContain('dsh_e2b_node="$(command -v node)"')
     expect(command).toContain('"$dsh_e2b_env_bin" -i "$dsh_e2b_node" -e')
@@ -535,11 +538,13 @@ describe('E2BSubprocessHandle', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(settled).toBe(false)
     expect(fake.handle.disconnects).toBe(0)
+    expect(fake.statusReads).toBe(0)
 
     await fake.stdout('complete protocol frame')
     fake.finish()
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
     expect(output).toBe('complete protocol frame')
+    expect(fake.statusReads).toBe(1)
   })
 
   it('accepts clean encoder completion inside the output-drain grace', async () => {

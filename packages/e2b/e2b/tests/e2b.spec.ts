@@ -90,9 +90,6 @@ describe('E2BSandboxService', () => {
     await expect(service.sandboxId).resolves.toBe(E2BSandboxId('sandbox-1'))
     expect(service.cwd).toBe('/home/user/workspace')
     expect(service.runtimeRoot).toBe('/home/user/workspace/.dsh-e2b')
-    expect(service.created).toBe(true)
-    expect(service.timeoutMode).toBe('pause')
-    expect(service.disposeMode).toBe('kill')
     expect(sdk.create).toHaveBeenCalledWith({
       apiKey: 'test-key',
       timeoutMs: 300_000,
@@ -225,7 +222,6 @@ describe('E2BSandboxService', () => {
     ctx.logger.error = ((error: unknown) => { errors.push(error) }) as typeof ctx.logger.error
     const fiber = await ctx.plugin(E2BSandboxService, {
       apiKey: 'test-key',
-      onTimeout: reconnect ? 'kill' : 'pause',
       onDispose: 'pause',
       ...(reconnect ? { sandboxId: 'existing' } : {}),
     })
@@ -248,7 +244,6 @@ describe('E2BSandboxService', () => {
     })
     await ctx.e2b.getSandbox()
 
-    expect(ctx.e2b.created).toBe(false)
     expect(sdk.connect).toHaveBeenCalledWith('existing', { apiKey: 'test-key', timeoutMs: 90_000 })
     expect(sdk.create).not.toHaveBeenCalled()
     await fiber.dispose()
@@ -330,6 +325,7 @@ describe('E2BSandboxService', () => {
     [{ apiKey: 'x', timeoutMs: 0 }, /positive finite/],
     [{ apiKey: 'x', sandboxId: '' }, /sandboxId must be non-empty/],
     [{ apiKey: 'x', sandboxId: 'one', template: 'two' }, /template applies only/],
+    [{ apiKey: 'x', sandboxId: 'one', onTimeout: 'kill' }, /onTimeout applies only/],
   ] as const)('fails self-contained configuration before opening E2B: %j', async (config, message) => {
     vi.stubEnv('E2B_API_KEY', '')
     const ctx = new Context()

@@ -1,4 +1,7 @@
-/** Package-owned invariant companion for `@deepseek-ai/dsh-subprocess-e2b`. */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-subprocess-e2b`.
+ * @module @deepseek-ai/dsh-subprocess-e2b/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'

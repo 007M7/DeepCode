@@ -91,7 +91,6 @@ interface ResolvedConfig {
 interface SchemaResolvedConfig extends Config {
   cwd: string
   timeoutMs: number
-  onTimeout: E2BTimeoutMode
   onDispose: E2BDisposeMode
 }
 
@@ -113,7 +112,7 @@ export class E2BSandboxService extends Service {
     template: z.string(),
     cwd: z.string().default('/home/user/workspace'),
     timeoutMs: z.number().default(300_000),
-    onTimeout: z.union(['kill', 'pause'] as const).default('pause'),
+    onTimeout: z.union(['kill', 'pause'] as const),
     onDispose: z.union(['kill', 'pause', 'leave'] as const).default('kill'),
   })
 
@@ -121,17 +120,12 @@ export class E2BSandboxService extends Service {
   readonly cwd: string
   /** Remote directory reserved for adapter-owned process and terminal state. */
   readonly runtimeRoot: string
-  /** Whether this service creates a sandbox rather than reconnecting one. */
-  readonly created: boolean
-  /** Configured action when a newly created sandbox reaches its lifetime. */
-  readonly timeoutMode: E2BTimeoutMode
-  /** Configured final sandbox disposition. */
-  readonly disposeMode: E2BDisposeMode
   /** Sandbox id once E2B has created or resolved the remote runtime. */
   readonly sandboxId: Promise<E2BSandboxId>
 
   private readonly config: ResolvedConfig
   private readonly ready: Promise<Sandbox>
+  private readonly created: boolean
   private failedSetupSandbox: Sandbox | undefined
   private disposed = false
 
@@ -144,17 +138,15 @@ export class E2BSandboxService extends Service {
       apiKey: apiKey ?? '',
       cwd: resolved.cwd,
       timeoutMs: resolved.timeoutMs,
-      onTimeout: resolved.onTimeout,
+      onTimeout: config.onTimeout ?? 'pause',
       onDispose: resolved.onDispose,
       ...(config.sandboxId !== undefined ? { sandboxId: config.sandboxId } : {}),
       ...(config.template !== undefined ? { template: config.template } : {}),
     }
-    this.validate()
+    this.validate(config)
     this.cwd = this.config.cwd
     this.runtimeRoot = posix.join(this.cwd, '.dsh-e2b')
     this.created = this.config.sandboxId === undefined
-    this.timeoutMode = this.config.onTimeout
-    this.disposeMode = this.config.onDispose
     this.ready = this.open()
     // A deployment may load the owner before any adapter uses it. Keep a
     // failed eager connection observed; getSandbox() still returns the error.
@@ -218,7 +210,7 @@ export class E2BSandboxService extends Service {
     return sandbox
   }
 
-  private validate(): void {
+  private validate(input: Config): void {
     if (this.config.apiKey.length === 0) {
       throw new Error('dsh-e2b: configure apiKey or set E2B_API_KEY')
     }
@@ -233,6 +225,9 @@ export class E2BSandboxService extends Service {
     }
     if (this.config.sandboxId !== undefined && this.config.template !== undefined) {
       throw new Error('dsh-e2b: template applies only when creating; omit it when sandboxId reconnects')
+    }
+    if (this.config.sandboxId !== undefined && input.onTimeout !== undefined) {
+      throw new Error('dsh-e2b: onTimeout applies only when creating; omit it when sandboxId reconnects')
     }
   }
 

@@ -102,6 +102,9 @@ class FakeTerminalSandbox {
   sendError: unknown
   commandFailure: unknown
   makeDirRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
+  sendInputRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
+  foregroundRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
+  signalRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
   sessionGroupsFailure: unknown
   foregroundFailure: unknown
   termFailure: unknown
@@ -180,6 +183,8 @@ class FakeTerminalSandbox {
           return { exitCode: 0, stdout: this.sessionId, stderr: '' }
         }
         if (command.startsWith('ps -o tpgid=')) {
+          await this.foregroundRequest?.(options?.signal)
+          options?.signal?.throwIfAborted()
           if (this.foregroundFailure !== undefined) throw this.foregroundFailure
           return { exitCode: 0, stdout: this.foreground, stderr: '' }
         }
@@ -197,6 +202,10 @@ class FakeTerminalSandbox {
             this.handle.fail(143)
           }
         }
+        if (command.startsWith('kill -INT -- ')) {
+          await this.signalRequest?.(options?.signal)
+          options?.signal?.throwIfAborted()
+        }
         if (command.startsWith('kill -KILL -- ') && this.clearOnKill) this.groups = []
         return { exitCode: 0, stdout: '', stderr: '' }
       },
@@ -211,6 +220,8 @@ class FakeTerminalSandbox {
         return this.handle.asHandle()
       },
       sendInput: async (pid: number, data: Uint8Array, options?: { signal?: AbortSignal }): Promise<void> => {
+        options?.signal?.throwIfAborted()
+        await this.sendInputRequest?.(options?.signal)
         options?.signal?.throwIfAborted()
         this.inputs.push({ pid, data: Buffer.from(data) })
         if (this.sendError !== undefined) throw this.sendError
@@ -254,6 +265,19 @@ function spec(overrides: Partial<SubprocessTerminalSpawnSpec> = {}): SubprocessT
     graceMs: 5,
     env: { TERM: 'dumb', DSH_SESSION_ID: 'owner', TOKEN_EXPLICIT: 'kept' },
     ...overrides,
+  }
+}
+
+function holdRequestUntilAbort(started: PromiseWithResolvers<AbortSignal>) {
+  return async (signal: AbortSignal | undefined): Promise<void> => {
+    if (signal === undefined) throw new Error('expected an operation signal')
+    signal.throwIfAborted()
+    started.resolve(signal)
+    await new Promise<void>((_resolve, reject) => {
+      signal.addEventListener('abort', () => {
+        reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason)))
+      }, { once: true })
+    })
   }
 }
 
@@ -544,6 +568,43 @@ describe('E2B terminal allocation', () => {
 })
 
 describe('E2B terminal lifecycle', () => {
+  it('aborts and joins in-flight terminal operations before cleanup', async () => {
+    const fake = new FakeTerminalSandbox()
+    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/in-flight-operations')
+    const writeStarted = Promise.withResolvers<AbortSignal>()
+    const inspectStarted = Promise.withResolvers<AbortSignal>()
+    const signalStarted = Promise.withResolvers<AbortSignal>()
+    fake.sendInputRequest = holdRequestUntilAbort(writeStarted)
+    let foregroundRequests = 0
+    fake.foregroundRequest = async (signal) => {
+      foregroundRequests += 1
+      if (foregroundRequests === 1) await holdRequestUntilAbort(inspectStarted)(signal)
+    }
+    let signalCompleted = false
+    fake.signalRequest = async (operationSignal) => {
+      await holdRequestUntilAbort(signalStarted)(operationSignal)
+      signalCompleted = true
+    }
+    const write = terminal.write('late input')
+    const inspect = terminal.inspectForeground()
+    await Promise.all([writeStarted.promise, inspectStarted.promise])
+    const signal = terminal.signalForeground('SIGINT')
+    await signalStarted.promise
+
+    const terminating = terminal.terminate()
+    await expect(write).rejects.toThrow('terminal is terminating')
+    await expect(inspect).rejects.toThrow('terminal is terminating')
+    await expect(signal).rejects.toThrow('terminal is terminating')
+    await terminating
+    expect(signalCompleted).toBe(false)
+    expect(fake.inputs).toHaveLength(1)
+    const commandCount = fake.commands.length
+    await expect(terminal.write('after termination')).rejects.toThrow('terminal is terminating')
+    await expect(terminal.inspectForeground()).rejects.toThrow('terminal is terminating')
+    await expect(terminal.signalForeground('SIGINT')).rejects.toThrow('terminal is terminating')
+    expect(fake.commands).toHaveLength(commandCount)
+  })
+
   it('maps ordinary exits, closes output, and reports an absent foreground after exit', async () => {
     const fake = new FakeTerminalSandbox()
     fake.groups = []

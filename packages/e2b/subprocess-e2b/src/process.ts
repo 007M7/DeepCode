@@ -104,7 +104,6 @@ function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
     : `2> >(${encoder} >&2 2>/dev/null)`
   const inner = [
     'set +e',
-    'umask 077',
     'dsh_e2b_env_bin=$1',
     'dsh_e2b_node=$2',
     'dsh_e2b_ps=$3',
@@ -520,6 +519,8 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       () => true,
     )
     while (true) {
+      // TODO(e2b-publication-cancel): Join cancellation to the existing
+      // termination transaction before aborting an in-flight SDK file read.
       const raw = await sandbox.files.read(this.paths.pid)
       const value = raw.trim()
       if (value.length > 0) {
@@ -543,6 +544,8 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       result => ({ kind: 'result', result }),
       (error: unknown) => ({ kind: 'error', error }),
     )
+    const hasPipeOutput = this.spec.stdio.stdout === 'pipe' || this.spec.stdio.stderr === 'pipe'
+    let completed = hasPipeOutput ? await settlement : undefined
     while (true) {
       const rawStatus = (await sandbox.files.read(this.paths.status)).trim()
       if (rawStatus.length > 0) {
@@ -550,19 +553,19 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         if (!/^(?:0|[1-9][0-9]*)$/.test(rawStatus) || !Number.isSafeInteger(exitCode) || exitCode > 255) {
           throw new Error(`subprocess-e2b: remote wrapper published invalid exit code ${JSON.stringify(rawStatus)}`)
         }
-        if (this.spec.stdio.stdout === 'pipe' || this.spec.stdio.stderr === 'pipe') {
-          return this.commandOutcome(await settlement, exitCode)
-        }
-        const completed = await withinMs(settlement, this.spec.graceMs)
         if (completed !== undefined) return this.commandOutcome(completed, exitCode)
+        const drained = await withinMs(settlement, this.spec.graceMs)
+        if (drained !== undefined) return this.commandOutcome(drained, exitCode)
         this.outputDrainExpired = true
         this.stdoutReader?.invalidateSpill()
         this.stderrReader?.invalidateSpill()
         await handle.disconnect()
         return { exitCode, signal: null }
       }
-      const completed = await Promise.race([settlement, waitTick().then(() => undefined)])
       if (completed !== undefined) return this.commandOutcome(completed)
+      // TODO(e2b-status-watch): Replace collect/inherit polling when E2B can
+      // observe direct-command exit independently of descendant-held output.
+      completed = await Promise.race([settlement, waitTick().then(() => undefined)])
     }
   }
 

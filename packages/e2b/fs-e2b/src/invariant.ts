@@ -1,4 +1,7 @@
-/** Package-owned invariant companion for `@deepseek-ai/dsh-fs-e2b`. */
+/**
+ * Package-owned invariant companion for `@deepseek-ai/dsh-fs-e2b`.
+ * @module @deepseek-ai/dsh-fs-e2b/invariant
+ */
 
 /* jscpd:ignore-start */
 import type { Context } from 'cordis'

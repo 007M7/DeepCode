@@ -345,6 +345,9 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
 
   private topLevelExited = false
   private cleanup: Promise<void> | undefined
+  private readonly operationController = new AbortController()
+  private readonly operations = new Set<Promise<unknown>>()
+  private terminating = false
   private terminationSignal: NodeJS.Signals | null = null
 
   constructor(
@@ -364,17 +367,56 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   // TODO(e2b-pgid-identity): Replace retained numeric PTY/session ids when E2B
   // exposes identity-bound input, foreground-signal, and cleanup operations.
   /** @inheritdoc */
-  async write(data: string): Promise<void> {
-    if (this.topLevelExited) throw new Error('terminal process has exited')
-    await this.sandbox.pty.sendInput(this.pid, Buffer.from(data, 'utf8'))
+  write(data: string): Promise<void> {
+    return this.trackOperation(async (signal) => {
+      if (this.topLevelExited) throw new Error('terminal process has exited')
+      await this.sandbox.pty.sendInput(this.pid, Buffer.from(data, 'utf8'), { signal })
+    })
   }
 
   /** @inheritdoc */
-  async inspectForeground(): Promise<SubprocessTerminalForeground | undefined> {
+  inspectForeground(): Promise<SubprocessTerminalForeground | undefined> {
+    return this.trackOperation(signal => this.inspectForegroundOnce(signal))
+  }
+
+  /** @inheritdoc */
+  signalForeground(signal: SubprocessTerminalSignal): Promise<number> {
+    return this.trackOperation(async (operationSignal) => {
+      const foreground = await this.inspectForegroundOnce(operationSignal)
+      if (foreground === undefined) {
+        throw new Error(`subprocess-e2b: cannot resolve foreground process group for terminal ${this.pid}`)
+      }
+      if (signal === 'SIGKILL' && foreground.processGroupId === this.pid) {
+        throw new Error('refusing to SIGKILL the terminal shell; terminate the terminal session instead')
+      }
+      await this.sandbox.commands.run(
+        `kill -${signal.slice(3)} -- -${foreground.processGroupId}`,
+        commandOpts(this.controlEnvs, operationSignal),
+      )
+      return foreground.processGroupId
+    })
+  }
+
+  /** @inheritdoc */
+  terminate(): Promise<void> {
+    if (this.cleanup !== undefined) return this.cleanup
+    this.terminating = true
+    this.operationController.abort(new Error('subprocess-e2b: terminal is terminating'))
+    const cleanup = this.closeAfterOperations()
+    this.cleanup = cleanup
+    void cleanup.catch((_cleanupFailure: unknown) => {
+      this.cleanup = undefined
+    })
+    return cleanup
+  }
+
+  private async inspectForegroundOnce(
+    signal: AbortSignal,
+  ): Promise<SubprocessTerminalForeground | undefined> {
     try {
       const result = await this.sandbox.commands.run(
         `ps -o tpgid= -p ${this.pid}`,
-        commandOpts(this.controlEnvs),
+        commandOpts(this.controlEnvs, signal),
       )
       return {
         processGroupId: parsePositiveId(
@@ -391,31 +433,20 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     }
   }
 
-  /** @inheritdoc */
-  async signalForeground(signal: SubprocessTerminalSignal): Promise<number> {
-    const foreground = await this.inspectForeground()
-    if (foreground === undefined) {
-      throw new Error(`subprocess-e2b: cannot resolve foreground process group for terminal ${this.pid}`)
-    }
-    if (signal === 'SIGKILL' && foreground.processGroupId === this.pid) {
-      throw new Error('refusing to SIGKILL the terminal shell; terminate the terminal session instead')
-    }
-    await this.sandbox.commands.run(
-      `kill -${signal.slice(3)} -- -${foreground.processGroupId}`,
-      commandOpts(this.controlEnvs),
+  private trackOperation<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.terminating) return Promise.reject(new Error('subprocess-e2b: terminal is terminating'))
+    const pending = operation(this.operationController.signal)
+    this.operations.add(pending)
+    void pending.then(
+      () => { this.operations.delete(pending) },
+      () => { this.operations.delete(pending) },
     )
-    return foreground.processGroupId
+    return pending
   }
 
-  /** @inheritdoc */
-  terminate(): Promise<void> {
-    if (this.cleanup !== undefined) return this.cleanup
-    const cleanup = this.closeOnce()
-    this.cleanup = cleanup
-    void cleanup.catch((_cleanupFailure: unknown) => {
-      this.cleanup = undefined
-    })
-    return cleanup
+  private async closeAfterOperations(): Promise<void> {
+    if (this.operations.size > 0) await Promise.allSettled(this.operations)
+    await this.closeOnce()
   }
 
   private async waitForCommand(): Promise<SubprocessOutcome> {

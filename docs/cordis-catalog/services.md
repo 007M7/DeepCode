@@ -591,7 +591,7 @@ Owns one lazily consumable E2B SDK handle and its final kill/pause/leave decisio
 async getSandbox(): Promise<Sandbox>
 ```
 
-Source: [`packages/e2b/e2b/src/index.ts:109`](../../packages/e2b/e2b/src/index.ts)
+Source: [`packages/e2b/e2b/src/index.ts:108`](../../packages/e2b/e2b/src/index.ts)
 
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
