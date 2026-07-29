@@ -250,6 +250,36 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
+  it('adds a watched local skill to live /skill: autocomplete without restarting', async () => {
+    const skill = [
+      '---',
+      'name: hot-added-skill',
+      'description: HOT_ADDED_COMPLETION_MARKER',
+      '---',
+      '',
+      'Hot-added body.',
+      '',
+    ].join('\n')
+    const output = await smoke({
+      label: 'tui-agent hot-added skill autocomplete',
+      tempDirPrefix: 'tui-agent-hot-skill-',
+      configPath: scriptedConfigPath,
+      actions: [
+        {
+          waitFor: 'scripted TUI ready.',
+          writeFile: {
+            path: '.agents/skills/hot-added-skill/SKILL.md',
+            content: skill,
+          },
+          send: '/skill:hot',
+        },
+        { waitFor: 'HOT_ADDED_COMPLETION_MARKER', send: '\x03/exit\r' },
+      ],
+    })
+    expect(output).toContain('HOT_ADDED_COMPLETION_MARKER')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('fuzzy-completes an @file path without reading or submitting the file', async () => {
     const output = await smoke({
       label: 'tui-agent file autocomplete',

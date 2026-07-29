@@ -147,27 +147,14 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
   }).toMatchInlineSnapshot(`
     {
       "panelHeader": "To-dos1/3 tasks · 1 in progress",
-      "panelItems": [
-        {
-          "status": "completed",
-          "text": "梳理需求",
-        },
-        {
-          "status": "in_progress",
-          "text": "实现 fixture 样本",
-        },
-        {
-          "status": "pending",
-          "text": "浏览器验收",
-        },
-      ],
+      "panelItems": [],
       "row": "更新任务清单1/3 已完成 · 实现 fixture 样本",
       "rowState": "ok",
     }
   `)
 })
 
-it('collapses the plan strip to the count summary and restores it', async () => {
+it('expands the default-collapsed plan strip and restores its folded state', async () => {
   boot()
   await openFixtureSession()
 
@@ -176,19 +163,25 @@ it('collapses the plan strip to the count summary and restores it', async () => 
   const header = panel.querySelector('button')
   if (header === null) throw new Error('todo panel header missing')
 
-  fireEvent.click(header)
   expect({
     collapsedHeader: visibleText(header),
+    expanded: header.getAttribute('aria-expanded'),
     listGone: panel.querySelector('ul') === null,
   }).toMatchInlineSnapshot(`
     {
       "collapsedHeader": "To-dos1/3 tasks · 1 in progress",
+      "expanded": "false",
       "listGone": true,
     }
   `)
 
   fireEvent.click(header)
   expect(panel.querySelectorAll('li')).toHaveLength(3)
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  fireEvent.click(header)
+  expect(panel.querySelector('ul')).toBeNull()
+  expect(header.getAttribute('aria-expanded')).toBe('false')
 })
 
 it('hides the plan strip when the next turn starts', async () => {
