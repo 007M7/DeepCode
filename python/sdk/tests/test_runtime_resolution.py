@@ -44,25 +44,18 @@ def test_explicit_mode_wins_over_env_mode(monkeypatch: pytest.MonkeyPatch) -> No
     assert args[0].endswith(("-x64", "-arm64"))
 
 
-@pytest.mark.parametrize(
-    ("platform_tag", "requires_helper"),
-    [("linux-x64", False), ("macos-arm64", True)],
-)
 def test_runtime_requires_spawn_helper_only_on_macos(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    platform_tag: str,
-    requires_helper: bool,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
-    executable = runtime_dir / f"dsh-jsonrpc-agent-pkg-{platform_tag}"
-    executable.touch()
+    linux = runtime_dir / "dsh-jsonrpc-agent-pkg-linux-x64"
+    linux.touch()
+    (runtime_dir / "dsh-jsonrpc-agent-pkg-macos-arm64").touch()
     monkeypatch.setattr(runtime, "bundled_package_dir", lambda: tmp_path)
-    monkeypatch.setattr(runtime, "_current_platform_tag", lambda: platform_tag)
 
-    if requires_helper:
-        with pytest.raises(FileNotFoundError, match="node-pty spawn helper"):
-            runtime.bundled_runtime_path()
-    else:
-        assert runtime.bundled_runtime_path() == executable
+    monkeypatch.setattr(runtime, "_current_platform_tag", lambda: "macos-arm64")
+    with pytest.raises(FileNotFoundError, match="node-pty spawn helper"):
+        runtime.bundled_runtime_path()
+    monkeypatch.setattr(runtime, "_current_platform_tag", lambda: "linux-x64")
+    assert runtime.bundled_runtime_path() == linux

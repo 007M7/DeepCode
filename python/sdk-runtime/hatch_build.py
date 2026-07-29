@@ -13,7 +13,6 @@ _PLATFORMS = {
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
     "macos-arm64": ("macosx_11_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
 }
-_SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 
 def _host_platform_tag() -> str:
@@ -50,7 +49,7 @@ class RuntimeBuildHook(BuildHookInterface):
         runtime_files = sorted(runtime_dir.glob("dsh-jsonrpc-agent-pkg-*") if runtime_dir.is_dir() else [])
         expected_files = [expected_executable]
         if "-macos-" in expected_executable:
-            expected_files.append(f"{expected_executable}{_SPAWN_HELPER_SUFFIX}")
+            expected_files.append(f"{expected_executable}-spawn-helper")
         found_files = [path.name for path in runtime_files]
         if found_files != expected_files:
             raise RuntimeError(

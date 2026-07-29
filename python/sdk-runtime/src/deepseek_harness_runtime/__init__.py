@@ -28,7 +28,6 @@ import sys
 from pathlib import Path
 
 PACKAGE_METADATA_FILENAME = "deepseek-harness-runtime.json"
-SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 RUNTIME_MODE_ENV_VAR = "DSH_RUNTIME_MODE"
 
@@ -85,7 +84,7 @@ def bundled_runtime_path() -> Path:
             + _EXE_ACQUISITION_HINT
         )
     if tag.startswith("macos-"):
-        helper = Path(f"{path}{SPAWN_HELPER_SUFFIX}")
+        helper = Path(f"{path}-spawn-helper")
         if not helper.is_file():
             raise FileNotFoundError(
                 f"deepseek-harness-runtime-bin is missing the node-pty spawn helper at {helper}. "
@@ -153,7 +152,6 @@ def _node_launch_args() -> tuple[str, str]:
 __all__ = [
     "PACKAGE_METADATA_FILENAME",
     "RUNTIME_MODE_ENV_VAR",
-    "SPAWN_HELPER_SUFFIX",
     "bundled_default_config_path",
     "bundled_package_dir",
     "bundled_runtime_path",

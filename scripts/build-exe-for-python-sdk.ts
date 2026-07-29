@@ -7,7 +7,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { chmod, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -19,7 +19,6 @@ const DEPLOY_ROOT_PACKAGE = 'dsh-jsonrpc-agent-pkg'
 /** The app entry inside the deployed closure. */
 const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh-jsonrpc-demo/lib/bin.js'
 const OUTPUT_BASENAME = 'dsh-jsonrpc-agent-pkg'
-const SPAWN_HELPER_SUFFIX = '-spawn-helper'
 /** Default Node major; SEA mode requires at least Node 22. */
 const DEFAULT_NODE_RANGE = 'node24'
 /** Pinned for reproducible builds. */
@@ -295,7 +294,7 @@ class SingleExeBuild {
   async pack(target: Target): Promise<string[]> {
     const product = join(this.outDir, `${OUTPUT_BASENAME}-${target.platform}-${target.arch}`)
     await this.prepareNativePty(target)
-    if (!this.cli.dryRun) mkdirSync(this.outDir, { recursive: true })
+    if (!this.cli.dryRun) await mkdir(this.outDir, { recursive: true })
     await this.run(`pkg ${target.spec}`, pnpmBin(), [
       'dlx',
       PKG_SPEC,
@@ -310,13 +309,13 @@ class SingleExeBuild {
       throw new Error(`build-exe-for-python-sdk: product ${product} is missing after the pkg run; inspect ${this.outDir}.`)
     }
     if (target.platform !== 'macos') return [product]
-    const spawnHelper = `${product}${SPAWN_HELPER_SUFFIX}`
+    const spawnHelper = `${product}-spawn-helper`
+    const source = join(this.staging, 'node_modules', 'node-pty', 'prebuilds', `darwin-${target.arch}`, 'spawn-helper')
     if (this.cli.dryRun) {
-      console.log(`build-exe-for-python-sdk: [dry-run] copy target node-pty spawn-helper to ${spawnHelper}`)
+      console.log(`build-exe-for-python-sdk: [dry-run] cp ${source} ${spawnHelper}`)
     } else {
-      const source = this.resolveSpawnHelper(target)
       await copyFile(source, spawnHelper)
-      await chmod(spawnHelper, statSync(source).mode & 0o777)
+      await chmod(spawnHelper, 0o755)
     }
     return [product, spawnHelper]
   }
@@ -327,45 +326,25 @@ class SingleExeBuild {
    * @param target - the pkg target whose native addon is being staged.
    */
   private async prepareNativePty(target: Target): Promise<void> {
-    const stagedRoot = join(this.staging, 'node_modules', 'node-pty')
-    const stagedBuild = join(stagedRoot, 'build')
+    const stagedBuild = join(this.staging, 'node_modules', 'node-pty', 'build')
     if (this.cli.dryRun) console.log(`build-exe-for-python-sdk: [dry-run] rm -rf ${stagedBuild}`)
     else await rm(stagedBuild, { recursive: true, force: true })
-
+    if (target.platform !== 'linux') return
     const source = join(root, 'packages', 'pty', 'pty-local', 'node_modules', 'node-pty', 'build', 'Release', 'pty.node')
     const destination = join(stagedBuild, 'Release', 'pty.node')
     if (this.cli.dryRun) {
-      if (target.platform === 'linux') console.log(`build-exe-for-python-sdk: [dry-run] cp ${source} ${destination}`)
+      console.log(`build-exe-for-python-sdk: [dry-run] cp ${source} ${destination}`)
       return
     }
-    if (target.platform === 'macos') return
-
     const host = Target.host()
-    if (target.platform !== host.platform || target.arch !== host.arch || !existsSync(source)) {
+    if (target.platform !== host.platform || target.arch !== host.arch) {
       throw new Error(
-        `build-exe-for-python-sdk: node-pty native addon for ${target.platform}-${target.arch} is missing; `
-        + `checked ${source}. Build the Linux runtime on its target architecture.`,
+        'build-exe-for-python-sdk: build the Linux runtime on its target architecture; '
+        + `target ${target.platform}-${target.arch} does not match host ${host.platform}-${host.arch}.`,
       )
     }
     await mkdir(dirname(destination), { recursive: true })
     await copyFile(source, destination)
-  }
-
-  /**
-   * Resolve the node-pty helper that matches a pkg target.
-   * @param target - the pkg target whose helper must be shipped.
-   * @returns a physical executable outside pkg's virtual snapshot.
-   */
-  private resolveSpawnHelper(target: Target): string {
-    const helper = join(this.staging, 'node_modules', 'node-pty', 'prebuilds', `darwin-${target.arch}`, 'spawn-helper')
-    if (!existsSync(helper)) {
-      throw new Error(
-        `build-exe-for-python-sdk: node-pty spawn-helper for ${target.platform}-${target.arch} is missing; `
-        + `checked ${helper}. Build each runtime on its target platform and architecture.`,
-      )
-    }
-    if (statSync(helper).mode & 0o111) return helper
-    throw new Error(`build-exe-for-python-sdk: node-pty spawn-helper is not executable: ${helper}`)
   }
 
   /**
@@ -397,7 +376,7 @@ class SingleExeBuild {
       }
       return
     }
-    mkdirSync(destDir, { recursive: true })
+    await mkdir(destDir, { recursive: true })
     for (const path of products) {
       const destination = join(destDir, basename(path))
       await copyFile(path, destination)

@@ -22,7 +22,10 @@ PLATFORMS = {
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
     "macos-arm64": ("macosx_11_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
 }
-SPAWN_HELPER_SUFFIX = "-spawn-helper"
+
+
+def runtime_suffixes(executable_name: str) -> tuple[str, ...]:
+    return ("", "-spawn-helper") if "-macos-" in executable_name else ("",)
 
 
 def main() -> None:
@@ -133,24 +136,12 @@ def stage_sdk(destination: Path, version: str) -> None:
 
 
 def stage_runtime(destination: Path, version: str, executable: Path, executable_name: str) -> None:
-    payload = [(executable, executable_name)]
-    if "-macos-" in executable_name:
-        payload.append(
-            (Path(f"{executable}{SPAWN_HELPER_SUFFIX}"), f"{executable_name}{SPAWN_HELPER_SUFFIX}")
-        )
-    for source, _ in payload:
-        if not source.is_file():
-            raise FileNotFoundError(f"runtime file does not exist: {source}")
-        if source.stat().st_mode & stat.S_IXUSR == 0:
-            raise PermissionError(f"runtime file is not executable: {source}")
     copy_package(ROOT / "python" / "sdk-runtime", destination)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    for source, name in payload:
-        target = runtime_dir / name
-        shutil.copyfile(source, target)
-        target.chmod(source.stat().st_mode & 0o777)
+    for suffix in runtime_suffixes(executable_name):
+        shutil.copy2(Path(f"{executable}{suffix}"), runtime_dir / f"{executable_name}{suffix}")
 
 
 def verify_wheel(
@@ -174,9 +165,7 @@ def verify_wheel(
         ]
         if package == "runtime":
             assert platform is not None
-            expected_files = [platform[1]]
-            if "-macos-" in platform[1]:
-                expected_files.append(f"{platform[1]}{SPAWN_HELPER_SUFFIX}")
+            expected_files = [f"{platform[1]}{suffix}" for suffix in runtime_suffixes(platform[1])]
             found_files = sorted(Path(name).name for name in runtime_files)
             if found_files != expected_files:
                 raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")

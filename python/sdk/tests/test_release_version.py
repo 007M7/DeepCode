@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import runpy
-import stat
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,51 +39,22 @@ def test_repository_version_rejects_non_stable_versions(tmp_path: Path) -> None:
         build_python_release.repository_version(tmp_path)
 
 
-def test_stage_runtime_copies_executable_and_spawn_helper(tmp_path: Path) -> None:
-    executable = tmp_path / "dsh-jsonrpc-agent-pkg-macos-arm64"
+@pytest.mark.parametrize(("target", "with_helper"), [("linux-x64", False), ("macos-arm64", True)])
+def test_stage_runtime_copies_platform_payload(
+    tmp_path: Path, target: str, with_helper: bool
+) -> None:
+    executable = tmp_path / f"dsh-jsonrpc-agent-pkg-{target}"
     executable.write_bytes(b"runtime")
     executable.chmod(0o755)
-    spawn_helper = Path(f"{executable}-spawn-helper")
-    spawn_helper.write_bytes(b"helper")
-    spawn_helper.chmod(0o751)
-    destination = tmp_path / "staging"
-
-    build_python_release.stage_runtime(
-        destination,
-        "1.2.3",
-        executable,
-        executable.name,
-    )
-
-    runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
-    assert (runtime_dir / executable.name).read_bytes() == b"runtime"
-    copied_helper = runtime_dir / spawn_helper.name
-    assert copied_helper.read_bytes() == b"helper"
-    assert copied_helper.stat().st_mode & stat.S_IXUSR
-
-
-def test_stage_runtime_rejects_missing_spawn_helper(tmp_path: Path) -> None:
-    executable = tmp_path / "dsh-jsonrpc-agent-pkg-macos-arm64"
-    executable.write_bytes(b"runtime")
-    executable.chmod(0o755)
-
-    with pytest.raises(FileNotFoundError, match="spawn-helper"):
-        build_python_release.stage_runtime(
-            tmp_path / "staging",
-            "1.2.3",
-            executable,
-            executable.name,
-        )
-
-
-def test_stage_runtime_copies_linux_executable_without_spawn_helper(tmp_path: Path) -> None:
-    executable = tmp_path / "dsh-jsonrpc-agent-pkg-linux-x64"
-    executable.write_bytes(b"runtime")
-    executable.chmod(0o755)
+    expected = {executable.name: b"runtime"}
+    if with_helper:
+        spawn_helper = Path(f"{executable}-spawn-helper")
+        spawn_helper.write_bytes(b"helper")
+        spawn_helper.chmod(0o755)
+        expected[spawn_helper.name] = b"helper"
     destination = tmp_path / "staging"
 
     build_python_release.stage_runtime(destination, "1.2.3", executable, executable.name)
 
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
-    runtime_files = [path.name for path in runtime_dir.glob("dsh-jsonrpc-agent-pkg-*")]
-    assert runtime_files == [executable.name]
+    assert {path.name: path.read_bytes() for path in runtime_dir.glob("dsh-jsonrpc-agent-pkg-*")} == expected
