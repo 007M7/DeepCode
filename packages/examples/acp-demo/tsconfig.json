@@ -18,7 +18,7 @@
       "path": "../../../vendor/loader"
     },
     {
-      "path": "../../ui/app-boot"
+      "path": "../../boot/app-boot"
     },
     {
       "path": "../../acp/acp"

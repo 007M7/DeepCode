@@ -2,9 +2,9 @@
 
 English | [中文](user-interaction.zh.md)
 
-The user-interaction seam of [dsh-user-interaction](../../packages/ui/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`; the host runtime relays requests to its connected client.
+The user-interaction seam of [dsh-user-interaction](../../packages/interaction/user-interaction). It is the provider-neutral vocabulary a tool or permission plugin uses when it needs the human to answer before the agent can continue. UI surfaces provide the active `UserInteractionProvider`; the host runtime relays requests to its connected client.
 
-Source: [`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
+Source: [`packages/interaction/user-interaction/src/index.ts`](../../packages/interaction/user-interaction/src/index.ts)
 
 ## Question options
 

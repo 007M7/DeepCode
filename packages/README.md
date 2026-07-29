@@ -45,9 +45,10 @@ Groups hold `packages/<group>/<pkg>/`; names stay `@deepseek-ai/dsh-<pkg>`. **Gr
 | [`credentials/`](credentials/README.md) | Credential-reference seam + env-over-`.env` provider | Product — stable surface |
 | [`storage/`](storage/README.md) | Non-session storage hub + backends + domain form | Product — stable surface |
 | [`workspace/`](workspace/README.md) | Workspace entity | Product — stable surface |
-| [`sdk/`](sdk/README.md) | Project SDK tooling | Product — stable surface |
+| [`scaffold/`](scaffold/README.md) | Create/launch/drive project tooling: helper, launcher, initializer, wire protocol with both ends, launcher telemetry | Product — stable surface |
 | [`acp/`](acp/README.md) | Automation-only Agent Client Protocol server | Product — stable surface |
-| [`ui/`](ui/README.md) | JSON-RPC integration, approval/interaction seams, ask-user tool | Product — stable surface |
+| [`interaction/`](interaction/README.md) | Human-collaboration plane: approval/interaction seams, permission preset, commands, ask-user tool | Product — stable surface |
+| [`boot/`](boot/README.md) | Shared app-bin boot glue | Product — stable surface |
 | [`host/`](host/README.md) | Web-GUI host half: API gateway + HTTP route server | Product — stable surface |
 | [`client/`](client/README.md) | Web-GUI browser half: shell, wire, object services, slots, `ui-*` plugins | Product — stable surface |
 | [`experimental/`](experimental/README.md) | Prototypes and internal plugins | Unreleased |

@@ -7,7 +7,7 @@ Archived: 2026-08-04
 
 ## Problem
 
-`packages/ui/tui/src/index.ts` 已超过 2000 行，其中绝大部分是单个 `createTuiChat` 工厂：一个约 1600 行的闭包，持有约四十个可变变量以及同等数量的嵌套闭包。模型选择、ask-user-question 队列、会话恢复都缠绕在这一个作用域里，读者无法在不把整份文件装进脑子的前提下理清任何单一关注点，互不相关的改动也会彼此冲突。此前一轮已把 `src/` 归组为 `components/`、`session/`、`extension/`，但入口文件本身以及散落在顶层的输入相关文件（`autocomplete.ts`、`file-autocomplete.ts`、`skill-invocation.ts`、`xml-tool-output.ts`）未动。
+`packages/interaction/tui/src/index.ts` 已超过 2000 行，其中绝大部分是单个 `createTuiChat` 工厂：一个约 1600 行的闭包，持有约四十个可变变量以及同等数量的嵌套闭包。模型选择、ask-user-question 队列、会话恢复都缠绕在这一个作用域里，读者无法在不把整份文件装进脑子的前提下理清任何单一关注点，互不相关的改动也会彼此冲突。此前一轮已把 `src/` 归组为 `components/`、`session/`、`extension/`，但入口文件本身以及散落在顶层的输入相关文件（`autocomplete.ts`、`file-autocomplete.ts`、`skill-invocation.ts`、`xml-tool-output.ts`）未动。
 
 ## Decision
 

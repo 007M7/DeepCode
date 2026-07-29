@@ -11,7 +11,7 @@ Archived: 2026-08-07
 
 另有两处相关的测试基础设施手写代码进一步强化了替换的理由：
 
-- `packages/support/llm-mock-server/src/cli.ts` 曾手工逐个切分 17 个带值的 `--flag value` 选项外加若干布尔标志（约 45–60 行的循环与取值辅助函数），而 `node:util` 内置的 `parseArgs` 早已是本仓库的惯用写法（`cli-demo`、`acp-demo`、`verify-runtime-closure.ts`、`packages/sdk/scripts`）。
+- `packages/support/llm-mock-server/src/cli.ts` 曾手工逐个切分 17 个带值的 `--flag value` 选项外加若干布尔标志（约 45–60 行的循环与取值辅助函数），而 `node:util` 内置的 `parseArgs` 早已是本仓库的惯用写法（`cli-demo`、`acp-demo`、`verify-runtime-closure.ts`、`packages/scaffold/scripts`）。
 - `apps/web/tests/smoke-real.e2e.ts` 与 `apps/web/tests/scaffold.ts` 曾携带两份逐字相同的正则 `.env` 解析器拷贝（约 20 行），而内置的 `process.loadEnvFile` 恰好具备所需的「不覆盖已有值」语义；并且 vitest 的 e2e/snapshot/web 配置在这些文件运行之前就已用它加载了根 `.env`，这两份拷贝实为死代码。
 - 快照 harness 曾手写三个「轮询直到截止时间」的循环（`packages/support/acp-snapshot/src/harness.ts` 中的 `waitForPersistedTurnStart`/`waitForPersistedTurnEnd`/`waitForWorkspaceFile`，约 55 行），外加 `crash-recovery.e2e.ts` 中的 `waitForFile`，而 `vi.waitFor`/`expect.poll` 正好覆盖这种形态；vitest 本来就是 `dsh-acp-snapshot` 的运行时依赖，因此这不新增任何东西。
 

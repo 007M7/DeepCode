@@ -107,7 +107,7 @@ Ask the user a concise question when you need confirmation, a choice, or missing
 }
 ```
 
-Source: [`packages/ui/tool-ask-user/src/index.ts`](../packages/ui/tool-ask-user/src/index.ts)
+Source: [`packages/interaction/tool-ask-user/src/index.ts`](../packages/interaction/tool-ask-user/src/index.ts)
 
 ask_user_question pauses the tool call until the active UI provider returns a human answer.
 

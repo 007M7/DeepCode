@@ -24,7 +24,7 @@
       "path": "../../host/apiproxy"
     },
     {
-      "path": "../../ui/commands"
+      "path": "../../interaction/commands"
     },
     {
       "path": "../../compact/compact"

@@ -234,32 +234,32 @@
     {
       "doc": "docs/core-data-structures/commands.md",
       "symbol": "CommandInputDescriptor",
-      "source": "packages/ui/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/commands.md",
       "symbol": "CommandDefinition",
-      "source": "packages/ui/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/commands.md",
       "symbol": "CommandInvocation",
-      "source": "packages/ui/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/commands.md",
       "symbol": "CommandResult",
-      "source": "packages/ui/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/commands.md",
       "symbol": "CommandDescriptor",
-      "source": "packages/ui/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/commands.md",
       "symbol": "ParsedCommand",
-      "source": "packages/ui/commands/src/index.ts"
+      "source": "packages/interaction/commands/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/system-prompt.md",
@@ -733,62 +733,62 @@
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionOption",
-      "source": "packages/ui/user-interaction/src/types.ts"
+      "source": "packages/interaction/user-interaction/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionIntent",
-      "source": "packages/ui/user-interaction/src/types.ts"
+      "source": "packages/interaction/user-interaction/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionItem",
-      "source": "packages/ui/user-interaction/src/types.ts"
+      "source": "packages/interaction/user-interaction/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionRequest",
-      "source": "packages/ui/user-interaction/src/index.ts"
+      "source": "packages/interaction/user-interaction/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionAnswerItem",
-      "source": "packages/ui/user-interaction/src/types.ts"
+      "source": "packages/interaction/user-interaction/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionAnswer",
-      "source": "packages/ui/user-interaction/src/types.ts"
+      "source": "packages/interaction/user-interaction/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "UserInteractionProvider",
-      "source": "packages/ui/user-interaction/src/index.ts"
+      "source": "packages/interaction/user-interaction/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "UserInteractionError",
-      "source": "packages/ui/user-interaction/src/index.ts"
+      "source": "packages/interaction/user-interaction/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/approval.md",
       "symbol": "ApprovalRequestId",
-      "source": "packages/ui/user-approval/src/types.ts"
+      "source": "packages/interaction/user-approval/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/approval.md",
       "symbol": "ApprovalOutcome",
-      "source": "packages/ui/user-approval/src/types.ts"
+      "source": "packages/interaction/user-approval/src/types.ts"
     },
     {
       "doc": "docs/core-data-structures/approval.md",
       "symbol": "ApprovalPolicy",
-      "source": "packages/ui/user-approval/src/index.ts"
+      "source": "packages/interaction/user-approval/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/approval.md",
       "symbol": "ApprovalRequest",
-      "source": "packages/ui/user-approval/src/index.ts"
+      "source": "packages/interaction/user-approval/src/index.ts"
     },
     {
       "doc": "docs/core-data-structures/bash.md",

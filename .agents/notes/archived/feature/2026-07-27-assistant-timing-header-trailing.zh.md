@@ -13,7 +13,7 @@ TUI 的助手消息此前以一行开头，把 `Assistant` 标签和步骤计时
 
 **把标签与计时拆开；计时作为消息的末行渲染。**
 
-`AssistantMessageComponent`（packages/ui/tui/src/index.ts）现在把加粗的 `Assistant` 标签作为首行，并把暗色的计时串（仍由 `StreamingAssistantComponent.rebuild()` 组装为 `header`，settled 时含 `· Completed …` 后缀）作为最后一个子节点，追加在 reasoning 与正文之后。计时内容、隐藏零值桶以及完成时间的行为均不变——仅位置从消息顶部移到底部。
+`AssistantMessageComponent`（packages/interaction/tui/src/index.ts）现在把加粗的 `Assistant` 标签作为首行，并把暗色的计时串（仍由 `StreamingAssistantComponent.rebuild()` 组装为 `header`，settled 时含 `· Completed …` 后缀）作为最后一个子节点，追加在 reasoning 与正文之后。计时内容、隐藏零值桶以及完成时间的行为均不变——仅位置从消息顶部移到底部。
 
 ## Alternatives considered
 

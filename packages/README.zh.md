@@ -45,9 +45,10 @@
 | [`credentials/`](credentials/README.md) | 凭据引用 seam + 环境叠加 `.env` provider | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |
-| [`sdk/`](sdk/README.md) | 项目 SDK 工具 | 产品：稳定表面 |
+| [`scaffold/`](scaffold/README.md) | 创建／启动／驱动项目的工具：helper、启动器、初始化器、带两端的通信协议、启动器 telemetry | 产品：稳定表面 |
 | [`acp/`](acp/README.md) | 仅面向自动化的 Agent Client Protocol 服务器 | 产品：稳定表面 |
-| [`ui/`](ui/README.md) | JSON-RPC 集成、批准／交互 seam、用户问答工具 | 产品：稳定表面 |
+| [`interaction/`](interaction/README.md) | 人机协作平面：批准／交互 seam、权限预设、命令、用户问答工具 | 产品：稳定表面 |
+| [`boot/`](boot/README.md) | 共享的 app bin 启动粘合层 | 产品：稳定表面 |
 | [`host/`](host/README.md) | web GUI 宿主半侧：API 网关 + HTTP 路由服务器 | 产品：稳定表面 |
 | [`client/`](client/README.md) | web GUI 浏览器半侧：shell、协议层、对象服务、slot、`ui-*` 插件 | 产品：稳定表面 |
 | [`experimental/`](experimental/README.md) | 原型和内部插件 | 未发布 |

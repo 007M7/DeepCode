@@ -7,7 +7,7 @@ English | [中文](2026-07-27-tui-chat-channel-module-split.zh.md)
 
 ## Problem
 
-`packages/ui/tui/src/index.ts` had grown past 2000 lines. Most of it was one `createTuiChat` factory: a ~1600-line closure holding roughly forty mutable variables and as many nested closures. Model selection, the ask-user-question queue, and session resume were tangled into that single scope, so a reader could not follow any one concern without holding the whole file in their head, and unrelated edits collided. A prior pass had grouped `src/` into `components/`, `session/`, `extension/`, but the entry file itself and the loose top-level input files (`autocomplete.ts`, `file-autocomplete.ts`, `skill-invocation.ts`, `xml-tool-output.ts`) were untouched.
+`packages/interaction/tui/src/index.ts` had grown past 2000 lines. Most of it was one `createTuiChat` factory: a ~1600-line closure holding roughly forty mutable variables and as many nested closures. Model selection, the ask-user-question queue, and session resume were tangled into that single scope, so a reader could not follow any one concern without holding the whole file in their head, and unrelated edits collided. A prior pass had grouped `src/` into `components/`, `session/`, `extension/`, but the entry file itself and the loose top-level input files (`autocomplete.ts`, `file-autocomplete.ts`, `skill-invocation.ts`, `xml-tool-output.ts`) were untouched.
 
 ## Decision
 

@@ -66,13 +66,13 @@
       "path": "../../skill/skill"
     },
     {
-      "path": "../../ui/commands"
+      "path": "../../interaction/commands"
     },
     {
-      "path": "../../ui/user-approval"
+      "path": "../../interaction/user-approval"
     },
     {
-      "path": "../../ui/user-interaction"
+      "path": "../../interaction/user-interaction"
     },
     {
       "path": "../../workspace/workspace"

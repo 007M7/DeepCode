@@ -37,7 +37,9 @@ packages/    @deepseek-ai/dsh-<pkg> workspaces at packages/<group>/<pkg>/
   settings/    user-settings seam + file-backed provider
   credentials/ credential-reference seam + env-over-.env provider
   acp/         automation-only Agent Client Protocol server
-  ui/          JSON-RPC bridge; boot, approval, interaction plugins
+  interaction/ approval/interaction seams, permission, commands, ask-user tool
+  boot/        shared app-bin boot glue
+  scaffold/    project tooling: helper, launcher, initializer, SDK wire protocol + ends
   examples/    demo bundles (agent-spine + CLI/ACP/JSON-RPC bins) leaves load
   support/     dev/test infrastructure
   util/        zero-dependency utilities

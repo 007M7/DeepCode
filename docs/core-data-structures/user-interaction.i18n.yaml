@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/core-data-structures/user-interaction.md
-user-interaction.md: 73727cbb754f10633d3213f67f7c3c9fdb215500
-user-interaction.zh.md: b6e95af4026e58c63c713d87ee9a86b3712b311f
+user-interaction.md: ec22eb28e9554d6454bf2670f73f2e9b199df014
+user-interaction.zh.md: 814f8911e41aecf568f627f76f8239bac4ea719b

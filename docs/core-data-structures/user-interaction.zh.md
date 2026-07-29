@@ -2,9 +2,9 @@
 
 [English](user-interaction.md) | 中文
 
-[dsh-user-interaction](../../packages/ui/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；host 运行时把请求转发给它连接的客户端。
+[dsh-user-interaction](../../packages/interaction/user-interaction) 的用户交互 seam。它是工具或权限插件需要人类回答后 agent（智能体）才能继续时所使用的、提供方无关的词汇。UI surface 提供活跃的 `UserInteractionProvider`；host 运行时把请求转发给它连接的客户端。
 
-源码：[`packages/ui/user-interaction/src/index.ts`](../../packages/ui/user-interaction/src/index.ts)
+源码：[`packages/interaction/user-interaction/src/index.ts`](../../packages/interaction/user-interaction/src/index.ts)
 
 ## 问题选项
 

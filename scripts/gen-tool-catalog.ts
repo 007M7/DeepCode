@@ -154,7 +154,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-ask-user',
     dir: 'tool-ask-user',
-    source: 'packages/ui/tool-ask-user/src/index.ts',
+    source: 'packages/interaction/tool-ask-user/src/index.ts',
     requires: ['ctx.tools', 'ctx.userInteraction'],
     writes: ['tool/call', 'tool/result after a UI/provider answers the question'],
     async mount(ctx) {

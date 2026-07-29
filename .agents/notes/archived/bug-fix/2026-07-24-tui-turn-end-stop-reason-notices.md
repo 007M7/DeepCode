@@ -11,7 +11,7 @@ The TUI rendered transcript notices for `error`, `aborted`, `max-tokens`, `rejec
 
 ## Decision
 
-The `turn/end` case in `packages/ui/tui/src/index.ts` switches on the reason's discriminant and covers every kind: `completed` stays silent because the settled assistant message and its `Completed` timing header already present that outcome; `disposed` appends `Turn stopped: the agent was disposed.`; and the merge-extensible default appends `Turn ended: <kind>.` so an unknown plugin-added outcome still names why the agent stopped. All other kinds keep their existing notices.
+The `turn/end` case in `packages/interaction/tui/src/index.ts` switches on the reason's discriminant and covers every kind: `completed` stays silent because the settled assistant message and its `Completed` timing header already present that outcome; `disposed` appends `Turn stopped: the agent was disposed.`; and the merge-extensible default appends `Turn ended: <kind>.` so an unknown plugin-added outcome still names why the agent stopped. All other kinds keep their existing notices.
 
 ## Alternatives considered
 
