@@ -6,6 +6,7 @@ import { posix } from 'node:path'
 import {
   CommandExitError,
   FileNotFoundError,
+  SandboxNotFoundError,
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
@@ -115,7 +116,7 @@ function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
     `printf '%s\\n' "$dsh_e2b_pgid" > ${quoteE2BShellArg(paths.pid)}`,
     `mapfile -d '' -t dsh_e2b_env < ${quoteE2BShellArg(paths.environment)}`,
     `"$dsh_e2b_rm" -f -- ${quoteE2BShellArg(paths.environment)}`,
-    `"$dsh_e2b_env_bin" -i "\${dsh_e2b_env[@]}" "$@" ${stdoutRedirect} ${stderrRedirect}`.trimEnd(),
+    `"$dsh_e2b_env_bin" -i -- "\${dsh_e2b_env[@]}" "$@" ${stdoutRedirect} ${stderrRedirect}`.trimEnd(),
     'dsh_e2b_status=$?',
     `printf '%s\\n' "$dsh_e2b_status" > ${quoteE2BShellArg(paths.status)}`,
     'wait',
@@ -136,7 +137,7 @@ function commandText(spec: SubprocessSpawnSpec, paths: RemotePaths): string {
     'for dsh_e2b_tool in "$dsh_e2b_env_bin" "$dsh_e2b_setsid" "$dsh_e2b_bash" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head" "$dsh_e2b_rm"; do',
     '  [[ "$dsh_e2b_tool" == /* && -x "$dsh_e2b_tool" ]] || exit 125',
     'done',
-    `exec "$dsh_e2b_env_bin" -i "\${dsh_e2b_env[@]}" "$dsh_e2b_setsid" --wait -- "$dsh_e2b_bash" -c ${quoteE2BShellArg(inner)} dsh-e2b "$dsh_e2b_env_bin" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head" "$dsh_e2b_rm" ${argv}`,
+    `exec "$dsh_e2b_env_bin" -i -- "\${dsh_e2b_env[@]}" "$dsh_e2b_setsid" --wait -- "$dsh_e2b_bash" -c ${quoteE2BShellArg(inner)} dsh-e2b "$dsh_e2b_env_bin" "$dsh_e2b_node" "$dsh_e2b_ps" "$dsh_e2b_tr" "$dsh_e2b_tee" "$dsh_e2b_head" "$dsh_e2b_rm" ${argv}`,
   ].join('\n')
   return bootstrap
 }
@@ -196,6 +197,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private readonly readyState = Promise.withResolvers<CommandHandle>()
   private readonly stdoutDecoder = new E2BBase64Decoder()
   private readonly stderrDecoder = new E2BBase64Decoder()
+  private readonly outputTermination = new AbortController()
   private readonly stdoutReader: E2BOutputReader | undefined
   private readonly stderrReader: E2BOutputReader | undefined
   private readonly paths: RemotePaths
@@ -262,6 +264,9 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   terminate(): void {
     if (this.terminationFenced || this.quiescenceProven || this.terminationAttempt !== undefined) return
     this.terminationStarted = true
+    this.outputTermination.abort()
+    this.stdout?.destroy()
+    this.stderr?.destroy()
     this.terminationFailure = undefined
     const attempt = this.terminateRemote()
     this.terminationAttempt = attempt
@@ -317,6 +322,10 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       sandbox = await this.runtime.getSandbox()
     } catch (error: unknown) {
       if (isAborted(signal)) return false
+      if (error instanceof SandboxNotFoundError) {
+        this.markQuiescent()
+        return true
+      }
       throw error
     }
     const processGroupId = this.remotePid > 0 ? this.remotePid : handle.pid
@@ -469,21 +478,25 @@ export class E2BSubprocessHandle implements SubprocessHandle {
 
   private async writeOutput(pipe: PassThrough | undefined, inherited: NodeJS.WriteStream | undefined, data: Uint8Array): Promise<void> {
     const target = pipe ?? inherited
-    if (target === undefined || data.length === 0) return
+    if (target === undefined || data.length === 0 || this.outputTermination.signal.aborted) return
     if (target.destroyed) throw new Error('subprocess output stream is closed')
     if (target.write(data)) return
     await new Promise<void>((resolve, reject) => {
       const onDrain = (): void => { cleanup(); resolve() }
       const onClose = (): void => { cleanup(); resolve() }
+      const onTermination = (): void => { cleanup(); resolve() }
       const onError = (error: Error): void => { cleanup(); reject(error) }
       const cleanup = (): void => {
         target.removeListener('drain', onDrain)
         target.removeListener('close', onClose)
         target.removeListener('error', onError)
+        this.outputTermination.signal.removeEventListener('abort', onTermination)
       }
       target.once('drain', onDrain)
       target.once('close', onClose)
       target.once('error', onError)
+      this.outputTermination.signal.addEventListener('abort', onTermination, { once: true })
+      if (this.outputTermination.signal.aborted) onTermination()
     })
   }
 
@@ -580,6 +593,18 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async terminateRemote(): Promise<void> {
+    try {
+      await this.terminateRemoteInSandbox()
+    } catch (error: unknown) {
+      if (error instanceof SandboxNotFoundError) {
+        this.markQuiescent()
+        return
+      }
+      throw error
+    }
+  }
+
+  private async terminateRemoteInSandbox(): Promise<void> {
     const handle = await this.commandState.promise
     if (handle === undefined) return
     if (!isValidProcessId(handle.pid) && this.remotePid <= 0) {
@@ -671,7 +696,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       await sandbox.commands.run(`kill -${signal} -- -${pid}`)
       return true
     } catch (error: unknown) {
-      if (error instanceof CommandExitError) return false
+      if (error instanceof CommandExitError || error instanceof SandboxNotFoundError) return false
       throw error
     }
   }
@@ -682,6 +707,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       signalOpts(signal),
     ).catch((error: unknown) => {
       if (signal?.aborted === true) return undefined
+      if (error instanceof SandboxNotFoundError) return { exitCode: 0, stdout: '', stderr: '' }
       throw error
     })
     return result?.stdout.trim() === 'live'

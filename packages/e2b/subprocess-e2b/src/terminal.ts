@@ -7,6 +7,7 @@ import { posix } from 'node:path'
 import {
   CommandExitError,
   FileNotFoundError,
+  SandboxNotFoundError,
   quoteE2BShellArg,
 } from '@deepseek-ai/dsh-e2b'
 import type { CommandHandle, CommandResult, Sandbox } from '@deepseek-ai/dsh-e2b'
@@ -37,7 +38,7 @@ const TERMINAL_RUNNER_SOURCE = [
   'fi',
   'printf \'%s\' "$dsh_output_marker"',
   "printf 'ready\\n' > \"$dsh_state/ready\"",
-  'exec env -i "${dsh_env[@]}" "${dsh_argv[@]}"',
+  'exec env -i -- "${dsh_env[@]}" "${dsh_argv[@]}"',
   '',
 ].join('\n')
 
@@ -169,9 +170,15 @@ async function waitUntilReady(
 }
 
 async function sessionProcessGroups(sandbox: Sandbox, sessionId: number): Promise<number[]> {
-  const result = await sandbox.commands.run(
-    `set -o pipefail; ps -eo sid=,pgid=,stat= | awk '$1 == ${sessionId} && $3 !~ /^[ZXx]/ { print $2 }'`,
-  )
+  let result: CommandResult
+  try {
+    result = await sandbox.commands.run(
+      `set -o pipefail; ps -eo sid=,pgid=,stat= | awk '$1 == ${sessionId} && $3 !~ /^[ZXx]/ { print $2 }'`,
+    )
+  } catch (error: unknown) {
+    if (error instanceof SandboxNotFoundError) return []
+    throw error
+  }
   const groups = new Set<number>()
   for (const raw of result.stdout.trim().split(/\s+/)) {
     if (raw.length === 0) continue
@@ -191,7 +198,7 @@ async function signalGroups(sandbox: Sandbox, groups: number[], signal: 'TERM' |
   try {
     await sandbox.commands.run(`kill -${signal} -- ${groups.map(group => `-${group}`).join(' ')}`)
   } catch (error: unknown) {
-    if (!(error instanceof CommandExitError)) throw error
+    if (!(error instanceof CommandExitError) && !(error instanceof SandboxNotFoundError)) throw error
   }
 }
 
@@ -253,6 +260,7 @@ async function rollbackUnpublishedTerminal(
       try {
         await sandbox.pty.kill(handle.pid)
       } catch (error: unknown) {
+        if (error instanceof SandboxNotFoundError) return
         attemptFailures.push(asError(error))
       }
     }
@@ -262,6 +270,7 @@ async function rollbackUnpublishedTerminal(
       try {
         await handle.kill()
       } catch (error: unknown) {
+        if (error instanceof SandboxNotFoundError) return
         attemptFailures.push(asError(error))
       }
     }
@@ -291,7 +300,11 @@ async function rollbackUnpublishedTerminal(
       'subprocess-e2b: terminal setup rollback did not reach quiescence',
     )
   }
-  await handle.disconnect()
+  try {
+    await handle.disconnect()
+  } catch (error: unknown) {
+    if (!(error instanceof SandboxNotFoundError)) throw error
+  }
 }
 
 /** One E2B PTY and all process groups in its remote process session. */
@@ -400,7 +413,14 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     }
     if (groups.length > 0 || !this.topLevelExited) {
       this.terminationSignal = 'SIGKILL'
-      if (!this.topLevelExited) await this.sandbox.pty.kill(this.pid)
+      if (!this.topLevelExited) {
+        try {
+          await this.sandbox.pty.kill(this.pid)
+        } catch (error: unknown) {
+          if (error instanceof SandboxNotFoundError) return
+          throw error
+        }
+      }
       groups = await awaitSessionEmpty(this.sandbox, this.sessionId, this.graceMs, true)
       if (!this.topLevelExited) await Promise.race([this.done.catch(() => undefined), delay(this.graceMs)])
     }
@@ -410,7 +430,11 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     if (!this.topLevelExited) {
       throw new Error(`subprocess-e2b: terminal cleanup failed; surviving pid: ${this.pid}`)
     }
-    await this.handle.disconnect()
+    try {
+      await this.handle.disconnect()
+    } catch (error: unknown) {
+      if (!(error instanceof SandboxNotFoundError)) throw error
+    }
     await this.sandbox.files.remove(this.stateDir).catch(() => {})
   }
 }
@@ -468,11 +492,11 @@ export async function spawnE2BTerminal(
       cwd: spec.cwd,
       envs: { TERM: 'dumb' },
       timeoutMs: 0,
-      ...signalOpts(spec.signal),
       onData: (data) => { outputFilter.push(data) },
     })
     completion = handle.wait()
     void completion.catch(() => {})
+    spec.signal?.throwIfAborted()
     if (!Number.isSafeInteger(handle.pid) || handle.pid <= 0) {
       throw new Error(`subprocess-e2b: E2B returned invalid terminal pid ${handle.pid}`)
     }
@@ -503,7 +527,8 @@ export async function spawnE2BTerminal(
           else await rollbackUnpublishedTerminal(sandbox, handle, completion, spec.graceMs)
           terminalQuiescent = true
         } catch (cleanupError: unknown) {
-          failures.push(asError(cleanupError))
+          if (cleanupError instanceof SandboxNotFoundError) terminalQuiescent = true
+          else failures.push(asError(cleanupError))
         }
       }
       if (!stateRemoved) {
@@ -511,7 +536,7 @@ export async function spawnE2BTerminal(
           await sandbox.files.remove(stateDir)
           stateRemoved = true
         } catch (stateError: unknown) {
-          if (stateError instanceof FileNotFoundError) stateRemoved = true
+          if (stateError instanceof FileNotFoundError || stateError instanceof SandboxNotFoundError) stateRemoved = true
           else failures.push(asError(stateError))
         }
       }

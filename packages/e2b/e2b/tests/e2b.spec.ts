@@ -160,15 +160,59 @@ describe('E2BSandboxService', () => {
     expect(fixture.pause).toHaveBeenCalledOnce()
   })
 
-  it('does not classify other disposal failures as an already-gone sandbox', async () => {
+  it('accepts a missing sandbox when disposal itself requests deletion', async () => {
     const fixture = fakeSandbox()
-    fixture.kill.mockRejectedValue(new Error('disposition unknown'))
+    fixture.kill.mockRejectedValue(new SandboxNotFoundError('already deleted'))
     sdk.create.mockResolvedValue(fixture.sandbox)
     const ctx = new Context()
+    const errors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { errors.push(error) }) as typeof ctx.logger.error
+    const fiber = await ctx.plugin(E2BSandboxService, { apiKey: 'test-key' })
+    await ctx.e2b.getSandbox()
+
+    await fiber.dispose()
+    expect(fixture.kill).toHaveBeenCalledOnce()
+    expect(errors).toEqual([])
+  })
+
+  it('does not classify other disposal failures as an already-gone sandbox', async () => {
+    const fixture = fakeSandbox()
+    const failure = new Error('disposition unknown')
+    fixture.kill.mockRejectedValue(failure)
+    sdk.create.mockResolvedValue(fixture.sandbox)
+    const ctx = new Context()
+    const errors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { errors.push(error) }) as typeof ctx.logger.error
     const fiber = await ctx.plugin(E2BSandboxService, { apiKey: 'test-key' })
     await ctx.e2b.getSandbox()
     await expect(fiber.dispose()).resolves.toBeUndefined()
     expect(fixture.kill).toHaveBeenCalledOnce()
+    expect(errors).toContain(failure)
+  })
+
+  it.each([
+    ['a created pause-on-timeout sandbox', false],
+    ['a reconnected sandbox with unknown creation policy', true],
+  ] as const)('reports missing during pause disposal for %s', async (_label, reconnect) => {
+    const fixture = fakeSandbox()
+    const failure = new SandboxNotFoundError('sandbox unexpectedly missing')
+    fixture.pause.mockRejectedValue(failure)
+    if (reconnect) sdk.connect.mockResolvedValue(fixture.sandbox)
+    else sdk.create.mockResolvedValue(fixture.sandbox)
+    const ctx = new Context()
+    const errors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { errors.push(error) }) as typeof ctx.logger.error
+    const fiber = await ctx.plugin(E2BSandboxService, {
+      apiKey: 'test-key',
+      onTimeout: reconnect ? 'kill' : 'pause',
+      onDispose: 'pause',
+      ...(reconnect ? { sandboxId: 'existing' } : {}),
+    })
+    await ctx.e2b.getSandbox()
+
+    await expect(fiber.dispose()).resolves.toBeUndefined()
+    expect(fixture.pause).toHaveBeenCalledOnce()
+    expect(errors).toContain(failure)
   })
 
   it('reconnects without applying creation lifecycle options and can leave state running', async () => {

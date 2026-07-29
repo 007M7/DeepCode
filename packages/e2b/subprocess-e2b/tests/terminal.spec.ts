@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CommandExitError,
   FileNotFoundError,
+  SandboxNotFoundError,
   type CommandHandle,
   type CommandResult,
   type Sandbox,
@@ -113,6 +114,18 @@ class FakeTerminalSandbox {
   requestedOutput = 'requested-shell$ '
   emitOutputMarker = true
   afterSessionLookup: (() => void) | undefined
+  private createGate: Promise<undefined> | undefined
+  private releaseCreateGate: (() => void) | undefined
+
+  deferCreate(): void {
+    const gate = Promise.withResolvers<undefined>()
+    this.createGate = gate.promise
+    this.releaseCreateGate = () => { gate.resolve(undefined) }
+  }
+
+  releaseCreate(): void {
+    this.releaseCreateGate?.()
+  }
 
   readonly sandbox = {
     files: {
@@ -183,6 +196,8 @@ class FakeTerminalSandbox {
       create: async (options: Parameters<Sandbox['pty']['create']>[0]): Promise<CommandHandle> => {
         this.createOptions = options
         if (this.createError !== undefined) throw this.createError
+        await this.createGate
+        options.signal?.throwIfAborted()
         await options.onData(Buffer.from('buffered banner\n'))
         return this.handle.asHandle()
       },
@@ -258,7 +273,7 @@ describe('E2B terminal allocation', () => {
     const runner = fake.writes.get('/runtime/terminal-one/runner.bash') ?? ''
     expect(runner).toContain('if (( ${#dsh_argv[@]} == 0 )); then')
     expect(runner).toContain('printf \'%s\' "$dsh_output_marker"')
-    expect(runner).toContain('exec env -i "${dsh_env[@]}" "${dsh_argv[@]}"')
+    expect(runner).toContain('exec env -i -- "${dsh_env[@]}" "${dsh_argv[@]}"')
     expect(runner).not.toContain('\u007f')
     terminal.output.destroy()
     await fake.createOptions?.onData(Buffer.from('late bootstrap callback'))
@@ -294,6 +309,25 @@ describe('E2B terminal allocation', () => {
     await expect(terminal.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
     await expect(terminal.waitForExit(controller.signal)).resolves.toBe(false)
     await expect(terminal.waitForExit()).resolves.toBe(true)
+  })
+
+  it('publishes the PTY handle before honoring allocation cancellation', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.deferCreate()
+    const controller = new AbortController()
+    const spawning = spawnE2BTerminal(
+      runtime(fake),
+      spec({ signal: controller.signal }),
+      '/runtime/allocation-cancel',
+    )
+    await vi.waitFor(() => { expect(fake.createOptions).toBeDefined() })
+
+    controller.abort(new Error('allocation cancelled'))
+    fake.releaseCreate()
+    await expect(spawning).rejects.toThrow('allocation cancelled')
+    expect(fake.createOptions?.signal).toBeUndefined()
+    expect(fake.groups).toEqual([])
+    expect(fake.handle.disconnects).toBe(1)
   })
 
   it('rejects malformed environment and argv values before PTY allocation', async () => {
@@ -410,6 +444,44 @@ describe('E2B terminal allocation', () => {
     cleanupFailed.removeError = new Error('remove transport failed')
     await expect(spawnE2BTerminal(runtime(cleanupFailed), spec(), '/runtime/cleanup-failed'))
       .rejects.toThrow('invalid terminal pid 0')
+
+    const expiredDuringRollback = new FakeTerminalSandbox()
+    expiredDuringRollback.sendError = new Error('bootstrap failed before timeout')
+    expiredDuringRollback.groups = []
+    expiredDuringRollback.settleOnPtyKill = false
+    expiredDuringRollback.ptyKillError = new SandboxNotFoundError('sandbox expired')
+    expiredDuringRollback.removeError = new SandboxNotFoundError('sandbox expired')
+    await expect(spawnE2BTerminal(runtime(expiredDuringRollback), spec(), '/runtime/expired-rollback'))
+      .rejects.toThrow('bootstrap failed before timeout')
+    expect(expiredDuringRollback.ptyKills).toBe(1)
+
+    const expiredBeforeSdkRollback = new FakeTerminalSandbox()
+    expiredBeforeSdkRollback.handle.waitError = new Error('wait failed after timeout')
+    expiredBeforeSdkRollback.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
+    expiredBeforeSdkRollback.handle.settleOnSdkKill = false
+    await expect(spawnE2BTerminal(runtime(expiredBeforeSdkRollback), spec(), '/runtime/expired-sdk-rollback'))
+      .rejects.toThrow('wait failed after timeout')
+
+    const expiredDuringSdkFallback = new FakeTerminalSandbox()
+    expiredDuringSdkFallback.sendError = new Error('bootstrap failed before SDK fallback')
+    expiredDuringSdkFallback.groups = []
+    expiredDuringSdkFallback.settleOnPtyKill = false
+    expiredDuringSdkFallback.handle.sdkKillError = new SandboxNotFoundError('sandbox expired')
+    expiredDuringSdkFallback.handle.settleOnSdkKill = false
+    await expect(spawnE2BTerminal(runtime(expiredDuringSdkFallback), spec(), '/runtime/expired-sdk-fallback'))
+      .rejects.toThrow('bootstrap failed before SDK fallback')
+
+    const missingDuringDisconnect = new FakeTerminalSandbox()
+    missingDuringDisconnect.sendError = new Error('bootstrap failed before disconnect')
+    missingDuringDisconnect.handle.disconnectError = new SandboxNotFoundError('sandbox expired')
+    await expect(spawnE2BTerminal(runtime(missingDuringDisconnect), spec(), '/runtime/missing-disconnect'))
+      .rejects.toThrow('bootstrap failed before disconnect')
+
+    const failedDisconnect = new FakeTerminalSandbox()
+    failedDisconnect.sendError = new Error('bootstrap failed with disconnect failure')
+    failedDisconnect.handle.disconnectError = new Error('disconnect transport failed')
+    await expect(spawnE2BTerminal(runtime(failedDisconnect), spec(), '/runtime/failed-disconnect'))
+      .rejects.toThrow('bootstrap failed with disconnect failure')
   })
 
   it('propagates setup cancellation and provider failures', async () => {
@@ -524,6 +596,53 @@ describe('E2B terminal lifecycle', () => {
     expect(fake.commands).toContain(
       "set -o pipefail; ps -eo sid=,pgid=,stat= | awk '$1 == 123 && $3 !~ /^[ZXx]/ { print $2 }'",
     )
+  })
+
+  it('treats a timeout-killed sandbox as quiescent during terminal cleanup', async () => {
+    const fake = new FakeTerminalSandbox()
+    const terminal = await spawnE2BTerminal(runtime(fake), spec(), '/runtime/expired-sandbox')
+    fake.sessionGroupsFailure = new SandboxNotFoundError('sandbox expired')
+    fake.handle.succeed(0)
+
+    await expect(terminal.done).resolves.toEqual({ exitCode: 0, signal: null })
+    await expect(terminal.waitForExit()).resolves.toBe(true)
+  })
+
+  it('treats sandbox disappearance during PTY kill as quiescent', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.groups = []
+    fake.settleOnPtyKill = false
+    fake.ptyKillError = new SandboxNotFoundError('sandbox expired')
+    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/expired-pty-kill')
+
+    terminal.terminate()
+    await expect(terminal.waitForExit()).resolves.toBe(true)
+    expect(fake.ptyKills).toBe(1)
+  })
+
+  it('propagates a non-missing PTY kill failure', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.groups = []
+    fake.settleOnPtyKill = false
+    fake.ptyKillError = new Error('PTY kill transport failed')
+    const terminal = await spawnE2BTerminal(runtime(fake), spec({ graceMs: 1 }), '/runtime/failed-pty-kill')
+
+    terminal.terminate()
+    await expect(terminal.waitForExit()).rejects.toThrow('PTY kill transport failed')
+  })
+
+  it.each([
+    ['accepts sandbox loss', new SandboxNotFoundError('sandbox expired'), true],
+    ['propagates another failure', new Error('disconnect failed'), false],
+  ] as const)('%s while disconnecting a settled terminal', async (_label, failure, accepted) => {
+    const fake = new FakeTerminalSandbox()
+    const terminal = await spawnE2BTerminal(runtime(fake), spec(), `/runtime/disconnect-${accepted}`)
+    fake.handle.disconnectError = failure
+    fake.groups = []
+    fake.handle.succeed(0)
+
+    if (accepted) await expect(terminal.waitForExit()).resolves.toBe(true)
+    else await expect(terminal.waitForExit()).rejects.toThrow('disconnect failed')
   })
 
   it('rejects killing the terminal shell and propagates live foreground failures', async () => {

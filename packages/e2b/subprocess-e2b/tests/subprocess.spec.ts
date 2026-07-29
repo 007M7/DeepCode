@@ -3,6 +3,7 @@ import { Context } from 'cordis'
 import {
   CommandExitError,
   FileNotFoundError,
+  SandboxNotFoundError,
   type CommandHandle,
   type CommandResult,
   type Sandbox,
@@ -371,7 +372,13 @@ describe('E2BSubprocessHandle', () => {
     const handle = new E2BSubprocessHandle(runtime(fake), spec({
       argv: ['tool', 'argument with spaces'],
       stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: 8, spill: { maxBytes: 32 } } },
-      env: { PATH: '/bin', 'FOO-BAR': 'hyphen-value', DEEPSEEK_API_KEY: 'explicit-secret', DSH_MODE: 'test' },
+      env: {
+        PATH: '/bin',
+        'FOO-BAR': 'hyphen-value',
+        '--split-string': 'literal-value',
+        DEEPSEEK_API_KEY: 'explicit-secret',
+        DSH_MODE: 'test',
+      },
     }), '/workspace/.dsh-e2b/processes/one')
     expect(handle.pid).toBe(-1)
     handle.stdin!.write('hello')
@@ -394,7 +401,8 @@ describe('E2BSubprocessHandle', () => {
     expect(command).toContain('mapfile -d')
     expect(command).toContain('dsh_e2b_node="$(command -v node)"')
     expect(command).toContain('"$dsh_e2b_env_bin" -i "$dsh_e2b_node" -e')
-    expect(command).toContain('exec "$dsh_e2b_env_bin" -i "${dsh_e2b_env[@]}"')
+    expect(command).toContain('"$dsh_e2b_env_bin" -i -- "${dsh_e2b_env[@]}" "$@"')
+    expect(command).toContain('exec "$dsh_e2b_env_bin" -i -- "${dsh_e2b_env[@]}"')
     expect(command).toContain('>&2 2>/dev/null')
     expect(command).not.toContain('2>/dev/null >&2')
     expect(command).toContain('base64')
@@ -405,7 +413,7 @@ describe('E2BSubprocessHandle', () => {
       '/workspace/.dsh-e2b/processes/one/stderr.log',
     ])
     expect(fake.writtenFileData.get('/workspace/.dsh-e2b/processes/one/environment')).toBe(
-      'PATH=/bin\0KEEP=safe\0FOO-BAR=hyphen-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
+      'PATH=/bin\0KEEP=safe\0FOO-BAR=hyphen-value\0--split-string=literal-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
     )
 
     let piped = ''
@@ -1088,6 +1096,52 @@ describe('E2BSubprocessHandle', () => {
     await handle.done
   })
 
+  it('treats a timeout-killed sandbox as quiescent during liveness probing', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/expired-sandbox')
+    await flush()
+    fake.finish()
+    await handle.done
+    fake.probeError = new SandboxNotFoundError('sandbox expired')
+
+    await expect(handle.waitForExit()).resolves.toBe(true)
+  })
+
+  it('treats a missing sandbox handle as quiescent during liveness acquisition', async () => {
+    const fake = new FakeSandbox()
+    let calls = 0
+    const handle = new E2BSubprocessHandle(runtime(fake, async () => {
+      calls += 1
+      if (calls === 1) return fake.sandbox
+      throw new SandboxNotFoundError('sandbox expired')
+    }), spec(), '/runtime/expired-acquisition')
+    await flush()
+
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    await fake.completeOutput()
+    fake.alive = false
+    fake.handle.succeed(0)
+    await handle.done
+  })
+
+  it('treats sandbox loss during termination as quiescent', async () => {
+    const fake = new FakeSandbox()
+    let calls = 0
+    const handle = new E2BSubprocessHandle(runtime(fake, async () => {
+      calls += 1
+      if (calls === 1) return fake.sandbox
+      throw new SandboxNotFoundError('sandbox expired')
+    }), spec(), '/runtime/expired-termination')
+    await flush()
+    await fake.completeOutput()
+
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    fake.alive = false
+    fake.handle.succeed(0)
+    await handle.done
+  })
+
   it('makes batch stdin close failures best-effort', async () => {
     const fake = new FakeSandbox()
     vi.spyOn(fake.handle, 'sendStdin').mockRejectedValueOnce(new Error('closed'))
@@ -1231,6 +1285,44 @@ describe('E2BSubprocessHandle', () => {
 
     fake.finish()
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
+  })
+
+  it('breaks output backpressure when termination owns the command', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 4 } },
+    }), '/runtime/backpressure-termination')
+    await flush()
+
+    const stdoutWrite = vi.spyOn(handle.stdout!, 'write').mockReturnValueOnce(false)
+    let released = false
+    const pending = fake.stdout('blocked').then(() => { released = true })
+    await Promise.resolve()
+    handle.terminate()
+    await flush()
+    const releasedByTermination = released
+    if (!released) handle.stdout!.emit('drain')
+    await pending
+    stdoutWrite.mockRestore()
+    await handle.done
+
+    expect(releasedByTermination).toBe(true)
+  })
+
+  it('settles backpressure when a synchronous pipe write starts termination', async () => {
+    const fake = new FakeSandbox()
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({
+      stdio: { stdin: 'ignore', stdout: 'pipe', stderr: { maxBytes: 4 } },
+    }), '/runtime/backpressure-synchronous-termination')
+    await flush()
+
+    const stdoutWrite = vi.spyOn(handle.stdout!, 'write').mockImplementationOnce(() => {
+      handle.terminate()
+      return false
+    })
+    await expect(fake.stdout('blocked')).resolves.toBeUndefined()
+    stdoutWrite.mockRestore()
+    await handle.done
   })
 
   it('contains a pipe callback failure instead of rejecting command settlement', async () => {

@@ -518,7 +518,7 @@ export class E2BFileSystem extends FileSystem {
         signalOpts(signal),
       )
       assertNotAborted(signal, 'write')
-      const committed = await sandbox.files.rename(temporary, targetPath, signalOpts(signal))
+      const committed = await sandbox.files.rename(temporary, targetPath)
       try {
         await sandbox.files.remove(stagingDirectory)
       } catch (_committedStagingCleanupFailure) {

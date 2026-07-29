@@ -209,6 +209,7 @@ class FakeRemote {
         this.nodes.set(to, node)
         this.renames.push({ from, to })
         this.abortAfterRename?.abort('after commit')
+        this.checkAbort(options)
         return this.info(to)
       },
       remove: async (path: string): Promise<void> => {

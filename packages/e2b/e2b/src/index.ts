@@ -181,9 +181,13 @@ export class E2BSandboxService extends Service {
             return
         }
       } catch (error: unknown) {
-        // A kill-on-timeout sandbox is already quiescent; every other disposal
-        // failure still reports that the configured final disposition is unknown.
         if (!(error instanceof SandboxNotFoundError)) throw error
+        // Missing proves the requested disposition only when this owner asked
+        // for deletion or created the sandbox with timeout deletion. A
+        // reconnected sandbox's creation lifecycle is unknown.
+        if (this.config.onDispose === 'kill') return
+        if (this.created && this.config.onTimeout === 'kill') return
+        throw error
       }
     }, 'e2b sandbox teardown')
   }
