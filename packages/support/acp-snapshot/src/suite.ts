@@ -144,10 +144,9 @@ export interface Scenario {
    */
   pinsNativeWindowsStdout?: boolean
   /**
-   * Whether the driven behavior needs POSIX process semantics the harness
-   * cannot exercise on Windows (e.g. cancelling a live bash tool call kills a
-   * detached process group). The scenario's run test is skipped on Windows;
-   * its fixtures stay guarded on every platform.
+   * Whether the scenario requires a non-Windows host, such as for POSIX process
+   * semantics or generated paths Windows cannot represent. The scenario's run
+   * test is skipped on Windows; its fixtures stay guarded on every platform.
    */
   posixOnly?: boolean
 }
@@ -962,8 +961,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   scenarioSuite('snapshot scenarios', () => {
     for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
-      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on
-      // Windows, where their process semantics cannot be driven.
+      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on Windows.
       it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
