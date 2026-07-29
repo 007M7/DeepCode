@@ -24,6 +24,7 @@
     "packages/host/directory-picker-native/tests/**/*.ts",
     "packages/host/directory-picker-native/tests/**/*.tsx",
     "packages/client/tsdown.client.ts",
+    "scripts/client-bundle-css.spec.ts",
     "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
