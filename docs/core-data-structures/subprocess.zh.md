@@ -246,4 +246,4 @@ interface SubprocessOutcome {
 
 ## 服务行为
 
-抽象的 [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam 定义执行世界坐标、可执行文件查找、普通 `spawn` 与 `spawnTerminal`。[`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) 以临时运行时存储、detached 进程树、按处置方式接线、凭据清除、`node-pty`、平台进程检查，以及先终止再等待退出的资源释放实现这些能力。接口契约见 [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md)，本地机制见 [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md)。
+抽象的 [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam 定义执行世界坐标、可执行文件查找、普通 `spawn` 与 `spawnTerminal`。[`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) 以 detached 进程树、按处置方式接线、凭据清除、`node-pty`、平台进程检查，以及先终止再等待退出的资源释放实现这些能力。接口契约见 [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md)，本地机制见 [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md)。
