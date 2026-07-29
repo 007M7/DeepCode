@@ -26,6 +26,16 @@ SPAWN_HELPER_SUFFIX = "-spawn-helper"
 EXECUTABLE_TARGETS = {value[1]: key for key, value in PLATFORMS.items()}
 
 
+def executable_target(executable_name: str) -> str:
+    try:
+        return EXECUTABLE_TARGETS[executable_name]
+    except KeyError as error:
+        supported = ", ".join(sorted(EXECUTABLE_TARGETS))
+        raise ValueError(
+            f"unsupported runtime executable {executable_name!r}; expected one of: {supported}"
+        ) from error
+
+
 def spawn_helper_binary_target(header: bytes) -> str | None:
     if len(header) >= 8 and header[:4] == b"\xcf\xfa\xed\xfe":
         cpu_type = int.from_bytes(header[4:8], "little")
@@ -158,7 +168,7 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
         raise FileNotFoundError(f"runtime executable does not exist: {executable}")
     if executable.stat().st_mode & stat.S_IXUSR == 0:
         raise PermissionError(f"runtime executable is not executable: {executable}")
-    expected_target = EXECUTABLE_TARGETS[executable_name]
+    expected_target = executable_target(executable_name)
     spawn_helper = Path(f"{executable}{SPAWN_HELPER_SUFFIX}")
     if expected_target.startswith("macos-"):
         if not spawn_helper.is_file():
@@ -204,7 +214,7 @@ def verify_wheel(
             assert platform is not None
             if len(executables) != 1 or not executables[0].endswith(f"/runtime/{platform[1]}"):
                 raise RuntimeError(f"{wheel} must contain exactly {platform[1]}, found {executables}")
-            expected_target = EXECUTABLE_TARGETS[platform[1]]
+            expected_target = executable_target(platform[1])
             expected_helper = f"{platform[1]}{SPAWN_HELPER_SUFFIX}"
             expected_helpers = [expected_helper] if expected_target.startswith("macos-") else []
             found_helpers = [Path(helper).name for helper in helpers]

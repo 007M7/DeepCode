@@ -85,6 +85,27 @@ def test_stage_runtime_rejects_missing_spawn_helper(tmp_path: Path) -> None:
         )
 
 
+def test_stage_runtime_rejects_unsupported_executable_name(tmp_path: Path) -> None:
+    executable = tmp_path / "custom-runtime"
+    executable.write_bytes(b"runtime")
+    executable.chmod(0o755)
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "unsupported runtime executable 'custom-runtime'; expected one of: "
+            "dsh-jsonrpc-agent-pkg-linux-arm64, dsh-jsonrpc-agent-pkg-linux-x64, "
+            "dsh-jsonrpc-agent-pkg-macos-arm64"
+        ),
+    ):
+        build_python_release.stage_runtime(
+            tmp_path / "staging",
+            "1.2.3",
+            executable,
+            executable.name,
+        )
+
+
 @pytest.mark.parametrize("target", ["linux-x64", "linux-arm64"])
 def test_stage_runtime_copies_linux_executable_without_spawn_helper(
     tmp_path: Path, target: str
