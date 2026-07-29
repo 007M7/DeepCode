@@ -84,6 +84,9 @@ describe('apply', () => {
     // The pick face routes into the controller pipeline (closed menu → no-op).
     injected.onPick('command', 0)
     expect(controller.menu.getSnapshot().open).toBe(false)
+    // The dismiss face routes into the controller too (closed menu → no-op).
+    injected.onDismiss()
+    expect(controller.menu.getSnapshot().open).toBe(false)
     // An unknown session id fails loud (no silent scope miss).
     expect(() => injectEntry(sid('ghost'))).toThrow(/resolved no scope/)
   })

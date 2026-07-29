@@ -142,6 +142,48 @@ describe('MenuView', () => {
     expect(screen.getByRole('listbox').style.maxHeight).toBe('88px')
   })
 
+  it('pointerdown outside the menu (no composer card ancestor) dismisses', () => {
+    const { onDismiss } = mount(openState())
+    fireEvent.pointerDown(document.body)
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('pointerdown inside the list does not dismiss', () => {
+    const { onDismiss } = mount(openState())
+    fireEvent.pointerDown(screen.getAllByRole('option')[0]!)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('pointerdown inside the surrounding composer card does not dismiss; outside it does', () => {
+    const menu = createSnapshotStore<MenuState>(openState())
+    const onDismiss = vi.fn()
+    render(
+      <div data-composer-card="">
+        <MenuView menu={menu} onPick={vi.fn()} onDismiss={onDismiss} t={t} />
+        <button type="button" data-testid="composer-button" />
+      </div>,
+    )
+    fireEvent.pointerDown(screen.getByTestId('composer-button'))
+    expect(onDismiss).not.toHaveBeenCalled()
+    fireEvent.pointerDown(document.body)
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a pointerdown whose target is not a DOM node', () => {
+    const { onDismiss } = mount(openState())
+    const ev = new Event('pointerdown', { bubbles: true })
+    Object.defineProperty(ev, 'target', { value: {} })
+    document.dispatchEvent(ev)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('closing the menu removes the dismiss listener', () => {
+    const { menu, onDismiss } = mount(openState())
+    act(() => { menu.set(CLOSED) })
+    fireEvent.pointerDown(document.body)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
   it('mousedown on a row picks (source, index) and prevents the focus steal', () => {
     const { onPick } = mount(openState())
     const options = screen.getAllByRole('option')

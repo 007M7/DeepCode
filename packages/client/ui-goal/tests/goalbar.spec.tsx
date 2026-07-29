@@ -104,6 +104,13 @@ describe('GoalBar', () => {
     expect(screen.getByRole('textbox', { name: 'Goal objective' })).toBeTruthy()
   })
 
+  it('active goal: the pause action pauses', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal()} {...actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Pause goal' }))
+    expect(actions.onPause).toHaveBeenCalledTimes(1)
+  })
+
   it('paused goal: "Paused Goal" with a resume action before edit', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} />)
