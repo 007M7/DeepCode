@@ -309,6 +309,10 @@ async function executeCommand(
         SHELL_RESET_MESSAGE,
       ].join('\n')
     }
+    if (commandDeadline.signal.aborted) {
+      await shells.reset(owner, 'persistent bash command aborted')
+      commandDeadline.signal.throwIfAborted()
+    }
     if (latest.text.includes(marker.end)) {
       const complete = commandOutput(retainedScrollback(ctx, owner, id, latest), marker)
       return renderCaptured(complete, config.maxOutputChars)
@@ -324,10 +328,6 @@ async function executeCommand(
         ),
         SHELL_RESET_MESSAGE,
       ].filter(part => part.length > 0).join('\n')
-    }
-    if (commandDeadline.signal.aborted) {
-      await shells.reset(owner, 'persistent bash command aborted')
-      commandDeadline.signal.throwIfAborted()
     }
     if (promptCompleted(result)) {
       const snapshot = retainedScrollback(ctx, owner, id, latest)

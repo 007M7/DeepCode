@@ -80,6 +80,7 @@ type StubMode =
   | 'exit'
   | 'signal-exit'
   | 'wait-for-abort'
+  | 'end-on-abort'
   | 'idle-then-normal'
   | 'large'
   | 'nonzero'
@@ -119,11 +120,16 @@ class StubPtySession implements PtyBackendSession {
       return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')))
     }
     if (this.mode === 'send-error') throw new Error('stub send failed')
-    if (this.mode === 'wait-for-abort') {
+    if (this.mode === 'wait-for-abort' || this.mode === 'end-on-abort') {
       const done = new Promise<ReturnType<StubPtySession['result']>>((resolve) => {
         request.signal?.addEventListener('abort', () => {
-          this.scrollback += 'partial output'
-          resolve(this.result('partial output', 'stdin_read'))
+          const start = /__DSH_PERSISTENT_BASH_START_[^_]+(?:-[^_]+)*__/.exec(request.text)?.[0]
+          const end = /__DSH_PERSISTENT_BASH_END_[^:]+:/.exec(request.text)?.[0]
+          const output = this.mode === 'end-on-abort'
+            ? `${start ?? ''}\ninterrupted\n${end ?? ''}130\n${this.motd}`
+            : 'partial output'
+          this.scrollback += output
+          resolve(this.result(output, 'stdin_read'))
         }, { once: true })
       })
       return this.operation(done)
@@ -389,22 +395,25 @@ describe('tool-bash-persistent', () => {
     expect(stub.sessions[0]?.closed).toContain('persistent bash command timed out')
   })
 
-  it('cancels in-flight work, resets the shell, and releases a queued call', async () => {
-    const { ctx, owner, stub } = await setup({ backendType: 'stub', timeoutMs: 5_000 })
-    await call(ctx, owner, 'warm up')
-    stub.sessions[0]!.mode = 'wait-for-abort'
-    const controller = new AbortController()
-    const cancelled = call(ctx, owner, 'hang', controller.signal)
-    const queued = call(ctx, owner, 'after cancellation')
-    setTimeout(() => {
-      controller.abort(new Error('caller stopped'))
-    }, 5)
+  it.each(['wait-for-abort', 'end-on-abort'] as const)(
+    'cancels %s work, resets the shell, and releases a queued call',
+    async (mode) => {
+      const { ctx, owner, stub } = await setup({ backendType: 'stub', timeoutMs: 5_000 })
+      await call(ctx, owner, 'warm up')
+      stub.sessions[0]!.mode = mode
+      const controller = new AbortController()
+      const cancelled = call(ctx, owner, 'hang', controller.signal)
+      const queued = call(ctx, owner, 'after cancellation')
+      setTimeout(() => {
+        controller.abort(new Error('caller stopped'))
+      }, 5)
 
-    expect((await cancelled).isError).toBe(true)
-    expect(text(await queued)).toBe('hello from stub')
-    expect(stub.sessions[0]?.closed).toContain('persistent bash command aborted')
-    expect(stub.sessions).toHaveLength(2)
-  })
+      expect((await cancelled).isError).toBe(true)
+      expect(text(await queued)).toBe('hello from stub')
+      expect(stub.sessions[0]?.closed).toContain('persistent bash command aborted')
+      expect(stub.sessions).toHaveLength(2)
+    },
+  )
 
   it.each(['init-exit', 'init-timeout'] as const)(
     'fails initialization and closes the unusable shell for %s',
