@@ -32,6 +32,8 @@ import type {
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
+// Type-only: resolves the optional `ctx.get('tokenMeter')` service seam.
+import type {} from '@deepseek-ai/dsh-token-meter'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
 import { GoalError } from '@deepseek-ai/dsh-goal'
 import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
@@ -495,34 +497,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     for (const queue of muxQueues) queue.push(envelope)
   }
 
-  ctx.effect(() => {
-    return ctx.on('agent/model-request', (agent, turn, step, request) => {
-      const tokenMeter = ctx.get('tokenMeter') as {
-        measure(session: Session): { totalTokens: number }
-      } | undefined
-      let contextTokens: number | undefined
-      if (tokenMeter !== undefined) {
-        try {
-          contextTokens = tokenMeter.measure(agent.session).totalTokens
-        } catch {
-          // A malformed or temporarily unmeasurable replay omits only the
-          // numerator; this request still replaces stale telemetry.
-        }
+  ctx.on('agent/model-request', (agent, turn, step, request) => {
+    const tokenMeter = ctx.get('tokenMeter')
+    let contextTokens: number | undefined
+    if (tokenMeter !== undefined) {
+      try {
+        contextTokens = tokenMeter.measure(agent.session).totalTokens
+      } catch {
+        // A malformed or temporarily unmeasurable replay omits only the
+        // numerator; this request still replaces stale telemetry.
       }
-      broadcast({
-        type: 'session/model-request',
-        sessionId: agent.session.id,
-        turn,
-        step,
-        provider: request.provider,
-        model: request.model,
-        ...contextTokens === undefined ? {} : { contextTokens },
-        ...request.contextWindow === undefined
-          ? {}
-          : { contextWindow: request.contextWindow },
-      })
+    }
+    broadcast({
+      type: 'session/model-request',
+      sessionId: agent.session.id,
+      turn,
+      step,
+      provider: request.provider,
+      model: request.model,
+      ...contextTokens === undefined ? {} : { contextTokens },
+      ...request.contextWindow === undefined
+        ? {}
+        : { contextWindow: request.contextWindow },
     })
-  }, 'api-proxy: model request telemetry')
+  })
 
   // Projection change feed → session/projection push frames. The carrier
   // mints the wire frame (the seam package holds no wire vocabulary); the

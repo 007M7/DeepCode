@@ -41,7 +41,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
     type: z.literal('session/model-request'),
     sessionId: sessionIdSchema,
     turn: z.number().int().positive(),
-    step: z.number().int().positive(),
+    step: z.number().int().nonnegative(),
     provider: z.string().min(1),
     model: z.string().min(1),
     contextTokens: z.number().int().nonnegative().optional(),

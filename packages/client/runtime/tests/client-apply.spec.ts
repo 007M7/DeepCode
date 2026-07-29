@@ -102,7 +102,7 @@ describe('runtime client apply', () => {
     expect(bench.api.callsOf('session.create')).toHaveLength(1)
   })
 
-  it('clears connection-local request telemetry on reconnect but not connected', async () => {
+  it('clears connection-local request telemetry after every disconnected generation but not connected', async () => {
     const bench = await mount()
     const sessions = bench.ctx.get('sessions') as SessionsService
     bench.sinks?.onHostEnvelope?.({
@@ -118,7 +118,7 @@ describe('runtime client apply', () => {
         type: 'session/model-request',
         sessionId: 's-state',
         turn: 1,
-        step: 1,
+        step: 0,
         provider: 'test',
         model: 'alpha',
         contextTokens: 32_000,
@@ -133,7 +133,27 @@ describe('runtime client apply', () => {
       contextWindow: 128_000,
     })
 
-    bench.sinks?.onStateChange?.('reconnecting')
+    bench.sinks?.onDisconnected?.()
+    expect(session.getSnapshot().modelRequest).toBeNull()
+
+    // A second failed generation does not produce another deduplicated
+    // `reconnecting` state transition, but its own disconnect callback still
+    // clears telemetry received before that generation's handshake failed.
+    bench.sinks?.onMuxEnvelope?.({
+      rpcId: 'request-2' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: 's-state',
+        turn: 2,
+        step: 0,
+        provider: 'test',
+        model: 'beta',
+        contextTokens: 48_000,
+        contextWindow: 256_000,
+      } as never,
+    })
+    expect(session.getSnapshot().modelRequest?.model).toBe('beta')
+    bench.sinks?.onDisconnected?.()
     expect(session.getSnapshot().modelRequest).toBeNull()
   })
 

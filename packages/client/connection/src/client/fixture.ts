@@ -1137,16 +1137,17 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
         append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
         const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
-        const usage = tokenUsageOf(logOf(id))
         emitMux({
           type: 'session/model-request',
           sessionId: id,
-          turn,
+          // The fixture's durable transcript is historically zero-based, while
+          // the real Agent's request telemetry opens turns at one.
+          turn: turn + 1,
           step: 0,
           provider: target.provider,
           model: target.model,
-          contextTokens: usage.uncachedInputTokens + usage.outputTokens
-            + usage.cacheReadTokens + usage.cacheWriteTokens,
+          // No fixture token-meter is composed, so omit the request-pressure
+          // numerator instead of substituting cumulative provider billing.
           contextWindow: 128_000,
         })
         startReply(

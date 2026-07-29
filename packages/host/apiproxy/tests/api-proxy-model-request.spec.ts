@@ -36,7 +36,7 @@ describe('ApiProxy model-request telemetry', () => {
     } as Agent
     ctx.agents.register(agent)
     const measure = vi.fn(() => ({ totalTokens: 321 }))
-    const removeTokenMeter = ctx.provide('tokenMeter' as never, { measure } as never)
+    const removeTokenMeter = ctx.provide('tokenMeter', { measure })
     const api = createApiProxy(ctx, {
       provider: 'test',
       model: 'alpha',

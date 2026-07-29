@@ -197,11 +197,10 @@ describe('createFixtureApi', () => {
     expect(frames).toContainEqual({
       type: 'session/model-request',
       sessionId: id,
-      turn: 0,
+      turn: 1,
       step: 0,
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
-      contextTokens: 0,
       contextWindow: 128_000,
     })
     expect(frames.some(frame =>
