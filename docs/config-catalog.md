@@ -1845,12 +1845,12 @@ export interface Config extends TuiConfig {
   /** Exact shared agent/session identity driven by this terminal. Defaults to `main`. */
   sessionId?: string
   /**
-   * Shell command fallback printed on exit or after selecting a session when
-   * the host cannot hand off in place. Every `{session}` becomes the selected
-   * id; the TUI never executes this text. Absent disables only the fallback,
-   * not the interactive selector.
+   * Skill name auto-invoked as this session's first user turn, exactly as if
+   * the user typed `/skill:<name>`. Set only by a launcher for a fresh
+   * skill-guided session (`dsh migrate`/`dsh upgrade`); absent leaves the first
+   * turn to the user.
    */
-  resumeCommand?: string
+  initialSkill?: string
 }
 
 /** Interaction and presentation settings for the pi-tui terminal mode. */
