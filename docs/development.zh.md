@@ -27,7 +27,7 @@ pnpm install
 node scripts/install-lefthook.mjs
 ```
 
-包装层会拒绝用户自有的 `core.hooksPath` 值。继承自系统、全局或共用仓库配置的路径必须设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`；命令作用域和 worktree 作用域的自定义路径必须显式集成或移除。
+包装层会拒绝用户自有的 `core.hooksPath` 值。继承自系统、全局或共用仓库配置的路径必须设置 `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`。当 Git 使用另一个已注册 worktree 中由所有权标记佐证的钩子路径初始化新 worktree 时，包装层会将这个复制值替换为新 worktree 自有的路径；命令作用域和其他 worktree 作用域的路径必须显式集成或移除。
 
 启用 worktree 配置之前，请迁移格式 0 共用配置中直接设置的 `extensions.*`，并迁移直接设置的 `core.worktree` 或 `core.bare=true`，以及任何非空且尚未生效的 `config.worktree`。共用配置和每个 worktree 配置都必须是常规文件，而自有钩子目录只能包含不带别名的常规文件。
 

@@ -389,6 +389,11 @@ function normalizeAria(snapshot: string, workspaceCwd: string): string {
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')
     .replace(/\b\d+(?:\.\d+)?(?:ms|s|秒)\b/g, '{{duration}}')
+    // Message IconActions clocks widen by calendar day/year; collapse every
+    // shape so goldens stay stable across midnight and year boundaries.
+    .replace(/\d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
+    .replace(/\d{1,2}月\d{1,2}日 \d{2}:\d{2}/g, '{{clock}}')
+    .replace(/(?<!\d)\d{2}:\d{2}(?!\d)/g, '{{clock}}')
 }
 
 /**

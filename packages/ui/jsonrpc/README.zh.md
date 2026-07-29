@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-`jsonrpc` 插件通过 stdio 提供以换行符分隔的 JSON-RPC，使进程外 SDK 客户端能够驱动 harness agent（智能体）。[`HarnessSdkServer`](src/server.ts) 持有协议方法和通知；传输与具名线类型位于 [`dsh-sdk-protocol`](../../sdk/sdk-protocol/README.md)，与客户端 SDK 共享；[`jsonrpc-demo`](../../examples/jsonrpc-demo/README.md) 提供外围的 `cordis.yml` 应用。
+`jsonrpc` 插件通过 stdio 提供以换行符分隔的 JSON-RPC，使进程外 SDK 客户端能够驱动 harness agent（智能体）。[`HarnessSdkServer`](src/server.ts) 负责协议方法和通知；传输与具名协议类型位于 [`dsh-sdk-protocol`](../../sdk/sdk-protocol/README.md)，与客户端 SDK 共享；[`jsonrpc-demo`](../../examples/jsonrpc-demo/README.md) 提供外围的 `cordis.yml` 应用。
 
 ## 组装
 
-`inject: ['agents']`。服务器按 `sessionId` 获取或创建一个 agent。只有服务建立快照时的生命周期 `local` 标志为 true，服务器才会转发 subagent 完成事件；提供方名称、子级 id 和持久化谱系均不能证明本地性。已注册的适配器优先；未被持有的 `deepseek` 路由会挂载 `dsh-llm-deepseek`，任何其他未被持有的提供方都会导致初始化失败。其他功能由外围 `cordis.yml` 提供。
+`inject: ['agents']`。服务器按 `sessionId` 获取或创建一个 agent。只有服务对生命周期建立快照时记录的 `local` 标志为 true，服务器才会转发 subagent 完成事件；提供方名称、子级 id 和持久化谱系均不能证明本地性。已注册的适配器优先；尚无适配器负责的 `deepseek` 路由会挂载 `dsh-llm-deepseek`，任何其他尚无适配器负责的提供方都会导致初始化失败。其他功能由外围 `cordis.yml` 提供。
 
 ## 配置
 
@@ -40,7 +40,7 @@ Stdout 只承载 JSON-RPC 帧。部署不得组合 stdout logger；诊断应写�
 
 仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **协议没有逐会话关闭或提示词取消方法**：SDK 创建的 agent 会一直存活到进程关闭；一条已接受的提示词必须运行到 agent 空闲，该会话才能接受下一条。
 - **stdout 纯净性由部署保证**：外围配置仍可能加载 stdout logger 并破坏 JSON-RPC 通道；此插件不会检查或否决同级 logger。

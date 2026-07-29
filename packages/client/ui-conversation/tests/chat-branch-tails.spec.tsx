@@ -5,9 +5,12 @@
 // with the keyed-slot machinery specs since the tool ring dissolved into
 // renderSlot.)
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import {
+  formatMessageClock, msUntilNextLocalMidnight, startOfLocalDay,
+} from '../src/client/chat/message-chrome.ts'
 import { MessageItem } from '../src/client/chat/MessageItem.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
@@ -15,19 +18,24 @@ import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx
 afterEach(cleanup)
 
 describe('MessageItem arms', () => {
-  it('user bubbles expose copy / branch / edit actions; copy writes the text', () => {
+  it('user bubbles expose clock / copy / branch / edit; copy writes the text', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText },
     })
+    // Same-day clock: construct "today at 14:24" so the label stays `HH:mm`.
+    const now = new Date()
+    const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
     render(
       <MessageItem node={{
-        kind: 'user', seq: 1,
+        kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
-      } as never}
+        source: null,
+      }}
       />,
     )
+    expect(screen.getByText('14:24')).toBeTruthy()
     expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '编辑' })).toBeTruthy()
@@ -47,9 +55,10 @@ describe('MessageItem arms', () => {
     })
     render(
       <MessageItem node={{
-        kind: 'user', seq: 1,
+        kind: 'user', seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'fallback body' }] as never,
-      } as never}
+        source: null,
+      }}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
@@ -69,9 +78,10 @@ describe('MessageItem arms', () => {
     })
     render(
       <MessageItem node={{
-        kind: 'user', seq: 1,
+        kind: 'user', seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'quiet' }] as never,
-      } as never}
+        source: null,
+      }}
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
@@ -109,12 +119,91 @@ describe('MessageItem arms', () => {
   })
 })
 
+describe('formatMessageClock', () => {
+  const now = new Date(2026, 6, 29, 10, 0).getTime()
+
+  it('keeps HH:mm on the same calendar day', () => {
+    expect(formatMessageClock(new Date(2026, 6, 29, 14, 24).getTime(), now)).toBe('14:24')
+  })
+
+  it('prefixes month and day across days in the same year', () => {
+    expect(formatMessageClock(new Date(2026, 0, 1, 14, 24).getTime(), now)).toBe('1月1日 14:24')
+  })
+
+  it('prefixes year, month, and day across years', () => {
+    expect(formatMessageClock(new Date(2025, 11, 31, 9, 5).getTime(), now)).toBe('2025年12月31日 09:05')
+  })
+
+  it('arms the next local midnight from an in-day instant', () => {
+    const noon = new Date(2026, 6, 29, 12, 0).getTime()
+    expect(startOfLocalDay(noon)).toBe(new Date(2026, 6, 29).getTime())
+    expect(msUntilNextLocalMidnight(noon)).toBe(12 * 3_600_000)
+  })
+})
+
+describe('useCalendarDay boundary refresh', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('widens a same-day user clock after local midnight', () => {
+    const dayStart = new Date(2026, 6, 29, 23, 50).getTime()
+    vi.setSystemTime(dayStart)
+    const time = new Date(2026, 6, 29, 14, 24).getTime()
+    render(
+      <MessageItem node={{
+        kind: 'user', seq: 1, time,
+        content: [{ type: 'text', text: 'night bubble' }] as never,
+        source: null,
+      }}
+      />,
+    )
+    expect(screen.getByText('14:24')).toBeTruthy()
+    act(() => {
+      vi.advanceTimersByTime(msUntilNextLocalMidnight(dayStart) + 1)
+    })
+    expect(screen.getByText('7月29日 14:24')).toBeTruthy()
+  })
+})
+
 describe('small branch tails', () => {
   it('AssistantMarkdown single-line reasoning summary skips the newline cut', () => {
     const view = render(
       <AssistantMarkdown blocks={[{ kind: 'reasoning', text: 'one-liner' }]} streaming={false} />,
     )
     expect(view.getByText('one-liner')).toBeTruthy()
+  })
+
+  it('finalized assistant messages expose copy / branch / clock after the body; streaming omits them', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const now = new Date()
+    const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
+    const settled = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'text', text: 'answer body' }, { kind: 'reasoning', text: 'hidden' }]}
+        streaming={false}
+        time={time}
+      />,
+    )
+    expect(settled.getByText('14:24')).toBeTruthy()
+    expect(settled.getByRole('button', { name: '复制' })).toBeTruthy()
+    expect(settled.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
+    fireEvent.click(settled.getByRole('button', { name: '复制' }))
+    expect(writeText).toHaveBeenCalledWith('answer body')
+    settled.unmount()
+
+    const streaming = render(
+      <AssistantMarkdown blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
+    )
+    expect(streaming.queryByRole('button', { name: '复制' })).toBeNull()
+    expect(streaming.queryByText('14:24')).toBeNull()
   })
 
   it('StatsLine omits the cache-hit segment when no input accounting exists at all', () => {

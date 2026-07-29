@@ -27,7 +27,7 @@ If hooks are missing because dependencies were restored from cache or `postinsta
 node scripts/install-lefthook.mjs
 ```
 
-The wrapper refuses user-owned `core.hooksPath` values. An inherited system, global, or common-repository path requires `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`; command-scoped and worktree-scoped custom paths must be integrated or removed explicitly.
+The wrapper refuses user-owned `core.hooksPath` values. An inherited system, global, or common-repository path requires `DSH_LEFTHOOK_ALLOW_HOOKS_PATH_OVERRIDE=1`. When Git seeds a new worktree with another registered worktree's marker-backed hook path, the wrapper replaces that copied value with the new worktree's own path; command-scoped and other worktree-scoped paths must be integrated or removed explicitly.
 
 Before enabling worktree config, migrate direct `extensions.*` in a format-0 common config, direct `core.worktree` or `core.bare=true`, and any non-empty dormant `config.worktree`. The common config and every worktree config must be regular files, while the owned hook directory may contain only unaliased regular files.
 
