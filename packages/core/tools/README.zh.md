@@ -129,7 +129,7 @@ agent loop 将连续的 `parallel` 调用归入有界滚动池，并把每个 `e
 
 ### 普通工具 schema
 
-#### 模型所见
+#### 模型看到的内容
 
 在普通模式下，模型会看到每个可见定义的确切名称、描述和 JSON schema；已交付定义记录在生成的[工具包映射和 schema 章节](../../../docs/tool-catalog.md#tool-package-map)中。agent 作用域的限制、遮蔽和扩展注册会改变该 agent 的最终工具集合。
 
@@ -143,7 +143,7 @@ agent loop 将连续的 `parallel` 调用归入有界滚动池，并把每个 `e
 
 ### Code Mode schema 与系统提示词
 
-#### 模型所见
+#### 模型看到的内容
 
 Code Mode 会公开生成的 [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools)、下方 SDK 说明，以及生成的精确 `declare const tools` 块。`both` 会同时公开普通 schema 与此 Code Mode 接口。
 
@@ -172,7 +172,7 @@ The available tools:
 
 ### 工具调用历史与结果
 
-#### 模型所见
+#### 模型看到的内容
 
 循环会保留模型发出的参数和注册表的最终内容。任何抛出或被拒绝的调用都会恰好变为 `Error: <message>`。Code Mode 只返回外层程序打印的行和呈现后的返回值；两者都为空时返回 `(run_code completed with no output)`；失败时返回 `Error: code run failed (<kind>): <message>`，并根据是否存在已捕获内容，在其后附加 `Captured output:` 与捕获的行。内部分发事件只保留在日志中；后置执行监听器可以在结果之后追加带来源归属的上下文。
 
@@ -184,7 +184,7 @@ The available tools:
 
 仅追加；新的可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **并发策略不是事件 seam**：`executionMode()` 直接读取已解析的工具定义；插件只能在自身拥有的定义上声明分类器。
 - **`tools/pre-execute` 有意不允许改写 `exec.arguments`**：否则日志记录和呈现的参数会与实际运行内容失去同步；改写设计记录在[拟议的 Agent Note](../../../.agents/notes/proposed/feature/2026-06-30-pre-tool-input-rewrite.md)中。

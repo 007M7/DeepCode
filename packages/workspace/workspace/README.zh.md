@@ -24,7 +24,7 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspace`）：通过领�
 
 ### Workspace 记录与会话记账
 
-#### 模型所见内容
+#### 模型看到的内容
 
 没有。`ctx.workspace` 只向宿主侧消费方提供 workspace 记录：此包不注册工具、不注入提示词、不写入会话事件，因此没有请求字段会携带此包数据。
 

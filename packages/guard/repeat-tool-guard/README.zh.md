@@ -84,7 +84,7 @@ The repeated calls are not making progress. Do not call this tool with these exa
 
 仅追加；新出现的内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **仅检测精确匹配**：规范化过程会对键进行深度排序，因此近似变体（稍作修改的路径、值内增加的空白）可以绕过链；在没有需求证据前，不采用模糊匹配。
 - **压缩（compaction）不会重置链**：跨越压缩检查点的链会继续计数。

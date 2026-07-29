@@ -12,7 +12,7 @@ subagent 引用 source 的浏览器半侧：把 `@` 触发的 `subagent` source 
 
 ### 用户提示词中的 subagent label 文本
 
-#### 模型所见
+#### 模型看到的内容
 
 被 pick 的候选会把字面文本 `@label`（子会话的显示标题）落进草稿；该文本原样进入普通用户消息（`session.prompt`）到达模型，没有专用内容块、提示词 section 或 host 侧解析。目前不存在任何消费语义：模型看到的是纯文本，只能自行解读。
 

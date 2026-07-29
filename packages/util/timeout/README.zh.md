@@ -58,7 +58,7 @@ export async function runWithDeadline(upstream: AbortSignal | undefined, timeout
 
 通过 `dsh-timeout-policy` 等消费方间接影响模型；消费方可能会将提供方结果替换为已保留的超时错误，或抑制延迟结果。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
 不会直接导致 KV Cache 失效；请求前缀变更由上述消费方负责。
 

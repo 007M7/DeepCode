@@ -30,7 +30,7 @@
 
 ### 会话目录
 
-#### 模型所见
+#### 模型看到的内容
 
 如果存在模型可调用 skill，且可见的正是这个 `skill` 工具，agent 会收到下方目录模板，其中包含每个已排序 skill 的一条随数据而定的条目。该目录是一条持久的用户角色消息。
 
@@ -58,7 +58,7 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 ### 工具 schema
 
-#### 模型所见
+#### 模型看到的内容
 
 模型会看到生成的 [`skill` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-skill)。
 
@@ -72,7 +72,7 @@ If the user names a skill, or the task clearly matches a skill's description, ca
 
 ### 工具结果
 
-#### 模型所见
+#### 模型看到的内容
 
 成功调用使用下方结果模板，以及提供方管理的资源指引、目录资源指引、URL 资源指引或不透明资源指引。
 
@@ -128,7 +128,7 @@ Load referenced resources only as needed.
 
 ### 工具错误
 
-#### 模型所见
+#### 模型看到的内容
 
 无效或陈旧选择会精确返回 `Error: invalid skill name "<name>"`、`Error: skill "<name>" is unknown or no longer available` 或 `Error: skill "<name>" is not available for model invocation`。提供方抛出的查找文本取决于数据，并接收同一个 `Error: <message>` 包装层。
 

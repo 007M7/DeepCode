@@ -81,7 +81,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 ### 用户、steering 与注入消息
 
-#### 模型所见
+#### 模型看到的内容
 
 `send`、`steer` 与 `inject` 会向所属会话提供输入。`agent/prompt-submit`、`agent/step` 和其他已声明事件让插件能够阻止提示词或添加持久请求材料；此接口本身不贡献固定文案。
 
@@ -95,7 +95,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 ### Agent 作用域的请求组合
 
-#### 模型所见
+#### 模型看到的内容
 
 通过 `agent.ctx` 进行的注册可以遮蔽提示词段或工具，也可以在未发布 setup 期间安装仅适用于该 agent 的拦截器。
 

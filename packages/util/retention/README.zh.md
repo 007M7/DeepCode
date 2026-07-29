@@ -87,7 +87,7 @@ const footer = formatRetentionNotice(
 
 通过渲染保留内容和省略元数据的工具消费方间接影响模型。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
 不会直接导致 KV Cache 失效；请求前缀变更由上述消费方负责。
 

@@ -39,7 +39,7 @@
 
 ### 条件工具结果
 
-#### 模型所见内容
+#### 模型看到的内容
 
 此插件不添加提示词或 schema。如果已声明的截止时间先到，它会将提供方结果替换为 `Error: tool call timed out after <ms>ms` 与结构化 `TOOL_TIMEOUT`；否则原结果保持不变。
 

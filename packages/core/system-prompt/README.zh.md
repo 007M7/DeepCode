@@ -46,7 +46,7 @@
 
 ### 系统提示词
 
-#### 模型所见
+#### 模型看到的内容
 
 每次组装都从下方 harness 身份开始，然后在严格变量插值后追加已配置 persona 与有序插件段。空段会消失；带作用域的段和变量可以为一个 agent 遮蔽全局项。最终 `system-prompt/assemble` waterfall 结果是权威来源，因此专家监听器的变更决定交付的提示词与工具 schema。
 
@@ -66,7 +66,7 @@ You are an AI agent powered by the DeepSeek Harness SDK.
 
 ### 工具 schema
 
-#### 模型所见
+#### 模型看到的内容
 
 对于已交付工具，模型会收到[生成工具 schema](../../../docs/tool-catalog.md#tool-package-map) 中对每个 agent 可见的子集；限制与组装拦截完成后，按配置或字典序排列。扩展可以通过同一注册表贡献其他定义。段与 schema 提供方是独立的组装输入，因此工具限制不会移除独立注册的引导。
 

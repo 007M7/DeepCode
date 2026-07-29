@@ -59,7 +59,7 @@ headless-agent 叶节点提供本地 bash、文件系统、skill、subagent、�
 
 ### 单次任务轮次
 
-#### 模型所见
+#### 模型看到的内容
 
 任务位置参数会成为一条用户消息。通过 `dsh-agent-spine-demo`，顶层 agent 还会收到已配置的工作区指令与 persona、skill 目录、可见工具 schema，以及同一轮次后续步骤所需的保留工具结果。
 

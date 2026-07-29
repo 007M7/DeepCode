@@ -34,7 +34,7 @@
 
 ### 工具 schema
 
-#### 模型所见内容
+#### 模型看到的内容
 
 模型会看到生成的 [`todo_write` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-todo)。
 
@@ -48,7 +48,7 @@
 
 ### 工具调用历史与结果
 
-#### 模型所见内容
+#### 模型看到的内容
 
 每个 assistant 工具调用都会在参数中保留整个替换列表。成功时原样返回 `Updated todo list: <pending> pending, <inProgress> in progress, <completed> completed.`。稳定失败文本为 ``Error: invalid todo: `content` must be a non-empty string``、`Error: invalid todos: duplicate content "<content>"`、`Error: invalid todos: at most one task may be in_progress, got <count>` 和 `Error: todo_write requires an owning agent session`。完整 `todo/write` 会话事件是 UI 与回放状态，而非第二条模型消息。
 

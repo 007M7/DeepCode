@@ -32,7 +32,7 @@ DeepSeek Harness SDK 运行时的共享协议格式（wire format）：一个按
 
 无；此包既不组装也不发送提供方请求。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **无协议版本协商**——握手只携带 `serverInfo.version`（`0.0.1`，客户端不校验）；处于预发布阶段，无兼容承诺。
 - **无取消与会话关闭方法**——客户端放弃轮次的方式是关闭运行时进程；见 [`dsh-jsonrpc` README](../../ui/jsonrpc/README.md)。

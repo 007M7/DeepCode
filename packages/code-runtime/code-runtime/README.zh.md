@@ -28,7 +28,7 @@
 
 不会直接失效；由上述消费方负责请求前缀变更。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **`run()` 是一次性的**：`logs` 只有在 `CodeRunResult` resolve 后才能获得；seam 不提供正在运行的程序所产生输出的流式日志或进度接口。
 - **持久 REPL 风格内核已记录为未来工作**：在持久内核后端带来自己的日志方案前，运行之间不保留状态的契约继续有效（参见 [Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md)）。

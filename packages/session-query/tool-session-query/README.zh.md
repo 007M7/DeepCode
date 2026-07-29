@@ -23,7 +23,7 @@
 
 ### 系统提示词
 
-#### 模型所见
+#### 模型看到的内容
 
 模型会收到一个固定的既往历史指引章节。
 
@@ -37,13 +37,13 @@ Use session_search to find relevant work from prior sessions, or session_event_s
 
 插件挂载期间，每次请求都存在一个固定精简章节。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
 插件和指引文本不变时，前缀稳定。
 
 ### 工具 schema
 
-#### 模型所见
+#### 模型看到的内容
 
 模型会看到生成的 [`session_search`、`session_event_search`、`session_trace`、`session_event_trace` 和 `session_event_read` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-session-query)。搜索过滤器会增加固定 schema token，而游标、工作区路径、输出分页和模型可控结果上限仍不存在。
 
@@ -51,13 +51,13 @@ Use session_search to find relevant work from prior sessions, or session_event_s
 
 可见期间，每次请求都会发送 5 个固定只读 schema。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
 工具可见性和定义不变时，前缀稳定。
 
 ### 工具结果
 
-#### 模型所见
+#### 模型看到的内容
 
 每次成功调用都会发出一个纯文本块。搜索结果包含标题和最佳匹配摘录；跟踪包含全部已授权关系；事件读取包含未经删节的目标 JSON。通用 spill 策略可以将过大的内联文本替换为预览、不透明定位信息和取回指引。
 
@@ -65,11 +65,11 @@ Use session_search to find relevant work from prior sessions, or session_event_s
 
 结果取决于数据，并保留在已记录工具历史中直到压缩（compaction）；`maxSearchResults` 限制搜索命中数。
 
-#### KV 缓存影响
+#### KV Cache 影响
 
 仅追加的结果文本位于可重用请求前缀之后，不会使较早的缓存条目失效。
 
-## 已知限制与待完成工作
+## 已知限制与暂缓事项
 
 - 搜索最多返回部署上限，匹配更多时会请模型缩小查询；不提供延续 token。
 - 工作区身份使用保守的字符串精确 `cwd` 相等性，因此符号链接等价的路径不共享权限。

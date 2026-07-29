@@ -44,7 +44,7 @@ SDK 对外提供默认及具名导出的 `WorkerCodeRuntime` 类，以及 `Confi
 
 不会直接失效；由上述消费方负责请求前缀变更。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **程序派生的 OS 进程在程序终止后仍会存活**：`worker.terminate()` 只结束线程，比 bash-local 的进程组终止更弱；在容器后端出现前，孤儿进程清理属于部署职责。
 - **类型剥离依赖 Node 的实验性 `stripTypeScriptTypes` API**：依赖的行为由单元测试固定；如其发生变化，amaro／sucrase 是已经点名的直接替代品。

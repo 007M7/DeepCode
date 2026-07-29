@@ -84,7 +84,7 @@ interface Config {
 
 ### 完整对话请求
 
-#### 模型所见
+#### 模型看到的内容
 
 每个步骤中，循环会发送针对该 agent 呈现的系统提示词、可见工具 schema 和会话派生消息。它提供 `provider`、`model` 与 `cwd` 变量值，但不添加固定文案。
 
@@ -98,7 +98,7 @@ interface Config {
 
 ### 保留的消息历史
 
-#### 模型所见
+#### 模型看到的内容
 
 已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文和 steering 都会记录，并在后续步骤中发送。原始流分片、生命周期边界和其他仅写入日志的事件会被排除。
 
@@ -112,7 +112,7 @@ interface Config {
 
 ### 取消后未分发的调用
 
-#### 模型所见
+#### 模型看到的内容
 
 如果后续请求回放一个中止的步骤，取消所阻止分发的每个工具调用都有错误码 `ABORTED_BEFORE_DISPATCH`，结果文本为 `Error: tool call aborted before dispatch`。
 
@@ -124,7 +124,7 @@ interface Config {
 
 仅追加；每个合成结果都位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **分类是一元的**：安全性取决于比较同级调用或资源的调用必须保持独占（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)）。
 - **配置 label 默认每次新建**：省略 `sessionId` 会在每次启动时创建全新的 `${id}-session-<uuid>`；确切的恢复或创建行为要求显式提供稳定的 `sessionId`，而 `resumeSessionId` 要求已有持久化历史。

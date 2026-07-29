@@ -71,7 +71,7 @@ Use goal tools for one long-running completion objective in the current session.
 
 schema 的定义与可见性不变时，前缀保持稳定。调用、结果和生成的 goal 快照会追加到可复用请求前缀之后，不会使更早条目失效。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **语义意图仍由模型判断**：执行只能证明人类直接来源，无法证明请求是否足够重大而值得创建 goal。
 - **阻塞条件是否相同仍由模型判断**：运行时强制统计互不重复的已准入 Goal Round，而不判断障碍在语义上是否等价；独立评估器的实现暂缓。
