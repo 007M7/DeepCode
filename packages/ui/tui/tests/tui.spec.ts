@@ -4436,8 +4436,12 @@ describe('TUI user-interaction dialogs', () => {
     result.terminal.send(' ')
     result.terminal.send('\x1b[B')
     result.terminal.send(' ')
+    result.terminal.send('\t')
+    result.terminal.send('Tests')
     result.terminal.send('\r')
-    await expect(multi).resolves.toEqual({ answers: [{ id: 'targets', selected: ['Code', 'Docs'] }] })
+    await expect(multi).resolves.toEqual({
+      answers: [{ id: 'targets', selected: ['Code', 'Docs'], custom: 'Tests' }],
+    })
 
     const custom = result.ctx.userInteraction.ask({
       questions: [{ id: 'other', question: 'Choose or type', options: [{ label: 'Default' }] }],

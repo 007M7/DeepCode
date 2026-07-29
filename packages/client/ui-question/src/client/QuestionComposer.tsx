@@ -86,12 +86,13 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
 
   const choose = (label: string): void => {
     updateDraft((current) => {
-      const selected = question.multiSelect === true
-        ? current.selected.includes(label)
+      if (question.multiSelect === true) {
+        const selected = current.selected.includes(label)
           ? current.selected.filter(item => item !== label)
           : [...current.selected, label]
-        : [label]
-      return { selected, custom: '', customOpen: false, skipped: false }
+        return { ...current, selected, skipped: false }
+      }
+      return { selected: [label], custom: '', customOpen: false, skipped: false }
     })
     if (question.multiSelect !== true && index < questions.length - 1) {
       setIndex(current => current + 1)
@@ -99,7 +100,12 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
   }
 
   const openCustom = (): void => {
-    updateDraft(current => ({ ...current, selected: [], customOpen: true, skipped: false }))
+    updateDraft(current => ({
+      ...current,
+      selected: question.multiSelect === true ? current.selected : [],
+      customOpen: true,
+      skipped: false,
+    }))
   }
 
   const answered = (item: DraftAnswer): boolean =>
@@ -121,7 +127,7 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
         const custom = value.custom.trim()
         return {
           id: item.id,
-          selected: custom === '' ? value.selected : [],
+          selected: custom === '' || item.multiSelect === true ? value.selected : [],
           ...(custom === '' ? {} : { custom }),
         }
       }),
@@ -269,7 +275,11 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
                   onChange={(event) => {
                     const value = event.target.value
                     updateDraft(current => ({
-                      ...current, selected: [], custom: value, customOpen: true, skipped: false,
+                      ...current,
+                      selected: question.multiSelect === true ? current.selected : [],
+                      custom: value,
+                      customOpen: true,
+                      skipped: false,
                     }))
                   }}
                   onKeyDown={(event) => {

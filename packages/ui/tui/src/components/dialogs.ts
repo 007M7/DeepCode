@@ -799,12 +799,14 @@ export class QuestionDialog implements Component, Focusable {
       if (this.selected.has(this.selectedIndex)) this.selected.delete(this.selectedIndex)
       else this.selected.add(this.selectedIndex)
     } else if (matchesKey(data, Key.enter)) {
-      const indices = this.question.multiSelect ? [...this.selected].sort((a, b) => a - b) : [this.selectedIndex]
-      if (indices.length === 0) {
+      const selected = this.question.multiSelect
+        ? this.selectedOptionLabels()
+        : [options[this.selectedIndex]?.label].filter((label): label is string => label !== undefined)
+      if (selected.length === 0) {
         this.error = 'Select at least one option, or press Tab for a custom answer.'
         return
       }
-      this.done({ selected: indices.map(index => options[index]?.label).filter((label): label is string => label !== undefined) })
+      this.done({ selected })
     } else if (matchesKey(data, Key.tab) || data.toLowerCase() === 'c') {
       this.mode = 'custom'
       this.error = ''
@@ -819,7 +821,17 @@ export class QuestionDialog implements Component, Focusable {
       this.error = 'Enter an answer before submitting.'
       return
     }
-    this.done({ selected: [], custom })
+    this.done({
+      selected: this.question.multiSelect ? this.selectedOptionLabels() : [],
+      custom,
+    })
+  }
+
+  private selectedOptionLabels(): string[] {
+    return [...this.selected]
+      .sort((a, b) => a - b)
+      .map(index => this.options[index]?.label)
+      .filter((label): label is string => label !== undefined)
   }
 
   render(width: number): string[] {

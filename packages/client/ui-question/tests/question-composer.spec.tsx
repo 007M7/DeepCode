@@ -96,13 +96,20 @@ describe('QuestionComposer', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '代码质量' }))
-    fireEvent.keyDown(screen.getByRole('checkbox', { name: '代码质量' }), { key: 'Enter' })
+    fireEvent.click(screen.getByRole('button', { name: '其他，请填写自定义答案' }))
+    const multiCustom = screen.getByPlaceholderText('输入你的答案')
+    fireEvent.change(multiCustom, { target: { value: '沟通能力' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: '产品判断' }))
+    expect(screen.getByRole('checkbox', { name: '系统设计' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('checkbox', { name: '代码质量' }).getAttribute('aria-checked')).toBe('true')
+    expect((multiCustom as HTMLTextAreaElement).value).toBe('沟通能力')
+    fireEvent.keyDown(multiCustom, { key: 'Enter' })
 
     // The domain face encoded the whole batch into one carrier envelope.
     expect(respond).toHaveBeenCalledWith(answeredEnvelope('question-1', [
       { id: 'profile', selected: ['工程落地型 (Recommended)'] },
       { id: 'detail', selected: [], custom: '要能独立排查线上问题' },
-      { id: 'signals', selected: ['系统设计', '代码质量'] },
+      { id: 'signals', selected: ['系统设计', '代码质量', '产品判断'], custom: '沟通能力' },
     ]))
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '正在提交…' }).disabled).toBe(true)
   })

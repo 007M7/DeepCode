@@ -110,6 +110,12 @@ class ScriptedTuiAdapter extends LlmAdapter {
 
     const hasToolResult = lastMessage?.content.some(block => block.type === 'tool-result') ?? false
     if (hasToolResult) {
+      const toolResultText = lastMessage?.content.flatMap(block => block.type === 'tool-result'
+        ? block.content.flatMap(content => content.type === 'text' ? [content.text] : [])
+        : []).join('\n') ?? ''
+      if (toolResultText !== '{"answers":[{"id":"mode","selected":["Safe"],"custom":"Release notes"}]}') {
+        throw new Error(`the scripted TUI request received an unexpected question answer: ${toolResultText}`)
+      }
       for (const chunk of textChunks(FINAL_TEXT)) yield chunk
       return
     }
@@ -119,6 +125,7 @@ class ScriptedTuiAdapter extends LlmAdapter {
         id: 'mode',
         header: 'Execution mode',
         question: 'How should the scripted run proceed?',
+        multi_select: true,
         options: [
           { label: 'Safe', description: 'Use the guarded path.' },
           { label: 'Fast', description: 'Use the shorter path.' },
