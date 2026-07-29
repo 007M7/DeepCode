@@ -314,12 +314,15 @@
 # The API gateway: the transport-agnostic dispatch face every client shape
 # shares. provider/model are the host default routing — the profile json's
 # mapping target (user config overrides these engineering defaults).
-# Directory-picking package, dual-face: the node half serves the gateway's
-# host.* picker RPCs, the browser half fills ui-workspace's directory-flow
-# slots — one row composes the whole interaction. Swap point: mount
-# '-native' instead for the host-display OS chooser.
+# Directory-picking composition, adaptive default: the chooser resolves the
+# host's situation once at boot (bind host, SSH launch, display session) and
+# mounts the matching dual-face backend row — its node half serves the
+# gateway's host.* picker RPCs, its browser half fills ui-workspace's
+# directory-flow slots. Swap point: mount '-native' (host-display OS chooser)
+# or '-browse' (in-app browsing, remote-capable) directly to pin the
+# interaction.
 - id: directory-picker
-  name: '@deepseek-ai/dsh-host-directory-picker-browse'
+  name: '@deepseek-ai/dsh-host-directory-picker-auto'
 
 - id: api-gateway
   name: '@deepseek-ai/dsh-host-apiproxy'

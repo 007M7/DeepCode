@@ -78,6 +78,11 @@ export class HttpServerService extends Service {
     return this.listenedPort
   }
 
+  /** The configured bind host (the loopback or all-interfaces literal). */
+  get host(): Config['host'] {
+    return this.config.host
+  }
+
   /**
    * Register a named route. Duplicate (kind, path) throws — route patterns are
    * a composition-level contract, so a collision is a misconfiguration.
