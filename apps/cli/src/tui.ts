@@ -82,12 +82,9 @@ export function launcherSessionsRoot(): string {
 /**
  * Run the interactive TUI with this harness checkout as the workspace
  * (`dsh meta`), whatever directory it was launched from.
- * @param resumeSessionId - a persisted session id to resume, or `undefined`;
- * see {@link runTui}. Meta-mode sessions live under the checkout, so an id from
- * an ordinary `dsh` run in another directory is not found here.
  */
-export async function runMeta(resumeSessionId: string | undefined): Promise<void> {
-  return runTui(undefined, resumeSessionId, SOURCE_ROOT)
+export async function runMeta(): Promise<void> {
+  return runTui(undefined, undefined, SOURCE_ROOT)
 }
 
 /**

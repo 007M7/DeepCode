@@ -45,7 +45,7 @@ switch (invocation.mode) {
   }
   case 'meta': {
     const { runMeta } = await import('./tui.ts')
-    await runMeta(invocation.resume)
+    await runMeta()
     break
   }
   case 'migrate':
