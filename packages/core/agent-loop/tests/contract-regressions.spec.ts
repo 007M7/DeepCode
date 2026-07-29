@@ -124,6 +124,63 @@ describe('addressable inbox operations', () => {
       .toEqual(['first', 'promote me', 'edited'])
     expect(agent.updateInbox(promote.id, { kind: 'remove' })).toBe('not-found')
   })
+
+  it('edits, removes, and promotes steering occurrences before admission commits', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('steering-inbox-actions'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<{ kind: 'allow' }>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+
+    const pending: InboxItem[] = []
+    const updates: { id: string; action: string; text: string }[] = []
+    const discards: string[][] = []
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent && item.placement === 'steering') pending.push(item)
+    })
+    ctx.on('agent/inbox/update', (subject, item, action) => {
+      if (subject === agent) updates.push({ id: item.id, action, text: inboxText(item) })
+    })
+    ctx.on('agent/inbox/discard', (subject, items) => {
+      if (subject === agent) discards.push(items.map(item => item.id))
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'admitted prompt')
+    await entered.promise
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'remove me' }], source: { kind: 'user' } }))
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'edit me' }], source: { kind: 'user' } }))
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'promote me' }], source: { kind: 'user' } }))
+    expect(pending.map(inboxText)).toEqual(['remove me', 'edit me', 'promote me'])
+
+    const remove = pending[0]!
+    const edit = pending[1]!
+    const promote = pending[2]!
+    expect(agent.updateInbox(edit.id, {
+      kind: 'edit',
+      content: [{ type: 'text', text: 'edited' }],
+    })).toBe('applied')
+    expect(agent.updateInbox(remove.id, { kind: 'remove' })).toBe('applied')
+    expect(agent.updateInbox(promote.id, { kind: 'promote' })).toBe('applied')
+    expect(updates).toEqual([
+      { id: edit.id, action: 'edit', text: 'edited' },
+      { id: promote.id, action: 'promote', text: 'promote me' },
+    ])
+    expect(discards).toEqual([[remove.id]])
+
+    decision.resolve({ kind: 'allow' })
+    await idle
+    expect(agent.session.events
+      .filter(event => event.type === 'steering/message')
+      .map(event => event.type === 'steering/message'
+        ? event.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+        : ''))
+      .toEqual(['promote me', 'edited'])
+  })
 })
 
 describe('assistant replay provenance', () => {

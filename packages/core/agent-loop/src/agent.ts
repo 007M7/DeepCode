@@ -146,10 +146,12 @@ export class ReactLoopAgent implements Agent {
     if (queuedIndex === -1 && outboxIndex === -1) return 'not-found'
 
     const pending = queuedIndex === -1 ? this.outbox[outboxIndex] : this.queued[queuedIndex]
+    /* v8 ignore next 2 -- indices are derived from these arrays in this synchronous method. */
     if (pending === undefined || pending.item === undefined) {
       throw new Error(`agent "${this.id}" inbox index changed during synchronous update`)
     }
 
+    /* v8 ignore next -- InboxAction is a closed discriminated union; all variants are covered below. */
     switch (action.kind) {
       case 'edit': {
         const item: InboxItem = Object.freeze({
@@ -158,10 +160,12 @@ export class ReactLoopAgent implements Agent {
         })
         if (queuedIndex !== -1) {
           const queued = this.queued[queuedIndex]
+          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
           if (queued === undefined) throw new Error(`agent "${this.id}" queued item disappeared during edit`)
           this.queued[queuedIndex] = { ...queued, item }
         } else {
           const outbox = this.outbox[outboxIndex]
+          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
           if (outbox === undefined) throw new Error(`agent "${this.id}" steering item disappeared during edit`)
           this.outbox[outboxIndex] = { ...outbox, message: item.message, item }
         }
@@ -177,11 +181,13 @@ export class ReactLoopAgent implements Agent {
       case 'promote': {
         if (queuedIndex !== -1) {
           const queued = this.queued.splice(queuedIndex, 1)[0]
+          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
           if (queued === undefined) throw new Error(`agent "${this.id}" queued item disappeared during promotion`)
           this.queued.unshift({ item: queued.item, wakeup: true })
           this.scheduleKick()
         } else {
           const outbox = this.outbox.splice(outboxIndex, 1)[0]
+          /* v8 ignore next -- the index was resolved from this array without an async boundary. */
           if (outbox === undefined) throw new Error(`agent "${this.id}" steering item disappeared during promotion`)
           this.outbox.unshift(outbox)
         }
@@ -189,6 +195,7 @@ export class ReactLoopAgent implements Agent {
         return 'applied'
       }
       default:
+        /* v8 ignore next -- InboxAction is a closed discriminated union. */
         return assertNever(action)
     }
   }
@@ -710,6 +717,7 @@ export class ReactLoopAgent implements Agent {
     for (const item of this.outbox.splice(0, limit)) {
       if (item.steering) {
         steered = true
+        /* v8 ignore next -- only inbox-backed steer entries carry steering:true. */
         if (item.item === undefined) throw new Error(`agent "${this.id}" steering outbox item has no inbox identity`)
         emitAgentEvent(this.loopCtx, this, 'agent/inbox/dequeue', item.item)
         this.session.append(
