@@ -27,6 +27,15 @@
   height: 28px;
 }
 
+/* Clock before the icon buttons (figma 388:20051); pr 12 separates it from copy. */
+.time {
+  padding-right: 12px;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
 /* Hover-capable pointers: hide until the row is hovered/focused. Touch /
    hover:none keeps actions visible (opacity:0 still hit-tests). */
 @media (hover: hover) {

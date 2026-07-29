@@ -1,12 +1,20 @@
-/* Assistant flow body: full-width narration (figma 16/28), block gap 16. */
+/* Assistant flow body: full-width narration (figma 16/28), block gap 16.
+   IconActions sit below the body with an explicit 16px top margin (figma
+   43:32997) — separate from the body's internal gap so the footer spacing
+   stays fixed when the body is a single block. */
 
 .root {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   font-size: 16px;
   line-height: 28px;
   color: var(--dsw-alias-label-primary);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 /* Interrupted-turn terminal marker: quiet inline tag, no animation. */
@@ -18,4 +26,57 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 18px;
+}
+
+/* Finalized footer: copy / branch / clock (figma 43:32997). */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  margin-top: 16px;
+  /* Optical align with 28px icon hit targets that pad 6px past the glyph. */
+  margin-left: -6px;
+}
+
+/* Clock after the icon buttons; pl 12 separates it from branch. */
+.time {
+  padding-left: 12px;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+}
+
+/* Hover-capable pointers: hide until the root is hovered/focused. Touch /
+   hover:none keeps actions visible (opacity:0 still hit-tests). */
+@media (hover: hover) {
+  .actions {
+    opacity: 0;
+    transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
+  }
+
+  .root:hover .actions,
+  .root:focus-within .actions {
+    opacity: 1;
+  }
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border: none;
+  border-radius: 28px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
 }
