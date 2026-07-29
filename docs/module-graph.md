@@ -9,6 +9,7 @@ Inter-package dependencies among the `@deepseek-ai/dsh-*` harness packages, deri
 flowchart TD
   subgraph group_util["packages/util"]
     pkg_brand["brand"]
+    pkg_native_command["native-command"]
     pkg_paths["paths"]
     pkg_retention["retention"]
     pkg_timeout["timeout"]
@@ -185,6 +186,9 @@ flowchart TD
   end
   subgraph group_host["packages/host"]
     pkg_host_apiproxy["host-apiproxy"]
+    pkg_host_directory_picker["host-directory-picker"]
+    pkg_host_directory_picker_browse["host-directory-picker-browse"]
+    pkg_host_directory_picker_native["host-directory-picker-native"]
     pkg_host_webserver["host-webserver"]
   end
   subgraph group_lsp["packages/lsp"]
@@ -245,6 +249,7 @@ flowchart TD
     pkg_workspace["workspace"]
   end
   pkg_brand --> pkg_invariants
+  pkg_native_command --> pkg_invariants
   pkg_paths --> pkg_invariants
   pkg_retention --> pkg_invariants
   pkg_timeout --> pkg_invariants
@@ -264,6 +269,8 @@ flowchart TD
   pkg_code_runtime --> pkg_invariants
   pkg_jsonrpc_demo --> pkg_invariants
   pkg_host_apiproxy --> pkg_invariants
+  pkg_host_directory_picker --> pkg_invariants
+  pkg_host_directory_picker_browse --> pkg_invariants
   pkg_host_webserver --> pkg_invariants
   pkg_storage --> pkg_invariants
   pkg_subprocess --> pkg_invariants
@@ -355,6 +362,10 @@ flowchart TD
   pkg_client_ui_theme --> pkg_client_ui_primitives
   pkg_client_ui_theme --> pkg_client_ui_slots
   pkg_client_ui_theme --> pkg_invariants
+  pkg_host_directory_picker_native --> pkg_client_runtime
+  pkg_host_directory_picker_native --> pkg_client_ui_slots
+  pkg_host_directory_picker_native --> pkg_client_ui_workspace
+  pkg_host_directory_picker_native --> pkg_invariants
   pkg_lsp --> pkg_brand
   pkg_lsp --> pkg_invariants
   pkg_lsp --> pkg_llm
@@ -944,6 +955,7 @@ flowchart TD
 | --- | --- | --- |
 | [`invariants`](../packages/support/invariants) | `support` | — |
 | [`brand`](../packages/util/brand) | `util` | [`invariants`](../packages/support/invariants) |
+| [`native-command`](../packages/util/native-command) | `util` | [`invariants`](../packages/support/invariants) |
 | [`paths`](../packages/util/paths) | `util` | [`invariants`](../packages/support/invariants) |
 | [`retention`](../packages/util/retention) | `util` | [`invariants`](../packages/support/invariants) |
 | [`timeout`](../packages/util/timeout) | `util` | [`invariants`](../packages/support/invariants) |
@@ -963,6 +975,8 @@ flowchart TD
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | [`invariants`](../packages/support/invariants) |
 | [`jsonrpc-demo`](../packages/examples/jsonrpc-demo) | `examples` | [`invariants`](../packages/support/invariants) |
 | [`host-apiproxy`](../packages/host/apiproxy) | `host` | [`invariants`](../packages/support/invariants) |
+| [`host-directory-picker`](../packages/host/directory-picker) | `host` | [`invariants`](../packages/support/invariants) |
+| [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | `host` | [`invariants`](../packages/support/invariants) |
 | [`host-webserver`](../packages/host/webserver) | `host` | [`invariants`](../packages/support/invariants) |
 | [`storage`](../packages/storage/storage) | `storage` | [`invariants`](../packages/support/invariants) |
 | [`subprocess`](../packages/subprocess/subprocess) | `subprocess` | [`invariants`](../packages/support/invariants) |
@@ -992,6 +1006,7 @@ flowchart TD
 | [`client-ui-skill`](../packages/client/ui-skill) | `client` | [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-subagent`](../packages/client/ui-subagent) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-theme`](../packages/client/ui-theme) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-workspace`](../packages/client/ui-workspace), [`invariants`](../packages/support/invariants) |
 | [`lsp`](../packages/lsp/lsp) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |

@@ -81,6 +81,12 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async pickDirectory(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
       },
+      async listDirectory(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/w', home: '/w', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false } } }
+      },
+      async createDirectory(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { path: '/w/new' } } }
+      },
       async openPath(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
       },
@@ -231,6 +237,19 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     }
     const response = await client(api, 1).host.pickDirectory({})
     expect(response.result).toEqual({ ok: true, value: { path: '/tmp/project' } })
+  })
+
+  it('round-trips the browse listing and creation calls through the wire form', async () => {
+    const c = client()
+    const listed = await c.host.listDirectory({ path: '/w' })
+    expect(listed.result).toEqual({
+      ok: true,
+      value: { path: '/w', home: '/w', crumbs: [{ name: '/', path: '/', hidden: false }], entries: [], truncated: false },
+    })
+    const home = await c.host.listDirectory({})
+    expect(home.result).toMatchObject({ ok: true, value: { home: '/w' } })
+    const created = await c.host.createDirectory({ path: '/w', name: 'fresh' })
+    expect(created.result).toEqual({ ok: true, value: { path: '/w/new' } })
   })
 
   it('round-trips host.openPath through the wire form', async () => {

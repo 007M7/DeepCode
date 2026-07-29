@@ -488,6 +488,20 @@ Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionT
 
 Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/compact/src/index.ts)
 
+## `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
+
+Abstract directory-picking service. Subclass, implement `capability()`, and load the subclass as a plugin — it registers as `ctx.directoryPicker` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior). The capability object must be stable for the service lifetime: consumers may capture it across calls.
+
+```ts cordis-catalog
+/**
+ * The backend's interaction capability.
+ * @returns the discriminated capability consumers switch on.
+ */
+abstract capability(): DirectoryPickerCapability
+```
+
+Source: [`packages/host/directory-picker/src/index.ts:131`](../../packages/host/directory-picker/src/index.ts)
+
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
