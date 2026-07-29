@@ -5,6 +5,7 @@ import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-
 import { SlotsService } from './slots.ts'
 import { SessionsService } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
+import { SessionHistoryService } from './session-history/service.ts'
 import { WorkspacesService } from './workspaces/service.ts'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from './sessions/conversation.ts'
 import type { UseProjection } from './sessions/projection-store.ts'
@@ -12,6 +13,7 @@ import type { UseProjection } from './sessions/projection-store.ts'
 export { SlotsService } from './slots.ts'
 export type { RootOwnerProps } from './slots.ts'
 export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
+export { SessionHistoryService } from './session-history/service.ts'
 // The provide channel is shared with the client test runtime (one
 // materialization/projection implementation; no test-side mirror to drift).
 export { SessionProvideChannel } from './sessions/provide.ts'
@@ -21,6 +23,9 @@ export type { AgentScopeHandle } from './agents/scope.ts'
 export { DirectoryBrowseError, WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
 export type { Session } from './sessions/session.ts'
 export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
+export type {
+  ISessionHistory, SessionHistoryFace, SessionHistorySnapshot,
+} from './contract/session-history.ts'
 export type { ISessions } from './contract/sessions.ts'
 export type { IWorkspaces } from './contract/workspaces.ts'
 export type {
@@ -38,10 +43,19 @@ export type {
   EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
 } from './contract/store.ts'
 export type {
-  AssistantBlock, AssistantMessageNode, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
+  AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
+  AssistantTiming, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
   ConversationSnapshot, QueuedMessage, RunningToolCall,
   SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
+export type {
+  ConversationContext, ConversationContextOriginKind,
+} from './sessions/conversation-context.ts'
+export type {
+  ConversationPromptSnapshot, RequestInspectionSnapshot, RequestPromptChange, RequestView,
+} from './sessions/request-inspection.ts'
+export type { ConversationHistoryProjection } from './session-history/history-fold.ts'
+export type { SessionHistoryInspection } from './sessions/history.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
 // Projection value store (session-projection RFC, push model): host-computed
@@ -120,6 +134,8 @@ declare module 'cordis' {
     slots: import('./slots.ts').SlotsService
     /** The outward face only; the concrete service stays inside the runtime. */
     sessions: import('./contract/sessions.ts').ISessions
+    /** Read-only history sources isolated from Chat sessions and workspace state. */
+    sessionHistory: import('./contract/session-history.ts').ISessionHistory
     /** The outward face only; the concrete service stays inside the runtime. */
     workspaces: import('./contract/workspaces.ts').IWorkspaces
   }
@@ -135,30 +151,55 @@ export function apply(ctx: Context): void {
   ctx.plugin(SlotsService)
   const connection = ctx.get('connection') as ConnectionHandle
   const sessions = new SessionsService(ctx, connection.api)
+  const sessionHistory = new SessionHistoryService(ctx, connection.api)
   const workspaces = new WorkspacesService(ctx, connection.api, sessions)
   ctx.effect(
     () => workspaces.startInitialSelection(),
     'runtime: initial Workspace selection',
   )
   const loop = connection.start({
-    onMuxEnvelope: (envelope) => { sessions.handleMuxEnvelope(envelope) },
+    onMuxEnvelope: (envelope) => {
+      sessions.handleMuxEnvelope(envelope)
+      try {
+        sessionHistory.handleMuxEnvelope(envelope)
+      } catch (error) {
+        console.error('[web-runtime] history frame routing failed:', error)
+      }
+    },
     onHostEnvelope: (envelope) => {
       sessions.handleHostEnvelope(envelope)
       workspaces.handleHostEnvelope(envelope)
       // Typed-event bridge: the session layer ignores registry frames (no
       // session routing); consumers (command directory caches) subscribe on ctx.
       if (envelope.payload.type === 'host/commands-changed') ctx.emit('commands/changed')
+      try {
+        sessionHistory.handleHostEnvelope(envelope)
+      } catch (error) {
+        console.error('[web-runtime] history host-frame routing failed:', error)
+      }
     },
     onConnected: () => {
       sessions.handleConnected()
       workspaces.handleConnected()
       ctx.emit('connection/reset')
+      try {
+        sessionHistory.handleConnected()
+      } catch (error) {
+        console.error('[web-runtime] history reconnect failed:', error)
+      }
     },
     onStateChange: (state) => {
       // Generation death fires before any next-generation frame can arrive
       // (reconnect replays flow from stream open, ahead of onConnected):
       // the only safe moment to drop generation-scoped interaction state.
-      if (state === 'reconnecting') sessions.handleDisconnected()
+      if (state === 'reconnecting') {
+        sessions.handleDisconnected()
+        try {
+          sessionHistory.handleDisconnected()
+        } catch (error) {
+          console.error('[web-runtime] history disconnect failed:', error)
+        }
+      }
     },
   })
   ctx.effect(() => () => { loop.stop() }, 'runtime: connection stream loop')

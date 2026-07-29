@@ -10,6 +10,7 @@ Only text blocks from human `user/message` events are eligible. The first eligib
 
 - `get(session)` folds the latest accepted title from a live or replayed log.
 - `refresh(session, signal?)` materializes the fallback when needed, then explicitly runs the registered provider over the current eligible messages. Provider errors and caller cancellation reject; cancellation does not roll back an already accepted fallback event.
+- `rename(session, title)` accepts an explicit user title synchronously: it normalizes the text, supersedes in-flight automatic work, and appends a `session/title` event with the `user` source. A user-sourced latest title pins the session — later user messages schedule no automatic revision; an explicit `refresh` remains the deliberate unpin.
 - `register(provider)` installs the sole optional provider and returns its awaitable Cordis effect disposer. A second registration throws immediately; disposal aborts pending and active calls, waits for their settlement, and only then permits another provider to register.
 
 Automatic work never delays the main agent response. A provider starts only after a marked loop-built request's exact route matches the current logged `request/header`, including when the unchanged header needs no new snapshot. Its late completion appends a standalone log-only event directly through `Session` without opening a turn. Persistence observes that event eagerly and drains on ordinary lifecycle checkpoints; title publication itself does not force a flush. Automatic failures warn and retain the latest title. New all-message revisions, provider disposal, session disposal, and explicit refresh abort older work, and a stale completion cannot append. Concurrent explicit refreshes reserve their revision before provider work, while overlapping automatic and explicit fallback requests share one session-local in-flight append. The service and bundled model provider each append their own literal event type, so no generic title-write marker, cast, or settlement queue is needed. Service teardown cancels queued work and drains calls that ignore cancellation before unloading completes.
@@ -50,5 +51,5 @@ None for the main request; title events do not change its reconstructed content 
 
 ## Known Limitations and Deferred Work
 
-- Manual rename, title deletion, generated-versus-user precedence, search, and list indexing are outside this service.
+- Title deletion (unpinning back to automatic titles without an explicit `refresh`), search, and list indexing are outside this service.
 - The provider registry deliberately accepts at most one implementation, so a deployment cannot compose competing title strategies without writing one provider that owns their precedence.

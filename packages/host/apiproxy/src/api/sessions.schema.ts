@@ -73,6 +73,18 @@ export const sessionCreateValueSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.create'>>>
 
+/** session.rename request payload (raw title; host-side normalization decides acceptance). */
+export const sessionRenameRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  title: z.string(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.rename'>>>
+
+/** session.rename response value (the normalized accepted title and its event seq). */
+export const sessionRenameValueSchema = z.object({
+  title: z.string().min(1),
+  seq: z.number().int().nonnegative(),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.rename'>>>
+
 /** session.history request payload (beforeSeq/maxMessages page backwards from the window tail). */
 export const sessionHistoryRequestSchema = z.object({
   sessionId: sessionIdSchema,

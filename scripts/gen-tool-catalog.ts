@@ -310,9 +310,10 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tool-skill',
     dir: 'tool-skill',
     source: 'packages/skill/tool-skill/src/index.ts',
-    requires: ['ctx.tools', 'ctx.skills'],
-    writes: ['tool/call', 'tool/result'],
+    requires: ['ctx.tools', 'ctx.agents', 'ctx.skills'],
+    writes: ['tool/call', 'tool/result', 'user/message replacement catalogs via agent.inject()'],
     async mount(ctx) {
+      await ctx.plugin(AgentRegistry)
       await ctx.plugin(SkillService)
       await ctx.plugin(SkillLocal, {
         dshHome: resolve(root, '.tmp/tool-catalog/.dsh'),
