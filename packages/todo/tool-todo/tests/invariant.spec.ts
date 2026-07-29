@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import SessionStore, { type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import * as ToolTodo from '@deepseek-ai/dsh-tool-todo'
 import * as TodoInvariant from '@deepseek-ai/dsh-tool-todo/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
@@ -17,14 +19,22 @@ function event(todos: unknown): SessionEvent {
 }
 
 describe('todo snapshot invariants', () => {
-  it('accepts a unique whole-list snapshot, including several active items', async () => {
-    const ctx = await setup()
-    expect(() => { ctx.emit('session/event', {} as Session, event([
+  it('accepts historical and live parallel snapshots under the single-active tool policy', async () => {
+    const todos = [
       { content: 'Inspect state', status: 'completed' },
       { content: 'Apply fix', status: 'in_progress' },
       { content: 'Watch background build', status: 'in_progress' },
       { content: 'Run checks', status: 'pending' },
-    ])) }).not.toThrow()
+    ] as const
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(ToolTodo, { allowParallelInProgress: false })
+    ctx.sessions.create().append('todo/write', { todos: [...todos] })
+    await ctx.plugin(InvariantService, { enabled: true })
+
+    await expect(ctx.plugin(TodoInvariant).then(() => undefined)).resolves.toBeUndefined()
+    expect(() => { ctx.emit('session/event', {} as Session, event(todos)) }).not.toThrow()
   })
 
   it.each([

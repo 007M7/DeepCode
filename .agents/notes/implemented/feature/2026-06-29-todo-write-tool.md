@@ -34,7 +34,7 @@ Each list belongs to the calling agent session, and non-agent calls are rejected
 
 ### Validation: the cheap middle
 
-The schema enforces type/required/enum. Beyond that, `execute` rejects empty or duplicate `content`: enforce the cheap invariants that make a plan *coherent* (no blank tasks, no dupes), but leave ordering, active-task discipline, and keeping the list current to the model via the tool description. A rejected write returns an `isError` result so the model self-corrects. The original design also capped the list at one `in_progress` task; that cap was removed for parallel work — the [parallel in-progress Agent Note](2026-07-26-todo-parallel-in-progress.md) owns that decision.
+The schema enforces type/required/enum. Beyond that, `execute` rejects empty or duplicate `content` and, when `allowParallelInProgress` is `false`, more than one active task. Ordering and keeping the list current remain model disciplines expressed in the tool description. A rejected write returns an `isError` result so the model self-corrects. The required deployment policy and the durable invariant's independence from it are owned by the [parallel in-progress Agent Note](2026-07-26-todo-parallel-in-progress.md).
 
 ## Why no cordis-catalog entry / no `@mode`
 

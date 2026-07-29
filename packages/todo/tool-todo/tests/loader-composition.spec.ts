@@ -124,20 +124,23 @@ describe('tool-todo real Loader composition through cordis.yml', () => {
     expect(owner.session.events.findLast(e => e.type === 'todo/write')?.data.todos).toEqual(PARALLEL_TODOS)
   }, 30_000)
 
-  it('fails loading when allowParallelInProgress is omitted', async () => {
+  it.each([
+    { label: 'is omitted', configLines: [], failure: '$.allowParallelInProgress missing required value' },
+    { label: 'is not boolean', configLines: ['    allowParallelInProgress: "no"'], failure: '$.allowParallelInProgress' },
+  ])('fails loading when allowParallelInProgress $label', async ({ configLines, failure }) => {
     // loader.await() is all-settled; configuration failure leaves a FAILED
     // entry and escapes as a late rejection for the host boot to report.
     const rejections: unknown[] = []
     const onUnhandled = (err: unknown): void => { rejections.push(err) }
     process.on('unhandledRejection', onUnhandled)
     try {
-      const ctx = await boot([])
+      const ctx = await boot(configLines)
       const entry = [...ctx.loader.entries()].find(e => e.options.name === '@deepseek-ai/dsh-tool-todo')
       expect(entry?.fiber?.state).toBe(FiberState.FAILED)
       for (let i = 0; i < 100 && rejections.length === 0; i++) {
         await new Promise(resolve => setTimeout(resolve, 10))
       }
-      expect(rejections.map(String).join('\n')).toContain('$.allowParallelInProgress missing required value')
+      expect(rejections.map(String).join('\n')).toContain(failure)
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }

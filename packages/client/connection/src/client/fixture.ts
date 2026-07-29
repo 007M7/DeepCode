@@ -277,8 +277,8 @@ function buildAlphaLog(): SessionEvent[] {
   }
   // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip. Two items are
-  // in_progress: the tool permits several, so both surfaces must render a
-  // parallel plan rather than the first active item alone.
+  // in_progress: this fixture chooses the parallel policy, so both surfaces
+  // must render a parallel plan rather than the first active item alone.
   const fixtureTodos = [
     { content: '梳理需求', status: 'completed' },
     { content: '实现 fixture 样本', status: 'in_progress' },
