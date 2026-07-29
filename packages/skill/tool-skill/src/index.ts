@@ -18,7 +18,7 @@ export const inject = ['agents', 'tools', 'skills']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
 const CATALOG_ENTRIES_START = '<available_skills>\n'
-const CATALOG_ENTRIES_END = '\n</available_skills>'
+const CATALOG_ENTRIES_END = '</available_skills>'
 const PLUGIN_SOURCE = { kind: 'plugin', plugin: 'dsh-tool-skill' } as const
 
 /** Model-facing skill catalog configuration. */
@@ -275,7 +275,9 @@ function catalogContentDigest(content: UserMessage['content']): string | undefin
   const entriesStart = start + CATALOG_ENTRIES_START.length
   const end = text.indexOf(CATALOG_ENTRIES_END, entriesStart)
   if (end === -1) return undefined
-  return digestCatalogEntries(text.slice(entriesStart, end))
+  const renderedEntries = text.slice(entriesStart, end)
+  const entries = renderedEntries.endsWith('\n') ? renderedEntries.slice(0, -1) : renderedEntries
+  return digestCatalogEntries(entries)
 }
 
 function catalogDescription(value: string, maxLength: number): string {

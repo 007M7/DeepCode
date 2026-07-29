@@ -320,6 +320,9 @@ describe('dsh-tool-skill', () => {
     expect(JSON.stringify(removal.data.content)).toContain('No skills are currently available')
     expect(JSON.stringify(removal.data.content)).not.toContain('first-skill')
     expect(JSON.stringify(removal.data.content)).not.toContain('second-skill')
+
+    await fireStep(ctx, agent, 1, 4)
+    expect(catalogMessages(session)).toHaveLength(3)
   })
 
   it('resumes from the latest valid visible catalog content', async () => {
