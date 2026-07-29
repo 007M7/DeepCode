@@ -139,7 +139,7 @@ Changing provider or model enters that target's cache domain; no cache reuse acr
 
 #### What the model sees
 
-A `/skill:<name> [instructions]` submission loads the named skill and delivers one text block: a `<skill name="…">` element wrapping the skill's instructions — preceded, when the provider exposes a resource base, by a line locating the skill's relative resources — followed by any trailing instructions the user typed. Delivery follows the same followup-while-idle / steer-while-running rule as ordinary input. The command, not the model, chooses the skill; model-disabled skills are omitted from autocomplete but stay loadable by exact name.
+A `/skill:<name> [instructions]` submission loads the named skill and delivers one text block: a `<skill name="…">` element wrapping the skill's instructions — preceded, when the provider exposes a resource base, by a line locating the skill's relative resources — followed by any trailing instructions the user typed. Delivery follows the same followup-while-idle / steer-while-running rule as ordinary input. The command, not the model, chooses the skill; model-disabled skills are omitted from autocomplete but stay loadable by exact name. Autocomplete retains its last complete skill snapshot and refetches after `skills/change`; an incomplete observation preserves the prior menu, a complete empty observation clears it, and a catalog arriving while a slash-name draft is open immediately re-queries that draft.
 
 #### Token effect
 
