@@ -376,6 +376,34 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
   return undefined
 }
 
+/**
+ * Fixture parallel of the plan unit's double-event fold: `command/run`
+ * records named `plan` set the wanted target (`off` → false, else true);
+ * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
+ * boundary (the fixture's agent/step parallel).
+ */
+function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
+  let active = false
+  let wanted: boolean | null = null
+  for (const event of log) {
+    const item = event as unknown as { type: string; data?: Record<string, unknown> }
+    if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
+      const args = item.data['args']
+      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+    } else if (item.type === 'plan/mode') {
+      active = item.data?.['active'] === true
+      wanted = null
+    }
+  }
+  return { active, pending: wanted !== null && wanted !== active, wanted }
+}
+
+/** The plan projection's wire view over the full log. */
+function planViewOf(log: readonly SessionEvent[]): { active: boolean; pending: boolean } {
+  const plan = foldPlan(log)
+  return { active: plan.active, pending: plan.pending }
+}
+
 /** Fixture parallel of the host's projection units: whole current values per key over the full log. */
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
@@ -385,6 +413,10 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   }
   // Always present (tool-todo unit composed): null when no plan stands.
   values['todos'] = backscanTodos(log) ?? null
+  // Always present (plan-mode unit composed): the {active, pending} view.
+  values['plan'] = planViewOf(log)
+  // Always present (GoalService unit composed): null before create / after clear.
+  values['goal'] = backscanGoal(log)
   return values
 }
 
@@ -397,6 +429,14 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
     if (!Object.hasOwn(values, 'title')) return []
     return [{ type: 'session/projection', sessionId: id, key: 'title', value: values['title'], seq: event.seq }]
   }
+  // Goal fold: a round-zero goal-sourced user message advances the goal unit.
+  if (type === 'user/message') {
+    const source = (event as unknown as { data?: { source?: { kind?: string; round?: number } } }).data?.source
+    if (source?.kind === 'goal' && source.round === 0) {
+      return [{ type: 'session/projection', sessionId: id, key: 'goal', value: backscanGoal(log), seq: event.seq }]
+    }
+    return []
+  }
   // Standing-plan fold: writes replace the list; turn/start clears it (null).
   if (type === 'todo/write' || type === 'turn/start') {
     return [{
@@ -404,6 +444,17 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
       sessionId: id,
       key: 'todos',
       value: backscanTodos(log) ?? null,
+      seq: event.seq,
+    }]
+  }
+  // The plan unit advances on its two folded event kinds.
+  if (type === 'plan/mode' || (type === 'command/run'
+    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'plan',
+      value: planViewOf(log),
       seq: event.seq,
     }]
   }
@@ -453,6 +504,55 @@ function backscanTodos(log: readonly SessionEvent[]): TodoItem[] | undefined {
     if (event.type === 'todo/write') return event.data.todos
   }
   return undefined
+}
+
+/** Fixture-local mirror of the goal projection value (dsh-goal's GoalProjection shape). */
+interface FxGoalProjection {
+  goal: {
+    id: string
+    revision: number
+    objective: string
+    phase: 'active' | 'paused' | 'blocked' | 'complete'
+    maxGoalRounds: number
+  }
+  roundsStarted: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** One durable goal change riding a round-zero goal-sourced user message. */
+type FxGoalChange =
+  | { kind: 'goal/change'; version: 1; operation: 'clear'; cleared: { id: string; revision: number }; clearedAt: number }
+  | {
+    kind: 'goal/change'
+    version: 1
+    operation: 'create' | 'edit' | 'pause' | 'resume' | 'complete'
+    goal: FxGoalProjection['goal']
+    roundsStarted: number
+    createdAt: number
+    updatedAt: number
+  }
+
+/**
+ * Current goal projection over the full log (host parallel: the GoalService
+ * unit's last-wins fold of goal/change whole values; clear returns null).
+ */
+function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const event = log[i] as unknown as {
+      type: string
+      data?: { source?: { kind?: string; round?: number; change?: FxGoalChange } }
+    } | undefined
+    if (event === undefined || event.type !== 'user/message') continue
+    const source = event.data?.source
+    if (source?.kind !== 'goal' || source.round !== 0) continue
+    const change = source.change
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (change === undefined || change.kind !== 'goal/change') continue
+    if (change.operation === 'clear') return null
+    return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+  }
+  return null
 }
 
 interface StreamConn<F> {
@@ -549,6 +649,37 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     updatedAt: fixtureEpoch,
   }]
   let nextWorkspace = 1
+
+  // In-memory browse tree behind the fixture's `browse` picker capability —
+  // deterministic content mirroring the design mock so assembled Web tests
+  // and snapshots can walk it. Leaves are materialized lazily: a child listed
+  // by its parent lists as empty until something is created inside it.
+  const FIXTURE_HOME = '/home/fixture'
+  const directoryTree = new Map<string, string[]>([
+    ['/', ['home']],
+    ['/home', ['fixture']],
+    [FIXTURE_HOME, ['Documents', 'Downloads', '.config']],
+    [`${FIXTURE_HOME}/Documents`, [
+      'project', 'deepseek-iOS', 'deepseek-android', 'deepseek-platform',
+      'deepseek-web', 'deepseek-harness', 'deepseek-app', 'deepseek-landing-blog',
+    ]],
+  ])
+  const childrenOf = (path: string): string[] | undefined => {
+    const known = directoryTree.get(path)
+    if (known !== undefined) return known
+    const parent = path.slice(0, path.lastIndexOf('/')) || '/'
+    const name = path.slice(path.lastIndexOf('/') + 1)
+    return directoryTree.get(parent)?.includes(name) === true ? [] : undefined
+  }
+  const crumbsOf = (path: string): { name: string; path: string; hidden: boolean }[] => {
+    const crumbs = [{ name: '/', path: '/', hidden: false }]
+    let acc = ''
+    for (const segment of path.split('/').filter(Boolean)) {
+      acc += `/${segment}`
+      crumbs.push({ name: segment, path: acc, hidden: false })
+    }
+    return crumbs
+  }
   const mint = (): ReturnType<typeof RpcId> => RpcId(`fx-rpc-${nextRpc++}`)
   /** Resident pending approval (stable rpcId: every mux open replays the same id, matching host replay semantics). */
   const pendingApprovalRpcId = mint()
@@ -644,6 +775,47 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       : { type: 'session/event', sessionId: id, event, view })
     // Host eager-drive parallel: a unit-advancing event pushes its finished value.
     for (const frame of projectionFramesOf(id, log, event)) emitMux(frame)
+  }
+
+  /** Append one goal/change as its round-zero goal-sourced user message (host GoalService parallel). */
+  const appendGoalChange = (id: SessionId, change: FxGoalChange): FxGoalProjection => {
+    const ref = change.operation === 'clear' ? change.cleared : change.goal
+    const payload = change.operation === 'clear'
+      ? { cleared: change.cleared, clearedAt: change.clearedAt }
+      : { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }
+    append(id, {
+      type: 'user/message', surfaceOp: 'append',
+      data: userMessage(
+        text(`<goal_state>${JSON.stringify(payload)}</goal_state>`),
+        { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change } as unknown as MessageSource,
+      ),
+    })
+    return backscanGoal(logOf(id)) as FxGoalProjection
+  }
+
+  /** Shared CAS mutation path of the goal verbs (undefined next = invalid transition). */
+  const fxMutateGoal = (
+    request: RpcRequest<{ sessionId: SessionId; ref: { id: string; revision: number } }>,
+    ref: { id: string; revision: number },
+    next: (current: FxGoalProjection) => FxGoalProjection['goal'] | undefined,
+  ): Promise<RpcResponse<{ ref: { id: never; revision: number } }>> => {
+    const missing = requireSession(request)
+    if (missing !== undefined) return missing
+    const id = request.payload.sessionId
+    const current = backscanGoal(logOf(id))
+    if (current === null || current.goal.id !== ref.id || current.goal.revision !== ref.revision) {
+      return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+    }
+    const goal = next(current)
+    if (goal === undefined) {
+      return err(request, { code: 'internal', message: `invalid goal transition from "${current.goal.phase}"`, details: { goalCode: 'GOAL_INVALID_TRANSITION' } })
+    }
+    const projection = appendGoalChange(id, {
+      kind: 'goal/change', version: 1,
+      operation: goal.phase === current.goal.phase ? 'edit' : goal.phase === 'paused' ? 'pause' : goal.phase === 'active' ? 'resume' : 'complete',
+      goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: Date.now(),
+    })
+    return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
   }
 
   /** At most one in-flight replay per session; cancel clears it. */
@@ -878,6 +1050,12 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+        // Boundary flush parallel (the host's agent/step seam): an outstanding
+        // /plan selection commits as plan/mode inside the opened turn.
+        const plan = foldPlan(logOf(id))
+        if (plan.wanted !== null && plan.wanted !== plan.active) {
+          append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+        }
         append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
         startReply(
           id,
@@ -907,7 +1085,42 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     host: {
       describe: request => ok(request, { version: '0.0.0-fixture', cwd: '/tmp/fixture', attachedSessions }),
-      pickDirectory: request => ok(request, { path: null }),
+      // Deterministic native pick: the keyless lanes drive the full
+      // pick-then-adopt path without an OS chooser (design-mock content,
+      // same tree the browse primitives serve).
+      pickDirectory: request => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
+      listDirectory: (request) => {
+        const target = request.payload.path ?? FIXTURE_HOME
+        const children = childrenOf(target)
+        if (children === undefined) {
+          return err(request, { code: 'directory-unreadable', message: `cannot list ${target}: not in the fixture tree`, details: { path: target } })
+        }
+        return ok(request, {
+          path: target,
+          home: FIXTURE_HOME,
+          crumbs: crumbsOf(target),
+          entries: [...children].sort((a, b) => a.localeCompare(b))
+            .map(name => ({ name, path: target === '/' ? `/${name}` : `${target}/${name}`, hidden: name.startsWith('.') })),
+          // The fixture tree is tiny; no level ever reaches a backend bound.
+          truncated: false,
+        })
+      },
+      createDirectory: (request) => {
+        const parent = request.payload.path
+        const children = childrenOf(parent)
+        if (children === undefined) {
+          return err(request, { code: 'directory-create-failed', message: `missing parent ${parent}`, details: { path: parent } })
+        }
+        // Same root special case as listDirectory's entry paths: a plain join
+        // under '/' would mint '//name' and fork the tree's identity.
+        const target = parent === '/' ? `/${request.payload.name}` : `${parent}/${request.payload.name}`
+        if (children.includes(request.payload.name)) {
+          return err(request, { code: 'directory-exists', message: `${target} already exists`, details: { path: target } })
+        }
+        directoryTree.set(parent, [...children, request.payload.name])
+        directoryTree.set(target, [])
+        return ok(request, { path: target })
+      },
       openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
@@ -1008,7 +1221,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           commands: [
             { name: 'compact', description: 'fixture：压缩当前会话上下文' },
             { name: 'echo', description: 'fixture：回显参数', input: { hint: 'text to echo' } },
-            { name: 'goal-fixture', description: 'fixture：目标样本命令', input: { hint: '<objective>' } },
+            { name: 'goal', description: 'set or view the goal for a long-running task', input: { hint: '<objective>' } },
+            { name: 'plan', description: 'Enter or leave plan mode', input: { hint: '[off|message]' } },
           ],
         })
       },
@@ -1024,15 +1238,52 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const match = /^\/(\S+)((?:\s.*)?)$/.exec(request.payload.line.trim())
         const name = match?.[1]
         const args = match?.[2] ?? ''
+        if (name === 'goal') {
+          // Host parallel: /goal with an objective creates (or reports) the
+          // current goal; the command lifecycle pair brackets the mutation.
+          const commandId = `fx-cmd-${logOf(id).length}` as CommandId
+          append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+          const objective = args.trim()
+          const current = backscanGoal(logOf(id))
+          let text: string
+          if (objective === '') {
+            text = current === null ? 'No goal is set. Usage: /goal <objective>' : `Current goal: ${current.goal.objective}`
+          } else if (current !== null && current.goal.phase !== 'complete') {
+            text = `A goal already exists (${current.goal.objective}). Clear it first.`
+          } else {
+            const created = appendGoalChange(id, {
+              kind: 'goal/change', version: 1, operation: 'create',
+              goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective, phase: 'active', maxGoalRounds: 256 },
+              roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+            })
+            text = `Goal created: ${created.goal.objective}`
+          }
+          append(id, { type: 'command/done', data: { commandId, kind: 'success', text } })
+          return ok(request, { matched: true as const, commandId })
+        }
+        // Host parallel: /plan on an idle fixture session commits plan/mode
+        // immediately (the boundary flush covers only a running turn), so the
+        // outcome copy matches the immediate branch of the host handler.
+        const running = summaryOf(id)?.running === true
         const outcomes: Record<string, string> = {
           compact: 'fixture：已压缩（假动作）',
           echo: args.trim(),
-          'goal-fixture': `fixture：goal 已设置（${id}）`,
+          plan: args.trim() === 'off'
+            ? (running ? 'Leaving plan mode (applies from the next step).' : 'Plan mode off.')
+            : (running
+              ? 'Entering plan mode (applies from the next step). Use /plan off to leave.'
+              : 'Plan mode on. Use /plan off to leave.'),
         }
         const text = name === undefined ? undefined : outcomes[name]
         if (name === undefined || text === undefined) return ok(request, { matched: false as const })
         const commandId = `fx-cmd-${logOf(id).length}` as CommandId
         append(id, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } })
+        if (name === 'plan' && !running) {
+          const plan = foldPlan(logOf(id))
+          if (plan.wanted !== null && plan.wanted !== plan.active) {
+            append(id, { type: 'plan/mode', data: { active: plan.wanted } })
+          }
+        }
         append(id, { type: 'command/done', data: { commandId, kind: 'success', ...text === '' ? {} : { text } } })
         return ok(request, { matched: true as const, commandId })
       },
@@ -1046,6 +1297,62 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             { name: 'fixture-demo', description: 'fixture 技能样本', whenToUse: '仅供 UI 目录渲染验收' },
           ],
         })
+      },
+    },
+    goals: {
+      // Mutation-only mirror of the host handlers: each verb CAS-checks the
+      // projected current goal, appends the whole-value change (the mux
+      // stream and projection frame ride the shared append path), and
+      // acknowledges with the new ref only.
+      create: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current !== null && current.goal.phase !== 'complete') {
+          return err(request, { code: 'internal', message: `goal "${current.goal.id}" already exists`, details: { goalCode: 'GOAL_ALREADY_EXISTS' } })
+        }
+        const projection = appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'create',
+          goal: { id: `fx-goal-${logOf(id).length}`, revision: 1, objective: request.payload.objective, phase: 'active', maxGoalRounds: request.payload.maxGoalRounds ?? 256 },
+          roundsStarted: 0, createdAt: Date.now(), updatedAt: Date.now(),
+        })
+        return ok(request, { ref: { id: projection.goal.id as never, revision: projection.goal.revision } })
+      },
+      edit: request => fxMutateGoal(request, request.payload.ref, current => ({
+        ...current.goal,
+        revision: current.goal.revision + 1,
+        ...request.payload.objective === undefined ? {} : { objective: request.payload.objective },
+        ...request.payload.maxGoalRounds === undefined ? {} : { maxGoalRounds: request.payload.maxGoalRounds },
+      })),
+      pause: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'paused' }
+          : undefined
+      )),
+      resume: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'paused' || current.goal.phase === 'blocked' || current.goal.phase === 'active'
+          ? { ...current.goal, revision: current.goal.revision + 1, phase: 'active' }
+          : undefined
+      )),
+      complete: request => fxMutateGoal(request, request.payload.ref, current => (
+        current.goal.phase === 'complete'
+          ? undefined
+          : { ...current.goal, revision: current.goal.revision + 1, phase: 'complete' }
+      )),
+      clear: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const id = request.payload.sessionId
+        const current = backscanGoal(logOf(id))
+        if (current === null || current.goal.id !== request.payload.ref.id || current.goal.revision !== request.payload.ref.revision) {
+          return err(request, { code: 'internal', message: 'stale or missing goal revision', details: { goalCode: 'GOAL_STALE_REVISION' } })
+        }
+        appendGoalChange(id, {
+          kind: 'goal/change', version: 1, operation: 'clear',
+          cleared: { id: current.goal.id, revision: current.goal.revision + 1 }, clearedAt: Date.now(),
+        })
+        return ok(request, { cleared: true as const })
       },
     },
     events: {
@@ -1168,6 +1475,8 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'host.describe': return this.api.host.describe(request)
       case 'host.pickDirectory': return this.api.host.pickDirectory(request, new AbortController().signal)
+      case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
+      case 'host.createDirectory': return this.api.host.createDirectory(request)
       case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
@@ -1178,6 +1487,12 @@ export class FixtureApiClient extends AbstractApiClient {
       // The in-memory execute never blocks, so a never-aborting signal is faithful here.
       case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
       case 'skill.list': return this.api.skills.list(request)
+      case 'goal.create': return this.api.goals.create(request)
+      case 'goal.edit': return this.api.goals.edit(request)
+      case 'goal.pause': return this.api.goals.pause(request)
+      case 'goal.resume': return this.api.goals.resume(request)
+      case 'goal.complete': return this.api.goals.complete(request)
+      case 'goal.clear': return this.api.goals.clear(request)
     }
   }
 

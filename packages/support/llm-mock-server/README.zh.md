@@ -26,7 +26,7 @@ DEEPSEEK_API_KEY=mock-key \
 pnpm run demo:headless "test provider recovery"
 ```
 
-构建包还公开 `dsh-llm-mock-server`。Stdout 是 JSONL：`ready` 记录携带 `/v1` base URL 和随机种子，后续请求/结果记录同时命名脚本行为和实际选中的具体行为。
+仓库脚本将 JSONL 写入 stdout：`ready` 记录携带 `/v1` base URL 和随机种子，后续请求/结果记录同时命名脚本行为和实际选中的具体行为。这个私有支持包（package）不公开可安装的二进制命令。
 
 ## 行为脚本
 

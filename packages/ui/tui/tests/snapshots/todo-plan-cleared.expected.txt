@@ -4,10 +4,10 @@ title "DSH snapshot"
 cursor hidden column=7 viewportRow=15 bufferRow=15
 viewport
 0| " DEEPSEEK HARNESS"
-  style 1-8 fg=bright-blue bold
+  style 1-8 fg=bright-magenta bold
   style 10-16 bold
 1| " Snapshot agent ready."
-  style 1-21 fg=bright-black
+  style 1-21 dim
 2| " main-session"
   style 1-12 dim
 3| <blank>
@@ -18,21 +18,21 @@ viewport
   style 0-46 dim
 7| <blank>
 8| "You                                                                                             "
-  style 0-2 fg=bright-blue bold underline
+  style 0-2 fg=bright-magenta bold underline
 9| "Plan the work.                                                                                  "
 10| <blank>
 11| "You                                                                                             "
-  style 0-2 fg=bright-blue bold underline
+  style 0-2 fg=bright-magenta bold underline
 12| "Next question.                                                                                  "
 13| <blank>
 14| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
-  style 0-17 fg=bright-blue bold
-  style 18-31 fg=bright-black
-  style 34-50 fg=bright-black
-  style 53-57 fg=bright-black
-  style 60-69 fg=bright-black
+  style 0-17 fg=bright-magenta bold
+  style 18-31 dim
+  style 34-50 dim
+  style 53-57 dim
+  style 60-69 dim
 15| " dsh >                                                                                          "
-  style 1-3 fg=bright-blue bold
-  style 5-6 fg=bright-black
+  style 1-3 fg=bright-magenta bold
+  style 5-6 dim
   style 7-7 inverse
 16-35| <blank>

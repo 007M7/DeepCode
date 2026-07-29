@@ -96,6 +96,11 @@ class TestPersistence extends SessionPersistence {
     return Promise.resolve(result)
   }
 
+  async readFrom(id: SessionIdType, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const whole = await this.inspect(id, signal)
+    return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
+  }
+
   list(signal?: AbortSignal): Promise<SessionHeader[]> {
     TestPersistence.listCalls += 1
     TestPersistence.listSignals.push(signal)

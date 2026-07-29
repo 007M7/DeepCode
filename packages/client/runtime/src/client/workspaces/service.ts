@@ -2,11 +2,13 @@
 
 import type { Context } from 'cordis'
 import type {
-  IApiClient, RpcError, SessionId, WorkspaceId, WorkspaceView,
+  DirectoryListing, IApiClient, RpcError,
+  SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
-import type { SessionsService } from '../sessions/service.ts'
+import type { SessionsPort, SessionsPortList } from '../contract/sessions-port.ts'
+import type { IWorkspaces } from '../contract/workspaces.ts'
 import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 
 /** Workspace list plus the two-baseline readiness and default-target projection. */
@@ -29,8 +31,16 @@ export class WorkspaceCreateError extends Error {
   }
 }
 
+/** Structured browse failure so the directory browser can branch on Host business codes. */
+export class DirectoryBrowseError extends Error {
+  constructor(readonly rpcError: RpcError) {
+    super(`directory browse failed: ${rpcError.code}: ${rpcError.message}`)
+    this.name = 'DirectoryBrowseError'
+  }
+}
+
 /** Real Workspace object layer and Host actions. */
-export class WorkspacesService {
+export class WorkspacesService implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
   readonly list: SnapshotStore<WorkspaceListState>
   /** Workspace baseline and frame owner. */
@@ -43,9 +53,9 @@ export class WorkspacesService {
   /**
    * @param ctx - client root context.
    * @param api - shared wire client.
-   * @param sessions - lower-level Session service used for recency and blank-session reuse.
+   * @param sessions - cross-domain sessions face used for recency and blank-session reuse.
    */
-  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsService) {
+  constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
       items: [], state: 'idle', phase: 'pending', error: null,
@@ -171,7 +181,7 @@ export class WorkspacesService {
   }
 
   /**
-   * Open the Host's native directory picker.
+   * Open the Host's native directory picker (the `native` capability).
    * @returns the selected path, or null when the user cancelled.
    */
   async pickDirectory(): Promise<string | null> {
@@ -179,6 +189,30 @@ export class WorkspacesService {
     if (!response.result.ok) {
       throw new Error(`directory picker failed: ${response.result.error.message}`)
     }
+    return response.result.value.path
+  }
+
+  /**
+   * List one directory level through the Host's `browse` capability.
+   * @param path - absolute directory to list; absent lists the Host home directory.
+   * @param signal - aborts the wire request (and the Host's scan) when the caller supersedes it.
+   * @returns the level's listing with breadcrumb ancestry.
+   */
+  async listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
+    const response = await this.api.host.listDirectory(path === undefined ? {} : { path }, signal)
+    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
+    return response.result.value
+  }
+
+  /**
+   * Create one child directory through the Host's `browse` capability.
+   * @param path - absolute existing parent directory.
+   * @param name - single non-blank path segment.
+   * @returns the created directory's absolute path.
+   */
+  async createDirectory(path: string, name: string): Promise<string> {
+    const response = await this.api.host.createDirectory({ path, name })
+    if (!response.result.ok) throw new DirectoryBrowseError(response.result.error)
     return response.result.value.path
   }
 
@@ -271,7 +305,7 @@ export class WorkspacesService {
 /** Stable tie-breaking follows Host Workspace order. */
 function recentWorkspace(
   workspaces: readonly WorkspaceView[],
-  sessions: ReturnType<SessionsService['list']['getSnapshot']>['byId'],
+  sessions: SessionsPortList['byId'],
 ): WorkspaceId | undefined {
   let selected: WorkspaceId | undefined
   let selectedTime = Number.NEGATIVE_INFINITY

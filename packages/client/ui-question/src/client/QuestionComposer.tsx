@@ -2,7 +2,7 @@ import { useMemo, useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutline16, IconChevronLeftOutline14, IconChevronRightOutline14,
-  IconCloseOutline16, IconEditOutline16,
+  IconCloseOutline16, IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PendingQuestion, type QuestionAnswer, type QuestionComposerProps } from './contract/slots.ts'
 import css from './QuestionComposer.module.css'
@@ -176,7 +176,6 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
                 : question.question}</span>
               {question.multiSelect === true && <span className={css.multiSelectHint}>可多选</span>}
             </h2>
-            {question.detail !== undefined && <p className={css.detail}>{question.detail}</p>}
           </div>
           <div className={css.headerActions}>
             <span className={css.progress}>{index + 1} / {questions.length}</span>
@@ -204,79 +203,84 @@ function QuestionFlow({ pending }: { pending: PendingQuestion }) {
           </div>
         </header>
 
-        <div className={css.options} role={question.multiSelect === true ? 'group' : 'radiogroup'}>
-          {(question.options ?? []).map((option, optionIndex) => {
-            const selected = draft.selected.includes(option.label)
-            const display = parseRecommendedLabel(option.label)
-            return (
-              <button
-                type="button" key={`${option.label}-${String(optionIndex)}`}
-                className={clsx(css.option, selected && css.optionSelected)}
-                role={question.multiSelect === true ? 'checkbox' : 'radio'}
-                aria-checked={selected}
-                aria-label={display.label}
-                disabled={busy !== null}
-                onClick={() => { choose(option.label) }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' || !drafts.every(completed)) return
-                  event.preventDefault()
-                  submitDrafts(drafts)
-                }}
-              >
-                <span className={css.number}>{optionIndex + 1}</span>
-                <span className={css.optionCopy}>
-                  <span className={css.optionLine}>
-                    <span className={css.optionLabel}>{display.label}</span>
-                    {display.recommended && <span className={css.badge}>推荐</span>}
-                    {option.description !== undefined && (
-                      <span className={css.description}>{option.description}</span>
-                    )}
-                  </span>
-                </span>
-                <span className={css.choiceIcon}>
-                  {selected ? <IconCheckOutline16 /> : <IconChevronRightOutline14 />}
-                </span>
-              </button>
-            )
-          })}
-
-          <div className={clsx(
-            css.custom,
-            draft.customOpen && css.customOpen,
-            !hasOptions && css.customOptionless,
-          )}>
-            {hasOptions && (
-              <button
-                type="button" className={css.customTrigger}
-                disabled={busy !== null} onClick={openCustom}
-                aria-expanded={draft.customOpen}
-              >
-                <span className={css.number}><IconEditOutline16 /></span>
-                <span>其他，请填写自定义答案</span>
-              </button>
-            )}
-            {draft.customOpen && (
-              <textarea
-                autoFocus
-                className={css.customInput}
-                value={draft.custom}
-                disabled={busy !== null}
-                rows={2}
-                placeholder="输入你的答案"
-                onChange={(event) => {
-                  const value = event.target.value
-                  updateDraft(current => ({
-                    ...current, selected: [], custom: value, customOpen: true, skipped: false,
-                  }))
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && !isComposing(event)) {
+        <div className={css.body} data-question-scroll>
+          {question.detail !== undefined && (
+            <div className={css.detail}><MarkdownText text={question.detail} /></div>
+          )}
+          <div className={css.options} role={question.multiSelect === true ? 'group' : 'radiogroup'}>
+            {(question.options ?? []).map((option, optionIndex) => {
+              const selected = draft.selected.includes(option.label)
+              const display = parseRecommendedLabel(option.label)
+              return (
+                <button
+                  type="button" key={`${option.label}-${String(optionIndex)}`}
+                  className={clsx(css.option, selected && css.optionSelected)}
+                  role={question.multiSelect === true ? 'checkbox' : 'radio'}
+                  aria-checked={selected}
+                  aria-label={display.label}
+                  disabled={busy !== null}
+                  onClick={() => { choose(option.label) }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || !drafts.every(completed)) return
                     event.preventDefault()
-                    continueFlow()
-                  }
-                }}
-              />
-            )}
+                    submitDrafts(drafts)
+                  }}
+                >
+                  <span className={css.number}>{optionIndex + 1}</span>
+                  <span className={css.optionCopy}>
+                    <span className={css.optionLine}>
+                      <span className={css.optionLabel}>{display.label}</span>
+                      {display.recommended && <span className={css.badge}>推荐</span>}
+                      {option.description !== undefined && (
+                        <span className={css.description}>{option.description}</span>
+                      )}
+                    </span>
+                  </span>
+                  <span className={css.choiceIcon}>
+                    {selected ? <IconCheckOutline16 /> : <IconChevronRightOutline14 />}
+                  </span>
+                </button>
+              )
+            })}
+
+            <div className={clsx(
+              css.custom,
+              draft.customOpen && css.customOpen,
+              !hasOptions && css.customOptionless,
+            )}>
+              {hasOptions && (
+                <button
+                  type="button" className={css.customTrigger}
+                  disabled={busy !== null} onClick={openCustom}
+                  aria-expanded={draft.customOpen}
+                >
+                  <span className={css.number}><IconEditOutline16 /></span>
+                  <span>其他，请填写自定义答案</span>
+                </button>
+              )}
+              {draft.customOpen && (
+                <textarea
+                  autoFocus
+                  className={css.customInput}
+                  value={draft.custom}
+                  disabled={busy !== null}
+                  rows={2}
+                  placeholder="输入你的答案"
+                  onChange={(event) => {
+                    const value = event.target.value
+                    updateDraft(current => ({
+                      ...current, selected: [], custom: value, customOpen: true, skipped: false,
+                    }))
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey && !isComposing(event)) {
+                      event.preventDefault()
+                      continueFlow()
+                    }
+                  }}
+                />
+              )}
+            </div>
           </div>
         </div>
 

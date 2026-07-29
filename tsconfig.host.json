@@ -33,6 +33,8 @@
   ],
   "exclude": [
     "packages/client/**",
+    "packages/host/directory-picker-browse/**",
+    "packages/host/directory-picker-native/**",
     "scripts/client-bundle-purity.spec.ts"
   ],
   "references": [
@@ -46,6 +48,7 @@
     { "path": "./vendor/hmr" },
     { "path": "./vendor/logger-console" },
     { "path": "./packages/util/brand" },
+    { "path": "./packages/util/native-command" },
     { "path": "./packages/util/paths" },
     { "path": "./packages/util/timeout" },
     { "path": "./packages/util/retention" },
@@ -58,6 +61,7 @@
     { "path": "./packages/session-persistence/session-persistence-jsonl" },
     { "path": "./packages/session-persistence/session-persistence-sqlite" },
     { "path": "./packages/session-projection/session-projection" },
+    { "path": "./packages/session-projection/session-projection-cache" },
     { "path": "./packages/session-query/session-query" },
     { "path": "./packages/session-query/session-query-sqlite" },
     { "path": "./packages/session-query/tool-session-query" },
@@ -165,6 +169,7 @@
     { "path": "./packages/hooks/hooks-codex" },
     { "path": "./packages/mcp/mcp-client" },
     { "path": "./packages/host/apiproxy" },
+    { "path": "./packages/host/directory-picker" },
     { "path": "./packages/host/webserver" },
     { "path": "./packages/sdk/sdk-client" },
     { "path": "./packages/sdk/helper" },

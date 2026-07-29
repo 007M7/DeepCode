@@ -24,12 +24,17 @@ import {
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
-  ApiProxy, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
+  ApiProxy, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup, ModelReasoning,
   MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSummary, ToolEventView,
   WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
+import type {} from '@deepseek-ai/dsh-session-projection-cache'
+// GoalError narrows domain rejections to their stable codes at the wire boundary.
+import { GoalError } from '@deepseek-ai/dsh-goal'
+import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
@@ -40,7 +45,7 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
-import { pickNativeDirectory } from './native-directory-picker.ts'
+import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import { openNativePath } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
@@ -136,13 +141,24 @@ function subscribeSession(queue: FrameQueue<RpcRequest<MuxFrame>>, session: Sess
   queue.push(frame({ type: 'session/subscribed', sessionId: session.id, lastSeq: session.seq - 1 }))
 }
 
+/**
+ * Whether the session's conversation has started: no turn has run yet (a
+ * turn is one model-loop execution). Standalone plugin events — command
+ * lifecycle records, plan/mode, titles, goals — never open a turn, so
+ * running `/plan` or `/goal` on a fresh session keeps it blank
+ * (list-hidden, reusable).
+ */
+function sessionBlank(session: Session): boolean {
+  return !session.events.some(event => event.type === 'turn/start')
+}
+
 /** SessionSummary projection for attached (in-memory) sessions. */
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
     sessionId: session.id,
     updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
     running,
-    blank: session.events.length === 0,
+    blank: sessionBlank(session),
     ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
     ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
   }
@@ -167,8 +183,9 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
     sessionId: meta.id,
     updatedAt,
     running: false,
-    // Lazy persistence keeps never-appended sessions out of list(): a cold
-    // session necessarily has events, so blank is constantly false here.
+    // Lazy persistence keeps never-appended sessions out of list(); reading
+    // a cold log to check for turns would defeat the index read, so a listed
+    // cold session is served as not-blank (its log holds its conversation).
     blank: false,
     ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
     /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
@@ -176,6 +193,14 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
     summarize() shape. */
     ...meta.cwd === undefined ? {} : { cwd: meta.cwd },
   }
+}
+
+/** Map a browse-primitive failure onto the wire error vocabulary (unknown throws stay internal). */
+function directoryError(error: unknown): RpcError {
+  if (error instanceof DirectoryPickerError) {
+    return { code: error.code, message: error.message, details: { path: error.path } }
+  }
+  return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
 }
 
 /** Resolved Host routing and project-directory defaults consumed by the API implementation. */
@@ -186,8 +211,6 @@ export interface ApiProxyDefaults {
   cwd: string
   /** Parent directory for name-created workspaces. */
   workspaceRoot: string
-  /** Native single-directory picker; injectable for carrier tests. */
-  pickDirectory?: (signal: AbortSignal) => Promise<string | null>
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
 }
@@ -295,6 +318,28 @@ function projectionsFor(ctx: Context, agent: Agent): SessionProjectionsBlock | u
   const registry = ctx.get('sessionProjections')
   if (registry === undefined) return undefined
   return registry.snapshot(agent.session)
+}
+
+/**
+ * The projection baseline of one session.list row, fail-soft: attached
+ * sessions cut the registry's live watermark cache; cold sessions view the
+ * persisted projection cache's identity-checked stored rows (zero log loads
+ * either way — the listing use case the cache exists for). The block shape
+ * (values + asOfSeq) matches the history tail's, so a client seeds its
+ * value store under the same higher-seq-wins rule. Any failure — and an
+ * empty value set — yields an absent block: a listing without projections
+ * is degraded, never broken.
+ */
+function listProjectionsFor(ctx: Context, meta: SessionHeader, session: Session | undefined): SessionProjectionsBlock | undefined {
+  try {
+    const block = session !== undefined
+      ? ctx.get('sessionProjections')?.snapshot(session)
+      : ctx.get('sessionProjectionCache')?.cachedSnapshot(meta)
+    return block !== undefined && Object.keys(block.values).length > 0 ? block : undefined
+  } catch (error) {
+    ctx.logger.warn(`session.list: projection column for "${meta.id}" failed (serving the row without it): ${String(error)}`)
+    return undefined
+  }
 }
 
 /**
@@ -645,6 +690,38 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return operation
   }
 
+  /** Resolve the goal service; absent = the deployment did not compose @deepseek-ai/dsh-goal. */
+  function goalService(): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
+    const goals = ctx.get('goals')
+    if (goals === undefined) {
+      return { error: { code: 'internal', message: 'goal service is absent: this deployment does not mount @deepseek-ai/dsh-goal in its composition (cordis.yml or explicit assembly)', details: {} } }
+    }
+    return goals
+  }
+
+  /** Map one goal-domain rejection to the wire error (stable GoalError codes ride in details). */
+  function goalError(request: RpcRequest<unknown>, error: unknown): RpcResponse<never> {
+    const details = error instanceof GoalError ? { goalCode: error.code } : {}
+    return err(request, { code: 'internal', message: String(error), details })
+  }
+
+  /** Resolve a session's agent, apply one goal mutation, and acknowledge with the new CAS ref. */
+  async function mutateGoal(
+    request: RpcRequest<{ sessionId: SessionId }>,
+    mutation: (goals: NonNullable<ReturnType<typeof ctx.get<'goals'>>>, agent: Agent) => CoreGoalRef,
+  ): Promise<RpcResponse<{ ref: GoalRef }>> {
+    const goals = goalService()
+    if ('error' in goals) return err(request, goals.error)
+    const found = await agentFor(request.payload.sessionId)
+    if ('error' in found) return err(request, found.error)
+    try {
+      const ref = mutation(goals, found.agent)
+      return ok(request, { ref: { id: ref.id, revision: ref.revision } })
+    } catch (error: unknown) {
+      return goalError(request, error)
+    }
+  }
+
   return {
     sessions: {
       // Attached sessions summarize from memory; persisted-but-unattached (cold)
@@ -654,13 +731,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       async list(request) {
         const items = ctx.sessions.list().map((session) => {
           const agent = ctx.agents.get(session.id)
-          return summarize(session, agent?.status === 'running')
+          const projections = listProjectionsFor(ctx, session.header, session)
+          return {
+            ...summarize(session, agent?.status === 'running'),
+            ...projections === undefined ? {} : { projections },
+          }
         })
         const attached = new Set(items.map(item => item.sessionId))
         const persistence = ctx.get('sessionPersistence')
         if (persistence !== undefined) {
           const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(meta => summarizeCold(persistence, meta))))
+          items.push(...await Promise.all(cold.map(async (meta) => {
+            // Cold rows read the persisted projection cache only — never a
+            // log load; a session without a cache row simply has no column.
+            const projections = listProjectionsFor(ctx, meta, undefined)
+            return {
+              ...await summarizeCold(persistence, meta),
+              ...projections === undefined ? {} : { projections },
+            }
+          })))
         }
         items.sort((a, b) => b.updatedAt - a.updatedAt)
         return ok(request, { items })
@@ -1007,8 +1096,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async pickDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'native') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.pickDirectory needs the native capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
         try {
-          const path = await (defaults.pickDirectory ?? pickNativeDirectory)(signal)
+          const path = await capability.pick(signal)
           return ok(request, { path })
         } catch (error: unknown) {
           if (signal.aborted) {
@@ -1023,6 +1120,45 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
             details: {},
           })
+        }
+      },
+
+      async listDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.listDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          // The carrier's signal follows the caller: a disconnect or timeout
+          // stops the backend's directory scan instead of outliving it.
+          return ok(request, await capability.list(request.payload.path, signal))
+        } catch (error: unknown) {
+          // An abort is the caller's own timeout/disconnect, not a server
+          // failure — same code pickDirectory and command.execute report.
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'directory listing was aborted', details: {} })
+          }
+          return err(request, directoryError(error))
+        }
+      },
+
+      async createDirectory(request) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.createDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          return ok(request, { path: await capability.createDirectory(request.payload.path, request.payload.name) })
+        } catch (error: unknown) {
+          return err(request, directoryError(error))
         }
       },
 
@@ -1086,6 +1222,54 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         } catch (error: unknown) {
           if (signal.aborted) return err(request, { code: 'cancelled', message: 'command execution was aborted', details: {} })
           return err(request, { code: 'internal', message: `command failed: ${String(error)}`, details: {} })
+        }
+      },
+    },
+
+    goals: {
+      // Mutations only — the read side is the 'goal' session projection.
+      // Every verb resolves the session's agent (agentFor: implicit cold
+      // resume, the command.* precedent) and acknowledges with the new CAS
+      // ref; the committed goal/change event carries the whole value to every
+      // client through the projection frames.
+      async create(request) {
+        const { objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, (goals, agent) => goals.create(agent, {
+          objective,
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
+      },
+
+      async edit(request) {
+        const { ref, objective, maxGoalRounds } = request.payload
+        return mutateGoal(request, (goals, agent) => goals.edit(agent, ref, {
+          ...(objective !== undefined ? { objective } : {}),
+          ...(maxGoalRounds !== undefined ? { maxGoalRounds } : {}),
+        }))
+      },
+
+      async pause(request) {
+        return mutateGoal(request, (goals, agent) => goals.pause(agent, request.payload.ref))
+      },
+
+      async resume(request) {
+        return mutateGoal(request, (goals, agent) => goals.resume(agent, request.payload.ref))
+      },
+
+      async complete(request) {
+        return mutateGoal(request, (goals, agent) => goals.complete(agent, request.payload.ref))
+      },
+
+      async clear(request) {
+        const goals = goalService()
+        if ('error' in goals) return err(request, goals.error)
+        const found = await agentFor(request.payload.sessionId)
+        if ('error' in found) return err(request, found.error)
+        try {
+          goals.clear(found.agent, request.payload.ref)
+          return ok(request, { cleared: true as const })
+        } catch (error: unknown) {
+          return goalError(request, error)
         }
       },
     },
@@ -1209,8 +1393,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               type: 'host/session-added',
               sessionId: session.id,
               // Derived at frame time like summarize(); a just-created session
-              // has no events yet, so this is constantly true in practice.
-              blank: session.events.length === 0,
+              // has run no turn yet, so this is constantly true in practice.
+              blank: sessionBlank(session),
               ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
               // cwd rides the frame so the client list needs no refresh to group the new session.
               ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },

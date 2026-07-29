@@ -149,6 +149,11 @@ class TestPersistence extends SessionPersistence {
     return structuredClone(entry)
   }
 
+  async readFrom(id: SessionIdType, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const whole = await this.inspect(id, signal)
+    return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
+  }
+
   async list(): Promise<SessionHeader[]> {
     TestPersistence.listStarted?.()
     await TestPersistence.listGate

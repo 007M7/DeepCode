@@ -168,28 +168,25 @@ describe('TelemetryCoordinator capture', () => {
 })
 
 describe('TelemetryCoordinator adoption', () => {
-  it('starts export at the construction boundary: seeded history never re-exports', async () => {
+  it('exports an unpublished suffix without re-exporting constructor history', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const parent = liveSession(ctx, 'seed-parent')
     appendTurn(parent)
-    const child = ctx.sessions.create(SessionId('seeded'), { seed: [...parent.events], meta: {} })
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
       apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
     })
-    // The live parent (no constructor seed) replays in full; the child's
-    // inherited prefix already left the process under another identity (the
-    // parent's id here; the same id in a previous process for a resume) and
-    // must not be re-exported — only its live suffix ships.
+    const child = ctx.sessions.prepare(SessionId('seeded'), { seed: [...parent.events], meta: {} })
+    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    ctx.sessions.enter(child)
+    ctx.sessions.announce(child)
+
     const seqs = backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']])
     expect(seqs).toEqual(expect.arrayContaining([['seed-parent', 0], ['seed-parent', 1]]))
-    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([])
-    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    expect(backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']]))
-      .toEqual(expect.arrayContaining([['seeded', 2]]))
+    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2]])
   })
 
   it('resume shape: a full-log seed exports nothing yet still rebuilds the chunk projection', async () => {

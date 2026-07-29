@@ -35,6 +35,9 @@ describe('parseDshArgs', () => {
     // at boot); the adapter only coerces the port string to a number.
     expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
       .toEqual({ mode: 'web', host: '0.0.0.0', port: 8080, dev: true, workspaceRoot: '/w' })
+    // --trusted-host is variadic and repeatable; authorities pass through unvalidated.
+    expect(parse(['web', '--trusted-host', 'harness.internal:3080', 'lab.internal', '--trusted-host', '10.0.0.9']))
+      .toEqual({ mode: 'web', dev: false, trustedHosts: ['harness.internal:3080', 'lab.internal', '10.0.0.9'] })
   })
 
   it('exits nonzero instead of silently starting fresh or dropping inputs', () => {
