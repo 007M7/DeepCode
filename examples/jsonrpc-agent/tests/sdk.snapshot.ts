@@ -11,7 +11,7 @@
 
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -55,7 +55,7 @@ interface SdkScenario {
   children: number
   /** Optional scenario-specific live and replay compositions. */
   configs?: { live: string; replay: string }
-  /** Files whose final contents are part of the scenario contract. */
+  /** Cwd-relative files whose final contents are part of the scenario contract. */
   expectedFiles?: Readonly<Record<string, string>>
 }
 
@@ -80,13 +80,11 @@ const SCENARIOS: SdkScenario[] = [
   },
   {
     name: 'persistent-tools',
-    prompt: 'Prove that bash state persists, then create and edit note.txt.',
+    prompt: 'Prove that bash state persists, then create and edit the exact file {{cwd}}/note.txt.',
     sessionId: 'persistent-tools-snapshot',
     children: 0,
     configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },
-    // Replay returns recorded tool arguments verbatim, so this cross-platform
-    // POSIX fixture uses one stable absolute path and cleans it around the run.
-    expectedFiles: { '/tmp/dsh-persistent-tools-snapshot-note.txt': 'beta\n' },
+    expectedFiles: { 'note.txt': 'beta\n' },
   },
 ]
 
@@ -94,6 +92,10 @@ interface PersistedLog {
   readonly path: string
   readonly content: string
   readonly header: Record<string, unknown>
+}
+
+interface MissingFile {
+  readonly missing: true
 }
 
 async function jsonlFiles(dir: string): Promise<string[]> {
@@ -122,6 +124,25 @@ function contextOfContents(contents: readonly string[]): NormalizeContext {
   return {
     sessionIds: headers.flatMap(header => typeof header.id === 'string' ? [header.id] : []),
     cwd: typeof headers[0]?.cwd === 'string' ? headers[0].cwd : '\0no-cwd\0',
+  }
+}
+
+async function hydrateReplayFixtures(scenario: SdkScenario, cwd: string): Promise<string[]> {
+  const root = join(cwd, '.replay-fixtures')
+  await mkdir(root, { recursive: true })
+  return Promise.all(fixtureFiles(scenario).map(async (source) => {
+    const destination = join(root, basename(source))
+    await writeFile(destination, (await readFile(source, 'utf8')).replaceAll('{{cwd}}', cwd))
+    return destination
+  }))
+}
+
+async function readExpectedFile(path: string): Promise<string | MissingFile> {
+  try {
+    return await readFile(path, 'utf8')
+  } catch (error: unknown) {
+    if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT') return { missing: true }
+    throw error
   }
 }
 
@@ -163,24 +184,18 @@ async function runScenario(scenario: SdkScenario): Promise<{
   result: TurnResult
   notifications: HarnessNotification[]
   logs: PersistedLog[]
-  observedFiles: Record<string, string>
+  observedFiles: Record<string, string | MissingFile>
   cwd: string
 }> {
   const cwd = await mkdtemp(join(tmpdir(), `sdk-snapshot-${scenario.name}-`))
   const sessionsRoot = join(cwd, '.sessions')
-  const scenarioDir = join(snapshotsDir, scenario.name)
-  const expectedFilePaths = Object.keys(scenario.expectedFiles ?? {}).map(path =>
-    isAbsolute(path) ? path : join(cwd, path))
-  await Promise.all(expectedFilePaths.map(async path => rm(path, { force: true })))
+  const replayFixtures = recording ? [] : await hydrateReplayFixtures(scenario, cwd)
   const launch = resolveExampleLaunch({
     srcBin: runtimeBin,
     configArgs: [],
     tsconfigPath: repoTsconfig,
   })
-  const childFixtures = Array.from(
-    { length: scenario.children },
-    (_, index) => join(scenarioDir, `session.${index + 1}.jsonl`),
-  )
+  const [parentFixture, ...childFixtures] = replayFixtures
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
     ...Object.fromEntries(Object.entries(launch.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
@@ -191,8 +206,8 @@ async function runScenario(scenario: SdkScenario): Promise<{
     DSH_CWD: cwd,
     DSH_SNAPSHOT: mode,
     NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
-    ...recording ? {} : {
-      DSH_SNAPSHOT_FILE: join(scenarioDir, 'session.jsonl'),
+    ...parentFixture === undefined ? {} : {
+      DSH_SNAPSHOT_FILE: parentFixture,
       ...childFixtures.length > 0 ? { DSH_SNAPSHOT_CHILD_FILES: childFixtures.join(delimiter) } : {},
     },
   }
@@ -211,22 +226,21 @@ async function runScenario(scenario: SdkScenario): Promise<{
   })
   try {
     const notifications: HarnessNotification[] = []
-    const result = await harness.run(scenario.prompt, {
+    const result = await harness.run(scenario.prompt.replaceAll('{{cwd}}', cwd), {
       sessionId: scenario.sessionId,
       onNotification: (notification) => { notifications.push(notification) },
     })
     await harness.close()
     const logs = await persistedLogs(sessionsRoot)
     const observedFiles = Object.fromEntries(await Promise.all(
-      Object.keys(scenario.expectedFiles ?? {}).map(async (path): Promise<[string, string]> => [
+      Object.keys(scenario.expectedFiles ?? {}).map(async (path): Promise<[string, string | MissingFile]> => [
         path,
-        await readFile(isAbsolute(path) ? path : join(cwd, path), 'utf8'),
+        await readExpectedFile(join(cwd, path)),
       ]),
     ))
     return { result, notifications, logs, observedFiles, cwd }
   } finally {
     await harness.close()
-    await Promise.all(expectedFilePaths.map(async path => rm(path, { force: true })))
     await rm(cwd, { recursive: true, force: true })
   }
 }
