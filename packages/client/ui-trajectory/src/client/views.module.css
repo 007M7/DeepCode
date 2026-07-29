@@ -1,5 +1,7 @@
 /* Full-bleed scroll host so Turn sticky bars can paint edge-to-edge;
- * cell content width is capped on the turn body (max 880). */
+ * cell content width is capped on the turn body (max 880). Under the
+ * active conversation column (`[data-conversation-scroll]`) the parent
+ * owns overflow so the sticky composer stays in the same scrollport. */
 .root {
   overflow-y: auto;
   height: 100%;
@@ -8,6 +10,11 @@
   box-sizing: border-box;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-specific-sidebar-fill);
+}
+
+:global([data-conversation-scroll]) .root {
+  overflow: visible;
+  height: auto;
 }
 
 .empty {

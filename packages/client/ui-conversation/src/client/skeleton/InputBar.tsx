@@ -75,6 +75,22 @@ export function InputBar({
     if (!locked) inputRef.current?.focus()
   }, [locked])
 
+  // Active conversation scrollport: never let the textarea become a nested
+  // wheel target; forward delta to `[data-conversation-scroll]` instead.
+  // Hero mounts have no host, so the textarea keeps native wheel scrolling.
+  useEffect(() => {
+    const el = inputRef.current
+    if (el === null) return
+    const onWheel = (e: WheelEvent): void => {
+      const host = el.closest('[data-conversation-scroll]')
+      if (!(host instanceof HTMLElement)) return
+      e.preventDefault()
+      host.scrollTop += e.deltaY
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => { el.removeEventListener('wheel', onWheel) }
+  }, [])
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.

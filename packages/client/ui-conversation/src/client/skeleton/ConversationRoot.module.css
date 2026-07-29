@@ -127,6 +127,40 @@
   flex-direction: column;
 }
 
+/* Active phase: header is ordinary column chrome above the scrollport (not
+   sticky). The scroll body holds the transcript and the sticky composer so
+   wheel over the footer moves the flow. */
+.root[data-phase='active'] {
+  overflow: hidden;
+}
+
+.root[data-phase='active'] .header {
+  flex: none;
+}
+
+.scrollBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.root[data-phase='active'] .viewArea {
+  flex: 1 0 auto;
+  min-height: auto;
+}
+
+.root[data-phase='active'] .composerStack {
+  position: sticky;
+  bottom: 0;
+  /* Above markdown CodeBlock sticky banners (z-index 6) so the footer never
+     paints under a sticking code header while scrolling. */
+  z-index: 7;
+  flex: none;
+  background: var(--dsw-alias-bg-base);
+}
+
 /* Hero phase: the composer stack (hero chrome + workspace row + card) is
    flex-centered in the column; composer phase docks it at the bottom. Flex,
    NOT absolute+transform: a transform would make this box the containing

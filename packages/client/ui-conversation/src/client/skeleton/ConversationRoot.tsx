@@ -2,7 +2,7 @@
 // chain stay mounted across no-session/session transitions. Only the inert
 // input body swaps for the strict session InputBar.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
@@ -113,24 +113,42 @@ export function ConversationRoot({
       {hero && <HeroGlow className={css.heroGlow} />}
       {hero && <HeroShell />}
       {hero && heroWorkspaceRow}
-      {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
+      {/* Stats band above the input-dock strips so the prior ChatView footer
+          order (stats → todo/queue → card) is preserved under the sticky stack. */}
       {!hero && zone !== undefined && renderSlot('conversation.composer.dock', zone)}
+      {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>
   )
 
+  const phase = settling ? 'settling' : hero ? 'hero' : 'active'
+  const composer = renderSlotChain(
+    'conversation.composer',
+    { interactions: pending },
+    { fallback: composerBar, overlay: true },
+  )
+
+  // Active: header is column chrome above the scrollport; the sticky composer
+  // lives inside the same scrollport as the transcript (wheel over the footer
+  // scrolls the flow). Hero/settling keep the composer as a Root child.
+  const wrapActiveBody = (view: ReactNode): ReactNode => (
+    <div className={css.scrollBody} data-conversation-scroll="">
+      {view}
+      {composer}
+    </div>
+  )
+
   return (
-    <div className={css.root} data-phase={settling ? 'settling' : hero ? 'hero' : 'active'}>
+    <div className={css.root} data-phase={phase}>
       {/* Mounted for every real session, hero included: ConversationSession
           renders no chrome while blank but owns the draft-persistence mirror
           bind — unmounting it in the hero would lose pre-first-send text on
           a refresh or scope rebuild. */}
-      {sessionId !== undefined && renderSlot('conversation.session', {})}
-      {renderSlotChain(
-        'conversation.composer',
-        { interactions: pending },
-        { fallback: composerBar, overlay: true },
+      {sessionId !== undefined && renderSlot(
+        'conversation.session',
+        phase === 'active' ? { wrapActiveBody } : {},
       )}
+      {phase !== 'active' ? composer : null}
     </div>
   )
 }

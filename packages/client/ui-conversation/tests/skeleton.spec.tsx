@@ -102,6 +102,7 @@ function mount(
           views={{ list: () => [{ id: 'chat', label: 'Chat' }], subscribe: () => () => {}, version: () => 1 }}
           bindDraftMirror={write => wiring.bindMirror(write)}
           open={open}
+          {...owner}
         />
       )
     }
@@ -166,6 +167,18 @@ describe('ConversationRoot resident composer', () => {
     expect(b.open).toHaveBeenCalledWith(sid('root'))
   })
 
+  it('active phase: fixed header outside the scrollport; sticky composer inside it', () => {
+    const b = mount(conversationSnapshot())
+    const host = b.view.container.querySelector('[data-conversation-scroll]')
+    const header = b.view.container.querySelector('header')
+    const textarea = b.view.container.querySelector('textarea')
+    expect(host).not.toBeNull()
+    expect(header).not.toBeNull()
+    // Header is column chrome above the scrollport; composer sticks inside it.
+    expect(host?.contains(header)).toBe(false)
+    expect(host?.contains(textarea)).toBe(true)
+  })
+
   it('hero phase: same textarea, hero chrome, no header, picker switches the workspace', () => {
     const b = mount(
       conversationSnapshot({ composerPhase: 'blank', blank: true }),
@@ -174,7 +187,8 @@ describe('ConversationRoot resident composer', () => {
         { ...workspace('second'), title: 'Selected Folder' },
       ],
     )
-    // Hero chrome present, view ring absent.
+    // Hero chrome present, view ring absent; scroll host is active-phase only.
+    expect(b.view.container.querySelector('[data-conversation-scroll]')).toBeNull()
     expect(b.view.getByText("Let's start building")).toBeTruthy()
     expect(b.view.queryByTestId('view-chat')).toBeNull()
     // The same machine-backed textarea is live in the hero, and the
@@ -193,16 +207,19 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByText('Selected Folder')).toBeTruthy()
   })
 
-  it('textarea DOM identity survives the hero → active flip', () => {
+  it('machine draft survives the hero → active flip into the sticky scrollport composer', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
     const before = b.view.getByRole('textbox')
     fireEvent.change(before, { target: { value: 'kept across flip' } })
-    // First message landed: content exists, phase leaves blank.
+    // First message landed: content exists, phase leaves blank. The active
+    // composer lives inside the Session scrollport (sticky footer), so the
+    // textarea may remount; the InputHub draft is the durable carrier.
     b.session.set(conversationSnapshot({ composerPhase: 'active', blank: false }))
     b.rerender()
-    const after = b.view.getByRole('textbox')
-    expect(after).toBe(before)
-    expect((after as HTMLTextAreaElement).value).toBe('kept across flip')
+    const after = b.view.getByRole('textbox') as HTMLTextAreaElement
+    expect(after.value).toBe('kept across flip')
+    expect(b.chat.store.getSnapshot().draft).toBe('kept across flip')
+    expect(b.view.container.querySelector('[data-conversation-scroll]')?.contains(after)).toBe(true)
     expect(b.view.queryByText("Let's start building")).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
   })

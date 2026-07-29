@@ -1,6 +1,6 @@
 /** Strict per-session conversation content: header, view ring, and chat store bindings. */
 
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId, SessionListState, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
@@ -24,7 +24,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationSession({
   sessionId, useSession, useSessions, useInput, inputActions, useStore, actions,
-  renderSlot, views, bindDraftMirror, open,
+  renderSlot, views, bindDraftMirror, open, wrapActiveBody,
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -45,6 +45,12 @@ export function ConversationSession({
   }, [inputActions])
 
   if (blank && composerPhase === 'blank') return null
+
+  const view: ReactNode = (
+    <div className={css.viewArea}>
+      {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
+    </div>
+  )
 
   return (
     <>
@@ -72,24 +78,22 @@ export function ConversationSession({
         </div>
         {tabs.length > 1 && (
           <div className={css.tabs} role="tablist">
-            {tabs.map(view => (
+            {tabs.map(viewTab => (
               <button
-                key={view.id}
+                key={viewTab.id}
                 type="button"
                 role="tab"
-                aria-selected={view.id === active?.id}
-                className={clsx(css.tab, view.id === active?.id && css.tabActive)}
-                onClick={() => { actions.setView(view.id) }}
+                aria-selected={viewTab.id === active?.id}
+                className={clsx(css.tab, viewTab.id === active?.id && css.tabActive)}
+                onClick={() => { actions.setView(viewTab.id) }}
               >
-                {view.label}
+                {viewTab.label}
               </button>
             ))}
           </div>
         )}
       </header>
-      <div className={css.viewArea}>
-        {active !== undefined && renderSlot('conversation.view', {}, { only: active.id })}
-      </div>
+      {wrapActiveBody !== undefined ? wrapActiveBody(view) : view}
     </>
   )
 }

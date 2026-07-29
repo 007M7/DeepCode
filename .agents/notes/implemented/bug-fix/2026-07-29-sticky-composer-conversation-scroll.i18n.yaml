@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-29-sticky-composer-conversation-scroll.md
+2026-07-29-sticky-composer-conversation-scroll.md: f245e7ca0404df4f644504ac9e1b101e659b6b68
+2026-07-29-sticky-composer-conversation-scroll.zh.md: 7e4d5fb523f33f450c343e12e486e1d33784ee6c

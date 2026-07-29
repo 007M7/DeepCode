@@ -227,6 +227,22 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect((textarea).value).toBe('typed')
   })
 
+  it('wheel over the textarea scrolls the conversation host, not a nested textarea port', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
+    const { view, textarea } = bench()
+    host.appendChild(view.container)
+    document.body.appendChild(host)
+    try {
+      const wheeled = fireEvent.wheel(textarea, { deltaY: 30 })
+      expect(wheeled).toBe(false) // preventDefault
+      expect(host.scrollTop).toBe(70)
+    } finally {
+      host.remove()
+    }
+  })
+
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
     const { textarea } = bench({ disabled: true })
     expect(textarea.placeholder).toBe('Session unavailable')

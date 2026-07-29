@@ -371,6 +371,28 @@ describe('ChatView', () => {
     expect(view.queryByLabelText('回到底部')).toBeNull()
   })
 
+  it('under data-conversation-scroll, bottom-follow targets the host scrollport', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollHeight', { value: 2000, writable: true, configurable: true })
+    Object.defineProperty(host, 'clientHeight', { value: 500, writable: true, configurable: true })
+    Object.defineProperty(host, 'scrollTop', { value: 0, writable: true, configurable: true })
+    document.body.appendChild(host)
+    try {
+      const h = makeHarness({ nodes: [user(1, 'q'), assistant(2, 'a')] })
+      const view = render(<h.ChatView {...h.props} />, { container: host })
+      // Open jump uses the host, not the local .scroll node.
+      expect(host.scrollTop).toBe(2000)
+      host.scrollTop = 100
+      fireEvent.scroll(host)
+      expect(view.getByLabelText('回到底部')).toBeTruthy()
+      fireEvent.click(view.getByLabelText('回到底部'))
+      expect(host.scrollTop).toBe(2000)
+    } finally {
+      host.remove()
+    }
+  })
+
   it('paging button loads older and shows its busy label', () => {
     const h = makeHarness({ nodes: [user(5, 'later')], hasMore: true })
     const view = render(<h.ChatView {...h.props} />)
