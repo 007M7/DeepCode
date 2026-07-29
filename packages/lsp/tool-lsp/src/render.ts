@@ -149,6 +149,7 @@ export function renderUri(uri: string, workspaceUri: string): string {
   if (targetSegments === undefined || workspaceSegments === undefined) return uri
   const sameAuthority = target.hostname === workspace.hostname
   const windowsWorld = isWindowsFileWorld(workspace, workspaceSegments)
+  if (windowsWorld && [...targetSegments, ...workspaceSegments].some(segment => segment.includes('\\'))) return uri
   const inside = sameAuthority
     && targetSegments.length >= workspaceSegments.length
     && workspaceSegments.every((segment, index) => samePathSegment(segment, targetSegments[index] as string, windowsWorld))
@@ -164,11 +165,11 @@ function isWindowsFileWorld(url: URL, segments: readonly string[]): boolean {
   return url.hostname.length > 0 || /^[A-Za-z]:$/.test(segments[0] ?? '')
 }
 
-/** Decode URI path segments while rejecting encoded separators that would change path structure. */
+/** Decode URI path segments while rejecting encoded POSIX separators and NUL. */
 function decodeFileSegments(url: URL): string[] | undefined {
   try {
     const decoded = url.pathname.split('/').map(segment => decodeURIComponent(segment))
-    if (decoded.some(segment => /[/\\\0]/u.test(segment))) return undefined
+    if (decoded.some(segment => /[/\0]/u.test(segment))) return undefined
     while (decoded.at(-1) === '') decoded.pop()
     decoded.shift()
     return decoded

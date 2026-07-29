@@ -82,11 +82,15 @@ describe('renderUri', () => {
     expect(renderUri('file:///a.ts', 'file:///')).toBe('a.ts')
   })
 
+  it('preserves backslashes as ordinary POSIX filename characters', () => {
+    expect(renderUri('file:///home/u/proj/dir%5Cname/a.ts', WS_URI)).toBe('dir\\name/a.ts')
+  })
+
   it('keeps malformed or mismatched URI coordinates verbatim', () => {
     expect(renderUri('file://[', WS_URI)).toBe('file://[')
     expect(renderUri('file:///a.ts', 'https://example.com/workspace')).toBe('file:///a.ts')
     expect(renderUri('file:///a.ts', 'file:///bad%ZZ')).toBe('file:///a.ts')
-    expect(renderUri('file:///bad%5Cpath', WS_URI)).toBe('file:///bad%5Cpath')
+    expect(renderUri('file:///C:/workspace/bad%5Cpath', 'file:///C:/workspace')).toBe('file:///C:/workspace/bad%5Cpath')
     expect(renderUri('file:///short', 'file:///short/deeper')).toBe('/short')
     expect(renderUri('file:///', 'file:///C:/workspace')).toBe('/')
   })
