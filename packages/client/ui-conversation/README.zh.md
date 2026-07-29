@@ -10,6 +10,8 @@
 
 通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击后通过宿主操作系统的默认应用打开文件（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。
 
+声明 `terminal` 渲染意图的工具调用，会在两个对话渲染点上都通过 ui-primitives 的 `TerminalBlock` 内联渲染其命令输出。`contract/terminal-card-model.ts` 是从快照的 `callView`／`resultView` 对推导的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧；对任何其他 card 标签——包括当前客户端版本不认识的标签——它返回 null，落回通用路径。因此两个渲染点也都显示卡片的运行状态点，它与工具行行首图标承载同一套 `StateDot` 语义，所以一行与其自身的卡片对同一条命令的状态总是一致。多行命令的每一行各占一个提示行，状态点只在第一行为整次调用标记一次——退出状态属于整次调用，因此每行一枚就会声称一个 bash 并不报告的逐行结果。键控的 `BashRow` 把卡片常驻在摘要行下方；由于工具行已不再是详情面板的点击目标，卡片的复制与展开控件就是该行唯一的交互。渲染点兜底行则保持其既有的展开控件。行的上限是 `CHAT_TERMINAL_MAX_LINES`（8），面板为 16，正是这一点让摘要面保持有界——面板仍是单次调用的阅读面。内联输出只对该意图开放；通用工具的内容仍然只在面板中呈现（[决策](../../../.agents/notes/implemented/feature/2026-07-28-web-terminal-card.md)）。
+
 工具行同样是 slot：独立工具环（`ToolViewRegistry`／`ctx.toolviews`／outlet）已经退役。聊天配置项声明键控的 `'conversation.chat.toolview'` 空位（Session scope；key 空间在运行时开放）；其渲染点逐行通过 `entryKey: toolName` 分发，并以 `GenericToolCard` 作为调用点 `fallback`。owner 载荷是统一的 `ToolRowOwnerProps`（`callId`／`toolName`／`block`／`openFile`），`ToolRowProps` 则预先将其与 Session 标准工具包组合。注册方只是普通插件：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作为加载顺序 seam（apply 在聊天注册后挂载 ConversationService，因此服务存在即可保证 slot 已声明）；Session 区分在组件内部完成（`useSessions` 读取 `parentId`，bash 示例是第三方姿态的范例）。Trajectory/waterfall 工具视图 slot 共享此形状，并随各自的渲染点落地（RendersCheck 会拒绝没有任何渲染方的声明）。
 
 审批经由本包声明的链接管编辑器：`ApprovalPanel` 注册为按选择器路由的 `'conversation.composer'` 配置项（ui-question 模式），在审批等待未决期间取代 InputBar 占据编辑器（琥珀色条、理由标题、来自运行中调用参数的配对命令行、一次性的拒绝／允许）。`contract/slots.ts` 中的 `PendingApproval` 领域面在运行时 `PendingWait` 载体之上拥有 wire 编码——带审计关联的 `ApprovalResponsePayload` 值；广播的 `approval/resolved` 帧使等待落定并恢复编辑器。侧边栏通过 manager 跟踪的 `waitingApproval` 列表位（未实例化会话同样点亮）镜像该阻塞状态，其优先级高于运行中圆环，直至问题解决。未决等待完全离开消息流：问题（ui-question）与审批（ApprovalPanel）都经编辑器接管作答，不再保留只读占位卡。编辑器底行的 Access 席位挂载 `PermissionSelect`，由 host 计算的 `permissions` 投影经标准工具包 `useProjection` 供数（key 缺席即隐藏 chip）；选中会经由输入栏注入的 `command` 回调提交 `/permission <preset>` 命令行。
@@ -33,7 +35,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 ## 已知限制与暂缓事项
 
 - **统计行没有耗时区段**：assistant `usage` 只携带 token 计数；耗时需要主机数据源。
-- **详情面板是最小形态**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。
+- **详情面板是最小形态，且当前没有入口**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。工具行已不再是详情面板的点击目标，且没有任何手势接替它，因此 `ChatViewInjected.openDetails` 虽已实现却无人调用，该面板（含其终端卡片）在组装后的应用中不可达；其渲染仍由直接以选中态挂载它来覆盖。
 - **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的 IconActions 行（复制／分支／时钟）已落地；分支仍是 chrome stub。
 - **others 工具行的闪光图标是手绘近似版本**：无法在本地导出设计字形的矢量几何；等到存在精确导出后再将其提升到 ui-primitives。
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
