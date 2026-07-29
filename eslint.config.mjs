@@ -185,4 +185,17 @@ export default tseslint.config(
       '@stylistic/max-len': ['error', { code: 140, ignoreUrls: true, ignoreStrings: true, ignoreTemplateLiterals: true }],
     },
   },
+
+  // TypeGraph coverage must retain source-authored syntax that production lint rules forbid.
+  {
+    files: ['packages/typert/generator/tests/fixtures/type-model/packages/host/src/models.ts'],
+    rules: {
+      '@stylistic/quotes': 'off',
+      '@typescript-eslint/no-deprecated': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-mixed-enums': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unnecessary-type-parameters': 'off',
+    },
+  },
 )
