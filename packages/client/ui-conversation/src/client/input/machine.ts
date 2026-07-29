@@ -297,14 +297,23 @@ export class InputMachine {
     return []
   }
 
-  /** Shared chip-insertion transaction: replace [span) with one placeholder occurrence (insert-ref and paste-upgrade both land here). */
-  private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): void {
+  /**
+   * Shared chip-insertion transaction: replace [span) with one placeholder
+   * occurrence (insert-ref and paste-upgrade both land here). A separating
+   * space follows the chip unless one is already next.
+   * @returns the inserted length (placeholder plus optional gap).
+   */
+  private replaceSpanWithChip(reference: ReferenceInsert, span: TokenSpan): number {
     this.pushTxn()
     this.typingRun = undefined
-    this.reconcile({ start: span.start, end: span.end, insertedLength: 1 })
+    const tail = this.draft.slice(span.end)
+    const gap = tail.length === 0 || tail[0] !== ' ' ? ' ' : ''
+    const inserted = PLACEHOLDER + gap
+    this.reconcile({ start: span.start, end: span.end, insertedLength: inserted.length })
     this.withMinted([this.mint(reference, span.start)])
-    this.adopt(this.draft.slice(0, span.start) + PLACEHOLDER + this.draft.slice(span.end))
+    this.adopt(this.draft.slice(0, span.start) + inserted + tail)
     this.watchClaim()
+    return inserted.length
   }
 
   /**
@@ -442,10 +451,10 @@ export class InputMachine {
     if (attempt === undefined || attempt.attemptId !== attemptId) return []
     if (this.phase !== 'plain' && this.phase !== 'claimed') return []
     if (!this.casOk(span) || span.start === span.end) return []
-    this.replaceSpanWithChip(reference, span)
+    const insertedLength = this.replaceSpanWithChip(reference, span)
     this.paste = {
       ...attempt,
-      insertedRange: { start: attempt.insertedRange.start, end: attempt.insertedRange.end + 1 - (span.end - span.start) },
+      insertedRange: { start: attempt.insertedRange.start, end: attempt.insertedRange.end + insertedLength - (span.end - span.start) },
     }
     return []
   }

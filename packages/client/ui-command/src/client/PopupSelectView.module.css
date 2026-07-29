@@ -13,8 +13,10 @@
   display: flex;
   flex-direction: column;
   min-width: 220px;
+  /* Height cap: the 320px design maximum, clamped at runtime to the space
+   * above the composer (inline max-height set in PopupSelectView.tsx). */
   max-height: 320px;
-  overflow-y: auto;
+  overflow: hidden;
   /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens
      (see ui-theme styles/scrollbar.css for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
@@ -26,6 +28,13 @@
   outline: none;
 }
 
+.viewport {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -34,11 +43,11 @@
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
-  color: var(--dsw-alias-text-primary);
+  color: var(--dsw-alias-label-primary);
 }
 
 .rowActive {
-  background: var(--dsw-alias-fill-hover);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .label {
@@ -50,19 +59,20 @@
 
 .detail {
   font-size: 12px;
-  color: var(--dsw-alias-text-tertiary);
+  color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
 }
 
 .check {
   display: inline-flex;
-  color: var(--dsw-alias-text-secondary);
+  flex: none;
+  color: var(--dsw-alias-label-primary);
 }
 
 .status {
-  padding: 8px;
-  font-size: 12px;
-  color: var(--dsw-alias-text-tertiary);
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .search {
@@ -72,7 +82,7 @@
   border-radius: 8px;
   background: transparent;
   font-size: 13px;
-  color: var(--dsw-alias-text-primary);
+  color: var(--dsw-alias-label-primary);
   outline: none;
 }
 
@@ -97,6 +107,6 @@
   border-radius: 6px;
   background: transparent;
   font-size: 12px;
-  color: var(--dsw-alias-text-primary);
+  color: var(--dsw-alias-label-primary);
   cursor: pointer;
 }
