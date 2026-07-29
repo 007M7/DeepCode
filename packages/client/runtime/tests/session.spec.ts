@@ -833,8 +833,9 @@ describe('resync', () => {
     expect(session.getSnapshot()).toMatchObject({
       openState: 'error',
       openError: {
-        code: 'internal',
-        message: 'connection lost while loading session history',
+        code: 'cancelled',
+        message: 'session history request cancelled after connection loss',
+        details: {},
       },
     })
 
@@ -843,10 +844,32 @@ describe('resync', () => {
     expect(session.getSnapshot()).toMatchObject({
       openState: 'error',
       openError: {
-        code: 'internal',
-        message: 'connection lost while loading session history',
+        code: 'cancelled',
+        message: 'session history request cancelled after connection loss',
+        details: {},
       },
     })
+  })
+
+  it('settles an in-flight older-page load when its connection generation dies', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => histResponse(plainTurn(6, 1, '新问', '新答'), true)
+    await session.open()
+    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => stale.promise
+    const paging = session.loadOlder()
+    expect(session.getSnapshot().loadingOlder).toBe(true)
+
+    session.handleReconnecting()
+    expect(session.getSnapshot().loadingOlder).toBe(false)
+
+    stale.resolve(ok({
+      events: entries(plainTurn(0, 0, '旧问', '旧答')) as never[],
+      hasMore: false,
+    }))
+    await paging
+    expect(session.getSnapshot().loadingOlder).toBe(false)
+    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9])
   })
 
   it('clears request telemetry on reconnect and drops a stale in-flight history response', async () => {

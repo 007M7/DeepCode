@@ -390,6 +390,17 @@ describe('ChatView', () => {
     const loading = makeHarness({ openState: 'loading' })
     const lv = render(<loading.ChatView {...loading.props} />)
     expect(lv.getByText('载入历史…')).toBeTruthy()
+    const reconnecting = makeHarness({
+      openState: 'error',
+      openError: {
+        code: 'cancelled',
+        message: 'session history request cancelled after connection loss',
+        details: {},
+      },
+    })
+    const rv = render(<reconnecting.ChatView {...reconnecting.props} />)
+    expect(rv.getByText('连接已中断，等待重连…')).toBeTruthy()
+    expect(rv.queryByText(/session history request/)).toBeNull()
   })
 
   it('pending waits leave the flow entirely — questions and approvals both take over the composer', () => {

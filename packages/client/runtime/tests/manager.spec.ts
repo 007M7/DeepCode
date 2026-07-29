@@ -169,6 +169,26 @@ describe('instances', () => {
       },
     })
     expect(session.getSnapshot().modelRequest).toBeNull()
+    manager.handleMuxEnvelope({
+      rpcId: 'resumed-subscription' as never,
+      payload: { type: 'session/subscribed', sessionId: S1, lastSeq: 0 },
+    })
+    manager.handleMuxEnvelope({
+      rpcId: 'resumed-request' as never,
+      payload: {
+        type: 'session/model-request',
+        sessionId: S1,
+        turn: 1,
+        step: 1,
+        provider: 'test',
+        model: 'resumed',
+        contextWindow: 256_000,
+      },
+    })
+    expect(session.getSnapshot().modelRequest).toMatchObject({
+      model: 'resumed',
+      contextWindow: 256_000,
+    })
 
     manager.handleMuxEnvelope({
       rpcId: 'request-before-lazy-removal' as never,

@@ -136,8 +136,7 @@ describe('runtime client apply', () => {
     bench.sinks?.onDisconnected?.()
     expect(session.getSnapshot().modelRequest).toBeNull()
 
-    // A second failed generation does not produce another deduplicated
-    // `reconnecting` state transition, but its own disconnect callback still
+    // Every failed generation invokes its own disconnect callback, which
     // clears telemetry received before that generation's handshake failed.
     bench.sinks?.onMuxEnvelope?.({
       rpcId: 'request-2' as never,

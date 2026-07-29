@@ -67,11 +67,12 @@ export class SessionManager {
    */
   private readonly modelRequests = new Map<SessionId, ModelRequestTelemetry>()
   /**
-   * Host-lifecycle tombstones. Host and mux use independent SSE streams, so a
-   * frame emitted before removal can arrive after host/session-removed. Keep
-   * the id fenced until a later authoritative host/session-added.
+   * Removal fence for the one non-replayable mux frame. Host and mux use
+   * independent SSE streams, so a request emitted before removal can arrive
+   * after host/session-removed. Durable/replayed frame classes stay unfenced;
+   * the next mux subscription is the same-stream proof that the id is live.
    */
-  private readonly removedSessions = new Set<SessionId>()
+  private readonly removedModelRequests = new Set<SessionId>()
   /** Outstanding approval questions per session, keyed by approvalId (idempotent under mux-open
    *  replays of the same requested frame). Manager-owned rather than read off Session instances
    *  because the sidebar must light up for sessions never instantiated. Cleared per connection
@@ -354,7 +355,6 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
-    if (this.removedSessions.has(frame.sessionId)) return
     if (frame.type === 'session/projection') {
       // Finished host-computed value: land it in the resident store whether or
       // not the Session is instantiated (list rows read the 'title' key). The
@@ -365,12 +365,14 @@ export class SessionManager {
       return
     }
     if (frame.type === 'session/model-request') {
+      if (this.removedModelRequests.has(frame.sessionId)) return
       // Transient and non-replayable: retain the whole latest request until
       // lazy instantiation. Missing fields replace rather than inherit.
       const { type: _type, sessionId, ...modelRequest } = frame
       this.modelRequests.set(sessionId, modelRequest)
     }
     if (frame.type === 'session/subscribed') {
+      this.removedModelRequests.delete(frame.sessionId)
       this.modelRequests.delete(frame.sessionId)
       // Rows past the host's durable baseline rode state a restart lost; drop
       // them so last-wins cannot pin a phantom value over recomputed truth.
@@ -438,7 +440,6 @@ export class SessionManager {
     const frame = envelope.payload
     switch (frame.type) {
       case 'host/session-added': {
-        this.removedSessions.delete(frame.sessionId)
         this.mergeSummary({
           sessionId: frame.sessionId, updatedAt: Date.now(), running: false, blank: frame.blank,
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
@@ -448,7 +449,7 @@ export class SessionManager {
         return
       }
       case 'host/session-removed': {
-        this.removedSessions.add(frame.sessionId)
+        this.removedModelRequests.add(frame.sessionId)
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
@@ -494,6 +495,7 @@ export class SessionManager {
       else this.pendingBuffers.set(sessionId, kept)
     }
     this.modelRequests.clear()
+    this.removedModelRequests.clear()
     for (const session of this.sessions.values()) session.handleReconnecting()
   }
 

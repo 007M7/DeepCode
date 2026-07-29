@@ -511,10 +511,16 @@ export class Session implements SessionFace {
       // pane now instead of leaving it loading throughout an outage.
       this.openState = 'error'
       this.openError = {
-        code: 'internal',
-        message: 'connection lost while loading session history',
-        details: { sessionId: this.sessionId },
+        code: 'cancelled',
+        message: 'session history request cancelled after connection loss',
+        details: {},
       }
+      changed = true
+    }
+    if (this.loadingOlder) {
+      // The stale request's generation-fenced finally cannot clear this bit.
+      // Release the paging control synchronously at the connection boundary.
+      this.loadingOlder = false
       changed = true
     }
     if (this.modelRequest !== null) {
