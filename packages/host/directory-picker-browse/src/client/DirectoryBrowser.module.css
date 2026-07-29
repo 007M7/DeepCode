@@ -62,6 +62,12 @@
   scrollbar-width: none;
 }
 
+/* Pseudo-element-path engines (see .millerRow's twin rule): the 20px crumb
+ * bar has no room for a bar at all. */
+.crumbTrail::-webkit-scrollbar {
+  display: none;
+}
+
 .crumbSeat {
   display: inline-flex;
   align-items: center;
@@ -299,9 +305,8 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* Trailing pressed check (Menu's .check parallel): flex-none so wrap or
- * narrow-viewport clamp pressure never squashes the glyph — the nowrap
- * label refuses to shrink, leaving the icon as the only compressible item. */
+/* Flex-none: the nowrap label refuses to shrink, which would leave the
+ * glyph as the only compressible item under wrap or narrow-viewport clamp. */
 .toggleCheck {
   flex: none;
 }

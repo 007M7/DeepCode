@@ -73,30 +73,37 @@ function foldPathFor(sep: '\\' | '/'): (value: string) => string {
 }
 
 /**
- * Lexically normalizes an absolute host path for comparisons: collapses
- * repeated and trailing separators, drops `.` segments, and applies `..` —
- * mirroring the backend's resolve() for the shapes an environment-supplied
- * HOME legally carries verbatim (`/home/u/`, `/home//u`, `/home/u/.`)
- * while the backend's paths arrive already resolved. A lexical mirror
- * only: symlinks are the backend's business, and the input always
- * contains the separator (it is an absolute path).
+ * Lexically normalizes an absolute host path for comparisons: folds
+ * forward slashes on Windows (win32 accepts either), collapses repeated
+ * and trailing separators, drops `.` segments, and applies `..` without
+ * ever crossing the root — POSIX's `/`, a drive's `C:`, or UNC's
+ * `\\server\share` pair — mirroring the backend's resolve() for the
+ * shapes an environment-supplied HOME legally carries verbatim while the
+ * backend's own paths arrive already resolved. A lexical mirror only:
+ * symlinks are the backend's business.
  */
 function normalizePathFor(sep: '\\' | '/'): (value: string) => string {
-  return (value) => {
-    const segments = value.split(sep)
-    const head = segments.shift()
-    /* v8 ignore next -- narrowing guard: split always yields at least one segment. */
-    if (head === undefined) return value
-    const out: string[] = []
-    for (const segment of segments) {
+  return (raw) => {
+    // win32 treats a forward slash as a separator too (resolve() folds
+    // them); POSIX must not — a backslash there is a name character.
+    const value = sep === '\\' ? raw.replaceAll('/', sep) : raw
+    const unc = sep === '\\' && value.startsWith(`${sep}${sep}`)
+    const segments = (unc ? value.slice(2) : value).split(sep)
+    // The unpoppable root: POSIX's leading empty segment / the drive
+    // segment, or UNC's server + share pair.
+    const rootLength = unc ? 2 : 1
+    const out = segments.slice(0, rootLength)
+    for (const segment of segments.slice(rootLength)) {
       if (segment === '' || segment === '.') continue
       if (segment === '..') {
-        out.pop()
+        if (out.length > rootLength) out.pop()
         continue
       }
       out.push(segment)
     }
-    return `${head}${sep}${out.join(sep)}`
+    // A bare root keeps (or regains) the trailing separator resolve()
+    // emits for `/`, `C:\`, and `\\server\share\`.
+    return `${unc ? sep + sep : ''}${out.join(sep)}${out.length === rootLength ? sep : ''}`
   }
 }
 
@@ -119,16 +126,20 @@ function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryE
 }
 
 /**
- * The listing's platform separator, inferred from the home path the host
- * stamped — never from typed text or entry paths, where a backslash is a
- * legal POSIX name character. Still a heuristic at the last step: a POSIX
- * home directory whose own name contains a backslash would misread.
+ * The listing's platform separator, read from the host-resolved root crumb
+ * (`/`, `C:\`, `\\server\share\`) — exact for every root form the backend
+ * emits, immune both to a home delivered in the other slash flavor
+ * (`USERPROFILE=C:/Users/Alice`) and to backslashes inside POSIX names.
  * TODO: replace with a host-stamped `separator` field on the wire
  * DirectoryListing so the platform fact travels verbatim (the trade-off is
  * recorded in the directory-picker capability seam Agent Note).
  */
 function separatorOf(listing: DirectoryListing): '\\' | '/' {
-  return listing.home.includes('\\') ? '\\' : '/'
+  const rootCrumb = listing.crumbs.at(0)
+  // Home is the honest fallback for an impossible empty chain.
+  /* v8 ignore next -- narrowing guard: the wire chain is root-to-target inclusive. */
+  if (rootCrumb === undefined) return listing.home.includes('\\') ? '\\' : '/'
+  return rootCrumb.path.includes('\\') ? '\\' : '/'
 }
 
 /**
