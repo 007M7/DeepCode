@@ -96,6 +96,8 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection }: 
     const cacheHit = cacheHitPercent(usage)
     if (cacheHit !== null) parts.push(`cache hit ${cacheHit}%`)
   }
+  // contextPercent validates both fields; repeat the capacity guard so that
+  // TypeScript carries the same refinement into the formatting branch.
   parts.push(context === null || modelRequest?.contextWindow === undefined
     ? 'context unknown'
     : `context ${context}% of ${formatMetricTokens(modelRequest.contextWindow)}`)

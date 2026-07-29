@@ -448,7 +448,7 @@ export class LlmService extends Service {
     const resolvedConfig = deepFreeze(structuredClone(resolved.config))
     const context = resolved.context === undefined
       ? undefined
-      : Object.freeze(structuredClone(resolved.context))
+      : deepFreeze(structuredClone(resolved.context))
     let dispatched = false
     return Object.freeze({
       config: resolvedConfig,
