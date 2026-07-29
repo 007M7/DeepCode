@@ -263,7 +263,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-sig', method: 'command.execute', payload: { sessionId: 's', line: '/hang' } })
     // The fake's /hang settles only when the invoke-level signal aborts: a
     // completed response with the cancelled error proves req.signal reached it.
-    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', body, signal: controller.signal }))
+    const pending = handler.fetch(new Request('http://x/api/command.execute', { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal }))
     controller.abort()
     const response = await pending
     const parsed = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
@@ -288,7 +288,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const controller = new AbortController()
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-picker', method: 'host.pickDirectory', payload: {} })
     const pending = handler.fetch(new Request('http://x/api/host.pickDirectory', {
-      method: 'POST', body, signal: controller.signal,
+      method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal,
     }))
     controller.abort()
     const parsed = await (await pending).json() as { result: { error?: { code: string } } }
@@ -300,18 +300,18 @@ describe('handler carrier-layer statuses', () => {
   const handler = toFetchHandler(fakeApi())
 
   it('404s unknown paths and non-POST non-stream methods', async () => {
-    expect((await handler.fetch(new Request('http://x/other', { method: 'POST', body: '{}' }))).status).toBe(404)
+    expect((await handler.fetch(new Request('http://x/other', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }))).status).toBe(404)
     expect((await handler.fetch(new Request('http://x/api/session.list', { method: 'GET' }))).status).toBe(404)
-    expect((await handler.fetch(new Request('http://x/api/no.such', { method: 'POST', body: JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'no.such', payload: {} }) }))).status).toBe(404)
+    expect((await handler.fetch(new Request('http://x/api/no.such', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'no.such', payload: {} }) }))).status).toBe(404)
   })
 
   it('400s a non-JSON body', async () => {
-    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', body: 'not json' }))
+    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not json' }))
     expect(response.status).toBe(400)
   })
 
   it('rejects a malformed envelope with bad-request and the invalid-request sentinel rpcId', async () => {
-    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', body: JSON.stringify({ nope: true }) }))
+    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nope: true }) }))
     expect(response.status).toBe(200)
     const body = await response.json() as { rpcId: string; result: { ok: boolean; error?: { code: string } } }
     expect(body.rpcId).toBe('invalid-request')
@@ -320,7 +320,7 @@ describe('handler carrier-layer statuses', () => {
 
   it('rejects a method/path mismatch echoing the envelope rpcId', async () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-9', method: 'session.cancel', payload: {} })
-    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', body }))
+    const response = await handler.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body }))
     const parsed = await response.json() as { rpcId: string; result: { error?: { message: string } } }
     expect(parsed.rpcId).toBe('r-9')
     expect(parsed.result.error?.message).toContain('does not match path')
@@ -328,7 +328,7 @@ describe('handler carrier-layer statuses', () => {
 
   it('rejects an invalid payload with the zod issues attached', async () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-10', method: 'session.cancel', payload: {} })
-    const response = await handler.fetch(new Request('http://x/api/session.cancel', { method: 'POST', body }))
+    const response = await handler.fetch(new Request('http://x/api/session.cancel', { method: 'POST', headers: { 'content-type': 'application/json' }, body }))
     const parsed = await response.json() as { result: { error?: { code: string; details: { issues: unknown[] } } } }
     expect(parsed.result.error?.code).toBe('bad-request')
     expect(parsed.result.error?.details.issues.length).toBeGreaterThan(0)
@@ -337,23 +337,23 @@ describe('handler carrier-layer statuses', () => {
   it('500s when the impl itself throws', async () => {
     const crashing = toFetchHandler(fakeApi({ crashOn: 'session.list' }))
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-11', method: 'session.list', payload: {} })
-    const response = await crashing.fetch(new Request('http://x/api/session.list', { method: 'POST', body }))
+    const response = await crashing.fetch(new Request('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body }))
     expect(response.status).toBe(500)
     expect(await response.text()).toContain('impl crashed')
   })
 
   it('routes /api/respond, rejecting malformed client-responses as a receipt', async () => {
     const good = JSON.stringify({ type: 'client-response', rpcId: 'known', result: { ok: true, value: null } })
-    const goodReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', body: good }))).json()
+    const goodReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: good }))).json()
     expect(goodReceipt).toEqual({ accepted: true })
     const bad = JSON.stringify({ type: 'client-request', rpcId: 'r', method: 'x', payload: {} })
-    const badReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', body: bad }))).json()
+    const badReceipt: unknown = await (await handler.fetch(new Request('http://x/api/respond', { method: 'POST', headers: { 'content-type': 'application/json' }, body: bad }))).json()
     expect(badReceipt).toEqual({ accepted: false, reason: 'bad-response' })
   })
 
   it('accepts (url, init) form fetch invocation', async () => {
     const body = JSON.stringify({ type: 'client-request', rpcId: 'r-12', method: 'session.list', payload: {} })
-    const response = await handler.fetch('http://x/api/session.list', { method: 'POST', body })
+    const response = await handler.fetch('http://x/api/session.list', { method: 'POST', headers: { 'content-type': 'application/json' }, body })
     expect(response.status).toBe(200)
   })
 })
