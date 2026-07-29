@@ -165,7 +165,7 @@ export class LocalPtySession implements PtyBackendSession {
   private activeTimer: NodeJS.Timeout | undefined
   private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
-  private readonly terminalOperations = new Set<Promise<void>>()
+  private readonly terminalOperations = new Set<Promise<unknown>>()
   private signaledOperation: LocalSendOperation | undefined
   private interrupting: LocalSendOperation | undefined
   private writing: LocalSendOperation | undefined
@@ -247,10 +247,13 @@ export class LocalPtySession implements PtyBackendSession {
 
   /** Retain one contained provider operation until its asynchronous work finishes. */
   private ownTerminalOperation(operation: Promise<void>): void {
+    void this.trackTerminalOperation(operation)
+  }
+
+  private trackTerminalOperation<T>(operation: Promise<T>): Promise<T> {
     const tracked = operation.finally(() => { this.terminalOperations.delete(tracked) })
     this.terminalOperations.add(tracked)
-    // beginSend(), pollReadiness(), and interrupt() contain their own boundary errors.
-    void tracked
+    return tracked
   }
 
   private async beginSend(operation: LocalSendOperation, request: PtySendRequest): Promise<void> {
@@ -319,8 +322,9 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   async signal(signal: PtySignal): Promise<PtySignalResult> {
+    if (this.closing) throw new Error('PTY session is closing')
     if (this.active !== undefined) this.signaledOperation = this.active
-    const targetPgid = await this.terminal.signalForeground(signal)
+    const targetPgid = await this.trackTerminalOperation(this.terminal.signalForeground(signal))
     return { delivered: true, targetPgid }
   }
 

@@ -952,6 +952,26 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     await expect(session.signal('SIGTERM')).rejects.toThrow('cannot resolve')
   })
 
+  it('drains an in-flight public signal and rejects signals after close starts', async () => {
+    const terminal = new FakeTerminal()
+    const session = new LocalPtySession(terminal, config())
+    const signal = Promise.withResolvers<number>()
+    terminal.signalForeground = async () => await signal.promise
+
+    const signaling = session.signal('SIGINT')
+    const closing = session.close('public signal')
+    let closed = false
+    void closing.then(() => { closed = true })
+    await Promise.resolve()
+    expect(closed).toBe(false)
+    await expect(session.signal('SIGTERM')).rejects.toThrow('closing')
+
+    signal.resolve(456)
+    await expect(signaling).resolves.toEqual({ delivered: true, targetPgid: 456 })
+    await closing
+    expect(closed).toBe(true)
+  })
+
   it('closes idempotently, contains signal races, and reports survivors', async () => {
     const terminal = new FakeTerminal()
     terminal.quiescent = false
