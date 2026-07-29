@@ -9,7 +9,7 @@ import { MessageId, freezeMessage } from '@deepseek-ai/dsh-llm'
  * open-time queue snapshot.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { InboxItemId } from '@deepseek-ai/dsh-agent'
 import type { Agent, InboxItem, InboxPlacement } from '@deepseek-ai/dsh-agent'
@@ -313,9 +313,55 @@ describe('session.updateQueue', () => {
       { id: 'claimed', action: { kind: 'remove' } },
     ])
   })
+
+  it('rejects a stale occurrence without resuming a cold agent', async () => {
+    const ctx = await harness()
+    const resume = vi.spyOn(ctx.agents, 'resume')
+    const api = createApiProxy(ctx, DEFAULTS)
+    const response = await api.sessions.updateQueue({
+      rpcId: RpcId('q-cold'),
+      payload: {
+        sessionId: 'cold-session' as SessionId,
+        itemId: InboxItemId('stale-item'),
+        action: { kind: 'remove' },
+      },
+    })
+
+    expect(expectErr(response)).toMatchObject({ code: 'queue-item-not-found' })
+    expect(resume).not.toHaveBeenCalled()
+  })
 })
 
 describe('session/queue frames', () => {
+  it('folds nested mutations observed before their outer enqueue', async () => {
+    const ctx = await harness()
+    const agent = stubAgent(ctx)
+    const original = inboxItem('i-edit', inboxMessage('m-edit', 'before'), 'queued')
+    const edited = inboxItem('i-edit', inboxMessage('m-edit', 'after'), 'queued')
+    const removed = inboxItem('i-remove', inboxMessage('m-remove', 'remove me'), 'queued')
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject !== agent) return
+      if (item.id === original.id) ctx.emit('agent/inbox/update', agent, edited)
+      if (item.id === removed.id) ctx.emit('agent/inbox/discard', agent, [removed])
+    })
+    const api = createApiProxy(ctx, DEFAULTS)
+    const live = new AbortController()
+    const collected = collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-reentrant'), payload: {} }, live.signal), 2, live)
+
+    ctx.emit('agent/inbox/enqueue', agent, original)
+    ctx.emit('agent/inbox/enqueue', agent, removed)
+
+    const liveFrames = (await collected).filter(frame => frame.type === 'session/queue')
+    expect(liveFrames.map(frame => frame.items)).toEqual([
+      [{ id: edited.id, message: edited.message }],
+    ])
+    const replay = new AbortController()
+    const replayFrames = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-reentrant-replay'), payload: {} }, replay.signal), 2, replay)
+    expect(replayFrames.filter(frame => frame.type === 'session/queue')).toEqual(liveFrames)
+  })
+
   it('publishes complete live snapshots and replays the latest snapshot on reconnect', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)

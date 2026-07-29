@@ -9,15 +9,15 @@ import { useSyncExternalStore } from 'react'
 import type {
   ConversationSnapshot, QueuedMessage, SessionId, SessionListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InboxItemId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { QueueItemId } from '../src/client/contract/queue.ts'
 import type { InputState } from '../src/client/input/contract.ts'
 import { QueueDock, queueDockEntry, type QueueDockInjected } from '../src/client/queue/QueueDock.tsx'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
-const iid = (id: string): InboxItemId => id as InboxItemId
+const iid = (id: string): QueueItemId => id as QueueItemId
 
 function row(id: string, text: string | null, preview = text ?? '[image]'): QueuedMessage {
   return { id: iid(id), preview, text }

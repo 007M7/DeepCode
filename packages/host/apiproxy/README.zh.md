@@ -16,7 +16,7 @@
 
 会话模型路由属于会话领域契约。`session.models` 返回选中的提供方／模型／推理（reasoning）目标，以及按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。
 
-待处理的 queued 输入属于实时控制平面契约，而非会话历史。网关镜像来自 `agent/inbox/*` 的 queued `InboxItem` 入队项，并在每次 queued 变更和重连时广播权威的 `session/queue` 快照；待处理 steering（中途引导）不进入此 Web 投影。`session.updateQueue` 通过 `InboxItemId` 寻址单个项：编辑会替换待处理内容，移除会将其丢弃。驱动器在接纳前退役寻址标识，因此认领会赢得竞态；之后的操作返回 `queue-item-not-found`。客户端绝不根据轮次或状态事件推断项已退役。
+待处理的 queued 输入属于实时控制平面契约，而非会话历史。网关镜像来自 `agent/inbox/*` 的 queued `InboxItem` 入队项，并在每次 queued 变更和重连时广播权威的 `session/queue` 快照；待处理 steering（中途引导）不进入此 Web 投影。`session.updateQueue` 通过 `InboxItemId` 寻址单个项：编辑会替换待处理内容，移除会将其丢弃。驱动器在接纳前退役寻址标识，因此认领会赢得竞态；之后的操作返回 `queue-item-not-found`。该操作只查询当前已挂载的 Agent，绝不恢复冷会话，因为进程本地 inbox 标识无法在重启或资源释放后存活。客户端绝不根据轮次或状态事件推断项已退役。
 
 Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.create` 会创建唯一名称或接纳现有目录，`workspace.delete` 只移除 Workspace 注册记录，`session.create` 接受可选的预分配 Session id，`host/workspace-changed`、`host/workspace-removed` 与 `host/session-added` 则以任意到达顺序携带已提交的增量。删除注册记录会保留目录和会话日志；相关 Session 仍留在 `session.list` 中，并进入 Ungrouped。`SessionSummary.blank` 与 `host/session-added` 帧携带派生的零事件位：客户端隐藏空白会话并按 workspace 复用它们，在首个 `host/session-status(running:true)` 时翻转 blank，并以 `session.list` 作为重连权威；冷会话摘要永远不是空白：惰性持久化让从未追加过事件的会话根本不出现在 `list()` 中。
 

@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxItem,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxItem, InboxItemId,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
@@ -514,6 +514,35 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * identified message remain visible until every occurrence is claimed.
    */
   const queuedMirror = new Map<SessionId, InboxItem[]>()
+  type UnseenQueueEvent =
+    | { readonly kind: 'update'; readonly item: InboxItem }
+    | { readonly kind: 'terminal' }
+  const unseenQueueEvents = new Map<SessionId, Map<InboxItemId, UnseenQueueEvent>>()
+  const rememberUnseen = (sessionId: SessionId, itemId: InboxItemId, event: UnseenQueueEvent): void => {
+    let events = unseenQueueEvents.get(sessionId)
+    if (events === undefined) {
+      events = new Map()
+      unseenQueueEvents.set(sessionId, events)
+    }
+    events.set(itemId, event)
+    // Only synchronous re-entrancy may deliver a mutation before its outer
+    // enqueue observer. Drop unmatched protocol-invalid observations instead
+    // of retaining process-local ids indefinitely.
+    queueMicrotask(() => {
+      const current = unseenQueueEvents.get(sessionId)
+      if (current?.get(itemId) !== event) return
+      current.delete(itemId)
+      if (current.size === 0) unseenQueueEvents.delete(sessionId)
+    })
+  }
+  const takeUnseen = (sessionId: SessionId, itemId: InboxItemId): UnseenQueueEvent | undefined => {
+    const events = unseenQueueEvents.get(sessionId)
+    const event = events?.get(itemId)
+    if (event === undefined) return undefined
+    events?.delete(itemId)
+    if (events?.size === 0) unseenQueueEvents.delete(sessionId)
+    return event
+  }
   const publishQueue = (sessionId: SessionId): void => {
     const items = queuedMirror.get(sessionId) ?? []
     broadcast({
@@ -526,49 +555,59 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     })
   }
   ctx.effect(() => {
-    const retire = (agent: Agent, item: InboxItem): void => {
+    const retire = (agent: Agent, item: InboxItem): boolean => {
       const entries = queuedMirror.get(agent.id)
-      if (entries === undefined) return
+      if (entries === undefined) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
       const index = entries.findIndex(entry => entry.id === item.id)
-      if (index === -1) return
+      if (index === -1) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
       entries.splice(index, 1)
       if (entries.length === 0) queuedMirror.delete(agent.id)
-      publishQueue(agent.id)
+      return true
     }
     const disposers = [
       ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
         if (item.placement !== 'queued') return
+        const unseen = takeUnseen(agent.id, item.id)
+        if (unseen?.kind === 'terminal') return
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
           entries = []
           queuedMirror.set(agent.id, entries)
         }
-        entries.push(item)
+        entries.push(unseen?.kind === 'update' ? unseen.item : item)
         publishQueue(agent.id)
       }),
       ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem) => {
         const entries = queuedMirror.get(agent.id)
-        if (entries === undefined) return
+        if (entries === undefined) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
         const index = entries.findIndex(entry => entry.id === item.id)
-        if (index === -1) return
+        if (index === -1) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
         entries.splice(index, 1, item)
         publishQueue(agent.id)
       }),
       ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
-        retire(agent, item)
+        if (retire(agent, item)) publishQueue(agent.id)
       }),
       ctx.on('agent/inbox/discard', (agent: Agent, items: InboxItem[]) => {
-        const entries = queuedMirror.get(agent.id)
-        if (entries === undefined) return
-        const ids = new Set(items.map(item => item.id))
-        const kept = entries.filter(entry => !ids.has(entry.id))
-        if (kept.length === entries.length) return
-        if (kept.length === 0) queuedMirror.delete(agent.id)
-        else queuedMirror.set(agent.id, kept)
-        publishQueue(agent.id)
+        let changed = false
+        for (const item of items) changed = retire(agent, item) || changed
+        if (changed) publishQueue(agent.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
+        unseenQueueEvents.delete(session.id)
       }),
     ]
     return () => { for (const dispose of disposers) dispose() }
@@ -1120,18 +1159,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return ok(request, { accepted: true as const })
       },
 
-      async updateQueue(request) {
+      updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
-        const found = await agentFor(sessionId)
-        if ('error' in found) return err(request, found.error)
-        if (found.agent.updateInbox(itemId, action) === 'not-found') {
-          return err(request, {
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
+          return Promise.resolve(err(request, {
             code: 'queue-item-not-found',
             message: 'queued item is no longer pending',
             details: { itemId },
-          })
+          }))
         }
-        return ok(request, { accepted: true as const })
+        return Promise.resolve(ok(request, { accepted: true as const }))
       },
 
       cancel(request) {

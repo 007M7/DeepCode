@@ -6,11 +6,11 @@
  * (machine.ts) is package-private and never exported.
  */
 import type { ClientContext, SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InboxItemId } from '@deepseek-ai/dsh-client-connection/client'
 import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { QueueRow } from '../contract/queue.ts'
 
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
@@ -101,11 +101,7 @@ export interface ComposerKeyboard {
 }
 
 /** One independently addressable row projected from the transient queue snapshot. */
-export interface QueuedMessage {
-  readonly id: InboxItemId
-  readonly preview: string
-  readonly text: string | null
-}
+export type QueuedMessage = QueueRow
 
 /** Guard union of the scoped consume-token event, checked by the machine. */
 export type ConsumeTokenGuard = ConsumeTokenRequest['guard']

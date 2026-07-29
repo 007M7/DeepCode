@@ -7,15 +7,15 @@ import type { Context } from 'cordis'
 import { useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InboxItemId, QueueAction } from '@deepseek-ai/dsh-client-connection/client'
 import {
   IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import css from './QueueDock.module.css'
 
 /** Queue operations injected by the session-scoped registration. */
 export interface QueueDockInjected {
-  updateQueue: (itemId: InboxItemId, action: QueueAction) => Promise<void>
+  updateQueue: (itemId: QueueItemId, action: QueueAction) => Promise<void>
   notify: (level: 'info' | 'error', text: string) => void
 }
 
@@ -25,8 +25,8 @@ export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDock
 /** Queue strip: one preview line per queued message; renders null when the queue is empty. */
 export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
   const queue = useSession(s => s.queue)
-  const [editing, setEditing] = useState<{ id: InboxItemId; text: string } | null>(null)
-  const [busy, setBusy] = useState<InboxItemId | null>(null)
+  const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
+  const [busy, setBusy] = useState<QueueItemId | null>(null)
 
   useEffect(() => {
     if (editing !== null && !queue.some(row => row.id === editing.id)) setEditing(null)
@@ -35,7 +35,7 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
   if (queue.length === 0) return null
 
   const applyAction = async (
-    itemId: InboxItemId,
+    itemId: QueueItemId,
     action: QueueAction,
     failure: string,
   ): Promise<boolean> => {

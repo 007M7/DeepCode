@@ -13,7 +13,7 @@ import type { Context } from 'cordis'
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { InboxItemId, QueueAction } from '@deepseek-ai/dsh-client-connection/client'
+import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { InputService } from './input/contract.ts'
 
 /**
@@ -37,7 +37,7 @@ export interface IConversation {
    * @param action - edit or remove operation.
    * @returns completion; business failures reject.
    */
-  updateQueue(itemId: InboxItemId, action: QueueAction): Promise<void>
+  updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
   /**
    * Cancel the scoped session's in-flight turn.
    * @returns completion; failures reject as in send.
@@ -80,7 +80,7 @@ export class ConversationService extends Service implements IConversation {
   }
 
   /** Apply one operation to a pending queue occurrence. */
-  async updateQueue(itemId: InboxItemId, action: QueueAction): Promise<void> {
+  async updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void> {
     const session = this.scopedSession('updateQueue')
     const result = await session.updateQueue(itemId, action)
     if (!result.ok) {

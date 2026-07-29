@@ -14,9 +14,11 @@ The Web queue rendered pending messages but could not edit or delete one row. `M
 
 **Mutation ends at driver claim.** `Agent.updateInbox(id, action)` synchronously searches the pending queued FIFO. Edit replaces frozen content while preserving `InboxItemId`, `MessageId`, source, wake policy, and position. Remove emits the occurrence’s terminal discard. Steering and driver-claimed occurrences return `not-found`, so queue operations never rewrite active-turn input or durable history.
 
-**The live ledger is authoritative.** `agent/inbox/enqueue`, `update`, `dequeue`, and `discard` maintain a Host mirror of queued occurrences. The wire sends complete `session/queue` snapshots rather than incremental guesses. Reconnect sends the current baseline, and every queued mutation or terminal event replaces it. The client applies no optimistic edit and never retires a row from durable turn events or status changes.
+**The live ledger is authoritative.** `agent/inbox/enqueue`, `update`, `dequeue`, and `discard` maintain a Host mirror of queued occurrences. A synchronously re-entrant update or terminal event may reach the mirror before its outer enqueue listener; the mirror retains that unseen outcome for the current dispatch and folds it into the enqueue, so listener registration order cannot publish stale content or a ghost row. The wire sends complete `session/queue` snapshots rather than incremental guesses. Reconnect sends the current baseline, and every queued mutation or terminal event replaces it. The client applies no optimistic edit and never retires a row from durable turn events or status changes.
 
-**Web actions address Queue only.** The Host excludes pending steering from `session/queue`; steering retains its existing durable transcript path after consumption. QueueDock exposes edit and delete, but no send-now control. Edit is available only when all content blocks are text; the editor cannot silently drop non-text blocks. An editing row exposes only save and cancel, with Enter and Escape as their keyboard equivalents. Delete removes the exact occurrence.
+**Queue addresses require a live Agent.** `session.updateQueue` queries only the mounted Agent registry and never resumes a cold session: an `InboxItemId` is process-local and cannot name work after restart or disposal. A missing Agent and a driver-claimed occurrence both return `queue-item-not-found`.
+
+**Web actions address Queue only.** The Host excludes pending steering from `session/queue`; steering retains its existing durable transcript path after consumption. QueueDock exposes edit and delete, but no send-now control. The UI derives queue row and mutation types from the runtime `SessionFace` contract rather than importing the connection plugin, so plugin cooperation continues through services and snapshots. Edit is available only when all content blocks are text; the editor cannot silently drop non-text blocks. An editing row exposes only save and cancel, with Enter and Escape as their keyboard equivalents. Delete removes the exact occurrence.
 
 ## Alternatives considered
 
@@ -28,9 +30,11 @@ The Web queue rendered pending messages but could not edit or delete one row. `M
 
 **Expose a protocol-only promotion operation.** Rejected because no product interaction reorders Queue. A public operation without a current consumer would add ordering semantics and tests for speculative use.
 
+**Resume a cold Agent for a queue operation.** Rejected because durable session identity does not preserve the process-local inbox capability. Resuming can only produce `not-found` after creating unrelated live state.
+
 ## Verification
 
-AgentLoop contract tests hold prompt admission while editing and removing exact queued occurrences, reject mutations of steering occurrences, and verify the resulting independent turn and terminal lifecycle events. Host schema and proxy tests cover queued-only authoritative snapshots, reconnect, typed not-found errors, and the RPC transport. Client runtime and QueueDock tests cover non-optimistic projection, text-only editing, save and cancel affordances, removal, retirement races, and disabled mixed-content editing. Keyless browser scenarios drive the exposed edit and delete actions through the built Web composition and real HTTP/SSE wire.
+AgentLoop contract tests hold prompt admission while editing and removing exact queued occurrences, reject mutations of steering occurrences, and verify the resulting independent turn and terminal lifecycle events. Host schema and proxy tests cover queued-only authoritative snapshots, synchronous re-entrant mutation order, reconnect, cold-Agent rejection, typed not-found errors, and the RPC transport. Client runtime and QueueDock tests cover non-optimistic projection, text-only editing, save and cancel affordances, removal, retirement races, and disabled mixed-content editing. Keyless browser scenarios drive the exposed edit and delete actions through the built Web composition and real HTTP/SSE wire.
 
 ## Consequences
 
