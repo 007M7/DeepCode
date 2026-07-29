@@ -1,144 +1,73 @@
 // @vitest-environment jsdom
 // apply inject factories exercised end to end against the terminal thin
-// shape: the conversation surface (views triple, send choreography incl.
-// optimistic clear + failure restore THROUGH the declared store actions,
-// openDetails = select action + layout orchestration, sessions.open
-// navigation), and the closeDetails details surface. Complements
-// chat-apply.spec.tsx (registration)
-// and selection-survival.spec.ts (store axis). History opening is NOT an
-// inject concern anymore — the runtime sessions service opens on watch
-// (sessions-service.spec.ts owns that behavior).
+// shape: the strict session surface (views triple, draft mirror), the
+// provide-channel input face (machine-sink submit choreography incl.
+// optimistic clear + failure restore), the resident surface (selectWorkspace
+// draft carrying), the composer-bar stop face, openDetails = select action +
+// layout orchestration, and the closeDetails details surface. Complements
+// chat-apply.spec.tsx (registration) and selection-survival.spec.tsx (store
+// axis). History opening is NOT an inject concern — the runtime sessions
+// service opens on watch (sessions-service.spec.ts owns that behavior).
+//
+// The inject surfaces are read off the ledger entries deliberately (typed at
+// this spec's own contract): these cases pin factory choreography the UI
+// guards would mask. Rendering-path acceptance lives in
+// chat-toolview-slot.spec.tsx.
 
-import { Context } from 'cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup } from '@testing-library/react'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import { SlotsService, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
-import type {
-  SessionId, SessionListState, WorkspaceListState,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { SlotRendererHost } from '@deepseek-ai/dsh-client-web-react'
+import { describe, expect, it, vi } from 'vitest'
+import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
+import type { ISession, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { createChatStore } from '../src/client/stores.ts'
 
-afterEach(cleanup)
-
 const ROOT = 'root-1' as SessionId
 
 type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
 type ChatActions = ChatInstance['actions']
 
-const SCOPE_TAG: symbol = (() => {
-  const recorded: (string | symbol)[] = []
-  const spy = new Proxy(new Context(), {
-    get(target, prop, receiver) {
-      recorded.push(prop)
-      // Reflect.get is typed any; the probe only records property names.
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      return Reflect.get(target, prop, receiver)
-    },
-  })
-  void scopeOf(spy)
-  const symbol = recorded.find((p): p is symbol => typeof p === 'symbol')
-  if (symbol === undefined) throw new Error('scopeOf probe recorded no symbol read')
-  return symbol
-})()
+/** ISession verb mocks, typed against the production face (['prompt'] etc. keep vitest mock ergonomics). */
+function sessionFakeFor() {
+  return {
+    open: vi.fn(() => Promise.resolve()),
+    loadOlder: vi.fn<ISession['loadOlder']>(() => Promise.resolve()),
+    prompt: vi.fn<ISession['prompt']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
+    cancel: vi.fn<ISession['cancel']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
+  } satisfies SessionBehaviorOverrides
+}
 
 async function bench() {
-  const ctx = new Context()
-  const slotsFiber = ctx.plugin(SlotsService)
-  await slotsFiber.await()
-  const slots = ctx.get('slots') as SlotsService
-
-  const listStore = createSnapshotStore<SessionListState>({
-    ids: [ROOT],
-    byId: { [ROOT]: { id: ROOT, title: 'R', displayTitle: 'R', cwd: '/proj', running: false, blank: false, updatedAt: 1 } },
-    current: ROOT,
-    phase: 'ready',
+  const runtime = await SlotTestRuntime.create()
+  const sessionFake = sessionFakeFor()
+  await runtime.sessions.add({
+    id: ROOT,
+    summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
+    session: sessionFake,
   })
-  const sessionFake = {
-    sessionId: ROOT,
-    open: vi.fn(() => Promise.resolve()),
-    loadOlder: vi.fn(() => Promise.resolve()),
-    prompt: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
-      () => Promise.resolve({ ok: true, value: { accepted: true } })),
-    cancel: vi.fn<() => Promise<{ ok: boolean; value?: object; error?: { code: string; message: string } }>>(
-      () => Promise.resolve({ ok: true, value: { accepted: true } })),
-    // Observable face (the input machine's queue read face rides it).
-    getSnapshot: () => ({ queue: [] }),
-    subscribe: () => () => {},
-  }
-  const scopes = new Map<SessionId, Context>()
-  const mint = (id: SessionId): Context => {
-    let scoped = scopes.get(id)
-    if (scoped === undefined) {
-      scoped = ctx.plugin(() => {}).ctx.extend({ [SCOPE_TAG]: id })
-      scopes.set(id, scoped)
-    }
-    return scoped
-  }
-  type TestProvider = {
-    resolve(binding: { sessionId: SessionId; session: typeof sessionFake; ctx: Context }): {
-      hooks?: Record<string, unknown>
-      props?: Record<string, unknown>
-    }
-  }
-  const providers: TestProvider[] = []
-  const absentInfo = { sessionId: undefined, hooks: {}, props: {} }
-  const sessionsFake = {
-    list: listStore,
-    binding: (id: SessionId) => ({ sessionId: id, session: sessionFake, ctx: mint(id) }),
-    scope: (id: SessionId) => mint(id),
-    provideInfo: () => undefined,
-    currentProvideInfo: { getSnapshot: () => absentInfo, subscribe: () => () => {} },
-    provide: (descriptor: TestProvider) => { providers.push(descriptor); return () => {} },
-    scopeOf,
-    sessionOf: (actx: Context) => (scopeOf(actx) === undefined ? undefined : sessionFake),
-    open: vi.fn(),
-  }
-  ctx.provide('sessions', sessionsFake)
-  const workspaceStore = createSnapshotStore<WorkspaceListState>({
-    items: [], state: 'idle', phase: 'ready', error: null,
-    baselinesReady: true, recentWorkspaceId: undefined,
-  })
-  const workspacesFake = {
-    list: workspaceStore,
-    connectWorkspace: vi.fn(async () => ROOT),
-    openPath: vi.fn(async () => {}),
-  }
-  ctx.provide('workspaces', workspacesFake)
   const layoutFake = { openDetails: vi.fn(), closeDetails: vi.fn() }
-  ctx.provide('layout', layoutFake)
-  ctx.provide('locale', { bind: () => (key: string) => key })
+  runtime.provide('layout', layoutFake)
 
-  // The AppFrame role: the three conversation-package slots must be declared
-  // by a live entry before apply can contribute into them (the stand-in
-  // consumes renderSlot to satisfy the declare-means-render check).
-  slots.register({
-    name: 'root',
-    children: {
-      'conversation': { kind: 'single', scope: 'session-maybe' },
-      'details': { kind: 'single', scope: 'session' },
-    },
+  // The AppFrame role: the conversation-package slots must be declared by a
+  // live entry before apply can contribute into them.
+  await runtime.root.declare({
+    'conversation': { kind: 'single', scope: 'session-maybe' },
+    'details': { kind: 'single', scope: 'session' },
   }, (_p: { renderSlot?: unknown }) => null)
 
-  const fiber = ctx.plugin({ inject: [...inject], apply })
-  await fiber.await()
+  const feature = await runtime.mount({ inject: [...inject], apply })
 
-  // Reach the render-side entry view (inject + store handle) the way the
-  // renderer does: through the host face.
-  let host: SlotRendererHost | undefined
-  slots.install({ renderRoot: (h) => { host = h; return null } })
-  slots.renderSlot('root', {})
-  const hostFace = host!
-  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.composer.bar' | 'conversation.view' | 'details') => hostFace.entriesOf(key)[0]!
+  // The host face (store resolution) exists only inside the installed
+  // renderer, so materialize it the way the shell does.
+  runtime.renderRoot()
+  const entryOf = (key: 'conversation' | 'conversation.session' | 'conversation.composer.bar' | 'conversation.view' | 'details') =>
+    runtime.slots.entries(key)[0]!
   /** Resolve store instance + call the inject the way the outlet would. */
   const conversationSurface = (id: SessionId) => {
     const entry = entryOf('conversation.session')
-    const instance = hostFace.storeOf(entry, id) as ChatInstance
+    const instance = runtime.storeOf('conversation.session', id) as ChatInstance
     const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ConversationSessionInjected)(
       id, instance.actions)
     return { instance, injected }
@@ -154,27 +83,28 @@ async function bench() {
   /** Same resolution for the chat entry riding the view ring. */
   const chatViewSurface = (id: SessionId) => {
     const entry = entryOf('conversation.view')
-    const instance = hostFace.storeOf(entry, id) as ChatInstance
+    const instance = runtime.storeOf('conversation.view', id) as ChatInstance
     const injected = (entry.inject as unknown as (sessionId: SessionId, actions: ChatActions) => ChatViewInjected)(
       id, instance.actions)
     return { instance, injected }
   }
   /** Materialize the input provide contribution the way the runtime does. */
   const inputSurface = (id: SessionId) => {
-    const contribution = providers[0]!.resolve(sessionsFake.binding(id))
-    const state = contribution.hooks!['input'] as {
+    const info = runtime.sessions.provideInfo(id)!
+    const state = info.hooks['input'] as {
       getSnapshot: () => { draft: string }
       subscribe: (fn: () => void) => () => void
     }
-    const actions = contribution.props!['inputActions'] as {
+    const actions = info.props['inputActions'] as {
       setDraft: (text: string) => void
       submit: (mode?: 'queue' | 'steer') => void
     }
     return { state, actions }
   }
   return {
-    ctx, slots, hostFace, entryOf, conversationSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
-    sessionFake, sessionsFake, workspacesFake, layoutFake, mint,
+    runtime, feature, slots: runtime.slots, entryOf,
+    conversationSurface, residentSurface, composerSurface, chatViewSurface, inputSurface,
+    sessionFake, layoutFake,
   }
 }
 
@@ -190,6 +120,7 @@ describe('conversation slot inject surface', () => {
     const chatView = b.chatViewSurface(ROOT)
     chatView.injected.loadOlder()
     expect(b.sessionFake.loadOlder).toHaveBeenCalledTimes(1)
+    await b.runtime.dispose()
   })
 
   it('the provide-channel input face submits through the machine sink: trim, optimistic clear, failure restore without clobber', async () => {
@@ -208,14 +139,14 @@ describe('conversation slot inject surface', () => {
     await Promise.resolve()
     expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
     // Failure: restored (draft still empty when the rejection lands).
-    b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b' } })
+    b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b', details: { reason: 'b' } } })
     actions.setDraft('retry me')
     actions.submit('queue')
     await vi.waitFor(() => {
       expect(state.getSnapshot().draft).toBe('retry me')
     })
     // Failure landing after new typing: no clobber (restore fills empty only).
-    b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b' } })
+    b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b', details: { reason: 'b' } } })
     actions.submit('queue')
     actions.setDraft('typed during flight')
     await new Promise(r => setTimeout(r, 0))
@@ -229,23 +160,25 @@ describe('conversation slot inject surface', () => {
     expect(mirrored).toEqual(['mirrored text'])
     unbind()
     // Stop failure is swallowed (promptError owns the surface).
-    b.sessionFake.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'x' } })
+    b.sessionFake.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'x', details: {} } })
     b.composerSurface(ROOT).stop()
     await new Promise(r => setTimeout(r, 0))
     expect(b.sessionFake.cancel).toHaveBeenCalledTimes(1)
+    await b.runtime.dispose()
   })
 
-  it('inject fails loud when the session resolves no scope or the scope lacks the service', async () => {
+  it('inject fails loud when the session resolves no binding or the scope lacks the service', async () => {
     const b = await bench()
     const entry = b.entryOf('conversation.composer.bar')
     const injectFn = entry.inject as unknown as (sessionId: SessionId) => ComposerBarInjected
-    // Unknown session: sessions.scope answers nothing.
-    ;(b.sessionsFake.scope as unknown) = () => undefined
-    expect(() => { injectFn(ROOT).stop() }).toThrow(/resolved no scope/)
-    // A scope minted outside the service tree: no conversation service on it.
-    const foreign = new Context()
-    ;(b.sessionsFake.scope as unknown) = () => foreign.plugin(() => {}).ctx.extend({})
-    expect(() => { injectFn(ROOT).stop() }).toThrow(/unavailable through the session scope/)
+    // Unknown session: the keyboard face's binding resolution answers nothing.
+    expect(() => { injectFn('ghost' as SessionId).stop() }).toThrow(/resolved no binding/)
+    // A scope whose service tree lost 'conversation' (the feature fiber
+    // unloaded while a retained inject closure re-runs): fails loud too.
+    const stop = injectFn(ROOT).stop
+    await b.feature.dispose()
+    expect(() => { stop() }).toThrow(/unavailable through the session scope/)
+    await b.runtime.dispose()
   })
 
   it('openDetails (chat view face) writes the selection through the store actions and opens the panel', async () => {
@@ -258,6 +191,7 @@ describe('conversation slot inject surface', () => {
     // writes land where the skeleton and details read.
     const conv = b.conversationSurface(ROOT)
     expect(conv.instance).toBe(instance)
+    await b.runtime.dispose()
   })
 
   it('openFile (chat view face) resolves against session cwd and calls workspaces.openPath', async () => {
@@ -265,8 +199,9 @@ describe('conversation slot inject surface', () => {
     const { injected } = b.chatViewSurface(ROOT)
     injected.openFile('src/a.ts')
     await vi.waitFor(() => {
-      expect(b.workspacesFake.openPath).toHaveBeenCalledWith('/proj/src/a.ts')
+      expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['/proj/src/a.ts'] })
     })
+    await b.runtime.dispose()
   })
 
   it('routes navigation and workspace switching through the runtime owners, carrying the draft', async () => {
@@ -274,23 +209,73 @@ describe('conversation slot inject surface', () => {
     const { injected } = b.conversationSurface(ROOT)
     const resident = b.residentSurface(ROOT)
     injected.open(ROOT)
-    expect(b.sessionsFake.open).toHaveBeenCalledWith(ROOT)
+    expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [ROOT] })
     // Same-session connect (the picked workspace resolves to this session):
     // no draft movement, plain re-open.
+    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(ROOT))
     const { state, actions } = b.inputSurface(ROOT)
     actions.setDraft('carry me')
     void resident.selectWorkspace('workspace-1' as never)
-    await vi.waitFor(() => { expect(b.sessionsFake.open).toHaveBeenCalledTimes(2) })
-    expect(b.workspacesFake.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    await vi.waitFor(() => {
+      expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(2)
+    })
+    expect(b.runtime.workspaces.calls).toContainEqual({ method: 'connectWorkspace', args: ['workspace-1'] })
     expect(state.getSnapshot().draft).toBe('carry me')
     // Cross-session connect: the draft MOVES — the old machine empties, the
     // new session's machine receives the text, then navigation lands there.
     const OTHER = 'other-1' as SessionId
-    b.workspacesFake.connectWorkspace.mockResolvedValueOnce(OTHER)
+    await b.runtime.sessions.add({ id: OTHER }, { current: false })
+    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(OTHER))
     void resident.selectWorkspace('workspace-2' as never)
-    await vi.waitFor(() => { expect(b.sessionsFake.open).toHaveBeenCalledWith(OTHER) })
+    await vi.waitFor(() => {
+      expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [OTHER] })
+    })
     expect(state.getSnapshot().draft).toBe('')
     expect(b.inputSurface(OTHER).state.getSnapshot().draft).toBe('carry me')
+    await b.runtime.dispose()
+  })
+
+  it('selectWorkspace edge arms: no-session resident, empty-draft move, connect failure retryable', async () => {
+    const b = await bench()
+    // No-session resident (hero before any session): connect resolves and
+    // navigation proceeds without any draft choreography.
+    const noSession = b.residentSurface(undefined)
+    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(ROOT))
+    void noSession.selectWorkspace('workspace-0' as never)
+    await vi.waitFor(() => {
+      expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [ROOT] })
+    })
+
+    // Cross-session connect with an EMPTY draft: no move, no clearing.
+    const OTHER = 'b9-other' as SessionId
+    await b.runtime.sessions.add({ id: OTHER }, { current: false })
+    const resident = b.residentSurface(ROOT)
+    const { state } = b.inputSurface(ROOT)
+    expect(state.getSnapshot().draft).toBe('')
+    b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(OTHER))
+    void resident.selectWorkspace('workspace-3' as never)
+    await vi.waitFor(() => {
+      expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [OTHER] })
+    })
+    expect(b.inputSurface(OTHER).state.getSnapshot().draft).toBe('')
+
+    // Connect failure: the rejection propagates to the caller (the view owns
+    // the rollback) and no further navigation happens.
+    const opens = b.runtime.sessions.calls.filter(c => c.method === 'open').length
+    b.runtime.workspaces.stub('connectWorkspace', () => Promise.reject(new Error('offline')))
+    await expect(resident.selectWorkspace('workspace-4' as never)).rejects.toThrow('offline')
+    expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(opens)
+    await b.runtime.dispose()
+  })
+
+  it('scopedConversation fails loud when the session resolves no scope', async () => {
+    const b = await bench()
+    // The chat-view inject resolves the scoped conversation service at inject
+    // time: an unlisted session hits the scope() === undefined throw directly.
+    const entry = b.entryOf('conversation.view')
+    const injectFn = entry.inject as unknown as (sessionId: SessionId, actions: unknown) => unknown
+    expect(() => injectFn('never-listed' as SessionId, {})).toThrow(/resolved no scope/)
+    await b.runtime.dispose()
   })
 
   it('views read face projects the ring ledger (subscribe/version through ctx.slots)', async () => {
@@ -313,6 +298,7 @@ describe('conversation slot inject surface', () => {
     off()
     off2()
     unsub()
+    await b.runtime.dispose()
   })
 })
 
@@ -325,9 +311,9 @@ describe('details inject surface', () => {
     injected.closeDetails()
     expect(b.layoutFake.closeDetails).toHaveBeenCalledTimes(1)
     // The shared handle: details resolves the SAME instance conversation writes.
-    const conv = b.hostFace.storeOf(b.entryOf('conversation.session'), ROOT)
-    const details = b.hostFace.storeOf(entry, ROOT)
+    const conv = b.runtime.storeOf('conversation.session', ROOT)
+    const details = b.runtime.storeOf('details', ROOT)
     expect(details).toBe(conv)
+    await b.runtime.dispose()
   })
-
 })

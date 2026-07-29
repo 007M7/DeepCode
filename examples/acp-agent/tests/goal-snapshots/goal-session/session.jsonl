@@ -1,1 +1,1 @@
-{"type":"session","version":0,"id":"goal-session-placeholder","createdAt":0,"cwd":"/tmp/goal-session-placeholder"}
+{"type":"session","version":0,"id":"goal-session-placeholder","createdAt":0,"cwd":"{{cwd}}"}

@@ -226,6 +226,7 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   BashEnvContributor: 'service-local extension type is owned by packages/bash/tool-bash/src/index.ts',
   BashEnvVariableInfo: 'service-local metadata type is owned by packages/bash/tool-bash/src/index.ts',
   CompactAgentContext: 'compaction service input is owned by packages/compact/compact/src/index.ts',
+  DirectoryPickerCapability: 'picker interaction contract is owned by packages/host/directory-picker/README.md',
   CreateAgentOptions: 'agent creation contract is owned by packages/core/agent/README.md',
   Domain: 'domain interface is owned by packages/storage/storage-domain/README.md',
   DomainChanged: 'event-local snapshot is owned by packages/storage/storage-domain/src/events.ts',

@@ -3,9 +3,13 @@
  * the sidebar shell's `sidebar.workspaces` hole (the whole browsing region),
  * and WorkspacePicker fills the conversation hero's picker hole
  * (`conversation.hero.workspace` — both hero forms). Both read real Host
- * Workspaces through the global useWorkspaces hook. Export discipline:
+ * Workspaces through the global useWorkspaces hook, and each declares its
+ * own `single` directory-flow child hole for the composed picker package's
+ * client half (see the contract module doc). Export discipline:
  * packages/client/AGENTS.md.
  */
+import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
 import { createWorkspaceViewStore } from './stores.ts'
@@ -13,6 +17,7 @@ import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 
 export type {
+  DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
 } from './contract/slots.ts'
 
@@ -33,6 +38,14 @@ export const inject = ['slots', 'sessions', 'workspaces']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  // Stable per-surface occupancy sources (the renderer's hook cache keys by
+  // source identity): true while the surface's directory-flow hole is filled.
+  const flowSource = (hole: 'sidebar.workspaces.directoryFlow' | 'conversation.hero.workspace.directoryFlow'): HostObservable<boolean> => ({
+    getSnapshot: () => ctx.slots.entries(hole).length > 0,
+    subscribe: listener => ctx.slots.subscribe(hole, listener),
+  })
+  const browserFlowSource = flowSource('sidebar.workspaces.directoryFlow')
+  const pickerFlowSource = flowSource('conversation.hero.workspace.directoryFlow')
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session rides
     // the runtime's shared action (recent-Workspace projection inside).
@@ -44,48 +57,40 @@ export function apply(ctx: ClientContext): void {
       await ctx.workspaces.insertSessionBefore(workspaceId, sessionId, beforeSessionId)
     },
     createWorkspace: input => ctx.workspaces.create(input),
-    pickDirectory: () => ctx.workspaces.pickDirectory(),
+    hooks: { directoryFlow: browserFlowSource },
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => ctx.workspaces.create(input),
-    pickDirectory: () => ctx.workspaces.pickDirectory(),
+    hooks: { directoryFlow: pickerFlowSource },
   })
-  // Declaration-aware registration: each owner's declaring apply may activate
-  // after this one (entry activation order is unconstrained), and a register
-  // into an undeclared slot throws. Register once the declaration is on the
-  // ledger; the subscription also re-registers after an HMR collapse
-  // re-declares the slot (the cascade disposed our entry with it).
+  // Declaration-aware registration (deferRegistration): each owner's
+  // declaring apply may activate after this one, and a register into an
+  // undeclared slot throws; the deferral also re-registers after an HMR
+  // collapse re-declares the slot. Each registration declares its own
+  // directory-flow child hole in the same call (declaration = render
+  // authorization, one table).
   ctx.effect(() => {
-    const registrations = [
-      {
-        name: 'sidebar.workspaces' as const,
-        component: WorkspaceBrowser,
-        register: () => ctx.slots.register(
-          { name: 'sidebar.workspaces', store: createWorkspaceViewStore(), inject: browserInjected },
+    const deferred = [
+      deferRegistration(ctx.slots, 'sidebar.workspaces', WorkspaceBrowser, () =>
+        ctx.slots.register(
+          {
+            name: 'sidebar.workspaces',
+            children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
+            store: createWorkspaceViewStore(),
+            inject: browserInjected,
+          },
           WorkspaceBrowser,
-        ),
-      },
-      {
-        name: 'conversation.hero.workspace' as const,
-        component: WorkspacePicker,
-        register: () => ctx.slots.register(
-          { name: 'conversation.hero.workspace', inject: pickerInjected },
+        )),
+      deferRegistration(ctx.slots, 'conversation.hero.workspace', WorkspacePicker, () =>
+        ctx.slots.register(
+          {
+            name: 'conversation.hero.workspace',
+            children: { 'conversation.hero.workspace.directoryFlow': { kind: 'single', scope: 'root' } },
+            inject: pickerInjected,
+          },
           WorkspacePicker,
-        ),
-      },
+        )),
     ]
-    const disposers = new Map<string, () => void>()
-    const tryRegister = (entry: (typeof registrations)[number]): void => {
-      if (ctx.slots.spec(entry.name) === undefined) return
-      if (ctx.slots.entries(entry.name).some(e => e.component === entry.component)) return
-      disposers.set(entry.name, entry.register())
-    }
-    const unsubscribers = registrations.map(entry =>
-      ctx.slots.subscribe(entry.name, () => { tryRegister(entry) }))
-    for (const entry of registrations) tryRegister(entry)
-    return () => {
-      for (const unsubscribe of unsubscribers) unsubscribe()
-      for (const dispose of disposers.values()) dispose()
-    }
+    return () => { for (const entry of deferred) entry.dispose() }
   }, 'ui-workspace: browser + picker registrations')
 }

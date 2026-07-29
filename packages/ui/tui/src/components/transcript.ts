@@ -25,7 +25,7 @@ import type {
   ToolResultView,
 } from '@deepseek-ai/dsh-tools'
 import type { FileDiff } from '@deepseek-ai/dsh-tools'
-import { renderUnknownXml } from './xml-tool-output.ts'
+import { preview, renderUnknownXml } from './xml-tool-output.ts'
 import { displayInlineText, displayText } from './text.ts'
 import { gradientText, type Palette } from './theme.ts'
 import { contentText, type ParsedArguments } from './content.ts'
@@ -58,9 +58,9 @@ function diffLines(diff: FileDiff, palette: Palette): string[] {
   // each hunk always carries its own path header (no redundancy to suppress).
   const lines = [palette.bold(displayText(diff.path))]
   if (diff.oldText !== null) {
-    for (const line of displayText(diff.oldText).split('\n')) lines.push(palette.removed(`- ${line}`))
+    for (const line of displayText(diff.oldText).split('\n')) lines.push(palette.error(`- ${line}`))
   }
-  for (const line of displayText(diff.newText).split('\n')) lines.push(palette.added(`+ ${line}`))
+  for (const line of displayText(diff.newText).split('\n')) lines.push(palette.success(`+ ${line}`))
   return lines
 }
 
@@ -109,7 +109,7 @@ export class HeaderComponent implements Component {
     const subtitle = this.subtitle()
     const lines = [
       title,
-      ...subtitle === undefined ? [] : [this.palette.muted(displayText(subtitle))],
+      ...subtitle === undefined ? [] : [this.palette.dim(displayText(subtitle))],
       this.palette.dim(detail),
     ]
       .flatMap(line => wrapTextWithAnsi(line, usable))
@@ -147,12 +147,12 @@ function assistantMessageChildren(
   const text = displayText(textBlocks(content, 'text').trim())
   const children: Component[] = [
     new Spacer(1),
-    new Text(messageHeader('Assistant', palette.accent2, palette), 0, 0),
+    new Text(messageHeader('Assistant', palette.accent, palette), 0, 0),
   ]
   if (reasoning && showReasoning) {
     children.push(
-      new Text(palette.italic(palette.muted('Reasoning')), 0, 0),
-      new Markdown(reasoning, 0, 0, mdTheme, { color: value => palette.muted(value), italic: true }),
+      new Text(palette.italic(palette.dim('Reasoning')), 0, 0),
+      new Markdown(reasoning, 0, 0, mdTheme, { color: value => palette.dim(value), italic: true }),
     )
   }
   if (text) children.push(new Markdown(text, 0, 0, mdTheme, { color: value => palette.text(value) }))
@@ -301,10 +301,27 @@ export class StreamingAssistantComponent extends Container {
   }
 }
 
+/**
+ * A tool card's body split at the Markdown boundary. `prelude` rows are already
+ * styled and render verbatim (a terminal `$` command, its cwd, a diff's hunks);
+ * `lines` is the tool's own text. A generic card renders both as one Markdown
+ * document under the dim body tone.
+ */
+interface CardBody {
+  readonly prelude: readonly string[]
+  readonly lines: readonly string[]
+}
+
+/**
+ * Ctrl+O card-visibility cycle: `hidden` drops tool cards from the transcript,
+ * `collapsed` previews the first body lines, `expanded` shows everything.
+ */
+export type ToolCardVisibility = 'hidden' | 'collapsed' | 'expanded'
+
 /** A tool call and its result, rendered as a collapsible status card. */
 export class ToolCardComponent implements Component {
   private result: { content: ContentBlock[]; isError: boolean; meta?: JsonValue } | undefined
-  private expanded = false
+  private visibility: ToolCardVisibility = 'collapsed'
   private callView: ToolCallView
   private resultView: ToolResultView | undefined
 
@@ -353,16 +370,19 @@ export class ToolCardComponent implements Component {
   }
 
   /**
-   * Expand or collapse the card's body preview.
-   * @param expanded - Whether the full body is shown.
+   * Set the card's visibility state.
+   * @param visibility - Hidden, collapsed preview, or full body.
    */
-  setExpanded(expanded: boolean): void {
-    this.expanded = expanded
+  setVisibility(visibility: ToolCardVisibility): void {
+    this.visibility = visibility
   }
 
   invalidate(): void {}
 
   render(width: number): string[] {
+    // Hidden renders nothing — not even the leading gap — so the transcript
+    // keeps only the conversation, the way Codex hides tool calls.
+    if (this.visibility === 'hidden') return []
     const isError = this.result?.isError ?? false
     // A ring marker: hollow while the call is pending, filled once it settles;
     // the header color (warning/success/error) tells pending from ok from error.
@@ -374,25 +394,23 @@ export class ToolCardComponent implements Component {
       ? renderUnknownXml(
         displayText(contentText(genericContent)),
         this.maxOutputLines,
-        this.expanded,
+        this.visibility === 'expanded',
         displayText,
-        text => this.palette.muted(text),
+        text => this.palette.dim(text),
+        text => this.palette.dim(text),
         /* v8 ignore next -- renderUnknownXml calls the collapsed summary only when hidden XML children exceed this card's limit. */
         count => this.palette.dim(`  … +${count} lines (Ctrl+O to expand)`),
       )
       : undefined
-    const body = unknownXml ?? (genericContent !== undefined && rawBody.length > 0
-      ? new Markdown(rawBody.join('\n'), 0, 0, this.mdTheme, { color: value => this.palette.text(value) }).render(width)
-      : rawBody)
-    const headLines = Math.ceil(this.maxOutputLines / 2)
-    const tailLines = this.maxOutputLines - headLines
-    const visibleBody = unknownXml !== undefined || this.expanded || body.length <= this.maxOutputLines
+    // A generic card renders title and result as one Markdown document, so the
+    // document's own block spacing is preserved, then dims every row — the whole
+    // card body reads as one dim block under the status-colored header.
+    const body = unknownXml ?? (genericContent !== undefined && rawBody.lines.length > 0
+      ? this.dimBody(rawBody, width)
+      : [...rawBody.prelude, ...rawBody.lines])
+    const visibleBody = unknownXml !== undefined || this.visibility === 'expanded'
       ? body
-      : [
-        ...body.slice(0, headLines),
-        this.palette.dim(`… +${body.length - this.maxOutputLines} lines (Ctrl+O to expand)`),
-        ...body.slice(body.length - tailLines),
-      ]
+      : preview(body, this.maxOutputLines, count => this.palette.dim(`… +${count} lines (Ctrl+O to expand)`))
     // The header is a fixed `Tool / <name>` frame in the status color (warning
     // pending / success ok / error), flat — no bold or underline, so one color
     // reads consistently across the whole row. Every tool-specific detail (a
@@ -409,7 +427,9 @@ export class ToolCardComponent implements Component {
     const desc = this.headerDescription()
     const headerText = `${glyph} Tool / ${displayText(this.name)}${desc === undefined ? '' : ` / ${displayInlineText(desc)}`}`
     const header = truncateToWidth(headerText, Math.max(1, width - 2), '')
-    const lines = [statusColor(header)]
+    // The blank first row is the card's own paragraph gap (no external Spacer),
+    // so the hidden state removes the gap together with the card.
+    const lines: string[] = ['', statusColor(header)]
     if (visibleBody.length > 0) lines.push(...new Text(visibleBody.join('\n'), 0, 0).render(width))
     return lines
   }
@@ -438,10 +458,11 @@ export class ToolCardComponent implements Component {
     return this.resultView?.title ?? this.callView.title
   }
 
-  private renderBody(): string[] {
+  private renderBody(): CardBody {
     const view = this.resultView ?? this.callView
     if (view.card === 'terminal') {
       const pending = this.terminalPending()
+      const prelude: string[] = []
       const lines: string[] = []
       // The command shows as a $-line here whenever it is not the header: either a
       // description headlines the row (the command still belongs somewhere) or the row
@@ -452,18 +473,18 @@ export class ToolCardComponent implements Component {
       // rows and collide with the output below.
       const headlined = pending?.description !== undefined && pending.description !== ''
       const commandInBody = pending !== undefined && (headlined || this.result === undefined)
-      if (commandInBody) lines.push(this.palette.code(`$ ${displayInlineText(pending.title)}`))
-      if (pending?.cwd) lines.push(this.palette.dim(displayInlineText(pending.cwd)))
+      if (commandInBody) prelude.push(this.palette.dim(`$ ${displayInlineText(pending.title)}`))
+      if (pending?.cwd) prelude.push(this.palette.dim(displayInlineText(pending.cwd)))
       if (this.resultView?.card === 'terminal') {
-        if (this.resultView.output) lines.push(...displayText(this.resultView.output).split('\n'))
+        if (this.resultView.output) lines.push(...this.dimOutput(this.resultView.output))
         if (this.resultView.exitCode !== undefined) lines.push(this.palette.dim(`[exit ${this.resultView.exitCode}]`))
         if (this.resultView.signal !== undefined) {
           lines.push(this.palette.error(`[signal ${displayText(this.resultView.signal)}]`))
         }
       } else if (this.result !== undefined) {
-        lines.push(...displayText(contentText(this.result.content)).split('\n'))
+        lines.push(...this.dimOutput(contentText(this.result.content)))
       }
-      return lines.filter(Boolean)
+      return { prelude: prelude.filter(Boolean), lines: lines.filter(Boolean) }
     }
     if (view.card === 'diff') {
       // The header no longer names the file, so each diff keeps its own path
@@ -477,22 +498,138 @@ export class ToolCardComponent implements Component {
       })
       const files = view.diffs.length
       const footer = this.palette.dim(`└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}`)
-      return [...hunks, footer]
+      // A diff's own `+`/`-` colors carry its meaning, so it renders verbatim
+      // rather than under the dim result-output color.
+      return { prelude: [...hunks, footer], lines: [] }
     }
     const content = view.content ?? this.result?.content
+    const prelude: string[] = []
     const lines: string[] = []
     // The presenter title headlines the body now that the header is a fixed
     // `Tool / <name>` frame (a terminal card keeps its command $-line instead).
     // Skip it when it only repeats the tool name (the fallback presenter for a
     // tool with no presentCall, or an unknown tool), which the header already shows.
     const bodyTitle = this.bodyTitle()
-    if (bodyTitle !== displayText(this.name)) lines.push(displayInlineText(bodyTitle))
+    if (bodyTitle !== displayText(this.name)) prelude.push(displayInlineText(bodyTitle))
     if (content !== undefined) lines.push(...displayText(contentText(content)).split('\n'))
     const rawInput = this.result === undefined && this.callView.card === 'generic'
       ? this.callView.rawInput
       : undefined
     if (rawInput !== undefined) lines.push(...pretty(rawInput).split('\n'))
-    return lines.filter((line, index, all) => line.length > 0 || (index > 0 && index < all.length - 1))
+    // Blank-line trimming spans the whole body, so the title counts as a row:
+    // interior blanks (a result's own paragraph break) survive while the body's
+    // leading and trailing ones are dropped.
+    const total = prelude.length + lines.length
+    return {
+      prelude,
+      lines: lines.filter((line, index) => {
+        const row = prelude.length + index
+        return line.length > 0 || (row > 0 && row < total - 1)
+      }),
+    }
+  }
+
+  /**
+   * A tool's own output text as dim rows — the card's result-output color, which
+   * separates what the tool produced from the card's own framing. A blank row
+   * stays the empty string so the terminal branch's blank-row filter still reads
+   * it as blank instead of as an ANSI-wrapped value.
+   */
+  private dimOutput(text: string): string[] {
+    return displayText(text).split('\n').map(line => line === '' ? line : this.palette.dim(line))
+  }
+
+  /**
+   * Render a generic card's prelude and result as one Markdown document under the
+   * dim body tone. Rendering both together preserves the document's own block
+   * spacing (Markdown's blank row before a heading); dimming every row keeps the
+   * card body one uniform tone, so only the status-colored header carries color.
+   */
+  private dimBody(body: CardBody, width: number): string[] {
+    const rows = new Markdown([...body.prelude, ...body.lines].join('\n'), 0, 0, this.mdTheme, {
+      color: value => this.palette.text(value),
+    }).render(width)
+    // A whitespace-only row carries no output to dim; leaving it unwrapped keeps
+    // Markdown's padding out of the styled ranges.
+    return rows.map(row => row.trim() === '' ? row : this.palette.dim(row))
+  }
+}
+
+/**
+ * Matches a lone reminder-frame tag on its own line, capturing the element name.
+ * Producers emit the frame as whole lines (`workspace-context`, `dsh-tool-skill`),
+ * so anchoring the whole line keeps a tag mentioned inside prose from matching.
+ */
+const REMINDER_FRAME_LINE = /^<(\/?)([a-zA-Z][\w:.-]*)>$/u
+
+/**
+ * Drop a producer's outer reminder frame, keeping the instruction body verbatim.
+ * The card header already names the source, so the frame lines carry nothing.
+ * Only a matched open/close pair on the first and last lines is removed, so a
+ * body that merely starts with a tag-like line is left intact.
+ * @param text - Complete model-facing context text.
+ * @returns The body without its outer frame lines, trimmed of the blank lines they leave.
+ */
+function stripReminderFrame(text: string): string {
+  // A frame needs an open line and a distinct close line, so anything shorter than
+  // two lines is already frameless.
+  const [first = '', ...rest] = text.split('\n')
+  const last = rest.at(-1)
+  if (last === undefined) return text
+  const open = REMINDER_FRAME_LINE.exec(first.trim())
+  const close = REMINDER_FRAME_LINE.exec(last.trim())
+  if (open?.[1] !== '' || close?.[1] !== '/' || open[2] !== close[2]) return text
+  return rest.slice(0, -1).join('\n').replace(/^\n+|\n+$/gu, '')
+}
+
+/**
+ * Injected context (plugin/goal source, e.g. `workspace-context`), rendered as a
+ * collapsible dim card that shares the tool-card `Ctrl+O` toggle. The header is
+ * `Context · <label>`; the body is the message text as dim prose, one tone with
+ * the header and the fold marker, folded to `maxOutputLines`, with a surrounding
+ * reminder frame stripped because the source label already names the context.
+ *
+ * Injected context is prose, not markup, so this card does not parse it. The
+ * `<system-reminder>` frame is a prompting convention no model is trained on
+ * ([envelope rationale](../../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md)),
+ * and instruction bodies legitimately contain a raw `&` or angle-bracket
+ * placeholders (`packages/<group>/<pkg>/`, `-t <name>`) that are prose rather than
+ * elements. Tree-rendering such a payload depended on whether it happened to be
+ * well-formed XML, which made both the fold and the frame-line suppression
+ * content-dependent.
+ */
+export class ContextCardComponent implements Component {
+  private expanded = false
+
+  constructor(
+    private readonly label: string,
+    private readonly text: string,
+    private readonly maxOutputLines: number,
+    private readonly palette: Palette,
+  ) {}
+
+  /**
+   * Expand or collapse the card body.
+   * @param expanded - Whether the full body is shown.
+   */
+  setExpanded(expanded: boolean): void {
+    this.expanded = expanded
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const header = this.palette.dim(`Context · ${displayText(this.label)}`)
+    // Emptiness is decided on the stripped text: styling a blank body would yield
+    // one escape-only row, which reads as a stray blank line under the header.
+    const stripped = stripReminderFrame(this.text)
+    if (stripped === '') return [header]
+    const body = stripped.split('\n')
+      .map(line => line === '' ? line : this.palette.dim(displayText(line)))
+    const visibleBody = this.expanded
+      ? body
+      : preview(body, this.maxOutputLines, count => this.palette.dim(`… +${count} lines (Ctrl+O to expand)`))
+    return [header, ...new Text(visibleBody.join('\n'), 0, 0).render(width)]
   }
 }
 
@@ -514,7 +651,7 @@ export class TodoComponent implements Component {
 
   render(width: number): string[] {
     if (this.todos.length === 0) return []
-    const lines = [this.palette.bold(this.palette.accent('Plan'))]
+    const lines: string[] = [this.palette.bold(this.palette.accent('Plan'))]
     for (const todo of this.todos) {
       const prefix = todo.status === 'completed'
         ? this.palette.success('✓')
@@ -522,7 +659,7 @@ export class TodoComponent implements Component {
           ? this.palette.warning('●')
           : this.palette.dim('○')
       const content = displayText(todo.content)
-      const text = todo.status === 'completed' ? this.palette.muted(content) : content
+      const text: string = todo.status === 'completed' ? this.palette.dim(content) : content
       lines.push(truncateToWidth(`  ${prefix} ${text}`, width, ''))
     }
     return ['', ...lines]

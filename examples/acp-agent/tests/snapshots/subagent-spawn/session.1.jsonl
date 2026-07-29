@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"ea339828-7885-42e1-9083-4355e6f1708d","createdAt":1783352120855,"cwd":"/tmp/acp-snap-cwd-rbeWyt","parentSession":"5138ed0d-e86e-4a7d-b75b-803307e92b17","delegationDepth":1}
+{"type":"session","version":0,"id":"ea339828-7885-42e1-9083-4355e6f1708d","createdAt":1783352120855,"cwd":"{{cwd}}","parentSession":"5138ed0d-e86e-4a7d-b75b-803307e92b17","delegationDepth":1}
 {"type":"turn/start","seq":0,"time":1783352120856,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1783352120856,"data":{"content":[{"type":"text","text":"Reply with exactly the word CHILD_OK and nothing else."}],"source":{"kind":"user"},"role":"user","id":"f3a2e52a-cfc3-4f9a-b25a-cb48f61e598e"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1783352120856,"data":{"title":"Reply with exactly the word","messageSeqs":[1],"source":{"kind":"fallback"}}}

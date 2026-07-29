@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-朴素的 HTTP 路由注册插件（默认导出 `WebServerService`，配置为 `{host, port, distIndex}`）：一个在激活时开始监听的 `node:http` 服务器，提供 `ctx.webServer`。`register(route)` 添加具名的 `exact`／`prefix` 路由；重复的 `(kind, path)` 会抛错，因为路由模式是组合层契约，冲突即配置错误；返回的 disposer 会移除该路由。`tapIndex(transform)` 添加按注册顺序应用的 index.html 转换，`port` 读取正在监听的端口（当 `port` 为 0 时读取 OS 分配的值）。匹配顺序固定不变：先在整张表中匹配精确路由，再匹配最长前缀，最后回退到静态 dist，并遵循固定语义：越出 dist 根目录的遍历返回 403，任何未命中项都以 HTTP 200 回退到 `index.html`（SPA 路由），未知扩展名按 octet-stream 提供，GET／HEAD 之外的方法返回 405。注册顺序不承载任何面向请求的语义。
+朴素的 HTTP 路由注册插件（默认导出 `HttpServerService`，配置为 `{host, port, distIndex}`）：一个在激活时开始监听的 `node:http` 服务器，提供 `ctx.httpServer`。`register(route)` 添加具名的 `exact`／`prefix` 路由；重复的 `(kind, path)` 会抛错，因为路由模式是组合层契约，冲突即配置错误；返回的 disposer 会移除该路由。`tapIndex(transform)` 添加按注册顺序应用的 index.html 转换，`port` 读取正在监听的端口（当 `port` 为 0 时读取 OS 分配的值）。匹配顺序固定不变：先在整张表中匹配精确路由，再匹配最长前缀，最后回退到静态 dist，并遵循固定语义：越出 dist 根目录的遍历返回 403，任何未命中项都以 HTTP 200 回退到 `index.html`（SPA 路由），未知扩展名按 octet-stream 提供，GET／HEAD 之外的方法返回 405。注册顺序不承载任何面向请求的语义。
 
 该包不了解任何 harness 概念：`/api` 桥接是 connection 插件的路由，插件 bundle 与 HMR（热模块替换）事件流则是 modules／hmr 插件的路由。`host` 只接受 `127.0.0.1`（默认姿态）和 `0.0.0.0`（有意向网络开放）；`distIndex` 是由组合应用解析并注入的组装事实，绝不会自行解析，因为 dist 位置属于应用的工作区知识。该服务器只服务 Web（浏览器）形态；Electron 通过 `file://` 加载 dist，并经 IPC 桥接承载 fetch，而不使用本服务器。该包从不打印内容；URL 行属于 shell。
 

@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../goal/goal"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {
@@ -54,7 +57,13 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../directory-picker"
+    },
+    {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../util/native-command"
     }
   ]
 }

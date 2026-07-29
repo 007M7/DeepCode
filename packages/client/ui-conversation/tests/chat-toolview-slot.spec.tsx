@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The dissolved tool ring's acceptance chain on the REAL machinery stack:
-// cordis Context + SlotsService ledger + the web-react renderer + this
-// package's own apply — no outlet twins. Proves the keyed
+// SlotTestRuntime (cordis Context + SlotsService ledger + the web-react
+// renderer) + this package's own apply — no outlet twins. Proves the keyed
 // 'conversation.chat.toolview' hole end to end: registered rows dispatch by
 // entryKey (the bash sample lands through its plugin), unregistered tools
 // fall back to GenericToolCard at the render site, live registration/unload
@@ -10,22 +10,15 @@
 // inject: ['slots', 'conversation'] load-order seam suspends on real fiber
 // semantics until the service (and with it the hole declaration) is present.
 
-import { Context } from 'cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { createSnapshotStore, SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
-import type {
-  ConversationSnapshot, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { createSlotRenderer } from '@deepseek-ai/dsh-client-web-react'
+import { cleanup, fireEvent } from '@testing-library/react'
+import type { ISession, SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const SID = 's1' as SessionId
-
-/** Identity-stable no-session bundle (uSES getSnapshot contract). */
-const ABSENT_INFO = { sessionId: undefined, hooks: {}, props: {} }
 
 afterEach(cleanup)
 // The chat store persists under its declared key; clear between cases.
@@ -40,117 +33,38 @@ const toolResult = (seq: number, callId: string, name: string, args = '{"command
   content: [], isError: false, callView: null, resultView: null,
 })
 
-function snapshotWith(nodes: ToolResultNode[]): ConversationSnapshot {
-  return {
-    sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
-  }
-}
-
 /** Test-owned AppFrame role: declares and renders the resident conversation area. */
 type AppRootProps = PropsRenderSlots<'conversation' | 'details'>
 function AppRoot({ renderSlot }: AppRootProps) {
   return <>{renderSlot('conversation', {})}</>
 }
 
+const LAYOUT_CHILDREN = {
+  'conversation': { kind: 'single', scope: 'session-maybe' },
+  'details': { kind: 'single', scope: 'session' },
+} as const
+
 /**
- * Real-stack bench: SlotsService plugin, renderer installed, sessions/layout
- * fakes at the service seams only (external boundaries), the package apply on
- * its own fiber, and the test AppFrame occupying 'root'.
+ * Real-stack bench: SlotTestRuntime with the session/layout doubles at the
+ * service seams only (external boundaries), the package apply on its own
+ * fiber, and the test AppFrame occupying 'root'.
  */
 async function bench(nodes: ToolResultNode[]) {
-  const ctx = new Context()
-  const slotsFiber = ctx.plugin(SlotsService)
-  await slotsFiber.await()
-  const slots = ctx.get('slots') as SlotsService
-
-  const session = createSnapshotStore<ConversationSnapshot>(snapshotWith(nodes))
-  const list = createSnapshotStore<SessionListState>({
-    ids: [SID],
-    byId: { [SID]: { id: SID, title: 'S', displayTitle: 'S', running: false, blank: false, updatedAt: 1 } },
-    current: SID,
-    phase: 'ready',
-  })
-  // Identity-stable provide bundle: the renderer caches hooks per source and
-  // inject results per bundle, both by object identity. Registered providers
-  // (the package's input contribution) materialize into it lazily, once.
-  const providers: ((binding: object) => { hooks?: object; props?: object })[] = []
-  let info: { sessionId: SessionId; hooks: object; props: object } | undefined
-  const scoped = { send: vi.fn(async () => {}), cancel: vi.fn(async () => {}) }
+  const runtime = await SlotTestRuntime.create()
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
-  const actxFake = { get: () => scoped, effect: () => {}, on: () => () => {} }
-  const bindingOf = (id: SessionId) => ({
-    sessionId: id,
-    ctx: actxFake,
+  runtime.provide('layout', layout)
+  await runtime.sessions.add({
+    id: SID,
+    summary: { title: 'S', displayTitle: 'S' },
+    snapshot: { nodes },
     session: {
-      sessionId: id,
-      loadOlder: vi.fn(),
-      prompt: vi.fn(async () => ({ ok: true, value: { accepted: true } })),
-      // Observable face for the input machine's queue read face.
-      getSnapshot: () => session.getSnapshot(),
-      subscribe: (fn: () => void) => session.subscribe(fn),
+      loadOlder: vi.fn<ISession['loadOlder']>(),
+      prompt: vi.fn<ISession['prompt']>(async () => ({ ok: true, value: { accepted: true } })),
     },
   })
-  const provideInfo = (id: string) => {
-    if (id !== SID) return undefined
-    if (info === undefined) {
-      const hooks: Record<string, unknown> = { session }
-      const props: Record<string, unknown> = {}
-      for (const provider of providers) {
-        const c = provider(bindingOf(SID))
-        Object.assign(hooks, c.hooks ?? {})
-        Object.assign(props, c.props ?? {})
-      }
-      info = { sessionId: SID, hooks, props }
-    }
-    return info
-  }
-  ctx.provide('sessions', {
-    list,
-    binding: bindingOf,
-    scope: () => actxFake,
-    provideInfo,
-    currentProvideInfo: {
-      getSnapshot: () => provideInfo(SID),
-      subscribe: () => () => {},
-    },
-    provide: (d: { resolve: (typeof providers)[number] }) => { providers.push(d.resolve); return () => {} },
-    scopeOf: () => SID,
-    create: vi.fn(),
-    open: vi.fn(),
-    updateIntent: vi.fn(),
-  })
-  const workspaces = {
-    list: createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
-      baselinesReady: true, recentWorkspaceId: undefined,
-    }),
-    startSession: vi.fn(),
-    sendSession: vi.fn(),
-    openPath: vi.fn(async () => {}),
-  }
-  ctx.provide('workspaces', workspaces)
-  ctx.provide('layout', layout)
-  ctx.provide('locale', { bind: () => (key: string) => key })
-
-  slots.install(createSlotRenderer())
-  slots.register({
-    name: 'root',
-    children: {
-      'conversation': { kind: 'single', scope: 'session-maybe' },
-      'details': { kind: 'single', scope: 'session' },
-    },
-  }, AppRoot)
-
-  const fiber = ctx.plugin({ inject: [...inject], apply })
-  await fiber.await()
-  return { ctx, slots, fiber, session, list, layout, workspaces }
-}
-
-/** Render the whole tree through the ctx-level root seam (the shell's own entry). */
-function mountApp(slots: SlotsService) {
-  return render(<>{slots.renderSlot('root', {})}</>)
+  await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
+  const feature = await runtime.mount({ inject: [...inject], apply })
+  return { runtime, slots: runtime.slots, feature, layout }
 }
 
 describe('keyed toolview hole through the real machinery', () => {
@@ -159,7 +73,7 @@ describe('keyed toolview hole through the real machinery', () => {
       toolResult(3, 'c1', 'bash'),
       toolResult(4, 'c2', 'mystery', '{"n":1}'),
     ])
-    const view = mountApp(b.slots)
+    const view = b.runtime.renderRoot()
     // bash: the sample plugin's keyed registration took the row (root
     // session → global arm, decided inside the component off useSessions).
     expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
@@ -167,6 +81,7 @@ describe('keyed toolview hole through the real machinery', () => {
     expect(view.getByText('Build')).toBeTruthy()
     // mystery: no registration under that key → render-site fallback.
     expect(view.getByText('Tool call')).toBeTruthy()
+    await b.runtime.dispose()
   })
 
   it('renders top-level Cordis calls with lifecycle titles over the generic variants', async () => {
@@ -176,7 +91,7 @@ describe('keyed toolview hole through the real machinery', () => {
       toolResult(4, 'cordis-2', 'cordis_mount', JSON.stringify({ code })),
       toolResult(5, 'cordis-3', 'cordis_unmount', '{"id":"dyn-2"}'),
     ])
-    const view = mountApp(b.slots)
+    const view = b.runtime.renderRoot()
 
     expect(view.container.querySelector('[data-tool="cordis_inspect"]')?.textContent).toContain('Inspect')
     const mounted = view.container.querySelector('[data-variant="code"]')
@@ -186,42 +101,46 @@ describe('keyed toolview hole through the real machinery', () => {
 
     fireEvent.click(mounted!.querySelector('button[aria-expanded]')!)
     expect(mounted!.querySelector('pre.shiki')?.textContent).toBe(code)
+    await b.runtime.dispose()
   })
 
   it('file-path clicks travel owner openFile → chat inject → workspaces.openPath', async () => {
     const b = await bench([toolResult(3, 'c1', 'read', '{"path":"src/a.ts"}')])
-    const view = mountApp(b.slots)
+    const view = b.runtime.renderRoot()
     view.getByText('src/a.ts').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
     await vi.waitFor(() => {
-      expect(b.workspaces.openPath).toHaveBeenCalledWith('src/a.ts')
+      expect(b.runtime.workspaces.calls).toContainEqual({ method: 'openPath', args: ['src/a.ts'] })
     })
+    await b.runtime.dispose()
   })
 
   it('bash summary clicks do not open details or host paths', async () => {
     const b = await bench([toolResult(3, 'c1', 'bash')])
-    const view = mountApp(b.slots)
+    const view = b.runtime.renderRoot()
     view.getByText('Build').click()
     expect(b.layout.openDetails).not.toHaveBeenCalled()
-    expect(b.workspaces.openPath).not.toHaveBeenCalled()
+    expect(b.runtime.workspaces.calls.some(c => c.method === 'openPath')).toBe(false)
+    await b.runtime.dispose()
   })
 
   it('a live keyed registration takes over its tool row and unload reverts to the fallback', async () => {
     const b = await bench([toolResult(3, 'c2', 'mystery', '{"n":1}')])
-    const view = mountApp(b.slots)
+    const view = b.runtime.renderRoot()
     expect(view.getByText('Tool call')).toBeTruthy()
     let dispose = (): void => {}
-    await act(async () => {
-      dispose = b.slots.register(
-        { name: 'conversation.chat.toolview', key: 'mystery' },
-        () => <div data-testid="mystery-row" />)
-    })
+    dispose = b.slots.register(
+      { name: 'conversation.chat.toolview', key: 'mystery' },
+      () => <div data-testid="mystery-row" />)
+    await b.runtime.flush()
     // Per-key version tick: the row flipped without a remount of the view.
     expect(view.getByTestId('mystery-row')).toBeTruthy()
     expect(view.queryByText('Tool call')).toBeNull()
-    await act(async () => { dispose() })
+    dispose()
+    await b.runtime.flush()
     expect(view.queryByTestId('mystery-row')).toBeNull()
     expect(view.getByText('Tool call')).toBeTruthy()
+    await b.runtime.dispose()
   })
 
   it('a duplicate key registration fails loud at load', async () => {
@@ -230,6 +149,7 @@ describe('keyed toolview hole through the real machinery', () => {
       { name: 'conversation.chat.toolview', key: 'bash' },
       () => null,
     )).toThrow(/key "bash"/)
+    await b.runtime.dispose()
   })
 
   it('the inject channel feeds (sessionId) => I into the row component', async () => {
@@ -247,66 +167,33 @@ describe('keyed toolview hole through the real machinery', () => {
     }, ({ mark, poke }: ToolRowProps & { mark: string; poke: () => void }) => (
       <button data-testid="probe-row" onClick={poke}>{mark}</button>
     ))
-    const view = mountApp(b.slots)
+    const view = b.runtime.renderRoot()
     const row = view.getByTestId('probe-row')
     expect(row.textContent).toBe(`for:${SID}`)
     row.click()
     expect(poked).toEqual([SID])
+    await b.runtime.dispose()
   })
 })
 
 describe('registrant load-order seam', () => {
   it("suspends a registrant on inject: ['slots', 'conversation'] until the service (and the hole) exists", async () => {
-    const ctx = new Context()
-    const slotsFiber = ctx.plugin(SlotsService)
-    await slotsFiber.await()
-    const slots = ctx.get('slots') as SlotsService
-    ctx.provide('sessions', {
-      list: createSnapshotStore<SessionListState>({
-        ids: [], byId: {}, current: undefined, phase: 'ready',
-      }),
-      binding: () => undefined,
-      scope: () => undefined,
-      provideInfo: () => undefined,
-      currentProvideInfo: {
-        getSnapshot: () => ABSENT_INFO,
-        subscribe: () => () => {},
-      },
-      provide: () => () => {},
-      create: vi.fn(),
-      open: vi.fn(),
-      updateIntent: vi.fn(),
-    })
-    ctx.provide('workspaces', {
-      list: createSnapshotStore<WorkspaceListState>({
-        items: [], state: 'idle', phase: 'ready', error: null,
-        baselinesReady: true, recentWorkspaceId: undefined,
-      }),
-      startSession: vi.fn(),
-      sendSession: vi.fn(),
-      openPath: vi.fn(async () => {}),
-    })
-    ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    ctx.provide('locale', { bind: () => (key: string) => key })
-    slots.register({
-      name: 'root',
-      children: {
-        'conversation': { kind: 'single', scope: 'session-maybe' },
-        'details': { kind: 'single', scope: 'session' },
-      },
-    }, AppRoot)
+    const runtime = await SlotTestRuntime.create()
+    runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+    await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject
     // semantics hold it — apply must not run while 'conversation' is absent.
-    // (Plain arrow, not vi.fn: mock functions carry a prototype and trip the
-    // fiber's isConstructor branch.)
+    // Uses ctx.plugin directly (the deliberate-suspension escape hatch; mount()
+    // would fail loud on the missing service). (Plain arrow, not vi.fn: mock
+    // functions carry a prototype and trip the fiber's isConstructor branch.)
     let applyRuns = 0
-    const registrantApply = (registrantCtx: Context): void => {
+    const registrantApply = (registrantCtx: typeof runtime.ctx): void => {
       applyRuns += 1
       registrantCtx.slots.register(
         { name: 'conversation.chat.toolview', key: 'late' }, () => null)
     }
-    const late = ctx.plugin({
+    const late = runtime.ctx.plugin({
       name: 'late-registrant',
       inject: ['slots', 'conversation'],
       apply: registrantApply,
@@ -317,11 +204,11 @@ describe('registrant load-order seam', () => {
     // Mounting the package resolves the seam: service present ⟹ the chat
     // entry (and its hole declaration) is already on the ledger, so the
     // suspended registrant lands without an undeclared-slot throw.
-    const fiber = ctx.plugin({ inject: [...inject], apply })
-    await fiber.await()
+    await runtime.mount({ inject: [...inject], apply })
     await late.await()
     expect(applyRuns).toBe(1)
-    expect(slots.entries('conversation.chat.toolview').map(e => e.options.key))
+    expect(runtime.slots.entries('conversation.chat.toolview').map(e => e.options.key))
       .toEqual(expect.arrayContaining(['bash', 'late']))
+    await runtime.dispose()
   })
 })
