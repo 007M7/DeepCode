@@ -252,14 +252,38 @@ try {
   }
   const staleInterrupt = ctx.pty.startSend(owner, terminal.sessionId, { text: 'sleep 0.2', submit: true })
   if (!staleInterrupt.cancel()) throw new Error('E2B PTY refused the stale-interrupt probe cancellation')
-  await staleInterrupt.done
-  const sleeping = ctx.pty.startSend(owner, terminal.sessionId, { text: 'sleep 30', submit: true })
+  let canceledSendRetained = false
+  try {
+    ctx.pty.startSend(owner, terminal.sessionId, { text: 'sleep 30', submit: true })
+  } catch (error: unknown) {
+    canceledSendRetained = String(error).includes('active send')
+  }
   foregroundLookup.resolve(undefined)
+  await staleInterrupt.done
+  remoteCommands.run = runRemoteCommand
+  if (!canceledSendRetained) throw new Error('E2B PTY released a canceled send before foreground signalling settled')
+  const sleeping = ctx.pty.startSend(owner, terminal.sessionId, {
+    text: "printf 'DSH_SLEEP_%s\\n' READY; sleep 30",
+    submit: true,
+  })
+  let sleepReadyOutput = ''
+  const sleepReadyDeadline = Date.now() + 5_000
+  while (!sleepReadyOutput.includes('DSH_SLEEP_READY\n')) {
+    sleepReadyOutput += sleeping.readOutput().delta
+    if (sleepReadyOutput.includes('DSH_SLEEP_READY\n')) break
+    const settled = await Promise.race([
+      sleeping.done.then(result => ({ result })),
+      new Promise<undefined>(resolveDelay => setTimeout(() => { resolveDelay(undefined) }, 25)),
+    ])
+    if (settled !== undefined) {
+      throw new Error(`E2B PTY successor settled before executing: ${JSON.stringify(settled.result)}`)
+    }
+    if (Date.now() >= sleepReadyDeadline) throw new Error(`E2B PTY successor did not execute: ${sleepReadyOutput}`)
+  }
   const interruptIdentitySafe = await Promise.race([
     sleeping.done.then(() => false),
     new Promise<true>(resolveDelay => setTimeout(() => { resolveDelay(true) }, 300)),
   ])
-  remoteCommands.run = runRemoteCommand
   if (!delayedForegroundLookup || !interruptIdentitySafe) {
     throw new Error('E2B PTY stale interrupt affected its successor send')
   }
