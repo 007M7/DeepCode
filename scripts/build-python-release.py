@@ -27,26 +27,18 @@ EXECUTABLE_TARGETS = {value[1]: key for key, value in PLATFORMS.items()}
 
 
 def spawn_helper_binary_target(header: bytes) -> str | None:
-    if (
-        len(header) >= 20
-        and header[:4] == b"\x7fELF"
-        and header[4] == 2
-        and header[5] == 1
-    ):
-        machine = int.from_bytes(header[18:20], "little")
-        if machine == 62:
-            return "linux-x64"
-        if machine == 183:
-            return "linux-arm64"
     if len(header) >= 8 and header[:4] == b"\xcf\xfa\xed\xfe":
-        if int.from_bytes(header[4:8], "little") == 0x0100000C:
+        cpu_type = int.from_bytes(header[4:8], "little")
+        if cpu_type == 0x01000007:
+            return "macos-x64"
+        if cpu_type == 0x0100000C:
             return "macos-arm64"
     return None
 
 
 def validate_spawn_helper(path: Path, expected_target: str) -> None:
     with path.open("rb") as helper:
-        actual_target = spawn_helper_binary_target(helper.read(20))
+        actual_target = spawn_helper_binary_target(helper.read(8))
     if actual_target != expected_target:
         raise ValueError(
             f"runtime spawn helper binary mismatch: expected {expected_target}, "
@@ -166,12 +158,14 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
         raise FileNotFoundError(f"runtime executable does not exist: {executable}")
     if executable.stat().st_mode & stat.S_IXUSR == 0:
         raise PermissionError(f"runtime executable is not executable: {executable}")
+    expected_target = EXECUTABLE_TARGETS[executable_name]
     spawn_helper = Path(f"{executable}{SPAWN_HELPER_SUFFIX}")
-    if not spawn_helper.is_file():
-        raise FileNotFoundError(f"runtime spawn helper does not exist: {spawn_helper}")
-    if spawn_helper.stat().st_mode & stat.S_IXUSR == 0:
-        raise PermissionError(f"runtime spawn helper is not executable: {spawn_helper}")
-    validate_spawn_helper(spawn_helper, EXECUTABLE_TARGETS[executable_name])
+    if expected_target.startswith("macos-"):
+        if not spawn_helper.is_file():
+            raise FileNotFoundError(f"runtime spawn helper does not exist: {spawn_helper}")
+        if spawn_helper.stat().st_mode & stat.S_IXUSR == 0:
+            raise PermissionError(f"runtime spawn helper is not executable: {spawn_helper}")
+        validate_spawn_helper(spawn_helper, expected_target)
     copy_package(ROOT / "python" / "sdk-runtime", destination)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
@@ -179,9 +173,10 @@ def stage_runtime(destination: Path, version: str, executable: Path, executable_
     destination_executable = runtime_dir / executable_name
     shutil.copyfile(executable, destination_executable)
     destination_executable.chmod(executable.stat().st_mode & 0o777)
-    destination_helper = runtime_dir / f"{executable_name}{SPAWN_HELPER_SUFFIX}"
-    shutil.copyfile(spawn_helper, destination_helper)
-    destination_helper.chmod(spawn_helper.stat().st_mode & 0o777)
+    if expected_target.startswith("macos-"):
+        destination_helper = runtime_dir / f"{executable_name}{SPAWN_HELPER_SUFFIX}"
+        shutil.copyfile(spawn_helper, destination_helper)
+        destination_helper.chmod(spawn_helper.stat().st_mode & 0o777)
 
 
 def verify_wheel(
@@ -209,20 +204,27 @@ def verify_wheel(
             assert platform is not None
             if len(executables) != 1 or not executables[0].endswith(f"/runtime/{platform[1]}"):
                 raise RuntimeError(f"{wheel} must contain exactly {platform[1]}, found {executables}")
+            expected_target = EXECUTABLE_TARGETS[platform[1]]
             expected_helper = f"{platform[1]}{SPAWN_HELPER_SUFFIX}"
-            if len(helpers) != 1 or not helpers[0].endswith(f"/runtime/{expected_helper}"):
-                raise RuntimeError(f"{wheel} must contain exactly {expected_helper}, found {helpers}")
-            for executable in [executables[0], helpers[0]]:
+            expected_helpers = [expected_helper] if expected_target.startswith("macos-") else []
+            found_helpers = [Path(helper).name for helper in helpers]
+            if found_helpers != expected_helpers:
+                expected = ", ".join(expected_helpers) or "none"
+                found = ", ".join(found_helpers) or "none"
+                raise RuntimeError(
+                    f"{wheel} runtime helper payload mismatch: expected {expected}; found {found}"
+                )
+            for executable in [executables[0], *helpers]:
                 mode = archive.getinfo(executable).external_attr >> 16
                 if mode & stat.S_IXUSR == 0:
                     raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {executable}")
-            actual_target = spawn_helper_binary_target(archive.read(helpers[0])[:20])
-            expected_target = EXECUTABLE_TARGETS[platform[1]]
-            if actual_target != expected_target:
-                raise RuntimeError(
-                    f"{wheel} spawn helper binary mismatch: expected {expected_target}, "
-                    f"found {actual_target or 'unsupported format or architecture'}"
-                )
+            if helpers:
+                actual_target = spawn_helper_binary_target(archive.read(helpers[0])[:8])
+                if actual_target != expected_target:
+                    raise RuntimeError(
+                        f"{wheel} spawn helper binary mismatch: expected {expected_target}, "
+                        f"found {actual_target or 'unsupported format or architecture'}"
+                    )
         elif runtime_files:
             raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":

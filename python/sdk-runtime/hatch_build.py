@@ -17,26 +17,18 @@ _SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 
 def _spawn_helper_binary_target(header: bytes) -> str | None:
-    if (
-        len(header) >= 20
-        and header[:4] == b"\x7fELF"
-        and header[4] == 2
-        and header[5] == 1
-    ):
-        machine = int.from_bytes(header[18:20], "little")
-        if machine == 62:
-            return "linux-x64"
-        if machine == 183:
-            return "linux-arm64"
     if len(header) >= 8 and header[:4] == b"\xcf\xfa\xed\xfe":
-        if int.from_bytes(header[4:8], "little") == 0x0100000C:
+        cpu_type = int.from_bytes(header[4:8], "little")
+        if cpu_type == 0x01000007:
+            return "macos-x64"
+        if cpu_type == 0x0100000C:
             return "macos-arm64"
     return None
 
 
 def _validate_spawn_helper(path: Path, expected_target: str) -> None:
     with path.open("rb") as helper:
-        actual_target = _spawn_helper_binary_target(helper.read(20))
+        actual_target = _spawn_helper_binary_target(helper.read(8))
     if actual_target != expected_target:
         raise RuntimeError(
             f"runtime spawn helper binary mismatch: expected {expected_target}, "
@@ -84,15 +76,18 @@ class RuntimeBuildHook(BuildHookInterface):
                 f"runtime wheel {platform_tag} must contain only {expected_executable}; found {found}"
             )
         expected_helper = f"{expected_executable}{_SPAWN_HELPER_SUFFIX}"
-        if [path.name for path in helpers] != [expected_helper]:
+        expected_helpers = [expected_helper] if expected_target.startswith("macos-") else []
+        if [path.name for path in helpers] != expected_helpers:
+            expected = ", ".join(expected_helpers) or "none"
             found = ", ".join(path.name for path in helpers) or "none"
             raise RuntimeError(
-                f"runtime wheel {platform_tag} must contain only {expected_helper}; found {found}"
+                f"runtime wheel {platform_tag} helper payload mismatch: expected {expected}; found {found}"
             )
-        for executable in [executables[0], helpers[0]]:
+        for executable in [executables[0], *helpers]:
             if executable.stat().st_mode & stat.S_IXUSR == 0:
                 raise RuntimeError(f"runtime executable is not executable: {executable}")
-        _validate_spawn_helper(helpers[0], expected_target)
+        if helpers:
+            _validate_spawn_helper(helpers[0], expected_target)
 
         build_data["pure_python"] = False
         build_data["infer_tag"] = False
