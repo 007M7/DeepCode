@@ -851,7 +851,9 @@ export class Session implements SessionFace {
  * object: `hasContent` only grows within a window and `promptAttempted` is
  * sticky, so blank → engaging → active never steps back; a failed first
  * prompt stays engaging (retry semantics — see ComposerPhase).
- * @param hasContent - any conversation material exists (non-command nodes, partial, running turn, pending waits; command lifecycle rows alone keep the session blank).
+ * @param hasContent - any conversation material exists (non-command nodes,
+ *   partial, running turn, pending waits; command lifecycle rows alone keep
+ *   the session blank).
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */
