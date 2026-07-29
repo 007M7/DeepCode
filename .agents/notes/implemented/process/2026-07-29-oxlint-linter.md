@@ -22,7 +22,7 @@ CI does not restore or save a lint-result cache. `DSH_OXLINT_THREADS` optionally
 
 ## Verification
 
-The migrated configuration reports the same clean owned-source baseline after resolving two analyzer differences: one redundant test assertion was removed, while one structural cast required by `tsc` carries a narrow Oxlint suppression. The repository lint command exercises type-aware rules and both JavaScript compatibility plugins. Focused gate-scheduler execution covers the explicit thread-bound path, while typecheck confirms that migration-driven source edits preserve the TypeScript programs.
+The migrated configuration reports the same clean owned-source baseline after resolving two analyzer differences: one redundant test assertion was removed, while one structural cast required by `tsc` carries a narrow Oxlint suppression. A committed fingerprint test normalizes severities and rule-name translations, then deep-compares every active rule and option against the exact deleted ESLint configuration blob: source is 88-to-88, examples are 87-to-87, and tests are 83-to-83, with no missing, extra, or changed pairs. The repository lint command exercises type-aware rules and both JavaScript compatibility plugins. Focused gate-scheduler execution covers the explicit thread-bound path, while typecheck confirms that migration-driven source edits preserve the TypeScript programs.
 
 ## Alternatives considered
 
