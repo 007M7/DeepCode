@@ -63,7 +63,7 @@
   name: '@deepseek-ai/dsh-code-runtime-subprocess'
   config:
     computeMs: 500
-    maxWallMs: 5000
+    maxWallMs: 15000
     maxOutputBytes: 4096
     maxOldGenerationSizeMb: 128
     maxFrameBytes: 32768
