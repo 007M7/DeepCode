@@ -59,7 +59,7 @@ JSONL 存储不影响当前提示词或 schema。加载会恢复已存储的呈�
 
 #### Token 影响
 
-当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用中以引用形式加入的修复结果而消耗 token。
+当前请求不会新增 token。恢复后的 agent（智能体）会因保留的历史、当前 envelope，以及每个中断调用的前述修复结果文本而消耗 token。
 
 #### KV Cache 影响
 

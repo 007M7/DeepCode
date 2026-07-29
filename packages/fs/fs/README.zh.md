@@ -54,7 +54,7 @@
 
 不会直接使缓存失效；上述消费方负责请求前缀的任何变化。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **契约只支持文本**：后端以 `FS_NOT_TEXT` 拒绝二进制/非 UTF-8 内容；二进制安全操作是[工具 schema Agent Note](../../../.agents/notes/implemented/feature/2026-06-17-filesystem-tool-schemas.md)有意延期的工作。
 - **只有八个原语**：没有删除、重命名/移动、复制或监视；`listDir` 只支持一层，递归、glob、分页和搜索不在范围内，见[目录列出 Agent Note](../../../.agents/notes/archived/architecture/2026-07-03-filesystem-directory-listing-seam.md)。

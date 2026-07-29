@@ -28,7 +28,7 @@ sandbox mode "<mode>" is requested but no sandbox backend is usable on this host
 
 #### Token 影响
 
-条件性错误文本对该次调用可见，并保留在历史中直到 compaction（上下文压缩）。
+条件性错误文本对该次调用可见，并保留在历史中直到压缩（compaction）。
 
 #### KV Cache 影响
 

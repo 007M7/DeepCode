@@ -144,7 +144,7 @@ Use the edit tool for targeted changes to existing UTF-8 text files. It replaces
 
 仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **未交付面向模型的目录列表工具**：`ctx.fs.listDir` 服务于 skill（技能）发现等提供方代码，同级 [`dsh-tool-fs-search`](../tool-fs-search/) 包则提供基于 bash 的 `glob` 与 `grep`，而不是扩展文件系统 seam。
 - **`read` 只处理 UTF-8 文本文件**：二进制安全读取和 PDF/图像/多模态内容均延期处理；目录目标为 `FS_NOT_REGULAR_FILE`。

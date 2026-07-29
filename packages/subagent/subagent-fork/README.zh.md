@@ -49,7 +49,7 @@ fork 会把保留的已完成历史复制到独立的子 agent 请求中；随�
 
 #### Token 影响
 
-父 agent 输入会增加一个取决于数据的最终结果，并保留到 compaction（上下文压缩）为止。
+父 agent 输入会增加一个取决于数据的最终结果，并保留到压缩（compaction）为止。
 
 #### KV Cache 影响
 

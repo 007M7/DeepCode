@@ -31,7 +31,7 @@ await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
 
 不会直接使缓存失效；具名消费方负责请求前缀的任何变化。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **`config.cwd` 不是沙箱**：它是解析默认值，而非约束；绝对路径和 `..` 可以逃逸。请使用更严格的 `ctx.fs` 后端或 `tools/execute` waterfall（瀑布式事件）上的权限插件实施约束（见[能力 seam Agent Note](../../../.agents/notes/implemented/architecture/2026-06-17-filesystem-capability-seam.md#consequences)）。
 - **覆盖会把整个旧文件读入内存**：只用于 UI diff；在大小阈值之上限制这次预读取的工作延期处理（`TODO(overwrite-diff-bound)`）。

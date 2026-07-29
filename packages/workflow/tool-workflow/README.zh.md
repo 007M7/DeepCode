@@ -67,7 +67,7 @@ Use the <toolName> tool ONLY when the user explicitly asks for a workflow or for
 
 #### Token 影响
 
-调用 token 可能很多，并会保留到 compaction（上下文压缩）为止。结果渲染受 `maxResultChars` 限制；子模型 token 与父级保留的上下文相互独立。
+调用 token 可能很多，并会保留到压缩（compaction）为止。结果渲染受 `maxResultChars` 限制；子模型 token 与父级保留的上下文相互独立。
 
 #### KV Cache 影响
 

@@ -54,7 +54,7 @@ pnpm run demo:code-mode acp    # the acp-agent example's same-shaped overlay
 |---|---|
 | `hmr` (`@cordisjs/plugin-hmr`) | 开发／演示的编辑-重载循环：它是 **叶节点** 配置项（不内置到应用），因为它依赖 Loader 的内部模块访问 |
 | `llm-deepseek` | 默认原生适配器 |
-| `bash` (`dsh-bash-local`) | 执行器实现：bash 服务边界中可替换的实现侧。面向模型的 `bash` schema（`tool-bash`）和通用 `task_*` 控制（`tool-tasks`）由 `dsh-agent-spine-demo` 提供，因此叶节点只选择执行器 |
+| `bash` (`dsh-bash-local`) | 执行器实现：bash seam 中可替换的实现侧。面向模型的 `bash` schema（`tool-bash`）和通用 `task_*` 控制（`tool-tasks`）由 `dsh-agent-spine-demo` 提供，因此叶节点只选择执行器 |
 | `tui-agent` (`@deepseek-ai/dsh-tui-demo`) | 应用组合包：agent-spine 演示 + JSONL 持久化 + pi-tui 通道 + 预创建的 `main` agent |
 | `subagent`, `subagent-spawn`, `subagent-fork` | subagent 提供方注册表加两个进程内后端：新子 agent，以及用父 agent 已完成轮次前缀播种的子 agent |
 | `tool-subagent`, `tool-subagent-fork` | 两次面向模型的 `dsh-tool-subagent` 加载，每次绑定不同提供方，并以不同工具名（`subagent`、`subagent_fork`）公开 |

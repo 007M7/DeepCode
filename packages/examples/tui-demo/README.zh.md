@@ -84,7 +84,7 @@
 
 #### Token 影响
 
-用户、assistant 与工具历史按常规会话和 compaction（上下文压缩）规则增长。Header、卡片、计划、Markdown 样式和快捷键不增加 token。
+用户、assistant 与工具历史按常规会话和压缩（compaction）规则增长。Header、卡片、计划、Markdown 样式和快捷键不增加 token。
 
 #### KV Cache 影响
 
@@ -104,7 +104,7 @@
 
 仅追加；答案跟在可复用请求前缀之后。
 
-## 已知限制与延后工作
+## 已知限制与暂缓事项
 
 - **只支持 TTY**：stdin 与 stdout 都必须是终端；自动化使用 `dsh-cli-demo`。
 - **一个已配置的终端会话**：transcript 与编辑器绑定到一个确切会话 id。

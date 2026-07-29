@@ -63,7 +63,7 @@ Use session_search to find relevant work from prior sessions, or session_event_s
 
 #### Token 影响
 
-结果取决于数据，并保留在已记录工具历史中直到 compaction（上下文压缩）；`maxSearchResults` 限制搜索命中数。
+结果取决于数据，并保留在已记录工具历史中直到压缩（compaction）；`maxSearchResults` 限制搜索命中数。
 
 #### KV 缓存影响
 

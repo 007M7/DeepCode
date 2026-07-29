@@ -51,7 +51,7 @@
 
 #### Token 影响
 
-注册不会直接产生会话 token。答案与源 token 取决于数据，源数量受 seam 限制；保留的结果或错误会重复发送，直到发生 compaction（上下文压缩）。
+注册不会直接产生会话 token。答案与源 token 取决于数据，源数量受 seam 限制；保留的结果或错误会重复发送，直到发生压缩（compaction）。
 
 #### KV Cache 影响
 

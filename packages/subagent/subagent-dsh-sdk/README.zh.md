@@ -85,7 +85,7 @@ Provider 不宣告任何启动期能力（`outputSchema`/`depthLimit`/`toolFilte
 
 #### Token 影响
 
-父级输入只增加最终结果或错误，其大小取决于数据，并保留到 compaction（上下文压缩）为止。本提供方自身不会向父级添加任何 schema。
+父级输入只增加最终结果或错误，其大小取决于数据，并保留到压缩（compaction）为止。本提供方自身不会向父级添加任何 schema。
 
 #### KV Cache 影响
 

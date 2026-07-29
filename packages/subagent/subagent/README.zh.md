@@ -27,7 +27,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `registerProvider(provider)` | 按名称注册一个可信的同进程实现。注册受 effect 作用域约束；移除注册会阻止新的启动，但不会撤销已返回给调用方的运行。重复名称会明确报错。 |
 | `getProvider(name)` | 返回提供方；不存在时返回 `undefined`。 |
 | `list()` | 按插入顺序返回提供方名称。 |
-| `start(name, request)` | 校验请求的能力和语义值，然后等待提供方，直到真实子 agent 就绪。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理所有启动过程中产生的临时资源。 |
+| `start(name, request)` | 校验请求的能力和语义值，然后等待提供方，直到真实子 agent 就绪。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理启动过程中取得的全部资源。 |
 
 `SubagentStartRequest.signal` 是必填项，也是规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消正在运行的子 agent。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。
 
