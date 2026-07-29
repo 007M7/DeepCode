@@ -19,6 +19,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
   addHarnessSourceSection,
@@ -31,6 +32,7 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
 import { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import type { Context } from 'cordis'
 import {
@@ -57,8 +59,8 @@ const TUI_OVERLAY = fileURLToPath(new URL('../tui.cordis.yml', import.meta.url))
 // session identity by this config id.
 const MAIN_AGENT_ID = 'main'
 
-/** Filename of the derived `/resume` index, kept beside the session logs. */
-const SESSION_QUERY_DB = 'session-query.db'
+/** Per-process filename of the disposable `/resume` index. */
+const SESSION_QUERY_DB = `session-query-${String(process.pid)}-${randomUUID()}.db`
 
 // The harness checkout root: three hops up from apps/cli/{src,lib}, resolved
 // from this bin's location so it holds however `dsh` is launched (a PATH
@@ -242,9 +244,9 @@ export async function runTui(
       // same id, so a personal overlay repointing the model route cannot drop
       // the session identity or desynchronise the two.
       hostCtx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, { [MAIN_AGENT_ID]: identity })
-      // The launcher owns the session store location, so it also owns the
-      // derived index path that must sit beside those logs.
-      hostCtx.provide('launcherSessionQueryPath', join(launcherSessionsRoot(), SESSION_QUERY_DB))
+      // The query database is a disposable derived index with single-process
+      // ownership. Keep it process-local while it indexes the shared logs.
+      hostCtx.provide(SESSION_QUERY_SQLITE_PATH_KEY, join(tmpdir(), SESSION_QUERY_DB))
       if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
       // Seed the first turn only for a fresh session, so resuming never
       // re-invokes the skill.

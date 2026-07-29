@@ -82,10 +82,9 @@
     - id: session-checkpoint-policy
       name: '@deepseek-ai/dsh-session-checkpoint-policy'
 
-    # The derived query index behind `/resume`. The launcher owns the session
-    # store location, so it provides the resolved index path on the boot context
-    # (`launcherSessionQueryPath`); the index and the logs it indexes therefore
-    # cannot diverge. The project-local fallback applies when no launcher sets it.
+    # The derived query index behind `/resume`. The launcher provides a unique
+    # process-local path because this SQLite backend has one writer owner; the
+    # project-local fallback applies when no launcher sets the typed slot.
     - id: session-query-sqlite
       name: '@deepseek-ai/dsh-session-query-sqlite'
       config:
