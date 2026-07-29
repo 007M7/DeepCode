@@ -8,6 +8,7 @@
 - text: "Use the read tool twice in one assistant message: read a.txt and b.txt. Then reply with the single word DONE and stop. {{clock}}"
 - button "复制":
   - img
+- tooltip "复制"
 - button "在新对话中分支":
   - img
 - button "编辑":

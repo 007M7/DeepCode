@@ -330,7 +330,15 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     }
     const node: ConversationNode = item.node
     if (node.kind === 'assistant') {
-      return <AssistantMarkdown key={item.key} blocks={node.blocks} streaming={false} interrupted={node.interrupted} />
+      return (
+        <AssistantMarkdown
+          key={item.key}
+          blocks={node.blocks}
+          streaming={false}
+          interrupted={node.interrupted}
+          time={node.time}
+        />
+      )
     }
     if (node.kind === 'command') {
       return <CommandRow key={item.key} renderSlot={renderSlot} node={node} />

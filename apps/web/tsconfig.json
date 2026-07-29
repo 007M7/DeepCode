@@ -35,7 +35,8 @@
     "tests/seeded-history.e2e.ts",
     "tests/sidebar-scrollbar.e2e.ts",
     "tests/code-mode-round.e2e.ts",
-    "tests/cordis-tool-round.e2e.ts"
+    "tests/cordis-tool-round.e2e.ts",
+    "tests/message-actions.e2e.ts"
   ],
   "references": [
     {

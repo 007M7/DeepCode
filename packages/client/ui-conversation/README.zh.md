@@ -34,7 +34,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 - **统计行没有耗时区段**：assistant `usage` 只携带 token 计数；耗时需要主机数据源。
 - **详情面板是最小形态**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。
-- **assistant footer 扩展（IconActions 行、逐消息分页）是预留 slot**：设计中已有图稿，尚未实现。
+- **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的 IconActions 行（复制／分支／时钟）已落地；分支仍是 chrome stub。
 - **others 工具行的闪光图标是手绘近似版本**：无法在本地导出设计字形的矢量几何；等到存在精确导出后再将其提升到 ui-primitives。
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。
