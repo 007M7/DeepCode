@@ -35,9 +35,7 @@ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  isAppendSurfaceEvent,
   isReplacementSurfaceEvent,
-  isSurfaceEligibleType,
   SessionId,
   type SessionEvent,
   type UserMessage,
@@ -852,7 +850,7 @@ export function createTuiChat(
     todo.update([])
     const transcriptCalls = transcriptToolCallIds(agent.session)
     for (const event of agent.session.events) {
-      if (isSurfaceEligibleType(event.type) && !isAppendSurfaceEvent(event)) {
+      if (isReplacementSurfaceEvent(event)) {
         if (isCompactCheckpoint(event)) renderCompactionMarker()
         continue
       }
