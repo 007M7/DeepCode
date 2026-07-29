@@ -1,11 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import SkillService, { type SkillCandidate, type SkillDefinition, type SkillLookupOptions, type SkillProvider, type SkillProviderObservation } from '@deepseek-ai/dsh-skill'
+import SkillService, {
+  isModelInvocable,
+  isUserInvocable,
+  type SkillCandidate,
+  type SkillDefinition,
+  type SkillInvocationPolicy,
+  type SkillLookupOptions,
+  type SkillProvider,
+  type SkillProviderObservation,
+} from '@deepseek-ai/dsh-skill'
 
 function memorySkill(name: string, description: string, rank: number, body = `${name} body.`): SkillCandidate {
   return {
     name,
     description,
+    invocation: { modelInvocable: true, userInvocable: true },
     provider: 'memory',
     source: 'memory',
     rank,
@@ -53,6 +63,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'shadowed',
           description: 'Higher priority',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'override',
           source: 'override',
           rank: 5,
@@ -78,6 +89,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'same-rank-skill',
           description: 'Same rank',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'same-rank',
           source: 'same-rank',
           rank: 10,
@@ -139,6 +151,34 @@ describe('SkillService registry', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['same-rank-skill', 'shadowed'])
   })
 
+  it('returns an invocation-neutral catalog and resolves model and user policy independently', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const registrations = [
+      { name: 'both', invocation: undefined },
+      { name: 'model-only', invocation: { modelInvocable: true, userInvocable: false } },
+      { name: 'user-only', invocation: { modelInvocable: false, userInvocable: true } },
+      { name: 'trusted-only', invocation: { modelInvocable: false, userInvocable: false } },
+    ] as const
+    for (const registration of registrations) {
+      ctx.skills.register({
+        name: registration.name,
+        description: registration.name,
+        source: 'runtime',
+        ...registration.invocation === undefined ? {} : { invocation: registration.invocation },
+        content: `${registration.name} body.`,
+      })
+    }
+
+    const listed = await ctx.skills.list()
+    expect(listed.map(skill => skill.name)).toEqual(['both', 'model-only', 'trusted-only', 'user-only'])
+    expect(listed.find(skill => skill.name === 'both')?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+    expect(listed.filter(isModelInvocable).map(skill => skill.name)).toEqual(['both', 'model-only'])
+    expect(listed.filter(isUserInvocable).map(skill => skill.name)).toEqual(['both', 'user-only'])
+    expect(await ctx.skills.get('trusted-only')).toMatchObject({ content: 'trusted-only body.' })
+    expect((await ctx.skills.get('both'))?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+  })
+
   it('validates parsed candidate fields', async () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
@@ -149,7 +189,7 @@ describe('SkillService registry', () => {
         ...memorySkill('bad-candidate', 'placeholder', 1),
         provider: 'bad-candidate',
         description: badDescription as unknown as string,
-        disableModelInvocation: 'false' as unknown as boolean,
+        invocation: { modelInvocable: false, userInvocable: true },
       }]),
       get: () => Promise.resolve(undefined),
     })
@@ -162,11 +202,11 @@ describe('SkillService registry', () => {
       list: () => Promise.resolve([{
         ...memorySkill('bad-boolean', 'Bad boolean', 1),
         provider: 'bad-boolean',
-        disableModelInvocation: 'false' as unknown as boolean,
+        invocation: { modelInvocable: 'false' as unknown as boolean, userInvocable: true },
       }]),
       get: () => Promise.resolve(undefined),
     })
-    await expect(badBoolean.skills.list()).rejects.toThrow('non-boolean disableModelInvocation')
+    await expect(badBoolean.skills.list()).rejects.toThrow('non-boolean invocation.modelInvocable')
   })
 
   it('rejects malformed provider results and every malformed candidate scalar', async () => {
@@ -198,7 +238,7 @@ describe('SkillService registry', () => {
         name: `candidate-${index}`,
         description: 'Candidate',
         whenToUse: 'Use this candidate.',
-        disableModelInvocation: false,
+        invocation: { modelInvocable: true, userInvocable: true },
         provider: providerName,
         source: 'test',
         rank: 1,
@@ -225,6 +265,7 @@ describe('SkillService registry', () => {
     const candidate: SkillCandidate = {
       name: 'skill-a',
       description: 'Skill A',
+      invocation: { modelInvocable: true, userInvocable: true },
       provider: 'contextual',
       source: 'test',
       rank: 1,
@@ -259,6 +300,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'cached-skill',
           description: 'Cached skill',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'cached',
           source: 'test',
           rank: 1,
@@ -296,6 +338,7 @@ describe('SkillService registry', () => {
         resolve({
           name: 'held-skill',
           description: 'Held skill',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'held',
           source: 'test',
           content: 'Held body.',
@@ -308,6 +351,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'held-skill',
           description: 'Held skill',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'held',
           source: 'test',
           rank: 1,
@@ -355,11 +399,12 @@ describe('SkillService registry', () => {
     const ctx = new Context()
     await ctx.plugin(SkillService)
     const locator = { id: 'provider-owned' }
+    const invocation = { modelInvocable: true, userInvocable: true }
     const candidate: SkillCandidate = {
       name: 'stable-skill',
       description: 'Stable description',
       whenToUse: 'When stability matters.',
-      disableModelInvocation: false,
+      invocation,
       provider: 'detached',
       source: 'test',
       resourceBase: { kind: 'opaque', description: 'candidate resources' },
@@ -372,7 +417,7 @@ describe('SkillService registry', () => {
       name: 'stable-skill',
       description: 'Stable description',
       whenToUse: 'When stability matters.',
-      disableModelInvocation: false,
+      invocation,
       provider: 'detached',
       source: 'test',
       resourceBase: { kind: 'opaque', description: 'definition resources' },
@@ -401,6 +446,7 @@ describe('SkillService registry', () => {
       resourceBase: { kind: 'opaque', description: 'candidate resources' },
     })])
     expect(listed[0]?.resourceBase).toBe(candidate.resourceBase)
+    expect(listed[0]?.invocation).toBe(invocation)
     expect(listCalls).toBe(1)
 
     const loaded = await ctx.skills.get('stable-skill')
@@ -414,11 +460,12 @@ describe('SkillService registry', () => {
     await ctx.plugin(SkillService)
     const resourceBase = { kind: 'opaque' as const, description: 'runtime resources' }
     const metadata = { owner: 'runtime' }
+    const invocation = { modelInvocable: true, userInvocable: true }
     const registration = {
       name: 'runtime-skill',
       description: 'Runtime',
       whenToUse: 'When runtime data is needed.',
-      disableModelInvocation: false,
+      invocation,
       source: 'runtime',
       resourceBase,
       metadata,
@@ -434,6 +481,7 @@ describe('SkillService registry', () => {
     const listed = await ctx.skills.list()
     const loaded = await ctx.skills.get('runtime-skill')
     expect(listed[0]?.resourceBase).toBe(resourceBase)
+    expect(listed[0]?.invocation).toBe(invocation)
     expect(loaded?.resourceBase).toBe(resourceBase)
     expect(loaded?.metadata).toBe(metadata)
     expect(loaded?.provider).toBe('runtime')
@@ -445,7 +493,23 @@ describe('SkillService registry', () => {
       { patch: { name: 'Bad_Name' }, expected: 'loaded skill has invalid name' },
       { patch: { description: { value: 'description' } as unknown as string }, expected: 'description must be a string' },
       { patch: { description: '' }, expected: 'requires a description' },
-      { patch: { disableModelInvocation: 'false' as unknown as boolean }, expected: 'disableModelInvocation must be a boolean' },
+      { patch: { invocation: null as never }, expected: 'non-object invocation policy' },
+      {
+        patch: { invocation: { modelInvocable: 'false' as unknown as boolean, userInvocable: true } },
+        expected: 'invocation.modelInvocable',
+      },
+      {
+        patch: { invocation: { modelInvocable: true, userInvocable: 'true' as unknown as boolean } },
+        expected: 'invocation.userInvocable',
+      },
+      {
+        patch: { invocation: { userInvocable: true } as unknown as SkillInvocationPolicy },
+        expected: 'invocation.modelInvocable',
+      },
+      {
+        patch: { invocation: { modelInvocable: true } as unknown as SkillInvocationPolicy },
+        expected: 'invocation.userInvocable',
+      },
       { patch: { whenToUse: 1 as unknown as string }, expected: 'whenToUse must be a string' },
       { patch: { source: { value: 'source' } as unknown as string }, expected: 'source must be a string' },
       { patch: { provider: { value: 'provider' } as unknown as string }, expected: 'provider must be a string' },
@@ -462,6 +526,7 @@ describe('SkillService registry', () => {
         list: () => Promise.resolve([{
           name: skillName,
           description: 'Candidate',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: providerName,
           source: 'test',
           rank: 1,
@@ -471,7 +536,7 @@ describe('SkillService registry', () => {
           name: skillName,
           description: 'Definition',
           whenToUse: 'Use this definition.',
-          disableModelInvocation: false,
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: providerName,
           source: 'test',
           content: 'Definition body.',
@@ -771,6 +836,7 @@ describe('SkillService registry', () => {
       skills: [{
         name: 'bounded-skill',
         description: 'Attempt 2',
+        invocation: { modelInvocable: true, userInvocable: true },
         provider: 'self-invalidating',
         source: 'memory',
       }],
@@ -793,6 +859,7 @@ describe('SkillService registry', () => {
         return [{
           name: 'old-name',
           description: 'Old name',
+          invocation: { modelInvocable: true, userInvocable: true },
           provider: 'renamed',
           source: 'test',
           rank: 1,
@@ -928,6 +995,13 @@ describe('SkillService registry', () => {
     await ctx.plugin(SkillService)
     expect(() => ctx.skills.register({ name: 'Bad_Name', description: 'Bad', source: 'runtime', content: 'bad' })).toThrow('invalid skill name')
     expect(() => ctx.skills.register({ name: 'no-description', description: '', source: 'runtime', content: 'bad' })).toThrow('requires a description')
+    expect(() => ctx.skills.register({
+      name: 'bad-invocation',
+      description: 'Bad invocation',
+      source: 'runtime',
+      invocation: [] as never,
+      content: 'bad',
+    })).toThrow('non-object invocation policy')
     expect(await ctx.skills.get('missing-skill')).toBeUndefined()
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
 

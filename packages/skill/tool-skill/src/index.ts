@@ -9,9 +9,14 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createUserMessage, assertNever } from '@deepseek-ai/dsh-llm'
+import { assertNever, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { isSkillName, type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import {
+  isModelInvocable,
+  isSkillName,
+  type SkillDefinition,
+  type SkillSummary,
+} from '@deepseek-ai/dsh-skill'
 
 export const name = 'tool-skill'
 export const inject = ['agents', 'tools', 'skills']
@@ -92,11 +97,19 @@ export function apply(ctx: Context, config: Config = {}): void {
       if (!isSkillName(args.name)) {
         throw new Error(`invalid skill name "${args.name}"`)
       }
-      const skill = await ctx.skills.get(args.name, { cwd: exec.agent?.session.header.cwd, signal: exec.signal })
+      const lookup = { cwd: exec.agent?.session.header.cwd, signal: exec.signal }
+      const summary = (await ctx.skills.list(lookup)).find(skill => skill.name === args.name)
+      if (!summary) {
+        throw new Error(`skill "${args.name}" is unknown or no longer available`)
+      }
+      if (!isModelInvocable(summary)) {
+        throw new Error(`skill "${args.name}" is not available for model invocation`)
+      }
+      const skill = await ctx.skills.get(args.name, lookup)
       if (!skill) {
         throw new Error(`skill "${args.name}" is unknown or no longer available`)
       }
-      if (skill.disableModelInvocation === true) {
+      if (!isModelInvocable(skill)) {
         throw new Error(`skill "${args.name}" is not available for model invocation`)
       }
       return {
@@ -128,13 +141,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       : { skills: [], complete: true }
     signal.throwIfAborted()
     if (!snapshot.complete) return
-    const digest = catalogDigest(snapshot.skills, catalogDescriptionMaxLength)
+    const skills = snapshot.skills.filter(isModelInvocable)
+    const digest = catalogDigest(skills, catalogDescriptionMaxLength)
     const history = catalogHistory(agent)
     if (history.visibleDigest === digest) return
-    if (!history.published && snapshot.skills.length === 0) return
+    if (!history.published && skills.length === 0) return
     const catalog = history.published
-      ? renderCatalogUpdate(snapshot.skills, catalogDescriptionMaxLength)
-      : renderCatalogMessage(snapshot.skills, catalogDescriptionMaxLength)
+      ? renderCatalogUpdate(skills, catalogDescriptionMaxLength)
+      : renderCatalogMessage(skills, catalogDescriptionMaxLength)
     agent.inject(catalog)
   })
 }
