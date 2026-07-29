@@ -4,7 +4,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop.
+- text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop. {{clock}}
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -16,6 +16,11 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
 - button:
   - img
   - img
@@ -25,13 +30,19 @@
   - img
   - text: Think The user selected "Yes" and wants me to include the word "BANANA" in my final reply. Let me acknowledge their answer.
 - paragraph: Great, let's move forward. BANANA!
-- text: cache hit 98% · 15,967 tokens · 1 turns · 2 steps
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}} cache hit 98% · 15,967 tokens · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

@@ -53,6 +53,13 @@ export interface ISession {
    * @returns completion when history is exhausted or paging stops making progress.
    */
   loadAllHistory(signal?: AbortSignal): Promise<void>
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  command(line: string): Promise<RpcResult<{ matched: boolean }>>
 }
 
 /**

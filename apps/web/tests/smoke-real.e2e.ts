@@ -357,16 +357,20 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     requireDist()
     sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-w5-'))
     const port = await probeFreePort()
-    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. cwd is a
-    // temp dir (persistenceRoot is cwd-relative), so tsx needs the repo's loader
-    // and tsconfig paths pointed at explicitly.
+    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. Isolate
+    // the global Harness home inside the temp world; tsx also needs the repo's
+    // loader and tsconfig paths pointed at explicitly.
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     child = spawn(
       process.execPath,
       ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port)],
       {
         cwd: sessionsDir,
-        env: { ...process.env, TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json') },
+        env: {
+          ...process.env,
+          DSH_HOME: join(sessionsDir, '.dsh'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     )
@@ -450,7 +454,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click leaves the details column collapsed', async () => {
+  it('5 bash differential rendering: tool row click leaves the default details column open', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -462,14 +466,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const toolRow = page.locator('[data-sample="bash-global"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
-    expect(await detailsTrack(page)).toBe(0)
+    expect(await detailsTrack(page)).toBe(360)
     await toolRow.click()
-    // Tool rows no longer drive layout.openDetails; the column stays closed.
-    expect(await detailsTrack(page)).toBe(0)
-    await screen(page, '09-details-closed')
+    // Tool rows no longer drive layout.openDetails; the default column stays open.
+    expect(await detailsTrack(page)).toBe(360)
+    await screen(page, '09-details-open')
   }, 150_000)
 
-  it('6 sidebar drag widens the column and persists across reload', async () => {
+  it('6 sidebar drag widens the column and resets across reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-drag'))
     const before = await firstTrack(page)
     const handle = page.locator('[class*="handle"]').first()
@@ -484,7 +488,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '10-sidebar-dragged')
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    expect(await firstTrack(page)).toBe(after)
+    expect(await firstTrack(page)).toBe(before)
   })
 
   it('7 dark mode: the body attribute cascades the token sheets', async () => {

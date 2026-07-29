@@ -9,7 +9,7 @@ export interface TitledSessionSummary extends SessionSummary {
   title?: string
 }
 
-/** One flattened session-list row (summary + lineage indent depth). */
+/** One flattened session-list row (summary + lineage indent depth + live pending-approval bit). */
 export interface SessionListEntry {
   sessionId: SessionId
   title?: string
@@ -19,6 +19,8 @@ export interface SessionListEntry {
   blank: boolean
   parentSessionId?: SessionId
   cwd?: string
+  /** An approval question is pending on this session (mux-frame derived; the sidebar's amber dot). */
+  waitingApproval: boolean
   /** Lineage indent depth: root = 0; the UI just multiplies by the indent width. */
   depth: number
 }
@@ -28,9 +30,10 @@ export interface SessionListEntry {
  * follows the established input order; this projection never re-sorts a
  * hydrated list from mutable timestamps.
  * @param summaries - the host's session.list items.
+ * @param waitingApproval - sessions with a pending approval question (manager-owned live fact; absent = false).
  * @returns display rows in render order.
  */
-export function flattenLineage(summaries: readonly TitledSessionSummary[]): SessionListEntry[] {
+export function flattenLineage(summaries: readonly TitledSessionSummary[], waitingApproval?: ReadonlySet<SessionId>): SessionListEntry[] {
   const byId = new Map<SessionId, TitledSessionSummary>()
   for (const s of summaries) byId.set(s.sessionId, s)
 
@@ -54,7 +57,7 @@ export function flattenLineage(summaries: readonly TitledSessionSummary[]): Sess
       return
     }
     visited.add(s.sessionId)
-    out.push({ ...s, depth })
+    out.push({ ...s, waitingApproval: waitingApproval?.has(s.sessionId) ?? false, depth })
     const kids = children.get(s.sessionId)
     if (kids === undefined) return
     for (const kid of kids) walk(kid, depth + 1)

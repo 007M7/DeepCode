@@ -66,8 +66,8 @@ function mount(
   const sessions = createSnapshotStore<SessionListState>({
     ids: [root, SID],
     byId: {
-      [root]: { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 },
-      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, blank: false, updatedAt: 2 },
+      [root]: { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 },
+      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, waitingApproval: false, blank: false, updatedAt: 2 },
     },
     current: SID,
     phase: 'ready',
@@ -134,6 +134,7 @@ function mount(
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           stop={stop}
+          command={() => Promise.resolve(true)}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}
         />

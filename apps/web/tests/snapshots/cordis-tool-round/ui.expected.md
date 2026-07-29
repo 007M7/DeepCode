@@ -4,7 +4,7 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-- text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop."
+- text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop. {{clock}}"
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -16,6 +16,11 @@
   - img
   - img
   - text: "Think The user wants me to:"
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
 - button:
   - img
   - img
@@ -24,6 +29,11 @@
   - img
   - img
   - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
 - button [expanded]:
   - img
 - text: Mount temporary Plugin typescript
@@ -33,6 +43,11 @@
   - img
   - img
   - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
 - button:
   - img
   - img
@@ -42,13 +57,19 @@
   - img
   - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE" and stop.
 - paragraph: CORDIS_UI_DONE
-- text: cache hit 77% · 66,813 tokens · 1 turns · 4 steps
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}} cache hit 77% · 66,813 tokens · 1 turns · 4 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
