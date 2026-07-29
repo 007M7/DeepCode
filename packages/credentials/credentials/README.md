@@ -13,7 +13,10 @@ Abstract credential seam (`ctx.credentials`). One doctrine, three consequences:
 ## Surface
 
 ```ts
+import type { Context } from 'cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+
+declare const ctx: Context
 
 const ref = credentialRef('DEEPSEEK_API_KEY')            // POSIX shell identifier, branded
 const hit = await ctx.credentials.resolve(ref)           // { value, source } | undefined
@@ -32,7 +35,7 @@ The shadowing rule on `set`/`unset` is deliberate fail-loud: when a read-only so
 
 ## Model Experience
 
-Indirectly: a resolved value authorizes provider requests; the consuming adapter owns every model-visible surface.
+Indirectly, through the consuming LLM adapters: a resolved value authorizes their provider requests, and the adapter owns every model-visible surface.
 
 #### KV Cache effect
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { Settings, deepEqualJson, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
+import { Settings, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
 import { MemorySettings } from './memory.ts'
 
 /** A provider implementing only the three primitives: the seam owns init. */
@@ -556,5 +556,48 @@ describe('watch', () => {
     })
     expect(events).toHaveLength(1)
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 14 })
+  })
+})
+
+describe('installSettingsSection', () => {
+  const HelperSchema: z<{ theme: string }> = z.object({
+    theme: z.string().default('default'),
+  })
+
+  it('drives the source through attach, live commits, and detach', async () => {
+    const ctx = new Context()
+    const entry = { theme: 'entry' }
+    let current: () => { theme: string } = () => entry
+    let changes = 0
+    installSettingsSection(ctx, settingsNamespace('helper-ns'), HelperSchema, entry, {
+      setSource: (source) => {
+        current = source
+      },
+      onChange: () => {
+        changes += 1
+      },
+    })
+    // No settings service mounted: nothing ran, the entry stays authoritative.
+    expect(current()).toEqual({ theme: 'entry' })
+    expect(changes).toBe(0)
+
+    const fiber = ctx.plugin(MemorySettings, { doc: { 'helper-ns': { theme: 'user' } } })
+    await fiber
+    await vi.waitFor(() => {
+      expect(current()).toEqual({ theme: 'user' })
+    })
+    expect(changes).toBe(1)
+
+    await ctx.settings.update(settingsNamespace('helper-ns'), { theme: 'live' })
+    await vi.waitFor(() => {
+      expect(changes).toBe(2)
+    })
+    expect(current()).toEqual({ theme: 'live' })
+
+    await fiber.dispose()
+    await vi.waitFor(() => {
+      expect(changes).toBe(3)
+    })
+    expect(current()).toEqual({ theme: 'entry' })
   })
 })

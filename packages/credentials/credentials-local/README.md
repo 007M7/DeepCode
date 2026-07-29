@@ -32,7 +32,7 @@ External edits publish `credentials/updated` per changed reference after the sna
 
 ## Model Experience
 
-Indirectly: resolved values authorize LLM adapter requests; the consuming adapter owns every model-visible surface.
+Indirectly, through the consuming LLM adapters: stored values authorize their provider requests, and the adapter owns every model-visible surface.
 
 #### KV Cache effect
 

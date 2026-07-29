@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "Workspace umbrella for runnable demos and example-owned test compositions: declares their cordis.yml packages so plain Node resolves real exports\u2192lib. Not a build target.",
+  "description": "Workspace umbrella for runnable demos and example-owned test compositions: declares their cordis.yml packages so plain Node resolves real exports→lib. Not a build target.",
   "dependencies": {
     "@cordisjs/plugin-hmr": "workspace:*",
     "@cordisjs/plugin-include": "workspace:*",

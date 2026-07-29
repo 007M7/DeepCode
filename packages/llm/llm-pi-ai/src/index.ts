@@ -30,7 +30,7 @@
 
 import type { Context } from 'cordis'
 import type {} from '@deepseek-ai/dsh-llm'
-import { deepEqualJson, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
 import { Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
@@ -105,18 +105,10 @@ export function apply(ctx: Context, config: Config): void {
     registeredFacts = facts
   }
 
-  ctx.inject(['settings'], (sctx) => {
-    const scope = sctx.settings.register(NS, Config, { base: config })
-    current = () => scope.get()
-    sctx.effect(() => () => {
-      // Settings detached (provider disposed or reloading): fall back to the
-      // composition entry so the plugin keeps working exactly as configured.
-      current = () => config
-      ensureRegistrationFacts()
-    })
-    ensureRegistrationFacts()
-    scope.watch(() => {
-      ensureRegistrationFacts()
-    })
+  installSettingsSection(ctx, NS, Config, config, {
+    setSource: (source) => {
+      current = source
+    },
+    onChange: ensureRegistrationFacts,
   })
 }

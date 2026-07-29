@@ -17,7 +17,7 @@ import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/ds
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
-import { deepEqualJson, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
@@ -231,18 +231,10 @@ export function apply(ctx: Context, config: Config): void {
     ctx.logger.warn('llm-deepseek: no API key resolved yet for route "deepseek"; requests will fail until one is configured')
   })
 
-  ctx.inject(['settings'], (sctx) => {
-    const scope = sctx.settings.register(NS, Config, { base: config })
-    current = () => scope.get()
-    sctx.effect(() => () => {
-      // Settings detached (provider disposed or reloading): fall back to the
-      // composition entry so the plugin keeps working exactly as configured.
-      current = () => config
-      ensureRegistrationFacts()
-    })
-    ensureRegistrationFacts()
-    scope.watch(() => {
-      ensureRegistrationFacts()
-    })
+  installSettingsSection(ctx, NS, Config, config, {
+    setSource: (source) => {
+      current = source
+    },
+    onChange: ensureRegistrationFacts,
   })
 }

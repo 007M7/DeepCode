@@ -5472,6 +5472,9 @@ importers:
       '@deepseek-ai/dsh-compact-tool-result-prune':
         specifier: workspace:^
         version: link:../../packages/compact/compact-tool-result-prune
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../../packages/credentials/credentials
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs
@@ -5574,6 +5577,9 @@ importers:
       '@deepseek-ai/dsh-session-title':
         specifier: workspace:^
         version: link:../../packages/session-title/session-title
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:^
+        version: link:../../packages/settings/settings
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../packages/skill/skill
@@ -5688,6 +5694,9 @@ importers:
       cordis:
         specifier: workspace:^
         version: link:../../vendor/cordis
+      schemastery:
+        specifier: workspace:^
+        version: link:../../vendor/schemastery
 
   vendor/cordis:
     dependencies:

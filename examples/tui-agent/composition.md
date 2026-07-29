@@ -10,6 +10,10 @@ flowchart LR
   cfg["examples/tui-agent<br/>cordis.yml"]
   plugin_tui_hmr["hmr<br/>@cordisjs/plugin-hmr"]
   cfg --> plugin_tui_hmr
+  plugin_tui_settings["settings<br/>@deepseek-ai/dsh-settings-local"]
+  cfg --> plugin_tui_settings
+  plugin_tui_credentials["credentials<br/>@deepseek-ai/dsh-credentials-local"]
+  cfg --> plugin_tui_credentials
   plugin_tui_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_tui_llm_deepseek
   plugin_tui_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -70,6 +74,8 @@ flowchart LR
 | Plugin id | Package / module |
 | --- | --- |
 | `hmr` | `@cordisjs/plugin-hmr` |
+| `settings` | `@deepseek-ai/dsh-settings-local` |
+| `credentials` | `@deepseek-ai/dsh-credentials-local` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |

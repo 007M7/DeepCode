@@ -118,6 +118,9 @@ function upsertLine(text: string | undefined, ref: CredentialRef, line: string |
 
 /** File-backed credentials provider (`$DSH_HOME/.env`). */
 export class CredentialsLocal extends Credentials {
+  /* jscpd:ignore-start -- deliberate config-surface and lifecycle symmetry with
+     settings-local (prefer symmetry for parallel values); extracting the shared
+     shape would couple the two providers' teardown semantics across packages. */
   static Config: z<Config> = z.object({
     path: z.string(),
     dshHome: z.string(),
@@ -145,6 +148,7 @@ export class CredentialsLocal extends Credentials {
   private isClosed(): boolean {
     return this.closed
   }
+  /* jscpd:ignore-end */
 
   constructor(ctx: Context, public config: Config) {
     super(ctx)
@@ -162,6 +166,9 @@ export class CredentialsLocal extends Credentials {
     }
     await this.loadInitial()
     if (!this.spec.watch) return
+    /* jscpd:ignore-start -- same watcher discipline as settings-local by design:
+       the serialized-refresh and quiesce-on-dispose shape is the reviewed
+       lifecycle contract, not accidental repetition. */
     const watcher = chokidarWatch(this.spec.filename, {
       ignoreInitial: true,
       awaitWriteFinish: {
@@ -183,6 +190,7 @@ export class CredentialsLocal extends Credentials {
       this.ctx.logger.warn('credentials-local: watcher error on %s', this.spec.filename)
       this.ctx.logger.warn(error)
     })
+    /* jscpd:ignore-end */
     yield async () => {
       // Quiesce: stop accepting events, close the watcher, then wait out any
       // queued or in-flight refresh so nothing publishes after disposal.

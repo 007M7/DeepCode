@@ -422,6 +422,27 @@ A command was registered or unregistered. This is an unfiltered registry notific
 
 Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src/index.ts)
 
+## `credentials/*`
+
+### `credentials/updated` — emit
+
+Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit.
+
+```ts cordis-catalog
+/**
+ * Committed change to a provider-managed credential source: a `set`, an
+ * `unset`, or an external edit observed in storage. Ambient
+ * process-environment changes are not observable and never emit.
+ * @param ref - the reference whose stored value changed.
+ * @mode emit
+ */
+'credentials/updated'(ref: CredentialRef): void
+```
+
+Types: [CredentialRef](../core-data-structures/credentials.md)
+
+Source: [`packages/credentials/credentials/src/index.ts:62`](../../packages/credentials/credentials/src/index.ts)
+
 ## `domain/*`
 
 ### `domain/changed` — emit

@@ -9,6 +9,8 @@ Zero-dependency atomic file replacement shared by file-backed stores that must n
 ```ts
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 
+declare const text: string
+
 await writeFileAtomic('/home/u/.dsh/settings.yaml', text, { mode: 0o600 })
 ```
 
@@ -23,6 +25,10 @@ One export. The contract, in the order failures would exploit it:
 ## Model Experience
 
 None, as this is a pure filesystem primitive; nothing here reaches a model request.
+
+#### KV Cache effect
+
+None; nothing here enters a request prefix.
 
 ## Known Limitations and Deferred Work
 

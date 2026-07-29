@@ -10,13 +10,23 @@
   config:
     root: ['.']
 
+# User-settings document (`$DSH_HOME/settings.yaml`, hot-reloaded): a
+# `llm-deepseek:` section there overrides the adapter entry below without a
+# restart.
+- id: settings
+  name: '@deepseek-ai/dsh-settings-local'
+
+# Credential store: the live process environment over `$DSH_HOME/.env`
+# (owner-only file, hot-reloaded). The adapter resolves `DEEPSEEK_API_KEY`
+# through it at each request, so no key is inlined in this file.
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
 # The native DeepSeek adapter. Shipped default: full thinking at max effort on
 # every request (wire-only defaults; they never enter the request header).
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
     thinking: enabled
     reasoningEffort: max
 

@@ -488,6 +488,52 @@ Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionT
 
 Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/compact/src/index.ts)
 
+## `ctx.credentials` — `Credentials` (abstract seam)
+
+Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.
+
+```ts cordis-catalog
+/**
+ * Resolve one reference to its current value. Resolution is per call:
+ * consumers re-resolve at each operation and must not cache across
+ * operations — that per-operation read is what makes a changed credential
+ * reach the next operation without a restart.
+ * @param ref - the reference to resolve.
+ * @returns the value and its source, or `undefined` while unconfigured.
+ */
+abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>
+
+/**
+ * Describe one reference for configuration surfaces without exposing the
+ * value.
+ * @param ref - the reference to describe.
+ * @returns configured state, supplying source, and writability.
+ */
+abstract describe(ref: CredentialRef): Promise<CredentialInfo>
+
+/**
+ * Durably store one value in the provider-managed writable source. Rejects
+ * while a read-only source shadows the reference — the write would appear
+ * to succeed while resolution keeps returning the shadowing value — and
+ * rejects an empty value (use {@link unset}).
+ * @param ref - the reference to store.
+ * @param value - the non-empty secret value.
+ */
+abstract set(ref: CredentialRef, value: string): Promise<void>
+
+/**
+ * Remove one reference from the provider-managed writable source; removing
+ * an absent reference is a no-op. Rejects while a read-only source shadows
+ * the reference, like {@link set}.
+ * @param ref - the reference to remove.
+ */
+abstract unset(ref: CredentialRef): Promise<void>
+```
+
+Types: [CredentialInfo](../core-data-structures/credentials.md) · [CredentialRef](../core-data-structures/credentials.md) · [ResolvedCredential](../core-data-structures/credentials.md)
+
+Source: [`packages/credentials/credentials/src/index.ts:72`](../../packages/credentials/credentials/src/index.ts)
+
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.

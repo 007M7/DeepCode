@@ -442,4 +442,54 @@ export abstract class Settings extends Service {
   }
 }
 
+/** Hooks a consumer hands to {@link installSettingsSection}. */
+export interface SettingsSectionHooks<T> {
+  /**
+   * Receive the active configuration source: the resolved settings scope
+   * while one is attached, the composition entry otherwise. Called before
+   * the matching `onChange` at attach and at detach.
+   * @param current - thunk returning the currently authoritative value.
+   */
+  setSource(current: () => T): void
+  /**
+   * Re-judge anything derived from the source — registration-level facts,
+   * memoized resolutions — after an attach, a detach, or a committed change.
+   */
+  onChange(): void
+}
+
+/**
+ * Install the canonical optional-settings consumer wiring: while a settings
+ * service exists, register `ns` with the consumer's composition entry as the
+ * `base` layer and point the source thunk at the resolved scope; when the
+ * service goes away (disposal, provider reload), fall back to the entry so
+ * the consumer keeps working exactly as composed. The registration rides the
+ * scoped fiber, so no settings service ever mounted means none of this runs.
+ * @param ctx - consumer plugin context owning the wiring.
+ * @param ns - the consumer-owned settings namespace.
+ * @param schema - schema resolving the namespace (typically the plugin Config).
+ * @param entry - the consumer's composition entry config, used as `base`.
+ * @param hooks - source sink and change notification.
+ */
+export function installSettingsSection<T>(
+  ctx: Context,
+  ns: SettingsNamespace,
+  schema: z<T>,
+  entry: T,
+  hooks: SettingsSectionHooks<T>,
+): void {
+  ctx.inject(['settings'], (sctx) => {
+    const scope = sctx.settings.register(ns, schema, { base: entry })
+    hooks.setSource(() => scope.get())
+    sctx.effect(() => () => {
+      hooks.setSource(() => entry)
+      hooks.onChange()
+    })
+    hooks.onChange()
+    scope.watch(() => {
+      hooks.onChange()
+    })
+  })
+}
+
 export default Settings

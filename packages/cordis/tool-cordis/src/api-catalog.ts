@@ -265,6 +265,28 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'credentials',
+    summary: 'Abstract credential service.',
+    methods: [
+      {
+        signature: 'abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>',
+        jsDoc: '/**\n * Resolve one reference to its current value. Resolution is per call:\n * consumers re-resolve at each operation and must not cache across\n * operations — that per-operation read is what makes a changed credential\n * reach the next operation without a restart.\n * @param ref - the reference to resolve.\n * @returns the value and its source, or `undefined` while unconfigured.\n */',
+      },
+      {
+        signature: 'abstract describe(ref: CredentialRef): Promise<CredentialInfo>',
+        jsDoc: '/**\n * Describe one reference for configuration surfaces without exposing the\n * value.\n * @param ref - the reference to describe.\n * @returns configured state, supplying source, and writability.\n */',
+      },
+      {
+        signature: 'abstract set(ref: CredentialRef, value: string): Promise<void>',
+        jsDoc: '/**\n * Durably store one value in the provider-managed writable source. Rejects\n * while a read-only source shadows the reference — the write would appear\n * to succeed while resolution keeps returning the shadowing value — and\n * rejects an empty value (use {@link unset}).\n * @param ref - the reference to store.\n * @param value - the non-empty secret value.\n */',
+      },
+      {
+        signature: 'abstract unset(ref: CredentialRef): Promise<void>',
+        jsDoc: '/**\n * Remove one reference from the provider-managed writable source; removing\n * an absent reference is a no-op. Rejects while a read-only source shadows\n * the reference, like {@link set}.\n * @param ref - the reference to remove.\n */',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
@@ -1209,6 +1231,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A command was registered or unregistered.',
   },
   {
+    name: 'credentials/updated',
+    mode: 'emit',
+    signature: '\'credentials/updated\'(ref: CredentialRef): void',
+    jsDoc: '/**\n * Committed change to a provider-managed credential source: a `set`, an\n * `unset`, or an external edit observed in storage. Ambient\n * process-environment changes are not observable and never emit.\n * @param ref - the reference whose stored value changed.\n * @mode emit\n */',
+    summary: 'Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage.',
+  },
+  {
     name: 'domain/changed',
     mode: 'emit',
     signature: '\'domain/changed\'(change: DomainChanged): void',
@@ -1675,6 +1704,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface CreateSessionOptions {\n    readonly seed?: readonly SessionEvent[];\n    readonly meta?: {\n        readonly cwd?: string;\n        readonly parentSession?: SessionId;\n        readonly createdAt?: number;\n        readonly seedLength?: number;\n        readonly delegationDepth?: number;\n    };\n}',
   },
   {
+    name: 'CredentialInfo',
+    declaration: 'export interface CredentialInfo {\n    configured: boolean;\n    source?: string;\n    writable: boolean;\n}',
+  },
+  {
+    name: 'CredentialRef',
+    declaration: 'export type CredentialRef = Branded<\'CredentialRef\'>;',
+  },
+  {
     name: 'DiffCallView',
     declaration: 'export interface DiffCallView {\n    card: \'diff\';\n    title: string;\n    diffs: FileDiff[];\n    locations?: FileLocation[];\n}',
   },
@@ -2057,6 +2094,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ResolvedAlwaysRetryPolicy',
     declaration: 'export interface ResolvedAlwaysRetryPolicy extends ResolvedRetryBackoff {\n    readonly mode: \'always\';\n}',
+  },
+  {
+    name: 'ResolvedCredential',
+    declaration: 'export interface ResolvedCredential {\n    value: string;\n    source: string;\n}',
   },
   {
     name: 'ResolvedNormalRetryPolicy',

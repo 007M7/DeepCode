@@ -47,5 +47,3 @@ export class MemoryCredentials extends Credentials {
     return Promise.resolve()
   }
 }
-
-export default MemoryCredentials
