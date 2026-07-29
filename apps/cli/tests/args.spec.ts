@@ -45,6 +45,9 @@ describe('parseDshArgs', () => {
       provider: 'anthropic',
       model: 'claude-opus-4-8',
     })
+    // --trusted-host is variadic and repeatable; authorities pass through unvalidated.
+    expect(parse(['web', '--trusted-host', 'harness.internal:3080', 'lab.internal', '--trusted-host', '10.0.0.9']))
+      .toEqual({ mode: 'web', dev: false, trustedHosts: ['harness.internal:3080', 'lab.internal', '10.0.0.9'] })
   })
 
   it('exits nonzero instead of silently starting fresh or dropping inputs', () => {

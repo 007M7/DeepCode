@@ -50,6 +50,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     useLexicon: bindSnapshotSelector(shell.lexicon),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
+    command: () => Promise.resolve(true),
     variant: 'composer',
   }
   return render(<InputBar {...props} />)

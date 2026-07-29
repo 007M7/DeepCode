@@ -37,6 +37,7 @@ switch (invocation.mode) {
       invocation.workspaceRoot,
       invocation.provider,
       invocation.model,
+      invocation.trustedHosts,
     )
     break
   }

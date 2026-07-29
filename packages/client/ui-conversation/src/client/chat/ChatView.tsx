@@ -31,7 +31,6 @@ import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem } from './MessageItem.tsx'
 import type { ImageLoader } from './MessageImage.tsx'
-import { PendingCard } from './PendingCard.tsx'
 import { StatsLine } from './StatsLine.tsx'
 import css from './ChatView.module.css'
 
@@ -233,7 +232,6 @@ export function ChatView({
   const running = useSession(s => s.running)
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
-  const pending = useSession(s => s.pending)
   const openState = useSession(s => s.openState)
   const openErrorMessage = useSession(s => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
   const hasMore = useSession(s => s.hasMore)
@@ -387,9 +385,9 @@ export function ChatView({
               ))}
             </div>
           )}
-          {pending.map(item => item.kind === 'approval'
-            ? <PendingCard key={item.key} item={item} />
-            : null)}
+          {/* No pending placeholders: questions (ui-question) and approvals
+              (ApprovalPanel) both take over the composer, so a flow card would
+              double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
           {running && <TurnDots />}

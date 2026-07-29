@@ -346,7 +346,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:36`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:49`](../packages/ui/permission/src/index.ts)
 
 ### `plan/*`
 

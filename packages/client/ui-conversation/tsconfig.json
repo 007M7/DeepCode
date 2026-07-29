@@ -46,6 +46,9 @@
     },
     {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../ui/permission"
     }
   ],
   "exclude": [

@@ -126,6 +126,21 @@ describe('live event path', () => {
     })
   })
 
+  it('command lifecycle rows alone keep the composer blank (hero survives a /permission or /plan switch)', async () => {
+    // A fresh session whose only window content is a command pair (plus the
+    // knob events a /permission switch appends — not surface-eligible, so
+    // they never become nodes) stays phase 'blank': selecting a preset from
+    // the hero must not enter the conversation view.
+    const { session } = await opened([])
+    expect(session.getSnapshot().composerPhase).toBe('blank')
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(0, 'cmd-perm', 'permission', ' danger-full-access'))
+    feed(ev.commandDone(1, 'cmd-perm', 'success', 'Permission preset: danger-full-access.'))
+    const snapshot = session.getSnapshot()
+    expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'command', name: 'permission' })
+    expect(snapshot.composerPhase).toBe('blank')
+  })
+
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }

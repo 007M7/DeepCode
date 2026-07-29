@@ -283,6 +283,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'directoryPicker',
+    summary: 'Abstract directory-picking service.',
+    methods: [
+      {
+        signature: 'abstract capability(): DirectoryPickerCapability',
+        jsDoc: '/**\n * The backend\'s interaction capability.\n * @returns the discriminated capability consumers switch on.\n */',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
@@ -431,6 +441,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'current(events: readonly SessionEvent[]): string',
         jsDoc: '/**\n * Resolve the preset matching the effective knob values. A still-matching\n * last selection wins shared-bundle ties; otherwise the first table match\n * wins, or {@link CUSTOM_PRESET} when no entry matches.\n * @param events - the session\'s events in log order.\n * @returns the effective preset name, or `custom` when nothing matches.\n */',
+      },
+      {
+        signature: 'selectFor(state: KnobState): PermissionSelect',
+        jsDoc: '/**\n * Build the whole select value for one folded knob state: every table\n * option in declaration order, `custom` appended exactly while derived.\n * @param state - the folded knob overrides.\n * @returns the `permissions` projection payload.\n */',
       },
       {
         signature: 'resolve(name: string): PresetSpec',
@@ -1672,6 +1686,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
   },
   {
+    name: 'DirectoryEntry',
+    declaration: 'export interface DirectoryEntry {\n    name: string;\n    path: string;\n    hidden: boolean;\n}',
+  },
+  {
+    name: 'DirectoryListing',
+    declaration: 'export interface DirectoryListing {\n    path: string;\n    home: string;\n    crumbs: DirectoryEntry[];\n    entries: DirectoryEntry[];\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'DirectoryPickerBrowseCapability',
+    declaration: 'export interface DirectoryPickerBrowseCapability {\n    kind: \'browse\';\n    list(path?: string, signal?: AbortSignal): Promise<DirectoryListing>;\n    createDirectory(path: string, name: string): Promise<string>;\n}',
+  },
+  {
+    name: 'DirectoryPickerCapabilities',
+    declaration: 'export interface DirectoryPickerCapabilities {\n    native: DirectoryPickerNativeCapability;\n    browse: DirectoryPickerBrowseCapability;\n}',
+  },
+  {
+    name: 'DirectoryPickerCapability',
+    declaration: 'export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities];',
+  },
+  {
+    name: 'DirectoryPickerNativeCapability',
+    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
+  },
+  {
     name: 'Domain',
     declaration: 'export interface Domain<S extends DomainSpec> {\n    readonly name: string;\n    readonly global: DomainGlobalHandleOf<S>;\n    table<N extends keyof S[\'tables\'] & string>(name: N): KvTable<TableKeyOf<S, N>, TableValueOf<S, N>>;\n    close(): Promise<void>;\n}',
   },
@@ -1848,6 +1886,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
   },
   {
+    name: 'KnobState',
+    declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
+  },
+  {
     name: 'KvTable',
     declaration: 'export interface KvTable<K extends string, V> {\n    get(key: K): V | undefined;\n    entries(): IterableIterator<[\n        K,\n        V\n    ]>;\n    keys(): IterableIterator<K>;\n    readonly size: number;\n    put(key: K, value: V): Promise<void>;\n    delete(key: K): Promise<boolean>;\n    update(key: K, fn: (current: V) => V): Promise<V>;\n}',
   },
@@ -1922,6 +1964,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ObjectJsonSchema',
     declaration: 'export type ObjectJsonSchema = JsonSchemaNode & {\n    type: \'object\';\n};',
+  },
+  {
+    name: 'PermissionSelect',
+    declaration: 'export interface PermissionSelect {\n    options: PresetOption[];\n    currentValue: string;\n}',
   },
   {
     name: 'PreparedLlmCall',

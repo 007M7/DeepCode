@@ -25,27 +25,28 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 
 | ctx key | Package family | Role |
 |---|---|---|
-| `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry and streaming model calls |
-| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | singleton replay-aware request and surface pressure |
+| `ctx.llm` | [`llm/`](../packages/llm/README.md) | adapter registry, streaming model calls |
+| `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | replay-aware request and surface pressure |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | foreground/background command execution |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process trees for the bash executors, the LSP host, and the ACP subagent backend |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | managed child-process trees for bash, LSP, and ACP subagent backends |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | owner-scoped persistent terminal sessions |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | same-world process confinement through argv wrapping and per-call policy |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | shared sandbox policy home |
 | `ctx.codeRuntime` | [`code-runtime/`](../packages/code-runtime/README.md) | model-written program execution |
 | `ctx.fs` | [`fs/`](../packages/fs/README.md) | filesystem provider primitives and policy events |
 | `ctx.lsp` | [`lsp/`](../packages/lsp/README.md) | semantic navigation registry |
-| `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry and progressive disclosure |
+| `ctx.skills` | [`skill/`](../packages/skill/README.md) | skill provider registry, progressive disclosure |
 | `ctx.web` | [`web/`](../packages/web/README.md) | search/fetch provider registries |
-| `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction and optional model-free result pruning |
+| `ctx.compact`, `ctx.toolResultPrune` | [`compact/`](../packages/compact/README.md)/[`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune/README.md) | summary compaction, optional model-free result pruning |
 | `ctx.subagents` | [`subagent/`](../packages/subagent/README.md) | named delegation providers |
 | `ctx.planMode` | [`plan/`](../packages/plan/README.md) | logged plan collaboration state |
-| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry and generic `task_*` controls |
+| `ctx.tasks` | [`tasks/`](../packages/tasks/README.md) | background task registry, generic `task_*` controls |
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | script-driven multi-agent orchestration |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | persisted same-session goals |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable session-log storage |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace interface, SQLite FTS backend, workspace-authorized model tools |
-| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks and one optional asynchronous provider |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace queries over SQLite FTS, workspace-authorized model tools |
+| `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks, one optional asynchronous provider |
+| `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI-host directory picking (`native`/`browse` interactions) |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry of package-owned runtime checks |
 
 ## Event

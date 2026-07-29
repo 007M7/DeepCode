@@ -1,4 +1,10 @@
-/** Shared no-shell `execFile` runner for native host dialogs and openers. */
+/**
+ * Shared no-shell `execFile` runner for host-native OS integrations (the
+ * native directory chooser, the open-with-default-application hand-off):
+ * utf8 stdio capture, abort propagation, Windows console hide. A library,
+ * not a plugin — no ctx, no state, no events.
+ * @module @deepseek-ai/dsh-native-command
+ */
 
 import { execFile } from 'node:child_process'
 

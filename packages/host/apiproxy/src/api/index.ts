@@ -32,7 +32,7 @@ export type {
   ModelReasoningEffort, ModelTarget, PromptContentPart, SessionModels, SessionProjectionsBlock,
   SessionsApi, SessionSummary,
 } from './sessions.ts'
-export type { HostApi } from './host.ts'
+export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { CommandsApi, CommandDescriptor } from './commands.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'

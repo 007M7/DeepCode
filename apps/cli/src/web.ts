@@ -6,17 +6,14 @@
  * gates them at boot.
  */
 
-import { networkInterfaces } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { AppCLIEntry } from './app-cli-entry.ts'
 
 const CONFIG_PATH = fileURLToPath(new URL('../cordis.yml', import.meta.url))
 
-// Display-only mirrors of the webserver schema's allowed hosts: the loopback
-// address the local URL always prints, and the all-interfaces value that gates
-// LAN-address discovery. Not a source of truth — the schema is.
+// Display-only mirror of the webserver schema's loopback host: the address the
+// local URL always prints. Not a source of truth — the schema is.
 const LOOPBACK_HOST = '127.0.0.1'
-const ALL_INTERFACES_HOST = '0.0.0.0'
 
 /**
  * Serve the browser UI from the shipped config tree. `host`/`port` are passed
@@ -27,6 +24,7 @@ const ALL_INTERFACES_HOST = '0.0.0.0'
  * @param workspaceRoot - parent directory for name-created workspaces, or `undefined` for the gateway's cwd fallback.
  * @param provider - provider override, or `undefined` to keep the profile/config route.
  * @param model - model override, or `undefined` to keep the profile/config route.
+ * @param trustedHosts - extra authorities for the /api browser-trust fence, or `undefined` for the derived LAN literals alone.
  */
 export async function runWeb(
   host: string | undefined,
@@ -35,6 +33,7 @@ export async function runWeb(
   workspaceRoot: string | undefined,
   provider: string | undefined,
   model: string | undefined,
+  trustedHosts: string[] | undefined,
 ): Promise<void> {
   const entry = new AppCLIEntry({
     configPath: CONFIG_PATH,
@@ -44,6 +43,7 @@ export async function runWeb(
     ...workspaceRoot !== undefined && { workspaceRoot },
     ...provider !== undefined && { provider },
     ...model !== undefined && { model },
+    ...trustedHosts !== undefined && { trustedHosts },
   })
   const { ctx, port: boundPort } = await entry.run()
 
@@ -54,12 +54,11 @@ export async function runWeb(
     void Promise.resolve(ctx.fiber.dispose()).finally(() => { process.exit(code) })
   }
 
-  const lanCandidate = host === ALL_INTERFACES_HOST
-    ? Object.values(networkInterfaces()).flat()
-      .find(iface => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
-    : undefined
+  // The entry's boot-time snapshot, not a fresh sample: the printed LAN URL
+  // must name an address the /api trust fence was configured with.
+  const lanCandidate = entry.lanAddresses[0]
   const localUrl = `http://${LOOPBACK_HOST}:${boundPort}`
-  console.log(`dsh web: ${localUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate.address}:${boundPort})`}`)
+  console.log(`dsh web: ${localUrl}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${boundPort})`}`)
 
   process.on('SIGTERM', () => { shutdown(0) })
   process.on('SIGINT', () => { shutdown(130) })

@@ -16,6 +16,7 @@ import type {} from '@deepseek-ai/dsh-plan-mode/client'
 import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import { ImageLightbox } from './ImageLightbox.tsx'
+import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
 /** Prompt failure surface (derived from promptError). */
@@ -26,14 +27,9 @@ export interface InputBarError {
 
 export type InputBarProps = ComposerBarProps
 
-const READONLY_OPTIONS: readonly { id: string; label: string }[] = [
-  { id: 'readonly', label: 'Read-only' },
-  { id: 'readwrite', label: 'Read-write' },
-]
-
 export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
-  stop, renderSlot, useNotices, useLexicon, useProjection,
+  stop, command, renderSlot, useNotices, useLexicon, useProjection,
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
@@ -71,9 +67,9 @@ export function InputBar({
     }, 10)
   }
 
-  // Placeholder chrome: Access selection stays local until its seam lands
-  // (plan/model are real seats now — the named single slots below).
-  const [readonlyId, setReadonlyId] = useState('readonly')
+  // The Access seat's data: the host-computed permissions projection
+  // (undefined = capability absent → the chip renders nothing).
+  const permissions = useProjection('permissions')
 
   // Queue cut 1: running input stays free; locked = session disabled only.
   // The transient machine locks (adjudicating pending / submitting) render
@@ -290,19 +286,10 @@ export function InputBar({
     if (!empty && !disabled && !machineBusy) inputActions.submit('queue')
   }
 
-  // Access placeholder select (the one remaining local-chrome control).
+  // The Access seat: the projection-fed permission chip (renders nothing
+  // while the permissions key is absent — permission-less host or Draft).
   const accessSelect: ReactNode = (
-    <select
-      className={css.select}
-      aria-label="Access mode"
-      value={readonlyId}
-      disabled={locked}
-      onChange={(e: ChangeEvent<HTMLSelectElement>) => { setReadonlyId(e.target.value) }}
-    >
-      {READONLY_OPTIONS.map(opt => (
-        <option key={opt.id} value={opt.id}>{opt.label}</option>
-      ))}
-    </select>
+    <PermissionSelect value={permissions} locked={locked} command={command} />
   )
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The

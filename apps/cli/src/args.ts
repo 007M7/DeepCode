@@ -43,6 +43,8 @@ interface WebInvocation {
   workspaceRoot?: string
   provider?: string
   model?: string
+  /** Extra authorities for the /api browser-trust fence (`host` or `host:port`); LAN IP literals are derived, not listed here. */
+  trustedHosts?: string[]
 }
 
 /** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
@@ -56,6 +58,7 @@ interface WebOptions {
   workspaceRoot?: string
   provider?: string
   model?: string
+  trustedHost?: string[]
 }
 
 /**
@@ -73,6 +76,7 @@ function resolveWeb(options: WebOptions): WebInvocation {
     ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
     ...options.provider !== undefined && { provider: options.provider },
     ...options.model !== undefined && { model: options.model },
+    ...options.trustedHost !== undefined && { trustedHosts: options.trustedHost },
   }
 }
 
@@ -126,6 +130,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .option('--workspace-root <path>', 'parent directory for name-created workspaces')
     .option('--provider <name>', 'override the host default provider')
     .option('--model <id>', 'override the host default model')
+    .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .action((options: WebOptions) => {
       // Commander parses the parent (default-surface) options on either side of
       // the subcommand into `program.opts()`. `web` shares none of them, so a

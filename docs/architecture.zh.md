@@ -28,7 +28,7 @@
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | 适配器注册表和模型流式调用 |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的单实例请求压力与表面压力 |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | 前台和后台命令执行 |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 供 bash 执行器、LSP host 与 ACP subagent 后端使用的受管子进程树 |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 供 bash、LSP 与 ACP subagent 后端使用的受管子进程树 |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | 按 owner 隔离的持久化终端会话 |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | 通过 argv 包装和逐调用策略限制同一执行环境内的进程 |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | 共享沙箱策略归属点 |
@@ -44,8 +44,9 @@
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久化存储 |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 实时优先的精确检索／过滤／追踪接口、SQLite 全文搜索后端、经工作区授权的模型工具 |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 基于 SQLite 全文搜索的实时优先精确检索／过滤／追踪、经工作区授权的模型工具 |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题和单个可选异步提供方 |
+| `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI 宿主目录选取（`native`／`browse` 交互） |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 
 ## 事件
