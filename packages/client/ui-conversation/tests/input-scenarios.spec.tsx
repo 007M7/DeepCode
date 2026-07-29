@@ -133,6 +133,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     useLexicon: bindSnapshotSelector(shell.lexicon),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
+    command: () => Promise.resolve(true),
     variant: 'composer',
   }
   const view = render(<InputBar {...barProps} />)

@@ -69,9 +69,22 @@ describe('createFixtureApi', () => {
     // tail block still rides it — empty-log cut at -1, the host convention.
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    // Fixture composes the todos unit (host parallel when tool-todo is mounted): null before any write.
+    // Fixture composes the todos + plan units (host parallel when tool-todo
+    // and plan-mode are mounted): the empty-log values.
     expect(empty.result.value).toEqual({
-      events: [], hasMore: false, projections: { asOfSeq: -1, values: { todos: null } },
+      events: [], hasMore: false, projections: { asOfSeq: -1, values: {
+        todos: null,
+        // Permission unit composed: the composition-default select.
+        permissions: {
+          options: [
+            { value: 'workspace-write', name: 'workspace-write', description: 'Write inside the workspace and permitted temporary directories; wider retries require approval.' },
+            { value: 'danger-full-access', name: 'danger-full-access', description: 'Full file access without approval prompts.' },
+          ],
+          currentValue: 'workspace-write',
+        },
+        plan: { active: false, pending: false },
+        goal: null,
+      } },
     })
   })
 
@@ -206,7 +219,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 4) abort.abort()
+        if (envelopes.length >= 8) abort.abort()
       }
       return envelopes
     }
@@ -214,13 +227,16 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    // Projection baseline frames follow the subscribed frame (title + todos units).
+    // Projection baseline frames follow the subscribed frame (title + todos + permissions + plan + goal units).
     expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
-    expect(first[3]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[3]?.rpcId).toBe(first[3]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[4]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[4]?.rpcId).toBe(first[4]?.rpcId)
+    expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'permissions' })
+    expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
+    expect(first[5]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
+    expect(first[6]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[6]?.rpcId).toBe(first[6]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[7]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[7]?.rpcId).toBe(first[7]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
@@ -307,12 +323,66 @@ describe('createFixtureApi', () => {
     })).toEqual({ accepted: true })
   })
 
+  it('respond answers the resident approval once: routing, validation, resolved broadcast, then not-pending', async () => {
+    const api = createFixtureApi()
+    // Discover the resident approval's stable rpcId from the mux baseline.
+    const abort = new AbortController()
+    const seen: { rpcId: string; frame: MuxFrame }[] = []
+    const consuming = (async () => {
+      for await (const envelope of api.events.mux(req({}), abort.signal)) seen.push({ rpcId: envelope.rpcId, frame: envelope.payload })
+    })()
+    await vi.waitFor(() => {
+      expect(seen.some(s => s.frame.type === 'approval/requested')).toBe(true)
+    })
+    const requested = seen.find(s => s.frame.type === 'approval/requested')
+    if (requested === undefined || requested.frame.type !== 'approval/requested') throw new Error('unreachable')
+    const approvalId = requested.frame.approvalId
+
+    // Routed but malformed answers.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: false, error: { code: 'internal', message: 'x', details: {} } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { approvalId: 'wrong', outcome: 'rejected' } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { approvalId, outcome: 'maybe' } } }))
+      .toEqual({ accepted: false, reason: 'bad-response' })
+    // The real answer settles the question and broadcasts resolved.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { sessionId: sid('fx-alpha'), approvalId, outcome: 'allowed-once' } } }))
+      .toEqual({ accepted: true })
+    await vi.waitFor(() => {
+      expect(seen.some(s => s.frame.type === 'approval/resolved' && s.frame.outcome === 'allowed-once')).toBe(true)
+    })
+    // Settled: a duplicate answer is late, and a fresh mux open replays nothing.
+    expect(await api.respond({ type: 'client-response', rpcId: RpcId(requested.rpcId), result: { ok: true, value: { sessionId: sid('fx-alpha'), approvalId, outcome: 'rejected' } } }))
+      .toEqual({ accepted: false, reason: 'not-pending' })
+    abort.abort()
+    await consuming
+    const abort2 = new AbortController()
+    const replayed = await collect(api.events.mux(req({}), abort2.signal), abort2, frames => frames.length === 2)
+    expect(replayed.some(f => f.type === 'approval/requested')).toBe(false)
+  })
+
   it('describe answers the fixture identity', async () => {
     const api = createFixtureApi()
     const response = await api.host.describe(req({}))
     expect(response.result).toMatchObject({ ok: true, value: { version: '0.0.0-fixture', attachedSessions: 1 } })
     const empty = await createFixtureApi({ empty: true }).host.describe(req({}))
     expect(empty.result).toMatchObject({ ok: true, value: { attachedSessions: 0 } })
+  })
+
+  it('createDirectory under the root mints /name whose listing and crumbs share the identity', async () => {
+    const api = createFixtureApi()
+    const created = await api.host.createDirectory(req({ path: '/', name: 'srv' }))
+    if (!created.result.ok) throw new Error('create failed')
+    expect(created.result.value.path).toBe('/srv')
+    const listed = await api.host.listDirectory(req({ path: '/srv' }), new AbortController().signal)
+    if (!listed.result.ok) throw new Error('list failed')
+    expect(listed.result.value.crumbs).toEqual([
+      { name: '/', path: '/', hidden: false },
+      { name: 'srv', path: '/srv', hidden: false },
+    ])
+    const root = await api.host.listDirectory(req({ path: '/' }), new AbortController().signal)
+    if (!root.result.ok) throw new Error('root list failed')
+    expect(root.result.value.entries).toContainEqual({ name: 'srv', path: '/srv', hidden: false })
   })
 
   it('workspace.list serves the resident account and create reuses on path collision', async () => {
@@ -698,6 +768,29 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const moved = await client.workspace.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
     if (!moved.result.ok) throw new Error('workspace move failed')
     expect(moved.result.value.workspace.sessionIds).toEqual([attached.result.value.sessionId])
+    // Goal lifecycle over the fixture fold: create → edit → pause → resume → complete → clear;
+    // every mutation acknowledges with the NEW CAS ref (state rides the projection frames).
+    const goalCreated = await client.goals.create({ sessionId: id, objective: 'ship it' })
+    if (!goalCreated.result.ok) throw new Error('goal create failed')
+    let ref = goalCreated.result.value.ref
+    expect(ref.revision).toBe(1)
+    const edited = await client.goals.edit({ sessionId: id, ref, objective: 'ship it v2' })
+    if (!edited.result.ok) throw new Error('goal edit failed')
+    ref = edited.result.value.ref
+    const paused = await client.goals.pause({ sessionId: id, ref })
+    if (!paused.result.ok) throw new Error('goal pause failed')
+    ref = paused.result.value.ref
+    const resumed = await client.goals.resume({ sessionId: id, ref })
+    if (!resumed.result.ok) throw new Error('goal resume failed')
+    ref = resumed.result.value.ref
+    // A stale ref loses the CAS check.
+    expect((await client.goals.pause({ sessionId: id, ref: { ...ref, revision: 1 } })).result.ok).toBe(false)
+    const completed = await client.goals.complete({ sessionId: id, ref })
+    if (!completed.result.ok) throw new Error('goal complete failed')
+    ref = completed.result.value.ref
+    // complete → complete is an invalid transition.
+    expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.clear({ sessionId: id, ref })).result).toEqual({ ok: true, value: { cleared: true } })
   })
 
   it('maps empty, prompt-reject, and workspace-first query scenarios', async () => {

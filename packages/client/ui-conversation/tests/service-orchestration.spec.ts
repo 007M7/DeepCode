@@ -1,39 +1,32 @@
 // @vitest-environment jsdom
+// ConversationService scope addressing over the runtime's real scope tag:
+// TestSessions mints tagged scopes through the production createScope, so the
+// service's scopeOf/binding path runs against production resolution (no local
+// tag probe).
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import { scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { ConversationService } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { InputHub } from '../src/client/input/hub.ts'
 
-const sid = (id: string) => id as SessionId
-const SCOPE_TAG: symbol = (() => {
-  const reads: (string | symbol)[] = []
-  const proxy = new Proxy(new Context(), {
-    get(target, property, receiver): unknown {
-      reads.push(property)
-      return Reflect.get(target, property, receiver)
-    },
-  })
-  void scopeOf(proxy)
-  return reads.find((value): value is symbol => typeof value === 'symbol')!
-})()
-
-async function bench(withSessions = true) {
-  const ctx = new Context()
+async function bench() {
+  const runtime = await SlotTestRuntime.create()
   const prompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const cancel = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const loadOlder = vi.fn(() => Promise.resolve())
-  const sessions = {
-    binding: (sessionId: SessionId) => ({
-      sessionId, session: { prompt, cancel, loadOlder },
-    }),
-    scopeOf,
-  } as unknown as SessionsService
-  if (withSessions) ctx.provide('sessions', sessions)
-  await ctx.plugin(ConversationService).await()
-  const root = ctx.get('conversation') as ConversationService
-  const scoped = ctx.plugin(() => {}).ctx.extend({ [SCOPE_TAG]: sid('s1') }).get('conversation') as ConversationService
-  return { root, scoped, prompt, cancel, loadOlder }
+  await runtime.sessions.add({
+    id: 's1',
+    session: { prompt, cancel, loadOlder },
+  })
+  // config.input is required (the apply shares its hub with the inject
+  // factories); the bench passes its own instance explicitly.
+  const fiber = runtime.ctx.plugin(ConversationService, {
+    input: new InputHub(runtime.ctx),
+  })
+  await fiber.await()
+  const root = runtime.ctx.get('conversation') as ConversationService
+  const scoped = runtime.sessions.scope('s1')!.get('conversation') as ConversationService
+  return { runtime, root, scoped, prompt, cancel, loadOlder }
 }
 
 describe('ConversationService', () => {
@@ -45,6 +38,7 @@ describe('ConversationService', () => {
     expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'steer')
     expect(b.cancel).toHaveBeenCalledOnce()
     expect(b.loadOlder).toHaveBeenCalledOnce()
+    await b.runtime.dispose()
   })
 
   it('folds Session business failures into callback rejections', async () => {
@@ -53,12 +47,21 @@ describe('ConversationService', () => {
     await expect(b.scoped.send('x', 'queue')).rejects.toThrow('conversation.send failed: agent-busy: busy')
     b.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'nope', details: {} } } as never)
     await expect(b.scoped.cancel()).rejects.toThrow('conversation.cancel failed: internal: nope')
+    await b.runtime.dispose()
   })
 
-  it('fails loudly from the root scope or without SessionsService', async () => {
+  it('fails loudly from the root scope, on an unbound session, or without SessionsService', async () => {
     const b = await bench()
     await expect(b.root.send('x', 'queue')).rejects.toThrow(/requires a session scope/)
-    const missing = await bench(false)
-    await expect(missing.root.send('x', 'queue')).rejects.toThrow(/sessions service unavailable/)
+    await b.runtime.sessions.remove('s1')
+    await expect(b.scoped.send('x', 'queue')).rejects.toThrow(/resolved no binding/)
+    await b.runtime.dispose()
+    // No SessionsService at all: a bare context (the runtime always provides one).
+    const bare = new Context()
+    await bare.plugin(ConversationService, {
+      input: new InputHub(bare),
+    }).await()
+    const orphan = bare.get('conversation') as ConversationService
+    await expect(orphan.send('x', 'queue')).rejects.toThrow(/sessions service unavailable/)
   })
 })

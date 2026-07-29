@@ -20,6 +20,7 @@ import {
   refreshFixtureReplacements,
   scrubRequestHeaders,
   stabilizeRefreshLog,
+  tokenizeSessionFixtureCwd,
   type HarvestedLog,
   type NormalizeContext,
 } from '@deepseek-ai/dsh-acp-snapshot'
@@ -238,7 +239,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         await Promise.all(ordered.map(async (log, index) => {
           const file = fixtureFiles(scenario)[index]
           if (file === undefined) throw new Error(`no fixture path for persisted log ${index}`)
-          await writeFile(file, scrubRequestHeaders(log.content))
+          await writeFile(file, scrubRequestHeaders(tokenizeSessionFixtureCwd(log.content)))
         }))
       }
 
@@ -257,10 +258,17 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           const existing = expectedContents[index]
           const file = files[index]
           if (existing === undefined || file === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          const stable = stabilizeRefreshLog(log.content, existing, replacements, actualContext)
+          const stable = scrubRequestHeaders(tokenizeSessionFixtureCwd(
+            stabilizeRefreshLog(log.content, existing, replacements, actualContext),
+          ))
           await writeFile(file, stable)
           return stable
         }))
+      }
+
+      for (const [index, expected] of expectedContents.entries()) {
+        expect(scrubRequestHeaders(expected), `${scenario.name} session fixture ${index} carries request-header bulk`)
+          .toBe(expected)
       }
 
       // Persisted transcripts match the committed fixtures.

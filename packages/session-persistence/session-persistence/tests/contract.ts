@@ -289,6 +289,43 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
         await expect(persistence.listSnapshots(controller.signal)).rejects.toBe(reason)
         await expect(persistence.inspect(SessionId('cancelled-inspect'), controller.signal))
           .rejects.toBe(reason)
+        await expect(persistence.readFrom(SessionId('cancelled-read-from'), 0, controller.signal))
+          .rejects.toBe(reason)
+      } finally {
+        await dispose()
+      }
+    })
+
+    it('readFrom returns exactly the stored suffix from the requested seq, without mutating the log', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('read-from', '/work')
+        const log = oneTurnLog()
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+
+        const whole = await persistence.readFrom(m.id, 0)
+        expect(whole.meta).toMatchObject({ id: m.id, cwd: '/work' })
+        expect(whole.events).toEqual(log)
+
+        const suffix = await persistence.readFrom(m.id, 3)
+        expect(suffix.events).toEqual(log.slice(3))
+        expect(suffix.events[0]?.seq).toBe(3)
+
+        // At/past the stored end: an empty tail, never an error.
+        await expect(persistence.readFrom(m.id, log.length)).resolves.toMatchObject({ events: [] })
+        await expect(persistence.readFrom(m.id, log.length + 100)).resolves.toMatchObject({ events: [] })
+
+        // Non-mutating: an interrupted-turn log is served as stored, no closers.
+        await persistence.append(m.id, [
+          { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+        ])
+        const tail = await persistence.readFrom(m.id, 6)
+        expect(tail.events.map(event => event.type)).toEqual(['turn/start'])
+
+        await expect(persistence.readFrom(SessionId('absent-read-from'), 0)).rejects.toThrow('not found')
+        await expect(persistence.readFrom(m.id, -1)).rejects.toThrow('non-negative safe integer')
+        await expect(persistence.readFrom(m.id, 1.5)).rejects.toThrow('non-negative safe integer')
       } finally {
         await dispose()
       }

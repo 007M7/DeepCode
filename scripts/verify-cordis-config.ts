@@ -1,10 +1,10 @@
 /**
- * Validate Cordis Loader entry metadata and example package resolution.
+ * Validate Cordis Loader entry metadata and package resolution.
  *
  * The Loader interpolates only a plugin entry's `config`; expression objects in
  * fields such as `disabled` remain truthy data and silently change composition.
- * Example configs run from built packages, so every named package must resolve
- * from the examples workspace and every local package must be in the root
+ * Example configs and the dsh Web composition resolve named plugins from their
+ * owning workspace manifests. Local example packages must also be in the root
  * TypeScript project graph.
  */
 
@@ -42,7 +42,7 @@ const schema = yaml.JSON_SCHEMA.extend(jsExprType)
 
 const files = cordisConfigFiles(root)
 const errors: string[] = []
-const examplePluginReferences: PluginReference[] = []
+const pluginReferences: PluginReference[] = []
 
 for (const file of files) {
   const document: unknown = yaml.load(readFileSync(resolve(root, file), 'utf8'), { schema })
@@ -56,9 +56,10 @@ for (const file of files) {
 }
 
 errors.push(...validateExampleResolution())
+errors.push(...validateAppResolution())
 
 if (errors.length > 0) {
-  console.error('verify-cordis-config: invalid Loader metadata or example package resolution:')
+  console.error('verify-cordis-config: invalid Loader metadata or plugin package resolution:')
   for (const error of errors) console.error(`- ${error}`)
   process.exitCode = 1
 } else {
@@ -70,7 +71,7 @@ function validateEntry(value: unknown, file: string, path: string): void {
     errors.push(`${file}${path}: entry must be an object`)
     return
   }
-  recordExamplePlugin(value, file)
+  recordPlugin(value, file)
   validateMetadata(value, file, path)
   if ((value.group === true || value.name === '@cordisjs/plugin-group') && isUnknownArray(value.config)) {
     for (let index = 0; index < value.config.length; index++) {
@@ -84,7 +85,7 @@ function validateEntry(value: unknown, file: string, path: string): void {
     const patch = config.patches[index]
     const patchPath = `${path}.config.patches[${index}]`
     if (!isRecord(patch)) continue
-    recordExamplePlugin(patch, file)
+    recordPlugin(patch, file)
     validateMetadata(patch, file, patchPath)
     if (!isUnknownArray(patch.insert)) continue
     for (let insertIndex = 0; insertIndex < patch.insert.length; insertIndex++) {
@@ -93,10 +94,8 @@ function validateEntry(value: unknown, file: string, path: string): void {
   }
 }
 
-function recordExamplePlugin(entry: Record<string, unknown>, file: string): void {
-  if (file.startsWith('examples/') && typeof entry.name === 'string') {
-    examplePluginReferences.push({ file, name: entry.name })
-  }
+function recordPlugin(entry: Record<string, unknown>, file: string): void {
+  if (typeof entry.name === 'string') pluginReferences.push({ file, name: entry.name })
 }
 
 function validateExampleResolution(): string[] {
@@ -105,25 +104,13 @@ function validateExampleResolution(): string[] {
   const dependencies = exampleManifest.dependencies ?? {}
   const localPackages = localPackageDirectories()
   const rootReferences = rootProjectReferences()
-  const requiredPackages = new Map<string, Set<string>>()
-
-  for (const reference of examplePluginReferences) {
-    const packageName = packageNameFromSpecifier(reference.name)
-    if (packageName === undefined) continue
-    const locations = requiredPackages.get(packageName) ?? new Set<string>()
-    locations.add(reference.file)
-    requiredPackages.set(packageName, locations)
-  }
-
-  for (const [packageName, locations] of requiredPackages) {
-    if (!(packageName in dependencies)) {
-      violations.push(`${[...locations].join(', ')}: ${packageName} must be declared in examples/package.json dependencies`)
-    }
-  }
+  const exampleReferences = pluginReferences.filter(reference => reference.file.startsWith('examples/'))
+  violations.push(...missingPluginDependencies(exampleReferences, dependencies, 'examples/package.json'))
+  const requiredPackages = new Set(exampleReferences.map(reference => packageNameFromSpecifier(reference.name)))
 
   const localExamplePackages = new Set([
     ...Object.keys(dependencies),
-    ...requiredPackages.keys(),
+    ...[...requiredPackages].filter(packageName => packageName !== undefined),
   ])
   for (const packageName of localExamplePackages) {
     const packageDirectory = localPackages.get(packageName)
@@ -133,6 +120,30 @@ function validateExampleResolution(): string[] {
   }
 
   return violations
+}
+
+function validateAppResolution(): string[] {
+  const dependencies = readManifest('apps/cli/package.json').dependencies ?? {}
+  const references = pluginReferences.filter(reference => reference.file === 'apps/cli/cordis.yml')
+  return missingPluginDependencies(references, dependencies, 'apps/cli/package.json')
+}
+
+function missingPluginDependencies(
+  references: readonly PluginReference[],
+  dependencies: Readonly<Record<string, string>>,
+  manifestPath: string,
+): string[] {
+  const requiredPackages = new Map<string, Set<string>>()
+  for (const reference of references) {
+    const packageName = packageNameFromSpecifier(reference.name)
+    if (packageName === undefined) continue
+    const locations = requiredPackages.get(packageName) ?? new Set<string>()
+    locations.add(reference.file)
+    requiredPackages.set(packageName, locations)
+  }
+  return [...requiredPackages].flatMap(([packageName, locations]) => packageName in dependencies
+    ? []
+    : `${[...locations].join(', ')}: ${packageName} must be declared in ${manifestPath} dependencies`)
 }
 
 function readManifest(path: string): PackageManifest {
@@ -177,7 +188,7 @@ function rootProjectReferences(): Set<string> {
 }
 
 function packageNameFromSpecifier(specifier: string): string | undefined {
-  if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('file:')) return undefined
+  if (specifier.startsWith('.') || specifier.startsWith('/') || /^[a-z][a-z+.-]*:/i.test(specifier)) return undefined
   const segments = specifier.split('/')
   if (specifier.startsWith('@')) {
     return segments.length >= 2 ? `${segments[0]}/${segments[1]}` : undefined

@@ -1,7 +1,7 @@
 /** Model-visible rendering for durable goal mutations. */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { GoalChangeMeta } from './types.ts'
+import type { GoalChangeMeta } from './domain.ts'
 
 /**
  * Render a complete goal snapshot or clear tombstone without hidden prose.

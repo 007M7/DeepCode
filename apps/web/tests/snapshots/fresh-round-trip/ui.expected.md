@@ -1,7 +1,6 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Use the bash tool to" [disabled]
-    - text: · 1 turns
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -16,10 +15,12 @@
 - button "▸ 上下文注入"
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
+  - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
 - img
 - text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
+  - img
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
 - paragraph: DONE
@@ -27,9 +28,11 @@
 - textbox "Message the agent"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

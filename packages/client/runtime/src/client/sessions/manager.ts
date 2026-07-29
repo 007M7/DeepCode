@@ -63,6 +63,11 @@ export class SessionManager {
    * cannot be backfilled when get() lazily creates the Session.
    */
   private readonly modelRequestContextWindows = new Map<SessionId, number>()
+  /** Outstanding approval questions per session, keyed by approvalId (idempotent under mux-open
+   *  replays of the same requested frame). Manager-owned rather than read off Session instances
+   *  because the sidebar must light up for sessions never instantiated. Cleared per connection
+   *  generation — the reopen replay re-adds still-pending questions — and on session-removed. */
+  private readonly waitingApprovals = new Map<SessionId, Set<string>>()
   /** Per-session projection value stores, retained independently of instance arrival (the
    *  title-snapshot precedent, generalized): push frames land here whether or not the Session
    *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
@@ -220,6 +225,19 @@ export class SessionManager {
             session.handleBlank(s.blank)
             session.handleRunning(s.running)
           }
+          // Seed each row's projection baseline into the per-session value
+          // store (cold titles surface without opening the session). Per-key
+          // apply, not seed(): the list block is a partial baseline — the
+          // cold cache serves only version-matching keys — so an absent key
+          // must not clear; higher-seq-wins still keeps a stale list block
+          // from overwriting a newer push frame or tail baseline.
+          for (const s of result.value.items) {
+            const block = s.projections
+            if (block === undefined) continue
+            const store = this.projectionStore(s.sessionId)
+            const values = block.values as Record<string, unknown>
+            for (const key of Object.keys(values)) store.apply(key, values[key], block.asOfSeq)
+          }
         } else {
           this.listState = 'error'
           this.listError = result.error
@@ -362,6 +380,22 @@ export class SessionManager {
         }
       }
     }
+    // List-level waiting-approval bit (the sidebar amber dot): tracked here for
+    // every session, instantiated or not; approvalId keys make replays idempotent.
+    if (frame.type === 'approval/requested') {
+      let ids = this.waitingApprovals.get(frame.sessionId)
+      if (ids === undefined) this.waitingApprovals.set(frame.sessionId, ids = new Set())
+      if (!ids.has(frame.approvalId)) {
+        ids.add(frame.approvalId)
+        this.notifier.markDirty()
+      }
+    } else if (frame.type === 'approval/resolved') {
+      const ids = this.waitingApprovals.get(frame.sessionId)
+      if (ids !== undefined && ids.delete(frame.approvalId)) {
+        if (ids.size === 0) this.waitingApprovals.delete(frame.sessionId)
+        this.notifier.markDirty()
+      }
+    }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
       // Approval/question/queued frames never hit history: buffer for replay on
@@ -407,6 +441,7 @@ export class SessionManager {
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
         this.modelRequestContextWindows.delete(frame.sessionId) // connection-local request capacity dies with the Host session
+        this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
         this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
         return
       }
@@ -424,16 +459,36 @@ export class SessionManager {
     }
   }
 
+  /**
+   * The moment a connection generation dies (before any next-generation frame
+   * can arrive — onConnected waits for the readiness handshake while replayed
+   * frames flow from stream open, so clearing there would race the replay):
+   * drop generation-scoped live state. Approvals resolved while disconnected
+   * send no frame, so the stale bits and the buffered answerable frames must
+   * not survive into the next generation — the mux-open replay re-adds every
+   * still-pending question with its live rpcId.
+   */
+  handleDisconnected(): void {
+    if (this.waitingApprovals.size > 0) {
+      this.waitingApprovals.clear()
+      this.notifier.markDirty()
+    }
+    for (const [sessionId, buffer] of [...this.pendingBuffers]) {
+      const kept = buffer.filter(item =>
+        item.payload.type !== 'approval/requested' && item.payload.type !== 'approval/resolved'
+        && item.payload.type !== 'question/requested' && item.payload.type !== 'question/resolved')
+      if (kept.length === buffer.length) continue
+      if (kept.length === 0) this.pendingBuffers.delete(sessionId)
+      else this.pendingBuffers.set(sessionId, kept)
+    }
+    this.modelRequestContextWindows.clear()
+    for (const session of this.sessions.values()) session.handleReconnecting()
+  }
+
   /** After each connection generation: refresh the session baseline and rebuild opened windows. */
   handleConnected(): void {
     void this.refreshList()
     for (const session of this.sessions.values()) void session.resync()
-  }
-
-  /** Before a replacement stream generation, discard values the Host does not replay. */
-  handleReconnecting(): void {
-    this.modelRequestContextWindows.clear()
-    for (const session of this.sessions.values()) session.handleReconnecting()
   }
 
   private buildListSnapshot(): SessionListSnapshot {
@@ -445,7 +500,7 @@ export class SessionManager {
         ? { ...summary, title }
         : summary
     })
-    const fresh = flattenLineage(merged)
+    const fresh = flattenLineage(merged, new Set(this.waitingApprovals.keys()))
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
@@ -453,6 +508,7 @@ export class SessionManager {
         && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.title === entry.title && prev.depth === entry.depth
+        && prev.waitingApproval === entry.waitingApproval
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry
