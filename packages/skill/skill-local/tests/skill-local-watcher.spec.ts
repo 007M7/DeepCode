@@ -18,12 +18,18 @@ interface FakeWatchFileControl {
   listener(current: Stats, previous: Stats): void
 }
 
+interface FakeStatGate {
+  started: PromiseWithResolvers<undefined>
+  release: PromiseWithResolvers<undefined>
+}
+
 const watcherHarness = vi.hoisted(() => ({
   watchers: [] as FakeWatcherControl[],
   startupErrors: [] as Error[],
   closeErrors: 0,
   deferredReady: 0,
   watchFiles: [] as FakeWatchFileControl[],
+  statGates: [] as FakeStatGate[],
 }))
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -36,6 +42,21 @@ vi.mock('node:fs', async (importOriginal) => {
     unwatchFile(path: string, listener: FakeWatchFileControl['listener']) {
       const index = watcherHarness.watchFiles.findIndex(control => control.path === path && control.listener === listener)
       if (index !== -1) watcherHarness.watchFiles.splice(index, 1)
+    },
+  }
+})
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    async stat(...args: Parameters<typeof actual.stat>) {
+      const gate = watcherHarness.statGates.shift()
+      if (gate !== undefined) {
+        gate.started.resolve(undefined)
+        await gate.release.promise
+      }
+      return await actual.stat(...args)
     },
   }
 })
@@ -89,6 +110,7 @@ beforeEach(() => {
   watcherHarness.closeErrors = 0
   watcherHarness.deferredReady = 0
   watcherHarness.watchFiles.length = 0
+  watcherHarness.statGates.length = 0
 })
 
 describe('skill-local watcher failures', () => {
@@ -277,6 +299,42 @@ describe('skill-local watcher failures', () => {
     disposeProvider()
     await settle()
     expect(first.closeCalls).toBeGreaterThan(0)
+  })
+
+  it('closes an opening watcher when disposal wins the mode probe', async () => {
+    const home = await tempDir('skill-watch-probe-dispose')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'racing-skill')
+    watcherHarness.deferredReady = 1
+    const statGate: FakeStatGate = {
+      started: Promise.withResolvers<undefined>(),
+      release: Promise.withResolvers<undefined>(),
+    }
+    watcherHarness.statGates.push(statGate)
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    let provider!: InstanceType<typeof SkillLocal.LocalSkillProvider>
+    const disposeProvider = ctx.skills.registerProvider((control) => {
+      provider = new SkillLocal.LocalSkillProvider(ctx, control, {
+        dshHome: join(home, '.dsh'),
+        agentsHome: join(home, '.agents'),
+        watch: true,
+        watchPollIntervalMs: 10,
+        watchStabilityThresholdMs: 20,
+      })
+      return provider
+    })
+
+    const discovery = provider.list({})
+    await statGate.started.promise
+    const disposal = provider.dispose()
+    statGate.release.resolve(undefined)
+
+    await expect(discovery).rejects.toThrow('skill-local watcher disposed')
+    await disposal
+    expect(watcherHarness.watchers).toHaveLength(1)
+    expect(watcherHarness.watchers[0]?.closeCalls).toBeGreaterThan(0)
+    disposeProvider()
   })
 
   it('contains an opening watcher rejection during provider teardown', async () => {

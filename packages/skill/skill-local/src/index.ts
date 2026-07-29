@@ -489,6 +489,10 @@ class SkillWatchManager {
     let ready = false
     const readiness = Promise.withResolvers<undefined>()
     const signal = this.lifecycle.signal
+    if (signal.aborted) {
+      await this.closeWatcher(handle)
+      signal.throwIfAborted()
+    }
     const onAbort = (): void => { readiness.reject(signal.reason) }
     signal.addEventListener('abort', onAbort, { once: true })
     const onError = (error: unknown): void => {
