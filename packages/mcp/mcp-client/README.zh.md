@@ -29,7 +29,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
       Authorization: !!js '`Bearer ${process.env.MCP_TOKEN}`'
 ```
 
-模型会看到 `mcp__github__create_issue`、`mcp__web__search` 等工具，这与 Claude Code 和 Codex 使用的服务器限定形状相同。HMR 会热替换：编辑配置项会触发断开 + 重新连接，无需重启进程；`serverName` 不变时会生成完全相同的工具名称。
+模型会看到 `mcp__github__create_issue`、`mcp__web__search` 等工具，这与 Claude Code 和 Codex 使用的服务器限定形状相同。HMR（热模块替换）支持热替换：编辑配置项会触发断开 + 重新连接，无需重启进程；`serverName` 不变时会生成完全相同的工具名称。
 
 ## 配置
 
@@ -39,7 +39,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `serverName` | 两者 | 是 | 该服务器面向模型工具名称的 namespace；`[A-Za-z0-9_-]{1,32}`，在存活实例中唯一 |
 | `command` | stdio | 是 | 要 spawn 的可执行文件 |
 | `args` | stdio | 否 | 传给命令的参数 |
-| `env` | stdio | 否 | 合并到已清理环境之上的额外环境变量 |
+| `env` | stdio | 否 | 合并到已清理环境中的额外环境变量 |
 | `cwd` | stdio | 否 | 子进程工作目录 |
 | `url` | http | 是 | MCP 服务器 URL |
 | `headers` | http | 否 | 额外标头（例如认证 token） |
@@ -52,7 +52,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 - 发布相同原始名称（例如 `search`）的两个服务器会在各自 namespace 下共存。
 - 存活实例中的重复 `serverName` 会使后加载的插件实例失败。
 - 服务器在工具列表中两次列出同一工具名称时，该列表会作为无效工具列表被拒绝。
-- 外部注册抢占该服务器 namespace 时，会回滚整个世代（绝不保留部分集合），并高声报错。
+- 外部注册抢占该服务器 namespace 时，会回滚整个世代（绝不保留部分集合），并明确报错。
 
 ## 行为
 
@@ -60,7 +60,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 - 监听 `notifications/tools/list_changed` → 重新同步；同步失败时保留上一世代的注册。
 - 工具执行：`client.callTool({ name: rawName, arguments }, { signal })`，支持超时 + 中止；公开名称绝不会发给服务器。
 - 规范成功值是 `{ content: JsonValue[], structuredContent? }`；完整的 JSON MCP 块会保留给编程调用方。受支持且已声明的 `outputSchema` 会验证 `structuredContent`；不受支持的 schema 词汇会回退为不受约束的 `JsonValue`。
-- 原生／模型渲染保留现有文本投影：文本块以换行连接，图片、音频、资源和不受支持的块会变成占位符。
+- Native／模型渲染保留现有文本投影：文本块以换行连接，图片、音频、资源和不受支持的块会变成占位符。
 - 断开／崩溃时：注销所有工具；不自动重新连接。
 
 ## 消费的服务
@@ -75,7 +75,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 #### 模型看到的内容
 
-初始发现成功后，每个已声明的 MCP 工具都会显示为名为 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）的原生工具，并携带服务器提供的描述和输入 schema。成功的重新同步会替换整个世代；插件释放会移除它。
+初始发现成功后，每个已声明的 MCP 工具都会显示为名为 `mcp__<serverName>__<rawName>`（或其确定性规范化形式）的原生工具，并携带服务器提供的描述和输入 schema。成功的重新同步会替换整个世代；对插件执行 dispose（资源释放）会移除该世代。
 
 #### Token 影响
 
@@ -89,20 +89,20 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 
 #### 模型看到的内容
 
-公开工具名称和 JSON 参数会保留在 assistant 历史中。文本结果块会以换行连接为一个保留的原生文本结果；图片、音频、资源和不受支持的块在其中变为简短占位符。它们的完整 JSON 块及可选结构化内容保留在执行局部的规范值中；MCP `isError` 会通过注册表的错误路径拒绝调用。
+公开工具名称和 JSON 参数会保留在 assistant 历史中。文本结果块会以换行连接为一个保留的 Native 文本结果；图片、音频、资源和不受支持的块在其中变为简短占位符。它们的完整 JSON 块及可选结构化内容保留在执行局部的规范值中；MCP `isError` 会通过注册表的错误路径拒绝调用。
 
 #### Token 影响
 
-参数和映射后的文本会保留到压缩发生时。二进制与资源载荷会被丢弃，而不会加入上下文。
+参数和映射后的文本会保留到压缩（compaction）发生时。二进制与资源载荷会被丢弃，而不会加入上下文。
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 配置项失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
 ## 已知限制与暂缓事项
 
 - **初始发现是异步的**：插件加载不会等待连接和 `listTools()`，因此在启动或 HMR 后立即开始的轮次可能在 MCP 工具注册前完成组装。
-- **只桥接 MCP 的工具能力**：资源和提示词没有 harness 消费表层，暂缓实现。
+- **只桥接 MCP 的工具能力**：资源和提示词没有 harness 消费接口，暂缓实现。
 - **崩溃恢复需要手动触发**：传输关闭会注销服务器工具，但重新连接需要 HMR 重载或重启 harness。
-- **原生非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的原生多媒体投影暂缓实现。
+- **Native 非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的 Native 多媒体投影暂缓实现。
 - **不强制执行不受支持的 MCP 输出 schema**：已声明 schema 使用 harness 子集之外的词汇时，`structuredContent` 会回退到 `JsonValue`。
