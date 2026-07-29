@@ -4,14 +4,14 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: Reply with a one-sentence description of event sourcing, then stop.
+- text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "复制":
   - img
 - button "在新对话中分支":
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - textbox "Message the agent"
 - button "Add attachment":
   - img

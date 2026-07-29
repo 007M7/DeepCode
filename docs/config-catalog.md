@@ -1203,7 +1203,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/session-title/session-title/src/index.ts:75`](../packages/session-title/session-title/src/index.ts)
+Source: [`packages/session-title/session-title/src/index.ts:79`](../packages/session-title/session-title/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-title-all-messages-llm`
 
@@ -1540,6 +1540,20 @@ export interface Config {
 ```
 
 Source: [`packages/context/time-context/src/index.ts:20`](../packages/context/time-context/src/index.ts)
+
+## `@deepseek-ai/dsh-tmux-context`
+
+Requires: `agents`
+
+```ts config-catalog
+/** Per-turn tmux-location scheduling. Invalid values fail plugin load. */
+export interface Config {
+  /** Minimum milliseconds between durable injections in one session. Omit or set to 0 to inject on every eligible change. */
+  refreshIntervalMs?: number
+}
+```
+
+Source: [`packages/context/tmux-context/src/index.ts:34`](../packages/context/tmux-context/src/index.ts)
 
 ## `@deepseek-ai/dsh-token-meter`
 

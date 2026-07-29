@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/cordis/tool-cordis/README.md
 README.md: 5b58e665dae95aea0d0ad094238fef5d3dc0fb97
-README.zh.md: 11e5be11dca84247b19888fefa7d70e5d74da174
+README.zh.md: 237b72244be2336a82c8c48cb341d7f9796d08f4

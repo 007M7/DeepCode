@@ -253,6 +253,25 @@ export class Session implements SessionFace {
   }
 
   /**
+   * Rename: contract session.rename 1:1. On success settle the 'title'
+   * projection cell from the response's `{title, seq}` under the store's
+   * higher-seq-wins rule (the push frame arriving later is a no-op replay),
+   * so the list row and any useProjection('title') reader update without
+   * waiting for the mux frame.
+   * @param title - raw title text (the host normalizes acceptance).
+   * @returns the rename result (normalized accepted title + title event seq).
+   */
+  async rename(title: string): Promise<RpcResult<{ title: string; seq: number }>> {
+    try {
+      const { result } = await this.api.sessions.rename({ sessionId: this.sessionId, title })
+      if (result.ok) this.projections.apply('title', result.value.title, result.value.seq)
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
    * Execute one slash-command line against this session's agent — pure
    * admission semantics (the host executor durably logs the lifecycle;
    * outcomes render as flow nodes, never as a response echo).

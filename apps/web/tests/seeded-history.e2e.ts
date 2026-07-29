@@ -139,10 +139,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // capture; still zero model calls.
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
-    const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
+    const frame = page.locator('[style*="grid-template-columns"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).toBeNull()
     await fileLink.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
     // Path label survives from the recorded args (a.txt).
     await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })
