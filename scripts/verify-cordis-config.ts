@@ -129,7 +129,12 @@ function validateExampleResolution(): string[] {
 
 function validateAppResolution(): string[] {
   const dependencies = readManifest('apps/cli/package.json').dependencies ?? {}
-  const references = pluginReferences.filter(reference => reference.file.startsWith('apps/cli/'))
+  const shipped = new Set([
+    'apps/cli/base.cordis.yml',
+    'apps/cli/tui.cordis.yml',
+    'apps/cli/web.cordis.yml',
+  ])
+  const references = pluginReferences.filter(reference => shipped.has(reference.file))
   return missingPluginDependencies(references, dependencies, 'apps/cli/package.json')
 }
 
