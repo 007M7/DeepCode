@@ -86,6 +86,7 @@
     { "path": "./packages/goal/goal-session" },
     { "path": "./packages/goal/command-goal" },
     { "path": "./packages/context/time-context" },
+    { "path": "./packages/context/tmux-context" },
     { "path": "./packages/context/session-reference" },
     { "path": "./packages/ui/user-interaction" },
     { "path": "./packages/ui/user-approval" },
