@@ -2,7 +2,7 @@
 // Assembled keyless snapshot of the slash/input/session convergence under the
 // agent-parity model: the New Session view state locks the composer until a
 // Workspace is picked (connectWorkspace materializes the full Session+Agent),
-// the '/' menu serves the session's filtered skill and wire command catalogs
+// the '/' menu renders the session's skill and wire command catalogs
 // (sessions are always agent-backed — no draft/materialized split), a skill
 // pick inserts its reference, a leadingInput command claims,
 // submits over the wire, and notices its result, and the SAME composer
@@ -141,9 +141,10 @@ it('locked view state, skill discovery, /echo claim chain, and blank-on-acceptan
   )
   expect(composer.disabled).toBe(false)
 
-  // The built skill plugin prewarms the session-addressed catalog; querying
-  // it exercises the assembled discovery path and picking inserts the literal
-  // reference into the resident composer.
+  // The built skill plugin prewarms the fixture's session-addressed catalog;
+  // this pins client rendering and picking, while the real-host browser lane
+  // owns policy filtering. Picking inserts the literal reference into the
+  // resident composer.
   await typeComposer(composer, '/fixture')
   const skillMenu = await screen.findByRole('listbox', { name: 'Trigger suggestions' })
   const skillOption = await within(skillMenu).findByRole('option', { name: /fixture-demo/ })

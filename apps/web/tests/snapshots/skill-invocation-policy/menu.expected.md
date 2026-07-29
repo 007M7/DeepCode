@@ -1,0 +1,2 @@
+- listbox "Trigger suggestions":
+  - option "policy-shared Available to both model and user invocation" [selected]
