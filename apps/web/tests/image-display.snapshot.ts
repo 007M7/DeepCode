@@ -167,7 +167,7 @@ it('accepts a pasted image into the composer rail and removes it', async () => {
 
   // Image-only send arming is pinned at package level (input-bar.spec.tsx);
   // this assembled lane pins the intake chain over the built graph.
-  const textarea = await screen.findByPlaceholderText('Message the agent', {}, { timeout: 10_000 })
+  const textarea = await screen.findByPlaceholderText('给智能体发消息', {}, { timeout: 10_000 })
   const image = new File([new Uint8Array([137, 80, 78, 71])], 'pasted.png', { type: 'image/png' })
   fireEvent.paste(textarea, {
     clipboardData: {
