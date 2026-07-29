@@ -16,6 +16,8 @@ TUI 界面：
 
 Web 和无头界面启动同一个共享组合（`cordis.yml`）：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
+已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
+
 `DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：可选值为 `native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 协议接口）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam：Loader 组合是静态的，因此该设置作用于整个进程；待 Web UI 负责逐会话工具模式选择后便会移除。TUI 界面会忽略该变量（其配置树固定了自身模式）。
 
 ## 安装（开发机）
