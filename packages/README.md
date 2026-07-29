@@ -19,7 +19,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
 | [`pty/`](pty/README.md) | Persistent PTY capability family: owner-scoped sessions, local implementation, and model-facing tools | Product — stable surface |
-| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: runtime seam plus local worker and filesystem/subprocess backends | Product — stable surface |
+| [`code-runtime/`](code-runtime/README.md) | Code-execution capability family: runtime seam plus local worker and subprocess backends | Product — stable surface |
 | [`sandbox/`](sandbox/README.md) | Process-confinement seam; bwrap/Landlock/Seatbelt backends | Product — stable surface |
 | [`fs/`](fs/README.md) | Filesystem capability family: seam, local impl, model-facing file tools, bash-backed discovery tools | Product — stable surface |
 | [`lsp/`](lsp/README.md) | LSP capability family: seam, generic stdio provider, and the `lsp` tool | Product — stable surface |

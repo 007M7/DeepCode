@@ -78,8 +78,8 @@ declare module 'cordis' {
  * duplicate-service behavior).
  *
  * Implementations must honor these semantics:
- * - {@link cwd}, {@link runtimeRoot}, and executable paths belong to one
- *   execution world shared with the mounted filesystem provider.
+ * - {@link cwd} and executable paths belong to one execution world shared
+ *   with the mounted filesystem provider.
  * - {@link spawn} returns immediately with a live handle; `done` resolves at
  *   process close with exit facts and rejects only for spawn-level failures.
  * - Collect-mode readers are offset-based and non-consuming, so independent
@@ -106,9 +106,6 @@ export abstract class SubprocessService extends Service {
 
   /** Canonical default cwd in this provider's execution world. */
   abstract readonly cwd: string
-
-  /** Private directory for runtime artifacts in this provider's execution world. */
-  abstract readonly runtimeRoot: string
 
   /**
    * Resolve one configured executable in this provider's execution world.

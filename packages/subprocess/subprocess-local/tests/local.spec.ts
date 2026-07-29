@@ -1,6 +1,5 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { stat } from 'node:fs/promises'
 import { basename, dirname, relative, resolve } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
@@ -22,16 +21,6 @@ function spec(command: string, overrides: Partial<SubprocessSpawnSpec> = {}): Su
 }
 
 describe('LocalSubprocessService', () => {
-  it('publishes execution-world paths and removes its private runtime directory', async () => {
-    const ctx = new Context()
-    const fiber = await ctx.plugin(LocalSubprocessService)
-    const root = ctx.subprocess.runtimeRoot
-    expect(ctx.subprocess.cwd).toBe(process.cwd())
-    expect((await stat(root)).isDirectory()).toBe(true)
-    await fiber.dispose()
-    await expect(stat(root)).rejects.toMatchObject({ code: 'ENOENT' })
-  })
-
   it('resolves absolute and PATH executables and honors lookup cancellation', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
@@ -113,11 +102,10 @@ describe('LocalSubprocessService', () => {
     expect(terminals.size).toBe(0)
   })
 
-  it('waits for every terminal cleanup and clears single-shot teardown ownership', async () => {
+  it('waits for every terminal cleanup and aggregates teardown failures', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
     const service = ctx.subprocess
-    const runtimeRoot = service.runtimeRoot
     const firstFailure = new Error('first cleanup failure')
     const secondFailure = new Error('second cleanup failure')
     const disposalErrors: unknown[] = []
@@ -155,7 +143,6 @@ describe('LocalSubprocessService', () => {
     finishCleanup()
     await disposing
     expect(terminals.size).toBe(0)
-    await expect(stat(runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(disposalErrors).toHaveLength(1)
     expect(disposalErrors[0]).toMatchObject({
       errors: [firstFailure, secondFailure],
@@ -163,14 +150,13 @@ describe('LocalSubprocessService', () => {
     })
   })
 
-  it('reports one cleanup failure without wrapping it after removing runtime state', async () => {
+  it('reports one cleanup failure without wrapping it', async () => {
     const ctx = new Context()
     const failure = new Error('single cleanup failure')
     const disposalErrors: unknown[] = []
     ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
     const fiber = await ctx.plugin(LocalSubprocessService)
     const service = ctx.subprocess
-    const runtimeRoot = service.runtimeRoot
     const terminal: SubprocessTerminalHandle = {
       pid: 1,
       output: new PassThrough(),
@@ -185,7 +171,6 @@ describe('LocalSubprocessService', () => {
 
     await fiber.dispose()
 
-    await expect(stat(runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(disposalErrors).toEqual([failure])
   })
 

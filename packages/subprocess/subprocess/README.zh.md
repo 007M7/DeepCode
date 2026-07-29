@@ -2,12 +2,12 @@
 
 [English](README.md) | 中文
 
-子进程 seam（`ctx.subprocess`）是一个执行世界的进程部分。抽象的 `SubprocessService` 公开其规范化 `cwd`、私有 `runtimeRoot`、可执行文件查找、普通受管 `spawn` 和一项终端进程原语；其词汇涵盖原始／收集式 stdio、进程与终端句柄、退出事实、进程树／会话清理，以及受管的 `DSH_*` 环境命名空间。本地实现位于 [`dsh-subprocess-local`](../subprocess-local/README.md)。
+子进程 seam（`ctx.subprocess`）是一个执行世界的进程部分。抽象的 `SubprocessService` 公开其规范化 `cwd`、可执行文件查找、普通受管 `spawn` 和一项终端进程原语；其词汇涵盖原始／收集式 stdio、进程与终端句柄、退出事实、进程树／会话清理，以及受管的 `DSH_*` 环境命名空间。本地实现位于 [`dsh-subprocess-local`](../subprocess-local/README.md)。
 
 ## 契约
 
 - `spawn(spec)` 立即返回一个活动句柄；`done` 在进程关闭时以退出事实 resolve（`SubprocessOutcome` 不携带输出，也不携带原因分类），仅在 spawn 层面失败时 reject。
-- `cwd` 和 `runtimeRoot` 是提供方执行世界中的绝对路径。消费方在 `runtimeRoot` 之下物化私有辅助程序，绝不使用仅宿主可见的临时目录。`resolveExecutable(command, env?, signal?)` 验证绝对命令，或根据该执行世界清理后的 PATH 加显式覆盖来解析裸名称。
+- `cwd` 和可执行文件路径属于提供方的执行世界。`resolveExecutable(command, env?, signal?)` 验证绝对命令，或根据该执行世界清理后的 PATH 加显式覆盖来解析裸名称。
 - spec 完全显式（argv、cwd、按流划分的 stdio 处置方式（disposition）、宽限期），因为随部署变化的默认值属于调用方 seam 的配置，而不属于某个隐藏的子进程默认值（`dsh-bash` 的 request/spec 拆分是这条规则的所属模板）。`argv` 绝不经过 shell 解释；需要 shell 的消费方自行传入 `['bash', '-c', command]`。
 - stdio 按流采用 Node 风格：`'pipe'` 把原始流交给调用方做自己的协议分帧（LSP 的 JSON-RPC、ACP（Agent Client Protocol）的 ndjson），`'inherit'` 直通父进程描述符以承载诊断输出，收集模式（collect）`{ maxBytes, spill? }` 则缓冲一段有界尾部，外加可选的完整流 spill 文件。收集模式的读取器接受全流字节偏移量且从不消费，因此独立的读取器不会抢走彼此的增量；偏移量滑出内存尾部窗口的读取标记为 `lossy`，并在 spill 文件存在时指向它。收集到的输出在结算后仍可读取。
 - 终止在每个平台上都以进程树为范围（POSIX 用 detached 进程组并以直接子进程回退；Windows 用 `taskkill /T`）：`terminate()`（唯一的终止动词）执行 SIGTERM→宽限期→SIGKILL 升级（幂等，也由 spec 的 abort 信号驱动，进程树消亡后为空操作）；`waitForExit(signal?)` 观察整棵进程树的存活状态，使消费方自有的拆卸阶梯能在真正完全停稳后才进入下一层。管理器只响应中止，但绝不判定原因（deadline、拆卸阶梯与原因分类归调用方所有）。

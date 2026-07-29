@@ -8,7 +8,7 @@ Source: [`packages/subprocess/subprocess/src/types.ts`](../../packages/subproces
 
 ## Execution-world coordinates
 
-One provider's `cwd`, `runtimeRoot`, executable paths, ordinary processes, and terminal sessions inhabit the same path and process namespace as the mounted filesystem provider. `resolveExecutable(command, env?, signal?)` verifies absolute executable paths or resolves bare names through the provider's scrubbed `PATH` plus deliberate overrides. Consumers use `runtimeRoot` for private materialized helpers and never assume a host path exists in that world.
+One provider's `cwd`, executable paths, ordinary processes, and terminal sessions inhabit the same path and process namespace as the mounted filesystem provider. `resolveExecutable(command, env?, signal?)` verifies absolute executable paths or resolves bare names through the provider's scrubbed `PATH` plus deliberate overrides.
 
 ## Managed environment namespace and captured output
 

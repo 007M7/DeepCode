@@ -1,12 +1,11 @@
 /** Typed source for the dependency-free execution-world runner bundle. */
 
 import { Buffer } from 'node:buffer'
-import { fork } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Readable } from 'node:stream'
 import { inspect } from 'node:util'
-import { fileURLToPath } from 'node:url'
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads'
 import {
   decodeWorkerJson,
@@ -55,6 +54,14 @@ const failureKinds = new Set<FailureKind>([
 ])
 
 let maxFrameBytes = 0
+
+function runnerSource(): string {
+  const evalIndex = process.execArgv.indexOf('--eval')
+  if (evalIndex < 0) throw new Error('code runtime runner requires its eval source')
+  const source = process.execArgv[evalIndex + 1]
+  if (source === undefined) throw new Error('code runtime runner requires its eval source')
+  return source
+}
 
 function recordOf(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : undefined
@@ -197,10 +204,9 @@ function runLauncher(): void {
   const startController = (boot: RuntimeBootData): void => {
     maxOutputBytes = boot.maxOutputBytes
     maxFrameBytes = boot.maxFrameBytes
-    controller = fork(fileURLToPath(import.meta.url), [], {
+    controller = spawn(process.execPath, process.execArgv, {
       env: { DSH_CODE_RUNTIME_CONTROLLER: '1' },
       detached: false,
-      execArgv: [],
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     }) as Controller
     const current = controller
@@ -325,7 +331,8 @@ function runController(): void {
         return
       }
       controllerMaxFrameBytes = boot.maxFrameBytes
-      worker = new Worker(new URL(import.meta.url), {
+      const sourceUrl = new URL(`data:text/javascript;base64,${Buffer.from(runnerSource()).toString('base64')}`)
+      worker = new Worker(sourceUrl, {
         workerData: boot,
         env: {},
         execArgv: [],

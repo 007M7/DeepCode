@@ -286,7 +286,7 @@ Source: [`packages/client/hmr/src/index.ts:29`](../packages/client/hmr/src/index
 
 ## `@deepseek-ai/dsh-code-runtime-subprocess`
 
-Requires: `fs` · `subprocess`
+Requires: `subprocess`
 
 ```ts config-catalog
 /** Runtime configuration; every execution and bridge bound is deployment-tunable. */
@@ -306,7 +306,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-subprocess/src/index.ts:28`](../packages/code-runtime/code-runtime-subprocess/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-subprocess/src/index.ts:27`](../packages/code-runtime/code-runtime-subprocess/src/index.ts)
 
 ## `@deepseek-ai/dsh-code-runtime-worker`
 

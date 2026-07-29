@@ -1,9 +1,6 @@
 import { defineConfig } from 'tsdown'
 
-/**
- * Embed Include while keeping Loader external so the built include tree and
- * app host bind to one Loader peer.
- */
+/** Bundle the host plugin and its dependency-free eval runner. */
 export default defineConfig({
   entry: ['lib/types/index.js', 'lib/types/invariant.js'],
   outDir: 'lib',
@@ -13,7 +10,4 @@ export default defineConfig({
   fixedExtension: false,
   dts: false,
   clean: false,
-  deps: {
-    alwaysBundle: ['@cordisjs/plugin-include'],
-  },
 })

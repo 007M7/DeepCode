@@ -34,5 +34,5 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 - **`run()` is one-shot** — `logs` arrive only on the resolved `CodeRunResult`; the seam exposes no streaming-log or progress surface for a live program's output.
 - **A persistent REPL-style kernel is recorded future work** — the no-state-between-runs contract stands until a persistent-kernel backend brings its own logging story ([Code Mode Agent Note](../../../.agents/notes/implemented/feature/2026-06-15-code-mode.md)).
-- **No runtime claims a hard security boundary** — both shipped implementations use fresh worker threads; the filesystem/subprocess backend can place them inside a stronger execution world, but no runtime reports `'container'` today.
-- **Intermediate binding values are implementation-bounded** — the direct worker backend has no per-binding byte cap; the filesystem/subprocess backend bounds each bridge frame, but repeated or concurrent binding traffic remains subject to process memory.
+- **No runtime claims a hard security boundary** — both shipped implementations use fresh worker threads; the subprocess backend can place them inside a stronger execution world, but no runtime reports `'container'` today.
+- **Intermediate binding values are implementation-bounded** — the direct worker backend has no per-binding byte cap; the subprocess backend bounds each bridge frame, but repeated or concurrent binding traffic remains subject to process memory.

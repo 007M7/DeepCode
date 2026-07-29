@@ -8,10 +8,8 @@
  */
 
 import { constants } from 'node:fs'
-import { mkdtempSync } from 'node:fs'
-import { access, rm, stat } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { delimiter, extname, isAbsolute, join, resolve } from 'node:path'
+import { access, stat } from 'node:fs/promises'
+import { delimiter, extname, isAbsolute, resolve } from 'node:path'
 import { Context } from 'cordis'
 import * as nodePty from 'node-pty'
 import type { IPtyForkOptions } from 'node-pty'
@@ -36,7 +34,6 @@ import { LocalTerminalHandle } from './terminal.ts'
  */
 export class LocalSubprocessService extends SubprocessService {
   readonly cwd = process.cwd()
-  readonly runtimeRoot = mkdtempSync(join(tmpdir(), 'dsh-subprocess-runtime-'))
   /** Live handles retained only so disposal can terminate and join them. */
   private live = new Set<SubprocessHandle>()
   /** Live terminal sessions retained through whole-session quiescence. */
@@ -63,10 +60,7 @@ export class LocalSubprocessService extends SubprocessService {
       }
       this.live.clear()
       this.terminals.clear()
-      const outcomes = [
-        ...await Promise.allSettled(pending),
-        ...await Promise.allSettled([rm(this.runtimeRoot, { recursive: true, force: true })]),
-      ]
+      const outcomes = await Promise.allSettled(pending)
       const failures = outcomes.flatMap<unknown>(outcome => outcome.status === 'rejected'
         ? [outcome.reason as unknown]
         : [])
@@ -126,7 +120,7 @@ export class LocalSubprocessService extends SubprocessService {
   }
 
   // Local PTY allocation is synchronous, but the provider seam permits remote asynchronous allocation.
-  // eslint-disable-next-line @typescript-eslint/require-await
+  // oxlint-disable-next-line typescript/require-await -- Preserve promise rejection semantics at the async provider seam.
   async spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
     const file = spec.argv[0]
     if (file === undefined || file.length === 0) {

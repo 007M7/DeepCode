@@ -17,7 +17,6 @@ import type {
  */
 class StubSubprocessService extends SubprocessService {
   readonly cwd = '/stub'
-  readonly runtimeRoot = '/stub/.runtime'
 
   async resolveExecutable(command: string): Promise<string> {
     return `/bin/${command}`

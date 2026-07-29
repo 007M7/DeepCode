@@ -67,7 +67,6 @@ function terminalHandle(): SubprocessTerminalHandle {
 
 class StubSubprocessService extends SubprocessService {
   readonly cwd = '/tmp'
-  readonly runtimeRoot = '/tmp/dsh-runtime'
   async resolveExecutable(command: string): Promise<string> { return command }
   spawn(_spec: SubprocessSpawnSpec): SubprocessHandle { throw new Error('unused') }
   async spawnTerminal(_spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle> {
