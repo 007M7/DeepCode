@@ -128,6 +128,7 @@ describe('LocalTerminalHandle', () => {
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 20)
 
     const quiescent = handle.terminate()
+    expect(handle.terminate()).toBe(quiescent)
     await vi.advanceTimersByTimeAsync(20)
     expect(inspector.processes).toContainEqual([124, 'SIGKILL'])
     expect(pty.kills).toEqual([])

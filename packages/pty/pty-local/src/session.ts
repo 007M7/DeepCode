@@ -167,7 +167,7 @@ export class LocalPtySession implements PtyBackendSession {
   private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
   private interrupting: LocalSendOperation | undefined
-  private activeWrite: { operation: LocalSendOperation; settled: Promise<boolean> } | undefined
+  private activeWrite: Promise<boolean> | undefined
   private pollingReady: LocalSendOperation | undefined
   private polling = false
   private promptSeen = false
@@ -238,7 +238,7 @@ export class LocalPtySession implements PtyBackendSession {
     }
     this.activeDeadlineTimer = setTimeout(() => {
       if (this.active === operation) {
-        this.settleActive('timeout', this.activeWrite?.operation === operation || this.interrupting === operation)
+        this.settleActive('timeout', this.activeWrite !== undefined || this.interrupting === operation)
       }
     }, this.config.timeoutMs)
     void this.beginSend(operation, request)
@@ -254,11 +254,7 @@ export class LocalPtySession implements PtyBackendSession {
       if (input.length > 0 && !operation.cancelRequested) {
         this.resetReadinessEvidence()
         const write = this.terminal.write(input)
-        const activeWrite = {
-          operation,
-          settled: write.then(() => true, () => false),
-        }
-        this.activeWrite = activeWrite
+        this.activeWrite = write.then(() => true, () => false)
         try {
           await write
         } finally {
@@ -272,7 +268,7 @@ export class LocalPtySession implements PtyBackendSession {
         return
       }
       // Closing can race the awaited provider write even though static analysis sees only local assignments.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- awaited provider writes can close the session.
       if (this.active === operation && !this.closing) {
         this.pollingReady = operation
         this.schedulePoll(operation)
@@ -448,7 +444,7 @@ export class LocalPtySession implements PtyBackendSession {
       this.polling = false
       const active = this.active
       // Awaited provider inspection can clear or replace the active send despite static analysis.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- awaited inspection can replace the active send.
       if (active !== undefined && this.pollingReady === active) this.schedulePoll(active)
     }
   }
@@ -506,7 +502,7 @@ export class LocalPtySession implements PtyBackendSession {
   private async interruptOnce(operation: LocalSendOperation): Promise<void> {
     try {
       const activeWrite = this.activeWrite
-      if (activeWrite?.operation === operation && !await activeWrite.settled) return
+      if (activeWrite !== undefined && !await activeWrite) return
       await this.terminal.signalForeground('SIGINT')
     } catch (error: unknown) {
       if (this.active === operation && !this.closing) this.onTransportFailure(error)
