@@ -8,7 +8,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
-import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import { projectCordisCatalog } from '@deepseek-ai/dsh-typert-generator'
+import { CORDIS_CATALOG_POLICY } from './gen-cordis-catalog.ts'
+import type { EventEntry, ServiceEntry } from '@deepseek-ai/dsh-typert-generator'
 import {
   collectPackageGraph,
   escapeMermaidLabel as escLabel,
@@ -58,6 +60,7 @@ const GROUP_ORDER = [
   'util',
   'llm',
   'core',
+  'typert',
   'goal',
   'process',
   'bash',
@@ -127,6 +130,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['session', 'agent', 'scope', 'agent-loop'],
     note: 'Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures.',
+  },
+  {
+    key: 'typert',
+    pkg: 'typert-registry',
+    title: 'Runtime type registry',
+    mode: 'core',
+    consumers: ['typert-loader'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
   },
   {
     key: 'sessionPersistence',
@@ -507,8 +518,8 @@ function tableCell(value: string): string {
   return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 }
 
-function assertServiceRolesComplete(): void {
-  const discovered = new Set(collectServices().map(service => service.key))
+function assertServiceRolesComplete(services: readonly ServiceEntry[]): void {
+  const discovered = new Set(services.map(service => service.key))
   const classified = new Set(SERVICE_ROLES.map(role => role.key))
   const missing = [...discovered].filter(key => !classified.has(key)).sort()
   const stale = [...classified].filter(key => !discovered.has(key)).sort()
@@ -520,8 +531,8 @@ function assertServiceRolesComplete(): void {
   }
 }
 
-function renderCapabilitySeams(pkgs: Pkg[]): string {
-  assertServiceRolesComplete()
+function renderCapabilitySeams(pkgs: Pkg[], services: readonly ServiceEntry[]): string {
+  assertServiceRolesComplete(services)
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard'
   const nodes = new Map<string, string>()
@@ -970,8 +981,7 @@ function listenerPackages(listeners: Set<string>, pkgsByShort: Map<string, Pkg>)
   return [...listeners].sort().map(pkg => pkgLink(pkgsByShort.get(pkg), pkg)).join(', ')
 }
 
-function renderEventRelations(pkgs: Pkg[]): string {
-  const events = collectEvents()
+function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): string {
   const relations = collectEventRelations()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
@@ -1160,10 +1170,11 @@ function renderToolPipeline(): string {
 
 function renderDocs(): GraphDoc[] {
   const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
+  const { model } = projectCordisCatalog(root, CORDIS_CATALOG_POLICY)
   const docs: GraphDoc[] = [
-    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
+    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs, model.services) },
     ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),
-    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
+    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs, model.events) },
     { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
   ]
