@@ -211,7 +211,9 @@ describe('dsh-tool-skill', () => {
       content: 'User-only body.',
     })
 
-    expect(await composePrefix(ctx, '/workspace')).toEqual([])
+    const agent = agentForCwd('/workspace')
+    expect(await composePrefixForAgent(ctx, agent)).toEqual([])
+    expect(await composePrefixForAgent(ctx, agent)).toEqual([])
   })
 
   it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
@@ -412,10 +414,20 @@ describe('dsh-tool-skill', () => {
             rank: 1,
             locator: 'policy-race-skill',
           },
+          {
+            name: 'vanishing-skill',
+            description: 'Vanishing skill',
+            invocation: { modelInvocable: true, userInvocable: true },
+            provider: 'policy-probe',
+            source: 'test',
+            rank: 1,
+            locator: 'vanishing-skill',
+          },
         ]
       },
       async get(candidate) {
         getCalls.push(candidate.name)
+        if (candidate.name === 'vanishing-skill') return undefined
         return {
           ...candidate,
           invocation: { modelInvocable: false, userInvocable: true },
@@ -426,15 +438,20 @@ describe('dsh-tool-skill', () => {
 
     const denied = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c6'), name: 'skill', arguments: { name: 'denied-skill' } })
     const raced = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c7'), name: 'skill', arguments: { name: 'policy-race-skill' } })
+    const vanished = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c8'), name: 'skill', arguments: { name: 'vanishing-skill' } })
 
     expect(denied.isError).toBe(true)
     expect(raced.isError).toBe(true)
-    expect(getCalls).toEqual(['policy-race-skill'])
+    expect(vanished.isError).toBe(true)
+    expect(getCalls).toEqual(['policy-race-skill', 'vanishing-skill'])
     for (const result of [denied, raced]) {
       const block = result.content[0]
       if (block?.type !== 'text') throw new Error('expected text tool result')
       expect(block.text).toContain('is not available for model invocation')
       expect(block.text).not.toContain('Instructions must not be disclosed.')
     }
+    const vanishedBlock = vanished.content[0]
+    if (vanishedBlock?.type !== 'text') throw new Error('expected text tool result')
+    expect(vanishedBlock.text).toContain('skill "vanishing-skill" is unknown or no longer available')
   })
 })
