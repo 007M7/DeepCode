@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import deepseek_harness_runtime as runtime
 import pytest
 
 from deepseek_harness_runtime import (
@@ -39,3 +42,27 @@ def test_explicit_mode_wins_over_env_mode(monkeypatch: pytest.MonkeyPatch) -> No
     except FileNotFoundError:
         return  # explicit 'exe' was honored; only the artifact is missing
     assert args[0].endswith(("-x64", "-arm64"))
+
+
+@pytest.mark.parametrize(
+    ("platform_tag", "requires_helper"),
+    [("linux-x64", False), ("macos-arm64", True)],
+)
+def test_runtime_requires_spawn_helper_only_on_macos(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform_tag: str,
+    requires_helper: bool,
+) -> None:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    executable = runtime_dir / f"dsh-jsonrpc-agent-pkg-{platform_tag}"
+    executable.touch()
+    monkeypatch.setattr(runtime, "bundled_package_dir", lambda: tmp_path)
+    monkeypatch.setattr(runtime, "_current_platform_tag", lambda: platform_tag)
+
+    if requires_helper:
+        with pytest.raises(FileNotFoundError, match="node-pty spawn helper"):
+            runtime.bundled_runtime_path()
+    else:
+        assert runtime.bundled_runtime_path() == executable
