@@ -4,7 +4,7 @@
 // off the snapshot cache; memo holds across streaming because unchanged nodes
 // keep their references.
 
-import { memo, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type {
   ContextMessageNode, ModelRetryNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -40,7 +40,9 @@ interface RetryCountdown {
 }
 
 function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolean }) {
-  const deadline = node.time + node.delayMs
+  // Anchor the host-scheduled delay to this browser's first render of the
+  // retry node. Host event time and Date.now() may belong to different clocks.
+  const deadline = useMemo(() => Date.now() + node.delayMs, [node.delayMs, node.seq])
   const scheduledSeconds = retrySeconds(node.delayMs)
   const maximum = node.mode === 'normal' ? node.maxRetries : '∞'
   const [countdown, setCountdown] = useState<RetryCountdown>(() => ({
@@ -69,11 +71,19 @@ function ModelRetryItem({ node, active }: { node: ModelRetryNode; active: boolea
     return () => { window.clearInterval(timer) }
   }, [active, deadline])
 
+  const label = active
+    ? '正在重试模型请求'
+    : node.retryState === 'cancelled'
+      ? '模型请求重试已取消'
+      : node.retryState === 'started'
+        ? '已重试模型请求'
+        : '等待重试模型请求'
+
   return (
     <details className={css.retryRow} data-active={active || undefined}>
       <summary className={css.retrySummary}>
         <span className={css.retryText} role="status">
-          {active ? '正在重试' : '已重试'}模型请求（{node.retry}/{maximum}） · {active ? remainingSeconds : scheduledSeconds}s
+          {label}（{node.retry}/{maximum}） · {active ? remainingSeconds : scheduledSeconds}s
         </span>
       </summary>
       <div className={css.retryDetails}>

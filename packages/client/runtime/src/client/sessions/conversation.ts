@@ -97,6 +97,11 @@ export type ModelRetryNode = LlmRetryEventData & {
   seq: number
   /** Unix epoch ms from the llm/retry session event. */
   time: number
+  /**
+   * Client-derived lifecycle: scheduled until a retry turn starts, started
+   * once it does, or cancelled when the failed turn aborts first.
+   */
+  retryState: 'scheduled' | 'started' | 'cancelled'
 }
 
 /** A tool result paired (when in-window) with its call head. */

@@ -81,7 +81,7 @@ export const ev = {
         failure: { code: 'TRANSPORT', message },
       },
     }),
-  turnEnd: (seq: number, turn: number, reason: 'completed' | 'cancelled' = 'completed'): SessionEvent =>
+  turnEnd: (seq: number, turn: number, reason: 'completed' | 'aborted' | 'disposed' = 'completed'): SessionEvent =>
     at(seq, { type: 'turn/end', data: { turn, reason: { kind: reason } } }),
   commandRun: (seq: number, commandId: string, name: string, args = ''): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),

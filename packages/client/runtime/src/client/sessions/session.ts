@@ -13,8 +13,8 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SessionFace } from '../contract/session.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
-  PromptError, QueuedMessage, RunningToolCall,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, ModelRetryNode,
+  OpenState, PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -26,6 +26,10 @@ import type { ProjectionsBaseline } from './projection-store.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
+
+// Browser bundles cannot value-import the host timeout library. This protocol
+// bound is pinned to @deepseek-ai/dsh-timeout's MAX_TIMER_DELAY_MS in tests.
+const MAX_RETRY_DELAY_MS = 2_147_483_647
 
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
@@ -637,6 +641,7 @@ export class Session implements SessionFace {
         kind: 'model-retry',
         seq: event.seq,
         time: event.time,
+        retryState: 'scheduled',
         ...data,
       })
       this.derivedRev++
@@ -702,6 +707,10 @@ export class Session implements SessionFace {
       return
     }
     switch (event.type) {
+      case 'turn/start': {
+        if (event.data.trigger.kind === 'retry') this.settleScheduledRetry('started')
+        return
+      }
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
         if (this.partial === null || this.partial.turn !== turn || this.partial.step !== step) {
@@ -730,6 +739,9 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
+        if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'disposed') {
+          this.settleScheduledRetry('cancelled', event.data.turn)
+        }
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
         // Shared by live and window-replay paths, so a refresh reconstructs the same frozen node
@@ -769,6 +781,27 @@ export class Session implements SessionFace {
       default:
         return
     }
+  }
+
+  /**
+   * Settle the newest scheduled retry, optionally restricted to its failed turn.
+   * @param retryState - next client projection state to publish.
+   * @param turn - failed turn required for cancellation; omitted for the next retry turn start.
+   */
+  private settleScheduledRetry(
+    retryState: Exclude<ModelRetryNode['retryState'], 'scheduled'>,
+    turn?: number,
+  ): void {
+    const index = this.derivedNodes.findLastIndex(node =>
+      node.kind === 'model-retry'
+      && node.retryState === 'scheduled'
+      && (turn === undefined || node.turn === turn))
+    if (index < 0) return
+    const node = this.derivedNodes[index]
+    /* v8 ignore next -- findLastIndex's predicate narrows the indexed node only at runtime. */
+    if (node?.kind !== 'model-retry') return
+    this.derivedNodes[index] = { ...node, retryState }
+    this.derivedRev++
   }
 
   /** Re-derive state (partial/openCalls/derivedNodes) from raw window events after a rebuild — keeps
@@ -854,37 +887,49 @@ function parseRetryEventData(value: unknown): LlmRetryEventData | null {
   const failure = data.failure
   if (failure === null || typeof failure !== 'object') return null
   const failureData = failure as Record<string, unknown>
-  if (!nonNegativeInteger(data.turn)
-    || !nonNegativeInteger(data.step)
+  if (!nonNegativeSafeInteger(data.turn)
+    || !nonNegativeSafeInteger(data.step)
     || typeof data.provider !== 'string'
     || data.provider.length === 0
     || typeof data.policyKey !== 'string'
     || data.policyKey.length === 0
-    || !positiveInteger(data.retry)
+    || !positiveSafeInteger(data.retry)
     || typeof data.delayMs !== 'number'
     || !Number.isFinite(data.delayMs)
     || data.delayMs < 0
+    || data.delayMs > MAX_RETRY_DELAY_MS
     || typeof failureData.message !== 'string'
-    || typeof failureData.code !== 'string') return null
+    || failureData.message.length === 0
+    || typeof failureData.code !== 'string'
+    || failureData.code.length === 0) return null
   if (data.mode === 'normal') {
-    if (!positiveInteger(data.maxRetries) || data.retry > data.maxRetries) return null
+    if (!positiveSafeInteger(data.maxRetries) || data.retry > data.maxRetries) return null
   } else if (data.mode === 'always') {
     if ('maxRetries' in data) return null
   } else {
     return null
   }
-  const optionalNumbers = [failureData.status, failureData.providerRetryAfterMs]
-  if (optionalNumbers.some(item => item !== undefined && (typeof item !== 'number' || !Number.isFinite(item)))) return null
-  if (failureData.requestId !== undefined && typeof failureData.requestId !== 'string') return null
+  if (failureData.status !== undefined
+    && (typeof failureData.status !== 'number'
+      || !Number.isInteger(failureData.status)
+      || failureData.status < 100
+      || failureData.status > 599)) return null
+  if (failureData.providerRetryAfterMs !== undefined
+    && (typeof failureData.providerRetryAfterMs !== 'number'
+      || !Number.isFinite(failureData.providerRetryAfterMs)
+      || failureData.providerRetryAfterMs <= 0)) return null
+  if (failureData.requestId !== undefined
+    && (typeof failureData.requestId !== 'string'
+      || failureData.requestId.length === 0)) return null
   return data as unknown as LlmRetryEventData
 }
 
-function nonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
-function positiveInteger(value: unknown): value is number {
-  return nonNegativeInteger(value) && value > 0
+function positiveSafeInteger(value: unknown): value is number {
+  return nonNegativeSafeInteger(value) && value > 0
 }
 
 /**

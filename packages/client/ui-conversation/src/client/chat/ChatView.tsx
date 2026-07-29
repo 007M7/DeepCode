@@ -50,7 +50,7 @@ function activeRetrySeq(nodes: readonly ConversationNode[], running: boolean): n
   for (let index = nodes.length - 1; index >= 0; index -= 1) {
     const node = nodes[index]
     if (node === undefined) continue
-    if (node.kind === 'model-retry') return node.seq
+    if (node.kind === 'model-retry') return node.retryState === 'cancelled' ? null : node.seq
     if (node.kind === 'assistant' || node.kind === 'user') return null
   }
   return null

@@ -67,6 +67,7 @@ const assistant = (seq: number, text: string): AssistantMessageNode => ({
 })
 const retry = (seq: number): ModelRetryNode => ({
   kind: 'model-retry', seq, time: seq * 1_000, turn: 1, step: 0,
+  retryState: 'scheduled',
   provider: 'mock', mode: 'normal', policyKey: 'mock-normal',
   retry: 1, maxRetries: 2, delayMs: 450,
   failure: { code: 'TRANSPORT', message: '连接被重置' },
@@ -232,15 +233,25 @@ describe('ChatView', () => {
     expect(view.getByRole('status').textContent).toBe('正在重试模型请求（2/2） · 1s')
 
     act(() => {
-      h.set({ nodes: [user(1, 'try'), retryNode, nextRetry, context, assistant(5, 'done')] })
+      h.set({
+        nodes: [
+          user(1, 'try'),
+          retryNode,
+          { ...nextRetry, retryState: 'started' },
+          context,
+          assistant(5, 'done'),
+        ],
+        running: false,
+      })
     })
     expect(disclosure?.dataset.active).toBeUndefined()
     expect(view.getByRole('status').textContent).toBe('已重试模型请求（2/2） · 1s')
 
     act(() => {
-      h.set({ nodes: [user(1, 'try'), retry(6)], running: false })
+      h.set({ nodes: [user(1, 'try'), { ...retry(6), retryState: 'cancelled' }], running: true })
     })
     expect(disclosure?.dataset.active).toBeUndefined()
+    expect(view.getByRole('status').textContent).toContain('重试已取消')
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {

@@ -33,6 +33,7 @@ interface FixtureTiming {
   appendTitle(id: string, title: string): void
   beginModelRetry(id: string): void
   scheduleModelRetry(id: string, retry?: number, delayMs?: number): void
+  cancelModelRetryDuringBackoff(id: string, delayMs?: number): void
   completeModelRetry(id: string): void
 }
 
@@ -215,4 +216,28 @@ it('retracts a failed stream at llm/retry and retains the durable notice after r
 
   await expect(`${JSON.stringify({ beforeRetry, firstRetry, scheduled, expanded, completed }, null, 2)}\n`)
     .toMatchFileSnapshot('./snapshots/model-retry.json')
+})
+
+it('labels a retry cancelled during backoff without claiming that it started', async () => {
+  bootFixtureApp()
+  await selectFixtureSession()
+  const timing = (globalThis as Record<string, unknown>).__fxTiming as FixtureTiming
+
+  act(() => { timing.beginModelRetry('fx-alpha') })
+  await screen.findByText('应撤回的半截回复')
+  act(() => { timing.cancelModelRetryDuringBackoff('fx-alpha', 1_500) })
+
+  const notice = await screen.findByRole('status')
+  await waitFor(() => { expect(notice.textContent).toContain('重试已取消') })
+  await waitFor(() => { expect(screen.queryByText('应撤回的半截回复')).toBeNull() })
+  const disclosure = notice.closest('details')
+  if (disclosure === null) throw new Error('cancelled retry disclosure missing')
+  const cancelled = {
+    notice: notice.textContent,
+    partialVisible: screen.queryByText('应撤回的半截回复') !== null,
+    animated: disclosure.dataset.active === 'true',
+  }
+
+  await expect(`${JSON.stringify(cancelled, null, 2)}\n`)
+    .toMatchFileSnapshot('./snapshots/model-retry-cancel.json')
 })

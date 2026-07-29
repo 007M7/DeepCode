@@ -208,18 +208,21 @@ describe('tab switching in ConversationRoot', () => {
 })
 
 describe('span derivation', () => {
-  it('attributes prologue to turn 0 and follows steering turn tags', () => {
+  it('attributes prologue to turn 0 and follows steering and retry turn tags', () => {
     const nodes = [
       { kind: 'user', seq: 1 },
       { kind: 'steering', seq: 2, turn: 5 },
       { kind: 'user', seq: 3 },
+      { kind: 'model-retry', seq: 4, turn: 6 },
+      { kind: 'user', seq: 5 },
     ] as unknown as ConversationSnapshot['nodes']
     const spans = deriveSpans(nodes)
     expect(spans).toEqual([
       { turn: 0, steps: 0, calls: 0, nodes: 1 },
       { turn: 5, steps: 0, calls: 0, nodes: 2 },
+      { turn: 6, steps: 0, calls: 0, nodes: 2 },
     ])
-    expect(deriveSpanStats(spans)).toEqual({ turns: 2, steps: 0, calls: 0 })
+    expect(deriveSpanStats(spans)).toEqual({ turns: 3, steps: 0, calls: 0 })
   })
 
   it('empty inputs produce zero stats and standalone components render their empty forms', () => {

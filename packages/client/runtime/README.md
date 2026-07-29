@@ -26,7 +26,7 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 ## Model retry projection
 
-The Session object validates plugin-owned, provider-routed `llm/retry` payloads at the event wire boundary. A valid event removes the matching failed step's streaming partial and inserts a durable retry notice at the event's sequence position. Normal-mode notices carry their finite maximum; always-mode notices remain explicitly unbounded. Window rebuild and history replay apply the same projection, so logged chunks from the discarded attempt never reappear as an interrupted reply after refresh. A terminal turn without `llm/retry` retains the existing behavior: visible unfinalized output is frozen as an interrupted assistant node.
+The Session object validates plugin-owned, provider-routed `llm/retry` payloads at the event wire boundary against the producer's complete field contract, including timer, integer, status, provider-delay, and non-empty diagnostic bounds. A valid event removes the matching failed step's streaming partial and inserts a durable retry notice at the event's sequence position. The notice is `scheduled` until a following retry turn starts; an aborted or disposed source turn marks it `cancelled`, while the retry turn marks it `started`. Normal-mode notices carry their finite maximum; always-mode notices remain explicitly unbounded. Window rebuild and history replay apply the same projection, so logged chunks from the discarded attempt never reappear as an interrupted reply after refresh. A terminal turn without `llm/retry` retains the existing behavior: visible unfinalized output is frozen as an interrupted assistant node.
 
 ## Session model selection
 

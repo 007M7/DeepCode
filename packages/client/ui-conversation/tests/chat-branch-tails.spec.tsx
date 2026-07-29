@@ -125,6 +125,7 @@ describe('MessageItem arms', () => {
           kind: 'model-retry',
           seq: 5,
           time: 10_000,
+          retryState: 'scheduled',
           turn: 1,
           step: 0,
           provider: 'mock',
@@ -157,6 +158,7 @@ describe('MessageItem arms', () => {
           kind: 'model-retry',
           seq: 6,
           time: 12_100,
+          retryState: 'scheduled',
           turn: 2,
           step: 0,
           provider: 'mock',
@@ -180,6 +182,7 @@ describe('MessageItem arms', () => {
         kind: 'model-retry',
         seq: 6,
         time: 12_100,
+        retryState: 'started',
         turn: 2,
         step: 0,
         provider: 'mock',
@@ -200,6 +203,7 @@ describe('MessageItem arms', () => {
         kind: 'model-retry',
         seq: 7,
         time: 12_100,
+        retryState: 'started',
         turn: 3,
         step: 0,
         provider: 'mock',
@@ -212,6 +216,26 @@ describe('MessageItem arms', () => {
       />,
     )
     expect(view.getByRole('status').textContent).toBe('已重试模型请求（3/∞） · 4s')
+
+    view.rerender(
+      <MessageItem node={{
+        kind: 'model-retry',
+        seq: 8,
+        time: 12_100,
+        retryState: 'cancelled',
+        turn: 4,
+        step: 0,
+        provider: 'mock',
+        mode: 'normal',
+        policyKey: 'mock-normal',
+        retry: 1,
+        maxRetries: 2,
+        delayMs: 3_500.4,
+        failure: { code: 'TRANSPORT', message: '用户取消' },
+      }}
+      />,
+    )
+    expect(view.getByRole('status').textContent).toBe('模型请求重试已取消（1/2） · 4s')
   })
 
   it('synchronizes the countdown when an inactive retry becomes active at the one-second floor', () => {
@@ -221,6 +245,7 @@ describe('MessageItem arms', () => {
       kind: 'model-retry',
       seq: 5,
       time: 10_000,
+      retryState: 'scheduled',
       turn: 1,
       step: 0,
       provider: 'mock',
@@ -232,7 +257,7 @@ describe('MessageItem arms', () => {
       failure: { code: 'TRANSPORT', message: '连接被重置' },
     } as const
     const view = render(<MessageItem node={node} />)
-    expect(view.getByRole('status').textContent).toBe('已重试模型请求（1/2） · 5s')
+    expect(view.getByRole('status').textContent).toBe('等待重试模型请求（1/2） · 5s')
 
     act(() => { vi.advanceTimersByTime(4_200) })
     view.rerender(<MessageItem node={node} retryActive />)

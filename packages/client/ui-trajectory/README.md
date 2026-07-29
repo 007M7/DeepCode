@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Trajectory turn-list chrome (sticky Turn / Message·Step groups / step cells) plus Waterfall placeholder; the pure-consumer minimal plugin exemplar (registers two view tabs into the conversation's `'conversation.view'` slot ring, provides no service, declares no Context merge). Contract: api-contracts v3 §8.
+Trajectory turn-list chrome (sticky Turn / Message·Step groups / step cells) plus Waterfall placeholder; the pure-consumer minimal plugin exemplar (registers two view tabs into the conversation's `'conversation.view'` slot ring, provides no service, declares no Context merge). Conversation nodes carrying a turn, including model-retry notices without assistant output, anchor their own trajectory span instead of inheriting the preceding turn. Contract: api-contracts v3 §8.
 
 ## Model Experience
 

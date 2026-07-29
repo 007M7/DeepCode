@@ -43,8 +43,9 @@ export interface SpanStats {
 
 /**
  * Fold snapshot nodes into per-turn spans. Only assistant nodes carry a turn
- * number; user/steering/context/tool nodes attach to the turn last seen in
- * sequence order (turn 0 collects the pre-assistant prologue).
+ * number; retry and steering nodes also carry their owning turn, while
+ * user/context/tool nodes attach to the turn last seen in sequence order
+ * (turn 0 collects the pre-assistant prologue).
  * @param nodes - snapshot nodes in surface order.
  * @returns spans ordered by first appearance.
  */
@@ -85,7 +86,7 @@ export function deriveSpanStats(spans: readonly TurnSpan[]): SpanStats {
 }
 
 function hasTurn(node: ConversationNode): node is ConversationNode & { turn: number } {
-  return node.kind === 'assistant' || node.kind === 'steering'
+  return node.kind === 'assistant' || node.kind === 'steering' || node.kind === 'model-retry'
 }
 
 /**

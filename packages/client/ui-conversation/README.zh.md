@@ -10,7 +10,7 @@
 
 通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击后通过宿主操作系统的默认应用打开文件（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。
 
-聊天流会将跨重试轮次连续出现的模型重试节点投影为一个稳定的弱化状态行，并用最新一次尝试更新该行；每个重试事件仍保留在运行时快照与会话日志中。前端倒计时由计划延迟派生，剩余时间向上取整到秒，且下限为 1 秒。最近一次尚未完成的重试会显示从左到右的文字渐变动画，完成后则稳定显示为静态的已完成标签。normal 策略行显示有限重试上限；always 策略行显示 `∞`。激活该行会显示最近一次重试的精确延迟和失败消息。客户端运行时会在相应重试节点到达前移除每个失败步骤的流式输出尾部；后续某次尝试成功后，该状态仍保持可见。
+聊天流会将跨重试轮次连续出现的模型重试节点投影为一个稳定的弱化状态行，并用最新一次尝试更新该行；每个重试事件仍保留在运行时快照与会话日志中。前端倒计时以客户端收到事件的时刻为计划延迟的起点，避免 Host 与浏览器的时钟偏差；剩余时间向上取整到秒，且下限为 1 秒。最近一次尚未完成的重试会显示从左到右的文字渐变动画。后续轮次事实用于区分已开始的尝试与在退避期间取消的尝试，Host 的 running 位只控制实时动画；随后该行会显示静态的已完成或已取消标签。normal 策略行显示有限重试上限；always 策略行显示 `∞`。激活该行会显示最近一次重试的精确延迟和失败消息。客户端运行时会在相应重试节点到达前移除每个失败步骤的流式输出尾部；后续某次尝试成功后，该状态仍保持可见。
 
 工具行同样是 slot：独立工具环（`ToolViewRegistry`／`ctx.toolviews`／outlet）已经退役。聊天配置项声明键控的 `'conversation.chat.toolview'` 空位（Session scope；key 空间在运行时开放）；其渲染点逐行通过 `entryKey: toolName` 分发，并以 `GenericToolCard` 作为调用点 `fallback`。owner 载荷是统一的 `ToolRowOwnerProps`（`callId`／`toolName`／`block`／`openFile`），`ToolRowProps` 则预先将其与 Session 标准工具包组合。注册方只是普通插件：`ctx.slots.register({ name: 'conversation.chat.toolview', key: '<tool>', inject? }, Row)`，以 `inject: ['slots', 'conversation']` 作为加载顺序 seam（apply 在聊天注册后挂载 ConversationService，因此服务存在即可保证 slot 已声明）；Session 区分在组件内部完成（`useSessions` 读取 `parentId`，bash 示例是第三方姿态的范例）。Trajectory/waterfall 工具视图 slot 共享此形状，并随各自的渲染点落地（RendersCheck 会拒绝没有任何渲染方的声明）。
 
