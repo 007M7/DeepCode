@@ -1,19 +1,17 @@
 // @vitest-environment jsdom
 // Remaining chat branch tails: MessageItem context/unknown/steering arms,
-// user IconActions, StatsLine no-cache join, PendingCard reason strip,
+// user IconActions, StatsLine no-cache join,
 // AssistantMarkdown single-line reasoning. (Tool-row dispatch tails live
 // with the keyed-slot machinery specs since the tool ring dissolved into
 // renderSlot.)
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import { formatMessageClock } from '../src/client/chat/message-chrome.ts'
+import {
+  formatMessageClock, msUntilNextLocalMidnight, startOfLocalDay,
+} from '../src/client/chat/message-chrome.ts'
 import { MessageItem } from '../src/client/chat/MessageItem.tsx'
-import { PendingCard } from '../src/client/chat/PendingCard.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 
@@ -135,16 +133,43 @@ describe('formatMessageClock', () => {
   it('prefixes year, month, and day across years', () => {
     expect(formatMessageClock(new Date(2025, 11, 31, 9, 5).getTime(), now)).toBe('2025年12月31日 09:05')
   })
+
+  it('arms the next local midnight from an in-day instant', () => {
+    const noon = new Date(2026, 6, 29, 12, 0).getTime()
+    expect(startOfLocalDay(noon)).toBe(new Date(2026, 6, 29).getTime())
+    expect(msUntilNextLocalMidnight(noon)).toBe(12 * 3_600_000)
+  })
+})
+
+describe('useCalendarDay boundary refresh', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('widens a same-day user clock after local midnight', () => {
+    const dayStart = new Date(2026, 6, 29, 23, 50).getTime()
+    vi.setSystemTime(dayStart)
+    const time = new Date(2026, 6, 29, 14, 24).getTime()
+    render(
+      <MessageItem node={{
+        kind: 'user', seq: 1, time,
+        content: [{ type: 'text', text: 'night bubble' }] as never,
+        source: null,
+      }}
+      />,
+    )
+    expect(screen.getByText('14:24')).toBeTruthy()
+    act(() => {
+      vi.advanceTimersByTime(msUntilNextLocalMidnight(dayStart) + 1)
+    })
+    expect(screen.getByText('7月29日 14:24')).toBeTruthy()
+  })
 })
 
 describe('small branch tails', () => {
-  it('PendingCard approval reason renders when present', () => {
-    const view = render(
-      <PendingCard item={new PendingWait('approval', RpcId('r1'), 's1' as SessionId, { approvalId: 'a1', toolName: 'rm', reason: 'careful' } as PendingWait<'approval'>['payload'], vi.fn())} />,
-    )
-    expect(view.getByText('careful')).toBeTruthy()
-  })
-
   it('AssistantMarkdown single-line reasoning summary skips the newline cut', () => {
     const view = render(
       <AssistantMarkdown blocks={[{ kind: 'reasoning', text: 'one-liner' }]} streaming={false} />,

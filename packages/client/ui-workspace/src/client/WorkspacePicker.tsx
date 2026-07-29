@@ -2,10 +2,12 @@
  * Workspace pick/create flow. WorkspaceCreateFlow is the reusable core
  * (menu + path/create dialogs) consumed directly by WorkspaceBrowser (same
  * package) and wrapped by WorkspacePicker for the conversation empty-state
- * slot registration.
+ * slot registration. Directory picking itself lives in the composed flow
+ * package's slot occupant (see the contract module doc): this core only
+ * opens the flow, adopts the picked path, and owns the error surface.
  */
-import type { RefObject } from 'react'
-import { useCallback, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -13,7 +15,8 @@ import {
   WorkspaceCreateError,
   type WorkspaceId, type WorkspaceListState, type WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { WorkspacePickerProps } from './contract/slots.ts'
+import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/slots.ts'
 import css from './WorkspacePicker.module.css'
 
 const OPEN_LOCAL_FOLDER = '::open-local-folder'
@@ -31,8 +34,10 @@ export interface WorkspaceCreateFlowProps {
   useWorkspaces: <S>(selector: (state: WorkspaceListState) => S) => S
   /** Create or adopt a real Host Workspace. */
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
-  /** Open the Host's native single-directory picker. */
-  pickDirectory: () => Promise<string | null>
+  /** Bound occupancy selector hook for this surface's directory-flow hole (empty hides the local-folder entry). */
+  useDirectoryFlow: SnapshotSelectorHook<boolean>
+  /** Render this surface's directory-flow hole with the owner conversation (the entry's narrowed renderSlot). */
+  renderDirectoryFlow: (owner: DirectoryFlowOwnerProps) => ReactNode
   /** A real Workspace was picked or created. */
   onPick: (workspaceId: WorkspaceId) => void
   /** Close the popover (outside click / Escape / post-pick). */
@@ -55,7 +60,8 @@ export function WorkspaceCreateFlow({
   anchorRef,
   useWorkspaces,
   createWorkspace,
-  pickDirectory,
+  useDirectoryFlow,
+  renderDirectoryFlow,
   onPick,
   onClose,
   createOnly = false,
@@ -72,16 +78,37 @@ export function WorkspaceCreateFlow({
   const [workspaceName, setWorkspaceName] = useState('')
   const [creating, setCreating] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
+  const [flowOpen, setFlowOpen] = useState(false)
   const [pickingFolder, setPickingFolder] = useState(false)
   const [folderConflict, setFolderConflict] = useState(false)
   const composingRef = useRef(false)
+  // One picking interaction at a time: while the flow is open (native chooser
+  // pending, browse dialog up) or its pick is being adopted, every other
+  // menu action stays disabled — a late outcome must not race a concurrent
+  // selection or creation.
+  const flowBusy = flowOpen || pickingFolder
   const normalizedWorkspaceName = workspaceName.trim()
   const duplicateWorkspaceName = !creating && normalizedWorkspaceName !== ''
     && workspaces.some(workspace => workspace.title === normalizedWorkspaceName)
 
+  // The occupied hole gates the picking affordance: with no composed flow the
+  // entry simply is not there (the seam's documented no-flow default). The
+  // framework-bound hook keeps occupancy live: flow plugins activate (and
+  // HMR-reload) independently of this menu's renders.
+  const flowAvailable = useDirectoryFlow(occupied => occupied)
+  // An occupant that unloads mid-interaction leaves nobody to cancel: an
+  // open flow over an empty hole withdraws so the menu actions come back.
+  // flowOpen is a dependency because the flow can also OPEN over an already
+  // empty hole (Choose again after the occupant unloaded with the error
+  // dialog up) — that transition must snap back too, not just occupancy loss.
+  useEffect(() => {
+    if (flowOpen && !flowAvailable) setFlowOpen(false)
+  }, [flowOpen, flowAvailable])
   const createEntries: MenuEntry[] = [
-    { id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: pickingFolder },
-    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: pickingFolder },
+    ...(flowAvailable
+      ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: flowBusy }]
+      : []),
+    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: flowBusy },
   ]
   // With workspaces listed, the create actions pin below the scroll region
   // (divider + always visible); otherwise they ARE the menu.
@@ -91,7 +118,7 @@ export function WorkspaceCreateFlow({
       id: workspace.workspaceId,
       label: workspace.title,
       icon: <IconFolderClose16 size={16} />,
-      disabled: pickingFolder,
+      disabled: flowBusy,
     }))
     : createEntries
 
@@ -101,15 +128,10 @@ export function WorkspaceCreateFlow({
     setModalError(null)
   }
 
-  const openLocalFolder = (): void => {
-    onClose()
-    setModalKind(null)
-    setModalError(null)
-    setFolderConflict(false)
-    setPickingFolder(true)
-    void pickDirectory().then(async (path) => {
-      if (path === null) return
-      const workspace = await createWorkspace({ path })
+  /** Adopt a picked directory; failures land in the folder-error dialog (Choose again reopens the flow). */
+  const adoptDirectory = (path: string): Promise<void> =>
+    createWorkspace({ path }).then((workspace) => {
+      setFlowOpen(false)
       onPick(workspace.workspaceId)
     }).catch((reason: unknown) => {
       setFolderConflict(
@@ -117,8 +139,33 @@ export function WorkspaceCreateFlow({
         && reason.rpcError.code === 'workspace-name-conflict',
       )
       setModalError(reason instanceof Error ? reason.message : String(reason))
+      setFlowOpen(false)
       setModalKind('folder-error')
-    }).finally(() => { setPickingFolder(false) })
+    })
+
+  const openLocalFolder = (): void => {
+    onClose()
+    setModalKind(null)
+    setModalError(null)
+    setFolderConflict(false)
+    setFlowOpen(true)
+  }
+
+  /** Owner side of the flow conversation: adopt keeps the flow open (busy) until the Host answers. */
+  const flowOwner: DirectoryFlowOwnerProps = {
+    open: flowOpen,
+    busy: pickingFolder,
+    onPicked: (path) => {
+      setPickingFolder(true)
+      void adoptDirectory(path).finally(() => { setPickingFolder(false) })
+    },
+    onCancel: () => { setFlowOpen(false) },
+    onError: (message) => {
+      setFlowOpen(false)
+      setFolderConflict(false)
+      setModalError(message)
+      setModalKind('folder-error')
+    },
   }
 
   const handleSelect = (id: string): void => {
@@ -172,6 +219,7 @@ export function WorkspaceCreateFlow({
         getAnchorRect={getAnchorRect}
       />
       {open && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">Loading workspaces…</div>}
+      {renderDirectoryFlow(flowOwner)}
       <Modal
         open={modalKind === 'folder-error'}
         onClose={closeModal}
@@ -179,7 +227,9 @@ export function WorkspaceCreateFlow({
         footer={(
           <>
             <Button variant="outline" className={css.modalAction} onClick={closeModal}>Cancel</Button>
-            <Button variant="primary" className={css.modalAction} onClick={openLocalFolder}>Choose again</Button>
+            {/* Retrying needs an occupant to serve the flow; without one the
+              * button would open a flow nobody can answer or cancel. */}
+            <Button variant="primary" className={css.modalAction} disabled={!flowAvailable} onClick={openLocalFolder}>Choose again</Button>
           </>
         )}
       >
@@ -249,7 +299,8 @@ export function WorkspacePicker({
   onPick,
   onClose,
   createWorkspace,
-  pickDirectory,
+  useDirectoryFlow,
+  renderSlot,
 }: WorkspacePickerProps) {
   return (
     <WorkspaceCreateFlow
@@ -257,7 +308,8 @@ export function WorkspacePicker({
       anchorRef={anchorRef}
       useWorkspaces={useWorkspaces}
       createWorkspace={createWorkspace}
-      pickDirectory={pickDirectory}
+      useDirectoryFlow={useDirectoryFlow}
+      renderDirectoryFlow={owner => renderSlot('conversation.hero.workspace.directoryFlow', owner)}
       selectedId={selectedId}
       onPick={onPick}
       onClose={onClose}

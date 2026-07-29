@@ -42,6 +42,28 @@ function pad2(n: number): string {
 }
 
 /**
+ * Local calendar-day epoch (ms at local midnight) for an instant.
+ * @param ms - Unix epoch ms.
+ * @returns Midnight of that local calendar day.
+ */
+export function startOfLocalDay(ms: number): number {
+  const d = new Date(ms)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+/**
+ * Delay until the next local midnight after `ms` (at least 1ms).
+ * @param ms - Unix epoch ms.
+ * @returns Milliseconds until the following local midnight.
+ */
+export function msUntilNextLocalMidnight(ms: number): number {
+  const next = new Date(ms)
+  next.setHours(24, 0, 0, 0)
+  return Math.max(next.getTime() - ms, 1)
+}
+
+/**
  * Compact local timestamp for message IconActions.
  * Same calendar day → `HH:mm`; earlier this year → `M月D日 HH:mm`;
  * other years → `YYYY年M月D日 HH:mm`.

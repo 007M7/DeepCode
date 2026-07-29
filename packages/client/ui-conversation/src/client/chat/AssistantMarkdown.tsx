@@ -13,6 +13,7 @@ import {
   JsonBlock, MarkdownText, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatMessageClock, writeClipboard } from './message-chrome.ts'
+import { useCalendarDay } from './use-calendar-day.ts'
 import { ToolRow } from './ToolRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
@@ -56,6 +57,7 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
 
 /** Finalized assistant IconActions (figma 43:32997): copy live; branch stub; clock. */
 function AssistantActions({ text, time }: { text: string; time: number }) {
+  const day = useCalendarDay()
   const onCopy = useCallback(() => {
     void writeClipboard(text)
   }, [text])
@@ -71,7 +73,7 @@ function AssistantActions({ text, time }: { text: string; time: number }) {
           <IconBranchOutline16 />
         </button>
       </Tooltip>
-      <span className={css.time}>{formatMessageClock(time)}</span>
+      <span className={css.time}>{formatMessageClock(time, day)}</span>
     </div>
   )
 }

@@ -14,6 +14,7 @@ import {
   JsonBlock, MessageText, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatMessageClock, writeClipboard } from './message-chrome.ts'
+import { useCalendarDay } from './use-calendar-day.ts'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
@@ -65,12 +66,13 @@ function projectUserText(text: string): ReactNode {
 
 /** User-bubble IconActions (figma 388:20051): clock + copy live; branch/edit stubs. */
 function UserActions({ text, time }: { text: string; time: number }) {
+  const day = useCalendarDay()
   const onCopy = useCallback(() => {
     void writeClipboard(text)
   }, [text])
   return (
     <div className={css.actions}>
-      <span className={css.time}>{formatMessageClock(time)}</span>
+      <span className={css.time}>{formatMessageClock(time, day)}</span>
       <Tooltip label="复制" side="bottom">
         <button type="button" className={css.action} aria-label="复制" onClick={onCopy}>
           <IconCopyOutline16 />
