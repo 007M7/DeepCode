@@ -28,7 +28,6 @@ import {
   readForEdit,
   readTextForDiff,
   readWholeText,
-  readWholeTextBounded,
   resolveLocalTarget,
   restoreLineEndings,
   streamWholeText,
@@ -124,10 +123,6 @@ export class LocalFileSystem extends FileSystem {
 
   override async readText(target: FsTarget, signal?: AbortSignal): Promise<string> {
     return readWholeText({ displayPath: target.displayPath, targetKey: target.targetKey }, signal)
-  }
-
-  override async readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string> {
-    return readWholeTextBounded({ displayPath: target.displayPath, targetKey: target.targetKey }, maxBytes, signal)
   }
 
   override streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {

@@ -4,7 +4,6 @@ import { Buffer } from 'node:buffer'
 import { constants } from 'node:os'
 import { PassThrough } from 'node:stream'
 import type { IDisposable, IPty } from 'node-pty'
-import { SubprocessTerminalLifecycle } from '@deepseek-ai/dsh-subprocess'
 import type {
   SubprocessOutcome,
   SubprocessTerminalForeground,
@@ -34,7 +33,7 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   private readonly outcome = Promise.withResolvers<SubprocessOutcome>()
   private readonly dataDisposable: IDisposable
   private readonly exitDisposable: IDisposable
-  private readonly lifecycle: SubprocessTerminalLifecycle
+  private cleanup: Promise<void> | undefined
   private exited = false
   private trackedDescendants: ProcessIdentity[] = []
 
@@ -42,13 +41,11 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
    * @param terminal - allocated node-pty process.
    * @param inspector - platform process/session operations.
    * @param graceMs - TERM-to-KILL and exit-wait grace.
-   * @param signal - optional lifetime cancellation.
    */
   constructor(
     private readonly terminal: IPty,
     private readonly inspector: ProcessInspector,
     private readonly graceMs: number,
-    signal?: AbortSignal,
   ) {
     this.pid = terminal.pid
     this.done = this.outcome.promise
@@ -61,26 +58,15 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
         exitCode: exitSignal === undefined || exitSignal === 0 ? exitCode : null,
         signal: signalName(exitSignal),
       })
-      this.terminate()
-    })
-    this.lifecycle = new SubprocessTerminalLifecycle({
-      done: this.done,
-      cleanup: () => this.closeOnce(),
-      signal,
+      void this.terminate().catch(() => {})
     })
   }
 
   // node-pty writes synchronously; the seam returns a promise for remote transports.
   // eslint-disable-next-line @typescript-eslint/require-await
-  async write(data: Uint8Array): Promise<void> {
+  async write(data: string): Promise<void> {
     if (this.exited) throw new Error('terminal process has exited')
-    let text: string
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(data)
-    } catch (error: unknown) {
-      throw new Error('terminal input must be valid UTF-8', { cause: error })
-    }
-    this.terminal.write(text)
+    this.terminal.write(data)
   }
 
   // Local inspection is synchronous; the seam returns a promise for remote transports.
@@ -107,12 +93,12 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
     return foreground.processGroupId
   }
 
-  terminate(): void {
-    this.lifecycle.terminate()
-  }
-
-  async waitForExit(signal?: AbortSignal): Promise<boolean> {
-    return await this.lifecycle.waitForExit(signal)
+  terminate(): Promise<void> {
+    if (this.cleanup !== undefined) return this.cleanup
+    const cleanup = this.closeOnce()
+    this.cleanup = cleanup
+    void cleanup.catch(() => { this.cleanup = undefined })
+    return cleanup
   }
 
   private survivors(members: ProcessIdentity[]): ProcessIdentity[] {

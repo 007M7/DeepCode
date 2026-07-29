@@ -1,5 +1,6 @@
 /** Filesystem-seam source access for the generic stdio LSP provider. */
 
+import { Buffer } from 'node:buffer'
 import type { FileSystem, FsTarget } from '@deepseek-ai/dsh-fs'
 import { throwIfAborted } from './abort.ts'
 
@@ -58,9 +59,9 @@ export async function canonicalizeWorkspace(
 }
 
 /**
- * Resolve, contain, and atomically read one bounded query source through
- * `ctx.fs`. The provider's bounded read owns stable-handle and no-follow
- * mechanics; this layer owns only LSP-facing validation and messages.
+ * Resolve, contain, and read one byte-bounded query source through `ctx.fs`.
+ * This layer owns the LSP-specific complete-document cap while the filesystem
+ * provider owns streaming, regular-file checks, and UTF-8 validation.
  * @param fs - filesystem provider sharing the server's execution world.
  * @param filePath - absolute source path or path relative to `workspace`.
  * @param workspace - already-canonical workspace.
@@ -90,17 +91,28 @@ export async function readHostSource(
   if (!fs.contains(workspace.target, target)) {
     throw new Error(`source "${filePath}" resolves outside the workspace`)
   }
-  let text: string
+  const chunks: string[] = []
+  let bytes = 0
   try {
-    text = await fs.readTextBounded(target, maxDocumentBytes, signal)
+    // XXX(lsp-source-replacement): Revisit stable-handle identity only if a real query observes
+    // replacement between canonical containment and the provider opening this stream.
+    const stream = await fs.streamText(target, signal)
+    for await (const chunk of stream) {
+      throwIfAborted(signal)
+      bytes += Buffer.byteLength(chunk)
+      if (bytes > maxDocumentBytes) {
+        throw new Error(`source "${filePath}" exceeds the ${maxDocumentBytes}-byte limit`)
+      }
+      chunks.push(chunk)
+    }
   } catch (error: unknown) {
     throwIfAborted(signal)
-    throw new Error(`source "${filePath}" could not be opened safely: ${messageOf(error)}`, { cause: error })
+    throw new Error(`source "${filePath}" could not be read: ${messageOf(error)}`, { cause: error })
   }
   throwIfAborted(signal)
   return {
     fileUrl: fs.fileUrl(target),
-    text,
+    text: chunks.join(''),
   }
 }
 

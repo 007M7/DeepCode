@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { constants, createReadStream } from 'node:fs'
+import { createReadStream } from 'node:fs'
 import { chmod, lstat, mkdir, open, readFile, realpath, readdir, rename, rm, stat } from 'node:fs/promises'
 import type { BigIntStats, Dirent, Stats } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -377,69 +377,6 @@ export async function readWholeText(target: LocalTarget, signal?: AbortSignal): 
  * @param signal - aborts between handle operations.
  * @returns the complete decoded text when it fits.
  */
-export async function readWholeTextBounded(
-  target: LocalTarget,
-  maxBytes: number,
-  signal?: AbortSignal,
-): Promise<string> {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-    throw new Error('bounded read maxBytes must be a positive safe integer')
-  }
-  throwIfAborted(signal, 'read')
-  let handle: Awaited<ReturnType<typeof open>>
-  try {
-    handle = await open(
-      target.targetKey,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    )
-  } catch (error: unknown) {
-    if (isENOENT(error)) throw new FsError(`cannot read "${target.displayPath}": not found`, 'FS_NOT_FOUND', { cause: error })
-    if (isPermissionError(error)) throw new FsError(`cannot read "${target.displayPath}": permission denied`, 'FS_PERMISSION_DENIED', { cause: error })
-    throw new FsError(`cannot read "${target.displayPath}" safely: ${errorMessage(error)}`, 'FS_IO_ERROR', { cause: error })
-  }
-  try {
-    throwIfAborted(signal, 'read')
-    const info = await handle.stat()
-    if (!info.isFile()) {
-      throw new FsError(`cannot read "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
-    }
-    if (info.size > maxBytes) {
-      throw new FsError(
-        `cannot read "${target.displayPath}": ${info.size} bytes exceeds the ${maxBytes}-byte limit`,
-        'FS_IO_ERROR',
-      )
-    }
-    const chunks: Buffer[] = []
-    let total = 0
-    for (;;) {
-      throwIfAborted(signal, 'read')
-      // Allocate in fixed internal chunks so a permissive deployment cap does
-      // not reserve that entire cap for a small file. Once exactly at the
-      // bound, one final byte detects concurrent growth without retaining it.
-      const remaining = total === maxBytes ? 1 : Math.min(64 * 1024, maxBytes - total)
-      const chunk = Buffer.allocUnsafe(remaining)
-      const { bytesRead } = await handle.read(chunk, 0, chunk.length, total)
-      if (bytesRead === 0) break
-      total += bytesRead
-      if (total > maxBytes) {
-        throw new FsError(
-          `cannot read "${target.displayPath}": file grew past the ${maxBytes}-byte limit while reading`,
-          'FS_IO_ERROR',
-        )
-      }
-      chunks.push(chunk.subarray(0, bytesRead))
-    }
-    throwIfAborted(signal, 'read')
-    const bytes = chunks.length === 1 ? chunks[0] as Buffer : Buffer.concat(chunks, total)
-    if (bytes.subarray(0, BINARY_SAMPLE_BYTES).includes(0)) {
-      throw new FsError(`cannot read "${target.displayPath}": binary file`, 'FS_NOT_TEXT')
-    }
-    return decodeUtf8(bytes, 'read', target.displayPath)
-  } finally {
-    await handle.close()
-  }
-}
-
 /**
  * Stream a whole regular UTF-8 text file as decoded text chunks. Same text
  * semantics as {@link readWholeText} (regular-file check, binary/NUL rejection,

@@ -14,8 +14,6 @@ import type { SubprocessHandle, SubprocessSpawnSpec } from './types.ts'
 import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from './types.ts'
 
 export { DSH_ENV_PREFIX } from './types.ts'
-export { SubprocessTerminalLifecycle } from './terminal-lifecycle.ts'
-export type { SubprocessTerminalLifecycleOptions } from './terminal-lifecycle.ts'
 export type {
   CollectedOutput,
   DshEnvironment,
@@ -95,10 +93,11 @@ declare module 'cordis' {
  *   quiescence.
  * - Disposal of the service terminates all still-running managed processes
  *   and awaits their exit.
- * - {@link spawnTerminal} owns terminal allocation, byte transport,
- *   foreground groups, signalling, and whole-session quiescence; readiness
- *   and persistent-shell policy stay in the PTY consumer. Its output stream
- *   ends after queued terminal output when the top-level process exits.
+ * - {@link spawnTerminal} owns terminal allocation, text transport,
+ *   foreground groups, signalling, and whole-session quiescence behind one
+ *   awaited termination method; readiness and persistent-shell policy stay
+ *   in the PTY consumer. Its output stream ends after queued terminal output
+ *   when the top-level process exits.
  */
 export abstract class SubprocessService extends Service {
   constructor(ctx: Context) {
@@ -138,7 +137,7 @@ export abstract class SubprocessService extends Service {
    * Allocate a real terminal and start one owned process session. This is the
    * only non-pipe process primitive: implementations own terminal byte I/O,
    * foreground groups, signals, and complete session-tree cleanup.
-   * @param spec - fully specified argv, cwd, environment, dimensions, grace, and cancellation.
+   * @param spec - fully specified argv, cwd, environment, dimensions, grace, and allocation cancellation.
    * @returns the live terminal handle after allocation succeeds.
    */
   abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>

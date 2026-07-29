@@ -67,11 +67,6 @@ class FakeFs extends FileSystem {
   override async readText(target: FsTarget): Promise<string> {
     return this.files.get(target.targetKey) ?? ''
   }
-  override async readTextBounded(target: FsTarget, maxBytes: number): Promise<string> {
-    const content = await this.readText(target)
-    if (Buffer.byteLength(content) > maxBytes) throw new Error('too large')
-    return content
-  }
   override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
     const content = this.files.get(target.targetKey) ?? ''
     return (async function* () { yield content })()

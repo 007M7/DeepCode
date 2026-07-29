@@ -59,12 +59,7 @@ export class LocalSubprocessService extends SubprocessService {
         pending.push(handle.done.catch(() => {}).then(() => handle.waitForExit()))
       }
       for (const terminal of this.terminals) {
-        terminal.terminate()
-        // Cleanup may reject before the top-level process exits (for example,
-        // an identity-fenced descendant survives escalation). Await the cleanup
-        // transaction directly so disposal reports that failure rather than
-        // waiting forever on `done`.
-        pending.push(terminal.waitForExit().then(() => { this.terminals.delete(terminal) }))
+        pending.push(terminal.terminate().then(() => { this.terminals.delete(terminal) }))
       }
       this.live.clear()
       const outcomes = [
@@ -136,11 +131,6 @@ export class LocalSubprocessService extends SubprocessService {
     if (file === undefined || file.length === 0) {
       throw new Error('subprocess-local: terminal argv must contain a program')
     }
-    for (const [name, value] of [['rows', spec.rows], ['cols', spec.cols], ['graceMs', spec.graceMs]] as const) {
-      if (!Number.isSafeInteger(value) || value <= 0) {
-        throw new Error(`subprocess-local: terminal ${name} must be a positive safe integer`)
-      }
-    }
     spec.signal?.throwIfAborted()
     const options: IPtyForkOptions = {
       name: 'dumb',
@@ -151,10 +141,10 @@ export class LocalSubprocessService extends SubprocessService {
     }
     const inspector = this.terminalInspector ?? createProcessInspector()
     const terminal = nodePty.spawn(file, [...spec.argv.slice(1)], options)
-    const handle = new LocalTerminalHandle(terminal, inspector, spec.graceMs, spec.signal)
+    const handle = new LocalTerminalHandle(terminal, inspector, spec.graceMs)
     this.terminals.add(handle)
     const release = async (): Promise<void> => {
-      await handle.waitForExit()
+      await handle.terminate()
       this.terminals.delete(handle)
     }
     void handle.done.then(release, release).catch(() => {})

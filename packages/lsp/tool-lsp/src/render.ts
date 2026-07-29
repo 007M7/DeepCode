@@ -8,6 +8,8 @@
 
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { LspHover, LspLocation, LspOperation, LspPosition } from '@deepseek-ai/dsh-lsp'
+import { posix, win32 } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 /** The four operations the tool exposes, as a runtime tuple for schema enum + validation. */
 export const LSP_OPERATIONS: readonly LspOperation[] = ['goToDefinition', 'findReferences', 'goToImplementation', 'hover']
@@ -144,50 +146,29 @@ export function renderUri(uri: string, workspaceUri: string): string {
     return uri
   }
   if (workspace.protocol !== 'file:') return uri
-  const targetSegments = decodeFileSegments(target)
-  const workspaceSegments = decodeFileSegments(workspace)
-  if (targetSegments === undefined || workspaceSegments === undefined) return uri
-  const sameAuthority = target.hostname === workspace.hostname
-  const windowsWorld = isWindowsFileWorld(workspace, workspaceSegments)
-  if (windowsWorld && [...targetSegments, ...workspaceSegments].some(segment => segment.includes('\\'))) return uri
-  const inside = sameAuthority
-    && targetSegments.length >= workspaceSegments.length
-    && workspaceSegments.every((segment, index) => samePathSegment(segment, targetSegments[index] as string, windowsWorld))
-  if (inside) {
-    const relative = targetSegments.slice(workspaceSegments.length)
-    return relative.length === 0 ? '.' : relative.join('/')
-  }
-  return absoluteUriPath(target, targetSegments, windowsWorld)
+  const drivePath = /^\/[a-z](?::|%3A)/iu
+  const windowsWorld = workspace.hostname.length > 0 || drivePath.test(workspace.pathname)
+  const targetWindowsWorld = windowsWorld && (target.hostname.length > 0 || drivePath.test(target.pathname))
+  const workspacePath = filePath(workspace, windowsWorld)
+  const targetPath = filePath(target, targetWindowsWorld)
+  if (workspacePath === undefined || targetPath === undefined) return uri
+  if (windowsWorld !== targetWindowsWorld) return targetPath
+  const path = windowsWorld ? win32 : posix
+  const relative = path.relative(workspacePath, targetPath)
+  const outside = relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+  const rendered = relative === '' ? '.' : outside ? targetPath : relative
+  return windowsWorld ? rendered.replaceAll('\\', '/') : rendered
 }
 
-/** Whether a canonical file URI names a drive path or UNC path in a Windows execution world. */
-function isWindowsFileWorld(url: URL, segments: readonly string[]): boolean {
-  return url.hostname.length > 0 || /^[A-Za-z]:$/.test(segments[0] ?? '')
-}
-
-/** Decode URI path segments while rejecting encoded POSIX separators and NUL. */
-function decodeFileSegments(url: URL): string[] | undefined {
+/** Decode a file URL for its execution world while containing malformed URL failures. */
+function filePath(url: URL, windows: boolean): string | undefined {
   try {
-    const decoded = url.pathname.split('/').map(segment => decodeURIComponent(segment))
-    if (decoded.some(segment => /[/\0]/u.test(segment))) return undefined
-    while (decoded.at(-1) === '') decoded.pop()
-    decoded.shift()
-    return decoded
+    const path = fileURLToPath(url, { windows })
+    return path.includes('\0') ? undefined : path
   } catch {
+    // `fileURLToPath` rejects malformed escapes, authorities, and encoded path separators.
     return undefined
   }
-}
-
-/** Windows execution-world path segments are case-insensitive even on a non-Windows harness host. */
-function samePathSegment(left: string, right: string, windowsWorld: boolean): boolean {
-  return windowsWorld ? left.toUpperCase() === right.toUpperCase() : left === right
-}
-
-/** Render an external file URL according to the execution-world style implied by its workspace URI. */
-function absoluteUriPath(target: URL, segments: readonly string[], windowsWorld: boolean): string {
-  if (target.hostname.length > 0) return `//${target.hostname}/${segments.join('/')}`
-  if (windowsWorld && /^[A-Za-z]:$/.test(segments[0] ?? '')) return segments.join('/')
-  return `/${segments.join('/')}`
 }
 
 /**

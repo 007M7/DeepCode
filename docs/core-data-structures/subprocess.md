@@ -240,9 +240,9 @@ interface SubprocessOutcome {
 
 ## Terminal-process primitive
 
-`spawnTerminal(spec)` is the non-pipe process primitive. The provider allocates the controlling terminal and owns raw UTF-8 byte transport, foreground-process-group inspection and signalling, TERM-to-KILL cleanup, and whole-session quiescence. The PTY backend remains responsible for prompt detection, readiness inference, scrollback, sandbox policy, and persistent-session ownership; ordinary `spawn()` cannot reconstruct controlling-terminal semantics.
+`spawnTerminal(spec)` is the non-pipe process primitive. The provider allocates the controlling terminal and owns UTF-8 text transport, foreground-process-group inspection and signalling, and one awaited TERM-to-KILL operation that reaches whole-session quiescence. The PTY backend remains responsible for prompt detection, readiness inference, scrollback, sandbox policy, and persistent-session ownership; ordinary `spawn()` cannot reconstruct controlling-terminal semantics.
 
-The terminal spec fully specifies argv, cwd, environment overrides, dimensions, cleanup grace, and optional cancellation. Its handle exposes `pid`, ordered output, `done`, `write`, `inspectForeground`, `signalForeground`, `terminate`, and `waitForExit`; the exact public shapes are generated into the [`ctx.subprocess` service catalog](../cordis-catalog/services.md#ctxsubprocess--subprocessservice-abstract-seam).
+The terminal spec fully specifies argv, cwd, environment overrides, dimensions, cleanup grace, and optional allocation cancellation. Its handle exposes `pid`, ordered output, `done`, `write`, `inspectForeground`, `signalForeground`, and awaited `terminate`; the exact public shapes are generated into the [`ctx.subprocess` service catalog](../cordis-catalog/services.md#ctxsubprocess--subprocessservice-abstract-seam).
 
 ## Service behavior
 

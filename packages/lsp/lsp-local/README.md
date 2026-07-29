@@ -10,11 +10,11 @@ Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export).
 
 - Resolves every server-local setting before registration; an invalid mapping or registration conflict rolls back earlier entries, so a failed load leaves no provider routes.
 - Lazily single-flights one server process per `(server id, canonical workspace target)`. A live server error is not replayed; if the selected pooled transport fails before or during a read-only query, the provider awaits its disposal and retries that query once on a fresh process.
-- Uses a compatibility-first **transient-open** sequence per query: resolve and boundedly read the source through `ctx.fs`, `textDocument/didOpen` (version 1, full text), the requested request, then `textDocument/didClose` in `finally`. A failed or canceled `didOpen` write terminates the instance before the pool can reuse it. Documents close after each call, so the first version needs no `didChange`, content cache, or document LRU.
+- Uses a compatibility-first **transient-open** sequence per query: resolve and byte-bound the source while streaming it through `ctx.fs`, `textDocument/didOpen` (version 1, full text), the requested request, then `textDocument/didClose` in `finally`. A failed or canceled `didOpen` write terminates the instance before the pool can reuse it. Documents close after each call, so the first version needs no `didChange`, content cache, or document LRU.
 - Serializes each source-read/open/query/close lifecycle through one abortable per-workspace queue so queued calls read current source only when their turn starts; distinct workspaces run in parallel. Provider disposal aborts filesystem and protocol work, awaits workspace lookups that have not entered a queue, then drains every queue and server.
 - After protocol shutdown fails, terminates the server's descendant tree through the subprocess seam (POSIX process-group signaling; Windows `taskkill /T /F`). Tree-kill delivery is contained like every group signal — it races server exit — and quiescence is confirmed by the handle's tree-liveness wait rather than by the kill's own outcome.
 - Resolves the server executable, cwd, process, and protocol streams through `ctx.subprocess`; `initialize.processId` is `null` because another machine or PID namespace must not monitor the harness process.
-- Uses `ctx.fs` canonical containment, file URIs, and stable bounded reads, but emits no `fs/observed`: only the LSP result is model-visible, so a query does not satisfy read-before-write policy.
+- Uses `ctx.fs` canonical containment, file URIs, and streamed text validation, but emits no `fs/observed`: only the LSP result is model-visible, so a query does not satisfy read-before-write policy.
 
 ## Configuration
 
@@ -42,7 +42,7 @@ Initialization advertises `general.positionEncodings: ['utf-16']`, `workspace: {
 
 ## Security boundary
 
-The provider trusts its configured server and claims no sandbox confinement. It delegates canonical identity, containment, no-follow/stable bounded reads, UTF-8 validation, and file-URI encoding to `ctx.fs`; it rejects missing, non-regular, non-UTF-8, oversized, or canonically out-of-workspace query sources before server startup. Result locations may be external, but an external path cannot become a query source. A deployment must mount filesystem and subprocess providers for the same execution world; split-world composition is invalid.
+The provider trusts its configured server and claims no sandbox confinement. It delegates canonical identity, containment, regular-file streaming, UTF-8 validation, and file-URI encoding to `ctx.fs`; it rejects missing, non-regular, non-UTF-8, oversized, or canonically out-of-workspace query sources before server startup. Containment is evaluated before the stream opens and does not promise stable-handle identity across concurrent path replacement. Result locations may be external, but an external path cannot become a query source. A deployment must mount filesystem and subprocess providers for the same execution world; split-world composition is invalid.
 
 ## Model Experience
 

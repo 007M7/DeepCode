@@ -218,15 +218,6 @@ describe('readText / streamText', () => {
     expect(await fs.readText(await fs.resolve('a.txt'))).toBe('one\ntwo\nthree')
   })
 
-  it('reads complete text through the stable byte bound', async () => {
-    await writeFile(join(dir, 'bounded.txt'), '€abc')
-    const target = await fs.resolve('bounded.txt')
-    expect(await fs.readTextBounded(target, 6)).toBe('€abc')
-    await expect(fs.readTextBounded(target, 5)).rejects.toThrow('exceeds the 5-byte limit')
-    await expect(fs.readTextBounded(target, 0)).rejects.toThrow('positive safe integer')
-    await expect(fs.readTextBounded(target, 6, AbortSignal.abort())).rejects.toMatchObject({ code: 'FS_ABORTED' })
-  })
-
   it('streams the same text', async () => {
     await writeFile(join(dir, 'a.txt'), 'one\ntwo\nthree')
     const target = await fs.resolve('a.txt')

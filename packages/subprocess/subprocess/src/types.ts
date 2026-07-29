@@ -210,7 +210,7 @@ export interface SubprocessTerminalSpawnSpec {
   cols: number
   /** TERM-to-KILL cleanup grace for the complete terminal session. */
   graceMs: number
-  /** Cancellation of setup or the live terminal session. */
+  /** Cancellation of terminal allocation; a published handle owns its later lifetime. */
   signal?: AbortSignal | undefined
 }
 
@@ -236,10 +236,10 @@ export interface SubprocessTerminalHandle {
   /** Resolves when the top-level process exits; rejects only for a live transport failure. */
   readonly done: Promise<SubprocessOutcome>
   /**
-   * Write bytes to the terminal input.
-   * @param data - valid UTF-8 bytes to deliver without implicit newline conversion.
+   * Write text to the terminal input.
+   * @param data - text to deliver without implicit newline conversion.
    */
-  write(data: Uint8Array): Promise<void>
+  write(data: string): Promise<void>
   /**
    * Inspect the current foreground process group.
    * @returns its id and input-wait fact, or undefined when no foreground group can be resolved.
@@ -251,12 +251,9 @@ export interface SubprocessTerminalHandle {
    * @returns the exact group id that received it.
    */
   signalForeground(signal: SubprocessTerminalSignal): Promise<number>
-  /** Begin idempotent TERM-to-KILL cleanup of the complete terminal session. */
-  terminate(): void
   /**
-   * Await whole-session quiescence, not only top-level process exit.
-   * @param signal - optional bound for this wait.
-   * @returns true after quiescence, false when `signal` aborts first.
+   * Idempotently terminate the complete terminal session and await whole-session quiescence.
+   * After settlement, no write, inspection, or signal call remains in flight.
    */
-  waitForExit(signal?: AbortSignal): Promise<boolean>
+  terminate(): Promise<void>
 }

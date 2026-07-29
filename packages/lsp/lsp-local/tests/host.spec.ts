@@ -161,6 +161,12 @@ describe('readHostSource', () => {
     await expect(readSource('big.ts', 10)).rejects.toThrow(/10-byte limit/)
   })
 
+  it('counts the complete UTF-8 byte length at the configured boundary', async () => {
+    await writeFile(join(ws, 'multibyte.ts'), '€abc')
+    await expect(readSource('multibyte.ts', 6)).resolves.toMatchObject({ text: '€abc' })
+    await expect(readSource('multibyte.ts', 5)).rejects.toThrow(/5-byte limit/)
+  })
+
   it('rejects a non-UTF-8 source', async () => {
     await writeFile(join(ws, 'bin.ts'), Buffer.from([0xff, 0xfe, 0x00]))
     await expect(readSource('bin.ts')).rejects.toThrow(/invalid UTF-8|binary file/)

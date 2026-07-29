@@ -89,7 +89,7 @@ describe('LocalTerminalHandle', () => {
     handle.output.on('data', (chunk: Buffer) => { chunks.push(chunk) })
 
     pty.emitData('hello €')
-    await handle.write(Buffer.from('input\r'))
+    await handle.write('input\r')
     expect(pty.writes).toEqual(['input\r'])
     expect(await handle.inspectForeground()).toEqual({ processGroupId: 456, inputWaiting: true })
     expect(await handle.signalForeground('SIGINT')).toBe(456)
@@ -98,16 +98,14 @@ describe('LocalTerminalHandle', () => {
     pty.emitExit(7, 9)
     pty.emitExit(0)
     expect(await handle.done).toEqual({ exitCode: null, signal: 'SIGKILL' })
-    expect(await handle.waitForExit()).toBe(true)
+    await handle.terminate()
     expect(Buffer.concat(chunks).toString('utf8')).toBe('hello €')
   })
 
-  it('rejects invalid input and unsafe foreground signals', async () => {
+  it('rejects unsafe foreground signals and writes after exit', async () => {
     const pty = new FakePty()
     const inspector = new FakeInspector()
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
-    await expect(handle.write(Uint8Array.from([0xff]))).rejects.toThrow('valid UTF-8')
-
     inspector.pgid = handle.pid
     await expect(handle.signalForeground('SIGKILL')).rejects.toThrow('terminate the terminal session')
     inspector.pgid = undefined
@@ -116,8 +114,8 @@ describe('LocalTerminalHandle', () => {
 
     pty.emitExit(3)
     expect(await handle.done).toEqual({ exitCode: 3, signal: null })
-    await handle.waitForExit()
-    await expect(handle.write(Buffer.from('late'))).rejects.toThrow('has exited')
+    await handle.terminate()
+    await expect(handle.write('late')).rejects.toThrow('has exited')
   })
 
   it('keeps the shell alive until forced descendants leave', async () => {
@@ -129,15 +127,14 @@ describe('LocalTerminalHandle', () => {
     inspector.removeOnSignal = false
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 20)
 
-    handle.terminate()
-    const quiescent = handle.waitForExit()
+    const quiescent = handle.terminate()
     await vi.advanceTimersByTimeAsync(20)
     expect(inspector.processes).toContainEqual([124, 'SIGKILL'])
     expect(pty.kills).toEqual([])
 
     inspector.alive.delete(124)
     await vi.advanceTimersByTimeAsync(20)
-    expect(await quiescent).toBe(true)
+    await quiescent
     expect(pty.kills).toEqual(['SIGTERM'])
   })
 
@@ -149,17 +146,16 @@ describe('LocalTerminalHandle', () => {
     inspector.alive.add(124)
     inspector.removeOnSignal = false
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 20)
-    const waiting = handle.waitForExit()
+    pty.emitExit()
+    const waiting = handle.terminate()
     let settled = false
     void waiting.then(() => { settled = true })
-
-    pty.emitExit()
     await vi.advanceTimersByTimeAsync(10)
     expect(settled).toBe(false)
 
     inspector.alive.delete(124)
     await vi.advanceTimersByTimeAsync(20)
-    expect(await waiting).toBe(true)
+    await waiting
   })
 
   it('cleans a same-session descendant after the top-level shell exits naturally', async () => {
@@ -172,7 +168,7 @@ describe('LocalTerminalHandle', () => {
 
     pty.emitExit()
 
-    expect(await handle.waitForExit()).toBe(true)
+    await handle.terminate()
     expect(inspector.processes).toEqual([[124, 'SIGTERM']])
   })
 
@@ -188,7 +184,7 @@ describe('LocalTerminalHandle', () => {
     inspector.members = []
     pty.emitExit()
 
-    expect(await handle.waitForExit()).toBe(true)
+    await handle.terminate()
     expect(inspector.processes).toEqual([[124, 'SIGTERM']])
   })
 
@@ -209,8 +205,7 @@ describe('LocalTerminalHandle', () => {
       return []
     }
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
-    handle.terminate()
-    await handle.waitForExit()
+    await handle.terminate()
     expect(inspector.processes).toEqual([[124, 'SIGTERM'], [125, 'SIGKILL']])
     expect(pty.kills).toEqual(['SIGTERM'])
   })
@@ -225,14 +220,13 @@ describe('LocalTerminalHandle', () => {
     }
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
 
-    handle.terminate()
-    await handle.waitForExit()
+    await handle.terminate()
 
     expect(inspector.processes).toEqual([[late.pid, 'SIGTERM']])
     expect(pty.kills).toEqual(['SIGTERM'])
   })
 
-  it('keeps a failed post-shell sweep retryable until its survivor leaves', async () => {
+  it('retries failed cleanup after a surviving descendant leaves', async () => {
     vi.useFakeTimers()
     const pty = new FakePty()
     const inspector = new FakeInspector()
@@ -244,14 +238,15 @@ describe('LocalTerminalHandle', () => {
     }
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
 
-    handle.terminate()
-    const failed = expect(handle.waitForExit()).rejects.toThrow('surviving pids: 124')
+    const first = handle.terminate()
+    const failed = expect(first).rejects.toThrow('surviving pids: 124')
     await vi.advanceTimersByTimeAsync(25)
     await failed
 
     inspector.alive.delete(late.pid)
-    handle.terminate()
-    expect(await handle.waitForExit()).toBe(true)
+    const retry = handle.terminate()
+    expect(retry).not.toBe(first)
+    await retry
     expect(inspector.processes).toEqual([[late.pid, 'SIGTERM'], [late.pid, 'SIGKILL']])
   })
 
@@ -268,82 +263,35 @@ describe('LocalTerminalHandle', () => {
       if (signal === 'SIGKILL') inspector.alive.delete(identity.pid)
     }
     const handle = new LocalTerminalHandle(pty.asPty(), inspector, 20)
-    handle.terminate()
-    const quiescent = handle.waitForExit()
+    const quiescent = handle.terminate()
     await vi.advanceTimersByTimeAsync(25)
-    expect(await quiescent).toBe(true)
+    await quiescent
     expect(inspector.processes).toEqual([[124, 'SIGTERM'], [124, 'SIGKILL']])
   })
 
-  it('allows cleanup to retry after a surviving descendant leaves', async () => {
-    vi.useFakeTimers()
-    const pty = new FakePty()
-    const inspector = new FakeInspector()
-    inspector.members = [{ pid: 124, started: 'child' }]
-    inspector.alive.add(124)
-    inspector.removeOnSignal = false
-    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 10)
-
-    handle.terminate()
-    const first = expect(handle.waitForExit(new AbortController().signal)).rejects.toThrow('surviving pids: 124')
-    await vi.advanceTimersByTimeAsync(25)
-    await first
-
-    inspector.alive.delete(124)
-    handle.terminate()
-    expect(await handle.waitForExit()).toBe(true)
-    expect(pty.kills).toEqual(['SIGTERM'])
-  })
-
-  it('bounds waits and reports a top-level process that ignores escalation', async () => {
+  it('reports a top-level process that ignores escalation', async () => {
     vi.useFakeTimers()
     const pty = new FakePty()
     pty.autoExitOnKill = false
     const handle = new LocalTerminalHandle(pty.asPty(), new FakeInspector(), 10)
-    expect(await handle.waitForExit(AbortSignal.abort())).toBe(false)
-    const controller = new AbortController()
-    const bounded = handle.waitForExit(controller.signal)
-    controller.abort()
-    expect(await bounded).toBe(false)
-
-    handle.terminate()
-    const failed = expect(handle.waitForExit()).rejects.toThrow('surviving pid: 123')
+    const failed = expect(handle.terminate()).rejects.toThrow('surviving pid: 123')
     await vi.advanceTimersByTimeAsync(25)
     await failed
     expect(pty.kills).toEqual(['SIGTERM', 'SIGKILL'])
 
     pty.emitExit(0, 999)
     expect(await handle.done).toEqual({ exitCode: null, signal: null })
-    handle.terminate()
-    expect(await handle.waitForExit()).toBe(true)
+    await handle.terminate()
   })
 
-  it('contains process races and reacts to lifetime cancellation', async () => {
+  it('contains process races while reporting surviving descendants', async () => {
     const pty = new FakePty()
     pty.throwKill = true
     const inspector = new FakeInspector()
     inspector.members = [{ pid: 124, started: 'child' }]
     inspector.alive.add(124)
     inspector.throwProcess = true
-    const controller = new AbortController()
-    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 1, controller.signal)
-    controller.abort()
-    const failed = expect(handle.waitForExit()).rejects.toThrow('surviving pids: 124')
-    await failed
-
-    inspector.alive.delete(124)
-    pty.throwKill = false
-    handle.terminate()
-    await handle.waitForExit()
-
-    const preAbortedPty = new FakePty()
-    const preAborted = new LocalTerminalHandle(
-      preAbortedPty.asPty(),
-      new FakeInspector(),
-      1,
-      AbortSignal.abort('stop'),
-    )
-    await preAborted.waitForExit()
-    expect(preAbortedPty.kills).toEqual(['SIGTERM'])
+    const handle = new LocalTerminalHandle(pty.asPty(), inspector, 1)
+    await expect(handle.terminate()).rejects.toThrow('surviving pids: 124')
   })
 })

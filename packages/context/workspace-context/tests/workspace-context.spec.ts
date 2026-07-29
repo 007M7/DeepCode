@@ -117,12 +117,6 @@ class RecordingFileSystem extends FileSystem {
     return this.entries.get(target.targetKey)?.content ?? ''
   }
 
-  override async readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string> {
-    const text = await this.readText(target, signal)
-    if (Buffer.byteLength(text) > maxBytes) throw new Error('too large')
-    return text
-  }
-
   override async streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>> {
     if (signal !== undefined) this.signals.push(signal)
     signal?.throwIfAborted()

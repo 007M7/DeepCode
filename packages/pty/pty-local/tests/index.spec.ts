@@ -61,8 +61,7 @@ function terminalHandle(): SubprocessTerminalHandle {
     write: async () => {},
     inspectForeground: async () => ({ processGroupId: 123, inputWaiting: true }),
     signalForeground: async () => 123,
-    terminate: () => { output.end() },
-    waitForExit: async () => true,
+    terminate: async () => { output.end() },
   }
 }
 
@@ -187,7 +186,7 @@ describe('LocalPtyBackend startup rollback', () => {
     expect(initialized).toHaveBeenCalledWith(undefined)
   })
 
-  it('forwards setup cancellation only while terminal allocation is unpublished', async () => {
+  it('forwards terminal allocation cancellation directly', async () => {
     const ctx = new Context()
     await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
@@ -204,10 +203,9 @@ describe('LocalPtyBackend startup rollback', () => {
       () => stubLocalSession(),
     )
     await published.spawn(spec(agent(ctx), publishedController.signal))
-    expect(publishedSignal).toBeDefined()
-    expect(publishedSignal).not.toBe(publishedController.signal)
+    expect(publishedSignal).toBe(publishedController.signal)
     publishedController.abort(new Error('originating turn ended'))
-    expect(publishedSignal?.aborted).toBe(false)
+    expect(publishedSignal?.aborted).toBe(true)
 
     const pendingController = new AbortController()
     const seen = Promise.withResolvers<AbortSignal>()
@@ -245,11 +243,10 @@ describe('LocalPtyBackend startup rollback', () => {
       write: async () => {},
       inspectForeground: async () => ({ processGroupId: 123, inputWaiting: true }),
       signalForeground: async () => 123,
-      terminate() {
+      async terminate() {
         output.end()
         outcome.resolve({ exitCode: null, signal: 'SIGTERM' })
       },
-      waitForExit: async () => true,
     }
     queueMicrotask(() => { output.write(Buffer.from('\x1b]133;D;0\x07dsh> ')) })
     const backend = new LocalPtyBackend(

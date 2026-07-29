@@ -81,7 +81,7 @@ describe('LocalSubprocessService', () => {
     }
   })
 
-  it('validates terminal spawn specs before allocating a PTY', async () => {
+  it('validates terminal allocation inputs before allocating a PTY', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
     const base: SubprocessTerminalSpawnSpec = {
@@ -89,9 +89,6 @@ describe('LocalSubprocessService', () => {
     }
     await expect(ctx.subprocess.spawnTerminal({ ...base, argv: [] })).rejects.toThrow('must contain a program')
     await expect(ctx.subprocess.spawnTerminal({ ...base, argv: [''] })).rejects.toThrow('must contain a program')
-    await expect(ctx.subprocess.spawnTerminal({ ...base, rows: 1.5 })).rejects.toThrow('rows')
-    await expect(ctx.subprocess.spawnTerminal({ ...base, cols: 0 })).rejects.toThrow('cols')
-    await expect(ctx.subprocess.spawnTerminal({ ...base, graceMs: 0 })).rejects.toThrow('graceMs')
     await expect(ctx.subprocess.spawnTerminal({ ...base, signal: AbortSignal.abort('stop') })).rejects.toBe('stop')
     await fiber.dispose()
   })
@@ -99,8 +96,7 @@ describe('LocalSubprocessService', () => {
   it('terminates and joins an owned terminal during disposal', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
-    const terminate = vi.fn()
-    const waitForExit = vi.fn(async () => true)
+    const terminate = vi.fn(async () => {})
     const terminal: SubprocessTerminalHandle = {
       pid: 1,
       output: new PassThrough(),
@@ -109,13 +105,11 @@ describe('LocalSubprocessService', () => {
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
       terminate,
-      waitForExit,
     }
     const terminals = (ctx.subprocess as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
     terminals.add(terminal)
     await fiber.dispose()
     expect(terminate).toHaveBeenCalledOnce()
-    expect(waitForExit).toHaveBeenCalledOnce()
     expect(terminals.size).toBe(0)
   })
 
@@ -124,8 +118,8 @@ describe('LocalSubprocessService', () => {
     const fiber = await ctx.plugin(LocalSubprocessService)
     const service = ctx.subprocess
     const runtimeRoot = service.runtimeRoot
-    const firstFailure = new Error('first retryable cleanup failure')
-    const secondFailure = new Error('second retryable cleanup failure')
+    const firstFailure = new Error('first cleanup failure')
+    const secondFailure = new Error('second cleanup failure')
     const disposalErrors: unknown[] = []
     ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
     const failedTerminal: SubprocessTerminalHandle = {
@@ -135,22 +129,19 @@ describe('LocalSubprocessService', () => {
       write: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
-      terminate: vi.fn(),
-      waitForExit: vi.fn(async () => { throw firstFailure }),
+      terminate: vi.fn(async () => { throw firstFailure }),
     }
     const secondFailedTerminal: SubprocessTerminalHandle = {
       ...failedTerminal,
-      terminate: vi.fn(),
-      waitForExit: vi.fn(async () => { throw secondFailure }),
+      terminate: vi.fn(async () => { throw secondFailure }),
     }
     let finishCleanup!: () => void
-    const cleanup = new Promise<boolean>((resolve) => {
-      finishCleanup = () => { resolve(true) }
+    const cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve
     })
     const drainingTerminal: SubprocessTerminalHandle = {
       ...failedTerminal,
-      terminate: vi.fn(),
-      waitForExit: vi.fn(() => cleanup),
+      terminate: vi.fn(() => cleanup),
     }
     const terminals = (service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
     terminals.add(failedTerminal)
@@ -187,8 +178,7 @@ describe('LocalSubprocessService', () => {
       write: async () => {},
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
-      terminate: vi.fn(),
-      waitForExit: vi.fn(async () => { throw failure }),
+      terminate: vi.fn(async () => { throw failure }),
     }
     const terminals = (service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
     terminals.add(terminal)
@@ -247,7 +237,7 @@ describe('LocalSubprocessService', () => {
     }
   })
 
-  it('contains a terminal release failure after top-level exit', async () => {
+  it('retains a terminal whose automatic cleanup fails', async () => {
     let exitListener: ((event: { exitCode: number; signal?: number }) => void) | undefined
     const terminal = {
       pid: 123,
@@ -264,6 +254,8 @@ describe('LocalSubprocessService', () => {
     try {
       const { default: IsolatedLocalSubprocessService } = await import('../src/index.ts')
       const ctx = new Context()
+      const disposalErrors: unknown[] = []
+      ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
       const fiber = await ctx.plugin(IsolatedLocalSubprocessService)
       const alive = new Set([124])
       ;(ctx.subprocess as InstanceType<typeof IsolatedLocalSubprocessService>).terminalInspector = {
@@ -281,10 +273,9 @@ describe('LocalSubprocessService', () => {
       exitListener?.({ exitCode: 0 })
       await handle.done
       await new Promise(resolve => setTimeout(resolve, 10))
-      alive.clear()
-      handle.terminate()
-      await handle.waitForExit()
+      expect((ctx.subprocess as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals.size).toBe(1)
       await fiber.dispose()
+      expect(disposalErrors).toHaveLength(1)
     } finally {
       vi.doUnmock('node-pty')
       vi.resetModules()

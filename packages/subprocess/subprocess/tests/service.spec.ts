@@ -48,8 +48,7 @@ class StubSubprocessService extends SubprocessService {
       write: async () => {},
       inspectForeground: async () => ({ processGroupId: 1, inputWaiting: true }),
       signalForeground: async () => 1,
-      terminate: () => {},
-      waitForExit: async () => true,
+      terminate: async () => {},
     }
   }
 }

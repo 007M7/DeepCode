@@ -92,12 +92,6 @@ class TestFileSystem extends FileSystem {
     return text
   }
 
-  override async readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string> {
-    const text = await this.readText(target, signal)
-    if (Buffer.byteLength(text) > maxBytes) throw new Error('too large')
-    return text
-  }
-
   override async streamText(_target: FsTarget): Promise<AsyncIterable<string>> {
     throw new Error('not needed in skill tests')
   }

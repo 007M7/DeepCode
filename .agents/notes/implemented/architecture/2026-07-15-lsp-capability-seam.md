@@ -112,13 +112,13 @@ Provider disposal occurs outside tool execution, so `dsh-lsp-local` keeps `shutd
 
 ## Workspace, filesystem, and document synchronization
 
-`dsh-lsp-local` canonicalizes and reads through `ctx.fs` in the language server's execution world. It requires the workspace target to be a directory, rejects out-of-workspace sources through provider-owned containment, and uses `readTextBounded` so regular-file validation, UTF-8 decoding, the byte ceiling, and path replacement/growth safety stay one filesystem operation. It fuses caller cancellation with provider disposal across each filesystem operation, tracks workspace lookups before they enter a queue, and awaits those lookups during disposal. It does not emit `fs/observed`: only the LSP result is model-visible, so the query does not satisfy read-before-write policy.
+`dsh-lsp-local` canonicalizes and reads through `ctx.fs` in the language server's execution world. It requires the workspace target to be a directory, rejects out-of-workspace sources through provider-owned containment, consumes `streamText`, and enforces `maxDocumentBytes` as chunks arrive; the provider retains regular-file validation and UTF-8 decoding while the protocol consumer owns its document limit. It fuses caller cancellation with provider disposal across each filesystem operation, tracks workspace lookups before they enter a queue, and awaits those lookups during disposal. It does not emit `fs/observed`: only the LSP result is model-visible, so the query does not satisfy read-before-write policy.
 
 The `read` tool is unsuitable source because its output is windowed, numbered, transcript-visible, and observed. Reading in `tool-lsp` would also assign provider-specific synchronization to the consumer and preclude non-local providers.
 
 The local provider uses a compatibility-first transient-open sequence for every query. It accepts legacy `textDocumentSync` `Full` or `Incremental`, or options with `openClose: true`; omitted, `None`, or explicitly incompatible synchronization fails as unsupported before `didOpen`.
 
-1. Resolve and contain the source through `ctx.fs`, then read its current bounded text through the same provider.
+1. Resolve and contain the source through `ctx.fs`, then stream its current text through the same provider while enforcing the document byte limit.
 2. Send `textDocument/didOpen` with version `1`, full text, and the configured language id. Its write remains abortable; failure or cancellation invalidates the instance and awaits bounded process termination before the pool can reuse it.
 3. Send the requested `textDocument/definition`, `textDocument/references`, `textDocument/implementation`, or `textDocument/hover` request.
 4. If `didOpen` succeeded, attempt `textDocument/didClose` in `finally` after the request settles or aborts. A close-write failure does not replace the settled result or error, but invalidates the instance and awaits bounded process termination.
@@ -157,7 +157,7 @@ The provider trusts its configured server. Its filesystem visibility and process
 
 **Wrap the signal in a per-seam execution-context object.** Web passes a bare `AbortSignal`; wrapping this single field would add unexplained asymmetry. `query()` gains a context object only when another field requires it.
 
-**Read through the model-facing `read` tool.** Rejected because tool output is windowed, numbered, transcript-visible, and observed. The provider reads bounded full text directly through the same `ctx.fs` execution world used by its subprocess.
+**Read through the model-facing `read` tool.** Rejected because tool output is windowed, numbered, transcript-visible, and observed. The provider consumes streamed full text directly through the same `ctx.fs` execution world used by its subprocess.
 
 **Keep documents open.** Mirroring edits requires version ownership, all-path `didChange`, HMR recovery, eviction, and stale-state rules. Transient opens avoid that MVP state machine.
 
@@ -195,4 +195,4 @@ Extension ownership is exclusive within one runtime. Two providers cannot both c
 
 UTF-16 cursor columns are exact for the protocol but difficult for a model to count around non-BMP characters. Invalid or off-symbol positions may produce empty results, so error text and prompt examples must explain the coordinate convention without encouraging broad LSP use.
 
-The paired filesystem/subprocess providers align the query snapshot with the server index but do not make a trusted language server safe. Canonical containment rejects query sources outside the workspace; the server itself receives the execution world's configured authority and may read other paths or use caches.
+The paired filesystem/subprocess providers align the query snapshot with the server index but do not make a trusted language server safe. Canonical containment rejects query sources outside the workspace at resolution time, but stream opening does not add stable-handle identity across a concurrent path replacement; the server itself receives the execution world's configured authority and may read other paths or use caches.

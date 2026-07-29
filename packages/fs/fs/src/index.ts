@@ -1,7 +1,7 @@
 /**
  * Filesystem provider seam for one execution world. Backends own stable target
- * identity, process paths and file URIs, containment, stable bounded text
- * reads, decoding, binary rejection, and atomic mutations. Read windows and
+ * identity, process paths and file URIs, containment, text reads, decoding,
+ * binary rejection, and atomic mutations. Read windows and
  * observed-state policy stay in consumer and policy plugins; `editText`
  * remains here so version check, literal match, and rewrite share one critical
  * section.
@@ -171,19 +171,6 @@ export abstract class FileSystem extends Service {
    * @returns the full decoded UTF-8 content.
    */
   abstract readText(target: FsTarget, signal?: AbortSignal): Promise<string>
-
-  /**
-   * Read one regular UTF-8 text file through a backend-owned stable handle,
-   * rejecting before more than `maxBytes` are retained. The size check and
-   * bytes read are one operation: a caller must not emulate this with
-   * {@link stat} followed by {@link readText}, which admits growth and path
-   * replacement races between the two calls.
-   * @param target - the resolved target to read.
-   * @param maxBytes - positive safe-integer byte ceiling.
-   * @param signal - aborts the open/read operation.
-   * @returns the complete decoded text when it fits.
-   */
-  abstract readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string>
 
   /**
    * Stream the whole regular text file as decoded text chunks (same text

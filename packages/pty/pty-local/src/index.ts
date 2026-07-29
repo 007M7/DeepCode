@@ -101,30 +101,15 @@ export class LocalPtyBackend implements PtyBackend {
     ensureSandboxModeFence(this.ctx, spec.owner)
     const argv = spawnArgv(this.ctx, this.config, spec)
     if (argv[0] === undefined) throw new Error('pty-local: sandbox returned empty argv')
-    let terminalSignal: AbortSignal | undefined
-    let detachSetupSignal: (() => void) | undefined
-    if (spec.signal !== undefined) {
-      const source = spec.signal
-      const controller = new AbortController()
-      const onAbort = (): void => { controller.abort(source.reason) }
-      source.addEventListener('abort', onAbort, { once: true })
-      detachSetupSignal = () => { source.removeEventListener('abort', onAbort) }
-      terminalSignal = controller.signal
-    }
-    let terminal: SubprocessTerminalHandle
-    try {
-      terminal = await this.spawnTerminal({
-        argv,
-        cwd: spec.cwd ?? this.ctx.sandboxPolicy.workspaceRoot,
-        env: childEnvironment(spec),
-        rows: this.config.rows,
-        cols: this.config.cols,
-        graceMs: this.config.disposeGraceMs,
-        signal: terminalSignal,
-      })
-    } finally {
-      detachSetupSignal?.()
-    }
+    const terminal = await this.spawnTerminal({
+      argv,
+      cwd: spec.cwd ?? this.ctx.sandboxPolicy.workspaceRoot,
+      env: childEnvironment(spec),
+      rows: this.config.rows,
+      cols: this.config.cols,
+      graceMs: this.config.disposeGraceMs,
+      signal: spec.signal,
+    })
     const session = this.createSession(terminal, this.config)
     try {
       await session.initialize(spec.signal)

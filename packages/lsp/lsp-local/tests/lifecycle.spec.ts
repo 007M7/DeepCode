@@ -328,14 +328,17 @@ describe('lsp-local end to end over a fake server', () => {
     await expect(disposing).resolves.toBeUndefined()
   })
 
-  it('aborts a queued source read when the provider is disposed', async () => {
+  it('aborts a queued source stream when the provider is disposed', async () => {
     const ctx = await mount({ LSP_FAKE_DEF: 'null' })
     const fs = ctx.fs
     const started = Promise.withResolvers<AbortSignal>()
-    vi.spyOn(fs, 'readTextBounded').mockImplementation(async (_target, _maxBytes, signal) => {
+    vi.spyOn(fs, 'streamText').mockImplementation(async (_target, signal) => {
       if (signal === undefined) throw new Error('source read missing provider lifetime signal')
       started.resolve(signal)
-      return await rejectWhenAborted(signal)
+      return (async function* () {
+        await rejectWhenAborted(signal)
+        yield ''
+      })()
     })
 
     const pending = ctx.lsp.query(query('goToDefinition'))

@@ -52,7 +52,7 @@ type FsTargetKey = Branded<'FsTargetKey'>
 type FsVersion = Branded<'FsVersion'>
 ```
 
-`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让工具在读取前拒绝目录或特殊文件；`size` 让工具无需通过失败探测即可选择 `readText` 还是 `streamText`。当大小校验与完整 UTF-8 读取必须保持为一个由后端负责的稳定操作时，协议消费方使用 `readTextBounded(target, maxBytes)`；组合 `stat` 与 `readText` 会容许文件增长与替换竞态。
+`stat` 返回元数据（从不返回内容），目标不存在时返回 `undefined`。`type` 让工具在读取前拒绝目录或特殊文件；`size` 让工具无需通过失败探测即可选择 `readText` 还是 `streamText`。需要字节上限的协议消费方在消费 `streamText` 时执行该上限，因此文件系统 seam 无需消费方专用的有界读取原语。
 
 ```ts type-equiv
 /**
@@ -258,4 +258,4 @@ type FsErrorCode =
 
 ## 服务与插件
 
-`FileSystem`（`ctx.fs`，abstract）拥有提供方原语：`resolve`、`processPath`、`fileUrl`、`contains`、`stat`、`lstat`、`readText`、`readTextBounded`、`streamText`、`listDir`、`writeText` 与 `editText`。`dsh-fs-policy` **不注册服务**——它是一个通过 `fs/*` 事件门禁添加策略的插件：对写入/编辑意图 waterfall 作出决策（提供 `createIfAbsent`/`replaceIfVersion`/`{ version }`，或抛出 `FS_NOT_OBSERVED`），并在 `fs/observed` 上记录。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取/写入/编辑，分发 waterfall，并 emit 记录事件。生成的 wiring 目录在 [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam) 中展示确切的 `ctx.fs` 签名。
+`FileSystem`（`ctx.fs`，abstract）拥有提供方原语：`resolve`、`processPath`、`fileUrl`、`contains`、`stat`、`lstat`、`readText`、`streamText`、`listDir`、`writeText` 与 `editText`。`dsh-fs-policy` **不注册服务**——它是一个通过 `fs/*` 事件门禁添加策略的插件：对写入/编辑意图 waterfall 作出决策（提供 `createIfAbsent`/`replaceIfVersion`/`{ version }`，或抛出 `FS_NOT_OBSERVED`），并在 `fs/observed` 上记录。执行器是 `dsh-tool-fs`：它通过 `ctx.fs` 读取/写入/编辑，分发 waterfall，并 emit 记录事件。生成的 wiring 目录在 [services.md](../cordis-catalog/services.md#ctxfs--filesystem-abstract-seam) 中展示确切的 `ctx.fs` 签名。

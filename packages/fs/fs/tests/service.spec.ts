@@ -46,11 +46,6 @@ class FakeFileSystem extends FileSystem {
     if (content === undefined) throw new FsError(`not found: ${target.displayPath}`, 'FS_NOT_FOUND')
     return content
   }
-  override async readTextBounded(target: FsTarget, maxBytes: number): Promise<string> {
-    const content = await this.readText(target)
-    if (Buffer.byteLength(content) > maxBytes) throw new FsError('too large', 'FS_IO_ERROR')
-    return content
-  }
   override async streamText(target: FsTarget): Promise<AsyncIterable<string>> {
     const content = await this.readText(target)
     return (async function* () { yield content })()

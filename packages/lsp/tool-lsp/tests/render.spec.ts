@@ -103,6 +103,7 @@ describe('renderUri', () => {
   it('keeps a malformed file: URI verbatim when it cannot be parsed to a path', () => {
     // An encoded path separator is invalid on every platform and must remain verbatim.
     expect(renderUri('file:///bad%2Fpath', WS_URI)).toBe('file:///bad%2Fpath')
+    expect(renderUri('file:///bad%00path', WS_URI)).toBe('file:///bad%00path')
   })
 })
 

@@ -337,10 +337,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the whole regular text file as a single decoded string.\n * @param target - the resolved target to read.\n * @param signal - aborts the read.\n * @returns the full decoded UTF-8 content.\n */',
       },
       {
-        signature: 'abstract readTextBounded(target: FsTarget, maxBytes: number, signal?: AbortSignal): Promise<string>',
-        jsDoc: '/**\n * Read one regular UTF-8 text file through a backend-owned stable handle,\n * rejecting before more than `maxBytes` are retained. The size check and\n * bytes read are one operation: a caller must not emulate this with\n * {@link stat} followed by {@link readText}, which admits growth and path\n * replacement races between the two calls.\n * @param target - the resolved target to read.\n * @param maxBytes - positive safe-integer byte ceiling.\n * @param signal - aborts the open/read operation.\n * @returns the complete decoded text when it fits.\n */',
-      },
-      {
         signature: 'abstract streamText(target: FsTarget, signal?: AbortSignal): Promise<AsyncIterable<string>>',
         jsDoc: '/**\n * Stream the whole regular text file as decoded text chunks (same text\n * semantics as {@link readText}, for large files). The backend owns\n * cross-chunk UTF-8 decoding and binary rejection so the policy layer never\n * touches raw bytes.\n * @param target - the resolved target to read.\n * @param signal - aborts the stream, including between chunks.\n * @returns the chunk iterable, decoded and validated like {@link readText}.\n */',
       },
@@ -1000,7 +996,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>',
-        jsDoc: '/**\n * Allocate a real terminal and start one owned process session. This is the\n * only non-pipe process primitive: implementations own terminal byte I/O,\n * foreground groups, signals, and complete session-tree cleanup.\n * @param spec - fully specified argv, cwd, environment, dimensions, grace, and cancellation.\n * @returns the live terminal handle after allocation succeeds.\n */',
+        jsDoc: '/**\n * Allocate a real terminal and start one owned process session. This is the\n * only non-pipe process primitive: implementations own terminal byte I/O,\n * foreground groups, signals, and complete session-tree cleanup.\n * @param spec - fully specified argv, cwd, environment, dimensions, grace, and allocation cancellation.\n * @returns the live terminal handle after allocation succeeds.\n */',
       },
     ],
   },
@@ -2909,7 +2905,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalHandle',
-    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: Uint8Array): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): void;\n    waitForExit(signal?: AbortSignal): Promise<boolean>;\n}',
+    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
   },
   {
     name: 'SubprocessTerminalSignal',

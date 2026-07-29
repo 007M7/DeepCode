@@ -155,7 +155,7 @@ class LocalSendOperation implements PtySendOperation {
 export class LocalPtySession implements PtyBackendSession {
   motd = ''
   readonly pid: number
-  private readonly decoder = new TextDecoder('utf-8', { fatal: true })
+  private readonly decoder = new TextDecoder()
   private readonly sanitizer: TerminalSanitizer
   private readonly scrollback: BoundedTextBuffer
   private readonly outputEnded = Promise.withResolvers<void>()
@@ -165,16 +165,13 @@ export class LocalPtySession implements PtyBackendSession {
   private activeTimer: NodeJS.Timeout | undefined
   private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
-  private readonly terminalOperations = new Set<Promise<unknown>>()
-  private signaledOperation: LocalSendOperation | undefined
   private interrupting: LocalSendOperation | undefined
-  private writing: LocalSendOperation | undefined
+  private activeWrite: { operation: LocalSendOperation; settled: Promise<boolean> } | undefined
   private pollingReady: LocalSendOperation | undefined
   private polling = false
   private promptSeen = false
   private promptTextSeen = false
   private promptTail = ''
-  private delayedSignaledPrompt = false
   private shellPgid: number | undefined
   private initializing = false
   private lastOutputAt = Date.now()
@@ -239,21 +236,12 @@ export class LocalPtySession implements PtyBackendSession {
       this.activeAbort = () => request.signal?.removeEventListener('abort', onAbort)
     }
     this.activeDeadlineTimer = setTimeout(() => {
-      if (this.active === operation) this.settleActive('timeout', this.writing === operation)
+      if (this.active === operation) {
+        this.settleActive('timeout', this.activeWrite?.operation === operation)
+      }
     }, this.config.timeoutMs)
-    this.ownTerminalOperation(this.beginSend(operation, request))
+    void this.beginSend(operation, request)
     return operation
-  }
-
-  /** Retain one contained provider operation until its asynchronous work finishes. */
-  private ownTerminalOperation(operation: Promise<void>): void {
-    void this.trackTerminalOperation(operation)
-  }
-
-  private trackTerminalOperation<T>(operation: Promise<T>): Promise<T> {
-    const tracked = operation.finally(() => { this.terminalOperations.delete(tracked) })
-    this.terminalOperations.add(tracked)
-    return tracked
   }
 
   private async beginSend(operation: LocalSendOperation, request: PtySendRequest): Promise<void> {
@@ -264,13 +252,20 @@ export class LocalPtySession implements PtyBackendSession {
       const input = `${request.text}${request.submit ? '\r' : ''}`
       if (input.length > 0 && !operation.cancelRequested) {
         this.resetReadinessEvidence()
-        this.writing = operation
+        const write = this.terminal.write(input)
+        const activeWrite = {
+          operation,
+          settled: write.then(() => true, () => false),
+        }
+        this.activeWrite = activeWrite
         try {
-          await this.terminal.write(Buffer.from(input, 'utf8'))
+          await write
         } finally {
-          this.writing = undefined
+          this.activeWrite = undefined
         }
       }
+      // Cancellation owns post-write signalling and reservation release.
+      if (operation.cancelRequested) return
       if (this.active === operation && operation.settled) {
         this.clearActive()
         return
@@ -282,7 +277,7 @@ export class LocalPtySession implements PtyBackendSession {
         this.schedulePoll(operation)
       }
     } catch (error: unknown) {
-      if (this.active === operation) {
+      if (this.active === operation && !this.closing) {
         if (operation.settled) this.clearActive()
         else this.failActive(error)
       }
@@ -323,8 +318,7 @@ export class LocalPtySession implements PtyBackendSession {
 
   async signal(signal: PtySignal): Promise<PtySignalResult> {
     if (this.closing) throw new Error('PTY session is closing')
-    if (this.active !== undefined) this.signaledOperation = this.active
-    const targetPgid = await this.trackTerminalOperation(this.terminal.signalForeground(signal))
+    const targetPgid = await this.terminal.signalForeground(signal)
     return { delivered: true, targetPgid }
   }
 
@@ -345,23 +339,14 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   private readonly onTerminalData = (chunk: Buffer | Uint8Array | string): void => {
-    try {
-      const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
-      this.onData(this.decoder.decode(bytes, { stream: true }))
-    } catch (error: unknown) {
-      this.onTransportFailure(new Error('PTY emitted invalid UTF-8', { cause: error }))
-    }
+    const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
+    this.onData(this.decoder.decode(bytes, { stream: true }))
   }
 
   private readonly onTerminalEnd = (): void => {
-    try {
-      this.onData(this.decoder.decode())
-      this.appendOutput(this.sanitizer.flush())
-    } catch (error: unknown) {
-      this.onTransportFailure(new Error('PTY ended with invalid UTF-8', { cause: error }))
-    } finally {
-      this.outputEnded.resolve()
-    }
+    this.onData(this.decoder.decode())
+    this.appendOutput(this.sanitizer.flush())
+    this.outputEnded.resolve()
   }
 
   private readonly onTerminalError = (error: Error): void => {
@@ -372,9 +357,9 @@ export class LocalPtySession implements PtyBackendSession {
   private onData(data: string): void {
     const sanitized = this.sanitizer.push(data)
     this.appendOutput(sanitized.text)
-    if (sanitized.prompt && this.delayedSignaledPrompt) {
-      this.delayedSignaledPrompt = false
-    } else if (sanitized.prompt) {
+    if (sanitized.prompt) {
+      // TODO(pty-delayed-signal-prompt): With a reproducer, define a marker-generation boundary
+      // before attributing a signal-delayed prompt to a later send.
       // Bash can print PROMPT_COMMAND before the kernel publishes its return
       // to the foreground process group. Retain the marker; polling below is
       // the authority that accepts it only after bash owns the foreground.
@@ -402,7 +387,7 @@ export class LocalPtySession implements PtyBackendSession {
     this.transportFailure ??= failure
     this.statusValue = { kind: 'exited', exitCode: null, signal: null }
     this.failActive(failure)
-    this.terminal.terminate()
+    void this.terminal.terminate().catch(() => {})
   }
 
   private appendOutput(text: string): void {
@@ -417,7 +402,7 @@ export class LocalPtySession implements PtyBackendSession {
     if (this.activeTimer !== undefined) clearTimeout(this.activeTimer)
     this.activeTimer = setTimeout(() => {
       this.activeTimer = undefined
-      this.ownTerminalOperation(this.pollReadiness(operation))
+      void this.pollReadiness(operation)
     }, delayMs)
   }
 
@@ -457,7 +442,7 @@ export class LocalPtySession implements PtyBackendSession {
         this.settleActive('inferred_idle')
       }
     } catch (error: unknown) {
-      if (this.active === operation) this.failActive(error)
+      if (this.active === operation && !this.closing) this.failActive(error)
     } finally {
       this.polling = false
       const active = this.active
@@ -470,13 +455,6 @@ export class LocalPtySession implements PtyBackendSession {
   private settleActive(waitReason: PtyWaitReason, retainOwnership = false): void {
     const operation = this.active
     if (operation === undefined) return
-    // A signaled command can return by silence before bash emits its prompt.
-    // Reserve that marker so it cannot become successor readiness after echo.
-    const signaled = this.signaledOperation === operation
-    if (signaled) this.signaledOperation = undefined
-    if (waitReason === 'inferred_idle' && !this.promptSeen && signaled) {
-      this.delayedSignaledPrompt = true
-    }
     const scrollbackTruncated = this.scrollback.snapshot().truncated
     if (retainOwnership) {
       this.stopPolling()
@@ -489,10 +467,14 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   private stopPolling(): void {
-    if (this.activeTimer !== undefined) clearTimeout(this.activeTimer)
-    this.activeTimer = undefined
+    this.stopReadinessPolling()
     if (this.activeDeadlineTimer !== undefined) clearTimeout(this.activeDeadlineTimer)
     this.activeDeadlineTimer = undefined
+  }
+
+  private stopReadinessPolling(): void {
+    if (this.activeTimer !== undefined) clearTimeout(this.activeTimer)
+    this.activeTimer = undefined
     this.pollingReady = undefined
   }
 
@@ -502,43 +484,38 @@ export class LocalPtySession implements PtyBackendSession {
     this.activeAbort?.()
     this.activeAbort = undefined
     if (this.interrupting === operation) this.interrupting = undefined
-    if (this.signaledOperation === operation) this.signaledOperation = undefined
-    this.writing = undefined
     this.pollingReady = undefined
     this.active = undefined
   }
 
-  private failActive(error: unknown, retainOwnership = false): void {
+  private failActive(error: unknown): void {
     const operation = this.active
     if (operation === undefined) return
-    if (retainOwnership) {
-      this.stopPolling()
-      this.activeAbort?.()
-      this.activeAbort = undefined
-    } else {
-      this.clearActive()
-    }
+    this.clearActive()
     operation.fail(error)
   }
 
   private interrupt(operation: LocalSendOperation): void {
     if (this.active !== operation) return
-    this.signaledOperation = operation
     this.interrupting = operation
-    this.stopPolling()
-    this.ownTerminalOperation(this.interruptOnce(operation))
+    this.stopReadinessPolling()
+    void this.interruptOnce(operation)
   }
 
   private async interruptOnce(operation: LocalSendOperation): Promise<void> {
     try {
+      const activeWrite = this.activeWrite
+      if (activeWrite?.operation === operation && !await activeWrite.settled) return
       await this.terminal.signalForeground('SIGINT')
     } catch (error: unknown) {
-      if (this.active === operation) this.failActive(error, this.writing === operation)
+      if (this.active === operation && !this.closing) this.onTransportFailure(error)
       return
     } finally {
       if (this.interrupting === operation) this.interrupting = undefined
     }
-    if (this.active === operation && !operation.settled && !this.closing && this.writing !== operation) {
+    if (this.active === operation && operation.settled) {
+      this.clearActive()
+    } else if (this.active === operation && !this.closing) {
       this.pollingReady = operation
       this.schedulePoll(operation, 0)
     }
@@ -549,20 +526,13 @@ export class LocalPtySession implements PtyBackendSession {
     // it as session_exit below, so an in-flight send is never mis-settled as
     // stdin_read/inferred_idle/timeout during the grace period.
     this.stopPolling()
-    this.terminal.terminate()
-    const quiescent = await this.terminal.waitForExit()
-    if (!quiescent) {
-      throw new Error(`PTY cleanup failed (${reason}); terminal session did not reach quiescence`)
+    try {
+      await this.terminal.terminate()
+    } catch (error: unknown) {
+      throw new Error(`PTY cleanup failed (${reason})`, { cause: error })
     }
-    // Quiescence is the active send's terminal outcome. Detach its abort
-    // listener before snapshotting provider operations so no late interrupt
-    // can enter the owned set after the drain starts.
+    // Quiescence is the active send's terminal outcome.
     this.settleActive('session_exit')
-    await Promise.all(this.terminalOperations)
-    // Whole-session cleanup can fail before the top-level process exits. Wait
-    // for it first so that failure is reported instead of blocking forever on
-    // `done`; successful quiescence guarantees `done` can now settle status and
-    // drain the terminal output.
     await this.completion
     this.terminal.output.off('data', this.onTerminalData)
     this.terminal.output.off('end', this.onTerminalEnd)
