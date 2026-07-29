@@ -87,8 +87,23 @@ const NON_CSI_ESCAPE = /\u001b(?!\[)[\u0020-\u002f]*[\u0030-\u007e]?/g
  */
 const INERT_CONTROL = /[\u0000-\u0007\u000b-\u001a\u001c-\u001f\u007f]/g
 
+/**
+ * Lines whose cursor movements have to be replayed: a carriage return, a
+ * backspace, or an erase-in-line. The erase pattern matches the SAME CSI shape
+ * `replayLine` parses (parameters may carry `;` and intermediate bytes), so a
+ * form like `\x1b[1;2K` cannot slip past this guard and skip its own erase.
+ */
+const NEEDS_REPLAY = /\r|\u0008|\u001b\[[\u0030-\u003f]*[\u0020-\u002f]*K/
+
 /** Terminal tab stop width; a tab advances to the next multiple of this. */
 const TAB_WIDTH = 8
+
+/**
+ * Combining marks and other zero-width code points: a terminal advances no
+ * column for them, so `e` + U+0301 occupies one cell and a two-column redraw
+ * covers both code points.
+ */
+const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\u200b-\u200f\u2060]$/u
 
 /**
  * Characters a terminal advances two columns for: CJK scripts, fullwidth forms,
@@ -129,13 +144,16 @@ function isWide(char: string): boolean {
  * `ok` overwrote two cells and the third kept the state it was written with.
  * The columns are re-emitted as runs, so anser sees that same styling.
  * @param line - one output line, still carrying its CSI sequences.
- * @returns the line as the terminal would have it after every movement.
+ * @param entrySgr - SGR state in force when the line begins, since a newline
+ *   does not reset it.
+ * @returns the line as the terminal would have it after every movement, plus the
+ *   SGR state at its end for the next line to enter with.
  */
 function replayLine(line: string, entrySgr: string): { text: string; sgr: string } {
   // Same shape anser splits on, so a sequence is one unit here as well.
   const csi = /\u001b\[([\u0030-\u003f]*)[\u0020-\u002f]*([\u0040-\u007e])/g
   /** Per column: the SGR state in force when it was written, and its character. */
-  const columns: ({ sgr: string; char: string } | undefined)[] = []
+  const columns: ({ sgr: string; char: string; spacer?: boolean } | undefined)[] = []
   let cursor = 0
   // SGR state accumulates as the line is scanned, exactly as a terminal tracks
   // it: each cell is stamped with whatever was in force at the moment of the
@@ -156,11 +174,20 @@ function replayLine(line: string, entrySgr: string): { text: string; sgr: string
         for (; cursor < stop; cursor++) columns[cursor] ??= { sgr, char: ' ' }
         continue
       }
+      if (ZERO_WIDTH.test(char)) {
+        // No column of its own: it attaches to the cell already written, so a
+        // redraw that covers that cell covers the mark with it.
+        const at = Math.max(0, cursor - 1)
+        const base = columns[at]
+        if (base !== undefined) columns[at] = { sgr: base.sgr, char: base.char + char }
+        continue
+      }
       columns[cursor] = { sgr, char }
       cursor++
-      // A wide character occupies two columns; the trailing one is a spacer the
-      // terminal keeps blank, so a later write there cannot split the glyph.
-      if (isWide(char)) { columns[cursor] = { sgr, char: '' }; cursor++ }
+      // A wide character occupies two columns; the trailing one is a spacer,
+      // marked so that overwriting the lead cell leaves a blank behind instead
+      // of closing the gap and shifting everything after it left.
+      if (isWide(char)) { columns[cursor] = { sgr, char: '', spacer: true }; cursor++ }
     }
   }
 
@@ -174,11 +201,15 @@ function replayLine(line: string, entrySgr: string): { text: string; sgr: string
     if (final === 'K') {
       // Erase in line: the fixed companion of `\r` in every spinner and progress
       // bar. Without it a shorter redraw leaves the previous frame's tail
-      // standing, which is text the terminal never showed. `1` blanks the
-      // columns before the cursor rather than dropping them, since the cursor
-      // does not move and a later write can still land past them.
-      if (params === '1') for (let index = 0; index < cursor; index++) columns[index] = { sgr, char: ' ' }
-      else columns.length = params === '2' ? 0 : cursor
+      // standing, which is text the terminal never showed. `1` blanks from the
+      // line start THROUGH the cursor column (inclusive, per the CSI spec)
+      // rather than dropping those cells, since the cursor does not move and a
+      // later write can still land past them.
+      // Only the FIRST parameter selects the mode; a terminal ignores the rest
+      // (`1;2K` erases exactly as `1K` does — verified against a real terminal).
+      const mode = params.split(';')[0] ?? ''
+      if (mode === '1') for (let index = 0; index <= cursor; index++) columns[index] = { sgr, char: ' ' }
+      else columns.length = mode === '2' ? 0 : cursor
       continue
     }
     // Only SGR carries graphic state; every other final byte is a cursor or
@@ -193,18 +224,29 @@ function replayLine(line: string, entrySgr: string): { text: string; sgr: string
   // before the cursor, which a terminal paints as blanks.
   let out = ''
   let active = entrySgr
-  for (const slot of columns) {
-    const column = slot ?? { sgr: '', char: ' ' }
+  for (let index = 0; index < columns.length; index++) {
+    const column = columns[index] ?? { sgr: '', char: ' ' }
     if (column.sgr !== active) {
       if (active !== '') out += '\u001b[0m'
       out += column.sgr
       active = column.sgr
     }
-    out += column.char
+    // A spacer still holds its column. While its lead cell survives, the wide
+    // glyph spans both and the spacer emits nothing; once a later write replaced
+    // that lead, the terminal blanks the spacer instead of closing the gap, so
+    // emitting nothing would shift everything after it one column left.
+    const leadIntact = index > 0 && isWide(columns[index - 1]?.char ?? '')
+    out += column.spacer === true && !leadIntact ? ' ' : column.char
   }
-  // The state at the line's end continues onto the next line, so it is returned
-  // rather than closed off with a reset here.
-  return { text: out, sgr: active }
+  // Converge to the state the SCAN ended in, not the last written cell's: a
+  // sequence after the final write (the `\x1b[0m` closing a colored line) changes
+  // no cell yet still ends the run, and it has to reach both the DOM and the
+  // next line. Without this a line ending in a reset leaked its color onward.
+  if (active !== sgr) {
+    if (active !== '') out += '\u001b[0m'
+    out += sgr
+  }
+  return { text: out, sgr }
 }
 
 /**
@@ -227,7 +269,7 @@ function applyCursorMovements(text: string): string {
     // exactly the replayed case. An erase counts: `\x1b[1K` blanks columns even
     // with no `\r` beside it.
     const result = replayLine(line, sgr)
-    replayed.push(/\r|\u0008|\u001b\[[0-9]*K/.test(line) ? result.text : line)
+    replayed.push(NEEDS_REPLAY.test(line) ? result.text : line)
     sgr = result.sgr
   }
   return replayed.join('\n')

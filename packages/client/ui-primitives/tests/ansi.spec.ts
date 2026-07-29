@@ -293,6 +293,47 @@ describe('parseAnsiLines: erase and column arithmetic', () => {
   })
 })
 
+describe('parseAnsiLines: line-end state and column widths', () => {
+  it('closes a run whose reset lands after the last written cell', () => {
+    // Verified in a real terminal: `\x1b[32mdone\rok\x1b[0m` then `plain` shows
+    // `okne` GREEN and `plain` in the DEFAULT color. The reset changes no cell,
+    // so returning the last cell's state leaked green onto every later line —
+    // and this exact shape (`\r\x1b[K\x1b[32m✓ built\x1b[0m`) is what every
+    // build tool writes.
+    expect(parseAnsiLines(`${ESC}[32mdone\rok${ESC}[0m\nplain`)).toEqual([
+      [{ text: 'okne', style: { color: 'var(--dsw-alias-state-success-primary)' } }],
+      [{ text: 'plain', style: undefined }],
+    ])
+  })
+
+  it('erases through the cursor column for 1K, not up to it', () => {
+    // Verified in a real terminal: `abcd\b\x1b[1K|` shows `   |` — the `d` under
+    // the cursor is erased too, which the CSI spec calls inclusive.
+    expect(onlySpan(`abcd${BS}${ESC}[1K|`)).toEqual({ text: '   |', style: undefined })
+  })
+
+  it('gives a combining mark no column of its own', () => {
+    // Verified in a real terminal: `é` (e + U+0301) then `x`, redrawn with `YZ`,
+    // shows `YZ`. Counting the mark as a column left the `x` standing.
+    expect(onlySpan('e\u0301x\rYZ')).toEqual({ text: 'YZ', style: undefined })
+  })
+
+  it('blanks a wide character\'s spacer once its lead cell is overwritten', () => {
+    // Verified in a real terminal: `中x` redrawn with `A` shows `A x` — the wide
+    // glyph's second cell becomes a blank rather than closing the gap, so the
+    // `x` keeps column 3.
+    expect(onlySpan('中x\rA')).toEqual({ text: 'A x', style: undefined })
+    // Covering both of its columns leaves no spacer behind.
+    expect(onlySpan('中x\rab')).toEqual({ text: 'abx', style: undefined })
+  })
+
+  it('replays an erase whose parameters carry a semicolon', () => {
+    // The replay guard has to match the same CSI shape the parser accepts, or a
+    // form like `\x1b[1;2K` skips the replay and its erase never happens.
+    expect(onlySpan(`abcd${ESC}[1;2K|`)).toEqual({ text: '    |', style: undefined })
+  })
+})
+
 describe('parseAnsiLines: SGR across lines', () => {
   it('carries active state past a newline, as a terminal does', () => {
     // Verified in a real terminal: `\x1b[31mabc\rX\nnext` paints BOTH lines red.

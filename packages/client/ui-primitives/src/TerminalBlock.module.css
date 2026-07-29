@@ -30,9 +30,15 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  /* No left padding: the card's gutter already insets this row, and the banner
-     background still has to span the full surface. */
-  padding: 9px 14px 9px 0;
+  /* Pulled back across the card's gutter padding so the banner background and
+     its top-left radius span the FULL surface, then re-inset by the same amount
+     so the prompt text and the dot keep their positions. A plain block child
+     only reaches the content box, which left the gutter column painted in the
+     body color and drew the card's top-left corner in it — invisible in the
+     light theme, where banner and body share a token, and visible in the dark
+     one, where they do not. */
+  margin-left: calc(-1 * var(--dsl-terminal-gutter));
+  padding: 9px 14px 9px var(--dsl-terminal-gutter);
   background: var(--dsw-alias-markdown-code-block-banner);
   border-top-left-radius: var(--dsl-terminal-radius);
   border-top-right-radius: var(--dsl-terminal-radius);

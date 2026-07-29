@@ -193,10 +193,11 @@ it('renders the keyed bash row with a resident terminal card', async () => {
   const row = keyedBashRow()
   const card = row.parentElement?.querySelector('[data-terminal]')
   if (card === null || card === undefined) throw new Error('keyed bash row has no resident terminal card')
-  // The prompt shortens the nested cwd to its last segment, the exit pill
-  // recovers the trailing marker's code, ANSI runs land on theme tokens, and
-  // the chat cap (8) collapses the middle into a head/tail split with an
-  // expander between them.
+  // The prompt shortens the nested cwd to its last segment, the exit pill comes
+  // from the sample's authored exit status (its body deliberately carries no
+  // `[exit code: N]` marker, since the real presenter consumes that one), ANSI
+  // runs land on theme tokens, and the chat cap (8) collapses the middle into a
+  // head/tail split with an expander between them.
   expect(readCard(card)).toMatchInlineSnapshot(`
     {
       "colors": [

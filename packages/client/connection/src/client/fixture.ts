@@ -92,7 +92,7 @@ function sgr(code: number, body: string): string {
 }
 
 /**
- * Terminal output sample for fixture turn 66, authored to carry every feature
+ * Terminal output sample for fixture turn 65, authored to carry every feature
  * the terminal card draws that turn 60's two prompt rows cannot reach:
  * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
  * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
