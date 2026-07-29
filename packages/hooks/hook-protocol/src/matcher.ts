@@ -14,8 +14,8 @@ import type { RRegex as RustRegex } from 'rregex'
 import type { MatcherMode } from './types.ts'
 
 type CodexRegexPoolEntry =
-  | { regex: RustRegex; diagnostic?: never }
-  | { regex?: never; diagnostic: string }
+  | { regex: RustRegex }
+  | { diagnostic: string }
 
 type RRegexModule = {
   RRegex: new(pattern: string) => RustRegex
@@ -98,7 +98,7 @@ function compileMatcher(matcher: string | undefined, mode: MatcherMode): Compile
 
   if (mode === 'codex') {
     const entry = internCodexRegex(pattern)
-    if (entry.regex !== undefined) {
+    if ('regex' in entry) {
       const regex = entry.regex
       return { matches: query => regex.isMatch(query) }
     }
