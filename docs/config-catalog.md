@@ -1312,6 +1312,10 @@ Requires: `skills`
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
 export interface Config {
+  /** Unique provider name. Defaults to `local`. */
+  providerName?: string
+  /** Whether project and user roots are included around custom roots. */
+  includeDefaultRoots?: boolean
   /** DeepSeek Harness config root. Defaults to `$DSH_HOME` or `~/.dsh`. */
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
@@ -2318,6 +2322,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-llm` ([`packages/llm/llm/src/index.ts`](../packages/llm/llm/src/index.ts))
 - `@deepseek-ai/dsh-lsp` ([`packages/lsp/lsp/src/index.ts`](../packages/lsp/lsp/src/index.ts))
 - `@deepseek-ai/dsh-pty` ([`packages/pty/pty/src/index.ts`](../packages/pty/pty/src/index.ts))
+- `@deepseek-ai/dsh-repository-plugin` — requires `loader` ([`packages/cordis/repository-plugin/src/index.ts`](../packages/cordis/repository-plugin/src/index.ts))
 - `@deepseek-ai/dsh-session` ([`packages/core/session/src/index.ts`](../packages/core/session/src/index.ts))
 - `@deepseek-ai/dsh-session-checkpoint-policy` — requires `llm` · `sessionPersistence` · `sessions` · `tools` ([`packages/session-persistence/session-checkpoint-policy/src/index.ts`](../packages/session-persistence/session-checkpoint-policy/src/index.ts))
 - `@deepseek-ai/dsh-session-projection` ([`packages/session-projection/session-projection/src/index.ts`](../packages/session-projection/session-projection/src/index.ts))

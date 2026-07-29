@@ -1,6 +1,12 @@
 - id: cli-mock-llm
   name: './cli-mock-llm.ts'
 
+- id: repository-plugin-runtime
+  name: '@deepseek-ai/dsh-repository-plugin'
+
+- id: repository-plugin-fixture
+  name: './repository-plugin/dsh-plugin.mjs'
+
 - id: base
   name: '@cordisjs/plugin-include'
   config:
@@ -16,4 +22,8 @@
           model: cli-mock
           persistenceRoot: './.sessions'
           workspaceContext: false
+          dshHome: './.dsh-home'
+          skills:
+            local:
+              agentsHome: './.agents-home'
           persona: 'Keyless headless-agent smoke.'
