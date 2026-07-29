@@ -269,6 +269,53 @@ describe('DirectoryBrowser', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
   })
 
+  it('a pick during the post-create relist supersedes it: late settlements drop', async () => {
+    const settlers: { resolve: (value: DirectoryListing) => void; reject: (reason: unknown) => void }[] = []
+    const listDirectory = vi.fn(async (path?: string) => {
+      // Explicit HOME requests are the relists; the initial open lists home
+      // through the absent-path form.
+      if (path === HOME) {
+        return new Promise<DirectoryListing>((resolve, reject) => { settlers.push({ resolve, reject }) })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'ghost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    // The nested dialog is gone while the relist hangs; the card is
+    // interactive, and picking a row supersedes the relist.
+    await waitFor(() => { expect(settlers).toHaveLength(1) })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    // The stale relist settles late and must not land or select ghost.
+    await act(async () => { settlers[0]!.resolve({ ...listingFor(HOME), entries: [] }) })
+    expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+    expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
+  })
+
+  it('a rejection of a superseded post-create relist is equally silent', async () => {
+    const settlers: { resolve: (value: DirectoryListing) => void; reject: (reason: unknown) => void }[] = []
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === HOME) {
+        return new Promise<DirectoryListing>((resolve, reject) => { settlers.push({ resolve, reject }) })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
+    fireEvent.change(screen.getByLabelText('browser.folderName'), { target: { value: 'ghost' } })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.create' }))
+    await waitFor(() => { expect(settlers).toHaveLength(1) })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    await act(async () => { settlers[0]!.reject(new Error('late')) })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(columns()).toHaveLength(2)
+  })
+
   it('a failed create relist parks focus on the edit zone with the error shown', async () => {
     let relists = 0
     const listDirectory = vi.fn(async (path?: string) => {

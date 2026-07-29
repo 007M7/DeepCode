@@ -273,6 +273,20 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const editZoneRef = useRef<HTMLButtonElement | null>(null)
 
   /**
+   * Whether the focused element sits among the miller rows — probed before
+   * a landing replaces the row nodes, to decide focus parking. A probe
+   * only: it never gates the landing itself (a torn-down ref in a close
+   * race merely skips the parking).
+   * @returns true when `document.activeElement` is inside the miller row.
+   */
+  const focusInMillerRows = useCallback((): boolean => {
+    const rowHost = millerRowRef.current
+    /* v8 ignore next -- close-race guard: the commit-to-effect window is not deterministically reproducible. */
+    if (rowHost === null) return false
+    return rowHost.contains(document.activeElement)
+  }, [])
+
+  /**
    * Launch a follow-up listing under the CURRENT supersession seq: a newer
    * intent aborts it like the leg it continues, and it supersedes nothing.
    */
@@ -312,11 +326,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // The landing replaces every row key; a slow jump leaves the OLD
       // rows tabbable meanwhile (parentInert excludes loading), so focus
       // may live among them. With no selection yet the edit zone is the
-      // park target (body-guarded, like every other exit).
-      const rowHost = millerRowRef.current
-      /* v8 ignore next -- close-race guard: the commit-to-effect window is not deterministically reproducible. */
-      if (rowHost === null) return
-      if (rowHost.contains(document.activeElement)) refocusEditZone.current = true
+      // park target (body-guarded, like every other exit). The probe never
+      // gates the commit below — stranding the dialog in loading over a
+      // focus check would be far worse than a skipped parking.
+      if (focusInMillerRows()) refocusEditZone.current = true
       setParent(target)
       setSelected(null)
       setChild(null)
@@ -338,13 +351,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         // The upgrade replaces every committed row node; if focus lives
         // among them (Tab reached the rows during the parent leg), arm the
         // refocus effect so it re-parks on the re-selected row.
-        const rowHost = millerRowRef.current
-        // A close race can clear the ref before the close effect's
-        // supersede runs (commit precedes passive effects): drop the
-        // upgrade, the dialog is going away.
-        /* v8 ignore next -- close-race guard: the commit-to-effect window is not deterministically reproducible. */
-        if (rowHost === null) return
-        if (rowHost.contains(document.activeElement)) refocusPick.current = true
+        if (focusInMillerRows()) refocusPick.current = true
         setParent(parentLevel)
         setSelected(match)
         setChild(target)
@@ -358,7 +365,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setLoading(false)
       setError(failureText(reason))
     })
-  }, [launchListing, continueScan])
+  }, [launchListing, continueScan, focusInMillerRows])
 
   /**
    * Close the nested create dialog. Its unmount drops focus to body (the
@@ -486,13 +493,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       const { seq, scan } = launchListing(targetPath)
       setLoading(true)
       scan.then((level) => {
-        /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
+        // The nested dialog closed before this relist launched, so the card
+        // is interactive meanwhile: a pick or crumb jump supersedes it.
         if (seq !== requestSeq.current) return
         setParent(level)
         setLoading(false)
         select({ name, path: createdPath, hidden: false })
       }, (reason: unknown) => {
-        /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
+        // Same interactive-window fence as the success branch above.
         if (seq !== requestSeq.current) return
         setLoading(false)
         setError(failureText(reason))
