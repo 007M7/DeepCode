@@ -132,13 +132,11 @@ function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPr
               // where the blur lands before our guards) drop this click.
               // Outside editing, rows keep native focus behavior.
               onMouseDown={pathEditing ? (event) => { event.preventDefault() } : undefined}
-              onClick={(event) => {
-                // A pick during editing is about to unmount the focused
-                // input; park focus on the picked row so keyboard traversal
-                // stays inside the dialog (the Modal has no focus trap).
-                if (pathEditing) event.currentTarget.focus()
-                onPick(entry)
-              }}
+              // Editing-time focus parking happens after commit (the
+              // DirectoryBrowser refocus effect): a right-pane pick replaces
+              // this very column, so focusing the clicked node here would
+              // still fall to body.
+              onClick={() => { onPick(entry) }}
             >
               {selected
                 ? <IconFolderOpen16 size={16} className={css.rowIconSelected} />
@@ -235,11 +233,18 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     })
   }, [launchListing])
 
+  // An editing-time pick parks focus on the selection after commit; the
+  // flag is set by select() and consumed by the refocus effect below the
+  // miller-row ref.
+  const refocusPick = useRef(false)
+
   /** Select a row of the listed level and preview its children on the right. */
   const select = useCallback((entry: DirectoryEntry) => {
     const { seq, scan } = launchListing(entry.path)
     // A pick while the path editor is open adopts the (filtered) row and
-    // closes the editor — the draft served its purpose.
+    // closes the editor — the draft served its purpose. Focus re-parks on
+    // the selection after commit (see the refocus effect below).
+    if (pathDraft !== null) refocusPick.current = true
     setPathDraft(null)
     setSelected(entry)
     setChild(null)
@@ -257,7 +262,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // breadcrumb still names the level: fall back to the single pane.
       setSelected(null)
     })
-  }, [launchListing])
+  }, [launchListing, pathDraft])
 
   /** Abandon path editing (Escape or clicking away) and restore the crumb view. */
   const cancelPathEdit = useCallback(() => {
@@ -368,6 +373,18 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     const row = millerRowRef.current
     if (row !== null && childPath !== undefined) row.scrollLeft = row.scrollWidth
   }, [childPath])
+  // An editing-time pick unmounts the focused input, and a right-pane pick
+  // additionally replaces the picked button's whole column (advance swaps
+  // both panes): park focus on the selection's row — aria-current in the
+  // freshly rendered left pane — after commit, so keyboard traversal stays
+  // inside the dialog (the Modal has no focus trap).
+  useEffect(() => {
+    if (!refocusPick.current) return
+    refocusPick.current = false
+    /* v8 ignore next 2 -- narrowing guard: the pick that set the flag just rendered its aria-current row inside the miller row. */
+    const row = millerRowRef.current?.querySelector<HTMLButtonElement>('button[aria-current="true"]')
+    row?.focus()
+  })
 
   if (!open) return null
   const twoPane = selected !== null

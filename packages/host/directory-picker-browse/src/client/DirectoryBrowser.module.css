@@ -15,6 +15,13 @@
   gap: 0;
 }
 
+/* Card-scope wrapper hosting the path editor's Escape and focus-leave
+ * observers; display:contents keeps header/content/footer as direct flex
+ * children of the Modal card. */
+.editorScope {
+  display: contents;
+}
+
 /* Header block: pl24 pr14 pt16 pb8, 8px between title row and crumb row. */
 .header {
   display: flex;
@@ -282,13 +289,6 @@
 
 .showHiddenToggleActive {
   color: var(--dsw-alias-label-primary);
-}
-
-/* Card-scope wrapper hosting the path editor's Escape and focus-leave
- * observers; display:contents keeps header/content/footer as direct flex
- * children of the Modal card. */
-.editorScope {
-  display: contents;
 }
 
 .footerGap {

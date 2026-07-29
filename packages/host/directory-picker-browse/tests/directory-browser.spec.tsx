@@ -369,6 +369,25 @@ describe('DirectoryBrowser', () => {
     expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
   })
 
+  it('a right-pane pick while editing parks focus on the advanced selection', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    // The advance replaces BOTH panes (the picked button's own column
+    // unmounts), so focus is re-parked on the selection's aria-current row
+    // in the freshly rendered left pane rather than the clicked node.
+    const row = rowButton(within(columns()[1]!).getByRole('listitem'))
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    await waitFor(() => { expect(document.activeElement?.textContent).toBe('harness') })
+    expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
+  })
+
   it('seeds and filters with backslashes on a Windows-rooted listing', async () => {
     const ROOT = 'C:\\'
     const windowsListing: DirectoryListing = {
