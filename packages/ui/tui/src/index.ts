@@ -24,22 +24,20 @@ import {
   assembleContextFor,
   installAgentLlmTarget,
   type Agent,
-  type AgentMessageId,
   type AgentLlmTargetRef,
   type AgentStatus,
 } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-loop'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type { CommandResult } from '@deepseek-ai/dsh-commands'
-import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { renderUnknownXml } from './components/xml-tool-output.ts'
+import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
   SessionId,
   type SessionEvent,
-  type UserMessageData,
+  type UserMessage,
 } from '@deepseek-ai/dsh-session'
 import { foldGoal } from '@deepseek-ai/dsh-goal'
 import {
@@ -68,7 +66,7 @@ import type {
   TuiTheme,
 } from './extension/types.ts'
 import { displayInlineText, displayText } from './components/text.ts'
-import { createPalette, markdownTheme, selectTheme } from './components/theme.ts'
+import { createPalette, markdownTheme, renderPalette, selectTheme } from './components/theme.ts'
 import { contentText, parseArguments } from './components/content.ts'
 import {
   cacheHitRate,
@@ -93,6 +91,8 @@ import {
   type Config,
 } from './config.ts'
 import {
+  ContextCardComponent,
+  type ToolCardVisibility,
   HeaderComponent,
   StreamingAssistantComponent,
   ToolCardComponent,
@@ -176,8 +176,67 @@ declare module 'cordis' {
     tui: TuiExtensionService
     /** Optional process host that can replace this TUI with a resumed session. */
     tuiResumeHost: TuiResumeHost
+    /** Launcher-owned `main` session identity; absent lets the app mint one. */
+    mainSessionId: MainSessionIdentity | undefined
+    /** Line the launcher wants printed on exit; absent prints nothing. */
+    tuiGoodbyeMessage: string | undefined
+    /** Skill the launcher wants auto-invoked as the fresh session's first turn; absent leaves it to the user. */
+    tuiInitialSkill: string | undefined
+    /** Launcher-owned session-store root the app bundle defaults to; absent keeps the bundle's project-local default. */
+    launcherSessionsRoot: string | undefined
   }
 }
+
+/** Launcher-chosen identity for the app's `main` session. */
+export interface MainSessionIdentity {
+  /** Exact session id `main` binds to. */
+  readonly id: SessionId
+  /**
+   * Whether that session already has persisted history to load. `true` requires
+   * an existing log and fails loud when absent; `false` creates it fresh.
+   */
+  readonly resume: boolean
+}
+
+/**
+ * Context key a launcher sets before any Loader entry mounts
+ * (`ctx.provide(MAIN_SESSION_ID_KEY, identity)`) to fix the `main` agent's
+ * session identity, so an app bundle mounted from a `cordis.yml` binds a
+ * launcher-selected session without a config key. `ctx.provide` is the only
+ * channel from launcher argv into a Loader-mounted plugin, because config
+ * `!!js` expressions evaluate against the entry's context. Absent leaves the
+ * choice to the app.
+ */
+export const MAIN_SESSION_ID_KEY = 'mainSessionId'
+
+/**
+ * Context key a launcher sets before any Loader entry mounts
+ * (`ctx.provide(TUI_GOODBYE_MESSAGE_KEY, line)`) to supply the line the TUI
+ * prints once the terminal is released on exit — for the shipped CLI, the
+ * command that resumes this session. The launcher owns the wording because only
+ * it knows how it was invoked; the TUI escapes terminal controls before
+ * rendering. Absent prints nothing.
+ */
+export const TUI_GOODBYE_MESSAGE_KEY = 'tuiGoodbyeMessage'
+
+/**
+ * Context key a launcher sets before any Loader entry mounts
+ * (`ctx.provide(INITIAL_SKILL_KEY, name)`) to seed a fresh session's first user
+ * turn with `/skill:<name>` — the `dsh migrate`/`dsh upgrade` guided-session
+ * entry. The launcher sets it only when minting a fresh session, so it never
+ * re-fires on a resumed one. Absent leaves the first turn to the user.
+ */
+export const INITIAL_SKILL_KEY = 'tuiInitialSkill'
+
+/**
+ * Context key a launcher sets before any Loader entry mounts
+ * (`ctx.provide(SESSIONS_ROOT_KEY, root)`) to supply its session-store root as
+ * the app bundle's default persistence root. Shared-store policy (one store
+ * across every cwd) belongs to the launcher — the dsh CLI resolves it under the
+ * Harness home — never to a plugin; a bundle without this slot keeps its own
+ * project-local default, and an explicit `persistenceRoot` config still wins.
+ */
+export const SESSIONS_ROOT_KEY = 'launcherSessionsRoot'
 
 /**
  * Optional terminal-local interaction service provided by one mounted TUI.
@@ -247,7 +306,6 @@ export function createTuiChat(
   const sessionId = SessionId(config.sessionId ?? 'main')
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
-  const persistence = ctx.get('sessionPersistence')
   const sessionQuery = ctx.get('sessionQuery')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.theme.color)
@@ -272,7 +330,9 @@ export function createTuiChat(
   editor.hintPrefix = initialInputPrompt
   const todo = new TodoComponent(palette)
   let showReasoning = resolved.showReasoning
-  let toolsExpanded = false
+  // Ctrl+O cycles collapsed -> expanded -> hidden. Codex-style: hidden drops
+  // tool cards entirely, collapsed previews, expanded shows full bodies.
+  let toolsVisibility: ToolCardVisibility = 'collapsed'
   let streaming: StreamingAssistantComponent | undefined
   let completedStreaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
@@ -280,7 +340,7 @@ export function createTuiChat(
   // TUI steering submissions that the inbox has not yet claimed or discarded.
   // Correlation ids avoid guessing whether a running-state submission actually
   // joined steering or fell back to the queued-turn FIFO during turn close.
-  const pendingSteering = new Set<AgentMessageId>()
+  const pendingSteering = new Set<MessageId>()
   let disposed = false
   let shuttingDown: Promise<void> | undefined
   // Optional: skills mount conditionally, so read the global service store
@@ -296,6 +356,7 @@ export function createTuiChat(
   const tokens = sessionTokens(agent.session)
   const toolCards = new Map<string, ToolCardComponent>()
   const allToolCards = new Set<ToolCardComponent>()
+  const contextCards = new Set<ContextCardComponent>()
   const liveErrors = new Set<string>()
   const commandControllers = new Set<AbortController>()
   const referenceControllers = new Set<AbortController>()
@@ -324,33 +385,33 @@ export function createTuiChat(
   const branch = runtime.gitBranch?.(cwd) ?? gitBranch(cwd)
   const promptValues: TuiPromptValueHandle[] = [
     ctx.tuiPrompt.register('cwd', palette.bold(palette.accent(formattedCwd))),
-    ctx.tuiPrompt.register('git/worktree', branch === undefined ? undefined : palette.muted(` (${displayText(branch)})`)),
+    ctx.tuiPrompt.register('git/worktree', branch === undefined ? undefined : palette.dim(` (${displayText(branch)})`)),
     ctx.tuiPrompt.register('token_meter/cache_hit_rate'),
     ctx.tuiPrompt.register('model'),
     ctx.tuiPrompt.register('context'),
-    ctx.tuiPrompt.register('timing'),
+    ctx.tuiPrompt.register('queued'),
     ctx.tuiPrompt.register('symbol', palette.bold(palette.accent('dsh'))),
-    ctx.tuiPrompt.register('indicator', palette.muted('> ')),
+    ctx.tuiPrompt.register('indicator', palette.dim('> ')),
   ]
-  const [cwdValue, gitValue, tokenValue, modelValue, contextValue, timingValue, symbolValue, indicatorValue] = promptValues
+  const [cwdValue, gitValue, tokenValue, modelValue, contextValue, queuedValue, symbolValue, indicatorValue] = promptValues
   /* v8 ignore next -- the fixed built-in registration list always supplies each handle. */
   if (cwdValue === undefined || gitValue === undefined || tokenValue === undefined || modelValue === undefined
-    || contextValue === undefined || timingValue === undefined || symbolValue === undefined || indicatorValue === undefined) {
+    || contextValue === undefined || queuedValue === undefined || symbolValue === undefined || indicatorValue === undefined) {
     throw new Error('TUI prompt built-ins failed to initialize')
   }
   const updatePromptValues = (): void => {
     cwdValue.set(palette.bold(palette.accent(formattedCwd)))
-    gitValue.set(branch === undefined ? undefined : palette.muted(` (${displayText(branch)})`))
+    gitValue.set(branch === undefined ? undefined : palette.dim(` (${displayText(branch)})`))
     const rate = cacheHitRate(tokens)
     const usage = `↑${formatTokens(tokens.input)} ↓${formatTokens(tokens.output)}`
-    modelValue.set(`  ${palette.muted(displayText(target.current === undefined ? 'model unset' : compactTargetLabel(target.current)))}`)
-    tokenValue.set(`  ${palette.muted(rate === undefined ? usage : `${usage}  cache ${rate}%`)}`)
+    modelValue.set(`  ${palette.dim(displayText(target.current === undefined ? 'model unset' : compactTargetLabel(target.current)))}`)
+    tokenValue.set(`  ${palette.dim(rate === undefined ? usage : `${usage}  cache ${rate}%`)}`)
     const contextWindow = modelController.contextWindow()
-    contextValue.set(contextWindow === undefined ? undefined : `  ${palette.muted(
+    contextValue.set(contextWindow === undefined ? undefined : `  ${palette.dim(
       `${Math.min(100, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens / contextWindow * 100))}% context`,
     )}`)
     const queued = runningStatus === undefined ? undefined : formatQueuedStatus(pendingSteering.size)
-    timingValue.set(queued === undefined ? undefined : palette.dim(queued))
+    queuedValue.set(queued === undefined ? undefined : palette.dim(queued))
     symbolValue.set(palette.bold(palette.accent('dsh')))
     // `${indicator}` owns the caret column and its trailing gap before the
     // cursor. The phase glyph replaces the `>` caret in place — same width
@@ -371,7 +432,7 @@ export function createTuiChat(
         ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (now() - fadingStatus.endedAt) / STATUS_FADE_MS) }
         : undefined
     const caret = envelope === undefined
-      ? palette.muted('>')
+      ? palette.dim('>')
       : fadeGlyph(
         envelope.glyph,
         palette,
@@ -380,7 +441,7 @@ export function createTuiChat(
         envelope.level * pulseLevel(now()),
         envelope.level >= 0.5,
       )
-    indicatorValue.set(`${caret}${palette.muted(' ')}`)
+    indicatorValue.set(`${caret}${palette.dim(' ')}`)
   }
   const promptContext = new PromptContextComponent(
     parseTuiPromptTemplate(displayInlineText(resolved.theme.leftPrompt)),
@@ -417,7 +478,7 @@ export function createTuiChat(
   const disposePromptChanges = ctx.tuiPrompt.subscribe(requestRender)
 
   const appendNotice = (message: string, kind: 'info' | 'warning' | 'error' = 'info'): void => {
-    const color = kind === 'error' ? palette.error : kind === 'warning' ? palette.warning : palette.muted
+    const color = kind === 'error' ? palette.error : kind === 'warning' ? palette.warning : palette.dim
     chat.addChild(new Spacer(1))
     chat.addChild(new Text(color(displayText(message)), 0, 0))
     requestRender()
@@ -425,7 +486,6 @@ export function createTuiChat(
 
   const extensionTheme: TuiTheme = Object.freeze({
     text: (value: string) => palette.text(value),
-    muted: (value: string) => palette.muted(value),
     dim: (value: string) => palette.dim(value),
     accent: (value: string) => palette.accent(value),
     success: (value: string) => palette.success(value),
@@ -548,7 +608,7 @@ export function createTuiChat(
       palette,
       mdTheme,
     )
-    card.setExpanded(toolsExpanded)
+    card.setVisibility(toolsVisibility)
     toolCards.set(event.data.callId, card)
     allToolCards.add(card)
     return card
@@ -627,22 +687,18 @@ export function createTuiChat(
           /* v8 ignore next -- context events with empty content are rejected by their owning producers. */
           if (text) {
             // The tui type view lacks plugin-augmented source kinds (e.g. goal),
-            // so read the display label without narrowing on `kind`.
-            const labelled = source as { kind: string; plugin?: string }
-            /* v8 ignore next -- current plugin-augmented context sources always carry their display label. */
-            const label = labelled.plugin ?? labelled.kind
-            const xml = renderUnknownXml(
-              text,
-              resolved.maxToolOutputLines,
-              true,
-              displayText,
-              value => palette.muted(value),
-              /* v8 ignore next -- expanded context XML never asks renderUnknownXml for a collapsed summary. */
-              () => '',
-            )
+            // so read the display label without narrowing on `kind`. The session
+            // log is a durable/replay boundary: a corrupt or foreign injected
+            // source may not match the typed shape, so fall back to `context`.
+            const labelled = source as { kind?: unknown; plugin?: unknown }
+            const label = typeof labelled.plugin === 'string' ? labelled.plugin
+              : typeof labelled.kind === 'string' ? labelled.kind
+                : 'context'
+            const card = new ContextCardComponent(label, text, resolved.maxToolOutputLines, palette)
+            card.setExpanded(toolsVisibility === 'expanded')
+            contextCards.add(card)
             chat.addChild(new Spacer(1))
-            chat.addChild(new Text(palette.dim(`Context · ${displayText(label)}`), 0, 0))
-            chat.addChild(new Text(xml?.join('\n') ?? palette.muted(displayText(text)), 0, 0))
+            chat.addChild(card)
           }
           break
         }
@@ -655,7 +711,7 @@ export function createTuiChat(
         break
       }
       case 'steering/message': {
-        const text = displayText(contentText(event.data.content).trim())
+        const text = displayText(contentText(event.data.message.content).trim())
         if (text) {
           chat.addChild(new Spacer(1))
           chat.addChild(new UserMessageComponent(text, palette, mdTheme, 'Steering'))
@@ -671,7 +727,7 @@ export function createTuiChat(
       case 'assistant/message':
         completedStreaming = undefined
         if (streaming === undefined || !chat.children.includes(streaming)) startAssistantStep(event.data)
-        streaming?.settle(event.data.content)
+        streaming?.settle(event.data.message.content)
         break
       case 'llm/retry': {
         retractFailedStreaming()
@@ -682,26 +738,32 @@ export function createTuiChat(
         )
         break
       }
+      // No external Spacer for tool cards: the card renders its own leading
+      // gap, so the hidden state removes the row and the gap together.
       case 'tool/call':
-        chat.addChild(new Spacer(1))
         chat.addChild(parsedTool(event))
         trailStreamingTiming()
         break
       case 'tool/result': {
-        let card = toolCards.get(event.data.callId)
+        const callId = event.data.message.source.callId
+        let card = toolCards.get(callId)
         if (card === undefined) {
           card = new ToolCardComponent('tool', { value: {}, valid: true }, undefined, resolved.maxToolOutputLines, palette, mdTheme)
-          chat.addChild(new Spacer(1))
+          card.setVisibility(toolsVisibility)
           chat.addChild(card)
           allToolCards.add(card)
         }
         card.updateResult(event.data)
-        toolCards.delete(event.data.callId)
+        toolCards.delete(callId)
         trailStreamingTiming()
         break
       }
       case 'todo/write':
         todo.update(event.data.todos)
+        break
+      case 'turn/start':
+        // Plan strip is turn-scoped: keep it after turn/end for reading, clear on the next turn.
+        todo.update([])
         break
       case 'session/title':
         sessionTitle = event.data.title
@@ -758,7 +820,9 @@ export function createTuiChat(
     chat.clear()
     toolCards.clear()
     allToolCards.clear()
+    contextCards.clear()
     streaming = undefined
+    todo.update([])
     const active = activeSurfaceSeqs(agent.session)
     const activeCalls = activeToolCallIds(agent.session, active)
     for (const event of agent.session.events) {
@@ -785,12 +849,10 @@ export function createTuiChat(
   const resume = createResumeController({
     ctx,
     agent,
-    config,
     runtime,
     resolved,
     palette,
     overlayManager,
-    persistence,
     sessionQuery,
     ui,
     editor,
@@ -819,9 +881,8 @@ export function createTuiChat(
       await runtime.terminal.drainInput(100, 20)
       ui.stop()
       if (exitProcess) {
-        const command = await resume.currentResumeCommand()
-        if (command !== undefined) {
-          runtime.terminal.write(`${palette.muted('To resume this session:')} ${displayText(command)}\n`)
+        if (runtime.goodbyeMessage !== undefined) {
+          runtime.terminal.write(`${palette.dim(displayText(runtime.goodbyeMessage))}\n`)
         }
         runtime.exit(0)
       }
@@ -865,9 +926,15 @@ export function createTuiChat(
   ui.queryTerminalColorScheme({ timeoutMs: 2000 }).catch(() => {})
 
   const toggleTools = (): void => {
-    toolsExpanded = !toolsExpanded
-    for (const card of allToolCards) card.setExpanded(toolsExpanded)
-    appendNotice(`Tool cards ${toolsExpanded ? 'expanded' : 'collapsed'}.`)
+    // The cycle order puts the two common reading modes adjacent: preview ->
+    // full detail -> conversation-only, then back to the preview default.
+    toolsVisibility = toolsVisibility === 'collapsed' ? 'expanded'
+      : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed'
+    for (const card of allToolCards) card.setVisibility(toolsVisibility)
+    // Context cards carry injected instructions rather than tool traffic, so
+    // they never hide: the hidden phase reads as their collapsed preview.
+    for (const card of contextCards) card.setExpanded(toolsVisibility === 'expanded')
+    appendNotice(toolsVisibility === 'hidden' ? 'Tool cards hidden.' : `Tool and context cards ${toolsVisibility}.`)
   }
 
   const toggleReasoning = (): void => {
@@ -893,12 +960,20 @@ export function createTuiChat(
     chat.addChild(new Text(palette.bold(palette.accent('Keyboard shortcuts')), 0, 0))
     chat.addChild(new Text([
       'Enter send • Shift/Alt+Enter newline • Up/Down prompt history',
-      'Esc cancel active turn • Ctrl+O toggle tool cards • Ctrl+R toggle reasoning',
+      'Esc cancel turn • Ctrl+O cycle cards (collapse/expand/hide) • Ctrl+R toggle reasoning • Ctrl+L redraw',
       'Ctrl+C cancel while running; clear input or exit while idle • Ctrl+D exit',
       '',
       ...commandLines,
       '/skill:<name> [instructions] — load a skill into the conversation',
-    ].map(line => palette.muted(line)).join('\n'), 0, 0))
+    ].map(line => palette.dim(line)).join('\n'), 0, 0))
+    requestRender()
+  }
+
+  const showPalette = (): void => {
+    chat.addChild(new Spacer(1))
+    chat.addChild(new Text(
+      renderPalette(palette, currentScheme, resolved.theme.color).join('\n'), 0, 0,
+    ))
     requestRender()
   }
 
@@ -968,11 +1043,12 @@ export function createTuiChat(
     requestRender()
   }
 
-  // Skill listing is async while `createTuiChat` is synchronous, so the
-  // completions rebuild once the catalog resolves. Disabled-for-model skills
-  // are absent from `list()`, so they never appear as completions; a user can
-  // still invoke one by typing its exact name.
+  // Skill listing is async while `createTuiChat` is synchronous, so the TUI
+  // retains the last complete invocation-neutral catalog for synchronous
+  // editor completion, filters it for user invocation, and refreshes it after
+  // registry invalidation.
   let skillCommands: SlashCommand[] = []
+  let skillCommandScan = 0
   const refreshCommandAutocomplete = (): void => {
     const base = new CombinedAutocompleteProvider(
       [
@@ -993,24 +1069,37 @@ export function createTuiChat(
       agent,
     ))
   }
+  const refreshVisibleSlashAutocomplete = (): void => {
+    const cursor = editor.getCursor()
+    const textBeforeCursor = editor.getLines().slice(cursor.line, cursor.line + 1).join('').slice(0, cursor.col)
+    if (cursor.line === 0 && textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ')) {
+      // pi-tui's provider setter closes an existing menu but does not query
+      // the replacement for the current draft. Tab in a slash-name context
+      // only requests suggestions, so it refreshes without editing the text.
+      editor.handleInput('\t')
+    }
+  }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
 
-  const loadSkillCommands = (service: SkillService): void => {
-    service.list({ cwd, signal: skillAbort.signal }).then(
-      (summaries) => {
-        if (disposed || summaries.length === 0) return
+  const refreshSkillCommands = (service: SkillService): void => {
+    const scan = ++skillCommandScan
+    service.snapshot({ cwd, signal: skillAbort.signal }).then(
+      (snapshot) => {
+        if (disposed || scan !== skillCommandScan || !snapshot.complete) return
+        const invocable = snapshot.skills.filter(skill => skill.invocation.userInvocable)
         // The argument-hint slot shows in the menu but is never inserted on
         // selection, so it carries the skill's scope instead of an
         // instructions placeholder. `SkillSource` is open-ended; every
         // non-project source (user, custom, bundled, runtime, …) collapses
         // to `(user)`.
-        skillCommands = summaries.map(skill => ({
+        skillCommands = invocable.map(skill => ({
           name: `skill:${skill.name}`,
           description: skill.description,
           argumentHint: skill.source.startsWith('project-') ? '(project)' : '(user)',
         }))
         refreshCommandAutocomplete()
+        refreshVisibleSlashAutocomplete()
         requestRender()
       },
       () => {
@@ -1019,7 +1108,10 @@ export function createTuiChat(
       },
     )
   }
-  if (skills !== undefined) loadSkillCommands(skills)
+  const disposeSkillChanges = skills === undefined
+    ? () => {}
+    : ctx.on('skills/change', () => { refreshSkillCommands(skills) })
+  if (skills !== undefined) refreshSkillCommands(skills)
 
   // The agent scope is minted by agent-loop and intentionally inherits only
   // that core plugin's dependencies. A child command producer declares its own
@@ -1045,19 +1137,9 @@ export function createTuiChat(
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
-      name: 'reasoning',
-      description: 'Toggle reasoning blocks',
-      handler: () => { toggleReasoning(); return { kind: 'success' } },
-    })
-    commandCtx.commands.register({
-      name: 'tools',
-      description: 'Expand or collapse all tool cards',
-      handler: () => { toggleTools(); return { kind: 'success' } },
-    })
-    commandCtx.commands.register({
-      name: 'redraw',
-      description: 'Invalidate components and redraw the terminal',
-      handler: () => { ui.invalidate(); ui.requestRender(true); return { kind: 'success' } },
+      name: 'palette',
+      description: 'Show every color and attribute role this terminal renders',
+      handler: () => { showPalette(); return { kind: 'success' } },
     })
     commandCtx.commands.register({
       name: 'reload',
@@ -1104,12 +1186,12 @@ export function createTuiChat(
     const controller = new AbortController()
     commandControllers.add(controller)
     void ctx.commands.execute(agent, text, controller.signal).then(
-      (result) => {
+      (execution) => {
         if (disposed) return
-        if (result === undefined) {
+        if (execution === undefined) {
           appendNotice(`Unknown command: ${text}`, 'warning')
-        } else if (result.text !== undefined && result.text !== '') {
-          appendNotice(result.text, result.kind === 'error' ? 'error' : 'info')
+        } else if (execution.result.text !== undefined && execution.result.text !== '') {
+          appendNotice(execution.result.text, execution.result.kind === 'error' ? 'error' : 'info')
         }
       },
       (error: unknown) => {
@@ -1120,7 +1202,7 @@ export function createTuiChat(
     ).finally(() => { commandControllers.delete(controller) })
   }
 
-  const dispatchMessage = (content: ContentBlock[], attachedContext?: UserMessageData): void => {
+  const dispatchMessage = (content: ContentBlock[], attachedContext?: UserMessage): void => {
     if (disposed) {
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
       return
@@ -1129,43 +1211,37 @@ export function createTuiChat(
       // Steering is never subject to prompt admission; an attached snapshot
       // drains beside it at the same step boundary through the outbox.
       if (attachedContext !== undefined) {
-        agent.inject({ content: attachedContext.content, source: attachedContext.source })
+        agent.inject(attachedContext)
       }
-      pendingSteering.add(agent.steer({ content, source: { kind: 'user' } }))
+      const message = createUserMessage({ content, source: { kind: 'user' } })
+      agent.steer(message)
+      pendingSteering.add(message.id)
       refreshStatus()
       return
     }
     if (attachedContext === undefined) {
-      agent.followup({ content, source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
       return
     }
     // Idle: the snapshot rides the prompt's admission transaction so a
     // blocking hook discards both together.
     let cleanedUp = false
-    let acceptedId: AgentMessageId | undefined
-    let acceptedContent: ContentBlock[] | undefined
-    const enqueued = new Map<AgentMessageId, ContentBlock[]>()
-    const discarded = new Set<AgentMessageId>()
+    const message: UserMessage = createUserMessage({ content, source: { kind: 'user' } })
+    const acceptedId = message.id
+    const discarded = new Set<MessageId>()
     const cleanup = (): void => {
-      // Every completion path detaches all three listeners. Keep this
+      // Every completion path detaches both listeners. Keep this
       // idempotent so later cleanup paths cannot double-release them.
       /* v8 ignore next -- unreachable idempotence guard, see above */
       if (cleanedUp) return
       cleanedUp = true
-      detachEnqueue()
       detachSubmit()
       detachDiscard()
     }
-    // send() snapshots input before publishing it, and publishes enqueue
-    // before returning its id. Capture that snapshot by id so admission can
-    // use exact reference identity without depending on caller-owned input.
-    const detachEnqueue = ctx.on('agent/inbox/enqueue', (subject, message) => {
-      if (subject === agent) enqueued.set(message.id, message.content)
-    })
-    // Prepended so this wrapper is outermost: it observes the admission
-    // whether a downstream hook allows or blocks, and detaches either way.
-    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _source, _signal, next) => {
-      if (subject !== agent || submitted !== acceptedContent) return next()
+    // Prepended so this wrapper is outermost: it observes the exact accepted
+    // message identity whether a downstream hook allows or blocks, then detaches.
+    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _signal, next) => {
+      if (subject !== agent || submitted.id !== message.id) return next()
       cleanup()
       const decision = await next()
       if (decision.kind !== 'allow') return decision
@@ -1176,15 +1252,13 @@ export function createTuiChat(
     const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
       if (subject !== agent) return
       for (const message of messages) discarded.add(message.id)
-      if (acceptedId !== undefined && discarded.has(acceptedId)) cleanup()
+      if (discarded.has(acceptedId)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
     // this guards a future synchronous throw so the wrapper cannot leak.
     /* v8 ignore start -- future-proofing guard, see above */
     try {
-      acceptedId = agent.followup({ content, source: { kind: 'user' } })
-      acceptedContent = enqueued.get(acceptedId) ?? content
-      detachEnqueue()
+      agent.followup(message)
       if (discarded.has(acceptedId)) cleanup()
     } catch (error: unknown) {
       cleanup()
@@ -1204,19 +1278,40 @@ export function createTuiChat(
       appendNotice('Skills are not available in this session.', 'warning')
       return
     }
-    skills.get(name, { cwd, signal: skillAbort.signal }).then(
-      (skill) => {
+    const lookup = { cwd, signal: skillAbort.signal }
+    const reportFailure = (error: unknown): void => {
+      if (disposed) return
+      appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
+    }
+    skills.list(lookup).then(
+      (summaries) => {
         if (disposed) return
-        if (skill === undefined) {
+        const summary = summaries.find(skill => skill.name === name)
+        if (summary === undefined) {
           appendNotice(`Unknown skill: ${name}`, 'warning')
           return
         }
-        deliver(renderSkillInvocation(skill, instructions))
+        if (!summary.invocation.userInvocable) {
+          appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
+          return
+        }
+        skills.get(name, lookup).then(
+          (skill) => {
+            if (disposed) return
+            if (skill === undefined) {
+              appendNotice(`Unknown skill: ${name}`, 'warning')
+              return
+            }
+            if (!skill.invocation.userInvocable) {
+              appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
+              return
+            }
+            deliver(renderSkillInvocation(skill, instructions))
+          },
+          reportFailure,
+        )
       },
-      (error: unknown) => {
-        if (disposed) return
-        appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
-      },
+      reportFailure,
     )
   }
 
@@ -1388,7 +1483,7 @@ export function createTuiChat(
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
   })
-  const settlePendingSteering = (id: AgentMessageId): void => {
+  const settlePendingSteering = (id: MessageId): void => {
     if (pendingSteering.delete(id)) refreshStatus()
   }
   const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {
@@ -1431,6 +1526,7 @@ export function createTuiChat(
     fileSearch.dispose()
     removeInputListener()
     disposeCommandChanges()
+    disposeSkillChanges()
     disposePromptChanges()
     for (const value of promptValues) value.dispose()
     stopBannerReveal()
@@ -1507,6 +1603,13 @@ export function createTuiChat(
   })
   startBannerReveal()
 
+  // A launcher-seeded first turn (`dsh migrate`/`dsh upgrade`): invoke the
+  // named skill exactly as a typed `/skill:<name>` would, once the chat is live
+  // and the agent is idle. The launcher sets this only for a fresh session, so
+  // there is no prior turn to collide with; invokeSkill reports an unknown skill
+  // as a notice.
+  if (config.initialSkill !== undefined) invokeSkill(config.initialSkill, '')
+
   return {
     async dispose(): Promise<void> {
       detachListeners()
@@ -1570,10 +1673,20 @@ export function apply(ctx: Context, config: Config): void {
   // boundary from COLORTERM; an explicit theme value still wins.
   const truecolor = config.theme?.truecolor ?? ['truecolor', '24bit'].includes(process.env.COLORTERM ?? '')
   const resumeHost = ctx.get('tuiResumeHost')
-  mountTui(ctx, Object.assign({}, config, { theme: Object.assign({}, config.theme, { truecolor }) }), {
+  const goodbyeMessage = ctx.get('tuiGoodbyeMessage')
+  // The launcher seeds a guided fresh session's first turn through this key; a
+  // config value still wins. Consumed in createTuiChat via config.initialSkill.
+  const initialSkill = config.initialSkill ?? ctx.get('tuiInitialSkill')
+  mountTui(ctx, Object.assign(
+    {},
+    config,
+    { theme: Object.assign({}, config.theme, { truecolor }) },
+    initialSkill === undefined ? {} : { initialSkill },
+  ), {
     terminal: new ProcessTerminal(),
     exit: code => process.exit(code),
-    ...resumeHost === undefined ? {} : { handoffResume: sessionId => resumeHost.handoff(sessionId) },
+    ...resumeHost === undefined ? {} : { handoffResume: (sessionId, cwd) => resumeHost.handoff(sessionId, cwd) },
+    ...goodbyeMessage === undefined ? {} : { goodbyeMessage },
   })
 }
 /* v8 ignore stop */

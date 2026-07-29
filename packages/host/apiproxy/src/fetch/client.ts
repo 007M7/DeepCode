@@ -13,7 +13,10 @@ import { RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from '../api/rpc.schema.ts'
 import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
-import { hostDescribeValueSchema, hostPickDirectoryValueSchema } from '../api/host.schema.ts'
+import {
+  hostCreateDirectoryValueSchema, hostDescribeValueSchema,
+  hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema,
+} from '../api/host.schema.ts'
 import {
   sessionCancelValueSchema,
   sessionCreateValueSchema,
@@ -21,6 +24,7 @@ import {
   sessionListValueSchema,
   sessionModelsValueSchema,
   sessionPromptValueSchema,
+  sessionRenameValueSchema,
   sessionSelectModelValueSchema,
 } from '../api/sessions.schema.ts'
 import {
@@ -32,6 +36,14 @@ import {
 } from '../api/workspace.schema.ts'
 import { commandExecuteValueSchema, commandListValueSchema } from '../api/commands.schema.ts'
 import { skillListValueSchema } from '../api/skills.schema.ts'
+import {
+  goalCreateValueSchema,
+  goalEditValueSchema,
+  goalPauseValueSchema,
+  goalResumeValueSchema,
+  goalCompleteValueSchema,
+  goalClearValueSchema,
+} from '../api/goals.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -55,12 +67,16 @@ export interface IApiClient {
     history(payload: RequestPayload<'session.history'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.history'>>>
     models(payload: RequestPayload<'session.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.models'>>>
     selectModel(payload: RequestPayload<'session.selectModel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.selectModel'>>>
+    rename(payload: RequestPayload<'session.rename'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.rename'>>>
     prompt(payload: RequestPayload<'session.prompt'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.prompt'>>>
     cancel(payload: RequestPayload<'session.cancel'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'session.cancel'>>>
   }
   host: {
     describe(payload: RequestPayload<'host.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.describe'>>>
     pickDirectory(payload: RequestPayload<'host.pickDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.pickDirectory'>>>
+    listDirectory(payload: RequestPayload<'host.listDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.listDirectory'>>>
+    createDirectory(payload: RequestPayload<'host.createDirectory'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.createDirectory'>>>
+    openPath(payload: RequestPayload<'host.openPath'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'host.openPath'>>>
   }
   workspace: {
     list(payload: RequestPayload<'workspace.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'workspace.list'>>>
@@ -80,6 +96,14 @@ export interface IApiClient {
     mux(payload: Parameters<ApiProxy['events']['mux']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<MuxFrame>>
     host(payload: Parameters<ApiProxy['events']['host']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<HostFrame>>
   }
+  goals: {
+    create(payload: RequestPayload<'goal.create'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.create'>>>
+    edit(payload: RequestPayload<'goal.edit'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.edit'>>>
+    pause(payload: RequestPayload<'goal.pause'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.pause'>>>
+    resume(payload: RequestPayload<'goal.resume'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.resume'>>>
+    complete(payload: RequestPayload<'goal.complete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.complete'>>>
+    clear(payload: RequestPayload<'goal.clear'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.clear'>>>
+  }
   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
   respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
 }
@@ -94,10 +118,14 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'session.history': sessionHistoryValueSchema,
   'session.models': sessionModelsValueSchema,
   'session.selectModel': sessionSelectModelValueSchema,
+  'session.rename': sessionRenameValueSchema,
   'session.prompt': sessionPromptValueSchema,
   'session.cancel': sessionCancelValueSchema,
   'host.describe': hostDescribeValueSchema,
   'host.pickDirectory': hostPickDirectoryValueSchema,
+  'host.listDirectory': hostListDirectoryValueSchema,
+  'host.createDirectory': hostCreateDirectoryValueSchema,
+  'host.openPath': hostOpenPathValueSchema,
   'workspace.list': workspaceListValueSchema,
   'workspace.create': workspaceCreateValueSchema,
   'workspace.rename': workspaceRenameValueSchema,
@@ -106,6 +134,12 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'command.list': commandListValueSchema,
   'command.execute': commandExecuteValueSchema,
   'skill.list': skillListValueSchema,
+  'goal.create': goalCreateValueSchema,
+  'goal.edit': goalEditValueSchema,
+  'goal.pause': goalPauseValueSchema,
+  'goal.resume': goalResumeValueSchema,
+  'goal.complete': goalCompleteValueSchema,
+  'goal.clear': goalClearValueSchema,
 }
 
 /** Default unary timeout (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -296,6 +330,7 @@ export abstract class AbstractApiClient implements IApiClient {
     history: (payload, signal) => this.callUnary('session.history', payload, signal),
     models: (payload, signal) => this.callUnary('session.models', payload, signal),
     selectModel: (payload, signal) => this.callUnary('session.selectModel', payload, signal),
+    rename: (payload, signal) => this.callUnary('session.rename', payload, signal),
     prompt: (payload, signal) => this.callUnary('session.prompt', payload, signal),
     cancel: (payload, signal) => this.callUnary('session.cancel', payload, signal),
   }
@@ -305,6 +340,9 @@ export abstract class AbstractApiClient implements IApiClient {
     // A native system dialog is user-paced and may legitimately stay open
     // longer than the normal unary deadline. Caller/connection aborts remain.
     pickDirectory: (payload, signal) => this.callUnary('host.pickDirectory', payload, signal, false),
+    listDirectory: (payload, signal) => this.callUnary('host.listDirectory', payload, signal),
+    createDirectory: (payload, signal) => this.callUnary('host.createDirectory', payload, signal),
+    openPath: (payload, signal) => this.callUnary('host.openPath', payload, signal),
   }
 
   readonly workspace: IApiClient['workspace'] = {
@@ -322,6 +360,15 @@ export abstract class AbstractApiClient implements IApiClient {
 
   readonly skills: IApiClient['skills'] = {
     list: (payload, signal) => this.callUnary('skill.list', payload, signal),
+  }
+
+  readonly goals: IApiClient['goals'] = {
+    create: (payload, signal) => this.callUnary('goal.create', payload, signal),
+    edit: (payload, signal) => this.callUnary('goal.edit', payload, signal),
+    pause: (payload, signal) => this.callUnary('goal.pause', payload, signal),
+    resume: (payload, signal) => this.callUnary('goal.resume', payload, signal),
+    complete: (payload, signal) => this.callUnary('goal.complete', payload, signal),
+    clear: (payload, signal) => this.callUnary('goal.clear', payload, signal),
   }
 
   readonly events: IApiClient['events'] = {

@@ -24,6 +24,13 @@
   box-shadow: var(--dsw-shadow-lv2);
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
+  /* Elevated surface in dark, same as the menus: the body inside scrolls
+     once the card hits the cap above, so the thumb takes the l2 pair. Declared
+     on the card because the elevation belongs to the surface, and the custom
+     properties inherit down to `.body` (see ui-theme styles/scrollbar.css
+     for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .card,
@@ -62,11 +69,7 @@
 }
 
 .detail {
-  margin: 2px 0 0;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 20px;
-  font-weight: 400;
+  margin: 0 2px 8px;
 }
 
 .footerActions {
@@ -117,15 +120,21 @@
   cursor: default;
 }
 
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .options {
   display: flex;
   flex-direction: column;
   gap: 1px;
   margin: 8px 0 0;
   padding: 4px 12px;
-  /* The scrollable region of the capped card (ChatView list pattern). */
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .option {

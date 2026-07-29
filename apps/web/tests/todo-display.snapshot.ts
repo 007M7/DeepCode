@@ -4,8 +4,9 @@
 // Opens the fixture history session and pins the todo_write turn's two
 // surfaces: the dedicated TodoRow in the chat flow (keyed toolview, summary
 // derived from the call args) and the TodoPanel plan strip riding the
-// 'conversation.input.dock' slot (fed by ConversationSnapshot.todos, seeded
-// by the tail history page), including the collapse interaction.
+// 'conversation.input.dock' slot (fed by the host `todos` projection via
+// useProjection, seeded by the tail history page), including the collapse
+// interaction and the next-turn clearance of the standing plan.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -120,7 +121,7 @@ async function openFixtureSession(): Promise<void> {
   const session = await within(tree).findByText('Fixture 历史会话')
   fireEvent.click(session)
   await waitFor(() => {
-    expect(document.querySelector('[data-sample="todo-row"]')).not.toBeNull()
+    expect(document.querySelector('[data-tool="todo_write"]')).not.toBeNull()
   }, { timeout: 10_000 })
 }
 
@@ -128,7 +129,7 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
   boot()
   await openFixtureSession()
 
-  const row = document.querySelector('[data-sample="todo-row"]')
+  const row = document.querySelector('[data-tool="todo_write"]')
   if (row === null) throw new Error('todo row missing')
   const panel = document.querySelector('[data-testid="todo-panel"]')
   if (panel === null) throw new Error('todo panel missing from the input dock')
@@ -146,27 +147,14 @@ it('renders the todo_write turn: dedicated tool row + the dock plan strip', asyn
   }).toMatchInlineSnapshot(`
     {
       "panelHeader": "To-dos1/3 tasks · 1 in progress",
-      "panelItems": [
-        {
-          "status": "completed",
-          "text": "梳理需求",
-        },
-        {
-          "status": "in_progress",
-          "text": "实现 fixture 样本",
-        },
-        {
-          "status": "pending",
-          "text": "浏览器验收",
-        },
-      ],
+      "panelItems": [],
       "row": "更新任务清单1/3 已完成 · 实现 fixture 样本",
       "rowState": "ok",
     }
   `)
 })
 
-it('collapses the plan strip to the count summary and restores it', async () => {
+it('expands the default-collapsed plan strip and restores its folded state', async () => {
   boot()
   await openFixtureSession()
 
@@ -175,17 +163,51 @@ it('collapses the plan strip to the count summary and restores it', async () => 
   const header = panel.querySelector('button')
   if (header === null) throw new Error('todo panel header missing')
 
-  fireEvent.click(header)
   expect({
     collapsedHeader: visibleText(header),
+    expanded: header.getAttribute('aria-expanded'),
     listGone: panel.querySelector('ul') === null,
   }).toMatchInlineSnapshot(`
     {
       "collapsedHeader": "To-dos1/3 tasks · 1 in progress",
+      "expanded": "false",
       "listGone": true,
     }
   `)
 
   fireEvent.click(header)
   expect(panel.querySelectorAll('li')).toHaveLength(3)
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  fireEvent.click(header)
+  expect(panel.querySelector('ul')).toBeNull()
+  expect(header.getAttribute('aria-expanded')).toBe('false')
+})
+
+it('hides the plan strip when the next turn starts', async () => {
+  boot()
+  await openFixtureSession()
+  expect(document.querySelector('[data-testid="todo-panel"]')).not.toBeNull()
+
+  const composer = await screen.findByPlaceholderText('给智能体发消息', {}, { timeout: 10_000 })
+  fireEvent.change(composer, { target: { value: '下一轮清空计划' } })
+  fireEvent.keyDown(composer, { key: 'Enter' })
+
+  await screen.findByText('下一轮清空计划', { exact: true }, { timeout: 10_000 })
+  await waitFor(() => {
+    expect(document.querySelector('[data-testid="todo-panel"]')).toBeNull()
+  }, { timeout: 10_000 })
+
+  expect({
+    promptVisible: screen.getByText('下一轮清空计划', { exact: true }).textContent,
+    panelGone: document.querySelector('[data-testid="todo-panel"]') === null,
+    // Historical todo_write row stays in the flow; only the dock strip clears.
+    rowStillPresent: document.querySelector('[data-tool="todo_write"]') !== null,
+  }).toMatchInlineSnapshot(`
+    {
+      "panelGone": true,
+      "promptVisible": "下一轮清空计划",
+      "rowStillPresent": true,
+    }
+  `)
 })

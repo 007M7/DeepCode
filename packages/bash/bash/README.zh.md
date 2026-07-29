@@ -4,7 +4,7 @@
 
 **bash 执行器 seam**：抽象 `BashExecutor` 服务（`ctx.bash`）定义 bash 后端做什么，即运行前台命令与启动后台进程，但不规定如何实现。task id、所有权、收集、取消与通知属于通用 `ctx.tasks` 运行时。
 
-本包是 bash 能力中负责接口的四分之一，各项职责因此可以独立演进（和替换）：
+本包（package）是 bash 能力中负责接口的四分之一，各项职责因此可以独立演进（和替换）：
 
 | 包 | 职责 |
 |---|---|
@@ -13,19 +13,19 @@
 | `@deepseek-ai/dsh-bash-sandbox` | 实现：沿用 `dsh-bash-local` 的机制，但通过 [`ctx.sandbox`](../../sandbox/sandbox/) 限制每次 spawn，并将拒绝报告为结果事实 |
 | `@deepseek-ai/dsh-tool-bash` | 基于 `ctx.bash`、面向模型的工具 schema |
 
-该拆分与 LLM seam（`LlmService`／`LlmAdapter`）及 agent 工具调研结果一致：pi 将执行隐藏在 `BashOperations` 接口之后（本地 shell／SSH／VM 后端），Codex 则隐藏在 exec-server 协议之后。`dsh-bash-sandbox` 正是这种替换的实际应用：沙箱执行器位于同一接口之后；消费方检测其 `sandboxMode` 能力并添加升权字段，无需导入实现。容器化或远程执行器也可以同样接入。
+该拆分与 LLM（大语言模型） seam（`LlmService`／`LlmAdapter`）及 agent（智能体）工具调研结果一致：pi 将执行隐藏在 `BashOperations` 接口之后（本地 shell／SSH／VM 后端），Codex 则隐藏在 exec-server 协议之后。`dsh-bash-sandbox` 正是这种替换的实际应用：沙箱执行器位于同一接口之后；消费方检测其 `sandboxMode` 能力并添加升权字段，无需导入实现。容器化或远程执行器也可以同样接入。
 
 ## 服务 API（`ctx.bash`）
 
 | 成员 | 语义 |
 |---|---|
-| `run(spec)` | 前台执行。命令完成时 resolve。**只会因基础设施失败而 reject**（工作目录不可用、shell 缺失、信号已在调用前中止）；非零退出、超时终止和中止终止都会 resolve 为描述性 `BashRunResult`。 |
+| `run(spec)` | 前台执行。命令完成时 resolve。**只会因基础设施失败而 reject**（工作目录不可用、shell 缺失、信号已在调用前中止）；非零退出、超时终止和中止导致的终止都会 resolve 为描述性 `BashRunResult`。 |
 | `start(spec)` | 后台执行。立即返回不含任务语义的 `BashProcess` 句柄；**不应用超时**。调用方可以将其适配到 `ctx.tasks`。 |
 | `sandboxMode` | 工具层的能力事实：沙箱执行器用于限制执行的默认模式（基类中为 `undefined`，即「此执行器不使用沙箱」）。`dsh-tool-bash` 会在注册时读取它，仅当组合确实支持升权字段时才公布这些字段。 |
 | `BashProcess.readOutput()` | **增量** 读取输出：连续读取绝不会重复交付。因缓冲区边界丢失数据的读取会标记 `lossy`，并指向完整流 spill 文件。 |
 | `BashProcess.kill()` | 终止进程组。如果进程已结束，返回 `false`。 |
 
-实现会继承 `BashExecutor` 并实现抽象方法。dispose 必须终止每个运行中的进程并等待其退出，详见 HMR 安全测试。
+实现会继承 `BashExecutor` 并实现抽象方法。dispose（资源释放）必须终止每个运行中的进程并等待其退出，详见 HMR（热模块替换）安全测试。
 
 ## 词汇
 
@@ -33,7 +33,7 @@
 
 每会话沙箱模式覆盖词汇（`'sandbox/mode'` 事件、`effectiveSandboxMode(events)` fold 以及 `setSandboxMode(session, mode)` 写入路径）不位于此处。它是所有强制执行家族共享的策略状态，属于 [`@deepseek-ai/dsh-sandbox-policy`](../../sandbox/sandbox-policy/)。`run()` 返回 `BashRunResult`；`start()` 返回 `BashProcess`，其增量读取与终止方法由 `dsh-tool-bash` 适配为通用任务注册。沙箱执行器会在前台结果与已结算进程句柄上标记 `BashSandboxInfo`。详见 `src/types.ts` 与 [core-data-structures/bash.md](../../../docs/core-data-structures/bash.md)。
 
-`stdin` 与普通 `env` 由同进程插件（hooks 桥接、原生插件）设置，用于向 hook 命令提供其 JSON payload 和 `CLAUDE_PROJECT_DIR`／`CLAUDE_PLUGIN_ROOT` 值。`dshEnv` 是受类型限制、仅允许受管 key 的独立受信任 overlay；导出的 `DSH_ENV_PREFIX` 是该 namespace、其 `DshEnvironmentKey` 模板类型、执行器清理、注册表验证、派生内置名称与模型指引的单一真源。模型 bash 使用 `ctx.bashEnv` 收集的当前快照。实现会移除继承的受管 key，再在普通 `env` 之后合并 `dshEnv`，因此省略的当前事实不会回退到陈旧环境状态，`env` 条目也无法顶掉受管值。面向模型的工具不公开任何一个字段。这三者在已解析 spec 上仍然可选；缺失表示没有输入／overlay。详见 [bash-stdin-env Agent Note](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [会话环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
+`stdin` 与普通 `env` 由同进程插件（hooks 桥接、原生插件）设置，用于向 hook 命令提供其 JSON payload 和 `CLAUDE_PROJECT_DIR`／`CLAUDE_PLUGIN_ROOT` 值。`dshEnv` 是受类型限制、仅允许受管 key 的独立受信任 overlay；导出的 `DSH_ENV_PREFIX` 是该 namespace、其 `DshEnvironmentKey` 模板类型、执行器清理、注册表验证、派生内置名称与模型指引的统一来源。模型 bash 使用 `ctx.bashEnv` 收集的当前快照。实现会移除继承的受管 key，再在普通 `env` 之后合并 `dshEnv`，因此省略的当前事实不会回退到陈旧环境状态，`env` 条目也无法顶掉受管值。面向模型的工具不将这三者中的任何一个公开为参数。这三者在已解析 spec 上仍然可选；缺失表示没有输入／overlay。详见 [bash-stdin-env Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md) 与 [会话环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
 
 ## 模型体验
 
@@ -41,9 +41,9 @@
 
 #### KV Cache 影响
 
-不会直接失效；请求前缀变更由具名消费方负责。
+不会直接导致 KV Cache 失效；请求前缀变更由具名消费方负责。
 
 ## 已知限制与暂缓事项
 
 - **没有交互式输入词汇**：`stdin` 只会在 spawn 时写入一次并关闭；seam 不提供向运行中任务继续输入的通道，也没有 PTY 会话概念。
-- **前台超时始终由执行器拥有**：seam 上的调用方拥有 deadline 模式已由 [工具调用超时策略 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-07-tool-call-timeout-policy.md) 明确暂缓。
+- **前台超时始终由执行器负责**：seam 上由调用方负责 deadline 的模式已由 [工具调用超时策略 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-07-tool-call-timeout-policy.md) 明确暂缓。

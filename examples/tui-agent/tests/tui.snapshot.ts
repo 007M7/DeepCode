@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
+import { scrubRequestHeaders, tokenizeSessionFixtureCwd } from '@deepseek-ai/dsh-acp-snapshot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -41,6 +41,7 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
 type Composition = 'native' | 'code' | 'advanced'
+type ScenarioInteraction = 'skill-invocation-policy'
 
 interface Scenario {
   name: string
@@ -65,6 +66,8 @@ interface Scenario {
    * preview + locator while the program value stays whole.
    */
   spillMaxInlineBytes?: number
+  /** Run scenario-specific terminal input instead of replaying recorded user prompts. */
+  interaction?: ScenarioInteraction
 }
 
 const SCENARIOS: Scenario[] = [
@@ -97,6 +100,14 @@ const SCENARIOS: Scenario[] = [
     expectedTools: ['read', 'read'],
     recorded: true,
     seedWorkspace: true,
+  },
+  {
+    name: 'skill-invocation-policy',
+    composition: 'native',
+    expectedTools: [],
+    recorded: false,
+    seedWorkspace: true,
+    interaction: 'skill-invocation-policy',
   },
   {
     name: 'code-mode',
@@ -269,9 +280,10 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   const dir = scenarioDir(scenario)
   const fixtureFile = join(dir, 'session.jsonl')
   const childFiles = childFixturePaths(scenario)
-  const fixture = await readFile(fixtureFile, 'utf8')
-  const prompts = userPrompts(fixture)
-  expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
+  const prompts = userPrompts(await readFile(fixtureFile, 'utf8'))
+  if (scenario.interaction === undefined) {
+    expect(prompts.length, `${scenario.name} must carry at least one recorded user prompt`).toBeGreaterThan(0)
+  }
 
   const cwd = await mkdtemp(join(SNAPSHOT_TMP_ROOT, `dsh-tui-snapshot-${scenario.name}-`))
   const displayCwd = `/tmp/${basename(cwd)}`
@@ -309,6 +321,63 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       formatCwd: () => displayCwd,
     })
     await settleTerminal(terminal)
+
+    let interactionSnapshot: string | undefined
+    if (scenario.interaction === 'skill-invocation-policy') {
+      terminal.send('/skill')
+      await settleTerminal(terminal)
+      const discovery = normalizeTerminalSnapshot(
+        await terminal.snapshot({ includeScrollback: true }),
+        cwd,
+        displayCwd,
+      )
+      expect(discovery).toContain('user-only-skill')
+      expect(discovery).not.toContain('model-only-skill')
+
+      terminal.send('\x03')
+      await settleTerminal(terminal)
+      const skillContext = ctx
+      const skillTurnEnded = new Promise<void>((resolve) => {
+        const detach = skillContext.on('session/event', (session, event) => {
+          if (session !== agent.session || event.type !== 'turn/end') return
+          detach()
+          resolve()
+        })
+      })
+      terminal.send('/skill:user-only-skill')
+      terminal.send('\r')
+      await skillTurnEnded
+      await agent.whenIdle()
+      await settleTerminal(terminal)
+      const loaded = normalizeTerminalSnapshot(
+        await terminal.snapshot({ includeScrollback: true }),
+        cwd,
+        displayCwd,
+      )
+      expect(loaded).toContain('USER-ONLY SKILL LOADED')
+
+      terminal.send('/skill:model-only-skill')
+      terminal.send('\r')
+      await settleTerminal(terminal)
+      const denied = normalizeTerminalSnapshot(
+        await terminal.snapshot({ includeScrollback: true }),
+        cwd,
+        displayCwd,
+      )
+      expect(denied).toContain('model-only-skill')
+      expect(denied).toContain('not available for user invocation.')
+      expect(denied).not.toContain('MODEL-ONLY BODY MUST NOT LOAD')
+      interactionSnapshot = [
+        '=== skill autocomplete ===',
+        discovery,
+        '',
+        '=== loaded exact invocation ===',
+        loaded,
+        '',
+        '=== denied exact invocation ===',
+        denied,
+      ].join('\n')
+    }
 
     let remainingPrompts = prompts
     if (scenario.enterPlanMode === true) {
@@ -379,7 +448,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(text).toContain('Full formatted result stored at:')
       expect(text).toContain('.spill')
     }
-    expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.isError)).toBe(true)
+    expect(events.filter(event => event.type === 'tool/result').every(event => !event.data.message.content[0].isError)).toBe(true)
     expect(events.filter(event => event.type === 'turn/end').every(event => event.data.reason.kind !== 'error')).toBe(true)
     if (scenario.name === 'dynamic-workflow' || scenario.name === 'cordis-dynamic-toolchain') {
       expect(workflowEvents).toEqual([
@@ -392,7 +461,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     expect(terminal.themeViolations(), `${scenario.name} must remain theme-agnostic`).toEqual([])
-    const snapshot = normalizeTerminalSnapshot(
+    const snapshot = interactionSnapshot ?? normalizeTerminalSnapshot(
       await terminal.snapshot({ includeScrollback: true }),
       cwd,
       displayCwd,
@@ -415,10 +484,16 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
 async function writeRecording(scenario: Scenario, result: ScenarioResult): Promise<void> {
   const dir = scenarioDir(scenario)
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, 'session.jsonl'), scrubRequestHeaders(rawSessionLog(result.parent)))
+  await writeFile(
+    join(dir, 'session.jsonl'),
+    scrubRequestHeaders(tokenizeSessionFixtureCwd(rawSessionLog(result.parent))),
+  )
   expect(result.children).toHaveLength(scenario.childSessions ?? 0)
   for (const [index, child] of result.children.entries()) {
-    await writeFile(join(dir, `session.${index + 1}.jsonl`), scrubRequestHeaders(rawSessionLog(child)))
+    await writeFile(
+      join(dir, `session.${index + 1}.jsonl`),
+      scrubRequestHeaders(tokenizeSessionFixtureCwd(rawSessionLog(child))),
+    )
   }
 }
 

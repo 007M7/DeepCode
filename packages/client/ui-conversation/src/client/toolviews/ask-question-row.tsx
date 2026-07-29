@@ -37,9 +37,8 @@ function answeredSummary(text: string): string | null {
   return `${answered}/${answers.length} answered`
 }
 
-/** One-line question-interaction row (row click opens details; leading toggle
- *  expands the raw args). */
-export function AskQuestionRow({ toolName, block, openDetails }: ToolRowProps) {
+/** One-line question-interaction row (leading toggle expands the raw args). */
+export function AskQuestionRow({ toolName, block }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   // Composer verdicts settle the call as specific UserInteractionErrors
   // (apiproxy ask_user_question handler): 'ASK_CANCELLED' is the user's own
@@ -70,7 +69,6 @@ export function AskQuestionRow({ toolName, block, openDetails }: ToolRowProps) {
       summary={summary}
       body={model.body}
       state={state}
-      onOpenDetails={openDetails}
     />
   )
 }

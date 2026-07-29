@@ -142,8 +142,8 @@ export function installFailLoud(binName: string, proc: FailLoudProcess = process
 }
 
 /**
- * After the tree settles, reject entries with no fiber, which indicates a
- * swallowed module-import failure. Disabled entries are the only valid
+ * After the tree settles, reject entries with no fiber and name every plugin
+ * whose module failed to resolve. Disabled entries are the only valid
  * fiber-less state.
  * @param ctx - the settled context whose loader entries to audit.
  * @param binName - the diagnostic prefix on the thrown error.
@@ -152,7 +152,7 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   const failed = [...ctx.loader.entries()].filter(entry => entry.fiber === undefined && !entry.disabled)
   if (failed.length > 0) {
     const names = failed.map(entry => entry.options.name).join(', ')
-    throw new Error(`${binName}: plugin(s) failed to load: ${names} (see the error(s) logged above)`)
+    throw new Error(`${binName}: plugin(s) failed to load: ${names}; Cordis startup failed because these plugin(s) could not be resolved (see the error(s) logged above)`)
   }
 }
 

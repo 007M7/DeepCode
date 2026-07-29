@@ -16,7 +16,7 @@ import { dirname, resolve } from 'node:path'
 import {
   SessionPersistence, SessionPersistenceRevision, PersistenceCoordinator,
   type PersistenceBackend, type SessionLocation, type SessionPersistenceSnapshot,
-  type StoredPrefix,
+  type StoredPrefix, type StoredSuffix,
 } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionEvent, SurfaceEventType, SessionId, SessionHeader } from '@deepseek-ai/dsh-session'
 import {
@@ -161,6 +161,10 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
     return this.coordinator.inspect(id, signal)
   }
 
+  readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    return this.coordinator.readFrom(id, fromSeq, signal)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -169,6 +173,26 @@ export class SessionPersistenceSqlite extends SessionPersistence implements Pers
   /** Read a stored prefix by id (ids are globally unique — no scope to scan). */
   loadStored(id: SessionId, signal?: AbortSignal): Promise<StoredPrefix<number> | undefined> {
     return this.readPrefix(id, signal)
+  }
+
+  /**
+   * Seek-capable suffix read: SQL selects `seq >= fromSeq` directly, so the
+   * read scales with the suffix, not the log. Torn rows past the preserved
+   * region are dropped, never repaired (non-mutating read).
+   */
+  async loadStoredFrom(id: SessionId, fromSeq: number, signal?: AbortSignal): Promise<StoredSuffix | undefined> {
+    signal?.throwIfAborted()
+    await this.ready
+    signal?.throwIfAborted()
+    const row = this.rowFor(id)
+    if (row === undefined) return undefined
+    const meta = rowToMeta(row)
+    const eventRows = this.db
+      .prepare('SELECT seq, type, time, data, source_event_seqs, surface_op FROM events WHERE session_id = ? AND seq >= ? ORDER BY seq')
+      .all(id, fromSeq) as unknown as EventRow[]
+    signal?.throwIfAborted()
+    const { preserved } = scanRows(eventRows, fromSeq)
+    return { meta, events: preserved }
   }
 
   /**

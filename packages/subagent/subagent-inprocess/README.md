@@ -16,7 +16,9 @@ The driver follows this sequence:
 4. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
 5. Read the child's own last assistant message and latest message-triggered turn reason, excluding any fork seed and later between-turn records.
 
-The child gets the parent's working-directory/session lineage and inherits the parent model unless `request.agentOptions` overrides it. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
+The child gets the parent's working-directory/session lineage and inherits the parent provider, model, and output-token cap unless `request.agentOptions` overrides them. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
+
+When the optional sandbox-policy or approval service is composed, the driver snapshots the parent's explicit session override before child creation and appends a source-tagged event during unpublished setup, after any fork history and before session publication. It never copies deployment defaults or one-shot grants; later child switches still win. See the [policy-inheritance decision](../../../.agents/notes/implemented/feature/2026-07-25-subagent-policy-inheritance.md).
 
 ## Cancellation and ownership
 

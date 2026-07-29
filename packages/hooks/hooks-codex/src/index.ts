@@ -16,8 +16,9 @@ import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
 import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { UserMessageData } from '@deepseek-ai/dsh-session'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { PostToolDecision, PreToolDecision, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
@@ -170,14 +171,14 @@ export function apply(ctx: Context, config: Config): void {
 
   // TODO(hook-continue-false): `merged.stop` is logged but needs a run-level halt seam.
 
-  function contextFrom(merged: MergedHookOutcome): UserMessageData | undefined {
+  function contextFrom(merged: MergedHookOutcome): UserMessage | undefined {
     if (merged.additionalContext.length === 0) return undefined
     const content: ContentBlock[] = merged.additionalContext.map(text => ({ type: 'text', text }))
-    return { content, source: PLUGIN_SOURCE }
+    return createUserMessage({ content, source: PLUGIN_SOURCE })
   }
 
   /** Prepend one context without flattening downstream provenance or metadata. */
-  function prependContext(ours: UserMessageData, theirs: UserMessageData[] | undefined): UserMessageData[] {
+  function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): UserMessage[] {
     return [ours, ...theirs ?? []]
   }
 
@@ -188,18 +189,18 @@ export function apply(ctx: Context, config: Config): void {
     detached.track(runPoint('SessionStart', source, { ...base(ctx, agent, 'SessionStart', model), source }, { agent, plainStdoutAsContext: true, signal: detached.signal })
       .then((merged) => {
         const context = contextFrom(merged)
-        if (context) agent.inject({ content: context.content, source: context.source })
+        if (context) agent.inject(context)
       })
       .catch((error: unknown) => { ctx.logger.warn(`hooks-codex: SessionStart hook failed: ${String(error)}`) }))
     /* jscpd:ignore-end */
   })
 
   // UserPromptSubmit → PromptDecision. Codex supports block, not allow or ask.
-  ctx.on('agent/prompt-submit', async (agent, content, _source, signal, next): Promise<PromptDecision> => {
+  ctx.on('agent/prompt-submit', async (agent, message, signal, next): Promise<PromptDecision> => {
     const payload = {
       ...base(ctx, agent, 'UserPromptSubmit', model),
       turn_id: String(lastTurn(agent) + 1),
-      prompt: blocksToText(content),
+      prompt: blocksToText(message.content),
     }
     const merged = await runPoint('UserPromptSubmit', '', payload, { agent, plainStdoutAsContext: true, signal })
     /* jscpd:ignore-start */
@@ -260,7 +261,7 @@ export function apply(ctx: Context, config: Config): void {
       // empty stderr) still forces it — fall back to a generic steering line
       // rather than letting the turn stop.
       const text = merged.reason ?? 'continue: blocked by Stop hook'
-      agent.steer({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE })
+      agent.steer(createUserMessage({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE }))
     }
   })
 }

@@ -28,10 +28,10 @@ const resultNode = (argsRaw: string, resultText: string | null, over?: Partial<T
 const runningCall = (argsRaw: string) =>
   ({ callId: 'c1', name: 'ask_user_question', argsRaw, turn: 1, step: 1, time: 1_000, callView: null })
 
-function rowProps(block: unknown, openDetails = vi.fn()): ToolRowProps {
+function rowProps(block: unknown): ToolRowProps {
   return {
     callId: 'c1', toolName: 'ask_user_question', block,
-    openDetails,
+    openFile: vi.fn(),
     sessionId: 's1',
     useSessions: () => undefined,
   } as unknown as ToolRowProps
@@ -113,11 +113,10 @@ describe('AskQuestionRow', () => {
     expect(screen.getByText('ask_user_question · c1')).toBeTruthy()
   })
 
-  it('row click opens details', () => {
-    const openDetails = vi.fn()
-    render(<AskQuestionRow {...rowProps(resultNode(ARGS, answers([])), openDetails)} />)
-    fireEvent.click(screen.getByText('Ask question'))
-    expect(openDetails).toHaveBeenCalledTimes(1)
+  it('leading toggle expands the raw args body', () => {
+    render(<AskQuestionRow {...rowProps(resultNode(ARGS, answers([])))} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
   })
 
   it('askQuestionToolview is a plain registrant riding the conversation load-order seam', () => {

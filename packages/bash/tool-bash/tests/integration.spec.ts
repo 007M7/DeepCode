@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -73,7 +74,7 @@ function findEvent<T extends SessionEvent['type']>(
 
 function resultText(event: SessionEvent): string {
   if (event.type !== 'tool/result') return ''
-  return event.data.content
+  return event.data.message.content[0].content
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('')
@@ -111,7 +112,7 @@ describe('bash tool through the agent loop', () => {
     const location = ctx.sessionPersistence.locate(agent.session.header)
     expect(location?.kind).toBe('jsonl')
 
-    agent.followup({ content: [{ type: 'text', text: 'inspect the current session' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect the current session' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const result = findEvent(events(agent), 'tool/result')
@@ -131,7 +132,7 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-fg'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'run echo integration-ok' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run echo integration-ok' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
@@ -139,7 +140,7 @@ describe('bash tool through the agent loop', () => {
     expect(toolCall.data.name).toBe('bash')
 
     const toolResult = findEvent(log, 'tool/result')
-    expect(toolResult.data.isError).toBe(false)
+    expect(toolResult.data.message.content[0].isError).toBe(false)
     expect(resultText(toolResult)).toBe('integration-ok\n')
 
     // The second model call saw the tool result in its derived history.
@@ -150,7 +151,7 @@ describe('bash tool through the agent loop', () => {
     expect(toolResultBlocks).toHaveLength(1)
 
     const finalMessage = findEvent(log, 'assistant/message', 'last')
-    expect(finalMessage.data.content.some(
+    expect(finalMessage.data.message.content.some(
       block => block.type === 'text' && block.text.includes('integration-ok'),
     )).toBe(true)
   })
@@ -163,11 +164,11 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-exit'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'run exit 9' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run exit 9' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const toolResult = findEvent(events(agent), 'tool/result')
-    expect(toolResult.data.isError).toBe(false)
+    expect(toolResult.data.message.content[0].isError).toBe(false)
     expect(resultText(toolResult)).toContain('[exit code: 9]')
   })
 
@@ -183,11 +184,11 @@ describe('bash tool through the agent loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-bg'), { provider: 'mock', model: 'mock' })
 
-    agent.followup({ content: [{ type: 'text', text: 'run echo bg-ok in the background' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'run echo bg-ok in the background' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 
     const firstResult = findEvent(events(agent), 'tool/result')
-    expect(firstResult.data.isError).toBe(false)
+    expect(firstResult.data.message.content[0].isError).toBe(false)
     expect(resultText(firstResult)).toBe('started background task bash-1')
 
     // The task settles on its own; the tool-tasks notice listener injects a
@@ -203,10 +204,10 @@ describe('bash tool through the agent loop', () => {
     expect(notice.data.source).toEqual({ kind: 'plugin', plugin: 'tool-tasks' })
 
     // The next turn collects the output through the generic task tool.
-    agent.followup({ content: [{ type: 'text', text: 'collect it' }], source: { kind: 'user' } })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'collect it' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     const readResult = findEvent(events(agent), 'tool/result', 'last')
-    expect(readResult.data.isError).toBe(false)
+    expect(readResult.data.message.content[0].isError).toBe(false)
     expect(resultText(readResult)).toContain('bg-ok')
     expect(resultText(readResult)).toContain('[status: completed, exit code: 0]')
   })

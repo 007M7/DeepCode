@@ -2,7 +2,7 @@ import { useMemo, useState, type KeyboardEvent } from 'react'
 import clsx from 'clsx'
 import {
   Button, IconCheckOutline14, IconChevronLeftOutline14, IconChevronRightOutline14,
-  IconCloseOutline16, IconEditOutline16,
+  IconCloseOutline16, IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { LocaleSnapshot, Translate } from '@deepseek-ai/dsh-client-locale/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
@@ -171,7 +171,6 @@ function QuestionFlow({ pending, t, useLocale }: {
             <h2 className={css.title} id={`question-${pending.key}-${String(index)}`}>
               {question.question}
             </h2>
-            {question.detail !== undefined && <p className={css.detail}>{question.detail}</p>}
           </div>
           <button
             type="button" className={css.iconButton} aria-label={t('dismiss')}
@@ -182,67 +181,94 @@ function QuestionFlow({ pending, t, useLocale }: {
           </button>
         </header>
 
-        <div className={css.options} role={question.multiSelect === true ? 'group' : 'radiogroup'}>
-          {(question.options ?? []).map((option, optionIndex) => {
-            const selected = draft.selected.includes(option.label)
-            const display = parseRecommendedLabel(option.label)
-            return (
-              <button
-                type="button" key={`${option.label}-${String(optionIndex)}`}
-                className={clsx(css.option, selected && question.multiSelect !== true && css.optionSelected)}
-                role={question.multiSelect === true ? 'checkbox' : 'radio'}
-                aria-checked={selected}
-                aria-label={display.label}
-                disabled={busy !== null}
-                onClick={() => { choose(option.label) }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' || !drafts.every(completed)) return
-                  event.preventDefault()
-                  submitDrafts(drafts)
-                }}
-              >
-                {question.multiSelect === true
-                  ? (
-                    <span className={clsx(css.checkbox, selected && css.checkboxChecked)} aria-hidden="true">
-                      {selected && <IconCheckOutline14 size={12} />}
+        <div className={css.body} data-question-scroll>
+          {question.detail !== undefined && (
+            <div className={css.detail}><MarkdownText text={question.detail} /></div>
+          )}
+          <div className={css.options} role={question.multiSelect === true ? 'group' : 'radiogroup'}>
+            {(question.options ?? []).map((option, optionIndex) => {
+              const selected = draft.selected.includes(option.label)
+              const display = parseRecommendedLabel(option.label)
+              return (
+                <button
+                  type="button" key={`${option.label}-${String(optionIndex)}`}
+                  className={clsx(css.option, selected && question.multiSelect !== true && css.optionSelected)}
+                  role={question.multiSelect === true ? 'checkbox' : 'radio'}
+                  aria-checked={selected}
+                  aria-label={display.label}
+                  disabled={busy !== null}
+                  onClick={() => { choose(option.label) }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || !drafts.every(completed)) return
+                    event.preventDefault()
+                    submitDrafts(drafts)
+                  }}
+                >
+                  {question.multiSelect === true
+                    ? (
+                      <span className={clsx(css.checkbox, selected && css.checkboxChecked)} aria-hidden="true">
+                        {selected && <IconCheckOutline14 size={12} />}
+                      </span>
+                    )
+                    : <span className={css.number}>{optionIndex + 1}</span>}
+                  <span className={css.optionCopy}>
+                    <span className={css.optionLine}>
+                      <span className={css.optionLabel}>{display.label}</span>
+                      {display.recommended && <span className={css.badge}>{t('option.recommended')}</span>}
+                      {option.description !== undefined && (
+                        <span className={css.description}>{option.description}</span>
+                      )}
                     </span>
-                  )
-                  : <span className={css.number}>{optionIndex + 1}</span>}
-                <span className={css.optionCopy}>
-                  <span className={css.optionLine}>
-                    <span className={css.optionLabel}>{display.label}</span>
-                    {display.recommended && <span className={css.badge}>{t('option.recommended')}</span>}
-                    {option.description !== undefined && (
-                      <span className={css.description}>{option.description}</span>
-                    )}
                   </span>
-                </span>
-              </button>
-            )
-          })}
+                </button>
+              )
+            })}
 
-          {hasOptions
-            ? (
-              <div className={clsx(css.customRow, draft.custom !== '' && css.customRowActive)}>
-                {question.multiSelect === true
-                  ? (
-                    <span
-                      className={clsx(css.checkbox, draft.custom !== '' && css.checkboxChecked)}
-                      aria-hidden="true"
-                    >
-                      {draft.custom !== '' && <IconCheckOutline14 size={12} />}
-                    </span>
-                  )
-                  : (
-                    <span className={css.number} aria-hidden="true">
-                      <IconEditOutline16 size={12} />
-                    </span>
-                  )}
-                <input
-                  type="text"
-                  className={css.customInput}
+            {hasOptions
+              ? (
+                <div className={clsx(css.customRow, draft.custom !== '' && css.customRowActive)}>
+                  {question.multiSelect === true
+                    ? (
+                      <span
+                        className={clsx(css.checkbox, draft.custom !== '' && css.checkboxChecked)}
+                        aria-hidden="true"
+                      >
+                        {draft.custom !== '' && <IconCheckOutline14 size={12} />}
+                      </span>
+                    )
+                    : (
+                      <span className={css.number} aria-hidden="true">
+                        <IconEditOutline16 size={12} />
+                      </span>
+                    )}
+                  <input
+                    type="text"
+                    className={css.customInput}
+                    value={draft.custom}
+                    disabled={busy !== null}
+                    placeholder={t('custom.placeholder')}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      updateDraft(current => ({
+                        ...current, selected: [], custom: value, skipped: false,
+                      }))
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !isComposing(event)) {
+                        event.preventDefault()
+                        continueFlow()
+                      }
+                    }}
+                  />
+                </div>
+              )
+              : (
+                <textarea
+                  autoFocus
+                  className={css.customTextarea}
                   value={draft.custom}
                   disabled={busy !== null}
+                  rows={2}
                   placeholder={t('custom.placeholder')}
                   onChange={(event) => {
                     const value = event.target.value
@@ -251,36 +277,14 @@ function QuestionFlow({ pending, t, useLocale }: {
                     }))
                   }}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !isComposing(event)) {
+                    if (event.key === 'Enter' && !event.shiftKey && !isComposing(event)) {
                       event.preventDefault()
                       continueFlow()
                     }
                   }}
                 />
-              </div>
-            )
-            : (
-              <textarea
-                autoFocus
-                className={css.customTextarea}
-                value={draft.custom}
-                disabled={busy !== null}
-                rows={2}
-                placeholder={t('custom.placeholder')}
-                onChange={(event) => {
-                  const value = event.target.value
-                  updateDraft(current => ({
-                    ...current, selected: [], custom: value, skipped: false,
-                  }))
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && !isComposing(event)) {
-                    event.preventDefault()
-                    continueFlow()
-                  }
-                }}
-              />
-            )}
+              )}
+          </div>
         </div>
 
         <footer className={css.footer}>

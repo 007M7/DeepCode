@@ -40,11 +40,10 @@ function summarize(argsRaw: string): string | null {
     : head
 }
 
-/** One-line plan update row (row click opens details; leading toggle expands
- *  the raw args). Non-ok execution states keep the shared row's dot semantics
- *  — a cancelled call wrote no todo/write, so it must not read as a completed
- *  update. */
-export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
+/** One-line plan update row (leading toggle expands the raw args). Non-ok
+ *  execution states keep the shared row's dot semantics — a cancelled call
+ *  wrote no todo/write, so it must not read as a completed update. */
+export function TodoRow({ toolName, block }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
   const summary = summarize(argsRaw) ?? model.summary
@@ -57,7 +56,6 @@ export function TodoRow({ toolName, block, openDetails }: ToolRowProps) {
       summary={summary}
       body={model.body}
       state={model.state}
-      onOpenDetails={openDetails}
     />
   )
 }

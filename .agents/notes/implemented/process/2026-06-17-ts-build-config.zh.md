@@ -62,7 +62,7 @@ pnpm run clean:
 tsx scripts/clean.ts
 ```
 
-`pnpm run demo:*` 仍通过 tsx 和根路径直接运行 `src`，无需编译步骤。
+源码模式 demo 通过各自声明的 TypeScript 启动器和根路径映射运行。`dsh` TUI 链使用 Node 原生转换及应用自有的路径 loader，Web demo 在进入同一条 CLI 源码链路前先构建所需产物，其他源码 demo 继续使用 tsx。
 
 ## 曾考虑的替代方案
 
@@ -75,7 +75,7 @@ tsx scripts/clean.ts
 
 构建职责更加清晰：
 
-- `packages/<group>/<pkg>` 和 `vendor/*` 下的每个模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `tsx` 和 `vitest`）。
+- `packages/<group>/<pkg>` 和 `vendor/*` 下的每个模块有一份本地 tsconfig，同时服务于构建、类型检查和直接运行源码的工具（如 `dsh` 源码 loader、`tsx` 和 `vitest`）。
 - `build` 命令驱动根 solution 图。`tsc -b` 负责可发布的逐模块 `.js` 和 `.d.ts` 输出，打包器仅负责 `lib/index.*`。
     - `lib/types/*.d.ts` 和 `.d.ts.map` 是发布用的声明输出。
     - `lib/types/*.d.ts` 使用显式 `.ts` 相对说明符，TypeScript 的 NodeNext/Node16 解析器会将其映射到同级的 `.d.ts` 文件。

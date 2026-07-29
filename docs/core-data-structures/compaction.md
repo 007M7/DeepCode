@@ -13,7 +13,7 @@ Compaction extends [`SessionEventMap`](session.md) with three event types via de
 | Event | Payload | Role |
 |---|---|---|
 | `compact/start` | `{ turn }` | acquires the log-recorded lock |
-| `compact/summary` | `{ summary, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens? }` | provenance: the summary blocks, the shadowed surface-boundary pair (`start`/`end` seqs — a position span, not a numeric interval), the shadowed seqs in surface order, the estimated token count, and the summarize call's envelope (`provider`, `model`, plus its generation cap when one applied) — logged so the one-shot request is reconstructable from log + code (the reconstructability Agent Note) |
+| `compact/summary` | `{ summary, rawOutput?, shadowedRange, shadowedSeqs, shadowedTokenCount, provider, model, maxTokens?, usage? }` | provenance: the safe summary projection, optional complete provider output and usage, the shadowed surface-boundary pair (`start`/`end` seqs — a position span, not a numeric interval), the shadowed seqs in surface order, the estimated token count, and the summarize call's envelope (`provider`, `model`, plus its generation cap when one applied) — logged so the one-shot request is reconstructable from log + code (the reconstructability Agent Note) |
 | `compact/end` | `{ turn, error? }` | releases the lock (`error` set when summarization threw) |
 
 The lock brackets the **whole** operation: `compact/start` is appended first, then summarization, the `compact/summary` provenance record, and the `user/message` replacement all land, and only then `compact/end`. Releasing the lock last turns a crash mid-operation into a detectable orphaned lock (a `compact/start` with no matching `compact/end`) rather than a `compact/end` that falsely claims compaction finished.
@@ -22,7 +22,7 @@ These variants are merged inside a `declare module '@deepseek-ai/dsh-session'` b
 
 ## `CompactionResult`
 
-What a successful compaction returns to its caller: the bookkeeping-event seqs, raw summary, shadowed range and seqs, and estimated token count.
+What a successful compaction returns to its caller: the bookkeeping-event seqs, safe summary projection, shadowed range and seqs, and estimated token count.
 
 ```ts type-equiv
 /** Result of a successful compaction operation. */

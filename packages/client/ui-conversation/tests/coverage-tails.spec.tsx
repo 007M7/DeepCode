@@ -72,7 +72,7 @@ describe('tails', () => {
       content: [], isError: false, callView: null, resultView: null,
     }
     const props: ToolRowOwnerProps = {
-      callId: 'c5', toolName: 'todo_write', block: settled, openDetails: vi.fn(),
+      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(),
     }
     const view = render(<GenericToolCard {...props} />)
     // Settled ok state keeps the variant icon (sparkle) instead of a StateDot.
@@ -84,12 +84,12 @@ describe('tails', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],
-      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
+      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 } },
       current: undefined,
       phase: 'ready',
     })
     const props = (block: RunningToolCall | ToolResultNode) => ({
-      callId: 'c1', toolName: 'bash', block, openDetails: vi.fn(),
+      callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
       sessionId: sid, useSessions: bindSnapshotSelector(list),
     } as unknown as ToolRowProps)
 

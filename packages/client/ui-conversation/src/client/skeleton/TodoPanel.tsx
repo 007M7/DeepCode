@@ -1,14 +1,18 @@
-// TodoPanel: persistent plan strip above the composer (the web counterpart
-// of the TUI plan panel). Renders the latest todo/write whole-list snapshot —
-// no data of its own, hidden while the list is empty. Mounted through the
-// 'conversation.input.dock' slot (QueueDock posture): the dock adapter does
-// the selecting, so the panel takes the plain list and stays framework-free.
-// Visual: figma 772:51905 (states) / 772:52972 (collapsed) / 772:53419 (expanded).
+// TodoPanel: plan strip above the composer (the web counterpart of the TUI
+// plan panel). Renders the standing todo/write whole-list snapshot (cleared on
+// the next turn/start) — no data of its own, hidden while the list is empty.
+// Mounted through the 'conversation.input.dock' slot (QueueDock posture): the
+// dock adapter does the selecting, so the panel takes the plain list and stays
+// framework-free. Visual: figma 772:51905 / 772:52972 / 772:53419.
 
 import { useId, useState } from 'react'
 import type { Context } from 'cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { TodoItem } from '@deepseek-ai/dsh-client-runtime/client'
+// The domain's client-namespace pure-type outlet: one import edge delivers
+// the `todos` projection-key merge (single source, no consumer-side restated
+// declare) and the payload type. Type-only by construction — the outlet is
+// free of host value imports, so no host Context merge enters this program.
+import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import { IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './TodoPanel.module.css'
 
@@ -79,7 +83,7 @@ function progressLabel(todos: readonly TodoItem[]): string {
 }
 
 export function TodoPanel({ todos }: TodoPanelProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
   if (todos.length === 0) return null
 
   return (
@@ -115,10 +119,10 @@ export function TodoPanel({ todos }: TodoPanelProps) {
 /** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
 export type TodoDockProps = PropsRuntime<'conversation.input.dock'>
 
-/** Dock adapter: selects the plan off the session snapshot and hands the strip a plain list. */
-export function TodoDock({ useSession }: TodoDockProps) {
-  const todos = useSession(s => s.todos)
-  return <TodoPanel todos={todos} />
+/** Dock adapter: reads the host-computed 'todos' projection (whole list; absent or null renders nothing). */
+export function TodoDock({ useProjection }: TodoDockProps) {
+  const todos = useProjection('todos')
+  return <TodoPanel todos={todos ?? []} />
 }
 
 /**

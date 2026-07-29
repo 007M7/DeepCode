@@ -1,7 +1,7 @@
+import { createUserMessage, MessageId , createMessage } from '@deepseek-ai/dsh-llm'
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
-  AgentMessageId,
   type Agent,
   type AgentCancelCause,
   type AgentOptions,
@@ -15,7 +15,7 @@ import type {
   LlmResolvedModelInfo,
 } from '@deepseek-ai/dsh-llm'
 import CommandService from '@deepseek-ai/dsh-commands'
-import SessionStore, { SessionId, type Session, type SessionHeader, type UserMessageData } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type Session, type SessionHeader, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -26,12 +26,13 @@ import TuiPromptService from '../src/prompt.ts'
 interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
+  sentMessages: UserMessage[]
   sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
-  steeredIds: AgentMessageId[]
-  steeredOptions: UserMessageData[]
+  steeredIds: MessageId[]
+  steeredOptions: UserMessage[]
   injected: ContentBlock[][]
-  injectedOptions: UserMessageData[]
+  injectedOptions: UserMessage[]
   cancelled: AgentCancelCause[]
 }
 
@@ -70,6 +71,8 @@ export interface TuiHarnessOptions {
     load?(id: ReturnType<typeof SessionId>): Promise<{ meta: SessionHeader; events: Session['events'] }>
   }
   handoffResume?: TuiRuntime['handoffResume']
+  /** Host-supplied exit line; absent exercises the no-message path. */
+  goodbyeMessage?: TuiRuntime['goodbyeMessage']
   /** Set false to exercise the optional session-query degradation path. */
   mountSessionQuery?: boolean
 }
@@ -181,12 +184,13 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   }
   options.beforeMount?.(session)
   const sent: ContentBlock[][] = []
+  const sentMessages: UserMessage[] = []
   const steered: ContentBlock[][] = []
-  const steeredIds: AgentMessageId[] = []
+  const steeredIds: MessageId[] = []
   const sentOptions: (SendOptions | undefined)[] = []
-  const steeredOptions: UserMessageData[] = []
+  const steeredOptions: UserMessage[] = []
   const injected: ContentBlock[][] = []
-  const injectedOptions: UserMessageData[] = []
+  const injectedOptions: UserMessage[] = []
   const cancelled: AgentCancelCause[] = []
   const agent: FakeAgent = {
     id: sessionId,
@@ -198,6 +202,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     },
     ctx,
     sent,
+    sentMessages,
     sentOptions,
     steered,
     steeredIds,
@@ -207,25 +212,27 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     cancelled,
     send(input, options) {
       sent.push(input.content)
+      sentMessages.push(input)
       sentOptions.push(options)
-      return AgentMessageId('stub')
+      return input.id
     },
     followup(input) {
       sent.push(input.content)
+      sentMessages.push(input)
       sentOptions.push(undefined)
-      return AgentMessageId('stub')
+      return input.id
     },
     steer(input) {
       steered.push(input.content)
       steeredOptions.push(input)
-      const id = AgentMessageId(`steering-${steeredIds.length + 1}`)
+      const id = input.id
       steeredIds.push(id)
       return id
     },
     inject(input) {
       injected.push(input.content)
       injectedOptions.push(input)
-      return AgentMessageId('stub')
+      return input.id
     },
     cancel(cause) {
       cancelled.push(cause)
@@ -248,6 +255,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.formatCwd === undefined ? {} : { formatCwd: options.formatCwd }),
     ...(options.handoffResume === undefined ? {} : { handoffResume: options.handoffResume }),
+    ...(options.goodbyeMessage === undefined ? {} : { goodbyeMessage: options.goodbyeMessage }),
     gitBranch: options.gitBranch ?? (() => 'tui-staging'),
   })
   return { ctx, session, agent, terminal, exit, controller }
@@ -263,10 +271,10 @@ export async function disposeTuiTestHarness(
 
 /** Append a production-shaped user message to the active session surface. */
 export function appendUser(session: Session, text: string): void {
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 /** Append a production-shaped assistant message to the active session surface. */
@@ -278,8 +286,11 @@ export function appendAssistant(
 ): void {
   session.append('assistant/message', {
     ...position,
-    provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-    content,
+    message: createMessage({
+      role: 'assistant',
+      content,
+      source: { kind: 'model', provider: 'mock', model: 'deepseek-v4-flash' },
+    }),
     ...usage === undefined ? {} : { usage },
   }, { surfaceOp: 'append' })
 }

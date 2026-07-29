@@ -22,9 +22,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(events: SessionEvent[], hasMore = false, todos?: { content: string; status: 'pending' | 'in_progress' | 'completed' }[]) {
+function histResponse(events: SessionEvent[], hasMore = false) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({ events: entries(events) as never[], hasMore, ...todos === undefined ? {} : { todos } }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
 }
 
 describe('open', () => {
@@ -104,6 +104,43 @@ describe('live event path', () => {
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
   })
 
+  it('materializes a command node from live lifecycle frames and reproduces it from a history window', async () => {
+    // Live path: run mints an executing node, done settles it in the flow.
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(6, 'cmd-live', 'plan'))
+    let command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', name: 'plan', args: '', outcome: null })
+    feed(ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'))
+    command = session.getSnapshot().nodes.at(-1)
+    expect(command).toMatchObject({ kind: 'command', seq: 6, outcome: { kind: 'success', text: '已进入 plan mode' } })
+
+    // Replay path (refresh): the same pair inside the history window folds identically.
+    const replayed = await opened([
+      ...plainTurn(0, 0, 'a', 'b'),
+      ev.commandRun(6, 'cmd-live', 'plan'),
+      ev.commandDone(7, 'cmd-live', 'success', '已进入 plan mode'),
+    ])
+    expect(replayed.session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'command', seq: 6, name: 'plan', outcome: { kind: 'success', text: '已进入 plan mode' },
+    })
+  })
+
+  it('command lifecycle rows alone keep the composer blank (hero survives a /permission or /plan switch)', async () => {
+    // A fresh session whose only window content is a command pair (plus the
+    // knob events a /permission switch appends — not surface-eligible, so
+    // they never become nodes) stays phase 'blank': selecting a preset from
+    // the hero must not enter the conversation view.
+    const { session } = await opened([])
+    expect(session.getSnapshot().composerPhase).toBe('blank')
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(0, 'cmd-perm', 'permission', ' danger-full-access'))
+    feed(ev.commandDone(1, 'cmd-perm', 'success', 'Permission preset: danger-full-access.'))
+    const snapshot = session.getSnapshot()
+    expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'command', name: 'permission' })
+    expect(snapshot.composerPhase).toBe('blank')
+  })
+
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -158,42 +195,6 @@ describe('live event path', () => {
     })
   })
 
-  it('folds todo/write into snapshot.todos last-write-wins, live and on window replay', async () => {
-    const listA = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'in_progress' as const }]
-    const listB = [{ content: '搭骨架', status: 'completed' as const }, { content: '写组件', status: 'completed' as const }]
-    const { session } = await opened()
-    expect(session.getSnapshot().todos).toEqual([])
-    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
-    feed(ev.todoWrite(6, listA))
-    expect(session.getSnapshot().todos).toEqual(listA)
-    feed(ev.todoWrite(7, listB))
-    expect(session.getSnapshot().todos).toEqual(listB)
-    // Window replay converges on the same last snapshot (history contains both writes).
-    const replayed = makeSession()
-    replayed.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ev.todoWrite(6, listA), ev.todoWrite(7, listB)])
-    await replayed.session.open()
-    expect(replayed.session.getSnapshot().todos).toEqual(listB)
-  })
-
-  it('seeds todos from the tail page projection when the last write precedes the window', async () => {
-    const list = [{ content: '窗口外的计划', status: 'in_progress' as const }]
-    // Cold open: the page window carries NO todo/write; the projection rides the response.
-    const { api, session } = makeSession()
-    api.onHistory = () => histResponse(plainTurn(100, 9, '问', '答'), true, list)
-    await session.open()
-    expect(session.getSnapshot().todos).toEqual(list)
-    // Paging an older window in must not clear the session-level projection.
-    api.onHistory = () => histResponse(plainTurn(94, 8, '旧问', '旧答'), false)
-    await session.loadOlder()
-    expect(session.getSnapshot().todos).toEqual(list)
-    // A later live write still overrides the seeded projection.
-    session.handleMuxEnvelope('r' as never, {
-      type: 'session/event', sessionId: SID,
-      event: ev.todoWrite(106, [{ content: '新计划', status: 'pending' as const }]),
-    })
-    expect(session.getSnapshot().todos).toEqual([{ content: '新计划', status: 'pending' }])
-  })
-
   it('repairs a seq gap by repulling the tail page instead of appending a hole', async () => {
     const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
     const repaired = [...plainTurn(0, 0, 'a', 'b'), ...plainTurn(6, 1, 'c', 'd')]
@@ -206,37 +207,6 @@ describe('live event path', () => {
     await Promise.resolve()
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
-  })
-
-  it('gap repair adopts the repull response projection (a missed todo/write outside the new tail page)', async () => {
-    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b')) // tail seq = 5
-    expect(session.getSnapshot().todos).toEqual([])
-    // The missed range contained a todo/write that the repulled page no longer
-    // covers; the response's session-level projection is the only carrier.
-    const current = [{ content: '断线期间写的', status: 'in_progress' as const }]
-    api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...plainTurn(8, 1, 'c', 'd')], false, current)
-    session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.assistant(11, 1, 'd') })
-    await vi.waitFor(() => {
-      expect(api.callsOf('session.history').length).toBe(2)
-    })
-    await Promise.resolve()
-    expect(session.getSnapshot().todos).toEqual(current)
-  })
-
-  it('clears the plan when a tail response omits the projection (a write the log never kept)', async () => {
-    // Live write lands, then the host crashes before persisting it: the
-    // authoritative log holds no todo/write, so the resync tail response
-    // carries no projection — an omitted field on a tail request is the empty
-    // list, not a missing carrier, and the rolled-back plan must disappear.
-    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
-    session.handleMuxEnvelope('r' as never, {
-      type: 'session/event', sessionId: SID,
-      event: ev.todoWrite(6, [{ content: '丢失的计划', status: 'in_progress' as const }]),
-    })
-    expect(session.getSnapshot().todos).toEqual([{ content: '丢失的计划', status: 'in_progress' }])
-    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
-    await session.resync()
-    expect(session.getSnapshot().todos).toEqual([])
   })
 })
 
@@ -328,6 +298,32 @@ describe('prompt and cancel errors', () => {
     const result = await session.cancel()
     expect(result.ok).toBe(false)
     expect(session.getSnapshot().promptError).toMatchObject({ op: 'stop', error: { code: 'internal' } })
+  })
+})
+
+describe('rename', () => {
+  it('settles the title projection cell from the unary response (higher-seq-wins vs the push frame)', async () => {
+    const { api, session } = makeSession()
+    api.onRename = () => Promise.resolve(ok({ title: '正名', seq: 7 }))
+    const result = await session.rename('  正名  ')
+    expect(result).toMatchObject({ ok: true, value: { title: '正名', seq: 7 } })
+    expect(api.callsOf('session.rename')).toMatchObject([{ sessionId: SID, title: '  正名  ' }])
+    expect(session.projections.faceOf('title').getSnapshot()).toBe('正名')
+    // A stale lower-seq apply (the push-frame path routes into this same
+    // store) must not roll the settled value back.
+    session.projections.apply('title', '旧名', 3)
+    expect(session.projections.faceOf('title').getSnapshot()).toBe('正名')
+  })
+
+  it('returns the business error untouched and folds a transport throw to internal', async () => {
+    const { api, session } = makeSession()
+    api.onRename = () => Promise.resolve(err({ code: 'title-invalid', message: 'empty', details: { sessionId: SID } }))
+    const rejected = await session.rename('   ')
+    expect(rejected).toMatchObject({ ok: false, error: { code: 'title-invalid' } })
+    expect(session.projections.faceOf('title').getSnapshot()).toBeUndefined()
+    api.onRename = () => Promise.reject(new Error('rename transport down'))
+    const folded = await session.rename('x')
+    expect(folded).toMatchObject({ ok: false, error: { code: 'internal' } })
   })
 })
 
@@ -731,6 +727,7 @@ describe('resync', () => {
     expect(snapshot.openState).toBe('open') // stale failure did not settle the fresh generation into error
     expect(snapshot.nodes.map(n => n.seq)).toEqual([7, 9])
   })
+
 })
 
 describe('run_code sub-dispatch indexing', () => {
@@ -844,20 +841,23 @@ describe('reference stability (the memo contract)', () => {
     await session.open()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.turnStart(6, 1))
-    feed(ev.toolCall(7, 1, 'c1', 'echo', '{}'))
+    feed(ev.stepStart(7, 1))
+    feed(ev.toolCall(8, 1, 'c1', 'echo', '{}'))
     session.handleMuxEnvelope('ra' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
     const before = session.getSnapshot()
-    // A chunk storm touches partial/nodes only: runningCalls and pending must keep identity.
-    feed(ev.chunkStart(8, 1))
-    feed(ev.chunkText(9, 1, '与工具无关的流式'))
+    // A chunk storm touches partial/nodes only: unrelated projections keep identity.
+    feed(ev.chunkStart(9, 1))
+    feed(ev.chunkText(10, 1, '与工具无关的流式'))
     const after = session.getSnapshot()
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
     // And a mutation on the tracked domain swaps that array.
-    feed(ev.toolResult(10, 1, 'c1', 'ECHO'))
+    feed(ev.toolResult(11, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()
     expect(resolved.runningCalls).not.toBe(after.runningCalls)
     expect(resolved.pending).toBe(after.pending)
+    feed(ev.assistant(12, 1, '完成'))
+    expect(session.getSnapshot()).not.toBe(resolved)
   })
 })

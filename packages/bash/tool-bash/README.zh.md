@@ -57,7 +57,7 @@ overlay 根据当前 `ToolExecution` 计算，并通过专用的 `BashExecReques
 
 ## UI 展示
 
-工具持有自己的 `presentCall`/`presentResult` 渲染意图。前台调用是终端卡片，包含命令、说明、cwd、原始输出和解析后的退出状态。后台启动只返回 task id，因此使用通用执行卡片；通用 `task_*` 工具持有各自的卡片。这些 presenter 是纯函数，可安全回放。
+工具持有自己的 `presentCall`/`presentResult` 渲染意图。前台调用是终端卡片，包含命令、说明、cwd、输出和解析后的退出状态。由于卡片以独立的 pill 展示退出状态，解析所消耗的 `[exit code: N]` / `[killed by signal: …]` 标记会从输出中移除；其他所有标记（截断、超时、沙箱）都保留在输出中。后台启动只返回 task id，因此使用通用执行卡片；通用 `task_*` 工具持有各自的卡片。这些 presenter 是纯函数，可安全回放。
 
 ## 工具仅使用具名参数构建请求
 
@@ -153,6 +153,6 @@ renderer 先输出依数据而定的 stdout 尾部，再输出可选的 `[stderr
 
 ## 已知限制与延期工作
 
-- **回放退出状态 pill 从结果文本解析**：如果输出最后一行恰好精确为 `[exit code: N]` / `[killed by signal: …]`，会话回放将显示错误的 pill；这是仅影响展示的已知残留问题。
+- **回放退出状态 pill 从结果文本解析**：如果输出最后一行恰好精确为 `[exit code: N]` / `[killed by signal: …]`，会话回放将显示错误的 pill，并且该行会从卡片正文中丢失，因为解析会把它当作自己消耗的标记；这是仅影响展示的已知残留问题。
 - **`bash` 工具不采用 `timeout-policy` 预算**：根据[工具调用 timeout-policy Agent Note](../../../.agents/notes/implemented/architecture/2026-07-07-tool-call-timeout-policy.md)，它保留由执行器持有的 `BASH_TIMEOUT` 路径。
 - **后台进程没有执行器超时**：工作不再需要时，调用方必须使用 `task_kill`，或依赖持有者／服务的 dispose。

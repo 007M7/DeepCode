@@ -3,7 +3,7 @@ import type { IPty, IPtyForkOptions } from 'node-pty'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { AgentMessageId, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -42,7 +42,7 @@ function agent(ctx: Context): Agent {
   const id = SessionId('agent')
   return {
     id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx,
-    followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 
@@ -249,7 +249,7 @@ describe('pty-local plugin shape', () => {
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
@@ -292,7 +292,7 @@ describe('pty-local plugin shape', () => {
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()

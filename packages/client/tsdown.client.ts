@@ -6,6 +6,7 @@
  * lightningcss inside the bundle: importing `x.module.css` yields the
  * hashed class map, and the css text auto-injects a <style data-plugin="<id>">
  * tag at factory execution (the loader removes plugin-owned tags on unload).
+ * The virtual loader registers each real stylesheet as a watch dependency.
  */
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, resolve as resolvePath } from 'node:path'
@@ -124,12 +125,10 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
         const abs = importer !== undefined ? resolvePath(dirname(importer), source) : source
         return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
       },
-      async load(this: { addWatchFile?: (id: string) => void }, virtualId: string) {
+      async load(virtualId: string) {
         if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
         const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
-        // Virtual modules hide the real file from the watcher; register it so
-        // dev-web rebuilds on a css-only edit.
-        this.addWatchFile?.(fileId)
+        this.addWatchFile(fileId)
         const source = await readFile(fileId)
         const { code, exports: cssExports } = transform({
           filename: fileId,

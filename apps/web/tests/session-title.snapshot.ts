@@ -119,6 +119,10 @@ it('projects titles and routes the next turn through the selected model in the b
   await waitFor(() => { expect(document.title).toBe(`${revisedLabel} — DeepSeek Harness`) })
   const revised = titleSurfaces(revisedLabel)
 
+  // fx-alpha carries the fixture's resident answerable approval, so the
+  // approval panel has taken over the composer (the real takeover behavior);
+  // answer it to restore the composer chrome before asserting the model seat.
+  fireEvent.click(await screen.findByRole('button', { name: '允许一次' }))
   const modelTrigger = await screen.findByRole('button', {
     name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
   })
@@ -139,7 +143,7 @@ it('projects titles and routes the next turn through the selected model in the b
   // allowed for the next turn; stop the fixture's resident run before sending
   // the route-report prompt.
   fireEvent.click(screen.getByRole('button', { name: 'Stop generating' }))
-  const composer = await screen.findByPlaceholderText('Message the agent')
+  const composer = await screen.findByPlaceholderText('给智能体发消息')
   fireEvent.change(composer, { target: { value: 'report model' } })
   fireEvent.keyDown(composer, { key: 'Enter' })
   await screen.findByText('当前模型：openai/gpt-5 · 推理等级：max', {}, { timeout: 10_000 })

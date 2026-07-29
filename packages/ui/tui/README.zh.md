@@ -12,7 +12,7 @@ DeepSeek Harness agent（智能体）的交互式终端入口，基于 [`@earend
 
 终端成功启动后，本包会提供终端本地的 `ctx.tui` 扩展服务。注入该服务的插件可以使用组件工厂和受限布局选项调用 `openOverlay()`；宿主会公开 viewport、语义化主题、显示文本转义、重绘、关闭和生命周期信号，但不公开 pi-tui 树、终端、焦点控制器或 overlay 句柄。插件 overlay、模型选择器和用户问题共用一个 FIFO 模态队列。每个请求都是调用方插件 fiber 的 effect，因此卸载会移除排队工作，或在清理结算前关闭可见工作；终端关闭会先卸载依赖项，再停止 pi-tui。Overlay 状态不会记录或回放。组件代码受信任，可以渲染 ANSI 样式，但必须通过 `host.display()` 处理不受信任文本。[交互式扩展 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-22-tui-interactive-extension-service.md)持有该边界和未采用的替代方案。
 
-TUI 从活跃会话表层重建已恢复历史，渲染 Markdown 响应与 reasoning，将每个工具的 `presentCall` / `presentResult` 意图应用到终端、diff 或通用卡片，把最新的 `todo/write` 计划保留在编辑器上方，并在左下方宽键盘面板中展示 `ctx.userInteraction` 问题，包含进度、编号选项和对齐说明。最新记录的会话标题成为 header 副标题；标题不存在时使用 `welcome`，终端窗口标题则变为 `<session title> — <configured title>`。持久 `llm/retry` 事件会撤回失败步骤的实时 chunk，并在 transcript（文本记录）中渲染计划重试次数、延迟和失败；成功、耗尽与取消随后通过普通会话事件结算。Footer 会对每个已记录模型步骤的用量只计一次，包括失败尝试；对于没有用量 chunk 的日志，以已提交消息的用量回退。其空闲视图会将 token-meter 压力与 `ctx.llm.resolveModelInfo()` 为当前路由返回的上下文容量进行比较；适配器没有容量元数据时显示 `context unknown`，并显示工具卡片模式、当前模型，以及任何显式选择的推理强度。Agent 运行时，这些摘要会替换为已经过工作时间指示器和 `esc interrupt`。表层替换事件会重建 transcript，使经过压缩（compaction）的历史不会再次出现。
+TUI 从活跃会话表层重建已恢复历史，渲染 Markdown 响应与 reasoning，将每个工具的 `presentCall` / `presentResult` 意图应用到终端、diff 或通用卡片，把站立的 `todo/write` 计划保留在编辑器上方（下一个 `turn/start` 时清空），并在左下方宽键盘面板中展示 `ctx.userInteraction` 问题，包含进度、编号选项和对齐说明。最新记录的会话标题成为 header 副标题；标题不存在时使用 `welcome`，终端窗口标题则变为 `<session title> — <configured title>`。持久 `llm/retry` 事件会撤回失败步骤的实时 chunk，并在 transcript（文本记录）中渲染计划重试次数、延迟和失败；成功、耗尽与取消随后通过普通会话事件结算。Footer 会对每个已记录模型步骤的用量只计一次，包括失败尝试；对于没有用量 chunk 的日志，以已提交消息的用量回退。其空闲视图会将 token-meter 压力与 `ctx.llm.resolveModelInfo()` 为当前路由返回的上下文容量进行比较；适配器没有容量元数据时显示 `context unknown`，并显示工具卡片模式、当前模型，以及任何显式选择的推理强度。Agent 运行时，这些摘要会替换为已经过工作时间指示器和 `esc interrupt`。表层替换事件会重建 transcript，使经过压缩（compaction）的历史不会再次出现。
 
 如果逻辑工作区标签与会话宿主目录不同，嵌入方可以提供 `TuiRuntime.formatCwd`。该覆盖只改变 footer 标签；工具仍使用会话 `cwd`。
 
@@ -22,19 +22,25 @@ TUI 从活跃会话表层重建已恢复历史，渲染 Markdown 响应与 reaso
 
 挂载可选的 `ctx.sessionReferences` 后，同一个 `@` 菜单还会提供仅含元数据的会话候选项，插入 `@[label](dsh-session:<payload>)`，并在分派前准备所选快照。会话引用保持结构化，因为模型没有类似文件系统的工具可在稍后检索会话快照。准备期间会禁止重复提交，并在失败时恢复编辑器输入。TUI 会在异步准备后根据状态选择 `agent.steer()` 或 `agent.followup()`，因此空闲 followup 仍会分派 `agent/prompt-submit`，而轮次中的 steering 会在检查点加入且不触发该 hook。
 
-Agent 运行时，普通编辑器提交会调用 `agent.steer()`；其他时候调用 `agent.followup()`。提交行以斜杠开头时会改为进入 `ctx.commands`：已知命令直接执行，未知命令产生警告，两条路径都不会自动到达模型。命令生产方可以显式调度 agent 工作；[`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) 使用该契约实现 `/plan [message]`。TUI 将 `/help`、`/model`、`/clear`、`/reasoning`、`/tools`、`/redraw`、`/reload`、`/resume`、`/status` 和 `/exit` 注册为 agent 作用域定义；其他所有有效命令都会动态加入自动补全与 `/help`，`/skill:` 补全也相同。编辑器上方的状态行会报告 TUI 从会话事件派生的轮次阶段，包括等待首个 token、思考、响应或执行工具；它显示该阶段已经过时间和运行中的步骤总数，每秒刷新，并以 `Enter sends steering, Esc cancels` 提示结尾。Steering 消息等待到达模型期间，会在提示前插入 `N queued ·` 徽标，每条消息排空后随即清除。Ctrl+C 或 Escape 会取消运行中的轮次。工具卡片把长主体折叠为可配置的头尾预览；Ctrl+O 在预览与完整输出之间切换所有卡片。Ctrl+R 切换 reasoning，Ctrl+L 重绘，Ctrl+D 在空闲时退出。
+Agent 运行时，普通编辑器提交会调用 `agent.steer()`；其他时候调用 `agent.followup()`。提交行以斜杠开头时会改为进入 `ctx.commands`：已知命令直接执行，未知命令产生警告，两条路径都不会自动到达模型。命令生产方可以显式调度 agent 工作；[`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) 使用该契约实现 `/plan [message]`。TUI 将 `/help`、`/model`、`/clear`、`/palette`、`/reload`、`/resume`、`/status` 和 `/exit` 注册为 agent 作用域定义；其他所有有效命令都会动态加入自动补全与 `/help`，`/skill:` 补全也相同。编辑器上方的状态行会报告 TUI 从会话事件派生的轮次阶段，包括等待首个 token、思考、响应或执行工具；它显示该阶段已经过时间和运行中的步骤总数，每秒刷新，并以 `Enter sends steering, Esc cancels` 提示结尾。Steering 消息等待到达模型期间，会在提示前插入 `N queued ·` 徽标，每条消息排空后随即清除。Ctrl+C 或 Escape 会取消运行中的轮次。工具卡片与注入上下文卡片都把长主体折叠为可配置的头尾预览；Ctrl+O 让工具卡片在折叠预览、完整输出、隐藏三种状态间循环——隐藏阶段把工具卡片从 transcript 中完全去掉，而上下文卡片保持预览，因为注入的指令不属于工具流量。注入上下文卡片把消息渲染为文本，并去掉生产方的外层提醒外框，因此折叠与去外框都不依赖载荷的语法。Ctrl+R 切换 reasoning，Ctrl+L 重绘，Ctrl+D 在空闲时退出。
 
-`/model` 将建议性的 `ctx.llm` catalog 打开为键盘选择器：Up/Down 移动，Shift+Tab 按显示顺序循环切换适配器为焦点模型公布的推理强度，Enter 选择模型和推理强度，Escape 关闭。适配器未公布默认推理强度时，循环还会包含 `provider default`，该项会清除显式选择；没有可选推理强度元数据的模型会忽略 Shift+Tab。选择器会原样呈现公布的推理强度列表（包括存在时的 `off`），不会合成、自动调整或在模型之间转移推理强度。`/model <model>` 仍可直接选择无歧义的模型 id，`/model <provider>/<model>` 则选择精确目标，并在存在时使用其适配器默认值。已配置目标或最新记录的请求 header 会初始化选择器；由于 catalog 仅提供建议，未列出的当前模型仍会显示。选择仅对本 TUI 会话有效。提示词组装会为一个步骤建立目标快照，替换 `{{provider}}` 和 `{{model}}`，并通过 `agent/request` 应用同一个提供方／模型／推理强度目标；因此组装期间的切换会从后续步骤开始生效。请求 header 会持久记录真正到达模型的目标，未使用的选择则只存在于进程本地。
+`/model` 将建议性的 `ctx.llm` catalog 打开为键盘选择器：列表上方设有一个过滤框，按对每行 `provider/model` 标签、模型名称和描述的大小写不敏感子串匹配来缩小行集，并在高亮行仍通过过滤时保持其选中状态；Up/Down 移动，Shift+Tab 按显示顺序循环切换适配器为焦点模型公布的推理强度，Enter 选择模型和推理强度，Escape 会先清除非空过滤内容，再次按下才关闭选择器。适配器未公布默认推理强度时，循环还会包含 `provider default`，该项会清除显式选择；没有可选推理强度元数据的模型会忽略 Shift+Tab。选择器会原样呈现公布的推理强度列表（包括存在时的 `off`），不会合成、自动调整或在模型之间转移推理强度。`/model <model>` 仍可直接选择无歧义的模型 id，`/model <provider>/<model>` 则选择精确目标，并在存在时使用其适配器默认值。已配置目标或最新记录的请求 header 会初始化选择器；由于 catalog 仅提供建议，未列出的当前模型仍会显示。选择仅对本 TUI 会话有效。提示词组装会为一个步骤建立目标快照，替换 `{{provider}}` 和 `{{model}}`，并通过 `agent/request` 应用同一个提供方／模型／推理强度目标；因此组装期间的切换会从后续步骤开始生效。请求 header 会持久记录真正到达模型的目标，未使用的选择则只存在于进程本地。
 
-`/reload`（实验性，仅开发环境）会重新读取所有基于文件的 loader 配置树，并把 diff 应用到运行中 app：它手动调用 HMR（热模块替换）watcher 的配置路径；上下文中必须有 cordis Loader，否则退化为警告。它只在 agent 空闲时运行，并拒绝 reload 进行期间的再次进入。模块源代码热重载仍由 watcher 持有。挂载 `skills` 服务后，`/skill:<name> [instructions]` 会把该 skill 的指令作为一个 user 轮次加载到会话中；自动补全列出模型可调用的 skill，任何 skill（包括模型禁用的 skill）都可通过精确名称加载。
+`/reload`（实验性，仅开发环境）会重新读取所有基于文件的 loader 配置树，并把 diff 应用到运行中 app：它手动调用 HMR（热模块替换）watcher 的配置路径；上下文中必须有 cordis Loader，否则退化为警告。它只在 agent 空闲时运行，并拒绝 reload 进行期间的再次进入。模块源代码热重载仍由 watcher 持有。挂载 `skills` 服务后，`/skill:<name> [instructions]` 会把该 skill 的指令作为一个 user 轮次加载到会话中；自动补全列出用户可调用的 skill，按精确名称调用时也会拒绝用户策略禁用的 skill。
 
 Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任何输入计费后，后面会显示 `cache <rate>%`，表示提供方缓存服务的已计费提示词 token 占比（未缓存输入加缓存读写），并四舍五入为百分比。它还会将 token-meter 压力与 `ctx.llm.resolveModelInfo()` 为当前路由返回的上下文容量进行比较（适配器没有容量元数据时省略上下文占比），并显示当前模型和工具卡片模式；footer 过窄时，右侧会优先裁剪。
 
 `/status` 会向 transcript 添加一张时间点诊断卡片，并在 agent 运行时保持可用。它报告会话 id、标题、工作目录、所选提供方／模型、所选推理强度或默认行为、reasoning 块可见性、agent 状态、事件／轮次／步骤／工具调用计数、精确输入／输出／缓存 token bucket、KV-cache 命中率、token-meter 上下文用量与容量、创建时间和最新事件时间。缺失标题、模型、缓存输入或上下文容量时会明确标记，而非推断。该卡片只存在于终端，不会重复紧凑 footer。
 
-`/resume` 会针对当前工作区打开全 viewport 键盘选择器，而非居中对话框。获得焦点的搜索字段紧跟搜索 glyph 开始，并发出 pi-tui 的 cursor marker，使终端 IME 组合保持锚定在字段内。候选项按最近记录的活动排序，可按日志支持的标题或会话 id 搜索；每行报告 current/live/persisted 状态、上一轮次结果、近期提供方／模型，以及存在时的持久目标阶段。Up/Down 与 Page Up/Page Down 导航，Enter 恢复，Escape 会先清除非空搜索，再次按下才取消，Ctrl+C 则直接取消。当前会话、已在本运行时中活跃的会话、不可读日志、cwd 不匹配或日志所记提供方没有当前适配器的会话仍会显示，但不可选择。选择时会重复这些检查，并要求当前 agent 空闲，随后 flush 当前会话。TUI 接着停止终端 UI，并调用由宿主持有的可选 `TuiRuntime.handoffResume`；存在 `process.execve` 时，发布的 `dsh` 宿主会对 app 执行 dispose（资源释放）并替换自身进程。恢复操作保留相同的 `SessionId`、transcript、标题、todo 和持久目标；目标激活仍保持解除，TUI 会要求用户确认或执行 `/goal resume`。
+`/resume` 会打开全 viewport 键盘选择器，而非居中对话框。两个作用域覆盖同一候选项集合：打开时所处的当前工作区，以及按 Tab 切换到的所有工作区。搜索字段下方的作用域行会给出当前作用域的名称以及另一个作用域包含的数量，且在所有工作区作用域中每行还会报告自身所属的工作区。切换会清除搜索与选择，使高亮行始终属于可见列表。
 
-`resumeCommand` 仍是部署持有的回退行为：只有当前会话已持久化后，退出才会打印它；不支持原地 handoff 的宿主会显示所选会话的命令。`{session}` 展开为会话 id。TUI 代码绝不会执行模板或任意 shell 文本。
+获得焦点的搜索字段紧跟搜索 glyph 开始，并发出 pi-tui 的 cursor marker，使终端 IME 组合保持锚定在字段内。候选项按最近记录的活动排序，可按日志支持的标题或会话 id 搜索，在所有工作区作用域中还可按工作区标签搜索；每行报告 current/live/persisted 状态、上一轮次结果、近期提供方／模型，以及存在时的持久目标阶段。Up/Down 与 Page Up/Page Down 导航，Enter 恢复，Escape 会先清除非空搜索，再次按下才取消，Ctrl+C 则直接取消。当前会话、已在本运行时中活跃的会话、不可读日志、没有可运行的已记录工作区的会话，或日志所记提供方没有当前适配器的会话仍会显示，但不可选择；不同于当前工作区的工作区属于作用域而非禁用原因，因为恢复会进入该目录。
+
+选择时会重复这些检查，并要求当前 agent 空闲，随后 flush 当前会话。TUI 接着停止终端 UI，并以所选 id 和在预检时重新读取的工作区调用由宿主持有的可选 `TuiRuntime.handoffResume`：文件系统与 shell 工具解析所依据的是进程 cwd，而非恢复出的会话头部，因此宿主必须进入该目录。存在 `process.execve` 时，发布的 `dsh` 宿主会先 chdir 进入该目录，再对 app 执行 dispose 并替换自身进程，并在终端仍可恢复时拒绝不可达的目录。恢复操作保留相同的 `SessionId`、transcript、标题、todo 和持久目标；目标激活仍保持解除，TUI 会要求用户确认或执行 `/goal resume`。
+
+退出时打印的行由启动器拥有，不可通过配置指定。启动器在启动上下文上提供 `TUI_GOODBYE_MESSAGE_KEY`（对于随附的 `dsh`，即恢复本会话的命令），释放终端后退出会原样打印它；未提供时退出不打印任何内容。只有启动器知道自己是如何被调用的，因此只有它能给出可用的命令。TUI 在渲染前会转义终端控制字符，且绝不执行该文本。若启动器同时提供 `MAIN_SESSION_ID_KEY`，则会固定已挂载应用绑定的会话，因此恢复功能不受配置层修补影响。
+
+启动器可通过在启动上下文上提供 `INITIAL_SKILL_KEY`（skill 名称）来播种全新会话的首轮；聊天就绪后，TUI 会像用户手动键入 `/skill:<name>` 一样自动调用它。随附的 `dsh migrate`/`dsh upgrade` 会设置该键，且仅对全新会话设置，因此恢复的会话绝不会重复调用该 skill；未知名称会以通知形式报告。
 
 ## 配置
 
@@ -57,7 +63,6 @@ Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任
 | `showHardwareCursor` | `false` | 在 pi-tui 的 IME marker 处显示硬件 cursor |
 | `color` | `true` | 应用内置 ANSI palette（参见[颜色](#color)） |
 | `title` | `DeepSeek Harness` | 终端窗口标题的产品后缀。 |
-| `resumeCommand` | 未设置 | 供退出提示和不支持原地 handoff 的宿主使用的 shell 命令模板，其中 `{session}` 会展开为会话 id |
 
 ```yaml
 - id: terminal
@@ -70,11 +75,15 @@ Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任
     fileSearchExcludedDirectories: ['.git', 'node_modules', 'dist']
 ```
 
-任一进程流不是 TTY 时，启动会在挂载前失败。组合 app 必须先挂载 TUI，再挂载由配置创建的 agent，使入口能够观察 `agent-loop/config-start-failed`；完全匹配会话的失败会在全屏模式启动前写出并以状态 1 退出，而不是留下空白终端。dispose 会停止接收扩展请求，卸载 `ctx.tui` 提供方及其依赖插件，中止运行中的命令，移除 TUI 定义，停止 loader，拒绝待处理问题，排空终端输入，恢复终端状态，注销事件 listener 和用户交互提供方，并且绝不会在 HMR 期间退出替换进程。
+任一进程流不是 TTY 时，启动会在挂载前失败。组合 app 必须先挂载 TUI，再挂载由配置创建的 agent，使入口能够观察 `agent-loop/config-start-failed`；完全匹配会话的失败会在全屏模式启动前写出并以状态 1 退出，而不是留下空白终端。dispose（资源释放）会停止接收扩展请求，卸载 `ctx.tui` 提供方及其依赖插件，中止运行中的命令，移除 TUI 定义，停止 loader，拒绝待处理问题，排空终端输入，恢复终端状态，注销事件 listener 和用户交互提供方，并且绝不会在 HMR 期间退出替换进程。
 
 ## 颜色
 
-Palette 使用标准 16 色 ANSI 前景色和 SGR 属性，每个终端都会将其重新映射到当前配色方案，因此浅色与深色背景下都保持可读。正文使用终端默认前景色，而非固定色调。成组区域（用户提示词、assistant 回复、工具卡片）通过以角色色渲染的粗体带下划线角色标题和空行分隔，而非填充背景块或逐行前缀，因此用鼠标框选复制时不会带上任何左侧竖条或缩进；工具卡片的状态（进行中、错误、成功）由其彩色带下划线的标题字形与标题体现。问题面板使用粗体强调色文本突出活跃行，选择器则使用反色。所有效果都只作用于前景色，因此不会与终端背景冲突。设置 `color: false` 可移除所有样式。
+TUI 发出的所有 SGR 代码都集中在一个表中，即 `components/theme.ts` 内的 `paletteSpec`；`createPalette` 从该表派生包装层，`/palette` 则打印该表，任何组件都不会自行写入转义序列。该表仅包含标准 16 色 ANSI 前景色和 SGR 属性；每个终端都会将它们重新映射到当前配色方案，因此 TUI 在浅色与深色背景下都保持可读——启动 banner 的品牌渐变是唯一一个有意保留的例外。正文使用终端默认前景色，而非固定色调。
+
+每种视觉语义只对应一个角色：`dim` 是唯一的弱化色调，`accent` 是唯一的强调色，`success` 和 `error` 还分别充当 diff 的新增行与删除行。颜色和属性分属不同类型，因此 `bold(accent(x))` 可以通过编译，`accent(error(x))` 则不行——SGR 没有颜色栈；在一种颜色内嵌套另一种颜色时，内层颜色闭合时会静默丢弃外层颜色。各属性占用彼此独立的 SGR 组，可以按任一顺序与任何颜色组合。运行 `/palette` 可查看每个角色在你的终端上的实际渲染效果及其 SGR 码对。
+
+成组区域（用户提示词、assistant 回复、工具卡片）通过以角色色渲染的粗体带下划线角色标题和空行分隔，而非填充背景块或逐行前缀，因此用鼠标框选复制时不会带上任何左侧竖条或缩进；工具卡片的状态（进行中、错误、成功）由其彩色带下划线的标题字形与标题体现。在工具卡片内部，整个正文——presenter 标题、终端 `$` 命令与 cwd，以及工具自身的输出——统一以同一种暗色渲染，因此只有带状态色的表头携带颜色，正文读作一个整体弱化的区块，而不是一串互相竞争的色调；注入上下文卡片的正文与其表头也是同一种色调。diff 卡片的 `+`/`-` 行与 `[signal …]` 标记保留颜色，因为那里的颜色本身就是语义，而非强调。问题面板使用粗体强调色文本突出活跃行，选择器则使用反色。所有效果都只作用于前景色，因此不会与终端背景冲突。设置 `color: false` 可移除所有样式。
 
 ## 模型体验
 
@@ -130,7 +139,7 @@ Paths prefixed with @ are files explicitly referenced by the user. Use the read 
 
 #### 模型看到的内容
 
-提交 `/skill:<name> [instructions]` 会加载具名 skill，并交付一个文本块：用 `<skill name="…">` 元素包装 skill 指令；提供方公开资源基准时，会先添加一行定位 skill 相对资源；最后附上用户输入的尾随指令。交付遵循普通输入同样的空闲时 followup、运行时 steer 规则。选择 skill 的是命令而非模型；模型禁用的 skill 不出现在自动补全中，但仍可按精确名称加载。
+提交 `/skill:<name> [instructions]` 会加载具名 skill，并交付一个文本块：用 `<skill name="…">` 元素包装 skill 指令；提供方公开资源基准时，会先添加一行定位 skill 相对资源；最后附上用户输入的尾随指令。交付遵循普通输入同样的空闲时 followup、运行时 steer 规则。选择 skill 的是命令而非模型：自动补全和按精确名称调用都应用 `invocation.userInvocable`，`invocation.modelInvocable` 不限制这个接口。用户禁用的 skill 不出现在自动补全中，按精确名称调用时也会在加载前被拒绝；为防止策略竞态，加载后的定义还会再次接受检查。自动补全会保留最后一份完整 skill 快照，并在 `skills/change` 后重新获取。观测不完整时保留先前菜单，完整的空观测会将其清空；如果目录在斜杠命令名称草稿打开期间到达，则会立即根据该草稿重新查询。skill 服务是可选 peer；这项策略检查仅使用其类型契约，不引入运行时包依赖。
 
 #### Token 影响
 
@@ -156,7 +165,7 @@ Paths prefixed with @ are files explicitly referenced by the user. Use the read 
 
 ## 已知限制与延期工作
 
-- **恢复功能没有跨进程会话锁**：选择器会拒绝本运行时中已知处于活跃状态的会话，但另一个进程可以在 handoff 之前或期间恢复同一持久 id。能够运行并发宿主的部署必须在 TUI 外协调所有权。
+- **恢复功能没有跨进程会话锁**：选择器会拒绝本运行时中已知处于活跃状态的会话，但另一个进程可以在 handoff 之前或期间恢复同一持久 id。所有工作区作用域让这一情形一步即可触及，因为另一个宿主正在其他目录驱动的会话现在也可被选中。能够运行并发宿主的部署必须在 TUI 外协调所有权。
 - **一个已配置会话持有 transcript 和编辑器**：其他 agent 的问题仍可使用共享 overlay 提供方，但会话渲染与提示词输入仍绑定到 `sessionId`。
 - **工具卡片是文本终端展示**：终端、diff 与通用卡片使用工具持有的标题／内容，但会话内容目前没有用于内联图像渲染的图像块。
 - **有意不支持非 TTY 运行**：需要自动化的 app bundle 必须组合单次执行或服务器入口（`dsh-cli-demo`、`dsh-acp`），而不能依赖内部回退。

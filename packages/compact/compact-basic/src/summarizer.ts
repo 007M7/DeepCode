@@ -5,8 +5,10 @@
  */
 
 import type { Context } from 'cordis'
-import { BlockAssembler } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, FinishReason, GenerateOptions, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
+} from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 interface SummaryConfig {
@@ -85,9 +87,13 @@ export interface SummarizationInput {
 /** Safe summary content plus the exact auxiliary call envelope recorded in provenance. */
 export interface SummaryResult {
   summary: ContentBlock[]
+  /** Complete provider output before the text-only summary projection. */
+  rawOutput?: ContentBlock[]
   provider: string
   model: string
   maxTokens?: number
+  /** Provider-reported usage for this summarization request. */
+  usage?: TokenUsage
 }
 
 /**
@@ -128,7 +134,10 @@ export async function summarizeWithLlm(
   const assembler = new BlockAssembler()
   const messages: Message[] = [
     ...input.messages,
-    { role: 'user', content: [{ type: 'text', text: COMPACTION_INSTRUCTION }] },
+    createUserMessage({
+      content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
+      source: { kind: 'plugin', plugin: 'dsh-compact-basic' },
+    }),
   ]
   const options: GenerateOptions = {
     provider: target.provider,
@@ -145,15 +154,18 @@ export async function summarizeWithLlm(
   const error = finishError(assembler.finish)
   if (error !== undefined) throw error
 
-  const summary = textOnly(assembler.message().content)
+  const rawOutput = assembler.blocks()
+  const summary = textOnly(rawOutput)
   if (!summary.some(block => block.text.trim().length > 0)) {
     throw new Error('summarization produced no text summary content')
   }
   return {
     summary,
+    rawOutput,
     provider: options.provider,
     model: options.model,
     maxTokens: config.maxTokens,
+    ...(assembler.usage === undefined ? {} : { usage: assembler.usage }),
   }
 }
 

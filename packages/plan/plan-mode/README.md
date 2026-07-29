@@ -8,7 +8,7 @@ Logged, per-agent plan collaboration state with deployment-owned guidance, direc
 
 `plan/mode` (`{ active: boolean }`) is a log-only, whole-value-replace `SessionEventMap` member. `foldPlanMode(events)` returns the last logged value or `false`, so resume, fork, and compaction recover plan state directly from the session log. UIs observe committed flips through `session/event`.
 
-`ctx.planMode.set(agent, active)` records a pending selection and flushes it inside the next turn boundary. `get(agent)` returns `{ active, pending? }`, separating the logged state shaping the current step from a user's optimistic selection. Prompt submission, ordinary continuation, and request-recovery retry are all covered; a changed user selection contributes one plugin-sourced `user/message` notice when the last logged request header described the other state.
+`ctx.planMode.set(agent, active)` commits immediately when the agent is idle — no boundary would arrive until the next prompt, so the standalone `plan/mode` event lands at once — and holds a pending selection for the next in-turn request boundary while the agent is running; it returns which of the two happened (`committed`/`queued`), a `cancelled` reversal, or a `noop`. `get(agent)` returns `{ active, pending? }`, separating the logged state shaping the current step from a user's mid-turn selection. Prompt submission, ordinary continuation, and request-recovery retry are all covered; a changed user selection contributes one plugin-sourced `user/message` notice when the last logged request header described the other state (both commit paths).
 
 ## Model and human surfaces
 
@@ -17,6 +17,10 @@ While active, `plan:policy` renders the configured `section`. The plugin always 
 When `ctx.commands` is composed, the package registers `/plan [message]` and reserves the exact argument `off` for direct exit. Bare `/plan` selects plan mode; any other non-empty argument selects it first and is then submitted through `agent.steer()`, so it becomes the next step's ordinary logged user message under plan guidance. `/plan off` selects inactive without sending model input; it also cancels a pending entry before plan mode reaches a request.
 
 The TUI consumes the plugin-owned `/plan` command; other front doors may drive the same service directly without defining a second mode vocabulary.
+
+## Session projection
+
+When the composition mounts `ctx.sessionProjections` ([`@deepseek-ai/dsh-session-projection`](../../session-projection/session-projection/README.md)), this package registers the `plan` projection unit under an injected child. The unit folds two event kinds: a `command/run` record named `plan` sets the wanted target (`off` → inactive, anything else → active), and `plan/mode` commits the logged state and clears it; every other event returns the same state reference. `view` derives `{ active, pending }`, where `pending` is true only while an outstanding selection differs from the logged state — a pure replay quantity, so host restarts, other tabs, and cold reads all recover it from the log alone (the `/plan` handler calls `set()` before any failing path, keeping the logged request and the run plane from forking). The key merges into `SessionProjectionMap` from `src/types.ts` (served to host consumers via `./types` and client aggregates via `./client`); the framework drives the unit and carriers serve the value on the history tail page and the `session/projection` push frame. Compositions without the registry are unaffected.
 
 ## Configuration
 

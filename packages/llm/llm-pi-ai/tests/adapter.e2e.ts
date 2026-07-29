@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import type { PiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -38,7 +38,10 @@ afterEach(async () => {
 })
 
 function ask(text: string): Message[] {
-  return [{ role: 'user', content: [{ type: 'text', text }] }]
+  return [createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
 }
 
 function textOf(result: AssembledResult): string {
@@ -122,14 +125,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-pi-ai e2e (real API)', () =>
       messages: [
         ...ask('What is the weather in Paris right now? Use the get_weather tool.'),
         first.message,
-        {
-          role: 'user',
+        createUserMessage({
           content: [{
             type: 'tool-result',
             toolCallId: CallId(call!.id),
             content: [{ type: 'text', text: 'Sunny, 22°C' }],
           }],
-        },
+          source: { kind: 'plugin', plugin: 'test' },
+        }),
       ],
       tools: [weatherTool],
       maxTokens: 2000,
