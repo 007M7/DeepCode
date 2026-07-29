@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { flattenDiagnosticMessageText, parseConfigFileTextToJson } from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 type Rules = Record<string, unknown>
@@ -12,22 +13,22 @@ interface Profile {
 }
 
 // Captured from eslint.config.mjs blob 696b08282885296830189fdafe7051a356806fc2
-// after mapping @typescript-eslint/* to typescript/* and the five extension
+// after mapping @typescript-eslint/* to typescript/* and the four extension
 // rules to their Oxlint core equivalents.
 const profiles = {
   source: {
     count: 88,
-    indexes: [0, 3, 4],
+    indexes: [0, 1, 4, 5],
     sha256: 'da1dfd77cb6eb66be93d8d3820f9b9b68b7aa391c24680f8851c0910298f9e3b',
   },
   example: {
     count: 87,
-    indexes: [0, 1, 3, 4],
+    indexes: [0, 1, 2, 4, 5],
     sha256: '6a2606053bc1ec1de3b02611de88ea51d201dac13a1f193e4934d33c08b95f08',
   },
   test: {
     count: 83,
-    indexes: [2, 3, 4],
+    indexes: [0, 3, 4, 5],
     sha256: '7995e14926a36c40bd65c474637735222a95fb030395681685f03060e50a7b78',
   },
 } as const satisfies Record<string, Profile>
@@ -75,7 +76,11 @@ function mergedRules(config: unknown, indexes: readonly number[]): Rules {
 
 describe('Oxlint migration rule parity', () => {
   const path = fileURLToPath(new URL('../.oxlintrc.json', import.meta.url))
-  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  const result = parseConfigFileTextToJson(path, readFileSync(path, 'utf8'))
+  if (result.error !== undefined) {
+    throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
+  }
+  const parsed: unknown = result.config
 
   it.each(Object.entries(profiles))('matches the ESLint %s profile pairwise', (_name, profile) => {
     const rules = mergedRules(parsed, profile.indexes)

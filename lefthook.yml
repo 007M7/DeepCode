@@ -4,6 +4,13 @@
 
 pre-commit:
   jobs:
+    - name: format (staged)
+      glob: '*.{ts,tsx,mts,cts,mjs}'
+      exclude:
+        - 'vendor/*/src/**'
+      run: node_modules/.bin/eslint --config eslint.format.config.mjs --fix --no-warn-ignored {staged_files}
+      stage_fixed: true
+
     - name: lint (staged)
       glob: '*.{ts,tsx,mts,cts,mjs}'
       exclude:

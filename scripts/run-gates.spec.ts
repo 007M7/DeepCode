@@ -121,7 +121,7 @@ describe('Oxlint gate', () => {
     })
   })
 
-  it('passes the configured native thread bound to Oxlint', () => {
+  it('passes the configured worker bound to both Oxlint backends', () => {
     const subject = withEnv('DSH_OXLINT_THREADS', '4', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-lint')[0]))
 
@@ -130,10 +130,11 @@ describe('Oxlint gate', () => {
       displayCommand: 'pnpm exec oxlint . --threads=4',
       command: process.execPath,
       args: ['/private/pnpm.cjs', 'exec', 'oxlint', '.', '--threads=4'],
+      env: { GOMAXPROCS: '4' },
     })
   })
 
-  it('rejects a non-positive or non-integer native thread bound', () => {
+  it('rejects a non-positive or non-integer worker bound', () => {
     expect(() => withEnv('DSH_OXLINT_THREADS', 'auto', () =>
       withPnpmEntrypoint(() => gatesForMode('ci-lint'))))
       .toThrow('DSH_OXLINT_THREADS must be a positive integer')

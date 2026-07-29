@@ -14,52 +14,36 @@
     "**/lib/**",
     "**/node_modules/**",
     "**/.sessions/**",
-    ".claude/**",
+    ".claude/**", // Harness-local state belongs to other checkouts, not this checkout's sources.
     "**/.doc-typecheck-*/**",
     "**/.node-next-types-*/**",
+    "**/.oxlint-contract-*/**", // Scratch files created by the executable lint-contract tests.
     "website/.generated/**",
-    "vendor/**",
-    "native/**",
+    "vendor/**", // Vendored source keeps upstream style and idioms.
+    "native/**", // The imported landlock-run subtree has its own gates; see native/README.md.
     "**/*.js",
     "**/*.mjs",
-    "*.config.ts",
-    "apps/*/*.config.ts",
-    "**/tsdown.config.ts",
-    "packages/client/tsdown.client.ts"
+    "**/*.config.ts", // Tool and app configs are outside the repository TypeScript programs.
+    "packages/client/tsdown.client.ts" // Shared client build preset, also outside a TypeScript program.
   ],
   "overrides": [
     {
+      // Shared strict type-aware rules. Source/test differences stay in the short overrides below.
       "files": [
         "packages/*/*/src/**/*.{ts,tsx}",
+        "packages/*/*/tests/**/*.{ts,tsx}",
         "apps/*/src/**/*.{ts,tsx}",
+        "apps/*/tests/**/*.{ts,tsx}",
         "examples/**/*.{ts,tsx}",
         "scripts/**/*.{ts,tsx}",
         "website/**/*.{ts,tsx}"
       ],
       "rules": {
-        "constructor-super": "off",
-        "getter-return": "off",
-        "no-class-assign": "off",
-        "no-const-assign": "off",
-        "no-dupe-class-members": "off",
-        "no-dupe-keys": "off",
-        "no-func-assign": "off",
-        "no-import-assign": "off",
-        "no-new-native-nonconstructor": "off",
-        "no-obj-calls": "off",
-        "no-redeclare": "off",
-        "no-setter-return": "off",
-        "no-this-before-super": "off",
-        "no-undef": "off",
-        "no-unreachable": "off",
-        "no-unsafe-negation": "off",
         "no-var": "error",
-        "no-with": "off",
         "prefer-const": "error",
         "prefer-rest-params": "error",
         "prefer-spread": "error",
         "no-array-constructor": "error",
-        "no-implied-eval": "off",
         "no-unused-expressions": "error",
         "no-unused-vars": [
           "error",
@@ -70,9 +54,6 @@
           }
         ],
         "no-useless-constructor": "error",
-        "no-throw-literal": "off",
-        "prefer-promise-reject-errors": "off",
-        "require-await": "off",
         "typescript/await-thenable": "error",
         "typescript/ban-ts-comment": [
           "error",
@@ -87,33 +68,27 @@
         "typescript/no-duplicate-enum-values": "error",
         "typescript/no-duplicate-type-constituents": "error",
         "typescript/no-dynamic-delete": "error",
-        "typescript/no-empty-object-type": "off",
-        "typescript/no-explicit-any": "error",
+        "typescript/no-empty-object-type": "off", // Merge-extensible maps intentionally use empty object types.
+        "typescript/no-explicit-any": "error", // Every intentional any needs a narrow suppression with rationale.
         "typescript/no-extra-non-null-assertion": "error",
         "typescript/no-extraneous-class": "error",
+        // Lost promises in the agent loop are the repository's highest-value linted bug class.
         "typescript/no-floating-promises": "error",
         "typescript/no-for-in-array": "error",
         "typescript/no-implied-eval": "error",
-        "typescript/no-invalid-void-type": "off",
+        "typescript/no-invalid-void-type": "off", // Event signatures intentionally use void in source.
         "typescript/no-meaningless-void-operator": "error",
         "typescript/no-misused-new": "error",
         "typescript/no-misused-promises": "error",
         "typescript/no-misused-spread": "error",
         "typescript/no-mixed-enums": "error",
-        "typescript/no-namespace": "off",
+        "typescript/no-namespace": "off", // Cordis Config namespaces are the repository idiom.
         "typescript/no-non-null-asserted-nullish-coalescing": "error",
         "typescript/no-non-null-asserted-optional-chain": "error",
-        "typescript/no-non-null-assertion": "error",
         "typescript/no-redundant-type-constituents": "error",
         "typescript/no-require-imports": "error",
         "typescript/no-this-alias": "error",
         "typescript/no-unnecessary-boolean-literal-compare": "error",
-        "typescript/no-unnecessary-condition": [
-          "error",
-          {
-            "allowConstantLoopConditions": true
-          }
-        ],
         "typescript/no-unnecessary-template-expression": "error",
         "typescript/no-unnecessary-type-arguments": "error",
         "typescript/no-unnecessary-type-assertion": "error",
@@ -131,7 +106,6 @@
         "typescript/no-unsafe-unary-minus": "error",
         "typescript/no-useless-default-assignment": "error",
         "typescript/no-wrapper-object-types": "error",
-        "typescript/only-throw-error": "error",
         "typescript/prefer-as-const": "error",
         "typescript/prefer-literal-enum-member": "error",
         "typescript/prefer-namespace-keyword": "error",
@@ -139,7 +113,6 @@
         "typescript/prefer-reduce-type-parameter": "error",
         "typescript/prefer-return-this-type": "error",
         "typescript/related-getter-setter-pairs": "error",
-        "typescript/require-await": "error",
         "typescript/restrict-plus-operands": [
           "error",
           {
@@ -150,13 +123,6 @@
             "allowRegExp": false
           }
         ],
-        "typescript/restrict-template-expressions": [
-          "error",
-          {
-            "allowNumber": true,
-            "allowBoolean": true
-          }
-        ],
         "typescript/return-await": [
           "error",
           "error-handling-correctness-only"
@@ -165,7 +131,37 @@
         "typescript/unbound-method": "error",
         "typescript/unified-signatures": "error",
         "typescript/use-unknown-in-catch-callback-variable": "error",
-        "no-void": "off",
+        "no-void": "off" // void foo() marks deliberate fire-and-forget arrow listeners.
+      },
+      "plugins": [
+        "typescript"
+      ]
+    },
+    {
+      "files": [
+        "packages/*/*/src/**/*.{ts,tsx}",
+        "apps/*/src/**/*.{ts,tsx}",
+        "examples/**/*.{ts,tsx}",
+        "scripts/**/*.{ts,tsx}",
+        "website/**/*.{ts,tsx}"
+      ],
+      "rules": {
+        "typescript/no-non-null-assertion": "error",
+        "typescript/no-unnecessary-condition": [
+          "error",
+          {
+            "allowConstantLoopConditions": true
+          }
+        ],
+        "typescript/only-throw-error": "error",
+        "typescript/require-await": "error",
+        "typescript/restrict-template-expressions": [
+          "error",
+          {
+            "allowNumber": true,
+            "allowBoolean": true
+          }
+        ],
         "typescript/switch-exhaustiveness-check": [
           "error",
           {
@@ -182,7 +178,7 @@
         "examples/**/*.ts"
       ],
       "rules": {
-        "typescript/require-await": "off"
+        "typescript/require-await": "off" // Demo callbacks conform to async interfaces without awaiting.
       },
       "plugins": [
         "typescript"
@@ -196,124 +192,12 @@
         "scripts/**/*.spec.{ts,tsx}"
       ],
       "rules": {
-        "constructor-super": "off",
-        "getter-return": "off",
-        "no-class-assign": "off",
-        "no-const-assign": "off",
-        "no-dupe-class-members": "off",
-        "no-dupe-keys": "off",
-        "no-func-assign": "off",
-        "no-import-assign": "off",
-        "no-new-native-nonconstructor": "off",
-        "no-obj-calls": "off",
-        "no-redeclare": "off",
-        "no-setter-return": "off",
-        "no-this-before-super": "off",
-        "no-undef": "off",
-        "no-unreachable": "off",
-        "no-unsafe-negation": "off",
-        "no-var": "error",
-        "no-with": "off",
-        "prefer-const": "error",
-        "prefer-rest-params": "error",
-        "prefer-spread": "error",
-        "no-array-constructor": "error",
-        "no-implied-eval": "off",
-        "no-unused-expressions": "error",
-        "no-unused-vars": [
-          "error",
-          {
-            "argsIgnorePattern": "^_",
-            "varsIgnorePattern": "^_",
-            "caughtErrorsIgnorePattern": "^_"
-          }
-        ],
-        "no-useless-constructor": "error",
-        "no-throw-literal": "off",
-        "prefer-promise-reject-errors": "off",
-        "require-await": "off",
-        "typescript/await-thenable": "error",
-        "typescript/ban-ts-comment": [
-          "error",
-          {
-            "minimumDescriptionLength": 10
-          }
-        ],
-        "typescript/no-array-delete": "error",
-        "typescript/no-base-to-string": "error",
-        "typescript/no-confusing-void-expression": "error",
-        "typescript/no-deprecated": "error",
-        "typescript/no-duplicate-enum-values": "error",
-        "typescript/no-duplicate-type-constituents": "error",
-        "typescript/no-dynamic-delete": "error",
-        "typescript/no-empty-object-type": "off",
-        "typescript/no-explicit-any": "error",
-        "typescript/no-extra-non-null-assertion": "error",
-        "typescript/no-extraneous-class": "error",
-        "typescript/no-floating-promises": "error",
-        "typescript/no-for-in-array": "error",
-        "typescript/no-implied-eval": "error",
         "typescript/no-invalid-void-type": "error",
-        "typescript/no-meaningless-void-operator": "error",
-        "typescript/no-misused-new": "error",
-        "typescript/no-misused-promises": "error",
-        "typescript/no-misused-spread": "error",
-        "typescript/no-mixed-enums": "error",
-        "typescript/no-namespace": "off",
-        "typescript/no-non-null-asserted-nullish-coalescing": "error",
-        "typescript/no-non-null-asserted-optional-chain": "error",
-        "typescript/no-non-null-assertion": "off",
-        "typescript/no-redundant-type-constituents": "error",
-        "typescript/no-require-imports": "error",
-        "typescript/no-this-alias": "error",
-        "typescript/no-unnecessary-boolean-literal-compare": "error",
+        "typescript/no-non-null-assertion": "off", // Assertions commonly follow an expect() that proves presence.
         "typescript/no-unnecessary-condition": "off",
-        "typescript/no-unnecessary-template-expression": "error",
-        "typescript/no-unnecessary-type-arguments": "error",
-        "typescript/no-unnecessary-type-assertion": "error",
-        "typescript/no-unnecessary-type-constraint": "error",
-        "typescript/no-unnecessary-type-conversion": "error",
-        "typescript/no-unnecessary-type-parameters": "error",
-        "typescript/no-unsafe-argument": "error",
-        "typescript/no-unsafe-assignment": "error",
-        "typescript/no-unsafe-call": "error",
-        "typescript/no-unsafe-declaration-merging": "error",
-        "typescript/no-unsafe-enum-comparison": "error",
-        "typescript/no-unsafe-function-type": "error",
-        "typescript/no-unsafe-member-access": "error",
-        "typescript/no-unsafe-return": "error",
-        "typescript/no-unsafe-unary-minus": "error",
-        "typescript/no-useless-default-assignment": "error",
-        "typescript/no-wrapper-object-types": "error",
-        "typescript/only-throw-error": "off",
-        "typescript/prefer-as-const": "error",
-        "typescript/prefer-literal-enum-member": "error",
-        "typescript/prefer-namespace-keyword": "error",
-        "typescript/prefer-promise-reject-errors": "error",
-        "typescript/prefer-reduce-type-parameter": "error",
-        "typescript/prefer-return-this-type": "error",
-        "typescript/related-getter-setter-pairs": "error",
-        "typescript/require-await": "off",
-        "typescript/restrict-plus-operands": [
-          "error",
-          {
-            "allowAny": false,
-            "allowBoolean": false,
-            "allowNullish": false,
-            "allowNumberAndString": false,
-            "allowRegExp": false
-          }
-        ],
-        "typescript/restrict-template-expressions": "off",
-        "typescript/return-await": [
-          "error",
-          "error-handling-correctness-only"
-        ],
-        "typescript/triple-slash-reference": "error",
-        "typescript/unbound-method": "error",
-        "typescript/unified-signatures": "error",
-        "typescript/use-unknown-in-catch-callback-variable": "error",
-        "no-empty-function": "off"
+        "typescript/only-throw-error": "off", // Tests deliberately exercise non-Error throws.
+        "typescript/require-await": "off", // Mock execute() implementations must retain async signatures.
+        "typescript/restrict-template-expressions": "off"
       },
       "plugins": [
         "typescript"
