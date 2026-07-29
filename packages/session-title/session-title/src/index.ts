@@ -200,6 +200,7 @@ function copySessionTitleSource(source: SessionTitleSource): SessionTitleSource 
       ...(source.model === undefined ? {} : { model: { ...source.model } }),
     }
     case 'user': return { kind: 'user' }
+    /* v8 ignore next -- closed-union exhaustiveness guard */
     default: return assertNever(source, 'SessionTitleSource')
   }
 }
