@@ -11,7 +11,7 @@
 
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -31,6 +31,8 @@ const testsDir = dirOf(import.meta.url)
 const snapshotsDir = join(testsDir, 'snapshots')
 const liveConfig = join(testsDir, '..', 'cordis.yml')
 const replayConfig = join(testsDir, '..', 'cordis.snapshot.yml')
+const persistentToolsLiveConfig = join(testsDir, '..', 'persistent-tools.cordis.yml')
+const persistentToolsReplayConfig = join(testsDir, '..', 'persistent-tools.snapshot.cordis.yml')
 const runtimeBin = fileURLToPath(new URL('../../../packages/examples/jsonrpc-demo/src/bin.ts', import.meta.url))
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
@@ -51,6 +53,10 @@ interface SdkScenario {
   sessionId: string
   /** How many child sessions the turn persists (subagent scenarios). */
   children: number
+  /** Optional scenario-specific live and replay compositions. */
+  configs?: { live: string; replay: string }
+  /** Files whose final contents are part of the scenario contract. */
+  expectedFiles?: Readonly<Record<string, string>>
 }
 
 const SCENARIOS: SdkScenario[] = [
@@ -71,6 +77,16 @@ const SCENARIOS: SdkScenario[] = [
     prompt: "Use the subagent tool exactly once with description 'echo probe' and prompt: Reply with exactly: child answer 42. Then reply with the subagent's final answer verbatim.",
     sessionId: 'sdk-snapshot-subagent',
     children: 1,
+  },
+  {
+    name: 'persistent-tools',
+    prompt: 'Prove that bash state persists, then create and edit note.txt.',
+    sessionId: 'persistent-tools-snapshot',
+    children: 0,
+    configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },
+    // Replay returns recorded tool arguments verbatim, so this cross-platform
+    // POSIX fixture uses one stable absolute path and cleans it around the run.
+    expectedFiles: { '/tmp/dsh-persistent-tools-snapshot-note.txt': 'beta\n' },
   },
 ]
 
@@ -147,11 +163,15 @@ async function runScenario(scenario: SdkScenario): Promise<{
   result: TurnResult
   notifications: HarnessNotification[]
   logs: PersistedLog[]
+  observedFiles: Record<string, string>
   cwd: string
 }> {
   const cwd = await mkdtemp(join(tmpdir(), `sdk-snapshot-${scenario.name}-`))
   const sessionsRoot = join(cwd, '.sessions')
   const scenarioDir = join(snapshotsDir, scenario.name)
+  const expectedFilePaths = Object.keys(scenario.expectedFiles ?? {}).map(path =>
+    isAbsolute(path) ? path : join(cwd, path))
+  await Promise.all(expectedFilePaths.map(async path => rm(path, { force: true })))
   const launch = resolveExampleLaunch({
     srcBin: runtimeBin,
     configArgs: [],
@@ -164,7 +184,9 @@ async function runScenario(scenario: SdkScenario): Promise<{
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
     ...Object.fromEntries(Object.entries(launch.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
-    DSH_CORDIS_CONFIG: recording ? liveConfig : replayConfig,
+    DSH_CORDIS_CONFIG: recording
+      ? scenario.configs?.live ?? liveConfig
+      : scenario.configs?.replay ?? replayConfig,
     DSH_SESSION_ROOT: sessionsRoot,
     DSH_CWD: cwd,
     DSH_SNAPSHOT: mode,
@@ -195,9 +217,16 @@ async function runScenario(scenario: SdkScenario): Promise<{
     })
     await harness.close()
     const logs = await persistedLogs(sessionsRoot)
-    return { result, notifications, logs, cwd }
+    const observedFiles = Object.fromEntries(await Promise.all(
+      Object.keys(scenario.expectedFiles ?? {}).map(async (path): Promise<[string, string]> => [
+        path,
+        await readFile(isAbsolute(path) ? path : join(cwd, path), 'utf8'),
+      ]),
+    ))
+    return { result, notifications, logs, observedFiles, cwd }
   } finally {
     await harness.close()
+    await Promise.all(expectedFilePaths.map(async path => rm(path, { force: true })))
     await rm(cwd, { recursive: true, force: true })
   }
 }
@@ -227,7 +256,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       const notificationsExpectedPath = join(scenarioDir, 'notifications.expected.jsonl')
       const resultExpectedPath = join(scenarioDir, 'result.expected.json')
 
-      const { result, notifications, logs, cwd } = await runScenario(scenario)
+      const { result, notifications, logs, observedFiles, cwd } = await runScenario(scenario)
       const ordered = orderLogs(logs, scenario)
       const actualContext = contextOf(ordered, cwd)
 
@@ -293,6 +322,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       // Wire-shape invariants that must hold in every mode.
       expect(result.status).toBe('ok')
       expect(notifications.at(-1)?.method).toBe('session.finished')
+      expect(observedFiles).toEqual(scenario.expectedFiles ?? {})
       if (scenario.children > 0) {
         expect(notifications.some(n => n.method === 'subagent.started')).toBe(true)
         expect(notifications.some(n => n.method === 'subagent.finished')).toBe(true)
