@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
+import Loader, { type EntryOptions } from '@cordisjs/plugin-loader'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-paths'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
@@ -430,12 +430,13 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * `cordis:include` builtin, loading through the ambient module pipeline
  * (vite/tsx/plain ESM) while the included tree's own specifiers stay
  * config-relative. The package build embeds Include while leaving Loader
- * external, so the built include tree and host share one Loader peer. A
- * missing fiber rejects here; a later init rejection is rethrown with its
- * original stack by {@link assertEntriesActivated}; later unhandled
- * rejections remain covered by {@link installFailLoud}. Built bins need the
- * Loader's native helper for bare plugin specifiers; relative specifiers do
- * not.
+ * external, so the built include tree and host share one Loader peer. Loader
+ * settlement rejects startup failures, which `boot` wraps after disposing the
+ * partial context; a missing fiber or never-activating entry is rejected by
+ * the final audit, {@link assertEntriesActivated}, which rethrows a plugin's
+ * init rejection with its original stack; later unhandled rejections remain
+ * covered by {@link installFailLoud}. Built bins need the Loader's native
+ * helper for bare plugin specifiers; relative specifiers do not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).
@@ -444,6 +445,7 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
  * @returns the root context once every entry has started, or as soon as a
  * surface disposed the tree while startup was still in flight.
+ * @throws a labelled load error after disposing the partial context.
  */
 export async function boot(
   binName: string,
@@ -452,28 +454,49 @@ export async function boot(
   prepare?: (ctx: Context) => Promise<void> | void,
 ): Promise<Context> {
   const ctx = new Context()
-  ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
-  ctx.provide('dshHomePath', dshHomePath)
-  await ctx.plugin(Loader)
-  ctx.loader.builtins.include = Include
-  await prepare?.(ctx)
-  await ctx.loader.create({
-    name: 'cordis:include',
-    config: {
-      path: pathToFileURL(absoluteConfigPath).href,
-      ...patches !== undefined && patches.length > 0 ? { patches } : {},
-    },
-  })
-  await ctx.loader.await()
-  // A surface can finish and dispose the whole tree while that await is still
-  // pending: the TUI renders as soon as its own fiber starts, so an `/exit`
-  // typed before the last entry settles tears the context down under us. The
-  // Loader service goes with it, and the activation audit describes a live
-  // tree — reading `ctx.loader` here would throw a TypeError over an app that
-  // exited exactly as asked.
-  if (ctx.get('loader') === undefined) return ctx
-  await assertEntriesActivated(ctx, binName)
-  return ctx
+  try {
+    ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
+    ctx.provide('dshHomePath', dshHomePath)
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
+    await prepare?.(ctx)
+    // Pinned id: the bootstrap include is app glue, not a config row, and its
+    // id appears in Loader failure chains — a random id would make startup
+    // diagnostics unstable across runs (and snapshot fixtures).
+    const rootInclude: EntryOptions = {
+      id: 'include',
+      name: 'cordis:include',
+      config: {
+        path: pathToFileURL(absoluteConfigPath).href,
+        ...patches !== undefined && patches.length > 0 ? { patches } : {},
+      },
+    }
+    await ctx.loader.create(rootInclude)
+    // A surface can finish and dispose the whole tree while startup is still
+    // in flight: the TUI renders as soon as its own fiber starts, so an `/exit`
+    // typed before the last entry settles tears the context down under us. The
+    // Loader service goes with it, and the activation audit describes a live
+    // tree — reading `ctx.loader` past this point would throw a TypeError over
+    // an app that exited exactly as asked. Transactional group updates settle
+    // lifecycle inside the mount, so the teardown can land before it returns;
+    // re-check after every await.
+    await ctx.get('loader')?.await()
+    if (ctx.get('loader') === undefined) return ctx
+    await assertEntriesActivated(ctx, binName)
+    return ctx
+  } catch (cause) {
+    await ctx.fiber.dispose()
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    // The transactional Loader wraps a failing entry apply in one message per
+    // tree layer; every layer's message is folded into `detail` above, and the
+    // deepest cause is the plugin's own thrown error, whose stack names the
+    // real failure site — append it so the startup diagnostic preserves the
+    // original activation error instead of only the wrap chain.
+    let deepest: unknown = cause
+    while (deepest instanceof Error && deepest.cause !== undefined) deepest = deepest.cause
+    const stack = deepest instanceof Error && deepest !== cause ? `\n${deepest.stack ?? deepest.message}` : ''
+    throw new Error(`${binName}: plugin tree failed to load: ${detail}${stack}`, { cause })
+  }
 }
 
 /** Prompt-section name for the harness-source location line an app bin adds after boot. */

@@ -5484,12 +5484,18 @@ importers:
         specifier: ^4.2.0
         version: 4.2.0
     devDependencies:
+      '@cordisjs/plugin-hmr':
+        specifier: workspace:^
+        version: link:../../../vendor/hmr
       '@cordisjs/plugin-include':
         specifier: workspace:^
         version: link:../../../vendor/include
       '@cordisjs/plugin-loader':
         specifier: workspace:^
         version: link:../../../vendor/loader
+      '@cordisjs/plugin-timer':
+        specifier: workspace:^
+        version: link:../../../vendor/timer
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
