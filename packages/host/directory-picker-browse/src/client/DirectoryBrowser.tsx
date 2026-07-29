@@ -214,24 +214,60 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     return { seq, scan: listDirectory(path, controller.signal) }
   }, [supersede, listDirectory])
 
-  /** Replace the whole view with one freshly listed level (no selection). */
+  /**
+   * Replace the whole view with a freshly navigated level. Away from the
+   * display root the landing keeps the navigated directory SELECTED inside
+   * its parent level (left pane = parent, right pane = its children), so a
+   * crumb jump or a submitted path reads as stepping back one pane instead
+   * of collapsing to a single column; the display root (the home level, or
+   * a chain with no parent) keeps the single wide level.
+   */
   const navigate = useCallback((path?: string) => {
     const { seq, scan } = launchListing(path)
     setLoading(true)
     setError(null)
-    scan.then((next) => {
+    scan.then((target) => {
       if (seq !== requestSeq.current) return
-      setParent(next)
-      setSelected(null)
-      setChild(null)
-      setLoading(false)
-      setPathDraft(null)
+      const parentCrumb = target.crumbs.at(-2)
+      const anchor = target.crumbs.at(-1)
+      if (target.path === target.home || parentCrumb === undefined
+        /* v8 ignore next -- narrowing: the anchor crumb exists whenever a parent crumb does (root-to-target inclusive chain). */
+        || anchor === undefined) {
+        setParent(target)
+        setSelected(null)
+        setChild(null)
+        setLoading(false)
+        setPathDraft(null)
+        return
+      }
+      // Two-pane landing: the parent leg runs under the same supersession
+      // scope (a newer intent aborts it like the first leg).
+      const controller = new AbortController()
+      scanController.current = controller
+      listDirectory(parentCrumb.path, controller.signal).then((parentLevel) => {
+        if (seq !== requestSeq.current) return
+        setParent(parentLevel)
+        setSelected(anchor)
+        setChild(target)
+        setLoading(false)
+        setPathDraft(null)
+      }, () => {
+        if (seq !== requestSeq.current) return
+        // The target listed fine and is what the user asked for; a parent
+        // leg failure quietly falls back to the single-pane landing rather
+        // than surfacing an error for a level nobody requested.
+        setParent(target)
+        setSelected(null)
+        setChild(null)
+        setLoading(false)
+        setPathDraft(null)
+      })
     }, (reason: unknown) => {
       if (seq !== requestSeq.current) return
       setLoading(false)
       setError(failureText(reason))
     })
-  }, [launchListing])
+  }, [launchListing, listDirectory])
 
   // Editor-close focus parking (consumed by the refocus effect below the
   // miller-row ref): a pick parks on the selection's row, Enter and an

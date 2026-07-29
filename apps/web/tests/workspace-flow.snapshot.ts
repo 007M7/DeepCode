@@ -202,6 +202,12 @@ it('adopts a directory through the composed in-app browse flow and lands in its 
   // row's name span is stable (clicks bubble to the row button).
   fireEvent.click(await within(dialog).findByText('Documents', {}, { timeout: 10_000 }))
   fireEvent.click(await within(dialog).findByText('project', {}, { timeout: 10_000 }))
+  // A crumb jump away from the root steps BACK one pane instead of
+  // collapsing: Documents lands selected in the home level (Downloads is
+  // the home-level marker) with its children still on the right.
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Documents' }))
+  await within(dialog).findByText('Downloads', {}, { timeout: 10_000 })
+  fireEvent.click(await within(dialog).findByText('project', {}, { timeout: 10_000 }))
   // Open disables while the selection's child listing is in flight; wait for
   // the enabled state or the click lands on a dead button on slow runners.
   await waitFor(() => {
