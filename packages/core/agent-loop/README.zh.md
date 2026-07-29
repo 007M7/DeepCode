@@ -12,11 +12,11 @@
 
 创建与恢复属于同一个受回滚保护的事务：构造私有会话、实体 agent 和带作用域的上下文；等待可选 setup；进入两个注册表；依次宣告 `session/created` 和 `agent/created`；发出 `agent/session-start`；此后才启动驱动器。Setup 接收完整的带作用域 `Context`，作为受信任的同进程组合代码，并且不得驱动尚未发布的 agent。普通的类型化身份与选项输入遵循只读契约以借用方式传入；seed 事件与会话元数据会跨越持久会话边界，因此系统会验证并快照它们。可选的 `AbortSignal` 只取消加载／setup／发布，并在返回的 handle 可见前分离。
 
-调用方 fiber 与 AgentLoop 提供方共同拥有 agent。`AgentFactory.createAgent(ownerCtx, options)` 与 `resume(ownerCtx, options)` 显式接收调用方所有权，而工厂为 `sessions`/`llm`/`tools`/`systemPrompt` 保留自身的依赖上下文；这样，调用方可以只注入 `agents`，而不会缩减新 agent 的服务接口。调用方卸载、handle 释放或提供方卸载都会汇合到同一个记忆化的完全停稳边界。提供方关闭会同时等待资源 teardown，以及已经观测到停用的公开 create/resume 包装层，因此依赖消失后，任何 continuation 都无法继续发布。
+调用方 fiber 与 AgentLoop 提供方共同拥有 agent。`AgentFactory.createAgent(ownerCtx, options)` 与 `resume(ownerCtx, options)` 显式接收调用方所有权，而工厂为 `sessions`/`llm`/`tools`/`systemPrompt` 保留自身的依赖上下文；这样，调用方可以只注入 `agents`，而不会缩减新 agent 的服务接口。调用方卸载、handle dispose（资源释放）或提供方卸载都会汇合到同一个记忆化的完全停稳边界。提供方关闭会同时等待资源 teardown，以及已经观测到停用的公开 create/resume 包装层，因此依赖消失后，任何 continuation 都无法继续发布。
 
 每个 agent 与其会话共享一个由调用方选择的 `SessionId`，并假设它在全局唯一；意外的 UUID 冲突不属于受支持模型。两个使用同一 id 的并发操作都可以进行准备，但最终的 `enter()` 调用会裁决发布，所有失败方都会回滚各自的私有资源。每次 detach 都绑定到确切进入的对象，因此陈旧 disposer 无法移除之后出现的同 id 替代项。在同步创建通知期间请求的 detach 会等待该次分发退栈，从而保留 created/disposed 配对。Teardown 顺序为停止并 drain → 撤销作用域 → detach agent → detach 会话；私有作用域清理完成后，该 id 即可复用。普通、不可 veto 的 `agent/*` 通知通过 `agentEvents(ctx, agent)` 发出；逐步骤组装通过 `assembleContextFor(agent)` 完成。
 
-- `ctx.agentLoop.create(id: SessionId, options?: AgentOptions, meta?: { cwd?: string }): Agent`：在确切共享的 agent／会话 id 下同步创建，不运行 setup，并随调用 fiber 释放。声明式配置把 `agents[].id` 视为稳定 label，通常会先生成 `${label}-session-<uuid>`，再调用此边界。应用也可以提供稳定且确切的 `sessionId`：首次使用时创建；重新挂载且持久化内容已存在时，则恢复已经实体化的历史。`resumeSessionId` 要求并加载现有的持久化 id，且与 `sessionId` 互斥。这样，默认的全新重启不会冲突，也无需保留第二个实时路由身份。
+- `ctx.agentLoop.create(id: SessionId, options?: AgentOptions, meta?: { cwd?: string }): Agent`：在确切共享的 agent／会话 id 下同步创建，不运行 setup，并随调用 fiber dispose。声明式配置把 `agents[].id` 视为稳定 label，通常会先生成 `${label}-session-<uuid>`，再调用此边界。应用也可以提供稳定且确切的 `sessionId`：首次使用时创建；重新挂载且持久化内容已存在时，则恢复已经实体化的历史。`resumeSessionId` 要求并加载现有的持久化 id，且与 `sessionId` 互斥。这样，默认的全新重启不会冲突，也无需保留第二个实时路由身份。
 
 `AgentLoop` 还实现 `AgentFactory` seam，并通过 `ctx.agents.setFactory(this)` 注册自身，因此插件会通过接口 `ctx.agents` 创建／恢复 agent：
 
@@ -49,7 +49,7 @@ interface Config {
 }
 ```
 
-通过配置创建的 agent 会自动启动。模型调用同时需要 `provider` 和 `model`；`agent/request` 可以在分发前补齐缺失的这一对值。可选的正整数 `maxTokens` 会为每次对话请求提供初始输出上限，并记录在请求 header 中。`maxParallelToolCalls` 限制每个 agent 针对并行安全调用使用的滚动池，默认值为 `10`。`cwd` 仅应用于全新会话，而 `resumeSessionId` 保留持久化元数据。通过配置创建的 agent 使用部署 persona；编程式 setup 可以按 agent 遮蔽它。该插件提供逐 agent 的 `provider`、`model` 和 `cwd` 提示词变量；harness 身份与部署 persona 属于 `dsh-system-prompt`。
+通过配置创建的 agent 会自动启动。模型调用同时需要 `provider` 和 `model`；`agent/request` 可以在分发前补齐缺失的这一对值。可选的正数 `maxTokens` 会为每次对话请求提供初始输出上限，并记录在请求 header 中。`maxParallelToolCalls` 限制每个 agent 针对并行安全调用使用的滚动池，默认值为 `10`。`cwd` 仅应用于全新会话，而 `resumeSessionId` 保留持久化元数据。通过配置创建的 agent 使用部署 persona；编程式 setup 可以按 agent 遮蔽它。该插件为每个 agent 提供 `provider`、`model` 和 `cwd` 提示词变量；harness 身份与部署 persona 属于 `dsh-system-prompt`。
 
 ### 包内部实体驱动器
 
@@ -61,7 +61,7 @@ interface Config {
 
 驱动器在其整个生命周期内拥有一个 agent，并在 `ctx.agents.withInitiator(agent, ...)` 内运行。包私有的编排入口点会恢复确切的 Agent，一次性派生 `agent.session`，并让操作局部的辅助函数捕获它，而不是通过浅层接口继续传递实体驱动器或每次操作的 `Session`。如果显式 `Session` 正是辅助函数的实际接口，该辅助函数会保留它；创建、持久化加载、未发布 setup、服务、worker、进程、持久化和 wire 协议则继续保留各自的显式身份。[agent 服务](../agent/README.md#initiating-agent-scope)规定传播、teardown 和分离工作规则。
 
-每次提供方调用成功结束时，都会恰好追加一个 `assistant/message` 完成锚点，包括无内容调用和以 `max-tokens` 结束的调用。该锚点原样记录组装后的内容，保留确切的 chunk 溯源（流没有 chunk 时为 `[]`），并在用量可用时包含用量；空内容不会进入派生消息历史。
+每次提供方调用成功结束时，都会恰好追加一个 `assistant/message` 完成锚点，包括无内容调用和以 `max-tokens` 结束的调用。该锚点原样记录组装后的内容，保留确切的分片溯源（流没有分片时为 `[]`），并在用量可用时包含用量；空内容不会进入派生消息历史。
 
 在 `agent/request` 返回提供方／模型调用配置后，循环会调用 `ctx.llm.prepareCall()`，在活跃轮次信号的控制下校验由适配器持有的推理（reasoning）强度，并填入其配置默认值。准备完成的调用会在这次异步解析、`request/header` 日志记录和最终分派期间保留同一项确切的适配器注册，因此 HMR（热模块替换）不会把某个适配器的能力解析结果与另一适配器的请求混用。生效配置会在分派前写入日志，因此监听器可以在步骤之间更改推理强度，而不会产生未记录的请求变化。没有已注册适配器的路由会保留原定配置，使 `llm/stream` 监听器可以接管并短路该请求；最终分派仍会以 `NO_ADAPTER` 拒绝未得到处理的路由。新循环实例仅在初始提供方／模型路由与日志路由完全一致时恢复上次的推理强度；路由变化会丢弃由前一模型持有的不透明 ID，并单独解析新模型。
 
@@ -73,7 +73,7 @@ interface Config {
 
 超出「调用模型、运行工具、重复」的所有内容，都属于监听事件分类体系的插件：
 - 钩子与策略：相关的 `agent/*` 检查点，加上受守卫保护的 `tools/pre-execute` → `tools/execute` → `tools/post-execute` → 定义拥有的 `finalizeContent` → `tools/result` 流水线；确切事件签名与 mode 位于生成的[事件目录](../../../docs/cordis-catalog/events.md)
-- 压缩（compaction）：在 `agent/step` 上观测压力；在 `agent/request-error` 上修复规范溢出
+- 压缩（compaction）：在 `agent/step` 上观测压力；在 `agent/request-error` 上进行规范的溢出修复
 - 模型请求恢复：`dsh-llm-retry` 在 `agent/request-error` 上记录并等待按确切提供方配置的 normal 或无界退避，发出不进入表层的 `llm/retry` 状态，然后返回重试动作
 - 沙箱、权限、计划模式：使用 `tools/pre-execute` 提供可扩展的拒绝／询问，使用 `tools.guard()` 提供单调拥有方策略，使用 `tools/post-execute` 处理结果决定，并使用 `tools/result` 进行最终观测
 - subagent：在循环外部实现为 `ctx.subagents` 提供方；进程内提供方使用 `ctx.agents.create()` 和拥有的 `AgentHandle` 进行 teardown，而通用的 [`ctx.tasks`](../../tasks/tasks/) 与 [`dsh-tool-subagent`](../../subagent/tool-subagent/) 负责后台收集。
@@ -84,7 +84,7 @@ interface Config {
 
 ### 完整对话请求
 
-#### 模型所见
+#### 模型看到的内容
 
 每个步骤中，循环会发送针对该 agent 呈现的系统提示词、可见工具 schema 和会话派生消息。它提供 `provider`、`model` 与 `cwd` 变量值，但不添加固定文案。
 
@@ -98,7 +98,7 @@ interface Config {
 
 ### 保留的消息历史
 
-#### 模型所见
+#### 模型看到的内容
 
 已接纳的 user 消息、assistant 消息、工具调用与结果、注入上下文和 steering 都会记录，并在后续步骤中发送。原始流分片、生命周期边界和其他仅写入日志的事件会被排除。
 
@@ -108,11 +108,11 @@ interface Config {
 
 #### KV Cache 影响
 
-普通历史增长仅追加，并保留可复用条目。接口替换或压缩会从第一个被遮蔽的历史 token 起使复用失效。
+普通历史增长仅追加，并保留可复用条目。表层替换或压缩会从第一个被遮蔽的历史 token 起使复用失效。
 
 ### 取消后未分发的调用
 
-#### 模型所见
+#### 模型看到的内容
 
 如果后续请求回放一个中止的步骤，取消所阻止分发的每个工具调用都有错误码 `ABORTED_BEFORE_DISPATCH`，结果文本为 `Error: tool call aborted before dispatch`。
 
@@ -124,7 +124,7 @@ interface Config {
 
 仅追加；每个合成结果都位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与暂缓工作
+## 已知限制与暂缓事项
 
 - **分类是一元的**：安全性取决于比较同级调用或资源的调用必须保持独占（参见[设计原理](../../../.agents/notes/implemented/feature/2026-07-10-parallel-tool-call-execution.md)）。
 - **配置 label 默认每次新建**：省略 `sessionId` 会在每次启动时创建全新的 `${id}-session-<uuid>`；确切的恢复或创建行为要求显式提供稳定的 `sessionId`，而 `resumeSessionId` 要求已有持久化历史。

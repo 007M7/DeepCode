@@ -80,6 +80,62 @@ const MARKDOWN_FIXTURE = [
 
 const USER_MARKDOWN_LITERAL = '用户字面量：# 不渲染 `code` [link](https://example.com)'
 
+/**
+ * SGR wrapper for the terminal output sample below: authoring the escapes as
+ * `\u001b` keeps literal control bytes out of this source file.
+ * @param code - the SGR parameter (an ANSI color or attribute number).
+ * @param body - the text the attribute applies to.
+ * @returns the body wrapped in the attribute and a reset.
+ */
+function sgr(code: number, body: string): string {
+  return `\u001b[${code}m${body}\u001b[0m`
+}
+
+/**
+ * Terminal output sample for fixture turn 65, authored to carry every feature
+ * the terminal card draws that turn 60's two prompt rows cannot reach:
+ * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
+ * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
+ * rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
+ * height cap collapses the middle. The exit status is authored separately in
+ * TERMINAL_EXIT_STATUS and deliberately absent from this text: the real bash
+ * presenter CONSUMES its `[exit code: N]` marker out of the body, because a
+ * terminal card shows the exit as its own pill and leaving the marker in would
+ * render it twice (packages/bash/tool-bash/src/render.ts).
+ */
+const TERMINAL_OUTPUT_FIXTURE = [
+  sgr(1, 'Running 4 checks'),
+  `${sgr(32, '\u2713')} typecheck                                          1.82s`,
+  `${sgr(32, '\u2713')} lint                                               0.94s`,
+  `${sgr(32, '\u2713')} duplication                                        2.10s`,
+  `${sgr(31, '\u2717')} unit                                               8.41s`,
+  '',
+  sgr(90, 'packages/client/ui-primitives/tests/terminal-block.spec.tsx'),
+  `  ${sgr(31, 'FAIL')} caps output at the configured line budget`,
+  '    expected 16 lines, received 24',
+  '',
+  'NAME                        LINES    BRANCHES    FUNCTIONS    UNCOVERED',
+  'TerminalBlock.tsx           100%     100%        100%         -',
+  'ansi.ts                     100%     100%        100%         -',
+  'clipboard.ts                100%     100%        100%         -',
+  'CodeBlock.tsx               98.4%    96.2%       100%         41-43',
+  'highlight.ts                100%     100%        100%         -',
+  'Pill.tsx                    100%     100%        100%         -',
+  'StateDot.tsx                100%     100%        100%         -',
+  'markdown/Markdown.tsx       100%     100%        100%         -',
+  '',
+  sgr(31, '1 of 4 checks failed'),
+].join('\n')
+
+/**
+ * Exit status for each terminal sample, keyed by its output text. Authored
+ * alongside the sample rather than parsed back out of its trailing marker,
+ * which is the bash tool's own job and not something to reimplement here.
+ */
+const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: string }> = {
+  [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
+}
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -170,7 +226,9 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  toolTurn(60, 'fx-bash', '{"command":"ls -la","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
+  // A two-line command, so the fixture covers the terminal card's one-row-per-
+  // command-line prompt (and that the card still marks the call exactly once).
+  toolTurn(60, 'fx-bash', '{"command":"ls -la\\necho done","cwd":"/tmp/fixture"}', 'total 2\ndrwxr-xr-x fixture\n-rw-r--r-- demo.txt')
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
@@ -224,8 +282,22 @@ function buildAlphaLog(): SessionEvent[] {
     { content: '实现 fixture 样本', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
+  // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
+  // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
+  // whose prompt label is its last segment, and a non-zero exit authored beside
+  // the sample in TERMINAL_EXIT_STATUS — its body deliberately carries no
+  // `[exit code: N]` marker, since the real presenter consumes that one out of
+  // the body. Named `bash`, so it also covers
+  // the keyed toolview row (turn 60's `fx-bash` covers the render-site fallback
+  // row) — the two chat-row shapes the terminal card renders in.
+  //
+  // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
+  // next `turn/start`, so a turn appended after it would leave the dock's plan
+  // strip empty and take the todo surfaces' own coverage with it.
+  toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -250,7 +322,10 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     return undefined
   }
   switch (name) {
+    // Both names present the same terminal card: `fx-bash` lands on the
+    // render-site fallback row, `bash` on the keyed BashRow registration.
     case 'fx-bash':
+    case 'bash':
       return { card: 'terminal', title: str(args.command), cwd: str(args.cwd, '/tmp/fixture'), description: 'fixture 终端样本' }
     case 'fx-write':
       return {
@@ -271,7 +346,10 @@ function presentResult(name: string, argsRaw: string, resultText: string): ToolR
   if (call === undefined) return undefined
   switch (call.card) {
     case 'terminal':
-      return { card: 'terminal', output: resultText, exitCode: 0 }
+      // The sample's own exit status, authored beside it: re-parsing the
+      // trailing marker here would duplicate the bash tool's `parseExitStatus`,
+      // which this client-side fixture cannot import.
+      return { card: 'terminal', output: resultText, ...(TERMINAL_EXIT_STATUS[resultText] ?? { exitCode: 0 }) }
     case 'diff':
       return { card: 'diff', diffs: call.diffs }
     case 'generic':
