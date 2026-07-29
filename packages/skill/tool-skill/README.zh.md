@@ -26,7 +26,7 @@
 
 资源指引只会根据 `resourceBase` 解析指令显式引用的路径或 URL；脚本、参考资料和资源文件按需加载，结果不会列举 skill 目录。本地提供方可以提供目录，而远程或嵌入式提供方可以提供 URL 或不透明加载指引。
 
-无法解析的名称会报告 skill 未知或已不可用。无效名称和 `disableModelInvocation: true` skill 产生不同的错误结果。
+无法解析的名称会报告 skill 未知或已不可用。无效名称和 `invocation.modelInvocable` 为 `false` 的 skill 会产生不同的错误结果。`invocation.userInvocable` 不限制这个面向模型的接口。
 
 工具执行不调用 `agent.inject()`。新加载的结果已作为工具结果记录，并在下一个模型步骤可用，无需将正文重复为合成上下文。只有目录投影会注入替换摘要。
 

@@ -217,11 +217,12 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('loads a local skill via /skill: and delivers its body to the model as a user turn', async () => {
-    // The whole manual-invocation path in one keyless boot: `ctx.get('skills')`
+    // The whole user-only invocation path in one keyless boot: `ctx.get('skills')`
     // resolves in the shipped tree, the client-side `/skill:` command parses,
-    // the local provider loads `scripted-skill` from the agents home, and the
-    // rendered `<skill name="…">` block reaches the model — proven by the
-    // scripted adapter echoing the fixture's body marker only when it arrives.
+    // and the local provider admits a model-disabled skill by the omitted
+    // `user-invocable` default. The rendered `<skill name="…">` block reaches
+    // the model — proven by the scripted adapter echoing the fixture's body
+    // marker only when it arrives.
     const output = await smoke({
       label: 'tui-agent skill',
       tempDirPrefix: 'tui-agent-skill-',
@@ -232,6 +233,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
             '---',
             'name: scripted-skill',
             'description: Keyless PTY proof that the skill command loads a local skill into the conversation.',
+            'disable-model-invocation: true',
             '---',
             '',
             'SCRIPTED SKILL BODY MARKER',

@@ -2,8 +2,9 @@
 // Assembled keyless snapshot of the slash/input/session convergence under the
 // agent-parity model: the New Session view state locks the composer until a
 // Workspace is picked (connectWorkspace materializes the full Session+Agent),
-// the '/' menu serves the session's wire command catalog (sessions are always
-// agent-backed — no draft/materialized split), a leadingInput command claims,
+// the '/' menu renders the session's skill and wire command catalogs
+// (sessions are always agent-backed — no draft/materialized split), a skill
+// pick inserts its reference, a leadingInput command claims,
 // submits over the wire, and notices its result, and the SAME composer
 // textarea then carries the first plain send, whose ACCEPTANCE (not attempt)
 // flips blank and surfaces the session in lists. This is the user-visible
@@ -119,7 +120,7 @@ async function typeComposer(composer: HTMLTextAreaElement, value: string): Promi
   await waitFor(() => { expect(composer.value).toBe(value) })
 }
 
-it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-acceptance ride one resident composer', async () => {
+it('locked view state, skill discovery, /echo claim chain, and blank-on-acceptance ride one resident composer', async () => {
   boot('?fixture=empty')
 
   // View state: no session entity — the composer renders locked; only the
@@ -144,6 +145,19 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
     'Describe what you want to build', {}, { timeout: 10_000 },
   )
   expect(composer.disabled).toBe(false)
+
+  // The built skill plugin prewarms the fixture's session-addressed catalog;
+  // this pins client rendering and picking, while the real-host browser lane
+  // owns policy filtering. Picking inserts the literal reference into the
+  // resident composer.
+  await typeComposer(composer, '/fixture')
+  const skillMenu = await screen.findByRole('listbox', { name: 'Trigger suggestions' })
+  const skillOption = await within(skillMenu).findByRole('option', { name: /fixture-demo/ })
+  const skillMenuText = visibleText(skillMenu)
+  fireEvent.mouseDown(skillOption)
+  await waitFor(() => { expect(composer.value).toBe('/fixture-demo ') })
+  const pickedSkill = composer.value
+  await typeComposer(composer, '')
 
   // '/' opens the menu with the session's wire command catalog (the session
   // is agent-backed from birth — the catalog is the single-address list).
@@ -183,6 +197,8 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
     menuHadEcho: menuText.includes('echo'),
     menuHadCompact: menuText.includes('compact'),
     composerSurvivedConversion: after === before,
+    skillMenuHadFixtureDemo: skillMenuText.includes('fixture-demo'),
+    skillPickInserted: pickedSkill,
     sessionListed: visibleText(within(tree).getByText('1 session').closest('[role="treeitem"]')!),
   }).toMatchInlineSnapshot(`
     {
@@ -190,6 +206,8 @@ it('locked view state, connectWorkspace unlock, /echo claim chain, and blank-on-
       "menuHadCompact": true,
       "menuHadEcho": true,
       "sessionListed": "nova1 session",
+      "skillMenuHadFixtureDemo": true,
+      "skillPickInserted": "/fixture-demo ",
     }
   `)
 })
