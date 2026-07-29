@@ -8,6 +8,7 @@ import type {
   SubprocessTerminalHandle,
   SubprocessTerminalSignal,
 } from '@deepseek-ai/dsh-subprocess'
+import { PtyError } from '@deepseek-ai/dsh-pty'
 import type {
   ProcessIdentity,
   ProcessInspector,
@@ -374,6 +375,54 @@ describe('LocalPtySession readiness and output', () => {
     expect(inspector.groups).not.toContainEqual([789, 'SIGINT'])
   })
 
+  it('does not let an in-flight readiness inspection release a canceled send before signalling settles', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const readiness = Promise.withResolvers<{ processGroupId: number; inputWaiting: boolean }>()
+    let inspections = 0
+    terminal.inspectForeground = async () => {
+      inspections += 1
+      if (inspections === 1) return { processGroupId: 456, inputWaiting: false }
+      if (inspections === 2) return await readiness.promise
+      return { processGroupId: 456, inputWaiting: true }
+    }
+    const signalling = Promise.withResolvers<undefined>()
+    const signalled = Promise.withResolvers<number>()
+    terminal.signalForeground = async (signal) => {
+      await signalling.promise
+      const foreground = await terminal.inspectForeground()
+      if (foreground === undefined) throw new Error('cannot resolve foreground')
+      inspector.signalGroup(foreground.processGroupId, signal)
+      signalled.resolve(foreground.processGroupId)
+      return foreground.processGroupId
+    }
+
+    const operation = session.startSend({ text: 'first', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(inspections).toBe(2)
+    expect(operation.cancel()).toBe(true)
+    let settled = false
+    void operation.done.then(() => { settled = true })
+
+    readiness.resolve({ processGroupId: 456, inputWaiting: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(() => session.startSend({ text: 'successor', submit: true })).toThrow(PtyError)
+
+    signalling.resolve(undefined)
+    expect(await signalled.promise).toBe(456)
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    await session.close('test complete')
+    expect((await operation.done).waitReason).toBe('session_exit')
+  })
+
   it('signals only after an in-flight provider write lands', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()
@@ -438,7 +487,9 @@ describe('LocalPtySession readiness and output', () => {
     await vi.advanceTimersByTimeAsync(100)
 
     expect((await operation.done).waitReason).toBe('timeout')
-    expect(() => session.startSend({ text: 'must wait', submit: true })).toThrow('active send')
+    expect(() => session.startSend({ text: 'must wait', submit: true })).toThrow(expect.objectContaining({
+      code: 'SEND_ACTIVE',
+    }))
 
     writeGate.resolve(undefined)
     await vi.advanceTimersByTimeAsync(0)

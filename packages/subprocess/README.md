@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The shared process substrate for one execution world: canonical cwd/runtime storage, executable lookup, fully-specified managed child-process trees with raw or collected stdio, and one deep terminal-process primitive that owns PTY allocation, foreground groups, and complete session cleanup. Command defaulting, shell semantics, deadlines, protocol framing, readiness, and presentation stay with consumers — the [bash executors](../bash/README.md), [LSP host](../lsp/README.md), [PTY shell backend](../pty/README.md), [subprocess code runtime](../code-runtime/code-runtime-subprocess/README.md), and [ACP subagent backend](../subagent/README.md). See the [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md).
+The shared process substrate for one execution world: canonical cwd/runtime storage, executable lookup, fully-specified managed child-process trees with raw or collected stdio, and one deep terminal-process primitive that owns PTY allocation, foreground groups, and provider-observable session cleanup. Command defaulting, shell semantics, deadlines, protocol framing, readiness, and presentation stay with consumers — the [bash executors](../bash/README.md), [LSP host](../lsp/README.md), [PTY shell backend](../pty/README.md), [subprocess code runtime](../code-runtime/code-runtime-subprocess/README.md), and [ACP subagent backend](../subagent/README.md). See the [subprocess seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-26-subprocess-seam.md).
 
 | Package | ctx key | Role |
 |---|---|---|

@@ -82,6 +82,22 @@ function spawnArgv(ctx: Context, config: ResolvedConfig, spec: PtyBackendSpawnSp
   }).argv
 }
 
+async function initializeSession(session: LocalPtySession, signal?: AbortSignal): Promise<void> {
+  if (signal === undefined) {
+    await session.initialize(signal)
+    return
+  }
+  const aborted = Promise.withResolvers<never>()
+  const onAbort = (): void => { aborted.reject(signal.reason) }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    signal.throwIfAborted()
+    await Promise.race([session.initialize(signal), aborted.promise])
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
 /** Local shell backend registered under the configured type. */
 export class LocalPtyBackend implements PtyBackend {
   readonly type: string
@@ -116,7 +132,7 @@ export class LocalPtyBackend implements PtyBackend {
     })
     const session = this.createSession(terminal, this.config)
     try {
-      await session.initialize(spec.signal)
+      await initializeSession(session, spec.signal)
       return session
     } catch (error) {
       try {

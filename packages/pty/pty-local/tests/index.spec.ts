@@ -143,6 +143,32 @@ describe('LocalPtyBackend startup rollback', () => {
     } satisfies Partial<PtyBackendCleanupError>))
   })
 
+  it('starts startup rollback when cancellation wins a stalled initialization', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
+    const initialization = Promise.withResolvers<undefined>()
+    const initializationStarted = Promise.withResolvers<undefined>()
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
+    const session = {
+      initialize: () => {
+        initializationStarted.resolve(undefined)
+        return initialization.promise
+      },
+      close,
+    } as unknown as LocalPtySession
+    const backend = new LocalPtyBackend(ctx, config(), async () => terminalHandle(), () => session)
+    const controller = new AbortController()
+    const reason = new Error('cancel stalled startup')
+
+    const spawning = backend.spawn(spec(agent(ctx), controller.signal))
+    await initializationStarted.promise
+    controller.abort(reason)
+
+    await expect(spawning).rejects.toBe(reason)
+    expect(close).toHaveBeenCalledWith('PTY startup failed')
+    initialization.resolve(undefined)
+  })
+
   it('wraps confined argv, scrubs the environment, and returns initialized sessions', async () => {
     const ctx = new Context()
     await ctx.plugin(RecordingSandbox)

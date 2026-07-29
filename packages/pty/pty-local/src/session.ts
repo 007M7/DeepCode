@@ -6,6 +6,7 @@ import type {
   SubprocessTerminalForeground,
   SubprocessTerminalHandle,
 } from '@deepseek-ai/dsh-subprocess'
+import { PtyError } from '@deepseek-ai/dsh-pty'
 import type {
   PtyBackendSession,
   PtyReadRequest,
@@ -219,7 +220,7 @@ export class LocalPtySession implements PtyBackendSession {
   startSend(request: PtySendRequest): PtySendOperation {
     if (this.closing) throw new Error('PTY session is closing')
     if (this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
-    if (this.active !== undefined) throw new Error('PTY session already has an active send')
+    if (this.active !== undefined) throw new PtyError('PTY session already has an active send or draining provider operation', 'SEND_ACTIVE')
     if (request.signal?.aborted === true) throw new Error('PTY send aborted before write')
 
     const operation = new LocalSendOperation(
@@ -247,7 +248,7 @@ export class LocalPtySession implements PtyBackendSession {
   private async beginSend(operation: LocalSendOperation, request: PtySendRequest): Promise<void> {
     try {
       const foreground = await this.terminal.inspectForeground()
-      if (this.active !== operation || this.closing) return
+      if (this.active !== operation || this.closing || this.interrupting === operation) return
       operation.setInitialForeground(foreground)
       const input = `${request.text}${request.submit ? '\r' : ''}`
       if (input.length > 0 && !operation.cancelRequested) {

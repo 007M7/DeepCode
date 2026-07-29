@@ -252,8 +252,9 @@ export interface SubprocessTerminalHandle {
    */
   signalForeground(signal: SubprocessTerminalSignal): Promise<number>
   /**
-   * Idempotently terminate the complete terminal session and await whole-session quiescence.
+   * Idempotently terminate every terminal-session member the provider can still observe and await quiescence.
    * After settlement, no write, inspection, or signal call remains in flight.
+   * Providers document substrate-specific observability limits.
    */
   terminate(): Promise<void>
 }
