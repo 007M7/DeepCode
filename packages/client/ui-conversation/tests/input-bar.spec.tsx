@@ -35,6 +35,7 @@ interface BenchOptions {
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
+  permissions?: { options: { value: string; name: string; description?: string }[]; currentValue: string }
   draft?: string
   running?: boolean
   disabled?: boolean
@@ -90,14 +91,15 @@ function bench(over?: BenchOptions) {
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
-    useProjection: ((_key: string, selector?: (v: unknown) => unknown) =>
-      (selector ?? (v => v))(over?.plan)),
+    useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
+      (selector ?? (v => v))(key === 'permissions' ? over?.permissions : key === 'plan' ? over?.plan : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     stop,
+    command: () => Promise.resolve(true),
     renderSlot,
     variant: over?.variant ?? 'composer',
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
@@ -368,14 +370,35 @@ describe('strips and variants', () => {
 })
 
 describe('placeholder chrome and control seats', () => {
-  it('renders attach + Access placeholder; plan/model seats render EMPTY without entries (B ruling)', () => {
+  it('renders attach; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
     const { view, slotCalls } = bench()
     expect(view.getByLabelText('Add attachment')).toBeTruthy()
-    expect((view.getByLabelText('Access mode') as HTMLSelectElement).value).toBe('readonly')
+    // Capability absent (no projection value): the chip renders nothing.
+    expect(view.queryByLabelText('Access mode')).toBeNull()
     // Both seats dispatched, nothing rendered.
     expect(slotCalls.map(c => c.key)).toEqual(['conversation.input.plan', 'conversation.input.model'])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()
+  })
+
+  it('the Access chip renders the projection value and submits /permission on pick', async () => {
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions })
+    const select = view.getByLabelText('Access mode') as HTMLSelectElement
+    expect(select.value).toBe('workspace-write')
+    // Title-case display is presentation only; the option values stay machine names.
+    expect([...select.options].map(o => o.textContent)).toEqual(['Workspace Write', 'Danger Full Access'])
+    fireEvent.change(select, { target: { value: 'danger-full-access' } })
+    // Optimistic pick + disable until admission resolves (command stub resolves true).
+    expect(select.disabled).toBe(true)
+    await act(async () => {})
+    expect(select.disabled).toBe(false)
   })
 
   it('a registered entry fills its seat and receives the locked owner prop', () => {
@@ -393,12 +416,13 @@ describe('placeholder chrome and control seats', () => {
     expect(live.slotCalls.every(c => !(c.owner as { locked: boolean }).locked)).toBe(true)
   })
 
-  it('disabled locks the Access placeholder and attach control (running does not)', () => {
-    const { view } = bench({ disabled: true })
+  it('disabled locks the Access chip and attach control (running does not)', () => {
+    const permissions = { options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' }
+    const { view } = bench({ disabled: true, permissions })
     expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
     expect((view.getByLabelText('Access mode') as HTMLSelectElement).disabled).toBe(true)
     cleanup()
-    const live = bench({ running: true })
+    const live = bench({ running: true, permissions })
     expect((live.view.getByLabelText('Access mode') as HTMLSelectElement).disabled).toBe(false)
   })
 })
