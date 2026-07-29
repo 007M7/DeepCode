@@ -82,7 +82,7 @@ const SCENARIOS: SdkScenario[] = [
   },
   {
     name: 'persistent-tools',
-    prompt: 'Prove that bash state persists. Then create {{cwd}}/note.txt with a tab-indented line, view it, and replace that literal tab-indented line.',
+    prompt: 'Prove that bash state persists. Then create {{cwd}}/note.txt with a tab-indented line, view it, replace that literal tab-indented line, and make the persistent shell exit with code 9.',
     sessionId: 'persistent-tools-snapshot',
     children: 0,
     configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },

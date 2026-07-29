@@ -174,21 +174,28 @@ function renderCaptured(output: CapturedOutput, maxOutputChars: number): string 
   const withPrefix = output.incomplete && output.text.length > 0
     ? LOST_PREFIX_MESSAGE + rendered
     : rendered
-  return renderExitStatus(withPrefix, output.exitCode ?? 0, null)
+  const marker = output.exitCode !== undefined && output.exitCode !== 0
+    ? `[exit code: ${output.exitCode}]`
+    : undefined
+  return appendStatusMarker(withPrefix, marker)
 }
 
-function renderExitStatus(
+function appendStatusMarker(content: string, marker: string | undefined): string {
+  if (marker === undefined) return content
+  return content.length === 0 ? marker : `${content}\n${marker}`
+}
+
+function renderShellExitStatus(
   content: string,
   exitCode: number | null,
   signal: NodeJS.Signals | null,
 ): string {
   const marker = signal !== null
-    ? `[killed by signal: ${signal}]`
-    : exitCode !== null && exitCode !== 0
-      ? `[exit code: ${exitCode}]`
-      : undefined
-  if (marker === undefined) return content
-  return content.length === 0 ? marker : `${content}\n${marker}`
+    ? `[shell killed by signal: ${signal}]`
+    : exitCode !== null
+      ? `[shell exited: code ${exitCode}]`
+      : '[shell exited]'
+  return appendStatusMarker(content, marker)
 }
 
 function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShells {
@@ -325,7 +332,7 @@ async function executeCommand(
       const snapshot = retainedScrollback(ctx, owner, id, latest)
       await shells.reset(owner, 'persistent bash shell exited')
       return [
-        renderExitStatus(
+        renderShellExitStatus(
           renderCaptured(partialOutput(snapshot, marker, fallback, fallbackTruncated), config.maxOutputChars),
           result.sessionStatus.exitCode,
           result.sessionStatus.signal,

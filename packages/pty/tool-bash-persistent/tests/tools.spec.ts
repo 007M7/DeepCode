@@ -79,6 +79,7 @@ type StubMode =
   | 'stalled-read'
   | 'exit'
   | 'signal-exit'
+  | 'unknown-exit'
   | 'wait-for-abort'
   | 'end-on-abort'
   | 'idle-then-normal'
@@ -184,12 +185,14 @@ class StubPtySession implements PtyBackendSession {
     const exitCode = this.mode === 'nonzero' ? 7 : 0
     const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
     this.scrollback += output
-    if (this.mode === 'exit' || this.mode === 'signal-exit') {
+    if (this.mode === 'exit' || this.mode === 'signal-exit' || this.mode === 'unknown-exit') {
       const exitedOutput = `${start ?? ''}\nhello from stub\n`
       this.scrollback = this.scrollback.slice(0, -output.length) + exitedOutput
       this.statusValue = this.mode === 'signal-exit'
         ? { kind: 'exited', exitCode: null, signal: 'SIGTERM' }
-        : { kind: 'exited', exitCode: 9, signal: null }
+        : this.mode === 'exit'
+          ? { kind: 'exited', exitCode: 9, signal: null }
+          : { kind: 'exited', exitCode: null, signal: null }
       return this.operation(Promise.resolve(this.result(exitedOutput, 'session_exit')))
     }
     return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
@@ -339,7 +342,8 @@ describe('tool-bash-persistent', () => {
     session.mode = 'exit'
     const exited = text(await call(ctx, owner, 'exit'))
     expect(exited).toContain('hello from')
-    expect(exited).toContain('[exit code: 9]')
+    expect(exited).toContain('[shell exited: code 9]')
+    expect(exited).not.toContain('[exit code: 9]')
     expect(exited).toContain('next bash call starts from the workspace')
     expect(session.closed).toContain('persistent bash shell exited')
 
@@ -347,7 +351,8 @@ describe('tool-bash-persistent', () => {
     expect(stub.sessions).toHaveLength(2)
     const replacement = stub.sessions[1]!
     replacement.mode = 'signal-exit'
-    expect(text(await call(ctx, owner, 'kill shell'))).toContain('[killed by signal: SIGTERM]')
+    expect(text(await call(ctx, owner, 'kill shell')))
+      .toContain('[shell killed by signal: SIGTERM]')
 
     await call(ctx, owner, 'another shell')
     expect(stub.sessions).toHaveLength(3)
@@ -365,6 +370,14 @@ describe('tool-bash-persistent', () => {
     stub.sessions[0]!.scrollback = ''
 
     expect(text(await call(ctx, owner, 'torn status'))).toBe('hello from stub\n[exit code: 7]')
+  })
+
+  it('reports a shell exit when the backend has no code or signal', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    stub.sessions[0]!.mode = 'unknown-exit'
+
+    expect(text(await call(ctx, owner, 'exit without status'))).toContain('[shell exited]')
   })
 
   it('marks a short missing-prefix result and tolerates exhausted scrollback pages', async () => {
