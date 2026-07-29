@@ -28,9 +28,6 @@
       "path": "../../core/system-prompt"
     },
     {
-      "path": "../../support/loader-smoke"
-    },
-    {
       "path": "../../support/invariants"
     },
     {
