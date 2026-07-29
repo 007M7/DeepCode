@@ -23,7 +23,7 @@ export class GoalError extends HarnessError {
    * @param code - stable machine-routable classification.
    */
   // Keep the constructor to narrow HarnessError's string code at this boundary.
-  // eslint-disable-next-line @typescript-eslint/no-useless-constructor -- type-only narrowing
+  // oxlint-disable-next-line typescript/no-useless-constructor -- type-only narrowing
   constructor(message: string, code: GoalErrorCode) {
     super(message, code)
   }
