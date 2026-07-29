@@ -32,6 +32,14 @@ const MODE = webSnapshotMode()
 
 const PROMPT = 'Reply with the single word LIGHTHOUSE and stop.'
 
+/** Last AppFrame grid track in CSS pixels. */
+async function detailsTrack(page: Page): Promise<number> {
+  return await page.locator('[class*="frame"]').first().evaluate((element) => {
+    const tracks = getComputedStyle(element).gridTemplateColumns.split(' ')
+    return Number.parseFloat(tracks.at(-1) ?? 'NaN')
+  })
+}
+
 describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -98,6 +106,45 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
     expect(turnEnds).toHaveLength(1)
     expect((turnEnds[0] as SessionEvent & { data: { reason: { kind: string } } }).data.reason.kind).toBe('completed')
   }, 60_000)
+
+  it.skipIf(MODE === 'record')('closes details for New Session and keeps it closed when returning', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-details-session-lifecycle'))
+    // Keep the scenario focused-runnable: the full file already sent this
+    // turn, while `-t` starts from the connected blank Session in beforeAll.
+    if (await page.getByText('LIGHTHOUSE', { exact: true }).count() === 0) {
+      const settled = scaffold.whenTurnSettled()
+      const input = page.locator('textarea').first()
+      await input.fill(PROMPT)
+      await input.press('Enter')
+      await settled
+      await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
+    }
+    // Rehydrate the production layout action's persisted result. The active
+    // Session survives reload, so its details panel remains valid and open.
+    await page.evaluate(() => {
+      localStorage.setItem('dsh.layout.panels', JSON.stringify({ sidebar: 280, details: 360 }))
+    })
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
+    expect(await detailsTrack(page)).toBe(360)
+    expect(await page.getByText('详情', { exact: true }).count()).toBe(1)
+
+    await page.getByRole('button', { name: 'New session', exact: true }).last().click()
+    await page.getByText("Let's start building", { exact: false }).waitFor({ timeout: 15_000 })
+    expect(await page.locator('[class*="frame"]').first().getAttribute('data-details-collapsed')).not.toBeNull()
+    await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
+    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
+
+    const original = page.locator('[role=treeitem]').filter({ hasText: 'Reply with the single word' }).first()
+    await original.click()
+    await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
+    await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 90_000)
 
   it.skipIf(MODE === 'record')('recovers the whole surface across a reload from the log alone', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-lifecycle-reload'))

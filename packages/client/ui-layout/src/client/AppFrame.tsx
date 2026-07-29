@@ -10,7 +10,7 @@
  * through the three framework shares — zero cordis or framework imports,
  * zero self-made hooks.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { computeColumns } from './columns.ts'
@@ -86,12 +86,38 @@ function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart:
 /** The three-column frame (see module doc). */
 export function AppFrame({
   useStore,
+  useSessions,
   actions,
   renderSlot,
 }: AppFrameProps) {
   const panels = useStore(s => s)
+  const sessionsPhase = useSessions(s => s.phase)
+  const detailsSession = useSessions((s) => {
+    const current = s.current
+    if (current === undefined) return undefined
+    const session = s.byId[current]
+    return session !== undefined && !session.blank ? current : undefined
+  })
   const frameRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
+
+  // The first ready active Session is baseline restoration, so its persisted
+  // panel may remain open. New Session has no inspectable selection, and any
+  // later details owner change closes the root-scoped column before paint.
+  const detailsBaselineReady = useRef(false)
+  const previousDetailsSession = useRef(detailsSession)
+  useLayoutEffect(() => {
+    if (sessionsPhase !== 'ready') return
+    if (!detailsBaselineReady.current) {
+      detailsBaselineReady.current = true
+      previousDetailsSession.current = detailsSession
+      if (detailsSession === undefined) actions.closeDetails()
+      return
+    }
+    if (previousDetailsSession.current === detailsSession) return
+    previousDetailsSession.current = detailsSession
+    actions.closeDetails()
+  }, [actions, detailsSession, sessionsPhase])
 
   // Track the frame's own box (not the window): rAF-throttled ResizeObserver.
   useEffect(() => {
