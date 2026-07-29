@@ -93,16 +93,18 @@ function stripPrompt(text: string): string {
 function commandOutput(
   snapshot: RetainedOutput,
   marker: CommandMarkers,
-): CapturedOutput {
+): CapturedOutput | undefined {
   const text = snapshot.text
   const end = text.lastIndexOf(marker.end)
-  const exitCode = Number.parseInt(text.slice(end + marker.end.length), 10)
+  if (end < 0) return undefined
+  const status = /^(\d+)\r?\n/.exec(text.slice(end + marker.end.length))?.[1]
+  if (status === undefined) return undefined
   const startMarker = text.lastIndexOf(marker.start, end)
   const start = startMarker < 0 ? 0 : startMarker + marker.start.length
   return {
     text: stripPrompt(text.slice(start, end).replace(/^\r?\n/, '')),
     incomplete: startMarker < 0,
-    exitCode,
+    exitCode: Number(status),
   }
 }
 
@@ -317,7 +319,7 @@ async function executeCommand(
     }
     if (latest.text.includes(marker.end)) {
       const complete = commandOutput(retainedScrollback(ctx, owner, id, latest), marker)
-      return renderCaptured(complete, config.maxOutputChars)
+      if (complete !== undefined) return renderCaptured(complete, config.maxOutputChars)
     }
     if (result.sessionStatus.kind === 'exited') {
       const snapshot = retainedScrollback(ctx, owner, id, latest)

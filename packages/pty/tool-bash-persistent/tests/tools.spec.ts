@@ -84,6 +84,8 @@ type StubMode =
   | 'idle-then-normal'
   | 'large'
   | 'nonzero'
+  | 'torn-status'
+  | 'finish-torn-status'
   | 'end-only'
   | 'init-exit'
   | 'init-timeout'
@@ -160,6 +162,17 @@ class StubPtySession implements PtyBackendSession {
     this.pendingText = ''
     const start = /__DSH_PERSISTENT_BASH_START_[^_]+(?:-[^_]+)*__/.exec(sent)?.[0]
     const end = /__DSH_PERSISTENT_BASH_END_[^:]+:/.exec(sent)?.[0]
+    if (this.mode === 'torn-status') {
+      const output = `${start ?? ''}\nhello from stub\n${end ?? ''}`
+      this.scrollback += output
+      this.mode = 'finish-torn-status'
+      return this.operation(Promise.resolve(this.result(output, 'inferred_idle')))
+    }
+    if (this.mode === 'finish-torn-status') {
+      const output = `7\n${this.motd}`
+      this.scrollback += output
+      return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
+    }
     if (this.mode === 'end-only') {
       const output = `recovered output\n${end ?? ''}0\n${this.motd}`
       this.scrollback += output
@@ -343,6 +356,15 @@ describe('tool-bash-persistent', () => {
     await ctx.pty.kill(owner, externallyClosed!, 'external cleanup')
     await fiber.dispose()
     expect(stub.sessions[2]?.closed).toEqual(['external cleanup'])
+  })
+
+  it('waits for status digits after a torn completion marker', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 1_000 })
+    await call(ctx, owner, 'warm up')
+    stub.sessions[0]!.mode = 'torn-status'
+    stub.sessions[0]!.scrollback = ''
+
+    expect(text(await call(ctx, owner, 'torn status'))).toBe('hello from stub\n[exit code: 7]')
   })
 
   it('marks a short missing-prefix result and tolerates exhausted scrollback pages', async () => {
