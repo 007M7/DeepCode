@@ -18,6 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -226,6 +227,7 @@ export async function runTui(
       ? loadPersonalPatches(NAME) ?? []
       : loadOverlayPatches(NAME, resolveConfigPath(resolve(config), undefined)),
   ]
+  const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
     replaceTree ? resolveConfigPath(resolve(configReplace), undefined) : BASE_CONFIG,
@@ -246,7 +248,14 @@ export async function runTui(
       hostCtx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, { [MAIN_AGENT_ID]: identity })
       // The query database is a disposable derived index with single-process
       // ownership. Keep it process-local while it indexes the shared logs.
-      hostCtx.provide(SESSION_QUERY_SQLITE_PATH_KEY, join(tmpdir(), SESSION_QUERY_DB))
+      hostCtx.provide(SESSION_QUERY_SQLITE_PATH_KEY, queryIndexPath)
+      hostCtx.effect(() => async () => {
+        await Promise.all([
+          rm(queryIndexPath, { force: true }),
+          rm(`${queryIndexPath}-wal`, { force: true }),
+          rm(`${queryIndexPath}-shm`, { force: true }),
+        ])
+      }, 'launcherSessionQueryPath.cleanup')
       if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
       // Seed the first turn only for a fresh session, so resuming never
       // re-invokes the skill.
