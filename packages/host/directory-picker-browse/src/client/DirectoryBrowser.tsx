@@ -56,12 +56,26 @@ function failureText(error: unknown): string {
 }
 
 /**
+ * Case-folds a path for comparisons under the listing's platform: backslash
+ * (Windows) paths compare case-insensitively — a typed path legally differs
+ * in case from the host's stamped one — while slash platforms compare
+ * exactly (the filesystem may be case-sensitive; macOS typed-case drift
+ * degrades to the single-pane landing instead of a wrong match).
+ */
+function foldPathFor(listing: DirectoryListing): (value: string) => string {
+  const sep = separatorOf(listing)
+  return value => (sep === '\\' ? value.toLowerCase() : value)
+}
+
+/**
  * Breadcrumb rows for display: inside the home subtree the chain starts at a
  * localized Home crumb; outside it the full ancestry shows, the root labeled
- * by its own path.
+ * by its own path. The home comparison folds per platform so a typed-case
+ * Windows path still collapses to the Home crumb.
  */
 function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryEntry[] {
-  const homeIndex = listing.crumbs.findIndex(crumb => crumb.path === listing.home)
+  const fold = foldPathFor(listing)
+  const homeIndex = listing.crumbs.findIndex(crumb => fold(crumb.path) === fold(listing.home))
   if (homeIndex === -1) return listing.crumbs
   const tail = listing.crumbs.slice(homeIndex + 1)
   return [{ name: homeLabel, path: listing.home, hidden: false }, ...tail]
@@ -222,6 +236,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
    * intent aborts it like the leg it continues, and it supersedes nothing.
    */
   const continueScan = useCallback((path: string): Promise<DirectoryListing> => {
+    // Abort whatever the slot last tracked before overwriting it (the
+    // caller's settled leg: a no-op) — the slot must never silently strand
+    // a live scan, the exact waste supersede() exists to prevent.
+    const displaced = scanController.current
+    /* v8 ignore next -- narrowing guard: the landing's target leg installed a controller before any follow-up runs. */
+    if (displaced !== null) displaced.abort()
     const controller = new AbortController()
     scanController.current = controller
     return listDirectory(path, controller.signal)
@@ -236,9 +256,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
    * shape never disagree — a parent leg then upgrades the landing in place:
    * the target's ACTUAL parent-level entry re-selected (left pane = parent,
    * right pane = the target), so a crumb jump reads as stepping back one
-   * pane. A failed parent leg, or a truncated parent window that lacks the
-   * target, leaves the committed single-pane landing — the upgrade must
-   * never orphan the selection it exists to anchor.
+   * pane (Windows folds case; slash-platform typed-case drift degrades to
+   * the single-pane landing). A failed parent leg, or a truncated parent
+   * window that lacks the target, leaves the committed single-pane landing
+   * — the upgrade must never orphan the selection it exists to anchor.
    */
   const navigate = useCallback((path?: string) => {
     const { seq, scan } = launchListing(path)
@@ -259,11 +280,18 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       continueScan(parentCrumb.path).then((parentLevel) => {
         if (seq !== requestSeq.current) return
         // Windows resolves a typed path preserving its case; anchor on the
-        // parent level's actual entry so selection comparisons hold.
-        const sep = separatorOf(parentLevel)
-        const fold = (value: string): string => (sep === '\\' ? value.toLowerCase() : value)
+        // parent level's actual entry so selection comparisons hold (slash
+        // platforms compare exactly — see foldPathFor).
+        const fold = foldPathFor(parentLevel)
         const match = parentLevel.entries.find(entry => fold(entry.path) === fold(target.path))
         if (match === undefined) return
+        // The upgrade replaces every committed row node; if focus lives
+        // among them (Tab reached the rows during the parent leg), arm the
+        // refocus effect so it re-parks on the re-selected row.
+        const rowHost = millerRowRef.current
+        /* v8 ignore next -- narrowing guard: the committed landing just rendered the miller row. */
+        const focusInRows = rowHost !== null && rowHost.contains(document.activeElement)
+        if (focusInRows) refocusPick.current = true
         setParent(parentLevel)
         setSelected(match)
         setChild(target)
@@ -279,11 +307,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     })
   }, [launchListing, continueScan])
 
-  // Editor-close focus parking (consumed by the refocus effect below the
-  // miller-row ref): a pick parks on the selection's row, Enter and an
-  // input-focused Escape park on the crumb edit zone that replaces the
-  // input. Pointer-out cancels never set (or clear) these — yanking focus
-  // back from wherever the user clicked would be worse than the fall.
+  // Focus parking (consumed by the refocus effect below the miller-row
+  // ref): a pick — and a parent-leg upgrade that displaces focused rows —
+  // parks on the selection's row; Enter, an input-focused Escape, and a
+  // failed pick whose row unmounts park on the crumb edit zone (the latter
+  // only when focus actually fell to body). Pointer-out cancels never set
+  // (or clear) these — yanking focus back from wherever the user clicked
+  // would be worse than the fall.
   const refocusPick = useRef(false)
   const refocusEditZone = useRef(false)
   const pathInputRef = useRef<HTMLInputElement | null>(null)

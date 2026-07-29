@@ -270,6 +270,59 @@ describe('DirectoryBrowser', () => {
     expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBeNull()
   })
 
+  it('re-parks focus on the re-selected row when the upgrade displaces focused rows', async () => {
+    const settlers: ((value: DirectoryListing) => void)[] = []
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === HOME) {
+        return new Promise<DirectoryListing>((resolve) => { settlers.push(resolve) })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // The committed landing is interactive; Tab reaches its rows while the
+    // parent leg is still in flight.
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    rowButton(screen.getByRole('listitem')).focus()
+    await waitFor(() => { expect(settlers).toHaveLength(1) })
+    // The upgrade replaces every committed row node; focus re-parks on the
+    // re-selected row instead of falling to body.
+    await act(async () => { settlers[0]!(listingFor(HOME)) })
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(document.activeElement?.textContent).toBe('Documents')
+    expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
+  })
+
+  it('collapses a typed-case Windows home to the display root (single pane, Home crumb)', async () => {
+    const CANON = 'C:\\Users\\Alice'
+    const TYPED = 'c:\\users\\alice'
+    const typedHome: DirectoryListing = {
+      path: TYPED,
+      home: CANON,
+      crumbs: [
+        { name: 'C:\\', path: 'C:\\', hidden: false },
+        { name: 'users', path: 'c:\\users', hidden: false },
+        { name: 'alice', path: TYPED, hidden: false },
+      ],
+      entries: [{ name: 'Desktop', path: `${CANON}\\Desktop`, hidden: false }],
+      truncated: false,
+    }
+    const canonHome: DirectoryListing = { ...typedHome, path: CANON, crumbs: typedHome.crumbs }
+    mount({ listDirectory: vi.fn(async (path?: string) => (path === TYPED ? typedHome : canonHome)) })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: TYPED } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // Case-folded home comparison: the typed-case home is still the display
+    // root — single pane, collapsed Home crumb, no parent leg.
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Desktop') })
+    expect(columns()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
+  })
+
   it('keeps the single-pane landing when the truncated parent level lacks the target', async () => {
     const listDirectory = vi.fn(async (path?: string) => {
       // The parent leg names HOME explicitly; serve it a truncated window
