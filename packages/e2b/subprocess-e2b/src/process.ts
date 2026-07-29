@@ -18,7 +18,7 @@ import type {
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
-import { serializeRemoteEnvironment } from './environment.ts'
+import { readRemoteEnvironment, serializeRemoteEnvironment } from './environment.ts'
 import { E2BBase64Decoder, E2B_OUTPUT_COMPLETE_FRAME, E2BOutputReader } from './output.ts'
 
 const GROUP_POLL_MS = 20
@@ -198,6 +198,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private readonly stdoutDecoder = new E2BBase64Decoder()
   private readonly stderrDecoder = new E2BBase64Decoder()
   private readonly outputTermination = new AbortController()
+  private readonly startupController = new AbortController()
   private readonly stdoutReader: E2BOutputReader | undefined
   private readonly stderrReader: E2BOutputReader | undefined
   private readonly paths: RemotePaths
@@ -206,6 +207,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   private outputTransportError: Error | undefined
   private outputDrainExpired = false
   private stateDirectoryCreated = false
+  private preparing = true
   private invalidHandleQuiescent = false
   private provisionalHandleQuiescent = false
   private terminationStarted = false
@@ -264,6 +266,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   terminate(): void {
     if (this.terminationFenced || this.quiescenceProven || this.terminationAttempt !== undefined) return
     this.terminationStarted = true
+    if (this.preparing) this.startupController.abort(new Error('subprocess-e2b: command terminated during startup'))
     this.outputTermination.abort()
     this.stdout?.destroy()
     this.stderr?.destroy()
@@ -298,6 +301,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
         const attempt = this.terminationAttempt
         if (attempt !== undefined && await waitWithSignal(attempt, signal) === WAIT_ABORTED) return false
         this.throwTerminationFailure()
+        /* v8 ignore else -- successful provisional cleanup always records one proof; failures throw above. */
         if (this.invalidHandleQuiescent || this.provisionalHandleQuiescent) {
           this.markQuiescent()
           return true
@@ -351,6 +355,7 @@ export class E2BSubprocessHandle implements SubprocessHandle {
     try {
       sandbox = await this.runtime.getSandbox()
       await this.prepareState(sandbox)
+      this.preparing = false
       const handle = await sandbox.commands.run(
         commandText(this.spec, this.paths),
         {
@@ -405,7 +410,9 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       await this.finalizeSpills(sandbox)
       return outcome
     } catch (error: unknown) {
-      this.commandState.resolve(undefined)
+      const canceledPreparation = this.preparing
+        && this.terminationStarted
+        && this.startupController.signal.aborted
       let failure = await this.rollbackPublishedFailure(error)
       if (sandbox !== undefined && this.stateDirectoryCreated) {
         try {
@@ -417,9 +424,12 @@ export class E2BSubprocessHandle implements SubprocessHandle {
           )
         }
       }
+      this.commandState.resolve(undefined)
       this.readyState.reject(failure)
+      if (canceledPreparation && failure === error) return { exitCode: null, signal: 'SIGTERM' }
       throw failure
     } finally {
+      this.preparing = false
       this.spec.signal?.removeEventListener('abort', this.onAbort)
       this.stdout?.end()
       this.stderr?.end()
@@ -427,19 +437,21 @@ export class E2BSubprocessHandle implements SubprocessHandle {
   }
 
   private async prepareState(sandbox: Sandbox): Promise<void> {
-    const ambient = await sandbox.commands.run('env -0')
-    await sandbox.files.makeDir(this.stateDir)
+    const signal = this.startupController.signal
+    const ambient = await readRemoteEnvironment(sandbox, signal)
+    await sandbox.files.makeDir(this.stateDir, { signal })
     this.stateDirectoryCreated = true
-    await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(this.stateDir)}`)
+    await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(this.stateDir)}`, { signal })
     const files = [
       { path: this.paths.pid, data: '' },
       { path: this.paths.status, data: '' },
-      { path: this.paths.environment, data: serializeRemoteEnvironment(ambient.stdout, this.spec.env) },
+      { path: this.paths.environment, data: serializeRemoteEnvironment(ambient, this.spec.env) },
       ...(hasSpill(this.spec.stdio.stdout) ? [{ path: this.paths.stdout, data: '' }] : []),
       ...(hasSpill(this.spec.stdio.stderr) ? [{ path: this.paths.stderr, data: '' }] : []),
     ]
-    await sandbox.files.write(files)
-    await sandbox.commands.run(`chmod 600 -- ${files.map(file => quoteE2BShellArg(file.path)).join(' ')}`)
+    await sandbox.files.write(files, { signal })
+    await sandbox.commands.run(`chmod 600 -- ${files.map(file => quoteE2BShellArg(file.path)).join(' ')}`, { signal })
+    signal.throwIfAborted()
   }
 
   private async writeBatchStdin(handle: CommandHandle): Promise<void> {
@@ -639,17 +651,23 @@ export class E2BSubprocessHandle implements SubprocessHandle {
       }
       let handleFailure: unknown
       try {
-        await handle.kill()
-        this.provisionalHandleQuiescent = true
+        if (!await handle.kill()) handleFailure = new Error('E2B SDK kill did not report command termination')
       } catch (error: unknown) {
         handleFailure = error
       }
-      if (!groupDelivered && handleFailure !== undefined) {
+      if (!groupDelivered && await this.groupAlive(sandbox, handle.pid)) {
         throw new AggregateError(
-          [...(groupFailure === undefined ? [] : [groupFailure]), handleFailure],
+          [
+            ...(groupFailure === undefined ? [] : [groupFailure]),
+            ...(handleFailure === undefined
+              ? [new Error('E2B SDK kill did not quiesce the provisional process group')]
+              : [handleFailure]),
+          ],
           'subprocess-e2b: force termination failed through both process-group and SDK transports',
         )
       }
+      while (await this.groupAlive(sandbox, handle.pid)) await waitTick()
+      this.provisionalHandleQuiescent = true
       return
     }
     const sandbox = await this.runtime.getSandbox()

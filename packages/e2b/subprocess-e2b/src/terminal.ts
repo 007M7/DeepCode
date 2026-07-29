@@ -20,7 +20,7 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
-import { serializeRemoteEnvironment } from './environment.ts'
+import { readRemoteEnvironment, serializeRemoteEnvironment } from './environment.ts'
 
 const POLL_MS = 20
 
@@ -355,7 +355,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
         inputWaiting: false,
       }
     } catch (error: unknown) {
-      if (error instanceof CommandExitError && this.topLevelExited) return undefined
+      if (error instanceof CommandExitError && (error.exitCode === 1 || this.topLevelExited)) return undefined
       throw error
     }
   }
@@ -470,8 +470,8 @@ export async function spawnE2BTerminal(
   let completion: Promise<CommandResult> | undefined
   let stateDirectoryCreated = false
   try {
-    const ambient = await sandbox.commands.run('env -0', signalOpts(spec.signal))
-    const environment = serializeRemoteEnvironment(ambient.stdout, spec.env)
+    const ambient = await readRemoteEnvironment(sandbox, spec.signal)
+    const environment = serializeRemoteEnvironment(ambient, spec.env)
     const argv = serializeValues(spec.argv, 'argv')
     await sandbox.files.makeDir(stateDir)
     stateDirectoryCreated = true

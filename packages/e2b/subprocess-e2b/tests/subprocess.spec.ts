@@ -39,6 +39,7 @@ class FakeCommandHandle {
   kills = 0
   disconnects = 0
   killError: unknown
+  killResult = true
   disconnectError: unknown
   private readonly result = Promise.withResolvers<CommandResult>()
   private settled = false
@@ -61,7 +62,7 @@ class FakeCommandHandle {
     this.kills += 1
     if (this.killError !== undefined) throw this.killError
     this.onKill()
-    return true
+    return this.killResult
   }
 
   async disconnect(): Promise<void> {
@@ -109,7 +110,9 @@ class FakeSandbox {
   sdkKillStops = true
   alive = true
   zombieOnly = false
-  ambient = 'PATH=/ambient/bin\0KEEP=safe\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
+  ambient = 'PATH=/ambient/bin\0KEEP=safe\0UNICODE=你好\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
+  environmentWire: string | undefined
+  environmentRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
   processGroupId = '4242\n'
   exitStatus = ''
   readonly processGroupReads: string[] = []
@@ -233,9 +236,14 @@ class FakeSandbox {
     commands: {
       run: async (command: string, options?: StartOptions | { signal?: AbortSignal }): Promise<CommandHandle | CommandResult> => {
         this.commandsSeen.push(command)
-        if (command === 'env -0') {
+        if (command.includes('env -0 | base64')) {
+          await this.environmentRequest?.(options?.signal)
           if (this.envError !== undefined) throw this.envError
-          return { exitCode: 0, stdout: this.ambient, stderr: '' }
+          return {
+            exitCode: 0,
+            stdout: this.environmentWire ?? Buffer.from(this.ambient).toString('base64'),
+            stderr: '',
+          }
         }
         if (command.startsWith('set -o pipefail; ps -eo pgid=,stat=')) {
           this.beforeProbe?.()
@@ -397,7 +405,7 @@ describe('E2BSubprocessHandle', () => {
     expect(command).not.toContain('explicit-secret')
     expect(command).not.toContain('hyphen-value')
     expect(command).not.toContain('${!dsh_e2b_name}')
-    expect(fake.commandsSeen).toContain('env -0')
+    expect(fake.commandsSeen).toContain('set -o pipefail; env -0 | base64 -w 0')
     expect(command).toContain('mapfile -d')
     expect(command).toContain('dsh_e2b_node="$(command -v node)"')
     expect(command).toContain('"$dsh_e2b_env_bin" -i "$dsh_e2b_node" -e')
@@ -413,7 +421,7 @@ describe('E2BSubprocessHandle', () => {
       '/workspace/.dsh-e2b/processes/one/stderr.log',
     ])
     expect(fake.writtenFileData.get('/workspace/.dsh-e2b/processes/one/environment')).toBe(
-      'PATH=/bin\0KEEP=safe\0FOO-BAR=hyphen-value\0--split-string=literal-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
+      'PATH=/bin\0KEEP=safe\0UNICODE=你好\0FOO-BAR=hyphen-value\0--split-string=literal-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
     )
 
     let piped = ''
@@ -806,6 +814,33 @@ describe('E2BSubprocessHandle', () => {
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
   })
 
+  it('aborts a stalled preparation request before reporting startup quiescence', async () => {
+    const fake = new FakeSandbox()
+    let preparationSignal: AbortSignal | undefined
+    fake.environmentRequest = async (signal) => {
+      preparationSignal = signal
+      await new Promise<never>((_resolve, reject) => {
+        const rejectAbort = (): void => {
+          const reason: unknown = signal?.reason
+          reject(reason instanceof Error ? reason : new Error(String(reason)))
+        }
+        if (signal?.aborted === true) {
+          rejectAbort()
+          return
+        }
+        signal?.addEventListener('abort', rejectAbort, { once: true })
+      })
+    }
+    const handle = new E2BSubprocessHandle(runtime(fake), spec(), '/runtime/stalled-preparation')
+    await vi.waitFor(() => { expect(preparationSignal).toBeDefined() })
+
+    handle.terminate()
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    expect(preparationSignal?.aborted).toBe(true)
+    expect(fake.startOptions).toBeUndefined()
+  })
+
   it('kills through the provisional SDK handle before process-group publication', async () => {
     const fake = new FakeSandbox()
     fake.deferProcessGroupRead()
@@ -820,6 +855,32 @@ describe('E2BSubprocessHandle', () => {
 
     fake.releaseProcessGroupRead()
     await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
+  })
+
+  it('does not treat an unsuccessful SDK fallback as provisional group quiescence', async () => {
+    const fake = new FakeSandbox()
+    fake.deferProcessGroupRead()
+    fake.trapsTerm = true
+    fake.delaysKill = true
+    fake.delaysKillCompletion = true
+    fake.sdkKillStops = false
+    fake.handle.killResult = false
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 1 }), '/runtime/provisional-sdk-false')
+    await vi.waitFor(() => { expect(fake.startOptions).toBeDefined() })
+
+    handle.terminate()
+    await vi.waitFor(() => { expect(fake.handle.kills).toBe(1) })
+    let quiescent = false
+    const waiting = handle.waitForExit().then((value) => { quiescent = value })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(quiescent).toBe(false)
+
+    fake.alive = false
+    await waiting
+    expect(quiescent).toBe(true)
+    fake.releaseProcessGroupRead()
+    fake.finish()
+    await handle.done
   })
 
   it('bounds a quiescence observer while provisional termination is awaiting the controller', async () => {
@@ -895,6 +956,23 @@ describe('E2BSubprocessHandle', () => {
     await expect(absentHandle.waitForExit()).resolves.toBe(true)
     absentGroup.releaseProcessGroupRead()
     await absentHandle.done
+
+    const optimisticSdk = new FakeSandbox()
+    optimisticSdk.deferProcessGroupRead()
+    optimisticSdk.signalErrors.push(commandError(1), commandError(1))
+    optimisticSdk.sdkKillStops = false
+    const optimisticHandle = new E2BSubprocessHandle(
+      runtime(optimisticSdk),
+      spec({ graceMs: 1 }),
+      '/runtime/pre-publication-optimistic-sdk',
+    )
+    await vi.waitFor(() => { expect(optimisticSdk.startOptions).toBeDefined() })
+    optimisticHandle.terminate()
+    await expect(optimisticHandle.waitForExit()).rejects.toThrow('force termination failed through both')
+    optimisticHandle.terminate()
+    await expect(optimisticHandle.waitForExit()).resolves.toBe(true)
+    optimisticSdk.releaseProcessGroupRead()
+    await optimisticHandle.done
   })
 
   it('honors an already-aborted signal when constructing the asynchronous handle directly', async () => {
@@ -1023,6 +1101,24 @@ describe('E2BSubprocessHandle', () => {
     const envHandle = new E2BSubprocessHandle(runtime(envFailure), spec(), '/runtime/env-failure')
     await expect(envHandle.done).rejects.toThrow('ambient lookup failed')
     expect(envFailure.removed).toEqual([])
+
+    const malformedEnvironment = new FakeSandbox()
+    malformedEnvironment.environmentWire = '%'
+    const malformedEnvironmentHandle = new E2BSubprocessHandle(
+      runtime(malformedEnvironment),
+      spec(),
+      '/runtime/malformed-environment',
+    )
+    await expect(malformedEnvironmentHandle.done).rejects.toThrow('invalid base64')
+
+    const invalidUtf8Environment = new FakeSandbox()
+    invalidUtf8Environment.environmentWire = Buffer.from([0xff]).toString('base64')
+    const invalidUtf8EnvironmentHandle = new E2BSubprocessHandle(
+      runtime(invalidUtf8Environment),
+      spec(),
+      '/runtime/invalid-utf8-environment',
+    )
+    await expect(invalidUtf8EnvironmentHandle.done).rejects.toThrow('not valid UTF-8')
 
     const cleanupFailure = new FakeSandbox()
     cleanupFailure.backgroundError = new Error('start failed before credential consumption')
@@ -1509,6 +1605,7 @@ describe('E2BSubprocessService', () => {
     const { ctx, fiber } = await service(fake)
     const subprocess = ctx.subprocess
     const handle = subprocess.spawn(spec())
+    await vi.waitFor(() => { expect(fake.startOptions).toBeDefined() })
     const disposing = fiber.dispose()
     await flush()
     expect(() => subprocess.spawn(spec())).toThrow('service is disposing')

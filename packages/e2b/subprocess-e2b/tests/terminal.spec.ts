@@ -89,7 +89,7 @@ class FakeTerminalSandbox {
   readonly directories: string[] = []
   readonly writes = new Map<string, string>()
   createOptions: Parameters<Sandbox['pty']['create']>[0] | undefined
-  ambient = 'KEEP=visible\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
+  ambient = 'KEEP=visible\0UNICODE=你好\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
   ready: string | Error = 'ready\n'
   readyMisses = 0
   readyReads = 0
@@ -162,7 +162,9 @@ class FakeTerminalSandbox {
           this.commandFailure = undefined
           throw error
         }
-        if (command === 'env -0') return { exitCode: 0, stdout: this.ambient, stderr: '' }
+        if (command.includes('env -0 | base64')) {
+          return { exitCode: 0, stdout: Buffer.from(this.ambient).toString('base64'), stderr: '' }
+        }
         if (command.includes('command -v -- ')) {
           return { exitCode: 0, stdout: this.resolvedExecutable, stderr: '' }
         }
@@ -263,6 +265,7 @@ describe('E2B terminal allocation', () => {
     expect(fake.createOptions).toMatchObject({ rows: 24, cols: 80, cwd: '/workspace', timeoutMs: 0, envs: { TERM: 'dumb' } })
     expect(fake.inputs[0]?.data.toString()).toContain("exec /bin/bash '/runtime/terminal-one/runner.bash'")
     expect(fake.writes.get('/runtime/terminal-one/environment')).toContain('KEEP=visible\0')
+    expect(fake.writes.get('/runtime/terminal-one/environment')).toContain('UNICODE=你好\0')
     expect(fake.writes.get('/runtime/terminal-one/environment')).toContain('TOKEN_EXPLICIT=kept\0')
     expect(fake.writes.get('/runtime/terminal-one/environment')).not.toContain('secret')
     expect(fake.writes.get('/runtime/terminal-one/environment')).not.toContain('DSH_STALE')
@@ -653,6 +656,8 @@ describe('E2B terminal lifecycle', () => {
     fake.foreground = 'invalid\n'
     await expect(terminal.inspectForeground()).rejects.toThrow('cannot resolve foreground')
     fake.foregroundFailure = commandError(1)
+    await expect(terminal.inspectForeground()).resolves.toBeUndefined()
+    fake.foregroundFailure = commandError(2)
     await expect(terminal.inspectForeground()).rejects.toBeInstanceOf(CommandExitError)
     fake.clearOnTerm = true
     terminal.terminate()
