@@ -34,10 +34,18 @@ describe('extractMarkdownPlainText', () => {
       .toBe('First paragraph with a link and diagram.')
   })
 
-  it('omits raw HTML and returns a useful fallback when no paragraph exists', () => {
-    const markdown = '<script>alert(1)</script>\n\n## Safe heading'
-    expect(extractMarkdownPlainText(markdown)).toBe('Safe heading')
-    expect(extractMarkdownPlainText(markdown, { mode: 'first-paragraph' })).toBe('Safe heading')
+  it('preserves raw HTML while removing Markdown presentation markup', () => {
+    const block = [
+      '<background-task-complete id="trajectory-ui-watch">',
+      'Command: pnpm test',
+      'Exit code: 0',
+      '</background-task-complete>',
+    ].join('\n')
+    expect(extractMarkdownPlainText(block)).toBe(block)
+    expect(extractMarkdownPlainText('**Status:** <span data-state="ok">ready</span>'))
+      .toBe('Status: <span data-state="ok">ready</span>')
+    expect(extractMarkdownPlainText(block, { mode: 'first-paragraph' }))
+      .toBe('<background-task-complete id="trajectory-ui-watch">')
   })
 
   it('projects GFM tables, references, hard breaks, and block structure', () => {
@@ -54,7 +62,7 @@ describe('extractMarkdownPlainText', () => {
       '[asset]: diagram.png',
     ].join('\n')
     expect(extractMarkdownPlainText(markdown)).toBe([
-      'first second with diagram and visible',
+      'first second with diagram and <span>visible</span>',
       '',
       'Name\tValue',
       'alpha\t1',

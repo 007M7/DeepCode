@@ -1,6 +1,6 @@
 /**
  * Markdown-to-plain-text projection for compact summaries and labels.
- * Parsing shares the renderer's GFM grammar; raw HTML is omitted, links
+ * Parsing shares the renderer's GFM grammar; raw HTML stays literal, links
  * keep their labels, images keep alt text, and code keeps its source text.
  */
 
@@ -36,7 +36,7 @@ function inlineText(node: MarkdownNode): string {
     case 'break':
       return '\n'
     case 'html':
-      return ''
+      return node.value ?? ''
     default:
       return node.children?.map(inlineText).join('') ?? ''
   }
@@ -67,7 +67,7 @@ function blockText(node: MarkdownNode): string {
     case 'tableCell':
       return compactInline(inlineText(node))
     case 'html':
-      return ''
+      return node.value ?? ''
     case 'thematicBreak':
     case 'definition':
       return ''
@@ -98,7 +98,7 @@ function fullText(root: MarkdownNode): string {
 }
 
 /**
- * Parse GFM Markdown and project its user-visible plain text.
+ * Parse GFM Markdown, remove its presentation markup, and preserve raw HTML literally.
  * @param markdown - Markdown source.
  * @param options - Optional extraction boundary.
  * @returns Plain text for the whole document, first visible line, or first semantic paragraph.

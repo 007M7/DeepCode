@@ -83,6 +83,34 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('15 tok')).toBeTruthy()
   })
 
+  it('keeps raw HTML tags in a Markdown-derived context preview', () => {
+    const html = [
+      '<background-task-complete id="trajectory-ui-watch">',
+      'Command: pnpm test',
+      'Exit code: 0',
+      '</background-task-complete>',
+    ].join('\n')
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Message',
+        cells: [{
+          index: 1,
+          kind: 'context',
+          text: '',
+          inputDetail: html,
+          timeSeconds: 0,
+        }],
+      }],
+    }]
+
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    expect(screen.getByText(
+      '<background-task-complete id="trajectory-ui-watch"> Command: pnpm test Exit code: 0 </background-task-complete>',
+    )).toBeTruthy()
+  })
+
   it('keeps running and failure semantics distinct from record roles', () => {
     const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     expect(view.container.querySelector('tr[data-kind="tool"][data-running="true"]')).toBeTruthy()
