@@ -448,6 +448,9 @@ importers:
       '@deepseek-ai/dsh-compact-tool-result-prune':
         specifier: workspace:*
         version: link:../packages/compact/compact-tool-result-prune
+      '@deepseek-ai/dsh-credentials-local':
+        specifier: workspace:*
+        version: link:../packages/credentials/credentials-local
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:*
         version: link:../packages/fs/fs-local
@@ -529,6 +532,9 @@ importers:
       '@deepseek-ai/dsh-session-title-first-message-llm':
         specifier: workspace:*
         version: link:../packages/session-title/session-title-first-message-llm
+      '@deepseek-ai/dsh-settings-local':
+        specifier: workspace:*
+        version: link:../packages/settings/settings-local
       '@deepseek-ai/dsh-spill-local':
         specifier: workspace:*
         version: link:../packages/spill/spill-local
