@@ -135,7 +135,7 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, clo
  */
 function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | undefined }) {
   const terminal = terminalCardModel(material.block, cwd)
-  if (terminal !== null) return <TerminalBlock {...terminal} className={css.terminal} />
+  if (terminal !== null) return <TerminalBlock {...terminal.card} className={css.terminal} />
   // A settled call always carries the result node the flattened form needs;
   // the running shape has no result to flatten.
   if (!('kind' in material.block)) return <div className={css.empty}>运行中…</div>

@@ -4,7 +4,7 @@
 // Opens the fixture history session and pins the `card: 'terminal'` render
 // intent at both of its conversation render sites, for both chat-row shapes:
 // turn 60's `fx-bash` on the render-site fallback row (expand-gated body) and
-// turn 66's `bash` on the keyed BashRow registration (resident body). Turn 66
+// turn 65's `bash` on the keyed BashRow registration (resident body). Turn 65
 // carries what turn 60's two clean prompt rows cannot — SGR runs resolved to
 // --dsw-* tokens, output past the chat cap, a nested cwd, and a non-zero exit
 // pill; turn 60 carries the multi-line command's per-line prompt rows.
@@ -167,11 +167,15 @@ async function openFixtureSession(): Promise<void> {
   }, { timeout: 10_000 })
 }
 
-/** The keyed BashRow of fixture turn 66 (the one carrying the ANSI sample). */
+/** The keyed BashRow of fixture turn 65 (the one carrying the ANSI sample). */
 function keyedBashRow(): Element {
+  // Anchored on the BashRow wrapper (summary row + resident card), not on the
+  // summary row itself: the summary now shows the presenter's description (the
+  // contract's above-card text), so the command lives only in the card below it.
   const row = [...document.querySelectorAll('[data-sample="bash-global"]')]
-    .find(node => visibleText(node).includes('pnpm run check'))
-  if (row === undefined) throw new Error('keyed bash row for turn 66 missing')
+    .map(node => node.parentElement)
+    .find((node): node is HTMLElement => node !== null && visibleText(node).includes('pnpm run check'))
+  if (row === undefined) throw new Error('keyed bash row for turn 65 missing')
   return row
 }
 

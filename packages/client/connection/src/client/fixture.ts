@@ -93,7 +93,7 @@ function sgr(code: number, body: string): string {
 
 /**
  * Terminal output sample for fixture turn 66, authored to carry every feature
- * the terminal card draws that turn 60's three plain lines cannot reach:
+ * the terminal card draws that turn 60's two prompt rows cannot reach:
  * basic-16 SGR foreground runs (green, red, bright-black) that must resolve to
  * `--dsw-*` tokens, a bold run, column-aligned table rows that must scroll
  * rather than fold, more than DEFAULT_TERMINAL_MAX_LINES (16) lines so the
@@ -124,6 +124,15 @@ const TERMINAL_OUTPUT_FIXTURE = [
   sgr(31, '1 of 4 checks failed'),
   '[exit code: 1]',
 ].join('\n')
+
+/**
+ * Exit status for each terminal sample, keyed by its output text. Authored
+ * alongside the sample rather than parsed back out of its trailing marker,
+ * which is the bash tool's own job and not something to reimplement here.
+ */
+const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: string }> = {
+  [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
+}
 
 const DEEPSEEK_REASONING = {
   efforts: [
@@ -200,8 +209,7 @@ function buildAlphaLog(): SessionEvent[] {
   }
   // Three view-sample turns (60-62) cover the built-in card types. The real filesystem names in
   // turns 62-63 also exercise their dedicated generic-row icon/title/path summaries. `echo` above
-  // stays presenter-less as the unknown fallback. Turn 66 is the second terminal sample, carrying
-  // what turn 60's three plain lines cannot (see TERMINAL_OUTPUT_FIXTURE) through the keyed row.
+  // stays presenter-less as the unknown fallback.
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
@@ -272,21 +280,26 @@ function buildAlphaLog(): SessionEvent[] {
     { content: '实现 fixture 样本', status: 'in_progress' },
     { content: '浏览器验收', status: 'pending' },
   ]
+  // Turn 65: the terminal sample turn 60's two clean prompt rows cannot cover —
+  // ANSI SGR coloring, output past the terminal card's height cap, a nested cwd
+  // whose prompt label is its last segment, and a non-zero exit recovered from
+  // the trailing marker the bash tool appends. Named `bash`, so it also covers
+  // the keyed toolview row (turn 60's `fx-bash` covers the render-site fallback
+  // row) — the two chat-row shapes the terminal card renders in.
+  //
+  // Ordered BEFORE the todo turn deliberately: the standing plan retires at the
+  // next `turn/start`, so a turn appended after it would leave the dock's plan
+  // strip empty and take the todo surfaces' own coverage with it.
+  toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(65, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
   const callIndex = events.length - 4
   const callTime = events[callIndex]?.time as number
   events.splice(callIndex + 1, 0, { type: 'todo/write', time: callTime + 400, data: { todos: fixtureTodos } })
-  // Turn 66: the terminal sample turn 60's three clean lines cannot cover —
-  // ANSI SGR coloring, output past the terminal card's height cap, a nested
-  // cwd whose prompt label is its last segment, and a non-zero exit recovered
-  // from the trailing marker the bash tool appends. Named `bash`, so it also
-  // covers the keyed toolview row (turn 60's `fx-bash` covers the render-site
-  // fallback row) — the two chat-row shapes the terminal card renders in.
-  toolTurn(66, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
   events.forEach((e, i) => { e.seq = i })
   return events as unknown as SessionEvent[]
 }
@@ -306,8 +319,7 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
   }
   switch (name) {
     // Both names present the same terminal card: `fx-bash` lands on the
-    // render-site fallback row, `bash` on the keyed BashRow registration, so
-    // the two chat-row shapes of one render intent are both reachable.
+    // render-site fallback row, `bash` on the keyed BashRow registration.
     case 'fx-bash':
     case 'bash':
       return { card: 'terminal', title: str(args.command), cwd: str(args.cwd, '/tmp/fixture'), description: 'fixture 终端样本' }
@@ -325,24 +337,15 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
   }
 }
 
-/**
- * Recover the exit status from a trailing `[exit code: N]` marker, mirroring
- * the real bash tool's `parseExitStatus` (this package must not depend on a
- * tool package, so the marker contract is re-read rather than imported).
- * @param text - the rendered result text.
- * @returns the recovered exit code (0 when the marker is absent).
- */
-function fixtureExitCode(text: string): number {
-  const marker = /\n\[exit code: (\d+)\]$/.exec(text)
-  return marker?.[1] === undefined ? 0 : Number(marker[1])
-}
-
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
   switch (call.card) {
     case 'terminal':
-      return { card: 'terminal', output: resultText, exitCode: fixtureExitCode(resultText) }
+      // The sample's own exit status, authored beside it: re-parsing the
+      // trailing marker here would duplicate the bash tool's `parseExitStatus`,
+      // which this client-side fixture cannot import.
+      return { card: 'terminal', output: resultText, ...(TERMINAL_EXIT_STATUS[resultText] ?? { exitCode: 0 }) }
     case 'diff':
       return { card: 'diff', diffs: call.diffs }
     case 'generic':

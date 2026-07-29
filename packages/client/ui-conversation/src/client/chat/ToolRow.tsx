@@ -157,7 +157,7 @@ export function ToolRow({
         )}
       </div>
       {open && (terminalBody !== null
-        ? <TerminalBlock {...terminalBody} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
+        ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
         : variant === 'code'
           ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
           : <div className={css.body}>{text}</div>)}

@@ -64,10 +64,12 @@ export function BashRow({ toolName, block, sessionId, useSessions }: ToolRowProp
         {isChild && <span className={css.scopeBadge}>scoped</span>}
         <span className={css.title}>{model.title}</span>
         <span className={css.sep} aria-hidden />
-        <span className={css.summary}>{model.summary}</span>
+        {/* The terminal presenter's description is the contractual
+            above-card summary; it outranks the args-derived one. */}
+        <span className={css.summary}>{terminal?.description ?? model.summary}</span>
       </div>
       {terminal !== null && (
-        <TerminalBlock {...terminal} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminal} />
+        <TerminalBlock {...terminal.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminal} />
       )}
     </div>
   )

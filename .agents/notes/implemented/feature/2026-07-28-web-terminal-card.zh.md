@@ -12,7 +12,7 @@ Web client 却对它视而不见。`packages/client/ui-conversation/src/client/c
 
 ## Decision
 
-`TerminalBlock` 是 `ui-primitives` 中把 shell 命令渲染为终端表面的组件，bash 调用在 Web 侧的两个渲染点都经由它消费 terminal 渲染意图：聊天工具行展开后的正文，以及详情面板的 Output 区。`ui-conversation/src/client/contract/terminal-card-model.ts` 是把快照上的 `callView`/`resultView` 这一对转换为该组件 props 的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧。当两侧都不声明 `card: 'terminal'` 时它返回 null，即走 generic 路径——包括本 client 版本不认识的 `card` 取值；当一个已落定调用的结果视图是 generic 时同样返回 null，这正是 bash 工具的执行错误与后台启动得以保持既有渲染的方式。渲染意图契约交给 UI 桥接层的两项职责也落在这里，而不在工具侧：已落定结果的 `title` **替换**待定标题；工作目录针对会话 workspace 解析——视图给出的绝对路径原样使用，相对路径在 workspace 之下拼接，省略则**就是** workspace，而这正是不带 `workdir` 的 bash 调用的常见情形。纯 presenter 看不到会话 cwd，因此该解析属于这道接缝；两个渲染点各自从会话列表行取出 cwd 传入。
+`TerminalBlock` 是 `ui-primitives` 中把 shell 命令渲染为终端表面的组件，bash 调用在 Web 侧的两个渲染点都经由它消费 terminal 渲染意图：聊天工具行展开后的正文，以及详情面板的 Output 区。`ui-conversation/src/client/contract/terminal-card-model.ts` 是把快照上的 `callView`/`resultView` 这一对转换为该组件 props 的唯一位置，因此两个渲染点不可能在命令、cwd 或退出状态上产生分歧。当两侧都不声明 `card: 'terminal'` 时它返回 null，即走 generic 路径——包括本 client 版本不认识的 `card` 取值；当一个已落定调用的结果视图是 generic 时同样返回 null，这正是 bash 工具的执行错误与后台启动得以保持既有渲染的方式。渲染意图契约交给 UI 桥接层的两项职责也落在这里，而不在工具侧：已落定结果的 `title` **替换**待定标题；工作目录针对会话 workspace 解析——视图给出的绝对路径原样使用，相对路径在 workspace 之下拼接，省略则**就是** workspace，而这正是不带 `workdir` 的 bash 调用的常见情形。纯 presenter 看不到会话 cwd，因此该解析属于这道接缝；两个渲染点各自从会话列表行取出 cwd 传入。解析后的路径还会归一化其 `.`／`..` 段，因为 bash 执行器在运行前就已解析 workdir：相对 `/w/app` 的 `..` 实际运行在 `/w`，因此提示标签必须读作 `w` 而不是 `..`。调用视图的 `description` 走同一处推导，因为契约把它渲染在卡片上方，且它必须优先于该行由参数推导出的摘要。
 
 该组件的契约：
 
@@ -49,6 +49,8 @@ Web client 却对它视而不见。`packages/client/ui-conversation/src/client/c
 
 `TerminalBlock` 只读取 terminal 视图携带的字段，因此它始终是渲染意图内容的纯函数——不查会话状态，与产出该视图的 presenter 一样可安全回放。不具备终端能力的 UI 仍从桥接层拿到围栏式回退；工具的结果形态未作任何改动。
 
+在当前已交付的 wire 上，`run_code` 子派发不会得到终端卡片：`session.ts` 把 `tool/code-dispatch(-start)` 折叠为 `callView: null`／`resultView: null`，而 host 的 `viewFor` 只呈现顶层的 `tool/call`／`tool/result`，因此嵌套的 bash 调用保持通用的压平形式。两条分支都已钉住——注入视图后的解析路径，以及 wire 实际投递的无视图形态——因此这个缺口是被记录下来的，而非暗含的。把 presenter 视图贯穿 code-dispatch wire 属于那道接缝自身的改动。
+
 内嵌渲染的许可仅授予 terminal 意图。将来想要内嵌的意图需要有自己的边界与自己的决定，且需针对此处记录的理由来论证，而不是仅针对「只在面板」这条约定本身。
 
 ## Testing
@@ -57,7 +59,7 @@ Web client 却对它视而不见。`packages/client/ui-conversation/src/client/c
 
 `packages/client/ui-conversation/tests/terminal-card.spec.tsx` 固定每个渲染点上的接线：`terminalCardModel` 的推导及其每一处 null 分支、结果标题替换待定标题、cwd 针对会话 workspace 解析的全部四种情形、切换选中调用时面板重置卡片展开态、对话行受展开控制的输出体与面板的全高输出体的对比、`BashRow` 的常驻卡片及其与自身摘要行状态点的一致性，以及面板 Output 区段（含 run_code 子派发与超出窗口的调用头）。该文件在没有门禁压力的情况下写成——`packages/client/ui-conversation/src/*` 位于 `vitest.config.ts` 的覆盖率 `exclude` 列表中，因此覆盖率运行不会统计其中任何文件。
 
-`apps/web/tests/terminal-card.snapshot.ts` 在构建后的客户端产物上固定组装完整的应用：同一渲染意图在两个对话渲染点、以及两种对话行形态下的表现——因为 bash 调用只有经由带键的 `BashRow` 注册才得到常驻卡片，而其他任何声明 terminal 的工具名都落到渲染点兜底行上，其输出体受展开控制。fixture 第 66 轮改名为 `bash`、第 60 轮保留 `fx-bash`，于是一份 fixture 覆盖两种形态，并把第 60 轮的命令改为两行，使构建产物快照钉住逐行提示区及其单枚状态点（`dotsPerPromptRow: [1, 0]`）；该轮还承载第 60 轮三行干净输出无法覆盖的部分——解析到 `--dsw-*` token 的 SGR 分段、超出对话上限的输出、嵌套 cwd，以及从末尾标记还原出的非零退出码。
+`apps/web/tests/terminal-card.snapshot.ts` 在构建后的客户端产物上固定组装完整的应用：同一渲染意图在两个对话渲染点、以及两种对话行形态下的表现——因为 bash 调用只有经由带键的 `BashRow` 注册才得到常驻卡片，而其他任何声明 terminal 的工具名都落到渲染点兜底行上，其输出体受展开控制。fixture 第 65 轮改名为 `bash`、第 60 轮保留 `fx-bash`，于是一份 fixture 覆盖两种形态，并把第 60 轮的命令改为两行，使构建产物快照钉住逐行提示区及其单枚状态点（`dotsPerPromptRow: [1, 0]`）。该终端轮有意排在 todo 轮**之前**：站立计划会在下一次 `turn/start` 时退役，若追加在其后就会让 dock 的计划条变空，并连带毁掉 todo 表面自身的覆盖；该轮还承载第 60 轮三行干净输出无法覆盖的部分——解析到 `--dsw-*` token 的 SGR 分段、超出对话上限的输出、嵌套 cwd，以及从末尾标记还原出的非零退出码。
 
 `apps/web/tests/navigation-panes.e2e.ts` 在其既有的 `echo NAVIGATION_OK` bash 调用上新增真实浏览器场景，断言 jsdom 无法计算的部分：把输出面板挤压到窄于内容宽度后，行仍保持单行且面板产生横向溢出；运行状态点解析为绿色的 success token，而不是字面颜色（没有真实主题样式表时，`--dsw-*` 变量根本不产生计算值），且其起点位于卡片表面本身的左侧；复制控件走的是页面自身的异步 Clipboard API，而非 `execCommand` 兜底路径。其 `terminal-card.expected.md` 基准记录了提示行中已解析的 workspace——这正是不带 `workdir` 的 bash 调用应当显示的内容，而非一个裸 `$`。
 

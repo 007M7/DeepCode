@@ -28,10 +28,21 @@ export const CHAT_TERMINAL_MAX_LINES = 8
  * client has no home path for the session host (a cwd renders as its last
  * path segment), and `maxLines`/`className` belong to each render site.
  */
-export type TerminalCardModel = Pick<
-  TerminalBlockProps,
-  'command' | 'cwd' | 'output' | 'exitCode' | 'signal' | 'running'
->
+export interface TerminalCardModel {
+  /**
+   * The props {@link TerminalBlock} draws. Held as a nested object so a render
+   * site spreads exactly the primitive's own surface and can never leak a
+   * neighbouring field into it.
+   */
+  card: Pick<TerminalBlockProps, 'command' | 'cwd' | 'output' | 'exitCode' | 'signal' | 'running'>
+  /**
+   * The call view's model-authored description, which the contract defines as
+   * rendering ABOVE the card (the card itself has no description slot). Absent
+   * when the presenter supplied none, or when the window dropped the call side;
+   * a row then keeps its args-derived summary.
+   */
+  description: string | undefined
+}
 
 /**
  * Resolve a terminal view's working directory the way the render-intent
@@ -47,8 +58,41 @@ export type TerminalCardModel = Pick<
  */
 function resolveTerminalCwd(viewCwd: string | undefined, sessionCwd: string | undefined): string | undefined {
   if (viewCwd === undefined || viewCwd === '') return sessionCwd
-  if (sessionCwd === undefined || sessionCwd === '') return viewCwd
-  return resolveToolPath(sessionCwd, viewCwd)
+  if (sessionCwd === undefined || sessionCwd === '') return normalizeSegments(viewCwd)
+  return normalizeSegments(resolveToolPath(sessionCwd, viewCwd))
+}
+
+/**
+ * Collapse `.` and `..` segments so the prompt label names the directory the
+ * command actually ran in. The bash executor resolves the workdir before
+ * running, so a joined `/w/app/..` must display as `w`, not as `..`. Separators
+ * are preserved as authored (a Windows path keeps its backslashes) because this
+ * value is only ever displayed; a `..` that would climb past the root is
+ * dropped, which is what a filesystem does with it.
+ * @param path - a joined or absolute path, possibly carrying `.`/`..` segments.
+ * @returns the same path with those segments resolved.
+ */
+function normalizeSegments(path: string): string {
+  if (!/(?:^|[/\\])\.\.?(?:[/\\]|$)/.test(path)) return path
+  const backslashed = path.includes('\\') && !path.includes('/')
+  const separator = backslashed ? '\\' : '/'
+  const leading = /^[/\\]/.test(path) ? separator : ''
+  const drive = /^[A-Za-z]:/.exec(path)?.[0] ?? ''
+  const kept: string[] = []
+  for (const segment of path.slice(drive.length).split(/[/\\]/)) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      // Nothing to climb from: at a root the segment is dropped, matching the
+      // filesystem; on a relative path the `..` has to stay, since it is still
+      // meaningful against a cwd this function cannot see.
+      if (kept.length > 0 && kept[kept.length - 1] !== '..') kept.pop()
+      else if (leading === '' && drive === '') kept.push(segment)
+      continue
+    }
+    kept.push(segment)
+  }
+  const body = kept.join(separator)
+  return drive === '' ? `${leading}${body}` : `${drive}${leading === '' ? separator : leading}${body}`
 }
 
 /**
@@ -82,25 +126,31 @@ export function terminalCardModel(block: ToolCallBlock, sessionCwd?: string): Te
   if (!('kind' in block)) {
     // Running: the call view exists, the result view does not yet.
     return call === null ? null : {
-      command: call.title,
-      cwd: resolveTerminalCwd(call.cwd, sessionCwd),
-      output: undefined,
-      exitCode: undefined,
-      signal: undefined,
-      running: true,
+      description: call.description,
+      card: {
+        command: call.title,
+        cwd: resolveTerminalCwd(call.cwd, sessionCwd),
+        output: undefined,
+        exitCode: undefined,
+        signal: undefined,
+        running: true,
+      },
     }
   }
   const result = block.resultView?.card === 'terminal' ? block.resultView : null
   if (result === null) return null
   return {
-    // The result's title REPLACES the pending one when the tool supplies it
-    // (the presentation contract's replacement-title rule); the call title is
-    // what a result without one keeps.
-    command: result.title ?? call?.title ?? '',
-    cwd: resolveTerminalCwd(call?.cwd, sessionCwd),
-    output: result.output,
-    exitCode: result.exitCode,
-    signal: result.signal,
-    running: false,
+    description: call?.description,
+    card: {
+      // The result's title REPLACES the pending one when the tool supplies it
+      // (the presentation contract's replacement-title rule); the call title is
+      // what a result without one keeps.
+      command: result.title ?? call?.title ?? '',
+      cwd: resolveTerminalCwd(call?.cwd, sessionCwd),
+      output: result.output,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      running: false,
+    },
   }
 }

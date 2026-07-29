@@ -63,8 +63,11 @@ const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
 describe('terminalCardModel', () => {
   it('derives a running card from the call view alone', () => {
     expect(terminalCardModel(running({ callView: callTerminal({ cwd: '/projects/app' }) }))).toEqual({
-      command: 'ls -la', cwd: '/projects/app', output: undefined,
-      exitCode: undefined, signal: undefined, running: true,
+      description: 'List files',
+      card: {
+        command: 'ls -la', cwd: '/projects/app', output: undefined,
+        exitCode: undefined, signal: undefined, running: true,
+      },
     })
   })
 
@@ -73,12 +76,15 @@ describe('terminalCardModel', () => {
       callView: callTerminal({ cwd: '/projects/app' }),
       resultView: resultTerminal({ output: 'boom\n', exitCode: 2 }),
     }))).toEqual({
-      command: 'ls -la', cwd: '/projects/app', output: 'boom\n',
-      exitCode: 2, signal: undefined, running: false,
+      description: 'List files',
+      card: {
+        command: 'ls -la', cwd: '/projects/app', output: 'boom\n',
+        exitCode: 2, signal: undefined, running: false,
+      },
     })
     expect(terminalCardModel(settled({
       resultView: { card: 'terminal', output: '', signal: 'SIGTERM' },
-    }))?.signal).toBe('SIGTERM')
+    }))?.card.signal).toBe('SIGTERM')
   })
 
   it('takes the result view\'s replacement title over the pending one', () => {
@@ -87,30 +93,75 @@ describe('terminalCardModel', () => {
     expect(terminalCardModel(settled({
       callView: callTerminal({ title: 'pnpm run check' }),
       resultView: resultTerminal({ title: 'pnpm run check --filter web' }),
-    }))?.command).toBe('pnpm run check --filter web')
+    }))?.card.command).toBe('pnpm run check --filter web')
     // Without one, the call's title is what the card keeps.
-    expect(terminalCardModel(settled())?.command).toBe('ls -la')
+    expect(terminalCardModel(settled())?.card.command).toBe('ls -la')
   })
 
   it('resolves the cwd against the session workspace the way the bridge must', () => {
     // Omitted workdir — the common bash call — IS the session workspace.
-    expect(terminalCardModel(settled(), '/w/app')?.cwd).toBe('/w/app')
+    expect(terminalCardModel(settled(), '/w/app')?.card.cwd).toBe('/w/app')
     // A relative workdir joins under it.
     expect(terminalCardModel(settled({
       callView: callTerminal({ cwd: 'packages/ui' }),
-    }), '/w/app')?.cwd).toBe('/w/app/packages/ui')
+    }), '/w/app')?.card.cwd).toBe('/w/app/packages/ui')
     // An absolute one is used as-is.
     expect(terminalCardModel(settled({
       callView: callTerminal({ cwd: '/srv/other' }),
-    }), '/w/app')?.cwd).toBe('/srv/other')
+    }), '/w/app')?.card.cwd).toBe('/srv/other')
     // With no session cwd there is nothing to resolve against: a relative path
     // stays as authored and an omitted one stays absent (a bare `$` prompt).
     expect(terminalCardModel(settled({
       callView: callTerminal({ cwd: 'packages/ui' }),
-    }))?.cwd).toBe('packages/ui')
-    expect(terminalCardModel(settled())?.cwd).toBeUndefined()
+    }))?.card.cwd).toBe('packages/ui')
+    expect(terminalCardModel(settled())?.card.cwd).toBeUndefined()
     // The running arm resolves identically.
-    expect(terminalCardModel(running(), '/w/app')?.cwd).toBe('/w/app')
+    expect(terminalCardModel(running(), '/w/app')?.card.cwd).toBe('/w/app')
+  })
+
+  it('normalizes a relative workdir so the label names the directory actually used', () => {
+    // The bash executor resolves the workdir before running, so `..` against
+    // /w/app runs in /w — the card must say `w`, not `..`.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '..' }),
+    }), '/w/app')?.card.cwd).toBe('/w')
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '.' }),
+    }), '/w/app')?.card.cwd).toBe('/w/app')
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '../sibling' }),
+    }), '/w/app')?.card.cwd).toBe('/w/sibling')
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: './nested/../other' }),
+    }), '/w/app')?.card.cwd).toBe('/w/app/other')
+    // A `..` that would climb past the root is dropped, as a filesystem does.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '../../..' }),
+    }), '/w')?.card.cwd).toBe('/')
+    // An absolute path carrying segments normalizes too.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '/srv/./app/../other' }),
+    }), '/w/app')?.card.cwd).toBe('/srv/other')
+    // A Windows path keeps its separators.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: 'C:\\ws\\app\\..' }),
+    }), '/w')?.card.cwd).toBe('C:\\ws')
+    // Without a session cwd a relative `..` has nothing to resolve against, so
+    // it survives as authored rather than being silently dropped.
+    expect(terminalCardModel(settled({
+      callView: callTerminal({ cwd: '../elsewhere' }),
+    }))?.card.cwd).toBe('../elsewhere')
+  })
+
+  it('carries the call view\'s description, which the contract renders above the card', () => {
+    expect(terminalCardModel(settled())?.description).toBe('List files')
+    expect(terminalCardModel(running())?.description).toBe('List files')
+    // A presenter that supplies none, and a window-truncated call side, both
+    // leave it absent so the row keeps its args-derived summary.
+    expect(terminalCardModel(settled({
+      callView: { card: 'terminal', title: 'ls' },
+    }))?.description).toBeUndefined()
+    expect(terminalCardModel(settled({ call: null, callView: null }))?.description).toBeUndefined()
   })
 
   it('a window-truncated call side falls back to the result title, then to an empty command', () => {
@@ -118,8 +169,8 @@ describe('terminalCardModel', () => {
     const truncated = { call: null, callView: null }
     expect(terminalCardModel(settled({
       ...truncated, resultView: resultTerminal({ title: 'ls -la' }),
-    }))).toMatchObject({ command: 'ls -la', cwd: undefined, running: false })
-    expect(terminalCardModel(settled(truncated))).toMatchObject({ command: '', cwd: undefined })
+    }))?.card).toMatchObject({ command: 'ls -la', cwd: undefined, running: false })
+    expect(terminalCardModel(settled(truncated))?.card).toMatchObject({ command: '', cwd: undefined })
   })
 
   it('returns null for every non-terminal call: no views, generic views, unknown cards', () => {
@@ -244,6 +295,23 @@ describe('BashRow terminal card', () => {
     expect(runStateOf(settledView.container)).toBe('done')
   })
 
+  it('shows the terminal presenter\'s description instead of the args summary', () => {
+    // `terminal_send`-style presenters author a description the args do not
+    // repeat; the contract puts it above the card, which is this row's summary.
+    const view = render(<BashRow {...rowProps(settled({
+      callView: callTerminal({ description: 'Terminal 3' }),
+    }))} />)
+    expect(view.getByText('Terminal 3')).toBeTruthy()
+    expect(view.queryByText('List files')).toBeNull()
+  })
+
+  it('keeps the args-derived summary when the presenter authored no description', () => {
+    const view = render(<BashRow {...rowProps(settled({
+      callView: { card: 'terminal', title: 'ls -la' },
+    }))} />)
+    expect(view.getByText('List files')).toBeTruthy()
+  })
+
   it('a non-terminal bash call (background start) renders the summary row alone', () => {
     const view = render(<BashRow {...rowProps(settled({
       callView: { card: 'generic', title: 'sleep 30', kind: 'execute' },
@@ -358,11 +426,29 @@ describe('DetailsPanel Output section', () => {
     expect(pre?.textContent).toBe('permission denied')
   })
 
-  it('a run_code sub-dispatch resolves to its own terminal card', () => {
+  // The panel resolves a sub-dispatch through the same material as a native
+  // call, so a sub-call that DID carry terminal views would render the card.
+  // The shipped wire cannot produce that yet: `session.ts` folds
+  // `tool/code-dispatch(-start)` with `callView: null`/`resultView: null`, and
+  // the host's `viewFor` only presents top-level `tool/call`/`tool/result`. This
+  // pins the resolution path with views injected directly, and the arm below
+  // pins what the shipped path actually shows today.
+  it('a run_code sub-dispatch resolves to its own terminal card once views reach it', () => {
     const view = mount(snapshot({
       codeDispatches: new Map([['p1', [settled({ callId: 'c1' })]]]),
     }), target)
     expect(view.getByText('a.ts  b.ts', RAW)).toBeTruthy()
+  })
+
+  it('a sub-dispatch as the wire actually delivers it (no views) keeps the flattened form', () => {
+    const view = mount(snapshot({
+      codeDispatches: new Map([['p1', [settled({ callId: 'c1', callView: null, resultView: null })]]]),
+    }), target)
+    // No terminal card: the generic path renders the result text in the Output
+    // section's <pre> (the Input section has its own, hence the scoping).
+    expect(view.container.querySelector('[data-terminal]')).toBeNull()
+    const output = view.getByText('Output').closest('section')
+    expect(output?.querySelector('pre')?.textContent).toContain('a.ts  b.ts')
   })
 
   it('a running run_code sub-dispatch resolves through the running material', () => {
