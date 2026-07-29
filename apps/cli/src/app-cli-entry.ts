@@ -17,7 +17,7 @@ import type { FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { assertEntriesLoaded, installFailLoud, loadEnv, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { assertEntriesLoaded, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -110,9 +110,9 @@ export interface AppCLIEntryOptions {
    */
   overlayPath: string
   /**
-   * Optional extra overlay applied after {@link overlayPath} and before this
-   * entry's own profile/flag patches — the `--config` escape for demos and
-   * tests that need a row this surface does not ship.
+   * Optional explicit overlay applied after {@link overlayPath} and before
+   * this entry's own profile/flag patches. When absent, the personal
+   * `$DSH_HOME/config.yaml` overlay is applied instead.
    */
   extraOverlayPath?: string
   /** Whether to append the HMR row (the whole prod/dev difference; web surface only). */
@@ -243,7 +243,7 @@ export class AppCLIEntry {
     const patches = [
       ...loadOverlayPatches('dsh', this.options.overlayPath),
       ...this.options.extraOverlayPath === undefined
-        ? []
+        ? loadPersonalPatches('dsh') ?? []
         : loadOverlayPatches('dsh', this.options.extraOverlayPath),
       ...this.patches,
     ]

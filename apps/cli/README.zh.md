@@ -18,7 +18,7 @@ TUI 界面：
 `dsh upgrade` 是默认 TUI 界面之上的引导式全新会话入口：它在调用目录中创建一个全新会话，并以内置 `dsh-upgrade` skill 播种其首轮，效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。两者都不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
 
 
-Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`；`dsh web --config <path>` 会在 Web 界面默认值之后追加一个覆盖。除此之外，两者共享同一套组合：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
+Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 `$DSH_HOME/config.yaml`；显式的 `--config <path>` 会替代该个人覆盖。除此之外，两者共享同一套组合：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 

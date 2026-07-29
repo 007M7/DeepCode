@@ -27,7 +27,8 @@ const LOOPBACK_HOST = '127.0.0.1'
  * @param workspaceRoot - parent directory for name-created workspaces, or `undefined` for the gateway's cwd fallback.
  * @param trustedHosts - extra authorities for the /api browser-trust fence, or `undefined` for the derived LAN literals alone.
  * @param config - an overlay of loader patches applied over the shipped web
- * composition, or `undefined` for none; already parsed from `--config`.
+ * composition instead of `$DSH_HOME/config.yaml`, or `undefined` to use the
+ * personal overlay; already parsed from `--config`.
  */
 export async function runWeb(
   host: string | undefined,
