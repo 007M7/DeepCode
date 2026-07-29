@@ -132,6 +132,8 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Prom
     binScript: dshBinScript,
     tsconfigPath,
     env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
+    // Artifact CI builds and smokes concurrently on a contended runner.
+    ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? { timeoutMs: 60_000 } : {}),
     ...overrides,
   })
 }
