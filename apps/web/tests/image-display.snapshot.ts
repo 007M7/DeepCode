@@ -5,7 +5,8 @@
 // user message and an assistant message, and pins the product surfaces: the
 // history ImageGallery loading real fixture bytes through the authorized
 // sessions.attachment route, the double-click ImageLightbox, and the composer
-// intake chain (paste → thumbnail rail → image-only send enablement → remove).
+// intake chain (paste → thumbnail rail → one-image limit → image-only send
+// enablement → remove).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -75,9 +76,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-/** Boot the complete built client graph against the populated fixture branch. */
-function boot(): void {
-  history.replaceState(null, '', '/?fixture')
+/** Boot the complete built client graph against one fixture branch. */
+function boot(search = '?fixture'): void {
+  history.replaceState(null, '', `/${search}`)
   const root = document.createElement('div')
   root.id = 'root'
   document.body.appendChild(root)
@@ -162,12 +163,21 @@ it('renders the history image pair through the authorized attachment route and o
 })
 
 it('accepts a pasted image into the composer rail and removes it', async () => {
-  boot()
-  await openFixtureSession()
+  boot('?fixture=empty')
+
+  await screen.findByPlaceholderText('Choose a workspace to start', {}, { timeout: 10_000 })
+  fireEvent.click(screen.getAllByRole('button', { name: 'Choose workspace' })
+    .find(el => el.getAttribute('aria-haspopup') === 'menu')!)
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Create a new workspace' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Create a new workspace' })
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'New workspace name' }), {
+    target: { value: 'image-input' },
+  })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create workspace' }))
 
   // Image-only send arming is pinned at package level (input-bar.spec.tsx);
   // this assembled lane pins the intake chain over the built graph.
-  const textarea = await screen.findByPlaceholderText('Message the agent', {}, { timeout: 10_000 })
+  const textarea = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
   const image = new File([new Uint8Array([137, 80, 78, 71])], 'pasted.png', { type: 'image/png' })
   fireEvent.paste(textarea, {
     clipboardData: {
@@ -193,6 +203,16 @@ it('accepts a pasted image into the composer rail and removes it', async () => {
       },
     ]
   `)
+
+  const second = new File([new Uint8Array([137, 80, 78, 71])], 'second.png', { type: 'image/png' })
+  fireEvent.paste(textarea, {
+    clipboardData: {
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => second }],
+      getData: () => '',
+    },
+  })
+  expect(await screen.findByText('每条消息最多添加 1 张图片')).toBeTruthy()
+  expect(rail.querySelectorAll('img')).toHaveLength(1)
 
   const remove = rail.querySelector('button[aria-label^="移除图片"]')
   if (remove === null) throw new Error('remove button missing')

@@ -39,8 +39,6 @@ interface ImageAttachmentRef {
 /** Deployment-resolved limits shared by upload consumers and UI preflight. */
 interface ImageAttachmentLimits {
   maxImageBytes: number
-  maxImagesPerMessage: number
-  maxMessageImageBytes: number
   maxImagePixels: number
   mediaTypes: readonly ImageMediaType[]
 }
@@ -69,4 +67,4 @@ interface StoredImageAttachment {
 }
 ```
 
-`saveImage()` validates bytes and atomically commits one object before returning its reference. `validateImage()` runs the same admission checks (magic bytes, declared media type, size and pixel limits) without persisting anything — batch callers MUST validate every member through it before persisting any, so a rejected batch leaves no partial objects behind. `readImage()` accepts a reference from an authorized session path and returns bytes only after integrity verification. The service is deliberately retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to any one session's deletion.
+`saveImage()` validates bytes and atomically commits one object before returning its reference. `readImage()` accepts a reference from an authorized session path and returns bytes only after integrity verification. The service is deliberately retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to any one session's deletion.

@@ -118,6 +118,26 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
 }
 
 describe('Web session model selection', () => {
+  it('rejects a second prompt image before attachment persistence', async () => {
+    const { ctx, sessionId } = await harness()
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const image = { type: 'image' as const, mediaType: 'image/png' as const, data: 'AA==' }
+    const response = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [image, image],
+    }))
+    expect(response.result).toEqual({
+      ok: false,
+      error: {
+        code: 'attachment-error',
+        message: 'A prompt may contain at most one image.',
+        details: { reason: 'TOO_MANY_IMAGES' },
+      },
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('groups successful providers, isolates failures, and preserves an unlisted current model', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek',

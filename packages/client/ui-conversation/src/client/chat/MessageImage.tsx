@@ -7,9 +7,8 @@ import css from './MessageImage.module.css'
 export type ImageLoader = (attachment: ImageAttachmentRef) => Promise<string>
 
 /** Compact history renderer with retryable loading and double-click original preview. */
-export function MessageImage({ attachment, alt, load }: {
+export function MessageImage({ attachment, load }: {
   attachment: ImageAttachmentRef
-  alt?: string
   load: ImageLoader
 }) {
   const [src, setSrc] = useState<string | null>(null)
@@ -34,7 +33,7 @@ export function MessageImage({ attachment, alt, load }: {
     return () => { live = false }
   }, [attachment, load])
 
-  const label = alt ?? attachment.name ?? '图片'
+  const label = attachment.name ?? '图片'
   if (error) return <button type="button" className={css.error} onClick={request}>图片加载失败，点击重试</button>
   return (
     <>
@@ -55,7 +54,7 @@ export function MessageImage({ attachment, alt, load }: {
 
 /** Wrapping image group shared by user and assistant history. */
 export function ImageGallery({ images, load, align }: {
-  images: readonly { attachment: ImageAttachmentRef; alt?: string }[]
+  images: readonly { attachment: ImageAttachmentRef }[]
   load: ImageLoader
   align: 'start' | 'end'
 }) {

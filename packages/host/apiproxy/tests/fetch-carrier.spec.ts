@@ -264,13 +264,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       hostDescription: {
         version: 'v',
         cwd: '/w',
-        activeModel: {
-          provider: 'future',
-          id: 'audio-model',
-          name: 'Audio Model',
-          inputModalities: ['text', 'audio'],
-          outputModalities: ['audio'],
-        },
         attachedSessions: 0,
       },
     }))
@@ -281,13 +274,6 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       value: {
         version: 'v',
         cwd: '/w',
-        activeModel: {
-          provider: 'future',
-          id: 'audio-model',
-          name: 'Audio Model',
-          inputModalities: ['text', 'audio'],
-          outputModalities: ['audio'],
-        },
         attachedSessions: 0,
       },
     })

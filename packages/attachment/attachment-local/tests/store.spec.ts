@@ -28,8 +28,6 @@ const PNG = Uint8Array.from(Buffer.from(
 
 const LIMITS: ImageAttachmentLimits = {
   maxImageBytes: 1024,
-  maxImagesPerMessage: 2,
-  maxMessageImageBytes: 2048,
   maxImagePixels: 16,
   mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
 }

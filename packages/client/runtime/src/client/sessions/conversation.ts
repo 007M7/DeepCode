@@ -36,7 +36,7 @@ export interface AssistantProvenanceView {
 export type AssistantBlock =
   | { kind: 'text'; text: string }
   | { kind: 'reasoning'; text: string }
-  | { kind: 'image'; attachment: ImageAttachmentRef; alt?: string }
+  | { kind: 'image'; attachment: ImageAttachmentRef }
   | { kind: 'tool-call'; callId: string; name: string; argsRaw: string }
   | { kind: 'other'; block: unknown }
 
@@ -58,11 +58,7 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
   switch (block.type) {
     case 'text': return { kind: 'text', text: block.text }
     case 'reasoning': return { kind: 'reasoning', text: block.text }
-    case 'image': return {
-      kind: 'image',
-      attachment: block.attachment,
-      ...block.alt === undefined ? {} : { alt: block.alt },
-    }
+    case 'image': return { kind: 'image', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }
   }

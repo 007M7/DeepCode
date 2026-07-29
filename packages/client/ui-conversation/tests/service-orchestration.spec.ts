@@ -29,6 +29,25 @@ async function bench() {
 }
 
 describe('ConversationService', () => {
+  it('keeps the browser draft to one image', async () => {
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-one')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    try {
+      const [first] = b.root.createDraftImages([new File([Uint8Array.of(1)], 'first.png', { type: 'image/png' })])
+      if (first === undefined) throw new Error('draft attachment missing')
+      expect(() => b.root.createDraftImages(
+        [new File([Uint8Array.of(2)], 'second.png', { type: 'image/png' })],
+        [first],
+      )).toThrow('每条消息最多添加 1 张图片')
+      expect(created).toHaveBeenCalledOnce()
+    } finally {
+      created.mockRestore()
+      revoked.mockRestore()
+    }
+    await b.runtime.dispose()
+  })
+
   it('routes operations through the public Session binding', async () => {
     const b = await bench()
     await b.scoped.send('hello', 'steer')

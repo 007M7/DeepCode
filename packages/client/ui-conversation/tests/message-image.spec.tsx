@@ -48,14 +48,14 @@ describe('MessageImage', () => {
       <AssistantMarkdown
         blocks={[
           { kind: 'text', text: 'before' },
-          { kind: 'image', attachment, alt: 'middle' },
+          { kind: 'image', attachment },
           { kind: 'text', text: 'after' },
         ]}
         streaming={false}
         loadImage={() => Promise.resolve('blob:middle')}
       />,
     )
-    const image = await view.findByAltText('middle')
+    const image = await view.findByAltText('history.png')
     const before = view.getByText('before')
     const after = view.getByText('after')
     expect(before.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)

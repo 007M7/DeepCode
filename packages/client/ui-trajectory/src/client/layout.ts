@@ -644,7 +644,6 @@ function assistantSourceBlock(block: AssistantBlock): TrajectorySourceBlock {
     case 'image': return {
       type: 'image',
       content: stringifySourceValue(block.attachment),
-      ...(block.alt !== undefined ? { imageAlt: block.alt } : {}),
     }
     case 'other': return sourceBlock(block.block)
   }

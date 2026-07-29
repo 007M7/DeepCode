@@ -130,7 +130,6 @@ export class PiAiAdapter extends LlmAdapter {
       id: model.id,
       name: model.name,
       inputModalities: [...model.input],
-      outputModalities: ['text'],
     })))
   }
 
@@ -155,7 +154,6 @@ export class PiAiAdapter extends LlmAdapter {
         id: model,
         name: resolvedModel.name,
         inputModalities: [...resolvedModel.input],
-        outputModalities: ['text'],
         context: { contextWindow: resolvedModel.contextWindow },
         reasoning: {
           efforts: levels.map(level => ({

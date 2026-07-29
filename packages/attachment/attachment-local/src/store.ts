@@ -53,15 +53,6 @@ function validateAdmission(metadata: Omit<ImageAttachmentRef, 'attachmentId' | '
 }
 
 /**
- * Run the full admission policy for one image without touching storage.
- * @param input - encoded bytes and declared metadata.
- * @param limits - resolved storage policy.
- */
-export function validateImageFile(input: SaveImageAttachment, limits: ImageAttachmentLimits): void {
-  validateAdmission(inspectMetadata(input.data, input.mediaType), limits)
-}
-
-/**
  * Make a directory's entries durable (fsync on a read-only directory handle).
  * A synced file alone does not survive a crash when its directory entry never
  * reached storage, so the publication directory is synced before a durable

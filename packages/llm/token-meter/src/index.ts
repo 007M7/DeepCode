@@ -25,11 +25,6 @@ const CHARS_PER_TOKEN = 4
 /** Per-block structural overhead for JSON framing and type tags. */
 const BLOCK_OVERHEAD = 4
 
-/** Provider-neutral visual estimate: base cost plus one cost unit per 512px tile. */
-const IMAGE_BASE_TOKENS = 85
-const IMAGE_TILE_TOKENS = 170
-const IMAGE_TILE_EDGE = 512
-
 /** Role-field framing overhead added to every priced message. */
 const ROLE_OVERHEAD = 4
 
@@ -362,12 +357,6 @@ export class TokenMeterService extends Service {
         case 'reasoning':
           tokens += Math.ceil(block.text.length / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
           break
-        case 'image': {
-          const tiles = Math.ceil(block.attachment.width / IMAGE_TILE_EDGE)
-            * Math.ceil(block.attachment.height / IMAGE_TILE_EDGE)
-          tokens += IMAGE_BASE_TOKENS + tiles * IMAGE_TILE_TOKENS + BLOCK_OVERHEAD
-          break
-        }
         case 'tool-call':
           tokens += Math.ceil(block.name.length / CHARS_PER_TOKEN)
             + Math.ceil(block.arguments.length / CHARS_PER_TOKEN)

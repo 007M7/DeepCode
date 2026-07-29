@@ -122,7 +122,7 @@ interface ContentBlockMap {
 }
 ```
 
-各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图像附件](attachment.md)，外加可选的替代文本）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
+各块接口（完整字段见源码）：`TextBlock`（`text`）、`ReasoningBlock`（thinking，区别于可见文本）、`ImageBlock`（一个持久的[图像附件](attachment.md)）、`ToolCallBlock`（`id: CallId`、`name`、原始 JSON `arguments`），以及 `ToolResultBlock`（`toolCallId`、嵌套 `content: ContentBlock[]`、`isError?`）。`ContentBlock = ContentBlockMap[ContentBlockType]`。仅当适配器、UI、压缩和持久回放路径均支持某种新模态时，才将其纳入可合并扩展的 map。
 
 源码：[`packages/llm/llm/src/message.ts`](../../packages/llm/llm/src/message.ts)
 
@@ -212,8 +212,6 @@ interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
-  /** Structured response modalities; absent means unknown, while an explicit omission is negative capability. */
-  outputModalities?: readonly ModelModality[]
 }
 ```
 

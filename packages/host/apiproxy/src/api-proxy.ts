@@ -11,8 +11,8 @@ import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
   Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
 } from '@deepseek-ai/dsh-agent'
-import { AttachmentError } from '@deepseek-ai/dsh-attachment-local'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment-local'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -79,37 +79,23 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
   if (content.every(part => part.type === 'text')) {
     return content.map(part => ({ type: 'text', text: part.text }))
   }
-  const limits = ctx.attachments.imageLimits
-  const prepared = content.map(part => part.type === 'text'
-    ? part
-    : { part, data: decodeBase64(part.data) })
-  const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array }> => 'data' in part)
-  if (images.length > limits.maxImagesPerMessage) {
-    throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
+  if (content.filter(part => part.type === 'image').length > 1) {
+    throw new AttachmentError('A prompt may contain at most one image.', 'TOO_MANY_IMAGES')
   }
-  const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
-  if (totalBytes > limits.maxMessageImageBytes) {
-    throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
-  }
-  // Validate the complete batch before persisting any member: the store has no
-  // garbage collection, so one malformed image must not leave the batch's
-  // valid members as published objects no message event will ever reference.
-  for (const image of images) {
-    ctx.attachments.validateImage({
-      data: image.data,
-      mediaType: image.part.mediaType,
-      ...image.part.name === undefined ? {} : { name: image.part.name },
-    })
-  }
-  return Promise.all(prepared.map(async (item): Promise<ContentBlock> => {
-    if (!('data' in item)) return { type: 'text', text: item.text }
+  const durable: ContentBlock[] = []
+  for (const part of content) {
+    if (part.type === 'text') {
+      durable.push({ type: 'text', text: part.text })
+      continue
+    }
     const attachment = await ctx.attachments.saveImage({
-      data: item.data,
-      mediaType: item.part.mediaType,
-      ...item.part.name === undefined ? {} : { name: item.part.name },
+      data: decodeBase64(part.data),
+      mediaType: part.mediaType,
+      ...part.name === undefined ? {} : { name: part.name },
     })
-    return { type: 'image', attachment, ...item.part.alt === undefined ? {} : { alt: item.part.alt } }
-  }))
+    durable.push({ type: 'image', attachment })
+  }
+  return durable
 }
 
 /**
@@ -1222,8 +1208,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const target = targetFor(agent).current
             const provider = target.provider
             const model = target.model
-            const activeModel = await ctx.llm.resolveModelInfo(provider, model)
-            if (activeModel.inputModalities !== undefined && !activeModel.inputModalities.includes('image')) {
+            const modelInfo = await ctx.llm.resolveModelInfo(provider, model)
+            if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
               return err(request, {
                 code: 'attachment-error',
                 message: `Model "${model}" does not support image input.`,
@@ -1419,24 +1405,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     host: {
-      async describe(request) {
-        const activeModel = (await ctx.llm.listModels(defaults.provider))
-          .find(model => model.id === defaults.model)
+      describe(request) {
         // TODO(step2): version should read apps/cli's package.json; placeholder for now.
-        return ok(request, {
+        return Promise.resolve(ok(request, {
           version: '0.0.1',
           // Same source as session.create's fallback: the UI's default project
           // must match where an unspecified-cwd session actually lands.
           cwd: defaults.cwd,
           provider: defaults.provider,
           model: defaults.model,
-          ...activeModel === undefined ? {} : { activeModel },
           imageLimits: {
             ...ctx.attachments.imageLimits,
             mediaTypes: [...ctx.attachments.imageLimits.mediaTypes],
           },
           attachedSessions: ctx.agents.list().length,
-        })
+        }))
       },
 
       async pickDirectory(request, signal) {

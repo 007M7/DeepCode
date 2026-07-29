@@ -196,16 +196,12 @@ export interface Config {
   dshHome?: string
   /** Maximum encoded bytes accepted for one image. */
   maxImageBytes?: number
-  /** Maximum image count accepted in one submitted message. */
-  maxImagesPerMessage?: number
-  /** Maximum aggregate encoded image bytes accepted in one submitted message. */
-  maxMessageImageBytes?: number
   /** Maximum intrinsic width multiplied by height accepted for one image. */
   maxImagePixels?: number
 }
 ```
 
-Source: [`packages/attachment/attachment-local/src/index.ts:26`](../packages/attachment/attachment-local/src/index.ts)
+Source: [`packages/attachment/attachment-local/src/index.ts:20`](../packages/attachment/attachment-local/src/index.ts)
 
 ## `@deepseek-ai/dsh-bash-local`
 

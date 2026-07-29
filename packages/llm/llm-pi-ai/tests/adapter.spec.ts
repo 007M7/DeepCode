@@ -250,14 +250,8 @@ describe('PiAiAdapter provider routing', () => {
     class LateAttachmentStore extends AttachmentStore {
       readonly imageLimits: ImageAttachmentLimits = {
         maxImageBytes: 1,
-        maxImagesPerMessage: 1,
-        maxMessageImageBytes: 1,
         maxImagePixels: 1,
         mediaTypes: ['image/png'],
-      }
-
-      validateImage(_input: SaveImageAttachment): void {
-        throw new Error('not used')
       }
 
       saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
@@ -440,7 +434,7 @@ describe('provider profile lifecycle', () => {
     const models = await ctx.llm.listModels('openai')
     expect(models.find(model => model.id === 'gpt-4.1')).toEqual({
       provider: 'openai', id: 'gpt-4.1', name: 'GPT-4.1',
-      inputModalities: ['text', 'image'], outputModalities: ['text'],
+      inputModalities: ['text', 'image'],
     })
     expect(models.every(model => model.provider === 'openai')).toBe(true)
     const info = await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')
