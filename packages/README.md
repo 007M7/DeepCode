@@ -12,6 +12,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 |---|---|---|
 | [`core/`](core/README.md) | Product API spine: sessions, prompts, tools, agent services, and the concrete loop | Product — stable surface |
 | [`goal/`](goal/README.md) | Persisted same-session goal state and lifecycle | Product — stable surface |
+| [`feedback/`](feedback/README.md) | Recorded human feedback | Product — stable surface |
 | [`llm/`](llm/README.md) | LLM capability family: the abstract service + provider adapters | Product — stable surface |
 | [`subprocess/`](subprocess/README.md) | Subprocess capability family: spawn seam + local process-tree implementation | Product — stable surface |
 | [`bash/`](bash/README.md) | Bash capability family: executor seam, local impl, model-facing tool | Product — stable surface |
@@ -50,7 +51,7 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 
-Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
+New packages join an existing group; a new group updates its README and this table.
 
 ## Dependencies
 

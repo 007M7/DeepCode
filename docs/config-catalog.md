@@ -1994,7 +1994,7 @@ export interface Config {
 
 Depends on: [`agentCore`](../packages/examples/agent-spine-demo/src/index.ts) · [`JsonlCompression`](../packages/session-persistence/session-persistence-jsonl/src/index.ts) · [`SessionReferenceConfig`](#deepseek-aidsh-session-reference) · [`ToolsConfig`](#deepseek-aidsh-tools) · [`uiTui`](../packages/ui/tui/src/index.ts)
 
-Source: [`packages/examples/tui-demo/src/index.ts:39`](../packages/examples/tui-demo/src/index.ts)
+Source: [`packages/examples/tui-demo/src/index.ts:40`](../packages/examples/tui-demo/src/index.ts)
 
 ## `@deepseek-ai/dsh-user-approval`
 
@@ -2219,6 +2219,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-theme` ([`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
+- `@deepseek-ai/dsh-command-feedback` — requires `commands` ([`packages/feedback/command-feedback/src/index.ts`](../packages/feedback/command-feedback/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))

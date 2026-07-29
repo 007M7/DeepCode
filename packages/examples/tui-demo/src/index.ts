@@ -1,6 +1,6 @@
 /**
  * Full-screen terminal app: the default agent spine ({@link @deepseek-ai/dsh-agent-spine-demo})
- * plus persisted goals, human commands, JSONL persistence, keyboard-backed
+ * plus persisted goals, human commands including `/feedback`, JSONL persistence, keyboard-backed
  * user interaction, and one pre-created agent whose exact session identity the
  * TUI drives. Swappable adapters, executors, optional tools, and HMR stay in the leaf. This Loader plugin
  * intentionally exposes named exports only; a default export would hide its
@@ -16,6 +16,7 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRegistry, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import CommandService from '@deepseek-ai/dsh-commands'
 import * as commandGoal from '@deepseek-ai/dsh-command-goal'
+import * as commandFeedback from '@deepseek-ai/dsh-command-feedback'
 import * as agentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import * as workspaceContext from '@deepseek-ai/dsh-workspace-context'
 import SessionPersistenceJsonl, {
@@ -122,6 +123,7 @@ export function composeTuiApp(ctx: Context, config: Config): void {
   const goals = config.goals ?? {}
   const persistenceRoot = config.persistenceRoot ?? DEFAULT_PERSISTENCE_ROOT
   ctx.plugin(CommandService)
+  ctx.plugin(commandFeedback)
   if (goals !== false) ctx.plugin(commandGoal)
   ctx.plugin(SessionPersistenceJsonl, {
     root: persistenceRoot,

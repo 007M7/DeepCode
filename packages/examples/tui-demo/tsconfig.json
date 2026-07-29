@@ -36,6 +36,9 @@
       "path": "../../goal/command-goal"
     },
     {
+      "path": "../../feedback/command-feedback"
+    },
+    {
       "path": "../agent-spine-demo"
     },
     {

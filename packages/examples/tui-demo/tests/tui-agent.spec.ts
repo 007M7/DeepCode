@@ -49,6 +49,7 @@ describe('dsh-tui-demo app', () => {
 
     expect(calls.map(call => call.name)).toEqual([
       'CommandService',
+      'command-feedback',
       'command-goal',
       'SessionPersistenceJsonl',
       'session-checkpoint-policy',
@@ -61,14 +62,14 @@ describe('dsh-tui-demo app', () => {
       'tool-ask-user',
     ])
     expect(calls[0]?.config).toBeUndefined()
-    expect(calls[2]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
-    expect(calls[4]?.config).toEqual({ path: join('/tmp/tui-sessions', 'session-query.db') })
-    expect(calls[5]?.config).toEqual({
+    expect(calls[3]?.config).toEqual({ root: '/tmp/tui-sessions', compression: 'none' })
+    expect(calls[5]?.config).toEqual({ path: join('/tmp/tui-sessions', 'session-query.db') })
+    expect(calls[6]?.config).toEqual({
       maxReferences: 2,
       candidateLimit: 7,
       maxReferenceBytes: 1234,
     })
-    const tuiConfig = calls[8]?.config as { sessionId: string }
+    const tuiConfig = calls[9]?.config as { sessionId: string }
     expect(tuiConfig).toMatchObject({
       welcome: 'TUI ready',
       resumeCommand: 'dsh --resume {session}',
@@ -76,7 +77,7 @@ describe('dsh-tui-demo app', () => {
       maxToolOutputLines: 3,
     })
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    const spineConfig = calls[9]?.config as {
+    const spineConfig = calls[10]?.config as {
       readonly agents: Array<Record<string, unknown>>
       readonly goals: Record<string, never>
       readonly maxParallelToolCalls: number
@@ -109,11 +110,11 @@ describe('dsh-tui-demo app', () => {
       workspaceContext: false,
     })
 
-    expect(calls[2]?.config).toEqual({ root: './.sessions' })
-    expect(calls[5]?.config).toEqual({})
+    expect(calls[3]?.config).toEqual({ root: './.sessions' })
+    expect(calls[6]?.config).toEqual({})
     // No configured welcome forwards none: the TUI banner sweeps in without a subtitle.
-    expect(calls[8]?.config).toEqual({ sessionId: 'persisted-session' })
-    expect((calls[9]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
+    expect(calls[9]?.config).toEqual({ sessionId: 'persisted-session' })
+    expect((calls[10]?.config as { agents: Array<Record<string, unknown>> }).agents[0]).toMatchObject({
       id: 'main',
       resumeSessionId: 'persisted-session',
     })
@@ -129,12 +130,14 @@ describe('dsh-tui-demo app', () => {
       workspaceContext: false,
     })
 
-    const tuiConfig = calls[7]?.config as { sessionId: string }
+    const tuiConfig = calls[8]?.config as { sessionId: string }
     expect(tuiConfig.sessionId).toMatch(/^main-session-[0-9a-f-]{36}$/)
-    expect((calls[8]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
+    expect((calls[9]?.config as { agents: Array<Record<string, unknown>> }).agents[0])
       .toMatchObject({ sessionId: tuiConfig.sessionId })
     expect(calls.map(call => call.name)).not.toContain('command-goal')
-    expect(calls[8]?.config).toMatchObject({ goals: false })
+    // `/feedback` is unconditional: disabling goals must not remove it.
+    expect(calls.map(call => call.name)).toContain('command-feedback')
+    expect(calls[9]?.config).toMatchObject({ goals: false })
   })
 
   it('has the namespace-plugin export shape so the Loader keeps its schema', () => {

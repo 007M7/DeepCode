@@ -1,0 +1,105 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from 'cordis'
+import Loader from '@cordisjs/plugin-loader'
+import Include from '@cordisjs/plugin-include'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
+import CommandService from '@deepseek-ai/dsh-commands'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import * as CommandFeedback from '@deepseek-ai/dsh-command-feedback'
+
+let root: string | undefined
+let context: Context | undefined
+
+afterEach(async () => {
+  await context?.fiber.dispose()
+  context = undefined
+  if (root !== undefined) await rm(root, { recursive: true, force: true })
+  root = undefined
+})
+
+/** Register one idle agent over a store-owned session, as an app's spine does. */
+function agent(ctx: Context): Agent {
+  const scope = ctx.plugin(() => {})
+  const id = SessionId('feedback-loader-agent')
+  const session = ctx.sessions.create(id)
+  let status: AgentStatus = 'idle'
+  const value: Agent = {
+    id,
+    options: {},
+    session,
+    ctx: scope.ctx,
+    get status() { return status },
+    get acceptsNextStep() { return status === 'running' },
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
+    cancel() { status = 'idle' },
+    whenIdle: () => Promise.resolve(),
+  }
+  ctx.agents.register(value)
+  return value
+}
+
+describe('/feedback real Loader composition through cordis.yml', () => {
+  it('boots cordis.yml and records feedback without model-visible output', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-command-feedback-loader-'))
+    const configPath = join(root, 'cordis.yml')
+    await writeFile(configPath, [
+      "- name: '@deepseek-ai/dsh-agent'",
+      "- name: '@deepseek-ai/dsh-session'",
+      "- name: '@deepseek-ai/dsh-commands'",
+      "- name: '@deepseek-ai/dsh-command-feedback'",
+      '',
+    ].join('\n'))
+
+    context = new Context()
+    context.baseUrl = pathToFileURL(root).href + '/'
+    await context.plugin(Loader)
+    context.loader.builtins.include = Include
+    const modules = new Map<string, unknown>([
+      ['@deepseek-ai/dsh-agent', AgentRegistry],
+      ['@deepseek-ai/dsh-session', SessionStore],
+      ['@deepseek-ai/dsh-commands', CommandService],
+      ['@deepseek-ai/dsh-command-feedback', CommandFeedback],
+    ])
+    context.loader.internal = {
+      version: 'v2',
+      async import(specifier: string) {
+        if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
+        return modules.get(specifier)
+      },
+    } as unknown as NonNullable<typeof context.loader.internal>
+    await context.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
+    await context.loader.await()
+
+    const owner = agent(context)
+    const signal = new AbortController().signal
+
+    // Discoverable through the composed registry, as a UI adapter finds it.
+    expect(context.commands.list(owner).map(command => command.name)).toContain('feedback')
+
+    const accepted = await context.commands.execute(owner, '/feedback the diff view is unreadable', signal)
+    expect(accepted?.result).toEqual({ kind: 'success', text: 'Feedback recorded.' })
+    const rejected = await context.commands.execute(owner, '/feedback', signal)
+    expect(rejected?.result).toEqual({
+      kind: 'error',
+      text: 'Feedback text is required. Usage: /feedback <text>',
+    })
+
+    // The command records itself through the registry and does nothing else.
+    expect(owner.session.events.map(event => event.type))
+      .toEqual(['command/run', 'command/done', 'command/run', 'command/done'])
+    const run = owner.session.events.find(event => event.type === 'command/run')
+    expect(run?.type === 'command/run' && run.data.args).toBe(' the diff view is unreadable')
+
+    // Nothing reached the model.
+    expect(owner.session.deriveMessages()).toEqual([])
+    expect(owner.session.surface.nodes).toEqual([])
+  })
+})

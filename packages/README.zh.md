@@ -12,6 +12,7 @@
 |---|---|---|
 | [`core/`](core/README.md) | 产品 API 主干：会话、提示词、工具、agent（智能体）服务与具体循环 | 产品：稳定表面 |
 | [`goal/`](goal/README.md) | 持久化的同会话 goal 状态与生命周期 | 产品：稳定表面 |
+| [`feedback/`](feedback/README.md) | 记录人类对会话的反馈 | 产品：稳定表面 |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定表面 |
 | [`subprocess/`](subprocess/README.md) | 进程管理能力系列：spawn seam + 本地进程树实现 | 产品：稳定表面 |
 | [`bash/`](bash/README.md) | Bash 能力系列：执行器 seam、本地实现、面向模型的工具 | 产品：稳定表面 |
@@ -50,7 +51,7 @@
 | [`support/`](support/README.md) | 支持基础设施（testkit、不变式、回放、Loader 冒烟测试） | 支持：兼容性预期较低 |
 | [`util/`](util/README.md) | 组间共享的低层零依赖工具（`Branded<B>`、Harness home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |
 
-组用于区分产品 API 与支持基础设施。新包加入现有组；新组则更新其 README 和此表。
+新包加入现有组；新组则更新其 README 和此表。
 
 ## 依赖
 

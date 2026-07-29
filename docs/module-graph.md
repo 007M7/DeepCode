@@ -181,6 +181,9 @@ flowchart TD
     pkg_jsonrpc_demo["jsonrpc-demo"]
     pkg_tui_demo["tui-demo"]
   end
+  subgraph group_feedback["packages/feedback"]
+    pkg_command_feedback["command-feedback"]
+  end
   subgraph group_guard["packages/guard"]
     pkg_repeat_tool_guard["repeat-tool-guard"]
   end
@@ -604,6 +607,8 @@ flowchart TD
   pkg_client_ui_goal --> pkg_client_ui_slots
   pkg_client_ui_goal --> pkg_goal
   pkg_client_ui_goal --> pkg_invariants
+  pkg_command_feedback --> pkg_commands
+  pkg_command_feedback --> pkg_invariants
   pkg_pty_local --> pkg_agent
   pkg_pty_local --> pkg_invariants
   pkg_pty_local --> pkg_pty
@@ -928,6 +933,7 @@ flowchart TD
   pkg_tui_demo --> pkg_agent
   pkg_tui_demo --> pkg_agent_loop
   pkg_tui_demo --> pkg_agent_spine_demo
+  pkg_tui_demo --> pkg_command_feedback
   pkg_tui_demo --> pkg_command_goal
   pkg_tui_demo --> pkg_commands
   pkg_tui_demo --> pkg_invariants
@@ -1069,6 +1075,7 @@ flowchart TD
 | [`acp`](../packages/acp/acp) | `acp` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`permission`](../packages/ui/permission) | `ui` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`user-approval`](../packages/ui/user-approval) |
 | [`client-ui-goal`](../packages/client/ui-goal) | `client` | [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`goal`](../packages/goal/goal), [`invariants`](../packages/support/invariants) |
+| [`command-feedback`](../packages/feedback/command-feedback) | `feedback` | [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants) |
 | [`pty-local`](../packages/pty/pty-local) | `pty` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`pty`](../packages/pty/pty), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`subprocess`](../packages/subprocess/subprocess) |
 | [`tasks-local`](../packages/tasks/tasks-local) | `tasks` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`tasks`](../packages/tasks/tasks), [`timeout`](../packages/util/timeout) |
 | [`session-telemetry-otel`](../packages/telemetry/session-telemetry-otel) | `telemetry` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-telemetry`](../packages/telemetry/session-telemetry) |
@@ -1116,6 +1123,6 @@ flowchart TD
 | [`jsonrpc`](../packages/ui/jsonrpc) | `ui` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`llm-deepseek`](../packages/llm/llm-deepseek), [`scope`](../packages/core/scope), [`sdk-protocol`](../packages/sdk/sdk-protocol), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`acp-demo`](../packages/examples/acp-demo) | `examples` | [`acp`](../packages/acp/acp), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
 | [`cli-demo`](../packages/examples/cli-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`tools`](../packages/core/tools), [`workspace-context`](../packages/context/workspace-context) |
-| [`tui-demo`](../packages/examples/tui-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`command-goal`](../packages/goal/command-goal), [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`session-reference`](../packages/context/session-reference), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`tui`](../packages/ui/tui), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |
+| [`tui-demo`](../packages/examples/tui-demo) | `examples` | [`agent`](../packages/core/agent), [`agent-loop`](../packages/core/agent-loop), [`agent-spine-demo`](../packages/examples/agent-spine-demo), [`command-feedback`](../packages/feedback/command-feedback), [`command-goal`](../packages/goal/command-goal), [`commands`](../packages/ui/commands), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-checkpoint-policy`](../packages/session-persistence/session-checkpoint-policy), [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite), [`session-reference`](../packages/context/session-reference), [`tool-ask-user`](../packages/ui/tool-ask-user), [`tools`](../packages/core/tools), [`tui`](../packages/ui/tui), [`user-interaction`](../packages/ui/user-interaction), [`workspace-context`](../packages/context/workspace-context) |
 | [`sdk-client`](../packages/sdk/sdk-client) | `sdk` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sdk-protocol`](../packages/sdk/sdk-protocol), [`session`](../packages/core/session) |
 | [`subagent-dsh-sdk`](../packages/subagent/subagent-dsh-sdk) | `subagent` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sdk-client`](../packages/sdk/sdk-client), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess) |
