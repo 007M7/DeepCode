@@ -24,6 +24,7 @@
   },
   "dshClient": {
     "inject": [
+      "@deepseek-ai/dsh-client-locale",
       "@deepseek-ai/dsh-client-ui-conversation"
     ],
     "platform": "web"
@@ -49,6 +50,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",

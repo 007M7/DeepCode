@@ -21,6 +21,13 @@ export type { AppearanceRowState } from './settings-store.ts'
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
 
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The Appearance settings row's copy. */
+    'settings.theme': 'appearance.title' | 'appearance.light' | 'appearance.dark' | 'appearance.system'
+  }
+}
+
 /** Theme token dictionary: --dsw-alias-* overrides keyed by variable name. */
 export type ThemeTokens = Record<string, string>
 
@@ -228,23 +235,20 @@ export function apply(ctx: ClientContext): void {
   const theme = new ThemeService(ctx)
   ctx.provide('theme', theme)
 
-  ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register(SETTINGS_NS, 'zh', {
-        'appearance.title': '外观',
-        'appearance.light': '浅色',
-        'appearance.dark': '深色',
-        'appearance.system': '跟随系统',
-      }),
-      ctx.locale.register(SETTINGS_NS, 'en', {
-        'appearance.title': 'Appearance',
-        'appearance.light': 'Light',
-        'appearance.dark': 'Dark',
-        'appearance.system': 'System',
-      }),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-theme: settings row dictionaries')
+  ctx.effect(() => ctx.locale.register(SETTINGS_NS, {
+    zh: {
+      'appearance.title': '外观',
+      'appearance.light': '浅色',
+      'appearance.dark': '深色',
+      'appearance.system': '跟随系统',
+    },
+    en: {
+      'appearance.title': 'Appearance',
+      'appearance.light': 'Light',
+      'appearance.dark': 'Dark',
+      'appearance.system': 'System',
+    },
+  }), 'ui-theme: settings row dictionaries')
 
   const store = createAppearanceRowStore()
   let bound: BoundActions<typeof store> | undefined
@@ -258,7 +262,6 @@ export function apply(ctx: ClientContext): void {
     // first render (the store's revision guard drops stale duplicates).
     sync(theme.getTheme())
     return {
-      t: ctx.locale.bind(SETTINGS_NS),
       setTheme: (id) => { theme.setTheme(id) },
     }
   }
@@ -269,6 +272,7 @@ export function apply(ctx: ClientContext): void {
         id: 'appearance',
         order: 10,
         store,
+        locale: SETTINGS_NS,
         inject: injected,
       }, AppearanceRow))
     return () => { deferred.dispose() }
