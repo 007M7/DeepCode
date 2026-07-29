@@ -18,11 +18,11 @@
 
 ## jsonrpc-agent
 
-通过 Python SDK 驱动的无人值守编码 agent：JSON-RPC stdio、仅前台 `bash`、`read`/`write`/`edit`、一个前台 `subagent`、`todo_write`、JSONL 持久化和压缩。它不包含终端 UI、stdout 日志、批准、skill（技能） 和后台任务控制。详见 [jsonrpc-agent/README.md](jsonrpc-agent/README.md)。
+通过 Python SDK 驱动的无人值守编码 agent：JSON-RPC stdio、仅前台 `bash`、`read`/`write`/`edit`、一个前台 `subagent`、`todo_write`、JSONL 持久化和压缩。它不包含终端 UI、stdout 日志、批准、skill（技能）和后台任务控制。详见 [jsonrpc-agent/README.md](jsonrpc-agent/README.md)。
 
 ## cordis-agent
 
-**自指** 演示：编码主干加 [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis)，其三个工具（`cordis_inspect`/`cordis_mount`/`cordis_unmount`）使 agent 可以检查当前 DSH 进程、挂载模型编写的临时插件（事件监听器、一个全新工具，或一个供另一临时插件 注入的服务），并再次卸载它们。这些插件 只存在于内存中，共享一个内部 `cordis-dynamic` fiber 子树；`ctx.fs`/`ctx.web` 仅作为它们可用的能力提供方。
+**自指** 演示：编码主干加 [`@deepseek-ai/dsh-tool-cordis`](../packages/cordis/tool-cordis)，其三个工具（`cordis_inspect`/`cordis_mount`/`cordis_unmount`）使 agent 可以检查当前 DSH 进程、挂载模型编写的临时插件（事件监听器、一个全新工具，或一个供另一个临时插件注入的服务），并再次卸载它们。这些插件只存在于内存中，共享一个内部 `cordis-dynamic` fiber 子树；`ctx.fs`/`ctx.web` 仅作为它们可用的能力提供方。
 
 使用 `pnpm run demo:cordis` 运行 TUI，使用 `pnpm run demo:cordis web` 在 `http://127.0.0.1:3081` 启动浏览器 UI，或使用 `pnpm run demo:cordis acp` 启动 ACP 服务器（三者均需 `DEEPSEEK_API_KEY`）。分阶段演示脚本详见 [cordis-agent/README.md](cordis-agent/README.md)，设计与沙箱注意事项详见[工具集 Agent Note（agent 决策记录）](../.agents/notes/implemented/feature/2026-07-08-self-referential-cordis-toolset.md)。
 

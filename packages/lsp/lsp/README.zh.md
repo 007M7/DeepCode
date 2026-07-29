@@ -41,4 +41,4 @@
 
 - **同一运行时内扩展名归属互斥**：两个提供方不能同时声明 `.ts`，即使语言 ID 不同；重叠会使注册失败。预期扩展是在注册之上增加部署配置的 selector；它可以放宽互斥保留，而无需把提供方选择加入模型输入（见 [seam Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)）。
 - **仅四种操作**：symbol 与 call hierarchy 暂缓（它们需要不同 schema）；diagnostics 需要独立的新鲜度／累积规则；修改操作（rename、code action、formatting）需要独立工具，并集成预览、权限和写入策略。
-- **没有观测接口**：可用性只能通过运行 `query()` 并按抛出的 `LspError` 代码 路由来观测；没有提供方变更事件或能力状态查询。
+- **没有观测接口**：可用性只能通过运行 `query()` 并按抛出的 `LspError` 代码进行路由来观测；没有提供方变更事件或能力状态查询。

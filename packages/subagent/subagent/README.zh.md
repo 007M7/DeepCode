@@ -27,7 +27,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `registerProvider(provider)` | 按名称注册一个可信的同进程实现。注册受 effect 作用域约束；移除注册会阻止新的启动，但不会撤销已返回给调用方的运行。重复名称会明确报错。 |
 | `getProvider(name)` | 返回提供方；不存在时返回 `undefined`。 |
 | `list()` | 按插入顺序返回提供方名称。 |
-| `start(name, request)` | 校验请求的能力和语义值，然后等待提供方，直到真实子 agent 就绪。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理所有部分启动资源。 |
+| `start(name, request)` | 校验请求的能力和语义值，然后等待提供方，直到真实子 agent 就绪。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理所有启动过程中产生的临时资源。 |
 
 `SubagentStartRequest.signal` 是必填项，也是规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消正在运行的子 agent。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。
 
@@ -52,7 +52,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ## 所有权与生命周期
 
-`provider.start(request): Promise<SubagentRun>` 是所有权转移边界。兑现前，提供方拥有设置过程，并且每次失败时都必须取消、回滚并使部分资源完全停稳。兑现后，调用方拥有该运行，并且必须在每条路径上调用 `dispose()`。
+`provider.start(request): Promise<SubagentRun>` 是所有权转移边界。兑现前，提供方拥有设置过程，并且每次失败时都必须取消、回滚并使启动过程中已取得的资源完全停稳。兑现后，调用方拥有该运行，并且必须在每条路径上调用 `dispose()`。
 
 `SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待子 agent 资源完全停稳。
 
