@@ -5,6 +5,7 @@
     "correctness": "off"
   },
   "options": {
+    "reportUnusedDisableDirectives": "warn",
     "typeAware": true
   },
   "env": {

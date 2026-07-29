@@ -183,6 +183,33 @@ export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 +
     expect(maxLen).toStrictEqual(['error', { code: 140, ignoreUrls: true, ignoreStrings: true, ignoreTemplateLiterals: true }])
   })
 
+  it('reports an unused suppression', async () => {
+    const suffix = randomUUID()
+    const configPath = await writeContractConfig(suffix)
+    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
+
+    try {
+      await writeFile(path, '// oxlint-disable-next-line no-console\nexport const value = 1\n')
+      const result = runOxlint([
+        '--config',
+        relative(repositoryRoot, configPath),
+        '--format',
+        'unix',
+        relative(repositoryRoot, path),
+      ])
+      const output = normalizedOutput(result)
+
+      expect(result.error).toBeUndefined()
+      expect(result.status, output).toBe(0)
+      expect(output).toContain('Unused oxlint-disable directive')
+    } finally {
+      await Promise.all([
+        rm(path, { force: true }),
+        rm(configPath, { force: true }),
+      ])
+    }
+  })
+
   it('applies staged stylistic fixes before Oxlint validation', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
