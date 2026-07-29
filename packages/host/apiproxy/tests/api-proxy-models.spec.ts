@@ -4,14 +4,14 @@
  * models, and the prompt-assembly boundary for a running selection change.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import LlmService, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions, LlmCallConfig, LlmModelInfo, LlmModelReasoningInfo, LlmProviderInfo,
-  LlmResolvedModelInfo, StreamChunk,
+  LlmResolvedModelInfo, StreamChunk, UserMessage,
 } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -118,23 +118,66 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
 }
 
 describe('Web session model selection', () => {
-  it('rejects a second prompt image before attachment persistence', async () => {
-    const { ctx, sessionId } = await harness()
+  it('accepts ordered multi-image prompts and rejects configured batch-limit excess before persistence', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const validateImage = vi.fn((_input: { data: Uint8Array }): void => {})
+    const saveImage = vi.fn((input: { data: Uint8Array; mediaType: 'image/png'; name?: string }) => {
+      return Promise.resolve({
+        attachmentId: `att-${String(input.data[0])}`,
+        mediaType: input.mediaType,
+        bytes: input.data.byteLength,
+        width: 1,
+        height: 1,
+        ...(input.name === undefined ? {} : { name: input.name }),
+      })
+    })
+    const followup = vi.fn((_message: UserMessage): void => {})
+    Object.assign(agent, { followup })
+    ctx.provide('attachments', {
+      imageLimits: { maxImageBytes: 4, maxImagesPerMessage: 2, maxMessageImageBytes: 4, maxImagePixels: 4, mediaTypes: ['image/png'] },
+      validateImage,
+      saveImage,
+    } as never)
     const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
-    const image = { type: 'image' as const, mediaType: 'image/png' as const, data: 'AA==' }
-    const response = await api.sessions.prompt(request({
+    const first = { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==', name: 'first.png' }
+    const second = { type: 'image' as const, mediaType: 'image/png' as const, data: 'Ag==', name: 'second.png' }
+    const accepted = await api.sessions.prompt(request({
       sessionId,
       mode: 'queue' as const,
-      content: [image, image],
+      content: [first, { type: 'text' as const, text: 'compare' }, second],
     }))
-    expect(response.result).toEqual({
-      ok: false,
-      error: {
-        code: 'attachment-error',
-        message: 'A prompt may contain at most one image.',
-        details: { reason: 'TOO_MANY_IMAGES' },
-      },
+    expect(accepted.result).toMatchObject({ ok: true, value: { accepted: true } })
+    expect(validateImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
+    expect(saveImage.mock.calls.map(([input]) => [...input.data])).toEqual([[1], [2]])
+    expect(followup.mock.calls[0]?.[0].content).toEqual([
+      { type: 'image', attachment: { attachmentId: 'att-1', mediaType: 'image/png', bytes: 1, width: 1, height: 1, name: 'first.png' } },
+      { type: 'text', text: 'compare' },
+      { type: 'image', attachment: { attachmentId: 'att-2', mediaType: 'image/png', bytes: 1, width: 1, height: 1, name: 'second.png' } },
+    ])
+
+    const tooMany = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [first, second, first],
+    }))
+    expect(tooMany.result).toMatchObject({
+      ok: false, error: { code: 'attachment-error', details: { reason: 'TOO_MANY_IMAGES' } },
     })
+    const tooLarge = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [
+        { ...first, data: 'AQID' },
+        { ...second, data: 'BAUG' },
+      ],
+    }))
+    expect(tooLarge.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'IMAGES_TOO_LARGE' } },
+    })
+    expect(validateImage).toHaveBeenCalledTimes(2)
+    expect(saveImage).toHaveBeenCalledTimes(2)
+    expect(followup).toHaveBeenCalledTimes(1)
     await ctx.fiber.dispose()
   })
 

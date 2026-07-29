@@ -161,6 +161,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Immutable binary attachment service.',
     methods: [
       {
+        signature: 'abstract validateImage(input: SaveImageAttachment): void',
+        jsDoc: '/**\n * Validate one image without persisting it.\n * Batch callers validate every member before saving any member.\n * @param input - encoded bytes, declared media type, and optional display name.\n */',
+      },
+      {
         signature: 'abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>',
         jsDoc: '/**\n * Validate and durably commit one image before its owning session event is appended.\n * @param input - encoded bytes, declared media type, and optional display name.\n * @returns a durable content-addressed reference.\n */',
       },

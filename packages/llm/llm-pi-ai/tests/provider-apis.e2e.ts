@@ -68,8 +68,14 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
     class E2eAttachmentStore extends AttachmentStore {
       readonly imageLimits: ImageAttachmentLimits = {
         maxImageBytes: fixture.data.byteLength,
+        maxImagesPerMessage: 1,
+        maxMessageImageBytes: fixture.data.byteLength,
         maxImagePixels: fixture.ref.width * fixture.ref.height,
         mediaTypes: [fixture.ref.mediaType],
+      }
+
+      validateImage(_input: SaveImageAttachment): void {
+        throw new Error('e2e attachment fixture is read-only')
       }
 
       saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {

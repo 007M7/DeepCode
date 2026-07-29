@@ -1262,6 +1262,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         model: 'fx-vision',
         imageLimits: {
           maxImageBytes: 5 * 1024 * 1024,
+          maxImagesPerMessage: 10,
+          maxMessageImageBytes: 20 * 1024 * 1024,
           maxImagePixels: 40_000_000,
           mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
         },

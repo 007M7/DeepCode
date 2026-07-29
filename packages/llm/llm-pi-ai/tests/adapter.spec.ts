@@ -250,8 +250,14 @@ describe('PiAiAdapter provider routing', () => {
     class LateAttachmentStore extends AttachmentStore {
       readonly imageLimits: ImageAttachmentLimits = {
         maxImageBytes: 1,
+        maxImagesPerMessage: 1,
+        maxMessageImageBytes: 1,
         maxImagePixels: 1,
         mediaTypes: ['image/png'],
+      }
+
+      validateImage(_input: SaveImageAttachment): void {
+        throw new Error('not used')
       }
 
       saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {

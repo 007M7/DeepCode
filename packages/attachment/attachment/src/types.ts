@@ -36,6 +36,8 @@ export interface ImageAttachmentRef {
 /** Deployment-resolved limits shared by upload consumers and UI preflight. */
 export interface ImageAttachmentLimits {
   maxImageBytes: number
+  maxImagesPerMessage: number
+  maxMessageImageBytes: number
   maxImagePixels: number
   mediaTypes: readonly ImageMediaType[]
 }

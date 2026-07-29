@@ -90,8 +90,14 @@ const ATTACHMENT_COMPANION = '../packages/attachment/attachment-local/src/invari
 class TestAttachmentStore extends AttachmentStore {
   readonly imageLimits: ImageAttachmentLimits = {
     maxImageBytes: 1,
+    maxImagesPerMessage: 1,
+    maxMessageImageBytes: 1,
     maxImagePixels: 1,
     mediaTypes: ['image/png'],
+  }
+
+  validateImage(_input: SaveImageAttachment): void {
+    throw new Error('test invariant attachment store does not validate images')
   }
 
   saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {

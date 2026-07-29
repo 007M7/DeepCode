@@ -23,7 +23,7 @@ function fakeHttpServer(routes: WebRoute[]): Pick<HttpServerService, 'register' 
 
 /** Structural attachments fake: the plugin only reads imageLimits for the body cap. */
 function fakeAttachments(): AttachmentStore {
-  return { imageLimits: { maxImageBytes: 5 * 1024 * 1024 } } as AttachmentStore
+  return { imageLimits: { maxMessageImageBytes: 20 * 1024 * 1024 } } as AttachmentStore
 }
 
 /** Bodyless GET carrying the given headers (enough for the trust fence + bridge). */

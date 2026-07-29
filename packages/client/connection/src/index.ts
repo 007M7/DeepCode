@@ -52,7 +52,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   const apiHandler = toFetchHandler(ctx.apiProxy)
   const maxRequestBodyBytes = Math.ceil(
-    ctx.attachments.imageLimits.maxImageBytes * 4 / 3,
+    ctx.attachments.imageLimits.maxMessageImageBytes * 4 / 3,
   ) + REQUEST_ENVELOPE_HEADROOM_BYTES
   const route: WebRoute = {
     kind: 'prefix',

@@ -112,7 +112,7 @@ type PromptInputPart =
     }
 ```
 
-Base64 crosses JSON-RPC once and is discarded after persistence. Version one accepts at most one image per prompt. The host validates canonical base64, individual bytes, magic-byte MIME, intrinsic dimensions, and intrinsic pixel count while durably saving that image. Only after the save succeeds does it call the agent with normalized text and a durable image block. A failure appends no user event and exposes no attachment path or raw bytes.
+Base64 crosses JSON-RPC once and is discarded after persistence. The host validates canonical base64, image count, aggregate bytes, individual bytes, magic-byte MIME, intrinsic dimensions, and decoded-pixel count: it validates the complete batch through the seam's storage-free `validateImage` before saving any member, so one malformed image cannot strand the batch's valid members as unreferenced objects. Only after every image succeeds does it call the agent with normalized text and durable image blocks in the submitted order. A failure appends no user event and exposes no attachment path or raw bytes.
 
 `session.attachment` is a read-only, session-scoped endpoint. The host serves bytes only when a durable event in that session references the requested attachment identifier. The client deduplicates loads by session and attachment identifier while that session is rendered, revokes resolved URLs on rendered-session disposal, and invalidates late loads so an unmounted session cannot repopulate the cache.
 
@@ -138,7 +138,7 @@ Composer thumbnails and each `MessageImage` own ephemeral original-preview state
 
 ### Limits and trust boundaries
 
-Version one accepts at most one PNG, JPEG, WebP, or GIF per prompt. SVG and remote URLs are excluded. Default deployment limits are 5 MiB and 40 million intrinsic pixels per image; they are validated backend configuration and projected to the client for fast-path guidance, while host validation remains authoritative. The client connection carrier independently caps buffered API request bodies from the single-image byte limit plus base64 and envelope expansion; a body without a declared length is rejected the moment it crosses the cap rather than drained to its end.
+Version one accepts up to 10 ordered PNG, JPEG, WebP, or GIF images per prompt by default. SVG and remote URLs are excluded. Default deployment limits are 5 MiB and 40 million intrinsic pixels per image plus 20 MiB aggregate image bytes per prompt; all are validated backend configuration and projected to the client for fast-path guidance, while host validation remains authoritative. The client connection carrier independently caps buffered API request bodies from the aggregate image-byte limit plus base64 and envelope expansion; a body without a declared length is rejected the moment it crosses the cap rather than drained to its end.
 
 Malformed base64, unsupported or mismatched media, truncated headers, excess bytes, excess image count, excess pixels, missing objects, and integrity mismatches return stable structured failures. Original filenames are reduced to a display basename, control characters are removed, and no local path is logged or returned to the browser.
 

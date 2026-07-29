@@ -283,11 +283,14 @@ export class ConversationService extends Service implements IConversation {
   ): void {
     if (files.length === 0 && current.length === 0) return
     // Model capability is checked only by the host against the session's
-    // current target; the client owns deployment limits and the one-image UI.
+    // current target; the client owns deployment upload limits.
     const description = this.requireSessions().hostDescription()
     const limits = description?.imageLimits
     const all = [...current.map(attachment => attachment.file), ...files]
-    if (all.length > 1) throw new Error('每条消息最多添加 1 张图片')
+    if (limits !== undefined && all.length > limits.maxImagesPerMessage) {
+      throw new Error(`每条消息最多添加 ${limits.maxImagesPerMessage} 张图片`)
+    }
+    let totalBytes = 0
     for (const file of all) {
       const mediaType = imageMediaType(file.type)
       if (limits !== undefined && !limits.mediaTypes.includes(mediaType)) {
@@ -296,6 +299,10 @@ export class ConversationService extends Service implements IConversation {
       if (limits !== undefined && file.size > limits.maxImageBytes) {
         throw new Error(`图片 ${file.name || '未命名图片'} 超过单张大小限制`)
       }
+      totalBytes += file.size
+    }
+    if (limits !== undefined && totalBytes > limits.maxMessageImageBytes) {
+      throw new Error('图片总大小超过单条消息限制')
     }
   }
 

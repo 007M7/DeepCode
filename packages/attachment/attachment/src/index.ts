@@ -34,6 +34,13 @@ export abstract class AttachmentStore extends Service {
   abstract readonly imageLimits: ImageAttachmentLimits
 
   /**
+   * Validate one image without persisting it.
+   * Batch callers validate every member before saving any member.
+   * @param input - encoded bytes, declared media type, and optional display name.
+   */
+  abstract validateImage(input: SaveImageAttachment): void
+
+  /**
    * Validate and durably commit one image before its owning session event is appended.
    * @param input - encoded bytes, declared media type, and optional display name.
    * @returns a durable content-addressed reference.

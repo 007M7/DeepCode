@@ -5,8 +5,7 @@
 // user message and an assistant message, and pins the product surfaces: the
 // history ImageGallery loading real fixture bytes through the authorized
 // sessions.attachment route, the double-click ImageLightbox, and the composer
-// intake chain (paste → thumbnail rail → one-image limit → image-only send
-// enablement → remove).
+// intake chain (paste → ordered thumbnail rail → image-only send enablement → remove).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -162,7 +161,7 @@ it('renders the history image pair through the authorized attachment route and o
   })
 })
 
-it('accepts a pasted image into the composer rail and removes it', async () => {
+it('accepts pasted images into the composer rail in order and removes them', async () => {
   boot('?fixture=empty')
 
   await screen.findByPlaceholderText('Choose a workspace to start', {}, { timeout: 10_000 })
@@ -211,12 +210,14 @@ it('accepts a pasted image into the composer rail and removes it', async () => {
       getData: () => '',
     },
   })
-  expect(await screen.findByText('每条消息最多添加 1 张图片')).toBeTruthy()
-  expect(rail.querySelectorAll('img')).toHaveLength(1)
+  await waitFor(() => {
+    expect([...rail.querySelectorAll('img')].map(img => img.getAttribute('alt')))
+      .toEqual(['pasted.png', 'second.png'])
+  })
 
-  const remove = rail.querySelector('button[aria-label^="移除图片"]')
-  if (remove === null) throw new Error('remove button missing')
-  fireEvent.click(remove)
+  const remove = [...rail.querySelectorAll('button[aria-label^="移除图片"]')]
+  if (remove.length !== 2) throw new Error('remove buttons missing')
+  for (const button of remove) fireEvent.click(button)
   await waitFor(() => {
     expect(document.querySelector('[role="group"][aria-label="待发送图片"]')).toBeNull()
   })

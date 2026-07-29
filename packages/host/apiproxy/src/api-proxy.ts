@@ -79,23 +79,34 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
   if (content.every(part => part.type === 'text')) {
     return content.map(part => ({ type: 'text', text: part.text }))
   }
-  if (content.filter(part => part.type === 'image').length > 1) {
-    throw new AttachmentError('A prompt may contain at most one image.', 'TOO_MANY_IMAGES')
+  const limits = ctx.attachments.imageLimits
+  if (content.filter(part => part.type === 'image').length > limits.maxImagesPerMessage) {
+    throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
   }
-  const durable: ContentBlock[] = []
-  for (const part of content) {
-    if (part.type === 'text') {
-      durable.push({ type: 'text', text: part.text })
-      continue
-    }
-    const attachment = await ctx.attachments.saveImage({
-      data: decodeBase64(part.data),
-      mediaType: part.mediaType,
-      ...part.name === undefined ? {} : { name: part.name },
+  const prepared = content.map(part => part.type === 'text'
+    ? part
+    : { part, data: decodeBase64(part.data) })
+  const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array }> => 'data' in part)
+  const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
+  if (totalBytes > limits.maxMessageImageBytes) {
+    throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
+  }
+  for (const image of images) {
+    ctx.attachments.validateImage({
+      data: image.data,
+      mediaType: image.part.mediaType,
+      ...image.part.name === undefined ? {} : { name: image.part.name },
     })
-    durable.push({ type: 'image', attachment })
   }
-  return durable
+  return Promise.all(prepared.map(async (item): Promise<ContentBlock> => {
+    if (!('data' in item)) return { type: 'text', text: item.text }
+    const attachment = await ctx.attachments.saveImage({
+      data: item.data,
+      mediaType: item.part.mediaType,
+      ...item.part.name === undefined ? {} : { name: item.part.name },
+    })
+    return { type: 'image', attachment }
+  }))
 }
 
 /**

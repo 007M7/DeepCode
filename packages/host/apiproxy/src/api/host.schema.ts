@@ -19,6 +19,8 @@ export const hostDescribeValueSchema = z.object({
   model: z.string().optional(),
   imageLimits: z.object({
     maxImageBytes: z.number().int().positive(),
+    maxImagesPerMessage: z.number().int().positive(),
+    maxMessageImageBytes: z.number().int().positive(),
     maxImagePixels: z.number().int().positive(),
     mediaTypes: z.array(imageMediaTypeSchema),
   }).optional(),
