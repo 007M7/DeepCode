@@ -106,6 +106,9 @@ function foldContexts(events: readonly SessionEvent[]): readonly FoldedContext[]
   return contexts
 }
 
+// History projection owns its node mapping so Chat's live adapter remains free
+// of inspection metadata and lifecycle coupling.
+/* jscpd:ignore-start */
 function materializeNode(
   event: SessionEvent,
   callIndex: ReadonlyMap<string, CallIndexEntry>,
@@ -165,6 +168,7 @@ function materializeNode(
       }
   }
 }
+/* jscpd:ignore-end */
 
 function projectTransient(entries: readonly HistoryEntry[]): Pick<
   ConversationHistoryProjection,
@@ -185,6 +189,9 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
         arguments: unknown
       }
       const siblings = codeDispatches.get(data.parentCallId) ?? []
+      // The independent replay emits the same public running-call shape as
+      // Chat without reading or mutating Session's live index.
+      /* jscpd:ignore-start */
       codeDispatches.set(data.parentCallId, [...siblings, {
         callId: data.subCallId,
         name: data.name,
@@ -194,6 +201,7 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
         time: event.time,
         callView: null,
       }])
+      /* jscpd:ignore-end */
       continue
     }
     if ((event.type as string) === 'tool/code-dispatch') {
@@ -239,6 +247,9 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
         if (partial?.turn === event.data.turn && partial.step === event.data.step) partial = null
         break
       case 'tool/call':
+        // History reconstructs its own in-flight index; this intentionally
+        // mirrors the published Chat node shape, not Chat's mutable state.
+        /* jscpd:ignore-start */
         openCalls.set(String(event.data.callId), {
           callId: String(event.data.callId),
           name: event.data.name,
@@ -248,6 +259,7 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
           time: event.time,
           callView: entry.view?.for === 'call' ? entry.view.view : null,
         })
+        /* jscpd:ignore-end */
         break
       case 'tool/result':
         openCalls.delete(String(event.data.message.source.callId))
@@ -269,6 +281,9 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
         for (const [callId, call] of openCalls) {
           if (call.turn !== event.data.turn) continue
           openCalls.delete(callId)
+          // Interrupted terminal nodes are reconstructed independently so a
+          // Trajectory replay cannot observe Session's frozen-node lifecycle.
+          /* jscpd:ignore-start */
           interruptedNodes.push({
             kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01,
             time: event.time,
@@ -281,6 +296,7 @@ function projectTransient(entries: readonly HistoryEntry[]): Pick<
             callView: call.callView,
             resultView: null,
           })
+          /* jscpd:ignore-end */
         }
         break
       }

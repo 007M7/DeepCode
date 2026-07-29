@@ -28,6 +28,7 @@ describe('FoldAdapter', () => {
     const adapter = new FoldAdapter()
     adapter.reset(plainTurn(0, 0, 'a', 'b'), 0)
     const first = adapter.nodes()
+    expect(adapter.nodes()).toBe(first)
     adapter.append(ev.user(6, '追加'))
     const second = adapter.nodes()
     expect(second.nodes).toHaveLength(3)
@@ -239,9 +240,8 @@ describe('FoldAdapter', () => {
     expect(adapter.nodes().nodes[0]).toMatchObject({ kind: 'tool-result', isError: true, error: { code: 'boom' } })
   })
 
-  it('indexes assistant timing and the active request header in one replay pass', () => {
-    const adapter = new FoldAdapter()
-    adapter.reset([
+  it('projects assistant timing and the active request header from history', () => {
+    const projection = projectConversationHistory([
       ev.stepStart(0, 1, 2),
       at(1, { type: 'request/header', data: {
         reason: 'initial',
@@ -253,9 +253,12 @@ describe('FoldAdapter', () => {
       ev.chunkStart(2, 1, 2),
       ev.chunkText(3, 1, 'token', 2),
       ev.assistant(4, 1, 'done', 2),
-    ], 0)
+      ev.stepStart(5, 2, 1),
+      ev.chunkText(6, 2, 'next', 1),
+      ev.assistant(7, 2, 'next done', 1),
+    ].map(event => ({ event })))
 
-    expect(adapter.nodes().nodes[0]).toMatchObject({
+    expect(projection.eventNodes[0]).toMatchObject({
       kind: 'assistant',
       timing: {
         stepStartTime: 1_700_000_000_000,
@@ -265,10 +268,7 @@ describe('FoldAdapter', () => {
       requestConfig: { provider: 'fake', model: 'first' },
     })
 
-    adapter.append(ev.stepStart(5, 2, 1))
-    adapter.append(ev.chunkText(6, 2, 'next', 1))
-    adapter.append(ev.assistant(7, 2, 'next done', 1))
-    expect(adapter.nodes().nodes.at(-1)).toMatchObject({
+    expect(projection.eventNodes.at(-1)).toMatchObject({
       timing: {
         stepStartTime: 1_700_000_000_005,
         firstTokenTime: 1_700_000_000_006,

@@ -124,15 +124,15 @@ function standaloneProps(nodes: ConversationSnapshot['nodes']): ConvViewProps {
 }
 
 /** Real-stack bench: root Context + real SlotsService ring + the plugin fiber. */
-async function bench() {
+async function bench(snapshot = historySnapshot(NODES)) {
   const ctx = new Context()
   const slots = new SlotsService(ctx)
   const loadAllHistory = vi.fn((_signal: AbortSignal) => Promise.resolve())
-  const historyStore = createSnapshotStore(historySnapshot(NODES))
+  const historyStore = createSnapshotStore(snapshot)
   const history: SessionHistoryFace = {
     sessionId: SID,
-    getSnapshot: historyStore.getSnapshot,
-    subscribe: historyStore.subscribe,
+    getSnapshot: () => historyStore.getSnapshot(),
+    subscribe: listener => historyStore.subscribe(listener),
     loadAll: loadAllHistory,
   }
   // The conversation entry's role: declare the ring, then seed the chat entry.
@@ -181,11 +181,11 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
       : injectEntry(SID)
     const injectedProps = 'hooks' in injected
       ? {
-          loadAllHistory: (injected as TrajectoryViewInjected).loadAllHistory,
-          useHistory: bindSnapshotSelector(
-            (injected as TrajectoryViewInjected).hooks.history,
-          ),
-        }
+        loadAllHistory: (injected as TrajectoryViewInjected).loadAllHistory,
+        useHistory: bindSnapshotSelector(
+          (injected as TrajectoryViewInjected).hooks.history,
+        ),
+      }
       : injected
     return (
       <View
@@ -310,8 +310,8 @@ describe('tab switching in ConversationRoot', () => {
   })
 
   it('empty window keeps the toolbar and reports no timing data', async () => {
-    const b = await bench()
-    mount(b.slots, [])
+    const b = await bench(historySnapshot([]))
+    mount(b.slots)
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.getByText('No timing data')).toBeTruthy()

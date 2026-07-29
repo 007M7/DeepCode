@@ -71,13 +71,13 @@ describe('SessionHistorySource', () => {
 
   it('observes consumer cancellation between older pages', async () => {
     const middle = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    const olderStarted = deferred<void>()
+    const olderStarted = deferred<undefined>()
     const api = new FakeApiClient()
     api.onHistory = (payload) => {
       if (payload.beforeSeq === undefined) {
         return histResponse(plainTurn(12, 2, '最新问', '最新答'), true)
       }
-      olderStarted.resolve()
+      olderStarted.resolve(undefined)
       return middle.promise
     }
     const source = new SessionHistorySource(SID, api)

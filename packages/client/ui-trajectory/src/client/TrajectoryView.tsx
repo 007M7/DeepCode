@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ConvViewProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  AssistantMessageNode, ConversationContext, RequestView,
+  AssistantMessageNode, ConversationContext,
   SessionHistoryFace,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
@@ -26,7 +26,6 @@ import {
 import css from './views.module.css'
 
 const EMPTY_IDS: ReadonlySet<number> = new Set()
-const EMPTY_REQUESTS: readonly RequestView[] = []
 
 /** Session-history paging needed by the event-complete trajectory view. */
 export interface TrajectoryViewInjected {
@@ -161,7 +160,7 @@ export function TrajectoryView({
     void loadAllHistoryRef.current(controller.signal)
     return () => { controller.abort() }
   }, [])
-  const requests = inspection.requests ?? EMPTY_REQUESTS
+  const requests = inspection.requests
   const callSchemas = inspection.callSchemas
   const contexts = useMemo<readonly ConversationContext[]>(
     () => inspection.contexts.length === 0
@@ -324,7 +323,7 @@ export function TrajectoryView({
       partial,
       runningCalls,
       requests: selectedRequests,
-      ...(callSchemas === undefined ? {} : { callSchemas }),
+      callSchemas,
       codeDispatches,
     }),
     [
