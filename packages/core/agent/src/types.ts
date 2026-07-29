@@ -115,7 +115,10 @@ export type AgentCancelCause =
 /** Runtime reason carried by the signal that controls one live turn. */
 export type AgentInterruptReason = AgentCancelCause | { readonly kind: 'disposed' }
 
-/** Public live-agent handle with aliases over the unified delivery primitive. */
+/**
+ * Public live-agent handle with aliases over the unified delivery primitive.
+ * @typert object
+ */
 export interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
