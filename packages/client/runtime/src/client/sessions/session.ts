@@ -252,6 +252,21 @@ export class Session implements SessionFace {
     return result
   }
 
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle;
+   * outcomes render as flow nodes, never as a response echo).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  async command(line: string): Promise<RpcResult<{ matched: boolean }>> {
+    try {
+      return (await this.api.commands.execute({ sessionId: this.sessionId, line })).result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
   open(): Promise<void> {
     if (this.openState === 'open') return Promise.resolve()
@@ -812,7 +827,10 @@ export class Session implements SessionFace {
       queue: this.queueCache.value,
       running: this.running,
       composerPhase: derivePhase(
-        nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
+        // Command lifecycle nodes are not conversation: running /permission
+        // or /plan on a fresh session keeps the hero (the client mirror of
+        // the host's no-turn sessionBlank predicate).
+        nodes.some(node => node.kind !== 'command') || partial !== null || this.running || this.pendingCache.value.length > 0,
         this.promptAttempted,
       ),
       removed: this.removed,
@@ -833,7 +851,9 @@ export class Session implements SessionFace {
  * object: `hasContent` only grows within a window and `promptAttempted` is
  * sticky, so blank → engaging → active never steps back; a failed first
  * prompt stays engaging (retry semantics — see ComposerPhase).
- * @param hasContent - any conversation material exists (nodes, partial, running turn, pending waits).
+ * @param hasContent - any conversation material exists (non-command nodes,
+ *   partial, running turn, pending waits; command lifecycle rows alone keep
+ *   the session blank).
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */

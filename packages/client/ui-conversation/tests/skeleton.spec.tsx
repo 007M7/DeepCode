@@ -17,7 +17,9 @@ import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
 import { ConversationSession } from '../src/client/skeleton/ConversationSession.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
-import type { ComposerBarOwnerProps } from '../src/client/contract/slots.ts'
+import type {
+  ComposerBarOwnerProps,
+} from '../src/client/contract/slots.ts'
 
 /** Machine-backed wiring over a sink spy. */
 function fakeWiring() {
@@ -64,8 +66,8 @@ function mount(
   const sessions = createSnapshotStore<SessionListState>({
     ids: [root, SID],
     byId: {
-      [root]: { id: root, displayTitle: 'Root', running: false, blank: false, updatedAt: 1 },
-      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, blank: false, updatedAt: 2 },
+      [root]: { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 },
+      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, waitingApproval: false, blank: false, updatedAt: 2 },
     },
     current: SID,
     phase: 'ready',
@@ -99,7 +101,14 @@ function mount(
           useStore={bindSnapshotSelector(chat)}
           actions={chat.actions}
           renderSlot={renderSlot as never}
-          views={{ list: () => [{ id: 'chat', label: 'Chat' }], subscribe: () => () => {}, version: () => 1 }}
+          views={{
+            list: () => [
+              { id: 'chat', label: 'Chat' },
+              { id: 'trajectory', label: 'Trajectory' },
+            ],
+            subscribe: () => () => {},
+            version: () => 1,
+          }}
           bindDraftMirror={write => wiring.bindMirror(write)}
           open={open}
         />
@@ -123,6 +132,7 @@ function mount(
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
           stop={stop}
+          command={() => Promise.resolve(true)}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}
         />
@@ -204,6 +214,13 @@ describe('ConversationRoot resident composer', () => {
     expect((after as HTMLTextAreaElement).value).toBe('kept across flip')
     expect(b.view.queryByText("Let's start building")).toBeNull()
     expect(b.view.getByTestId('view-chat')).toBeTruthy()
+  })
+
+  it('keeps pending takeover interaction accessible outside the Chat view', () => {
+    const b = mount(conversationSnapshot({ pending: [{} as never] }))
+    act(() => { b.chat.actions.setView('trajectory') })
+    expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
+    expect(b.view.getByRole('textbox')).toBeTruthy()
   })
 
   it('rolls the pending workspace label back when switching fails', async () => {

@@ -10,8 +10,25 @@ import type {
   RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
-
 export type { TodoItem }
+
+/** Request configuration recorded for one provider call. */
+export interface AssistantRequestConfig {
+  provider: string
+  model: string
+  purpose?: string
+  thinking?: string
+  reasoningEffort?: string
+  temperature?: number
+  maxTokens?: number
+  stop?: readonly string[]
+}
+
+/** Stable provider/model identity reported for one completed request. */
+export interface AssistantProvenanceView {
+  provider: string
+  model: string
+}
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -54,6 +71,16 @@ export interface UserMessageNode {
   source: unknown
 }
 
+/** Recorded boundaries used to derive assistant latency and throughput. */
+export interface AssistantTiming {
+  /** Matching step/start timestamp, or null when it is outside the current event window. */
+  stepStartTime: number | null
+  /** First non-empty text/reasoning/tool delta timestamp, or null when no token delta was recorded. */
+  firstTokenTime: number | null
+  /** Final assistant/message timestamp. */
+  completedTime: number
+}
+
 /** A finalized (or interruption-frozen) assistant message. */
 export interface AssistantMessageNode {
   kind: 'assistant'
@@ -64,6 +91,10 @@ export interface AssistantMessageNode {
   step: number
   blocks: readonly AssistantBlock[]
   usage?: unknown
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
+  /** Timing derived from the recorded step/chunk/message event sequence. */
+  timing?: AssistantTiming
   /** Frozen partial of an aborted turn (no finalize ever arrives): rendered with a 已停止 marker.
    *  Synthetic seq (fractional, derived from the turn/end seq) keeps it ordered inside the flow. */
   interrupted?: true

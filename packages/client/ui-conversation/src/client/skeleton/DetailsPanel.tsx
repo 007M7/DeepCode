@@ -1,47 +1,59 @@
 // DetailsPanel, P-I minimal form: close button + the selected call's args and
-// result rendered raw. The three-段 Switch / Prev-Next stepping / See-in-
-// trajectory are deferred (ledger). Reads the selection from the shared chat
+// result — args as JSON, the result raw except for a terminal-card call, whose
+// Output section is the command's terminal card. The three-段 Switch /
+// Prev-Next stepping / See-in-trajectory are deferred (ledger). Reads the
+// selection from the shared chat
 // store (conversation writes, this panel reads — the cross-registration
 // share the store seat exists for) and derives the call material from the
 // session snapshot — no data of its own.
 
-import { CodeBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ConversationSnapshot, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
+import { terminalCardModel } from '../contract/terminal-card-model.ts'
+import type { ToolCallBlock } from '../contract/tool-call-model.ts'
 import css from './DetailsPanel.module.css'
 
 /** Full props composed by reference from the contract (automatic shares & injected share). */
 export type DetailsPanelProps = DetailsSlotProps
 
-/** Selected call material: resolved result node, or the in-flight running call's args. */
+/**
+ * Selected call material: the call's display name and args plus the frozen
+ * block slice it came from. `block` is a snapshot-cached reference, so the
+ * wrapper stays shallow-equal across unrelated snapshot frames; the settled /
+ * running split is read off it with the `'kind' in block` discrimination
+ * instead of duplicated as flags.
+ */
 interface CallMaterial {
   name: string
   argsRaw: string | null
-  result: ToolResultNode | null
-  running: boolean
+  block: ToolCallBlock
+}
+
+/** Material of a settled result node (native call or run_code sub-dispatch). */
+function settledMaterial(node: ToolResultNode, callId: string): CallMaterial {
+  return { name: node.call?.name ?? callId, argsRaw: node.call?.argsRaw ?? null, block: node }
+}
+
+/** Material of an in-flight call (native call or run_code sub-dispatch). */
+function runningMaterial(call: RunningToolCall): CallMaterial {
+  return { name: call.name, argsRaw: call.argsRaw, block: call }
 }
 
 function materialFor(s: ConversationSnapshot, callId: string): CallMaterial | null {
   for (const node of s.nodes) {
-    if (node.kind === 'tool-result' && node.callId === callId) {
-      return { name: node.call?.name ?? callId, argsRaw: node.call?.argsRaw ?? null, result: node, running: false }
-    }
+    if (node.kind === 'tool-result' && node.callId === callId) return settledMaterial(node, callId)
   }
   const open = s.runningCalls.find(c => c.callId === callId)
-  if (open !== undefined) {
-    return { name: open.name, argsRaw: open.argsRaw, result: null, running: true }
-  }
+  if (open !== undefined) return runningMaterial(open)
   // run_code sub-dispatches: the native call-block shapes, so a selected
   // sub-row resolves through the same material as a native call — the
   // settled ToolResultNode form, or the RunningToolCall form mid-flight.
   for (const subs of s.codeDispatches.values()) {
     for (const sub of subs) {
       if (sub.callId !== callId) continue
-      if ('kind' in sub) {
-        return { name: sub.call?.name ?? callId, argsRaw: sub.call?.argsRaw ?? null, result: sub, running: false }
-      }
-      return { name: sub.name, argsRaw: sub.argsRaw, result: null, running: true }
+      return 'kind' in sub ? settledMaterial(sub, callId) : runningMaterial(sub)
     }
   }
   return null
@@ -56,8 +68,11 @@ function pretty(raw: string): string {
   }
 }
 
-export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPanelProps) {
+export function DetailsPanel({ useSession, useSessions, sessionId, useStore, closeDetails }: DetailsPanelProps) {
   const selection = useStore(s => s.selection)
+  // Session workspace root: an omitted or relative terminal cwd resolves
+  // against it, which the pure presenter cannot see.
+  const sessionCwd = useSessions(list => list.byId[sessionId]?.cwd)
   const callId = selection?.callId
   // materialFor builds a fresh wrapper; shallowEqual short-circuits on its
   // stable members (result node reference rides the snapshot's structural sharing).
@@ -95,20 +110,51 @@ export function DetailsPanel({ useSession, useStore, closeDetails }: DetailsPane
                 )}
                 <section className={css.section}>
                   <div className={css.sectionLabel}>Output</div>
-                  {/* materialFor invariant: result===null ⇔ running (a settled
-                        material always carries its result node). */}
-                  {material.result === null
-                    ? <div className={css.empty}>运行中…</div>
-                    : (
-                      <pre className={css.code} data-error={material.result.isError || undefined}>
-                        {renderResult(material.result)}
-                      </pre>
-                    )}
+                  {/* Keyed by the selected call: the body owns per-call view
+                      state (the terminal card's expand and copy), which React
+                      would otherwise carry into the next selection because the
+                      panel does not unmount between calls. */}
+                  <OutputBody key={callId} material={material} cwd={sessionCwd} />
                 </section>
               </>
             )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The Output section's body for the selected call. A terminal-card call — a
+ * shell command's call/result views — renders through the shared TerminalBlock
+ * at the primitive's own full height allowance, so column-aligned output keeps
+ * its alignment and scrolls sideways instead of folding. Every other call, and
+ * a running call with no terminal card yet, keeps the flattened text form.
+ * @param props.material - the selected call's material from {@link materialFor}.
+ * @param props.cwd - the session workspace root, resolving the terminal view's cwd.
+ * @returns the Output section's body element.
+ */
+function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | undefined }) {
+  const terminal = terminalCardModel(material.block, cwd)
+  if (terminal !== null) {
+    // The contract renders the presenter's description above the card, and the
+    // panel has no summary row to carry it, so it is drawn here.
+    return (
+      <>
+        {terminal.description !== undefined && (
+          <div className={css.terminalDescription}>{terminal.description}</div>
+        )}
+        <TerminalBlock {...terminal.card} className={css.terminal} />
+      </>
+    )
+  }
+  // A settled call always carries the result node the flattened form needs;
+  // the running shape has no result to flatten.
+  if (!('kind' in material.block)) return <div className={css.empty}>运行中…</div>
+  const result = material.block
+  return (
+    <pre className={css.code} data-error={result.isError || undefined}>
+      {renderResult(result)}
+    </pre>
   )
 }
 

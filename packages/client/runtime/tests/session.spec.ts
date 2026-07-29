@@ -126,6 +126,21 @@ describe('live event path', () => {
     })
   })
 
+  it('command lifecycle rows alone keep the composer blank (hero survives a /permission or /plan switch)', async () => {
+    // A fresh session whose only window content is a command pair (plus the
+    // knob events a /permission switch appends — not surface-eligible, so
+    // they never become nodes) stays phase 'blank': selecting a preset from
+    // the hero must not enter the conversation view.
+    const { session } = await opened([])
+    expect(session.getSnapshot().composerPhase).toBe('blank')
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.commandRun(0, 'cmd-perm', 'permission', ' danger-full-access'))
+    feed(ev.commandDone(1, 'cmd-perm', 'success', 'Permission preset: danger-full-access.'))
+    const snapshot = session.getSnapshot()
+    expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'command', name: 'permission' })
+    expect(snapshot.composerPhase).toBe('blank')
+  })
+
   it('accumulates chunks into partial, then finalize swaps partial out as the node lands', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -686,6 +701,7 @@ describe('resync', () => {
     expect(snapshot.openState).toBe('open') // stale failure did not settle the fresh generation into error
     expect(snapshot.nodes.map(n => n.seq)).toEqual([7, 9])
   })
+
 })
 
 describe('run_code sub-dispatch indexing', () => {
@@ -799,20 +815,23 @@ describe('reference stability (the memo contract)', () => {
     await session.open()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.turnStart(6, 1))
-    feed(ev.toolCall(7, 1, 'c1', 'echo', '{}'))
+    feed(ev.stepStart(7, 1))
+    feed(ev.toolCall(8, 1, 'c1', 'echo', '{}'))
     session.handleMuxEnvelope('ra' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
     const before = session.getSnapshot()
-    // A chunk storm touches partial/nodes only: runningCalls and pending must keep identity.
-    feed(ev.chunkStart(8, 1))
-    feed(ev.chunkText(9, 1, '与工具无关的流式'))
+    // A chunk storm touches partial/nodes only: unrelated projections keep identity.
+    feed(ev.chunkStart(9, 1))
+    feed(ev.chunkText(10, 1, '与工具无关的流式'))
     const after = session.getSnapshot()
     expect(after).not.toBe(before)
     expect(after.runningCalls).toBe(before.runningCalls)
     expect(after.pending).toBe(before.pending)
     // And a mutation on the tracked domain swaps that array.
-    feed(ev.toolResult(10, 1, 'c1', 'ECHO'))
+    feed(ev.toolResult(11, 1, 'c1', 'ECHO'))
     const resolved = session.getSnapshot()
     expect(resolved.runningCalls).not.toBe(after.runningCalls)
     expect(resolved.pending).toBe(after.pending)
+    feed(ev.assistant(12, 1, '完成'))
+    expect(session.getSnapshot()).not.toBe(resolved)
   })
 })

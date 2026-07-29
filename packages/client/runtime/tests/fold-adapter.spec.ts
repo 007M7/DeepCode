@@ -8,6 +8,7 @@ import { createUserMessage, CallId, createMessage, createToolResultMessage } fro
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { FoldAdapter } from '../src/client/sessions/fold-adapter.ts'
+import { projectConversationHistory } from '../src/client/session-history/history-fold.ts'
 import { ev, plainTurn } from './event-script.ts'
 
 const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
@@ -27,12 +28,59 @@ describe('FoldAdapter', () => {
     const adapter = new FoldAdapter()
     adapter.reset(plainTurn(0, 0, 'a', 'b'), 0)
     const first = adapter.nodes()
+    expect(adapter.nodes()).toBe(first)
     adapter.append(ev.user(6, '追加'))
     const second = adapter.nodes()
     expect(second.nodes).toHaveLength(3)
     expect(second.nodes[0]).toBe(first.nodes[0])
     expect(second.nodes[1]).toBe(first.nodes[1])
     expect(second.nodes).not.toBe(first.nodes) // array itself fresh per call
+  })
+
+  it('projects frozen surface generations without widening the core live surface', () => {
+    const events = [
+      ev.user(0, 'a'),
+      ev.user(1, 'b'),
+      at(2, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 0, end: 0 },
+        sourceEventSeqs: [0],
+        data: {
+          turn: 1,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'summary' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }),
+      at(3, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 2, end: 1 },
+        sourceEventSeqs: [2, 1],
+        data: {
+          turn: 1,
+          step: 2,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'summary 2' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }),
+    ]
+
+    expect(projectConversationHistory(events.map(event => ({ event }))).contexts.map(context => ({
+      id: context.id,
+      parentId: context.parentId,
+      originSeq: context.originSeq,
+      nodes: context.nodes.map(node => node.seq),
+    }))).toEqual([
+      { id: 0, parentId: undefined, originSeq: undefined, nodes: [0, 1] },
+      { id: 1, parentId: 0, originSeq: 2, nodes: [2, 1] },
+      { id: 2, parentId: 1, originSeq: 3, nodes: [3] },
+    ])
   })
 
   it('materializes all six node variants with field mapping', () => {
@@ -114,6 +162,68 @@ describe('FoldAdapter', () => {
     }
   })
 
+  it('silently degrades when a replacement needs an earlier history page', () => {
+    const adapter = new FoldAdapter()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      adapter.reset([
+        at(10, {
+          type: 'assistant/message',
+          surfaceOp: { op: 'replace', start: 1, end: 3 },
+          sourceEventSeqs: [1, 3],
+          data: {
+            turn: 1,
+            step: 1,
+            message: createMessage({
+              role: 'assistant',
+              content: [{ type: 'text', text: 'partial summary' }],
+              source: { kind: 'model', provider: 'fake', model: 'fake' },
+            }),
+          },
+        }),
+        ev.user(11, 'newer message'),
+      ], 10)
+
+      expect(adapter.nodes()).toMatchObject({
+        degraded: true,
+        nodes: [{ seq: 10 }, { seq: 11 }],
+      })
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('silently degrades when a live replacement needs an earlier history page', () => {
+    const adapter = new FoldAdapter()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      adapter.reset([ev.user(10, 'window head')], 10)
+      adapter.append(at(11, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 1, end: 1 },
+        sourceEventSeqs: [1],
+        data: {
+          turn: 1,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'live summary' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }))
+
+      expect(adapter.nodes()).toMatchObject({
+        degraded: true,
+        nodes: [{ seq: 10 }, { seq: 11 }],
+      })
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
   it('materializes a tool-result error field when present', () => {
     const adapter = new FoldAdapter()
     adapter.reset([
@@ -128,6 +238,44 @@ describe('FoldAdapter', () => {
       } }),
     ], 0)
     expect(adapter.nodes().nodes[0]).toMatchObject({ kind: 'tool-result', isError: true, error: { code: 'boom' } })
+  })
+
+  it('projects assistant timing and the active request header from history', () => {
+    const projection = projectConversationHistory([
+      ev.stepStart(0, 1, 2),
+      at(1, { type: 'request/header', data: {
+        reason: 'initial',
+        header: {
+          config: { provider: 'fake', model: 'first' },
+          tools: [],
+        },
+      } }),
+      ev.chunkStart(2, 1, 2),
+      ev.chunkText(3, 1, 'token', 2),
+      ev.assistant(4, 1, 'done', 2),
+      ev.stepStart(5, 2, 1),
+      ev.chunkText(6, 2, 'next', 1),
+      ev.assistant(7, 2, 'next done', 1),
+    ].map(event => ({ event })))
+
+    expect(projection.eventNodes[0]).toMatchObject({
+      kind: 'assistant',
+      timing: {
+        stepStartTime: 1_700_000_000_000,
+        firstTokenTime: 1_700_000_000_003,
+        completedTime: 1_700_000_000_004,
+      },
+      requestConfig: { provider: 'fake', model: 'first' },
+    })
+
+    expect(projection.eventNodes.at(-1)).toMatchObject({
+      timing: {
+        stepStartTime: 1_700_000_000_005,
+        firstTokenTime: 1_700_000_000_006,
+        completedTime: 1_700_000_000_007,
+      },
+      requestConfig: { provider: 'fake', model: 'first' },
+    })
   })
 
   it('exposes the in-window call index for runningCalls material', () => {

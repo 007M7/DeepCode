@@ -93,12 +93,21 @@ export class FixtureSession implements SessionFace {
   }
 
   /**
+   * Fail-loud stub; supply `command` on the fixture's session face to exercise it.
+   * @returns never — always throws.
+   */
+  command(): never {
+    throw new Error(`test session "${this.sessionId}": command is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
    * Fail-loud stub; supply `loadOlder` on the fixture's session face to exercise it.
    * @returns never — always throws.
    */
   loadOlder(): never {
     throw new Error(`test session "${this.sessionId}": loadOlder is not stubbed — supply it on the fixture's session face`)
   }
+
 }
 
 /** One live test session: fixture-derived stores plus its minted scope state. */
@@ -183,6 +192,7 @@ export class TestSessions implements ISessions {
       id,
       displayTitle: fixture.id,
       running: false,
+      waitingApproval: false,
       blank: false,
       updatedAt: this.records.size + 1,
       ...fixture.summary,
