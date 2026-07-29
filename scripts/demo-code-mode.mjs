@@ -8,9 +8,8 @@ import { spawn } from 'node:child_process'
 // Each UI's node invocation matches its base demo script plus the overlay config.
 const UIS = new Map([
   ['tui', [
-    '--experimental-transform-types',
     '--import',
-    './scripts/tspath-loader.ts',
+    'tsx/esm',
     'apps/cli/src/bin.ts',
     '--config',
     'examples/tui-agent/code-mode.cordis.yml',

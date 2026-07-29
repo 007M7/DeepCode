@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向模型的 `ralph` 工具运行固定的前台工作流，把一个不可变目标依次交给多个全新子 agent（智能体）。它展示如何把专用编排策略实现为基于 [`ctx.workflows`](../workflow/README.md) 和 [`ctx.subagents`](../../subagent/subagent/README.md) 的普通插件：不会向 `agent-loop` 添加 Ralph 模式或全新 agent 循环，同会话的[目标领域](../../goal/goal/README.md)也保持独立。政策和延期工作由 [Ralph Agent Note](../../../.agents/notes/implemented/feature/2026-07-19-fresh-agent-ralph-workflow-tool.md)负责。
+面向模型的 `ralph` 工具运行固定的前台工作流，把一个不可变目标依次交给多个全新子 agent（智能体）。它展示如何把专用编排策略实现为基于 [`ctx.workflows`](../workflow/README.md) 和 [`ctx.subagents`](../../subagent/subagent/README.md) 的普通插件：不会向 `agent-loop` 添加 Ralph 模式或全新 agent loop（智能体循环），同会话的[目标领域](../../goal/goal/README.md)也保持独立。策略和暂缓事项由 [Ralph Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-19-fresh-agent-ralph-workflow-tool.md)负责。
 
 ## 契约
 
@@ -16,7 +16,7 @@
 
 ## 生命周期与取消
 
-调用方 agent 是每个全新子 agent 的父级，因此会保留 cwd 和谱系，但不会复制其对话。`exec.signal` 进入工作流引擎，同时也桥接到 `run.cancel()`，确保实现相互独立。工具等待 `run.result` 并调用 `run.dispose()`，后一个调用位于 `finally` 中，因此取消的父级步骤会等到引擎完成有界终止且子 agent 完全停稳后才返回。
+调用方 agent 是每个全新子 agent 的父级，因此会保留 cwd 和谱系，但不会复制其对话。`exec.signal` 进入工作流引擎，同时也桥接到 `run.cancel()`，以便不依赖具体实现。工具等待 `run.result` 并调用 `run.dispose()`，后一个调用位于 `finally` 中，因此取消的父级步骤会等到引擎完成有界终止且子 agent 完全停稳后才返回。
 
 ## 渲染意图
 
@@ -31,7 +31,7 @@
 | `maxHandoffChars` | `16384` | 一份 Round 报告序列化后的最大字符数。 |
 | `maxResultChars` | `16384` | 返回给父级的完整成功结果最大字符数。 |
 
-插件应用时会规范化并校验所有配置值；直接应用、未经过 Loader schema 规范化的情况也包括在内。每次调用前都会立即解析提供方能力，因为提供方注册可能随插件生命周期和 HMR（热模块替换）变化。
+插件应用时会规范化并校验所有配置值，也包括绕过 Loader schema 规范化而直接应用的情况。每次调用前都会立即解析提供方能力，因为提供方注册可能随插件生命周期和热模块替换（HMR）变化。
 
 ## 模型体验
 
@@ -49,21 +49,21 @@ Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop o
 
 #### Token 影响
 
-插件启用期间，每个请求支付少量固定指导成本。
+插件启用期间，每个请求都会产生少量固定的指导 token 开销。
 
 #### KV Cache 影响
 
-只要插件作用域和指导文本不变，前缀就保持稳定。启用或 dispose（资源释放）可能从该提示词段开始使复用失效。
+只要插件作用域和指导文本不变，前缀就保持稳定。启用或 dispose（资源释放）可能会使从该提示词段起的缓存复用失效。
 
 ### 工具 schema
 
 #### 模型看到的内容
 
-已生成的 [`ralph` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ralph)公开一个必填 `objective` 字符串和一个可选 `maxRounds` 数字。提供方选择、交接大小、报告 schema、工作流脚本和编排行为均由部署拥有，不在调用接口中。
+已生成的 [`ralph` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-ralph)公开一个必填 `objective` 字符串和一个可选 `maxRounds` 数字。提供方选择、交接大小、报告 schema、工作流脚本和编排行为均由部署侧控制，不在调用接口中。
 
 #### Token 影响
 
-工具可见的每个请求都会支付少量固定 schema 成本。
+工具可见时，每个请求都会产生少量固定的 schema token 开销。
 
 #### KV Cache 影响
 
@@ -83,11 +83,11 @@ Use the ralph tool ONLY when the direct human explicitly asks for a Ralph loop o
 
 每个全新子 agent 都有独立的请求缓存。父级结果追加在可复用请求前缀之后。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
-- **完成由 worker 自行声明**：没有独立的评估器或验证器判断目标是否实际完成；评估器政策及评估器驱动的延续均延期处理。
-- **仅支持前台**：没有 task id、后台收集、进程恢复检查点、调度器或基于墙上时钟的启动政策。
+- **完成由 worker 自行声明**：没有独立的评估器或验证器判断目标是否实际完成；评估器策略及评估器驱动的延续均暂缓处理。
+- **仅支持前台**：没有 task id、后台收集、进程恢复检查点、调度器或基于挂钟时间的启动策略。
 - **工作区是唯一的跨 Round 长期记忆**：一份有界报告作为显式交接内容，每个子 agent 结束后，未提交的对话推理都会消失。
 - **一个 Round 对应一个全新子 agent**：Round 内没有扇出、模型/提供方切换、fork 上下文或由模型调用选择的提供方。
 - **普通子 agent 失败会终止运行**：固定脚本报告失败的 Round 和上一次成功交接，但不会重试；致命的工作流基础设施失败可能在该状态返回前结束。
-- **聚合工作量仅受 Round 数量限制**：token、价格和已用时间预算均延期处理。
+- **聚合工作量仅受 Round 数量限制**：token、价格和耗时预算均暂缓处理。
