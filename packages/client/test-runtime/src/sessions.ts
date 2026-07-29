@@ -107,6 +107,7 @@ export class FixtureSession implements SessionFace {
   loadOlder(): never {
     throw new Error(`test session "${this.sessionId}": loadOlder is not stubbed — supply it on the fixture's session face`)
   }
+
 }
 
 /** One live test session: fixture-derived stores plus its minted scope state. */

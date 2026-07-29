@@ -213,7 +213,7 @@ Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/in
 'compact/end': { turn: number; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:40`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:44`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
@@ -235,6 +235,8 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
  */
 'compact/summary': {
   summary: ContentBlock[]
+  /** Complete provider output before the backend's safe summary projection. */
+  rawOutput?: ContentBlock[]
   shadowedRange: { start: number; end: number }
   shadowedSeqs: number[]
   shadowedTokenCount: number
@@ -249,10 +251,12 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
   model: string
   /** The generation cap the summarize call sent, when one applied. */
   maxTokens?: number
+  /** Provider-reported token usage for the summarization request, when emitted. */
+  usage?: TokenUsage
 }
 ```
 
-Types: [ContentBlock](core-data-structures/core.md)
+Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
 Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
 
