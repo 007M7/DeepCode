@@ -22,7 +22,7 @@ export type { Config as PtyLocalConfig } from './config.ts'
 /** Cordis plugin name. */
 export const name = 'pty-local'
 /** Required services: PTY registry, shared confinement policy, and process substrate. */
-export const inject = ['pty', 'sandbox', 'sandboxPolicy', 'subprocess']
+export const inject = ['pty', 'sandboxPolicy', 'subprocess']
 
 interface SandboxModeFenceState {
   pty: Context['pty']
@@ -72,7 +72,11 @@ function spawnArgv(ctx: Context, config: ResolvedConfig, spec: PtyBackendSpawnSp
   const argv = [config.shellPath, ...config.shellArgs]
   const mode: SandboxMode = effectiveSandboxMode(spec.owner.session.events) ?? ctx.sandboxPolicy.defaultMode
   if (mode === 'danger-full-access') return argv
-  return ctx.sandbox.confine(argv, {
+  const sandbox = ctx.get('sandbox')
+  if (sandbox === undefined) {
+    throw new Error(`pty-local: sandbox mode "${mode}" requires a ctx.sandbox provider in the execution world`)
+  }
+  return sandbox.confine(argv, {
     mode: mode,
     workspaceRoot: ctx.sandboxPolicy.workspaceRoot,
   }).argv

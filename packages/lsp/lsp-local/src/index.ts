@@ -106,6 +106,16 @@ export const Config: z<Config> = z.object({
   servers: z.dict(LspLocalServerConfig).required(),
 })
 
+/** Propagate teardown failures only after every sibling has settled. */
+function throwTeardownFailures(results: readonly PromiseSettledResult<void>[], message: string): void {
+  const failures: unknown[] = []
+  for (const result of results) {
+    if (result.status === 'rejected') failures.push(result.reason)
+  }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, message)
+}
+
 /**
  * Register the configured stdio LSP providers. Resolves every executable at load (after credential
  * scrubbing) before publishing any provider; each process launches lazily on its first matching
@@ -169,7 +179,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     return async () => {
       // Remove every route before process teardown so no new query can enter a draining provider.
       for (const dispose of disposers.reverse()) dispose()
-      await Promise.all(providers.map(provider => provider.disposeAll()))
+      const results = await Promise.allSettled(providers.map(provider => provider.disposeAll()))
+      throwTeardownFailures(results, 'lsp-local provider teardown failed')
     }
   }, 'lsp-local.registerProviders')
 }
@@ -346,12 +357,13 @@ class LocalLspProvider implements LspProvider {
     const draining = [...this.queues.values()]
     const resolving = [...this.workspaceLookups]
     this.instances.clear()
-    await Promise.all([
+    const results = await Promise.allSettled([
       ...live.map(instance => instance.dispose()),
       ...draining,
       ...resolving,
     ])
     this.queues.clear()
     this.workspaceLookups.clear()
+    throwTeardownFailures(results, 'lsp-local instance teardown failed')
   }
 }

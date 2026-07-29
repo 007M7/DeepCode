@@ -120,7 +120,6 @@ describe('LocalPtyBackend startup rollback', () => {
 
   it('closes failed startup and aggregates cleanup failure', async () => {
     const ctx = new Context()
-    await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
     const spawnTerminal = async (): Promise<SubprocessTerminalHandle> => terminalHandle()
 
@@ -184,6 +183,20 @@ describe('LocalPtyBackend startup rollback', () => {
     })
     expect(spawned?.env?.PTY_TEST_SECRET).toBeUndefined()
     expect(initialized).toHaveBeenCalledWith(undefined)
+  })
+
+  it('rejects a confined spawn without a sandbox provider', async () => {
+    const confinedCtx = new Context()
+    await confinedCtx.plugin(SandboxPolicyService, { mode: 'workspace-write', workspaceRoot: '/workspace' })
+    const confined = new LocalPtyBackend(
+      confinedCtx,
+      config(),
+      async () => { throw new Error('terminal spawn must not run') },
+      () => stubLocalSession(),
+    )
+    await expect(confined.spawn(spec(agent(confinedCtx)))).rejects.toThrow(
+      'sandbox mode "workspace-write" requires a ctx.sandbox provider in the execution world',
+    )
   })
 
   it('forwards terminal allocation cancellation directly', async () => {
@@ -266,7 +279,7 @@ describe('pty-local plugin shape', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(ptyLocal) as Record<string, unknown>
     expect(unwrapped.name).toBe('pty-local')
-    expect(unwrapped.inject).toEqual(['pty', 'sandbox', 'sandboxPolicy', 'subprocess'])
+    expect(unwrapped.inject).toEqual(['pty', 'sandboxPolicy', 'subprocess'])
     expect(unwrapped.Config).toBeDefined()
   })
 
@@ -274,7 +287,6 @@ describe('pty-local plugin shape', () => {
     const ctx = new Context()
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(PtyService)
-    await ctx.plugin(EmptySandbox)
     await ctx.plugin(SandboxPolicyService, { mode: 'danger-full-access', workspaceRoot: '/tmp' })
     await ctx.plugin(StubSubprocessService)
     const fiber = await ctx.plugin(ptyLocal, config())

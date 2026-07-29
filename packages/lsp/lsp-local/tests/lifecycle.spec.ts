@@ -350,6 +350,78 @@ describe('lsp-local end to end over a fake server', () => {
     expect(signal.aborted).toBe(true)
   })
 
+  it('waits for every owned teardown before aggregating instance failures', async () => {
+    let provider: LspProvider | undefined
+    const ctx = await mount({ LSP_FAKE_DEF: 'null' }, {}, (registered) => { provider = registered })
+    if (provider === undefined) throw new Error('expected lsp-local to register a provider')
+    const internals = provider as unknown as {
+      readonly instances: Map<string, { dispose(): Promise<void> }>
+      readonly queues: Map<string, Promise<void>>
+      readonly workspaceLookups: Set<Promise<void>>
+      disposeAll(): Promise<void>
+    }
+    const firstFailure = new Error('first instance cleanup failed')
+    const secondFailure = new Error('second instance cleanup failed')
+    const release = Promise.withResolvers<undefined>()
+    internals.instances.set('first', { dispose: async () => { throw firstFailure } })
+    internals.instances.set('second', { dispose: async () => { throw secondFailure } })
+    internals.queues.set('pending', release.promise)
+    internals.workspaceLookups.add(Promise.resolve())
+
+    let settled = false
+    const disposing = internals.disposeAll().finally(() => { settled = true })
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(settled).toBe(false)
+    release.resolve(undefined)
+    await expect(disposing).rejects.toMatchObject({
+      errors: [firstFailure, secondFailure],
+      message: 'lsp-local instance teardown failed',
+    })
+    expect(internals.instances.size).toBe(0)
+    expect(internals.queues.size).toBe(0)
+    expect(internals.workspaceLookups.size).toBe(0)
+    await ctx.fiber.dispose()
+  })
+
+  it('waits for every provider before reporting plugin teardown failure', async () => {
+    const ctx = new Context()
+    const disposalErrors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
+    await ctx.plugin(Lsp)
+    await ctx.plugin(LocalSubprocessService)
+    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
+    const providers: LspProvider[] = []
+    const register = ctx.lsp.registerProvider.bind(ctx.lsp)
+    const registrationSpy = vi.spyOn(ctx.lsp, 'registerProvider').mockImplementation((provider) => {
+      providers.push(provider)
+      return register(provider)
+    })
+    const fiber = await ctx.plugin(LspLocal, {
+      servers: {
+        first: fakeServer(),
+        second: fakeServer({}, { extensionToLanguage: { '.js': 'javascript' } }),
+      },
+    })
+    registrationSpy.mockRestore()
+    expect(providers).toHaveLength(2)
+    const failure = new Error('provider cleanup failed')
+    const release = Promise.withResolvers<undefined>()
+    const first = providers[0] as LspProvider & { disposeAll(): Promise<void> }
+    const second = providers[1] as LspProvider & { disposeAll(): Promise<void> }
+    first.disposeAll = async () => { throw failure }
+    second.disposeAll = async () => { await release.promise }
+
+    let disposed = false
+    const disposing = fiber.dispose().then(() => { disposed = true })
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(disposed).toBe(false)
+    expect(disposalErrors).toEqual([])
+    release.resolve(undefined)
+    await disposing
+    expect(disposalErrors).toEqual([failure])
+    await ctx.fiber.dispose()
+  })
+
   it('runs distinct workspaces in parallel instances', async () => {
     const ws2 = join(root, 'ws2')
     await mkdir(ws2)

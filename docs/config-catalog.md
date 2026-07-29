@@ -1072,7 +1072,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:69`](../packages/plan/plan-mode/s
 
 ## `@deepseek-ai/dsh-pty-local`
 
-Requires: `pty` · `sandbox` · `sandboxPolicy` · `subprocess`
+Requires: `pty` · `sandboxPolicy` · `subprocess`
 
 ```ts config-catalog
 /** Public plugin configuration. */
