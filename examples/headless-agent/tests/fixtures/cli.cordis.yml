@@ -1,11 +1,8 @@
 - id: cli-mock-llm
   name: './cli-mock-llm.ts'
 
-- id: repository-plugin-runtime
-  name: '@deepseek-ai/dsh-repository-plugin'
-
 - id: repository-plugin-fixture
-  name: './repository-plugin/dsh-plugin.mjs'
+  name: './repository-plugin/load.mjs'
 
 - id: base
   name: '@cordisjs/plugin-include'
