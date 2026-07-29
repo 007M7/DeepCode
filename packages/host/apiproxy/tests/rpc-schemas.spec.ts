@@ -70,11 +70,13 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
     expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
+    expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
   it('rejects a known code with missing details', () => {
     expect(() => rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: {} })).toThrow()
+    expect(() => rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: {} })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'command-error', message: 'm' })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'nope', message: 'm', details: {} })).toThrow()
   })
