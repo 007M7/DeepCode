@@ -10,7 +10,7 @@
 - **按流划分的处置方式**：`'pipe'` 把原始流原样交给调用方（协议分帧仍归消费方所有）；`'inherit'` 直通父进程的描述符；收集模式（collect）在输出超过上限后于内存中保留尾部（错误与结果通常聚集在末尾，沿用 pi/OpenCode 的理由），并在配置了 spill 上限时把完整流追加到一个私有临时文件；省略 `spill` 则只保留尾部，即诊断尾部的形状。某条流大于 spill 上限时，会丢弃已不完整的 spill，仅返回带截断标记的尾部；spill 文件描述符在结算时封存，最终关闭失败时则不公布路径，以免声称存在不完整的文件。spill 文件权限为 `0600`、名称随机，位于按需延迟创建的 `0700` 每进程目录之下。
 - **凭据清除 + 显式合并**：以 `process.env` 为基础，移除形似凭据的变量（`*KEY*`／`*SECRET*`／`*TOKEN*`）和所有环境中已有的 `DSH_*` 名称；spec 的显式 `env` 在该清除之后合并且不做命名空间校验，因此有意提供的凭据或当前 `DSH_*` 事实会胜出，而陈旧的嵌套 harness 身份无法从环境中隐式漏入。提供的 stdin 会被写入后关闭；否则 fd 0 指向 `/dev/null`。参见 [stdin/env Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-06-30-bash-stdin-env-trusted-plugin-surface.md)与[受管环境 Agent Note](../../../.agents/notes/implemented/feature/2026-07-10-agent-session-identity-and-log-location.md)。
 - **基于偏移量的读取**：收集模式的读取器以全流字节坐标返回增量；服务自身从不持有游标，因此消费方自有的游标（bash 的后台读取路径）与完整流重读可以共存，结算前后皆然。
-- **执行世界坐标**：`cwd` 是宿主进程 cwd，`runtimeRoot` 是所有者私有的临时目录，在资源释放时删除；`resolveExecutable` 检查绝对文件，或使用平台感知的可执行扩展名在清理后的有效 PATH 中查找。
+- **执行世界坐标**：`cwd` 是宿主进程 cwd，`runtimeRoot` 是所有者私有的临时目录，会在资源释放时删除，并且删除发生在报告任何进程清理失败之前；`resolveExecutable` 检查绝对文件，或使用平台感知的可执行扩展名在清理后的有效 PATH 中查找。
 - **终端进程所有权**：`spawnTerminal` 分配 `node-pty`，桥接 UTF-8 终端字节，检查当前前台进程组并向其发送信号，并先于顶层 shell 清理后代。每次前台检查都会保留有根进程树中的精确身份；Linux 还会在会话 leader 退出后枚举该 POSIX 会话。因此，先前观察到的 macOS 后代以及任何同会话 Linux 成员在重新设定父进程后仍受身份围栏保护，而 pid／启动身份可防止清理因 PID 复用而跟随到其他进程。上层 PTY 后端负责提示符就绪检测、缓冲和面向模型的操作。
 - **先终止再等待退出的 dispose**：服务保留存活句柄，只为让自身的 dispose 能对每个仍在运行的进程树执行升级并等待其退出；已结算与 spawn 失败的句柄在结算时即离开存活集合。
 

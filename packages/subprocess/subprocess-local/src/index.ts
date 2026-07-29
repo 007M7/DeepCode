@@ -67,11 +67,15 @@ export class LocalSubprocessService extends SubprocessService {
         pending.push(terminal.waitForExit().then(() => { this.terminals.delete(terminal) }))
       }
       this.live.clear()
-      const outcomes = await Promise.allSettled(pending)
-      for (const outcome of outcomes) {
-        if (outcome.status === 'rejected') throw outcome.reason
-      }
-      await rm(this.runtimeRoot, { recursive: true, force: true })
+      const outcomes = [
+        ...await Promise.allSettled(pending),
+        ...await Promise.allSettled([rm(this.runtimeRoot, { recursive: true, force: true })]),
+      ]
+      const failures = outcomes.flatMap<unknown>(outcome => outcome.status === 'rejected'
+        ? [outcome.reason as unknown]
+        : [])
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) throw new AggregateError(failures, 'local subprocess teardown failed')
     }, 'local subprocess teardown')
   }
 

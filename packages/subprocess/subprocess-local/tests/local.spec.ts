@@ -1,6 +1,6 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { rm, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { basename, dirname, relative, resolve } from 'node:path'
 import { Context } from 'cordis'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
@@ -119,11 +119,15 @@ describe('LocalSubprocessService', () => {
     expect(terminals.size).toBe(0)
   })
 
-  it('waits for every terminal cleanup and retains rejections', async () => {
+  it('waits for every terminal cleanup, removes runtime state, and retains rejections', async () => {
     const ctx = new Context()
     const fiber = await ctx.plugin(LocalSubprocessService)
     const service = ctx.subprocess
     const runtimeRoot = service.runtimeRoot
+    const firstFailure = new Error('first retryable cleanup failure')
+    const secondFailure = new Error('second retryable cleanup failure')
+    const disposalErrors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
     const failedTerminal: SubprocessTerminalHandle = {
       pid: 1,
       output: new PassThrough(),
@@ -132,7 +136,12 @@ describe('LocalSubprocessService', () => {
       inspectForeground: async () => undefined,
       signalForeground: async () => 1,
       terminate: vi.fn(),
-      waitForExit: vi.fn(async () => { throw new Error('retryable cleanup failure') }),
+      waitForExit: vi.fn(async () => { throw firstFailure }),
+    }
+    const secondFailedTerminal: SubprocessTerminalHandle = {
+      ...failedTerminal,
+      terminate: vi.fn(),
+      waitForExit: vi.fn(async () => { throw secondFailure }),
     }
     let finishCleanup!: () => void
     const cleanup = new Promise<boolean>((resolve) => {
@@ -145,6 +154,7 @@ describe('LocalSubprocessService', () => {
     }
     const terminals = (service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
     terminals.add(failedTerminal)
+    terminals.add(secondFailedTerminal)
     terminals.add(drainingTerminal)
 
     let disposed = false
@@ -153,9 +163,40 @@ describe('LocalSubprocessService', () => {
     expect(disposed).toBe(false)
     finishCleanup()
     await disposing
-    expect(terminals).toEqual(new Set([failedTerminal]))
-    expect((await stat(runtimeRoot)).isDirectory()).toBe(true)
-    await rm(runtimeRoot, { recursive: true, force: true })
+    expect(terminals).toEqual(new Set([failedTerminal, secondFailedTerminal]))
+    await expect(stat(runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(disposalErrors).toHaveLength(1)
+    expect(disposalErrors[0]).toMatchObject({
+      errors: [firstFailure, secondFailure],
+      message: 'local subprocess teardown failed',
+    })
+  })
+
+  it('reports one cleanup failure without wrapping it after removing runtime state', async () => {
+    const ctx = new Context()
+    const failure = new Error('single cleanup failure')
+    const disposalErrors: unknown[] = []
+    ctx.logger.error = ((error: unknown) => { disposalErrors.push(error) }) as typeof ctx.logger.error
+    const fiber = await ctx.plugin(LocalSubprocessService)
+    const service = ctx.subprocess
+    const runtimeRoot = service.runtimeRoot
+    const terminal: SubprocessTerminalHandle = {
+      pid: 1,
+      output: new PassThrough(),
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      write: async () => {},
+      inspectForeground: async () => undefined,
+      signalForeground: async () => 1,
+      terminate: vi.fn(),
+      waitForExit: vi.fn(async () => { throw failure }),
+    }
+    const terminals = (service as unknown as { terminals: Set<SubprocessTerminalHandle> }).terminals
+    terminals.add(terminal)
+
+    await fiber.dispose()
+
+    await expect(stat(runtimeRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(disposalErrors).toEqual([failure])
   })
 
   it('releases a terminal after top-level exit reaches quiescence', async () => {
