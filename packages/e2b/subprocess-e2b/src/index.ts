@@ -14,7 +14,7 @@ import type {
   SubprocessTerminalHandle,
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
-import { quoteE2BShellArg } from '@deepseek-ai/dsh-e2b'
+import { e2bControlEnvs, quoteE2BShellArg } from '@deepseek-ai/dsh-e2b'
 import { E2BSubprocessHandle } from './process.ts'
 import { spawnE2BTerminal } from './terminal.ts'
 
@@ -86,7 +86,7 @@ export class E2BSubprocessService extends SubprocessService {
     if (posix.isAbsolute(command)) {
       await sandbox.commands.run(
         `test -f ${quoteE2BShellArg(command)} -a -x ${quoteE2BShellArg(command)}`,
-        signalOpts(signal),
+        { envs: e2bControlEnvs(), ...signalOpts(signal) },
       )
       signal?.throwIfAborted()
       return command
@@ -95,7 +95,7 @@ export class E2BSubprocessService extends SubprocessService {
     const prefix = path === undefined ? '' : `PATH=${quoteE2BShellArg(path)} `
     const result = await sandbox.commands.run(
       `${prefix}command -v -- ${quoteE2BShellArg(command)}`,
-      { cwd: this.cwd, ...signalOpts(signal) },
+      { cwd: this.cwd, envs: e2bControlEnvs(), ...signalOpts(signal) },
     )
     signal?.throwIfAborted()
     const executable = result.stdout.trim()

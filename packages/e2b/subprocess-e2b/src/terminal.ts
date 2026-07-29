@@ -6,6 +6,7 @@ import { PassThrough } from 'node:stream'
 import { posix } from 'node:path'
 import {
   CommandExitError,
+  e2bControlEnvs,
   FileNotFoundError,
   SandboxNotFoundError,
   quoteE2BShellArg,
@@ -20,7 +21,11 @@ import type {
   SubprocessTerminalSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import type E2BSandboxService from '@deepseek-ai/dsh-e2b'
-import { readRemoteEnvironment, serializeRemoteEnvironment } from './environment.ts'
+import {
+  bootstrapEnvironment,
+  readRemoteEnvironment,
+  serializeRemoteEnvironment,
+} from './environment.ts'
 
 const POLL_MS = 20
 
@@ -52,6 +57,13 @@ interface TerminalPaths {
 
 function signalOpts(signal: AbortSignal | undefined): { signal?: AbortSignal } {
   return signal === undefined ? {} : { signal }
+}
+
+function commandOpts(
+  envs: Record<string, string>,
+  signal?: AbortSignal,
+): { envs: Record<string, string>; signal?: AbortSignal } {
+  return { envs: e2bControlEnvs(envs), ...signalOpts(signal) }
 }
 
 function delay(ms: number): Promise<void> {
@@ -143,8 +155,13 @@ function serializeValues(values: readonly string[], kind: string): string {
   return values.map(value => `${value}\0`).join('')
 }
 
-async function terminalSessionId(sandbox: Sandbox, pid: number, signal?: AbortSignal): Promise<number> {
-  const result = await sandbox.commands.run(`ps -o sid= -p ${pid}`, signalOpts(signal))
+async function terminalSessionId(
+  sandbox: Sandbox,
+  pid: number,
+  envs: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<number> {
+  const result = await sandbox.commands.run(`ps -o sid= -p ${pid}`, commandOpts(envs, signal))
   signal?.throwIfAborted()
   return parsePositiveId(result.stdout, `subprocess-e2b: cannot resolve process session for terminal ${pid}`)
 }
@@ -169,11 +186,16 @@ async function waitUntilReady(
   }
 }
 
-async function sessionProcessGroups(sandbox: Sandbox, sessionId: number): Promise<number[]> {
+async function sessionProcessGroups(
+  sandbox: Sandbox,
+  sessionId: number,
+  envs: Record<string, string>,
+): Promise<number[]> {
   let result: CommandResult
   try {
     result = await sandbox.commands.run(
       `set -o pipefail; ps -eo sid=,pgid=,stat= | awk '$1 == ${sessionId} && $3 !~ /^[ZXx]/ { print $2 }'`,
+      commandOpts(envs),
     )
   } catch (error: unknown) {
     if (error instanceof SandboxNotFoundError) return []
@@ -194,9 +216,17 @@ async function sessionProcessGroups(sandbox: Sandbox, sessionId: number): Promis
   return [...groups]
 }
 
-async function signalGroups(sandbox: Sandbox, groups: number[], signal: 'TERM' | 'KILL'): Promise<void> {
+async function signalGroups(
+  sandbox: Sandbox,
+  groups: number[],
+  signal: 'TERM' | 'KILL',
+  envs: Record<string, string>,
+): Promise<void> {
   try {
-    await sandbox.commands.run(`kill -${signal} -- ${groups.map(group => `-${group}`).join(' ')}`)
+    await sandbox.commands.run(
+      `kill -${signal} -- ${groups.map(group => `-${group}`).join(' ')}`,
+      commandOpts(envs),
+    )
   } catch (error: unknown) {
     if (!(error instanceof CommandExitError) && !(error instanceof SandboxNotFoundError)) throw error
   }
@@ -205,14 +235,15 @@ async function signalGroups(sandbox: Sandbox, groups: number[], signal: 'TERM' |
 async function awaitSessionEmpty(
   sandbox: Sandbox,
   sessionId: number,
+  envs: Record<string, string>,
   graceMs: number,
   kill = false,
 ): Promise<number[]> {
   const deadline = Date.now() + graceMs
   for (;;) {
-    const groups = await sessionProcessGroups(sandbox, sessionId)
+    const groups = await sessionProcessGroups(sandbox, sessionId, envs)
     if (groups.length === 0 || Date.now() >= deadline) return groups
-    if (kill) await signalGroups(sandbox, groups, 'KILL')
+    if (kill) await signalGroups(sandbox, groups, 'KILL', envs)
     await delay(Math.min(POLL_MS, Math.max(1, deadline - Date.now())))
   }
 }
@@ -221,6 +252,7 @@ async function rollbackUnpublishedTerminal(
   sandbox: Sandbox,
   handle: CommandHandle,
   completion: Promise<CommandResult>,
+  envs: Record<string, string>,
   graceMs: number,
 ): Promise<void> {
   let topLevelExited = false
@@ -234,20 +266,20 @@ async function rollbackUnpublishedTerminal(
   if (validPid) {
     sessionId = handle.pid
     try {
-      sessionId = await terminalSessionId(sandbox, handle.pid)
+      sessionId = await terminalSessionId(sandbox, handle.pid, envs)
     } catch (_sessionLookupFailure) {
       // E2B's PTY leader is also the provisional POSIX session leader, so its
       // PID remains usable after the setup lookup itself fails or is canceled.
     }
     try {
-      let groups = await sessionProcessGroups(sandbox, sessionId)
+      let groups = await sessionProcessGroups(sandbox, sessionId, envs)
       if (groups.length > 0) {
-        await signalGroups(sandbox, groups, 'TERM')
-        groups = await awaitSessionEmpty(sandbox, sessionId, graceMs)
+        await signalGroups(sandbox, groups, 'TERM', envs)
+        groups = await awaitSessionEmpty(sandbox, sessionId, envs, graceMs)
       }
       if (groups.length > 0) {
-        await signalGroups(sandbox, groups, 'KILL')
-        await awaitSessionEmpty(sandbox, sessionId, graceMs, true)
+        await signalGroups(sandbox, groups, 'KILL', envs)
+        await awaitSessionEmpty(sandbox, sessionId, envs, graceMs, true)
       }
     } catch (error: unknown) {
       attemptFailures.push(asError(error))
@@ -279,7 +311,7 @@ async function rollbackUnpublishedTerminal(
   const proofFailures: Error[] = []
   if (sessionId !== undefined) {
     try {
-      const groups = await awaitSessionEmpty(sandbox, sessionId, graceMs, true)
+      const groups = await awaitSessionEmpty(sandbox, sessionId, envs, graceMs, true)
       if (groups.length > 0) {
         proofFailures.push(new Error(
           `subprocess-e2b: terminal setup rollback failed; surviving process groups: ${groups.join(', ')}`,
@@ -322,6 +354,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     readonly output: PassThrough,
     private readonly completion: Promise<CommandResult>,
     private readonly sessionId: number,
+    private readonly controlEnvs: Record<string, string>,
     private readonly stateDir: string,
     private readonly graceMs: number,
     signal?: AbortSignal,
@@ -344,7 +377,10 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   /** @inheritdoc */
   async inspectForeground(): Promise<SubprocessTerminalForeground | undefined> {
     try {
-      const result = await this.sandbox.commands.run(`ps -o tpgid= -p ${this.pid}`)
+      const result = await this.sandbox.commands.run(
+        `ps -o tpgid= -p ${this.pid}`,
+        commandOpts(this.controlEnvs),
+      )
       return {
         processGroupId: parsePositiveId(
           result.stdout,
@@ -369,7 +405,10 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
     if (signal === 'SIGKILL' && foreground.processGroupId === this.pid) {
       throw new Error('refusing to SIGKILL the terminal shell; terminate the terminal session instead')
     }
-    await this.sandbox.commands.run(`kill -${signal.slice(3)} -- -${foreground.processGroupId}`)
+    await this.sandbox.commands.run(
+      `kill -${signal.slice(3)} -- -${foreground.processGroupId}`,
+      commandOpts(this.controlEnvs),
+    )
     return foreground.processGroupId
   }
 
@@ -402,11 +441,11 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private async closeOnce(): Promise<void> {
-    let groups = await sessionProcessGroups(this.sandbox, this.sessionId)
+    let groups = await sessionProcessGroups(this.sandbox, this.sessionId, this.controlEnvs)
     if (groups.length > 0) {
       this.terminationSignal = 'SIGTERM'
-      await signalGroups(this.sandbox, groups, 'TERM')
-      groups = await awaitSessionEmpty(this.sandbox, this.sessionId, this.graceMs)
+      await signalGroups(this.sandbox, groups, 'TERM', this.controlEnvs)
+      groups = await awaitSessionEmpty(this.sandbox, this.sessionId, this.controlEnvs, this.graceMs)
     }
     if (groups.length === 0 && !this.topLevelExited) {
       await Promise.race([this.done.catch(() => undefined), delay(this.graceMs)])
@@ -421,7 +460,7 @@ export class E2BTerminalHandle implements SubprocessTerminalHandle {
           throw error
         }
       }
-      groups = await awaitSessionEmpty(this.sandbox, this.sessionId, this.graceMs, true)
+      groups = await awaitSessionEmpty(this.sandbox, this.sessionId, this.controlEnvs, this.graceMs, true)
       if (!this.topLevelExited) await Promise.race([this.done.catch(() => undefined), delay(this.graceMs)])
     }
     if (groups.length > 0) {
@@ -469,13 +508,18 @@ export async function spawnE2BTerminal(
   let handle: CommandHandle | undefined
   let completion: Promise<CommandResult> | undefined
   let stateDirectoryCreated = false
+  let controlEnvs: Record<string, string> = {}
   try {
     const ambient = await readRemoteEnvironment(sandbox, spec.signal)
+    controlEnvs = bootstrapEnvironment(ambient)
     const environment = serializeRemoteEnvironment(ambient, spec.env)
     const argv = serializeValues(spec.argv, 'argv')
-    await sandbox.files.makeDir(stateDir)
     stateDirectoryCreated = true
-    await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(stateDir)}`, signalOpts(spec.signal))
+    await sandbox.files.makeDir(stateDir, signalOpts(spec.signal))
+    await sandbox.commands.run(
+      `chmod 700 -- ${quoteE2BShellArg(stateDir)}`,
+      commandOpts(controlEnvs, spec.signal),
+    )
     await sandbox.files.write([
       { path: paths.runner, data: TERMINAL_RUNNER_SOURCE },
       { path: paths.environment, data: environment },
@@ -484,13 +528,13 @@ export async function spawnE2BTerminal(
     ], signalOpts(spec.signal))
     await sandbox.commands.run(
       `chmod 600 -- ${quoteE2BShellArg(paths.runner)} ${quoteE2BShellArg(paths.environment)} ${quoteE2BShellArg(paths.argv)} ${quoteE2BShellArg(paths.outputMarker)}`,
-      signalOpts(spec.signal),
+      commandOpts(controlEnvs, spec.signal),
     )
     handle = await sandbox.pty.create({
       rows: spec.rows,
       cols: spec.cols,
       cwd: spec.cwd,
-      envs: { TERM: 'dumb' },
+      envs: e2bControlEnvs(controlEnvs),
       timeoutMs: 0,
       onData: (data) => { outputFilter.push(data) },
     })
@@ -504,13 +548,14 @@ export async function spawnE2BTerminal(
     await sandbox.pty.sendInput(handle.pid, Buffer.from(command), signalOpts(spec.signal))
     await waitUntilReady(sandbox, paths, completion, spec.signal)
     await waitForBootstrapOutput(outputFilter.ready, completion, spec.signal)
-    const sessionId = await terminalSessionId(sandbox, handle.pid, spec.signal)
+    const sessionId = await terminalSessionId(sandbox, handle.pid, controlEnvs, spec.signal)
     return new E2BTerminalHandle(
       sandbox,
       handle,
       output,
       completion,
       sessionId,
+      controlEnvs,
       stateDir,
       spec.graceMs,
       spec.signal,
@@ -524,7 +569,7 @@ export async function spawnE2BTerminal(
       if (!terminalQuiescent && handle !== undefined) {
         try {
           if (completion === undefined) await handle.kill()
-          else await rollbackUnpublishedTerminal(sandbox, handle, completion, spec.graceMs)
+          else await rollbackUnpublishedTerminal(sandbox, handle, completion, controlEnvs, spec.graceMs)
           terminalQuiescent = true
         } catch (cleanupError: unknown) {
           if (cleanupError instanceof SandboxNotFoundError) terminalQuiescent = true

@@ -20,6 +20,7 @@ import type {
 } from '@deepseek-ai/dsh-fs'
 import {
   CommandExitError,
+  e2bControlEnvs,
   FileNotFoundError,
   FileType,
   quoteE2BShellArg,
@@ -69,6 +70,10 @@ function decodeText(bytes: Uint8Array, displayPath: string, binarySampleBytes: n
 
 function signalOpts(signal: AbortSignal | undefined): { signal?: AbortSignal } {
   return signal === undefined ? {} : { signal }
+}
+
+function commandOpts(signal: AbortSignal | undefined): { envs: Record<string, string>; signal?: AbortSignal } {
+  return { envs: e2bControlEnvs(), ...signalOpts(signal) }
 }
 
 function entryType(entry: EntryInfo): FsInfo['type'] {
@@ -215,7 +220,7 @@ export class E2BFileSystem extends FileSystem {
     assertNotAborted(signal, 'read')
     const sandbox = await this.ctx.e2b.getSandbox()
     try {
-      const node = await sandbox.commands.run('command -v -- node', signalOpts(signal))
+      const node = await sandbox.commands.run('command -v -- node', commandOpts(signal))
       const executable = node.stdout.trim()
       if (!posix.isAbsolute(executable) || executable.includes('\n')) {
         throw new Error('fs-e2b: bounded reader requires one absolute Node executable')
@@ -228,7 +233,7 @@ export class E2BFileSystem extends FileSystem {
         quoteE2BShellArg(this.processPath(target)),
         String(maxBytes),
       ].join(' ')
-      const result = await sandbox.commands.run(command, signalOpts(signal))
+      const result = await sandbox.commands.run(command, commandOpts(signal))
       assertNotAborted(signal, 'read')
       const response = this.parseBoundedRead(result.stdout, target)
       if (response.kind === 'not-file') {
@@ -415,7 +420,7 @@ export class E2BFileSystem extends FileSystem {
 
   private async canonicalPath(sandbox: Sandbox, path: string, signal?: AbortSignal): Promise<string> {
     try {
-      const result = await sandbox.commands.run(`realpath -m -- ${quoteE2BShellArg(path)}`, signalOpts(signal))
+      const result = await sandbox.commands.run(`realpath -m -- ${quoteE2BShellArg(path)}`, commandOpts(signal))
       return result.stdout.replace(/\n$/, '')
     } catch (error: unknown) {
       if (error instanceof CommandExitError) throw new Error(error.stderr || error.message, { cause: error })
@@ -505,7 +510,7 @@ export class E2BFileSystem extends FileSystem {
       const created = await sandbox.files.makeDir(stagingDirectory, signalOpts(signal))
       if (!created) throw new Error('private staging directory already exists')
       stagingDirectoryCreated = true
-      await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(stagingDirectory)}`, signalOpts(signal))
+      await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(stagingDirectory)}`, commandOpts(signal))
       assertNotAborted(signal, 'write')
       await sandbox.files.write(temporary, content, {
         metadata: { [VERSION_METADATA_KEY]: versionId },
@@ -515,7 +520,7 @@ export class E2BFileSystem extends FileSystem {
       const mode = existing === undefined ? 0o600 : existing.mode & 0o777
       await sandbox.commands.run(
         `chmod ${mode.toString(8)} -- ${quoteE2BShellArg(temporary)}`,
-        signalOpts(signal),
+        commandOpts(signal),
       )
       assertNotAborted(signal, 'write')
       const committed = await sandbox.files.rename(temporary, targetPath)

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { Context } from 'cordis'
 import type { Sandbox as SandboxType } from 'e2b'
 import E2BSandboxService, {
+  e2bControlEnvs,
   E2BSandboxId,
   FileType,
   SandboxNotFoundError,
@@ -35,15 +37,20 @@ interface SandboxFixture {
   sandbox: SandboxType
   makeDir: ReturnType<typeof vi.fn>
   getInfo: ReturnType<typeof vi.fn>
-  run: ReturnType<typeof vi.fn>
+  run: Mock<RunCommand>
   kill: ReturnType<typeof vi.fn>
   pause: ReturnType<typeof vi.fn>
 }
 
+type RunCommand = (
+  command: string,
+  options?: { envs?: Record<string, string> },
+) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+
 function fakeSandbox(id = 'sandbox-1'): SandboxFixture {
   const makeDir = vi.fn().mockResolvedValue(true)
   const getInfo = vi.fn().mockResolvedValue({ type: FileType.DIR })
-  const run = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' })
+  const run = vi.fn<RunCommand>().mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' })
   const kill = vi.fn().mockResolvedValue(undefined)
   const pause = vi.fn().mockResolvedValue(true)
   const sandbox = {
@@ -63,6 +70,15 @@ beforeEach(() => {
 })
 
 describe('E2BSandboxService', () => {
+  it('gives each SDK login shell a fresh non-overridable control home', () => {
+    const first = e2bControlEnvs({ HOME: '/hostile', NPM_TOKEN: '' })
+    const second = e2bControlEnvs()
+
+    expect(first.HOME).toMatch(/^\/\.dsh-e2b-control-/)
+    expect(first).toEqual({ HOME: first.HOME, NPM_TOKEN: '' })
+    expect(first.HOME).not.toBe(second.HOME)
+  })
+
   it('creates one protected shared sandbox and kills it on default disposal', async () => {
     const fixture = fakeSandbox()
     sdk.create.mockResolvedValue(fixture.sandbox)
@@ -86,7 +102,12 @@ describe('E2BSandboxService', () => {
     expect(fixture.makeDir).toHaveBeenNthCalledWith(1, '/home/user/workspace')
     expect(fixture.makeDir).toHaveBeenNthCalledWith(2, '/home/user/workspace/.dsh-e2b')
     expect(fixture.getInfo).toHaveBeenCalledWith('/home/user/workspace/.dsh-e2b')
-    expect(fixture.run).toHaveBeenCalledWith("chmod 700 -- '/home/user/workspace/.dsh-e2b'")
+    const runOptions = fixture.run.mock.calls[0]?.[1]
+    expect(runOptions?.envs?.HOME).toMatch(/^\/\.dsh-e2b-control-/)
+    expect(fixture.run).toHaveBeenCalledWith(
+      "chmod 700 -- '/home/user/workspace/.dsh-e2b'",
+      { envs: { HOME: runOptions?.envs?.HOME } },
+    )
 
     await fiber.dispose()
     expect(fixture.kill).toHaveBeenCalledOnce()

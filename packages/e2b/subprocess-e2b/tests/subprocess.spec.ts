@@ -111,6 +111,7 @@ class FakeSandbox {
   alive = true
   zombieOnly = false
   ambient = 'PATH=/ambient/bin\0KEEP=safe\0UNICODE=你好\0NPM_TOKEN=secret\0DSH_STALE=old\0BROKEN\0=bad\0'
+  environmentHome = '/home/user'
   environmentWire: string | undefined
   environmentRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
   processGroupId = '4242\n'
@@ -241,7 +242,9 @@ class FakeSandbox {
           if (this.envError !== undefined) throw this.envError
           return {
             exitCode: 0,
-            stdout: this.environmentWire ?? Buffer.from(this.ambient).toString('base64'),
+            stdout: this.environmentWire ?? [this.environmentHome, this.ambient]
+              .map(value => Buffer.from(value).toString('base64'))
+              .join('\n'),
             stderr: '',
           }
         }
@@ -396,7 +399,14 @@ describe('E2BSubprocessHandle', () => {
     expect(handle.pid).toBe(4343)
     expect(fake.handle.sent.map(value => String(value))).toEqual(['hello'])
     expect(fake.handle.closes).toBe(1)
-    expect(fake.startOptions?.envs).toBeUndefined()
+    const controlEnvs = fake.startOptions?.envs
+    expect(controlEnvs?.HOME).toMatch(/^\/\.dsh-e2b-control-/)
+    expect(controlEnvs).toEqual({
+      TERM: 'dumb',
+      NPM_TOKEN: '',
+      DSH_STALE: '',
+      HOME: controlEnvs?.HOME,
+    })
     const command = fake.commandsSeen.find(value => value.includes('exec "$dsh_e2b_env_bin" -i'))!
     expect(command).toContain('"$dsh_e2b_setsid" --wait -- "$dsh_e2b_bash" -c')
     expect(command).not.toContain('DEEPSEEK_API_KEY')
@@ -405,7 +415,9 @@ describe('E2BSubprocessHandle', () => {
     expect(command).not.toContain('explicit-secret')
     expect(command).not.toContain('hyphen-value')
     expect(command).not.toContain('${!dsh_e2b_name}')
-    expect(fake.commandsSeen).toContain('set -o pipefail; env -0 | base64 -w 0')
+    expect(fake.commandsSeen).toContain(
+      'set -o pipefail; printf \'%s\' "$PWD" | base64 -w 0; printf \'\\n\'; env -0 | base64 -w 0',
+    )
     expect(command).toContain('mapfile -d')
     expect(command).toContain('dsh_e2b_node="$(command -v node)"')
     expect(command).toContain('"$dsh_e2b_env_bin" -i "$dsh_e2b_node" -e')
@@ -421,7 +433,7 @@ describe('E2BSubprocessHandle', () => {
       '/workspace/.dsh-e2b/processes/one/stderr.log',
     ])
     expect(fake.writtenFileData.get('/workspace/.dsh-e2b/processes/one/environment')).toBe(
-      'PATH=/bin\0KEEP=safe\0UNICODE=你好\0FOO-BAR=hyphen-value\0--split-string=literal-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
+      'PATH=/bin\0KEEP=safe\0UNICODE=你好\0HOME=/home/user\0FOO-BAR=hyphen-value\0--split-string=literal-value\0DEEPSEEK_API_KEY=explicit-secret\0DSH_MODE=test\0',
     )
 
     let piped = ''
@@ -560,6 +572,7 @@ describe('E2BSubprocessHandle', () => {
     await expect(handle.done).resolves.toEqual({ exitCode: 0, signal: null })
     expect(fake.handle.disconnects).toBe(1)
     fake.alive = false
+    handle.terminate()
     await expect(handle.waitForExit()).resolves.toBe(true)
   })
 
@@ -783,7 +796,7 @@ describe('E2BSubprocessHandle', () => {
     expect(fake.handle.kills).toBe(1)
   })
 
-  it('does not treat successful termination transport as observed quiescence', async () => {
+  it('keeps force cleanup retryable until quiescence is proven', async () => {
     const fake = new FakeSandbox()
     fake.trapsTerm = true
     fake.delaysKill = true
@@ -793,16 +806,15 @@ describe('E2BSubprocessHandle', () => {
     await flush()
     handle.terminate()
     await vi.waitFor(() => { expect(fake.handle.kills).toBe(1) })
+    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    expect(fake.alive).toBe(true)
 
-    let quiescent = false
-    const waiting = handle.waitForExit().then((value) => { quiescent = value })
-    await new Promise(resolve => setTimeout(resolve, 10))
-    expect(quiescent).toBe(false)
-
-    fake.alive = false
-    fake.finish()
-    await waiting
-    expect(quiescent).toBe(true)
+    fake.delaysKill = false
+    fake.delaysKillCompletion = false
+    fake.sdkKillStops = true
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
   })
 
   it('honors termination requested before asynchronous startup finishes', async () => {
@@ -870,14 +882,10 @@ describe('E2BSubprocessHandle', () => {
 
     handle.terminate()
     await vi.waitFor(() => { expect(fake.handle.kills).toBe(1) })
-    let quiescent = false
-    const waiting = handle.waitForExit().then((value) => { quiescent = value })
-    await new Promise(resolve => setTimeout(resolve, 10))
-    expect(quiescent).toBe(false)
-
+    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
     fake.alive = false
-    await waiting
-    expect(quiescent).toBe(true)
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
     fake.releaseProcessGroupRead()
     fake.finish()
     await handle.done
@@ -1102,23 +1110,36 @@ describe('E2BSubprocessHandle', () => {
     await expect(envHandle.done).rejects.toThrow('ambient lookup failed')
     expect(envFailure.removed).toEqual([])
 
-    const malformedEnvironment = new FakeSandbox()
-    malformedEnvironment.environmentWire = '%'
-    const malformedEnvironmentHandle = new E2BSubprocessHandle(
-      runtime(malformedEnvironment),
-      spec(),
-      '/runtime/malformed-environment',
+    const expectEnvironmentFailure = async (name: string, wire: string, message: string): Promise<void> => {
+      const fake = new FakeSandbox()
+      fake.environmentWire = wire
+      const failed = new E2BSubprocessHandle(runtime(fake), spec(), `/runtime/${name}`)
+      await expect(failed.done).rejects.toThrow(message)
+    }
+    const encodedEnvironment = Buffer.from('PATH=/bin\0').toString('base64')
+    const encodedHome = Buffer.from('/home/user').toString('base64')
+    await expectEnvironmentFailure('malformed-frame', '%', 'invalid base64')
+    await expectEnvironmentFailure('malformed-base64', `${encodedHome}\n%`, 'invalid base64')
+    await expectEnvironmentFailure(
+      'invalid-utf8-home',
+      `${Buffer.from([0xff]).toString('base64')}\n${encodedEnvironment}`,
+      'not valid UTF-8',
     )
-    await expect(malformedEnvironmentHandle.done).rejects.toThrow('invalid base64')
-
-    const invalidUtf8Environment = new FakeSandbox()
-    invalidUtf8Environment.environmentWire = Buffer.from([0xff]).toString('base64')
-    const invalidUtf8EnvironmentHandle = new E2BSubprocessHandle(
-      runtime(invalidUtf8Environment),
-      spec(),
-      '/runtime/invalid-utf8-environment',
+    await expectEnvironmentFailure(
+      'invalid-utf8-environment',
+      `${encodedHome}\n${Buffer.from([0xff]).toString('base64')}`,
+      'not valid UTF-8',
     )
-    await expect(invalidUtf8EnvironmentHandle.done).rejects.toThrow('not valid UTF-8')
+    await expectEnvironmentFailure(
+      'relative-home',
+      `${Buffer.from('home/user').toString('base64')}\n${encodedEnvironment}`,
+      'remote login home is invalid',
+    )
+    await expectEnvironmentFailure(
+      'nul-home',
+      `${Buffer.from('/home/user\0tail').toString('base64')}\n${encodedEnvironment}`,
+      'remote login home is invalid',
+    )
 
     const cleanupFailure = new FakeSandbox()
     cleanupFailure.backgroundError = new Error('start failed before credential consumption')
@@ -1318,10 +1339,11 @@ describe('E2BSubprocessHandle', () => {
     const failures = Array.from(failure.errors as Iterable<unknown>)
     expect(failures).toHaveLength(2)
     expect(failures[0]).toBeInstanceOf(Error)
-    expect(failures[1]).toBeInstanceOf(Error)
-    if (!(failures[0] instanceof Error) || !(failures[1] instanceof Error)) throw new Error('expected nested errors')
+    expect(failures[1]).toBeInstanceOf(AggregateError)
+    if (!(failures[0] instanceof Error) || !(failures[1] instanceof AggregateError)) throw new Error('expected nested errors')
     expect(failures[0].message).toContain('invalid process-group id')
-    expect(failures[1].message).toBe('rollback signal failed')
+    expect(failures[1].message).toBe('subprocess-e2b: force termination failed through both process-group and SDK transports')
+    expect(Array.from(failures[1].errors as Iterable<unknown>)).toContainEqual(new Error('rollback signal failed'))
     expect(fake.handle.kills).toBe(1)
     const bounded = new AbortController()
     const waiting = handle.waitForExit(bounded.signal)
@@ -1330,6 +1352,15 @@ describe('E2BSubprocessHandle', () => {
     handle.terminate()
     await expect(handle.waitForExit()).resolves.toBe(true)
     expect(fake.commandsSeen).toContain('kill -TERM -- -4242')
+
+    const naturallyGone = new FakeSandbox()
+    naturallyGone.processGroupId = 'not-a-pid\n'
+    naturallyGone.signalError = new Error('rollback signal failed')
+    naturallyGone.handle.killError = new Error('SDK kill failed')
+    const observed = new E2BSubprocessHandle(runtime(naturallyGone), spec(), '/runtime/failed-rollback-observed')
+    await expect(observed.done).rejects.toThrow('process-group publication failed')
+    naturallyGone.alive = false
+    await expect(observed.waitForExit()).resolves.toBe(true)
   })
 
   it('waits for delayed process-group publication', async () => {
@@ -1478,6 +1509,24 @@ describe('E2BSubprocessHandle', () => {
     missingGroup.handle.killError = undefined
     raced.terminate()
     await expect(raced.waitForExit()).resolves.toBe(true)
+  })
+
+  it('rejects an optimistic SDK kill while descendants survive a failed group KILL', async () => {
+    const fake = new FakeSandbox()
+    fake.trapsTerm = true
+    fake.sdkKillStops = false
+    fake.signalErrors.push(undefined, new Error('KILL transport failed'))
+    const handle = new E2BSubprocessHandle(runtime(fake), spec({ graceMs: 1 }), '/runtime/optimistic-sdk-kill')
+    await flush()
+
+    handle.terminate()
+    await expect(handle.waitForExit()).rejects.toThrow('force termination failed through both')
+    expect(fake.alive).toBe(true)
+
+    fake.sdkKillStops = true
+    handle.terminate()
+    await expect(handle.waitForExit()).resolves.toBe(true)
+    await expect(handle.done).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' })
   })
 })
 

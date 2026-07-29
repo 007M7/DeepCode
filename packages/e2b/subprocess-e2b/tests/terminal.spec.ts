@@ -23,6 +23,7 @@ function commandError(exitCode: number): CommandExitError {
 interface CommandOptions {
   signal?: AbortSignal
   cwd?: string
+  envs?: Record<string, string>
 }
 
 class FakeTerminalCommandHandle {
@@ -101,6 +102,7 @@ class FakeTerminalSandbox {
   writeError: unknown
   sendError: unknown
   commandFailure: unknown
+  makeDirRequest: ((signal: AbortSignal | undefined) => Promise<void>) | undefined
   sessionGroupsFailure: unknown
   foregroundFailure: unknown
   termFailure: unknown
@@ -129,8 +131,10 @@ class FakeTerminalSandbox {
 
   readonly sandbox = {
     files: {
-      makeDir: async (path: string): Promise<boolean> => {
+      makeDir: async (path: string, options?: CommandOptions): Promise<boolean> => {
         this.directories.push(path)
+        await this.makeDirRequest?.(options?.signal)
+        options?.signal?.throwIfAborted()
         return true
       },
       write: async (files: Array<{ path: string; data: string }>): Promise<object[]> => {
@@ -163,7 +167,11 @@ class FakeTerminalSandbox {
           throw error
         }
         if (command.includes('env -0 | base64')) {
-          return { exitCode: 0, stdout: Buffer.from(this.ambient).toString('base64'), stderr: '' }
+          return {
+            exitCode: 0,
+            stdout: ['/home/user', this.ambient].map(value => Buffer.from(value).toString('base64')).join('\n'),
+            stderr: '',
+          }
         }
         if (command.includes('command -v -- ')) {
           return { exitCode: 0, stdout: this.resolvedExecutable, stderr: '' }
@@ -262,7 +270,15 @@ describe('E2B terminal allocation', () => {
     expect(output).toBe('requested-shell$ ')
     expect(output).not.toContain('buffered banner')
     expect(output).not.toContain('runner.bash')
-    expect(fake.createOptions).toMatchObject({ rows: 24, cols: 80, cwd: '/workspace', timeoutMs: 0, envs: { TERM: 'dumb' } })
+    expect(fake.createOptions).toMatchObject({ rows: 24, cols: 80, cwd: '/workspace', timeoutMs: 0 })
+    const controlEnvs = fake.createOptions?.envs
+    expect(controlEnvs?.HOME).toMatch(/^\/\.dsh-e2b-control-/)
+    expect(controlEnvs).toEqual({
+      TERM: 'dumb',
+      NPM_TOKEN: '',
+      DSH_STALE: '',
+      HOME: controlEnvs?.HOME,
+    })
     expect(fake.inputs[0]?.data.toString()).toContain("exec /bin/bash '/runtime/terminal-one/runner.bash'")
     expect(fake.writes.get('/runtime/terminal-one/environment')).toContain('KEEP=visible\0')
     expect(fake.writes.get('/runtime/terminal-one/environment')).toContain('UNICODE=你好\0')
@@ -554,6 +570,7 @@ describe('E2B terminal lifecycle', () => {
       new PassThrough(),
       fake.handle.wait(),
       123,
+      { TERM: 'dumb' },
       '/runtime/pre-aborted',
       1,
       controller.signal,
@@ -807,7 +824,10 @@ describe('E2B subprocess terminal service', () => {
     fake.resolvedExecutable = 'tools/bin/node\n'
     await expect(ctx.subprocess.resolveExecutable('node', { PATH: 'tools/bin' }))
       .resolves.toBe('/workspace/tools/bin/node')
-    expect(fake.commandOptions.at(-1)).toMatchObject({ cwd: '/workspace' })
+    const commandOptions = fake.commandOptions.at(-1)
+    expect(commandOptions).toMatchObject({ cwd: '/workspace' })
+    expect(commandOptions?.envs?.HOME).toMatch(/^\/\.dsh-e2b-control-/)
+    expect(commandOptions?.envs).toEqual({ HOME: commandOptions?.envs?.HOME })
     expect((ctx.e2b)).toBeDefined()
   })
 
@@ -865,6 +885,29 @@ describe('E2B subprocess terminal service', () => {
     await rejected
     expect(fake.groups).toEqual([])
     expect(fake.handle.disconnects).toBe(1)
+  })
+
+  it('owns and cancels terminal state-directory creation during disposal', async () => {
+    const fake = new FakeTerminalSandbox()
+    fake.makeDirRequest = async (signal) => {
+      await new Promise<never>((_resolve, reject) => {
+        const onAbort = (): void => {
+          const reason: unknown = signal?.reason
+          reject(reason instanceof Error ? reason : new Error(String(reason)))
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
+        if (signal?.aborted === true) onAbort()
+      })
+    }
+    const { ctx, fiber } = await service(fake)
+    const spawning = ctx.subprocess.spawnTerminal(spec())
+    const rejected = expect(spawning).rejects.toThrow('service disposed during terminal setup')
+    await vi.waitFor(() => { expect(fake.directories.some(path => path.includes('/terminals/'))).toBe(true) })
+
+    await fiber.dispose()
+    await rejected
+    expect(fake.removed.some(path => path.includes('/terminals/'))).toBe(true)
+    expect(fake.createOptions).toBeUndefined()
   })
 
   it('retains failed terminal setup cleanup for disposal retry', async () => {

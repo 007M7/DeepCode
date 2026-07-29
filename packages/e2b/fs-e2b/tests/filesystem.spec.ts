@@ -225,8 +225,14 @@ class FakeRemote {
       },
     },
     commands: {
-      run: async (command: string, options?: { signal?: AbortSignal }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+      run: async (
+        command: string,
+        options?: { envs?: Record<string, string>; signal?: AbortSignal },
+      ): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
         this.checkAbort(options)
+        const home = options?.envs?.HOME
+        expect(home).toMatch(/^\/\.dsh-e2b-control-/)
+        expect(options?.envs).toEqual({ HOME: home })
         this.commands.push(command)
         if (this.nextCommandError !== undefined) {
           const error = this.nextCommandError

@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-e2b
  */
 
+import { randomUUID } from 'node:crypto'
 import { posix } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
@@ -40,6 +41,17 @@ export function E2BSandboxId(value: string): E2BSandboxId {
  */
 export function quoteE2BShellArg(value: string): string {
   return `'${value.replaceAll('\'', "'\"'\"'")}'`
+}
+
+/**
+ * Isolate E2B's hard-coded login shell behind a fresh randomized home path.
+ * @param overrides - Additional environment entries for the internal command.
+ * @returns A fresh mutable map that the E2B SDK may extend.
+ */
+export function e2bControlEnvs(
+  overrides: Readonly<Record<string, string>> = {},
+): Record<string, string> {
+  return { ...overrides, HOME: `/.dsh-e2b-control-${randomUUID()}` }
 }
 
 /** Action taken on the owned sandbox when the Cordis service is disposed. */
@@ -249,7 +261,10 @@ export class E2BSandboxService extends Service {
       if (runtimeRoot.type !== FileType.DIR || runtimeRoot.symlinkTarget !== undefined) {
         throw new Error(`dsh-e2b: runtime root must be a real directory: ${this.runtimeRoot}`)
       }
-      await sandbox.commands.run(`chmod 700 -- ${quoteE2BShellArg(this.runtimeRoot)}`)
+      await sandbox.commands.run(
+        `chmod 700 -- ${quoteE2BShellArg(this.runtimeRoot)}`,
+        { envs: e2bControlEnvs() },
+      )
       return sandbox
     } catch (error: unknown) {
       if (this.created) {

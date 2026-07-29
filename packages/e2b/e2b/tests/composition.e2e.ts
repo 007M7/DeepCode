@@ -5,7 +5,12 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
-import E2BSandboxService, { Sandbox, SandboxNotFoundError } from '@deepseek-ai/dsh-e2b'
+import E2BSandboxService, {
+  e2bControlEnvs,
+  FileNotFoundError,
+  Sandbox,
+  SandboxNotFoundError,
+} from '@deepseek-ai/dsh-e2b'
 import PtyService, { PtySessionId } from '@deepseek-ai/dsh-pty'
 import { LocalPtyBackend } from '@deepseek-ai/dsh-pty-local'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -17,7 +22,7 @@ const configPath = join(fixtureRoot, 'cordis.yml')
 const tsconfigPath = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
 
 describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
-  it('scrubs sandbox-default credentials from an actual E2B PTY', async () => {
+  it('scrubs credentials before actual E2B command and PTY login shells', async () => {
     const apiKey = process.env.E2B_API_KEY
     if (apiKey === undefined) throw new Error('E2B_API_KEY disappeared before the PTY environment test')
     const sandbox = await Sandbox.create({
@@ -28,6 +33,18 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       lifecycle: { onTimeout: 'kill' },
     })
     try {
+      const profileLeakPath = '/home/user/dsh-e2b-bootstrap-profile-leak'
+      const hostileProfile = [
+        'if [[ "${NPM_TOKEN-}" == "sentinel-secret" ]]; then',
+        `  printf leaked > ${profileLeakPath}`,
+        'fi',
+        '',
+      ].join('\n')
+      await sandbox.files.write([
+        { path: '/home/user/.bash_profile', data: hostileProfile },
+        { path: '/home/user/.profile', data: hostileProfile },
+        { path: '/home/user/.bashrc', data: hostileProfile },
+      ])
       const ctx = new Context()
       ctx.provide('e2b', {
         cwd: '/home/user',
@@ -43,6 +60,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       const node = await ctx.subprocess.resolveExecutable('node')
       const relativeNodePath = posix.relative(ctx.subprocess.cwd, posix.dirname(node)) || '.'
       await expect(ctx.subprocess.resolveExecutable('node', { PATH: relativeNodePath })).resolves.toBe(node)
+      await expect(sandbox.files.read(profileLeakPath)).rejects.toBeInstanceOf(FileNotFoundError)
       const environmentProbe = ctx.subprocess.spawn({
         argv: ['/bin/bash', '-c', [
           'dsh_leak=0',
@@ -59,6 +77,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       })
       await expect(environmentProbe.done).resolves.toEqual({ exitCode: 0, signal: null })
       expect(environmentProbe.collected.stdout?.readFrom(0).text).toBe('DIRECT=<> LEAK=<0>\n')
+      await expect(sandbox.files.read(profileLeakPath)).rejects.toBeInstanceOf(FileNotFoundError)
       const ownerId = SessionId('e2b-pty-env-owner')
       const owner: Agent = {
         id: ownerId,
@@ -89,6 +108,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       expect(result.viewport).toContain('NPM=<> DSH=<> KEEP=<visible>')
       expect(result.viewport).not.toContain('sentinel-secret')
       expect(result.viewport).not.toContain('sentinel-stale')
+      await expect(sandbox.files.read(profileLeakPath)).rejects.toBeInstanceOf(FileNotFoundError)
       await session.close('environment test complete')
       await subprocessFiber.dispose()
       await ptyFiber.dispose()
@@ -98,7 +118,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         'mkdir -p -- /home/user/dsh-e2b-runtime-target',
         'chmod 755 -- /home/user/dsh-e2b-runtime-target',
         'ln -s -- /home/user/dsh-e2b-runtime-target /home/user/.dsh-e2b',
-      ].join('\n'))
+      ].join('\n'), { envs: e2bControlEnvs({ NPM_TOKEN: '' }) })
       const linkedCtx = new Context()
       const linkedFiber = await linkedCtx.plugin(E2BSandboxService, {
         apiKey,

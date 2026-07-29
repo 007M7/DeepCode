@@ -28,7 +28,7 @@ Set `sandboxId` to reconnect a running or paused sandbox instead of creating one
 
 ## Lifecycle and ownership
 
-Construction starts one create/connect operation. Before resolving `getSandbox()`, the service creates `cwd` and the private `cwd/.dsh-e2b` adapter-state directory, verifies that the reserved path is a real directory rather than a symlink or another file type, then sets it to mode `0700`. `sandboxId` resolves to a branded `E2BSandboxId` after setup.
+Construction starts one create/connect operation. Before resolving `getSandbox()`, the service creates `cwd` and the private `cwd/.dsh-e2b` adapter-state directory, verifies that the reserved path is a real directory rather than a symlink or another file type, then sets it to mode `0700`. Each adapter-internal E2B command shell receives a fresh randomized root-level `HOME`, so the SDK's fixed login shell does not resolve profile files from the mutable user home before the control command. `sandboxId` resolves to a branded `E2BSandboxId` after setup.
 
 Disposal first prevents new handle acquisition, then awaits setup and applies exactly one configured disposition. A `SandboxNotFoundError` is accepted when disposal requests `kill`, or when this service created a sandbox with `onTimeout: kill`; otherwise, a not-found error from a requested `pause` rejects teardown because retention was not proved. A newly created sandbox is killed when initial directory setup fails; if that rollback fails, disposal retries it before releasing ownership. A reconnected sandbox is not killed on setup failure because the service did not create it. Provider plugins must load after this owner and dispose before it.
 
