@@ -153,20 +153,20 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await compareOrRefreshGolden(WATERFALL_EXPECTED, snapshot, MODE)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('bash and file-path rows leave the details column collapsed', async () => {
+  it.skipIf(MODE === 'record')('bash and file-path rows preserve the details column state', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-details'))
     await page.getByRole('tab', { name: 'Chat' }).click()
     const bashRow = page.locator('[data-sample="bash-global"]').first()
     await bashRow.waitFor({ timeout: 15_000 })
     const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
+    const before = await frame.getAttribute('data-details-collapsed')
     await bashRow.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe(before)
     // Read summaries are host-open file links; they also must not open details.
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
     await fileLink.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe(before)
   }, 60_000)
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {

@@ -5,7 +5,7 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Waterfall"
-- text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."
+- text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop. {{clock}}"
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -17,6 +17,11 @@
   - img
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
 - img
 - text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
@@ -24,7 +29,11 @@
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
 - paragraph: DONE
-- text: 219 uncached input · 111 output · 15.5k cache read · cache hit 99% · context 6% of 128k · 1 turns · 2 steps
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}} 219 uncached input · 111 output · 15.5k cache read · cache hit 99% · context 6% of 128k · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

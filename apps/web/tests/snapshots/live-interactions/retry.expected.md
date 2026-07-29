@@ -5,7 +5,7 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Waterfall"
-- text: Reply with a one-sentence description of event sourcing, then stop.
+- text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -18,7 +18,11 @@
   - img
   - text: Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.
 - paragraph: Event sourcing is a pattern where all changes to an application's state are stored as an immutable, append-only sequence of events, rather than persisting only the current state, enabling full auditability, temporal queries, and event-driven architectures.
-- text: 110 uncached input · 79 output · 7.7k cache read · cache hit 99% · context 4% of 128k · 1 turns · 1 steps
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}} 110 uncached input · 79 output · 7.7k cache read · cache hit 99% · context 4% of 128k · 1 turns · 1 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

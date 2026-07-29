@@ -132,7 +132,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })
 
-  it.skipIf(MODE === 'record')('file-path tool rows rebuilt from the cold log stay details-inert', async () => {
+  it.skipIf(MODE === 'record')('file-path tool rows rebuilt from the cold log preserve details state', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-toolrow'))
     // Interaction over cold-resumed history: read summaries are host-open
     // file links (not expand-in-place / not details). Runs after the golden
@@ -140,9 +140,9 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
     const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
+    const before = await frame.getAttribute('data-details-collapsed')
     await fileLink.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe(before)
     // Path label survives from the recorded args (a.txt).
     await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })
