@@ -194,6 +194,21 @@ describe('tool-str-replace-editor', () => {
     expect(await readFile(sample, 'utf8')).toBe('one\nbetween\n\nthree\n')
   })
 
+  it('writes replacement text literally', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'literal.txt')
+    const replacement = "$&|$`|$'|$$"
+    await writeFile(sample, 'before OLD after')
+
+    expect((await call(ctx, owner, {
+      command: 'str_replace',
+      path: sample,
+      old_str: 'OLD',
+      new_str: replacement,
+    })).isError).toBe(false)
+    expect(await readFile(sample, 'utf8')).toBe(`before ${replacement} after`)
+  })
+
   it('lists visible entries to depth two and clips at the configured view limit', async () => {
     const { ctx, root, owner } = await setup({ maxOutputChars: 10_000 })
     await mkdir(join(root, 'dir', 'nested', 'third'), { recursive: true })

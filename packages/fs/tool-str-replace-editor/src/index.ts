@@ -308,7 +308,8 @@ async function replaceInFile(
   }
   const before = await ctx.fs.readText(target, exec.signal)
   const offsets = matchOffsets(before, oldValue)
-  if (offsets.length === 0) {
+  const offset = offsets[0]
+  if (offset === undefined) {
     throw new FsError(
       `No replacement was performed, old_str \`${oldValue}\` did not appear verbatim in ${target.displayPath}.`,
       'FS_EDIT_NOT_FOUND',
@@ -325,7 +326,7 @@ async function replaceInFile(
   try {
     outcome = await ctx.fs.writeText(
       target,
-      before.replace(oldValue, newValue),
+      before.slice(0, offset) + newValue + before.slice(offset + oldValue.length),
       intent === undefined
         ? { kind: 'replaceIfVersion', version: info.version }
         : { kind: 'replaceIfVersion', version: intent.version },
