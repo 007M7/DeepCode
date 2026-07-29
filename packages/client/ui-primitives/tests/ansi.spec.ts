@@ -407,6 +407,27 @@ describe('parseAnsiLines: bounded state and true widths', () => {
     ]])
   })
 
+  it('folds the remaining SGR shapes the model has to carry', () => {
+    // A 48-background in extended form, so the `48` arm and the `2`-span both run.
+    expect(parseAnsiLines(`${ESC}[48;2;1;2;3mA\r${ESC}[KB`)).toEqual([[
+      { text: 'B', style: { backgroundColor: 'rgb(1, 2, 3)' } },
+    ]])
+    // A bright foreground and a bright background, the 90-97 / 100-107 arms.
+    expect(parseAnsiLines(`${ESC}[91mA\r${ESC}[KB`)).toEqual([[
+      { text: 'B', style: { color: 'var(--dsw-alias-state-error-secondary)' } },
+    ]])
+    expect(parseAnsiLines(`${ESC}[101mA\r${ESC}[KB`)).toEqual([[
+      { text: 'B', style: { backgroundColor: 'rgb(255, 85, 85)' } },
+    ]])
+    // An extended form with no recognized kind byte consumes nothing extra.
+    expect(parseAnsiLines(`${ESC}[38mA\r${ESC}[KB`)).toEqual([[{ text: 'B', style: undefined }]])
+    // Re-opening an attribute already in force does not duplicate it, and a bare
+    // `\x1b[m` resets exactly as `\x1b[0m` does.
+    expect(parseAnsiLines(`${ESC}[1m${ESC}[1mA${ESC}[mB\r${ESC}[KC`)).toEqual([[
+      { text: 'C', style: undefined },
+    ]])
+  })
+
   it('treats a text-presentation symbol as one column', () => {
     // Verified in a real terminal: `A✓B` redrawn with `XY` shows `XYB`, so the
     // check mark is ONE column. Taking the whole U+2600-U+27BF block as wide
@@ -414,6 +435,17 @@ describe('parseAnsiLines: bounded state and true widths', () => {
     expect(onlySpan('A\u2713B\rXY')).toEqual({ text: 'XYB', style: undefined })
     // An emoji-presentation character is two, so the same redraw leaves a blank.
     expect(onlySpan('A\u{1f600}B\rXY')).toEqual({ text: 'XY B', style: undefined })
+  })
+
+  it('clears a wide pair from either side, including through an erase', () => {
+    // Verified in a real terminal (`A x`): the redraw puts the cursor at column
+    // 0, the backspace clamps there, and writing `A` over the wide lead blanks
+    // its spacer rather than letting the `x` slide left.
+    expect(onlySpan(`\u4e2dx\r${BS}A`)).toEqual({ text: 'A x', style: undefined })
+    // An erase reaching the lead blanks its spacer through the same helper.
+    // Verified in a real terminal (`   |`): 1K blanks through the cursor column,
+    // so the wide glyph's two cells and the `x` all become blanks.
+    expect(onlySpan(`\u4e2dx${ESC}[1K|`)).toEqual({ text: '   |', style: undefined })
   })
 
   it('blanks both halves of a wide pair when either is overwritten', () => {
