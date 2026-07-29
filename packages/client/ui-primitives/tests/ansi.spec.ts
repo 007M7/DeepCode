@@ -9,6 +9,8 @@ import { parseAnsiLines } from '../src/ansi.ts'
 
 const ESC = '\u001b'
 const BS = '\u0008'
+/** A combining acute accent: zero-width, so it takes no terminal column. */
+const ACCENT = '\u0301'
 
 /** Paint `text` with the SGR `codes`, then reset. */
 function sgr(codes: string, text: string): string {
@@ -316,6 +318,27 @@ describe('parseAnsiLines: line-end state and column widths', () => {
     // Verified in a real terminal: `é` (e + U+0301) then `x`, redrawn with `YZ`,
     // shows `YZ`. Counting the mark as a column left the `x` standing.
     expect(onlySpan('e\u0301x\rYZ')).toEqual({ text: 'YZ', style: undefined })
+  })
+
+  it('drops a combining mark left with no cell to attach to by a redraw', () => {
+    // Verified in a real terminal: `ab` then CR then U+0301 then `x` shows `xb`.
+    // The redraw puts the cursor at column 0, so the mark has no preceding cell
+    // and the terminal shows nothing for it rather than a lone accent.
+    expect(onlySpan(`ab\r${ACCENT}x`)).toEqual({ text: 'xb', style: undefined })
+    // A mark with no movement on its line never reaches the replay at all: it
+    // is width business, not a cursor move, so it stays as authored.
+    expect(onlySpan(`${ACCENT}abc`)).toEqual({ text: `${ACCENT}abc`, style: undefined })
+  })
+
+  it('carries a colour opened after the last write onto the next line', () => {
+    // The mirror of the reset case, verified in a real terminal: `ab` CR `X` then
+    // `\x1b[31m` with nothing after it shows `Xb` UNSTYLED and the next line red.
+    // The scan ends styled while the last cell is not, so the convergence has to
+    // open the run at the line end for it to reach the following line.
+    expect(parseAnsiLines(`ab\rX${ESC}[31m\nnext`)).toEqual([
+      [{ text: 'Xb', style: undefined }],
+      [{ text: 'next', style: { color: 'var(--dsw-alias-state-error-primary)' } }],
+    ])
   })
 
   it('blanks a wide character\'s spacer once its lead cell is overwritten', () => {

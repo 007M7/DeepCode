@@ -177,9 +177,10 @@ function replayLine(line: string, entrySgr: string): { text: string; sgr: string
       if (ZERO_WIDTH.test(char)) {
         // No column of its own: it attaches to the cell already written, so a
         // redraw that covers that cell covers the mark with it.
-        const at = Math.max(0, cursor - 1)
-        const base = columns[at]
-        if (base !== undefined) columns[at] = { sgr: base.sgr, char: base.char + char }
+        // With no cell to attach to (line start, or straight after a redraw to
+        // column 0) a terminal shows nothing rather than a lone accent.
+        const base = cursor > 0 ? columns[cursor - 1] : undefined
+        if (base !== undefined) columns[cursor - 1] = { sgr: base.sgr, char: base.char + char }
         continue
       }
       columns[cursor] = { sgr, char }
@@ -207,7 +208,7 @@ function replayLine(line: string, entrySgr: string): { text: string; sgr: string
       // later write can still land past them.
       // Only the FIRST parameter selects the mode; a terminal ignores the rest
       // (`1;2K` erases exactly as `1K` does — verified against a real terminal).
-      const mode = params.split(';')[0] ?? ''
+      const mode = String(params.split(';')[0])
       if (mode === '1') for (let index = 0; index <= cursor; index++) columns[index] = { sgr, char: ' ' }
       else columns.length = mode === '2' ? 0 : cursor
       continue
