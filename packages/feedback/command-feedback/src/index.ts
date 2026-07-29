@@ -1,24 +1,45 @@
 /**
- * Human-facing `/feedback` command. It records a remark about the session and
- * does nothing else: the command registry's own `command/run` and
- * `command/done` events are the whole record, so this plugin only validates the
- * input and acknowledges it. Those appends are eager but unflushed, so the
- * acknowledgement reports the entry is logged, not that it reached disk.
+ * Session feedback event plus the human-facing `/feedback` producer. Recording
+ * appends one authoritative log-only event and does not start model work. The
+ * append is eager but unflushed, so acknowledgement reports that the entry is
+ * logged, not that it reached disk.
  * @module @deepseek-ai/dsh-command-feedback
  */
 
 import type { Context } from 'cordis'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 export const name = 'command-feedback'
 export const inject = ['commands']
 
 const USAGE = 'Usage: /feedback <text>'
 
+declare module '@deepseek-ai/dsh-session' {
+  interface SessionEventMap {
+    /**
+     * One recorded human remark about this session. Log-only and independent
+     * of its trigger; it never enters the model surface or derived history.
+     */
+    'feedback/record': { text: string }
+  }
+}
+
 /**
- * Validate and acknowledge one feedback entry. `command/run` already carries
- * the verbatim text, so no further append is needed; returning an error instead
- * settles that record as `kind: 'error'` and leaves no accepted feedback.
+ * Record feedback independently of any UI trigger.
+ * @param session - session the feedback describes.
+ * @param text - human-authored feedback; surrounding whitespace is discarded.
+ * @throws {TypeError} when the normalized text is empty.
+ */
+export function recordFeedback(session: Session, text: string): void {
+  const normalized = text.trim()
+  if (normalized.length === 0) throw new TypeError('feedback text must not be empty')
+  session.append('feedback/record', { text: normalized })
+}
+
+/**
+ * Validate, record, and acknowledge one feedback entry. Returning an error
+ * leaves no `feedback/record` event.
  * @param invocation - receiving agent, raw command input, and UI cancellation.
  * @returns an acknowledgement, or a usage error when no feedback text was supplied.
  */
@@ -26,6 +47,7 @@ function executeFeedbackCommand(invocation: CommandInvocation): CommandResult {
   if (invocation.rawInput.trim().length === 0) {
     return { kind: 'error', text: `Feedback text is required. ${USAGE}` }
   }
+  recordFeedback(invocation.agent.session, invocation.rawInput)
   return { kind: 'success', text: 'Feedback recorded.' }
 }
 
@@ -35,6 +57,7 @@ export function apply(ctx: Context): void {
     name: 'feedback',
     description: 'record feedback about this session',
     input: { hint: '<text>' },
+    recordInput: false,
     handler: executeFeedbackCommand,
   })
 }

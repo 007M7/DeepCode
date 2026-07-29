@@ -6,6 +6,6 @@ The feedback family lets a human record a remark about the session without actin
 
 | Package | Role | ctx key |
 |---|---|---|
-| `command-feedback/` | Human-facing `/feedback` command recorded through the command plane | — |
+| `command-feedback/` | Trigger-independent `feedback/record` event plus the human-facing `/feedback` producer | — |
 
-A recorded remark is log-only: it never enters the model surface or derived history, and no shipped plugin consumes it. A future consumer reads the command records from the session log rather than changing how they are captured.
+A recorded remark is log-only: it never enters the model surface or derived history, and no shipped plugin consumes it. A future consumer reads `feedback/record` events from the session log rather than changing how they are captured.

@@ -58,15 +58,11 @@ async function run(test: Harness, suffix = ''): Promise<{ kind: string; text?: s
   return settled.result
 }
 
-/** The registry's durable record of each accepted command, in log order. */
-function commandRecords(session: Session): { name: string; args: string; kind: string }[] {
-  const runs = session.events.filter(event => event.type === 'command/run')
-  return runs.map((event) => {
-    const done = session.events.find(item =>
-      item.type === 'command/done' && item.data.commandId === event.data.commandId)
-    if (done?.type !== 'command/done') throw new Error('every command/run must be paired')
-    return { name: event.data.name, args: event.data.args, kind: done.data.kind }
-  })
+/** Authoritative feedback payloads in log order. */
+function feedbackTexts(session: Session): string[] {
+  return session.events
+    .filter(event => event.type === 'feedback/record')
+    .map(event => event.data.text)
 }
 
 describe('@deepseek-ai/dsh-command-feedback registration', () => {
@@ -83,7 +79,7 @@ describe('@deepseek-ai/dsh-command-feedback registration', () => {
       description: 'record feedback about this session',
       input: { hint: '<text>' },
     })
-    expect(test.ctx.commands.find(test.agent, 'feedback')).toBeDefined()
+    expect(test.ctx.commands.find(test.agent, 'feedback')).toMatchObject({ recordInput: false })
 
     await test.plugin.dispose()
     expect(test.ctx.commands.find(test.agent, 'feedback')).toBeUndefined()
@@ -91,38 +87,47 @@ describe('@deepseek-ai/dsh-command-feedback registration', () => {
 })
 
 describe('/feedback human command', () => {
-  it('acknowledges feedback and leaves the registry record as its durable trace', async () => {
+  it('acknowledges feedback and records its payload exactly once in the domain event', async () => {
     const test = await harness()
     await expect(run(test, ' the diff view is unreadable')).resolves.toEqual({
       kind: 'success',
       text: 'Feedback recorded.',
     })
-    expect(commandRecords(test.session)).toEqual([
-      { name: 'feedback', args: ' the diff view is unreadable', kind: 'success' },
-    ])
+    expect(feedbackTexts(test.session)).toEqual(['the diff view is unreadable'])
+    const commandRun = test.session.events.find(event => event.type === 'command/run')
+    expect(commandRun?.type === 'command/run' && Object.hasOwn(commandRun.data, 'args')).toBe(false)
+    expect(JSON.stringify(test.session.events).match(/the diff view is unreadable/gu)).toHaveLength(1)
   })
 
-  it('adds no event of its own beyond the registry pairing', async () => {
+  it('exports a command-independent feedback producer', async () => {
+    const test = await harness()
+    commandFeedback.recordFeedback(test.session, '  recorded outside a command  ')
+    expect(test.session.events.map(event => event.type)).toEqual(['feedback/record'])
+    expect(feedbackTexts(test.session)).toEqual(['recorded outside a command'])
+    expect(() => { commandFeedback.recordFeedback(test.session, ' \n\t ') })
+      .toThrow('feedback text must not be empty')
+    expect(feedbackTexts(test.session)).toEqual(['recorded outside a command'])
+  })
+
+  it('keeps command bookkeeping around the authoritative feedback event', async () => {
     const test = await harness()
     await run(test, ' nothing else happens')
-    // The whole point of the command: record and do nothing. Only the
-    // registry's own pairing appears, and no turn of model work starts.
-    expect(test.session.events.map(event => event.type)).toEqual(['command/run', 'command/done'])
+    expect(test.session.events.map(event => event.type)).toEqual([
+      'command/run', 'feedback/record', 'command/done',
+    ])
   })
 
-  it('records verbatim text, including input that looks like another command', async () => {
+  it('normalizes surrounding whitespace without parsing command-like content', async () => {
     const test = await harness()
     await run(test, ' /plan felt SLOW\n\ttwice today ')
-    expect(commandRecords(test.session)).toEqual([
-      { name: 'feedback', args: ' /plan felt SLOW\n\ttwice today ', kind: 'success' },
-    ])
+    expect(feedbackTexts(test.session)).toEqual(['/plan felt SLOW\n\ttwice today'])
   })
 
   it('records each entry separately without replacing earlier ones', async () => {
     const test = await harness()
     await run(test, ' first')
     await run(test, ' second')
-    expect(commandRecords(test.session).map(record => record.args)).toEqual([' first', ' second'])
+    expect(feedbackTexts(test.session)).toEqual(['first', 'second'])
   })
 
   it('records concurrent submissions in dispatch order', async () => {
@@ -137,7 +142,7 @@ describe('/feedback human command', () => {
       { kind: 'success', text: 'Feedback recorded.' },
       { kind: 'success', text: 'Feedback recorded.' },
     ])
-    expect(commandRecords(test.session).map(record => record.args)).toEqual([' first', ' second'])
+    expect(feedbackTexts(test.session)).toEqual(['first', 'second'])
   })
 
   it('keeps every recorded event off the model surface and out of derived history', async () => {
@@ -160,9 +165,12 @@ describe('/feedback human command', () => {
     }
     await expect(run(test)).resolves.toEqual(expected)
     await expect(run(test, '   \n\t ')).resolves.toEqual(expected)
-    // Rejected input still leaves the registry's own pairing, settled as an
-    // error, so no entry is mistaken for accepted feedback.
-    expect(commandRecords(test.session).map(record => record.kind)).toEqual(['error', 'error'])
+    expect(feedbackTexts(test.session)).toEqual([])
+    const done = test.session.events.filter(event => event.type === 'command/done')
+    expect(done.map(event => event.data.kind)).toEqual(['error', 'error'])
+    for (const event of test.session.events) {
+      if (event.type === 'command/run') expect(Object.hasOwn(event.data, 'args')).toBe(false)
+    }
   })
 
   it('records nothing when dispatch rejects an already-cancelled request', async () => {

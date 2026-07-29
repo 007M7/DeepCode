@@ -304,9 +304,9 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
 
 /**
  * Fixture parallel of the plan unit's double-event fold: `command/run`
- * records named `plan` set the wanted target (`off` → false, else true);
- * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
- * boundary (the fixture's agent/step parallel).
+ * records named `plan` with recorded input set the wanted target (`off` →
+ * false, else true); `plan/mode` commits and clears it. `wanted` is exposed
+ * for the prompt boundary (the fixture's agent/step parallel).
  */
 function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
   let active = false
@@ -315,7 +315,8 @@ function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boo
     const item = event as unknown as { type: string; data?: Record<string, unknown> }
     if (item.type === 'command/run' && item.data?.['name'] === 'plan') {
       const args = item.data['args']
-      wanted = (typeof args === 'string' ? args : '').trim() !== 'off'
+      if (typeof args !== 'string') continue
+      wanted = args.trim() !== 'off'
     } else if (item.type === 'plan/mode') {
       active = item.data?.['active'] === true
       wanted = null
@@ -374,8 +375,9 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
     }]
   }
   // The plan unit advances on its two folded event kinds.
+  const commandData = event as unknown as { data: { name?: string; args?: unknown } }
   if (type === 'plan/mode' || (type === 'command/run'
-    && (event as unknown as { data: { name?: string } }).data.name === 'plan')) {
+    && commandData.data.name === 'plan' && typeof commandData.data.args === 'string')) {
     return [{
       type: 'session/projection',
       sessionId: id,

@@ -2,24 +2,24 @@
 
 English | [中文](README.zh.md)
 
-Human-facing `/feedback` capture. The plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped TUI executes it without a model turn.
+Trigger-independent session feedback plus human-facing `/feedback` capture. The package exports `recordFeedback(session, text)`, which appends one log-only `feedback/record` event. Its plugin registers one global command through [`ctx.commands`](../../ui/commands/README.md), so every composed command adapter discovers it; the shipped TUI executes it without a model turn.
 
 ## Command contract
 
 | Input | Result |
 |---|---|
-| `/feedback <text>` | Acknowledge with `Feedback recorded.` The registry's `command/run` record carries the verbatim text. |
+| `/feedback <text>` | Append `feedback/record` and acknowledge with `Feedback recorded.` |
 | `/feedback` | Return a direct usage error. Whitespace-only input is treated as empty. |
 
-Feedback text is never parsed: no truncation, case folding, or control words. Text that looks like another command, such as `/feedback /plan felt slow`, is feedback content. Repeated commands each produce their own record; nothing is replaced or merged.
+Surrounding whitespace is discarded, but feedback is otherwise unparsed: no truncation, case folding, or control words. Text that looks like another command, such as `/feedback /plan felt slow`, is feedback content. Repeated commands each produce their own event; nothing is replaced or merged.
 
 ## What this plugin does and does not do
 
-The command records a remark and does nothing else. It appends no session event of its own, starts no model work, and no plugin in this repository reads its records.
+`recordFeedback(session, text)` is the command-independent write path. It rejects empty normalized text and appends `feedback/record { text }`; a different UI, hook, or host integration can call it without constructing a slash command. The `/feedback` handler uses that producer, starts no model work, and no plugin in this repository reads the event.
 
-The record is the command registry's own `command/run` / `command/done` pairing, which [`dsh-commands`](../../ui/commands/README.md) appends for every dispatched command. Those appends start persistence's ordinary eager drain; neither the registry nor this command forces a `session/flush`, so the acknowledgement means the entry is in the log, not that it has already reached disk. `command/run` carries the command name, the verbatim unparsed suffix, and the invocation source; the paired `command/done` carries the outcome. Both are log-only and are absent from the ordered surface, from `deriveMessages()`, and from every model request. A rejected empty input still leaves that pairing, settled as `kind: 'error'`, so no entry can be mistaken for accepted feedback.
+The feedback text appears in exactly one durable payload: `feedback/record`. [`dsh-commands`](../../ui/commands/README.md) still appends its generic `command/run` / `command/done` pairing, but this definition sets `recordInput: false`, so `command/run` omits `args`; the paired `command/done` carries only the outcome. All three events are log-only and absent from the ordered surface, `deriveMessages()`, and model requests. These appends start persistence's ordinary eager drain, but neither producer forces `session/flush`, so acknowledgement means the feedback is in the log, not that it has reached disk. Rejected empty input leaves only the command pairing settled as `kind: 'error'`, with no `feedback/record`.
 
-A dedicated `session/feedback` event was considered and rejected: it would duplicate a record the registry already writes, and a consumer can select feedback by the command name it already stores.
+The event is authoritative rather than the command record because feedback may arrive through a trigger other than `/feedback`. Keeping the payload out of `command/run` avoids two records carrying the same text.
 
 ## Composition
 
@@ -40,7 +40,7 @@ The TUI app mounts this command unconditionally; it has no configuration and no 
 
 #### What the model sees
 
-Nothing. The slash input, the recorded text, and the acknowledgement are all absent from model requests. The registry's `command/run` and `command/done` records are log-only and carry no `surfaceOp`, so they never reach the ordered surface, `deriveMessages()`, or a system prompt. Recording feedback during a turn does not change that turn's remaining requests.
+Nothing. The slash input, `feedback/record`, and the acknowledgement are absent from model requests. The feedback event and registry lifecycle records are log-only and carry no `surfaceOp`, so they never reach the ordered surface, `deriveMessages()`, or a system prompt. Recording feedback during a turn does not change that turn's remaining requests.
 
 #### Token effect
 
@@ -52,9 +52,8 @@ Independent of the model request path. Recording appends to the session log only
 
 ## Known Limitations and Deferred Work
 
-- **Nothing consumes the recorded feedback** — capture is deliberately inert. There is no retrieval, aggregation, export, or reporting surface, and no model-facing tool reads it; a consumer is a separate package that selects `command/run` records by command name.
+- **Nothing consumes the recorded feedback** — capture is deliberately inert. There is no retrieval, aggregation, export, or reporting surface, and no model-facing tool reads `feedback/record`; a consumer is a separate package.
 - **No structured fields** — an entry is one free-text string with no category, severity, or referenced-event link, so feedback cannot be filtered by subject without re-reading its text.
 - **No amend or withdraw** — the session log is append-only and this package adds no tombstone, so a mistaken entry stays recorded and can only be superseded by a later one.
-- **Untrimmed text in the record** — the handler trims only to validate; `command/run` stores the raw suffix, including its leading separator whitespace, so a consumer trims at read time.
 - **No explicit durability barrier** — the acknowledgement follows the append, not a flush, so an entry recorded immediately before a crash can be lost with any other unflushed tail. Feedback is not worth forcing a synchronous disk write for; a consumer that needs one awaits `ctx.sessions.flush(session)`.
 - **TUI only in the shipped apps** — the headless CLI, ACP automation, and JSON-RPC adapters do not mount `ctx.commands`, so `/feedback` is unavailable there.

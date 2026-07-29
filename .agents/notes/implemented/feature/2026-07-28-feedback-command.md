@@ -14,15 +14,15 @@ The capture surface has to be usable at the moment of annoyance, which rules out
 
 `@deepseek-ai/dsh-command-feedback` in `packages/feedback/command-feedback/` registers one global `feedback` command over `ctx.commands`. `/feedback <text>` acknowledges; bare or whitespace-only input returns a direct usage error. The handler is synchronous, injects only `commands`, and has no configuration.
 
-The plugin appends **no session event of its own**. `dsh-commands` already writes a `command/run` / `command/done` pair for every dispatched command, carrying the command name, the verbatim unparsed suffix, the invocation source, and the settled outcome. Those records are log-only and non-surface, so the feedback lands in the session log and stays invisible to the model without this package contributing anything to the log format. The appends start persistence's ordinary eager drain; nothing forces a flush, so the acknowledgement reports that the entry is recorded in the log rather than already on disk.
+The package declares the log-only `feedback/record { text }` session event and exports `recordFeedback(session, text)` as its command-independent producer. The producer discards surrounding whitespace, rejects an empty result, and appends exactly one event. `/feedback` delegates to it, so another UI, hook, or host integration can record the same domain fact without constructing a slash command.
 
-Capture is deliberately inert: nothing in this repository reads those records back.
+`dsh-commands` still writes its `command/run` / `command/done` lifecycle pair around `/feedback`, but this command sets `recordInput: false`. Its `command/run` therefore carries the command identity and source without `args`; the feedback text exists only in `feedback/record`, while `command/done` carries the acknowledgement outcome. All three records are log-only and non-surface. Their appends start persistence's ordinary eager drain; nothing forces a flush, so acknowledgement reports that the feedback is in the log rather than already on disk.
 
-### Why no dedicated `session/feedback` event
+Capture is deliberately inert: nothing in this repository reads `feedback/record`.
 
-An earlier iteration declared one. It was removed because it duplicated a record the registry already writes: both would carry the same text, appended microseconds apart, and a consumer would have to decide which is authoritative. Selecting `command/run` records by command name is enough to find feedback, and it keeps this package free of the session event format entirely — no `SessionEventMap` merge, no invariant relation, no persistence catalog entry.
+### Why feedback owns an event
 
-The cost is that the recorded text is the raw suffix including its leading separator whitespace, and that feedback is distinguished from other commands only by name. Both are read-time concerns for a consumer that does not yet exist; neither justifies a second durable record now.
+Feedback is a domain fact, while `/feedback` is one trigger. Keeping the only payload in `feedback/record` lets later triggers use the same event and lets consumers select feedback without depending on command names or parsing command lifecycle records. Omitting `command/run.args` for this definition avoids two authoritative-looking copies of one human remark.
 
 ### Why the model never sees it
 
@@ -30,7 +30,7 @@ Feedback is about the session, not input to it. Injecting it as a user message w
 
 ### Verbatim text
 
-Nothing is parsed. `/feedback /plan felt slow` records that literal text; the leading `/plan` is content, not a nested command. The handler trims only to decide whether any text was supplied. Control-word grammar of the kind `/goal` uses would make the corresponding literal feedback impossible to express, which is the opposite of what a capture surface is for.
+Surrounding whitespace is discarded, but nothing else is parsed. `/feedback /plan felt slow` records `/plan felt slow`; the leading `/plan` is content, not a nested command. Control-word grammar of the kind `/goal` uses would make the corresponding literal feedback impossible to express, which is the opposite of what a capture surface is for.
 
 ### A new group
 
@@ -38,7 +38,9 @@ Nothing is parsed. `/feedback /plan felt slow` records that literal text; the le
 
 ## Alternatives considered
 
-**Declare a dedicated `session/feedback` log-only event.** Implemented first, then removed. It gave feedback a first-class queryable type with pre-trimmed text, but duplicated the registry's record, added a `SessionEventMap` member and persistence-catalog entry to the frozen log format, and created two records of one act with no rule for which wins.
+**Use `command/run` as the feedback record.** Rejected because feedback would then be coupled to one trigger and consumers would have to identify a domain fact by command name. A non-command producer could not create the same record without pretending to execute a command.
+
+**Store the text in both `feedback/record` and `command/run.args`.** Rejected because one act would have two payload copies with no useful distinction. `recordInput: false` preserves the generic lifecycle while leaving the domain event authoritative.
 
 **Inject feedback as a user message via `agent.inject()`.** Needs no new event type and reuses the path `/goal` mutations take. Rejected: it makes the feedback model-visible, so it enters the next request, changes the run being commented on, and consumes tokens — contradicting all three parts of the no-perturbation requirement.
 
@@ -54,8 +56,8 @@ Nothing is parsed. `/feedback /plan felt slow` records that literal text; the le
 
 The TUI mounts the command unconditionally — no configuration, no dependency on the goal stack. The headless CLI, ACP, and JSON-RPC apps do not consume `ctx.commands`, so `/feedback` is unavailable there.
 
-This package is now small enough that its whole contract is the command definition plus one validation branch. It owns no session event, so it needs no invariant relation and cannot affect replay, forking, or crash recovery.
+The package owns one independent append-only event with no cross-event or mutable-data relation for an invariant companion to check. The event follows the session log's existing replay, fork, persistence, and crash-tail behavior.
 
-Deferred: no consumer; no structured fields; no amend or withdraw, since the log is append-only and this package adds no tombstone; the recorded text is untrimmed, so a consumer trims at read time; and no explicit durability barrier, so an entry recorded immediately before a crash can be lost with any other unflushed tail.
+Deferred: no consumer; no structured fields; no amend or withdraw, since the log is append-only and this package adds no tombstone; and no explicit durability barrier, so an entry recorded immediately before a crash can be lost with any other unflushed tail.
 
 No snapshot accompanies this change. AGENTS.md asks for a keyless snapshot through a runnable example for product-user-visible behavior; this was skipped at the requester's explicit direction. The package tests plus a real Loader composition test over a `cordis.yml` are the whole of the evidence, alongside interactive verification in the assembled TUI.

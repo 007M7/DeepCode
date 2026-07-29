@@ -185,7 +185,7 @@ Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/
 'command/done': { commandId: CommandId; kind: 'success' | 'error'; text?: string }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:145`](../packages/ui/commands/src/index.ts)
 
 #### `command/run` — log-only
 
@@ -197,12 +197,13 @@ Source: [`packages/ui/commands/src/index.ts:138`](../packages/ui/commands/src/in
  * and `args` are `parseCommand`'s own split (name and verbatim rawInput,
  * separator whitespace included), so a consumer (a projection unit
  * folding its own command records, a rich command card) never re-parses
- * a line.
+ * a line. `args` is absent when the definition sets `recordInput: false`
+ * because an authoritative domain event owns the input payload.
  */
-'command/run': { commandId: CommandId; name: string; args: string; source: CommandSource }
+'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
 ```
 
-Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:139`](../packages/ui/commands/src/index.ts)
 
 ### `compact/*`
 
@@ -255,6 +256,20 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
 Types: [ContentBlock](core-data-structures/core.md)
 
 Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
+
+### `feedback/*`
+
+#### `feedback/record` — log-only
+
+```ts persistence-catalog
+/**
+ * One recorded human remark about this session. Log-only and independent
+ * of its trigger; it never enters the model surface or derived history.
+ */
+'feedback/record': { text: string }
+```
+
+Source: [`packages/feedback/command-feedback/src/index.ts:24`](../packages/feedback/command-feedback/src/index.ts)
 
 ### `hook/*`
 

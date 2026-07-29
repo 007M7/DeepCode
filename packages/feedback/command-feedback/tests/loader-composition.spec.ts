@@ -92,11 +92,14 @@ describe('/feedback real Loader composition through cordis.yml', () => {
       text: 'Feedback text is required. Usage: /feedback <text>',
     })
 
-    // The command records itself through the registry and does nothing else.
+    // The domain event owns the payload; generic command bookkeeping omits it.
     expect(owner.session.events.map(event => event.type))
-      .toEqual(['command/run', 'command/done', 'command/run', 'command/done'])
+      .toEqual(['command/run', 'feedback/record', 'command/done', 'command/run', 'command/done'])
     const run = owner.session.events.find(event => event.type === 'command/run')
-    expect(run?.type === 'command/run' && run.data.args).toBe(' the diff view is unreadable')
+    expect(run?.type === 'command/run' && Object.hasOwn(run.data, 'args')).toBe(false)
+    const feedback = owner.session.events.find(event => event.type === 'feedback/record')
+    expect(feedback?.type === 'feedback/record' && feedback.data.text).toBe('the diff view is unreadable')
+    expect(JSON.stringify(owner.session.events).match(/the diff view is unreadable/gu)).toHaveLength(1)
 
     // Nothing reached the model.
     expect(owner.session.deriveMessages()).toEqual([])

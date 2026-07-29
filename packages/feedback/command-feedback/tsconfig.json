@@ -18,6 +18,9 @@
       "path": "../../ui/commands"
     },
     {
+      "path": "../../core/session"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

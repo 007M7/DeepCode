@@ -21,8 +21,8 @@ export function GenericCommandCard({ node }: CommandRowOwnerProps) {
     ? '执行中…'
     : text ?? (node.outcome.kind === 'error' ? '命令失败' : '已完成')
   // Display line rebuilt from the structured payload (args carries its own
-  // separator whitespace verbatim); a cross-window node whose run page fell
-  // out of the window has neither.
+  // separator whitespace verbatim); omitted input and a cross-window node
+  // whose run page fell out both render without it.
   const title = node.name === null ? '命令' : `/${node.name}${node.args ?? ''}`
   return (
     <ToolRow

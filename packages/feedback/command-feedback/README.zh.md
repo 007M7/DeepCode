@@ -2,24 +2,24 @@
 
 [English](README.md) | 中文
 
-面向用户的 `/feedback` 采集。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现它；随附 TUI 无需模型轮次即可执行。
+与触发方式无关的会话反馈，以及面向用户的 `/feedback` 采集。本包（package）导出 `recordFeedback(session, text)`，后者追加一个仅写入日志的 `feedback/record` 事件。该插件通过 [`ctx.commands`](../../ui/commands/README.md) 注册一个全局命令，因此每个已组合的命令适配器都能发现它；随附 TUI 无需模型轮次即可执行。
 
 ## 命令契约
 
 | 输入 | 结果 |
 |---|---|
-| `/feedback <text>` | 以 `Feedback recorded.` 确认。注册表的 `command/run` 记录携带原样文本。 |
+| `/feedback <text>` | 追加 `feedback/record`，并以 `Feedback recorded.` 确认。 |
 | `/feedback` | 返回一个直接用法错误。仅含空白的输入视为空输入。 |
 
-反馈文本从不被解析：没有截断、大小写折叠或控制词。看起来像另一个命令的文本（例如 `/feedback /plan felt slow`）就是反馈内容。重复执行命令会各自产生自己的记录，不会替换或合并。
+前后空白会被丢弃，但除此之外，反馈内容不会被解析：没有截断、大小写折叠或控制词。看起来像另一个命令的文本（例如 `/feedback /plan felt slow`）就是反馈内容。重复执行命令时，每次都会产生一个事件；不会发生替换或合并。
 
 ## 本插件做什么、不做什么
 
-该命令记录一条评价，不做别的事。它不追加属于自己的会话事件，不启动任何模型工作，本仓库中也没有任何插件读取它的记录。
+`recordFeedback(session, text)` 是不依赖命令的写入路径。它拒绝规范化后为空的文本，并追加 `feedback/record { text }`；其他 UI、钩子或 host 集成无需构造斜杠命令即可调用它。`/feedback` 处理器通过该生产方写入，不启动任何模型工作；本仓库中也没有任何插件读取该事件。
 
-记录来自命令注册表自身的 `command/run` / `command/done` 配对，由 [`dsh-commands`](../../ui/commands/README.md) 为每个已分发命令追加。这些追加会启动持久化的常规即时排空；注册表与本命令都不会强制 `session/flush`，因此确认文本表示条目已进入日志，而不表示它已经落盘。`command/run` 携带命令名、原样未解析的后缀以及调用来源；配对的 `command/done` 携带结果。两者都仅写入日志，不出现在有序 surface、`deriveMessages()` 以及任何模型请求中。被拒绝的空输入仍会留下该配对，并以 `kind: 'error'` 结算，因此任何条目都不会被误认为已接受的反馈。
+反馈文本只出现在一个持久载荷中：`feedback/record`。[`dsh-commands`](../../ui/commands/README.md) 仍会追加通用的 `command/run` / `command/done` 配对，但此定义设置了 `recordInput: false`，因此 `command/run` 会省略 `args`；配对的 `command/done` 只携带结果。三个事件都仅写入日志，不出现在有序 surface、`deriveMessages()` 以及模型请求中。这些追加会启动持久化的常规即时排空，但两个生产方都不会强制 `session/flush`，因此确认文本表示反馈已进入日志，而不表示它已经落盘。被拒绝的空输入只会留下以 `kind: 'error'` 结算的命令配对，不会产生 `feedback/record`。
 
-曾考虑并否决了专用的 `session/feedback` 事件：它会重复注册表已经写入的记录，而消费方可以依据注册表已存储的命令名筛选反馈。
+权威记录是该事件，而不是命令记录，因为反馈可能来自 `/feedback` 之外的触发方式。让载荷不进入 `command/run`，可避免两条记录携带相同文本。
 
 ## 组合
 
@@ -40,7 +40,7 @@ TUI 应用无条件挂载此命令；它没有配置，也不依赖持久 goal �
 
 #### 模型看到的内容
 
-无。斜杠输入、被记录的文本以及确认文本都不出现在模型请求中。注册表的 `command/run` 与 `command/done` 记录仅写入日志且不携带 `surfaceOp`，因此它们绝不会进入有序 surface、`deriveMessages()` 或系统提示词。在某个轮次中记录反馈不会改变该轮次剩余的请求。
+无。斜杠输入、`feedback/record` 以及确认文本都不出现在模型请求中。反馈事件和注册表生命周期记录仅写入日志且不携带 `surfaceOp`，因此它们绝不会进入有序 surface、`deriveMessages()` 或系统提示词。在某个轮次中记录反馈不会改变该轮次剩余的请求。
 
 #### Token 影响
 
@@ -52,9 +52,8 @@ TUI 应用无条件挂载此命令；它没有配置，也不依赖持久 goal �
 
 ## 已知限制与暂缓工作
 
-- **没有任何消费方读取被记录的反馈**：采集刻意不产生任何后续动作。这里没有检索、聚合、导出或报告 surface，也没有面向模型的工具读取它；消费方是另一个依据命令名筛选 `command/run` 记录的独立包。
+- **没有任何消费方读取被记录的反馈**：采集刻意不产生任何后续动作。这里没有检索、聚合、导出或报告 surface，也没有面向模型的工具读取 `feedback/record`；消费方是另一个独立包。
 - **没有结构化字段**：一条条目就是一个自由文本字符串，没有类别、严重程度或关联事件链接，因此无法在不重读文本的情况下按主题过滤反馈。
 - **不支持修改或撤回**：会话日志是仅追加的，本包也不新增 tombstone，因此错误的条目会一直保留在记录中，只能由后续条目取代。
-- **记录中的文本未修剪**：处理器只为校验而修剪；`command/run` 存储原始后缀，包含其前导分隔空白，因此消费方需在读取时修剪。
 - **没有显式持久化屏障**：确认文本紧随追加而非 flush，因此紧临崩溃前记录的条目可能与其他未 flush 的尾部一同丢失。为反馈强制同步写盘并不值得；需要该保证的消费方可自行等待 `ctx.sessions.flush(session)`。
 - **随附应用中只有 TUI 使用此命令**：无头 CLI、ACP 自动化和 JSON-RPC 适配器不挂载 `ctx.commands`，因此 `/feedback` 在那里不可用。

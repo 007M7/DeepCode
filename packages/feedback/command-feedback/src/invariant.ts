@@ -15,8 +15,8 @@ export const name = 'command-feedback-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this command declares no session event and owns no state projection. The
- * `command/run`/`command/done` pairing that records feedback belongs to `dsh-commands`.
+ * No runtime invariant: each `feedback/record` is an independent append-only
+ * fact with no cross-event or mutable-data relationship.
  */
 const install: InvariantInstaller = () => {}
 

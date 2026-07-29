@@ -31,6 +31,12 @@ interface CommandDefinition {
   readonly description: string
   /** Optional free-form input hint advertised to capable clients. */
   readonly input?: CommandInputDescriptor
+  /**
+   * Whether `command/run` records `rawInput`. Defaults to true. A command
+   * whose domain event owns the payload sets this false to avoid duplicating
+   * that payload in the session log.
+   */
+  readonly recordInput?: boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }
