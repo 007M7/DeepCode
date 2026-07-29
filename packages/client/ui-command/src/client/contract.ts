@@ -30,26 +30,34 @@ export type CommandUiSpec = {
  * One client-owned command contribution: a slash-menu entry whose behavior
  * lives entirely on the client (no host descriptor). Merged with the host
  * catalog by name — a collision with a host command fails loud at candidate
- * synthesis, never shadows — UNLESS the contribution declares `hostBacked`:
- * then the same-named host command owns execution and the contribution only
- * supplies the bare-invocation picker (menu row stays the host's; a bare
- * pick/enter opens the popup; a line with arguments falls through to the
- * host command's own path).
+ * synthesis, never shadows.
  */
 export interface CommandContribution {
   /** Command name without the leading slash (unique across contributions). */
   readonly name: string
   /** Menu row description. */
   readonly description: string
-  /**
-   * Cooperate with the same-named host command instead of colliding: the
-   * popup is the bare-invocation UI, the host command is the executor (its
-   * catalog row, argument claim, and lifecycle logging stand unchanged).
-   */
-  readonly hostBacked?: true
   /** Capability filter, called with a fresh projection per candidate pass. */
   available(session: ClientSessionContext): boolean
   /** The command's UI behavior (this phase: popupSelect only). */
+  readonly ui: CommandUiSpec
+}
+
+/**
+ * A UI decoration hung on one HOST command: what its BARE invocation does on
+ * this client. Not a second command — the host command keeps its catalog
+ * row, its argument claim (space / argued enter), and its lifecycle logging;
+ * the decoration replaces only the bare menu-pick/enter with a popup whose
+ * onSelect typically submits a completed line back through command.execute.
+ * A decoration never manufactures a row: a name with no host catalog entry
+ * in the session's directory simply never reaches the decoration.
+ */
+export interface CommandDecoration {
+  /** The HOST command name this decorates (without the leading slash). */
+  readonly name: string
+  /** Capability filter, called with a fresh projection per bare invocation. */
+  available(session: ClientSessionContext): boolean
+  /** The bare-invocation UI (this phase: popupSelect only). */
   readonly ui: CommandUiSpec
 }
 
@@ -60,6 +68,11 @@ export interface CommandServiceContract {
    * names throw at registration.
    */
   register(contribution: CommandContribution): () => void
+  /**
+   * Hang a bare-invocation decoration on one host command; effect disposer.
+   * Duplicate names throw at registration.
+   */
+  decorate(decoration: CommandDecoration): () => void
   /** Resolve the per-session popup controller for one session scope (wiring/overlay layer). */
   popupFor(actx: ClientContext): unknown
 }

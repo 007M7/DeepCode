@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-权限预设选择插件（浏览器半侧）：`/permission` popupSelect contribution（经 `ctx.command` 注册）。该 contribution 是 `hostBacked`（宿主背书）的——host 的 `/permission` 命令拥有斜杠菜单行、带参路径（`/permission <preset>` 直接切换）与持久生命周期记账；本入口只提供裸调用的选择框：一张扁平预设列表，当前值标记为 active，选中即提交 `/permission <preset>` 命令行。选项与 active 标记读取会话的 `permissions` 投影（与 composer chip 渲染的同一份 host 计算 select），因此两个界面共享同一读源与同一写路径，推送的投影帧是两者共同跟随的唯一确认。contribution 恰在投影 key 存在时可用；无权限组合不显示选择框。
+权限预设选择插件（浏览器半侧）：挂在 host `/permission` 命令上的 popupSelect **装饰**（`ctx.command.decorate`）。装饰不是第二条命令——host 命令保留斜杠菜单行、带参路径（`/permission <preset>` 直接切换）与持久生命周期记账；装饰只把裸调用替换为选择框：一张扁平预设列表，当前值标记为 active，选中即提交 `/permission <preset>` 命令行。选项与 active 标记读取会话的 `permissions` 投影（与 composer chip 渲染的同一份 host 计算 select），因此两个界面共享同一读源与同一写路径，推送的投影帧是两者共同跟随的唯一确认。装饰恰在投影 key 存在时可用；无权限组合不显示选择框（装饰绝不无中生有目录行）。
 
 `/client` 导出面为插件本体（`apply`/`inject`）。
 

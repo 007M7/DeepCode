@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createScope, scopeOf } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ClientSessionContext, ConsumeTokenRequest, SlashPick, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
-import type { CommandContribution, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
+import type { CommandContribution, CommandDecoration, CommandUiSpec, SelectOption } from '../src/client/contract.ts'
 import type { CommandDescriptor } from '../src/client/directory.ts'
 import { CommandService } from '../src/client/service.ts'
 
@@ -198,18 +198,26 @@ describe('candidates', () => {
     await expect(source.candidates(proj('s1'), req(''))).rejects.toThrow('collides with a host command')
   })
 
-  it('a hostBacked contribution cooperates: the host row stands, no duplicate, no throw', async () => {
+})
+
+describe('decorations (bare-invocation UI on host commands)', () => {
+  const goalDecoration = (over: Partial<CommandDecoration> = {}): CommandDecoration => ({
+    name: 'goal',
+    available: () => true,
+    ui: themeUi(),
+    ...over,
+  })
+
+  it('adds no catalog row: the host row stands alone', async () => {
     const { command, source } = await bench()
-    command.register(themeContribution({ name: 'goal', hostBacked: true }))
+    command.decorate(goalDecoration())
     const names = (await source.candidates(proj('s1'), req(''))).map(c => c.name)
     expect(names).toEqual(['plan', 'goal'])
   })
-})
 
-describe('hostBacked enter/space columns', () => {
-  it('bare enter opens the popup; an argued line falls through to the host claim', async () => {
+  it('bare enter opens the popup; an argued line never consults the decoration (host claim)', async () => {
     const { command, source, mint, warm } = await bench()
-    command.register(themeContribution({ name: 'goal', hostBacked: true }))
+    command.decorate(goalDecoration())
     const scope = mint('s1')
     await warm(proj('s1'))
     expect(await source.matchEnter!(proj('s1'), '/goal', new AbortController().signal)).toBe('handled')
@@ -219,13 +227,37 @@ describe('hostBacked enter/space columns', () => {
     expect(argued.claim.token).toBe('/goal ')
   })
 
-  it('space defers to the host claim instead of the popup', async () => {
+  it('space never consults the decoration (host claim)', async () => {
     const { command, source, warm } = await bench()
-    command.register(themeContribution({ name: 'goal', hostBacked: true }))
+    command.decorate(goalDecoration())
     await warm(proj('s1'))
     const outcome = source.matchSpace!(proj('s1'), '/goal')
     if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected the host claim')
     expect(outcome.claim.token).toBe('/goal ')
+  })
+
+  it('a decoration with no host row never fires (bare enter misses; menu pick misses)', async () => {
+    const { command, source, mint, warm } = await bench()
+    command.decorate(goalDecoration({ name: 'phantom' }))
+    const scope = mint('s1')
+    await warm(proj('s1'))
+    expect(await source.matchEnter!(proj('s1'), '/phantom', new AbortController().signal)).toBeUndefined()
+    expect(menuPick(source, 'phantom', proj('s1'))).toBeUndefined()
+    expect(command.popupFor(scope.ctx).state.getSnapshot().open).toBe(false)
+  })
+
+  it('an unavailable decoration falls through to the host bare path (detached execute)', async () => {
+    const { command, source, warm, executeCalls } = await bench()
+    command.decorate(goalDecoration({ name: 'plan', available: () => false }))
+    await warm(proj('s1'))
+    expect(await source.matchEnter!(proj('s1'), '/plan', new AbortController().signal)).toBe('handled')
+    expect(executeCalls).toEqual([{ sessionId: sid('s1'), line: '/plan' }])
+  })
+
+  it('duplicate decoration names fail loud', async () => {
+    const { command } = await bench()
+    command.decorate(goalDecoration())
+    expect(() => { command.decorate(goalDecoration()) }).toThrow('duplicate decoration for /goal')
   })
 })
 

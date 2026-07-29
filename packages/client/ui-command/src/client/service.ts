@@ -14,7 +14,7 @@ import type {
   CandidateRequest, ClientSessionContext, CommandClaim, PickOutcome, SlashCandidate, SlashPick,
   SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
-import type { CommandContribution, CommandServiceContract } from './contract.ts'
+import type { CommandContribution, CommandDecoration, CommandServiceContract } from './contract.ts'
 import type { CommandDescriptor } from './directory.ts'
 import { CommandDirectory } from './directory.ts'
 import { PopupSelectController } from './popup.ts'
@@ -23,6 +23,7 @@ import type { TokenSegment } from './popup.ts'
 /** Live mutable state in one holder (service methods run behind the caller-ctx tracker). */
 interface LiveState {
   readonly contributions: Map<string, CommandContribution>
+  readonly decorations: Map<string, CommandDecoration>
   readonly popups: Map<SessionId, PopupSelectController<ClientSessionContext>>
 }
 
@@ -31,7 +32,7 @@ export class CommandService extends Service implements CommandServiceContract {
   static inject = ['slash', 'sessions', 'connection']
 
   private readonly directory: CommandDirectory
-  private readonly live: LiveState = { contributions: new Map(), popups: new Map() }
+  private readonly live: LiveState = { contributions: new Map(), decorations: new Map(), popups: new Map() }
 
   /**
    * @param ctx - owning root context (plugin fiber; the service registers
@@ -76,6 +77,24 @@ export class CommandService extends Service implements CommandServiceContract {
       contributions.set(contribution.name, contribution)
       return () => { contributions.delete(contribution.name) }
     }, 'command.register()')
+    return () => { void dispose() }
+  }
+
+  /**
+   * Hang a bare-invocation decoration on one host command; effect disposer
+   * (rides the caller's fiber). Duplicate names throw.
+   * @param decoration - host command name + availability + popup spec.
+   * @returns the disposer removing the registration.
+   */
+  decorate(decoration: CommandDecoration): () => void {
+    const dispose = this.ctx.effect(() => {
+      const { decorations } = this.live
+      if (decorations.has(decoration.name)) {
+        throw new Error(`ui-command: duplicate decoration for /${decoration.name}`)
+      }
+      decorations.set(decoration.name, decoration)
+      return () => { decorations.delete(decoration.name) }
+    }, 'command.decorate()')
     return () => { void dispose() }
   }
 
@@ -139,9 +158,6 @@ export class CommandService extends Service implements CommandServiceContract {
     for (const contribution of this.live.contributions.values()) {
       if (!contribution.available(session)) continue
       if (seen.has(contribution.name)) {
-        // hostBacked cooperates: the host's catalog row stands, the
-        // contribution only supplies the bare-invocation popup.
-        if (contribution.hostBacked === true) continue
         throw new Error(`ui-command: contribution /${contribution.name} collides with a host command`)
       }
       rows.push({ name: contribution.name, description: contribution.description })
@@ -151,16 +167,24 @@ export class CommandService extends Service implements CommandServiceContract {
       .filter(c => req.position === 'leading' || c.hint === undefined)
   }
 
-  /** Decision table, menu column: contribution → popup; host input → claim; host bare → detached execute. */
+  /** Decision table, menu column: contribution/decorated-host → popup; host input → claim; host bare → detached execute. */
   private dispatch(pick: SlashPick): PickOutcome {
     const name = pick.candidate.name
     const contribution = this.live.contributions.get(name)
     if (contribution !== undefined && contribution.available(pick.session)) {
-      this.openPopup(contribution, pick.session, { via: 'menu', span: pick.span })
+      this.openPopup(name, contribution.ui, pick.session, { via: 'menu', span: pick.span })
       return 'handled'
     }
     const desc = this.directory.resolve(pick.session.sessionId, name)
     if (desc === undefined) return undefined // snapshot swapped between menu and pick → miss
+    // A decoration replaces the HOST row's bare invocation with its popup;
+    // it decorates only a resolvable host command (checked above), never
+    // manufactures one, and never touches the argument claim below.
+    const decoration = this.live.decorations.get(name)
+    if (decoration !== undefined && decoration.available(pick.session)) {
+      this.openPopup(name, decoration.ui, pick.session, { via: 'menu', span: pick.span })
+      return 'handled'
+    }
     if (desc.input !== undefined) return { claim: this.leadingClaim(desc, pick.session) }
     // Menu-pick execute consumes the trigger span before the detached run
     // (scoped event; the input owns the CAS guard).
@@ -173,10 +197,7 @@ export class CommandService extends Service implements CommandServiceContract {
   private matchSpace(session: ClientSessionContext, token: string): PickOutcome {
     if (!token.startsWith('/')) return undefined
     const name = token.slice(1)
-    // Popup kinds never claim on space; a hostBacked popup defers to the
-    // host command's own claim (the popup serves only the bare invocation).
-    const spaceContribution = this.live.contributions.get(name)
-    if (spaceContribution !== undefined && spaceContribution.hostBacked !== true) return undefined
+    if (this.live.contributions.has(name)) return undefined // popup kinds never claim on space
     const desc = this.directory.resolve(session.sessionId, name)
     if (desc === undefined || desc.input === undefined) return undefined
     return { claim: this.leadingClaim(desc, session) }
@@ -198,17 +219,22 @@ export class CommandService extends Service implements CommandServiceContract {
     if (name === '') return undefined
     const contribution = this.live.contributions.get(name)
     if (contribution !== undefined && contribution.available(session)) {
-      if (bare) {
-        this.openPopup(contribution, session, { via: 'enter', token })
-        return 'handled'
-      }
-      // hostBacked + arguments: the host command owns the argued path
-      // (claim or detached run below); a pure contribution stays bare-only.
-      if (contribution.hostBacked !== true) return undefined
+      if (!bare) return undefined
+      this.openPopup(name, contribution.ui, session, { via: 'enter', token })
+      return 'handled'
     }
     await this.directory.ensureReady(session.sessionId, signal)
     const desc = this.directory.resolve(session.sessionId, name)
     if (desc === undefined) return undefined
+    // Bare enter on a decorated host command opens its popup; an argued line
+    // never consults the decoration (the claim/detached paths below own it).
+    if (bare) {
+      const decoration = this.live.decorations.get(name)
+      if (decoration !== undefined && decoration.available(session)) {
+        this.openPopup(name, decoration.ui, session, { via: 'enter', token })
+        return 'handled'
+      }
+    }
     if (desc.input !== undefined) return { claim: this.leadingClaim(desc, session) }
     if (!bare) return undefined
     this.consumeVia(session.sessionId, { via: 'enter', token })
@@ -216,15 +242,16 @@ export class CommandService extends Service implements CommandServiceContract {
     return 'handled'
   }
 
-  /** Open the session's popup for one contribution (menu pick / bare enter). */
+  /** Open the session's popup for one contribution or decoration (menu pick / bare enter). */
   private openPopup(
-    contribution: CommandContribution,
+    name: string,
+    ui: CommandContribution['ui'],
     session: ClientSessionContext,
     segment: TokenSegment,
   ): void {
     const actx = this.scopeFor(session.sessionId)
     if (actx === undefined) return
-    this.popupFor(actx).open(contribution.name, contribution.ui, session, segment)
+    this.popupFor(actx).open(name, ui, session, segment)
   }
 
   /** Build the leadingInput claim: token `/name ` + the command.execute submit transaction. */

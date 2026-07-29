@@ -1,7 +1,7 @@
 /**
  * ui-permission browser half on a real cordis Context with fake command/
- * sessions faces: the plugin registers the hostBacked /permission popup
- * contribution; options flatten the session's permissions projection with
+ * sessions faces: the plugin hangs the /permission popup decoration on the
+ * host command; options flatten the session's permissions projection with
  * the current value active and `custom` excluded; availability follows the
  * projection key's presence; a pick submits the /permission line through
  * Session.command and surfaces rejection/unmatched as thrown errors; fiber
@@ -10,7 +10,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
-import type { CommandContribution } from '@deepseek-ai/dsh-client-ui-command/client'
+import type { CommandDecoration } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { PermissionSelect } from '@deepseek-ai/dsh-permission/client'
 import { apply, inject } from '../src/client/index.ts'
 
@@ -27,11 +27,11 @@ const SELECT: PermissionSelect = {
 
 async function bench() {
   const ctx = new Context()
-  let contribution: CommandContribution | undefined
+  let decoration: CommandDecoration | undefined
   ctx.provide('command', {
-    register(c: CommandContribution) {
-      contribution = c
-      return () => { contribution = undefined }
+    decorate(c: CommandDecoration) {
+      decoration = c
+      return () => { decoration = undefined }
     },
   })
   const values = new Map<SessionId, PermissionSelect>()
@@ -59,22 +59,21 @@ async function bench() {
   return {
     ctx, fiber, values, commands,
     setResult: (r: { ok: boolean; matched?: boolean }) => { commandResult = r },
-    contribution: () => contribution,
+    decoration: () => decoration,
   }
 }
 
 describe('ui-permission browser plugin', () => {
-  it('registers the hostBacked /permission popup contribution', async () => {
+  it('hangs the /permission popup decoration on the host command', async () => {
     const b = await bench()
-    const c = b.contribution()!
+    const c = b.decoration()!
     expect(c.name).toBe('permission')
-    expect(c.hostBacked).toBe(true)
     expect(c.ui.kind).toBe('popupSelect')
   })
 
   it('availability follows the projection key; options mark the current value active and exclude custom', async () => {
     const b = await bench()
-    const c = b.contribution()!
+    const c = b.decoration()!
     const proj = { sessionId: sid('s1') }
     expect(c.available(proj)).toBe(false)
     b.values.set(sid('s1'), { ...SELECT, options: [...SELECT.options, { value: 'custom', name: 'Custom' }], currentValue: 'custom' })
@@ -93,7 +92,7 @@ describe('ui-permission browser plugin', () => {
 
   it('a pick submits the /permission line; rejection and unmatched throw', async () => {
     const b = await bench()
-    const c = b.contribution()!
+    const c = b.decoration()!
     const proj = { sessionId: sid('s1') }
     b.values.set(sid('s1'), SELECT)
     await c.ui.onSelect({ id: 'danger-full-access', label: 'danger-full-access' }, proj)
@@ -107,10 +106,10 @@ describe('ui-permission browser plugin', () => {
       .rejects.toThrow(/not materialized/)
   })
 
-  it('disposal removes the contribution (HMR safety)', async () => {
+  it('disposal removes the decoration (HMR safety)', async () => {
     const b = await bench()
-    expect(b.contribution()).toBeDefined()
+    expect(b.decoration()).toBeDefined()
     await b.fiber.dispose()
-    expect(b.contribution()).toBeUndefined()
+    expect(b.decoration()).toBeUndefined()
   })
 })
