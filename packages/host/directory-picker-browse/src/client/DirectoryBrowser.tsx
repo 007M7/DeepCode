@@ -10,13 +10,14 @@
  * selects the created folder. Open adopts the selected folder, falling back
  * to the listed level. Pure consumer of the injected browse calls — the
  * owning flow decides what "Open" means and owns the workspace-creation
- * error surface. Hidden entries are host-flagged and hidden by default;
- * a "Show hidden files" toggle in the footer reveals them (client-side only).
+ * error surface. Hidden entries are host-flagged and hidden by default; the
+ * footer's fixed-label "Show hidden files" toggle (aria-pressed, check when
+ * on) reveals them (client-side only).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconChevronRightOutline14, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, Modal,
+  Button, IconCheckOutline16, IconChevronRightOutline14, IconFolderClose16, IconFolderOpen16, IconPlusOutline16, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { DirectoryEntry, DirectoryListing } from '@deepseek-ai/dsh-client-runtime/client'
 import { DirectoryBrowseError } from '@deepseek-ai/dsh-client-runtime/client'
@@ -451,10 +452,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         <button
           type="button"
           className={clsx(css.showHiddenToggle, showHidden && css.showHiddenToggleActive)}
+          aria-pressed={showHidden}
           disabled={parentInert}
           onClick={() => { setShowHidden(prev => !prev) }}
         >
-          {t(showHidden ? 'browser.hideHidden' : 'browser.showHidden')}
+          {showHidden && <IconCheckOutline16 size={14} />}
+          {t('browser.showHidden')}
         </button>
         <span className={css.footerGap} />
         <Button variant="outline" className={clsx(css.footerAction)} disabled={parentInert} onClick={onClose}>{t('browser.cancel')}</Button>

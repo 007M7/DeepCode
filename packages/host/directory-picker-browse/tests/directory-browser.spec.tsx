@@ -107,11 +107,14 @@ describe('DirectoryBrowser', () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     expect(screen.queryByText('.config')).toBeNull()
-    // Toggle hidden files on.
-    fireEvent.click(screen.getByRole('button', { name: 'browser.showHidden' }))
+    // The fixed-label toggle reports its state through aria-pressed.
+    const toggle = screen.getByRole('button', { name: 'browser.showHidden' })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('.config')).toBeTruthy()
-    // Toggle hidden files off.
-    fireEvent.click(screen.getByRole('button', { name: 'browser.hideHidden' }))
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
     expect(screen.queryByText('.config')).toBeNull()
     // Close resets the toggle.
     b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
