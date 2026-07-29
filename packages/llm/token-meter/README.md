@@ -21,6 +21,12 @@ The fold tracks full request-header snapshots, step boundaries, surface appends 
 
 Usage accounting sums disjoint input, cache-read, cache-write, and output buckets; reasoning is not added again. Every successful call records an assistant anchor, including content-less calls. An explicit empty provenance list means a known empty provider stream, while absent legacy provenance conservatively treats the durable assistant output as provider output.
 
+## Session projection
+
+When the composition provides `ctx.sessionProjections`, token-meter registers the `tokenUsage` unit through an optional child fiber. Its client-safe value is the complete durable log's `uncachedInputTokens`, `outputTokens`, `cacheReadTokens`, and `cacheWriteTokens`. Usage chunks are counted even when a request later fails; a final assistant-message usage for the same `(turn, step)` replaces that sample instead of double-counting it. Reasoning remains an output subdivision.
+
+The unit uses the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes the key. A headless or TUI composition without the projection seam keeps the measurement service's existing behavior.
+
 ## Composition
 
 ```yaml

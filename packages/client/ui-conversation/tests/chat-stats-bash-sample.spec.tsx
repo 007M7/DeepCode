@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// StatsLine (rendered inside the chat view body): durable metrics presentation + the RFC
+// StatsLine (rendered inside the chat view body): projection presentation + the RFC
 // hard acceptance — zero renders during streaming. Bash sample row: the
 // canonical sub-agent differential decided INSIDE the component off the
 // standard useSessions kit (no registry predicates — tool ring dissolved).
@@ -7,8 +7,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import type {
-  AssistantMessageNode, ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
+  AssistantMessageNode, ConversationSnapshot, SessionId, SessionListState, ToolResultNode, UseProjection,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -31,7 +32,7 @@ function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, metrics: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, modelRequest: null,
   }
 }
 
@@ -50,6 +51,27 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
         return () => subs.delete(fn)
       },
     },
+  }
+}
+
+function makeProjection(initial?: TokenUsageProjection) {
+  let value = initial
+  const subs = new Set<() => void>()
+  const useValue = bindSnapshotSelector({
+    getSnapshot: () => value,
+    subscribe: (fn: () => void) => {
+      subs.add(fn)
+      return () => subs.delete(fn)
+    },
+  })
+  return {
+    set(next: TokenUsageProjection | undefined) {
+      value = next
+      for (const fn of [...subs]) fn()
+    },
+    useProjection: ((_key: 'tokenUsage', selector?: (usage: TokenUsageProjection | undefined) => unknown,
+      eq?: (left: unknown, right: unknown) => boolean) =>
+      useValue(selector ?? (usage => usage), eq)) as UseProjection,
   }
 }
 
@@ -74,20 +96,23 @@ describe('stats derivation', () => {
   })
 
   it('keeps the cache formula disjoint from cache writes and rounds/clamps context like the TUI', () => {
-    const durable = {
-      logRevision: 20,
-      projectionRevision: 2,
+    const usage = {
       uncachedInputTokens: 100,
       outputTokens: 50,
       cacheReadTokens: 900,
       cacheWriteTokens: 50_000,
-      contextTokens: 34_500,
     }
-    expect(cacheHitPercent(durable)).toBe(90)
-    expect(contextPercent(durable, 100_000)).toBe(35)
-    expect(contextPercent({ ...durable, contextTokens: 200_000 }, 100_000)).toBe(100)
-    expect(contextPercent(durable, undefined)).toBeNull()
-    expect(cacheHitPercent({ ...durable, uncachedInputTokens: 0, cacheReadTokens: 0 })).toBeNull()
+    const request = {
+      turn: 1, step: 1, provider: 'p', model: 'm',
+      contextTokens: 34_500, contextWindow: 100_000,
+    }
+    expect(cacheHitPercent(usage)).toBe(90)
+    expect(contextPercent(request)).toBe(35)
+    expect(contextPercent({ ...request, contextTokens: 200_000 })).toBe(100)
+    expect(contextPercent({
+      turn: 1, step: 1, provider: 'p', model: 'm', contextTokens: 34_500,
+    })).toBeNull()
+    expect(cacheHitPercent({ ...usage, uncachedInputTokens: 0, cacheReadTokens: 0 })).toBeNull()
   })
 
   it('formats large values compactly in the existing en-US style', () => {
@@ -98,25 +123,28 @@ describe('stats derivation', () => {
 })
 
 describe('StatsLine', () => {
-  function props(source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void }): StatsLineProps {
-    return { useSession: bindSnapshotSelector(source) }
+  function props(
+    source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void },
+    projection = makeProjection(),
+  ): StatsLineProps {
+    return { useSession: bindSnapshotSelector(source), useProjection: projection.useProjection }
   }
 
   it('renders separate durable counters, cache hit, context occupancy, and visible counts', () => {
     const { source } = makeSource({
       nodes: [assistant(1, 1, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90 })],
-      metrics: {
-        logRevision: 30,
-        projectionRevision: 4,
-        uncachedInputTokens: 120_237,
-        outputTokens: 13_881,
-        cacheReadTokens: 2_172_544,
-        cacheWriteTokens: 99_999,
-        contextTokens: 89_600,
+      modelRequest: {
+        turn: 1, step: 1, provider: 'p', model: 'm',
+        contextTokens: 89_600, contextWindow: 256_000,
       },
-      modelRequestContextWindow: 256_000,
     })
-    const view = render(<StatsLine {...props(source)} />)
+    const projection = makeProjection({
+      uncachedInputTokens: 120_237,
+      outputTokens: 13_881,
+      cacheReadTokens: 2_172_544,
+      cacheWriteTokens: 99_999,
+    })
+    const view = render(<StatsLine {...props(source, projection)} />)
     expect(view.getByText(
       '120.2k uncached input · 13.9k output · 2.2m cache read · cache hit 95% · context 35% of 256k · 1 turns · 1 steps',
     )).toBeTruthy()
@@ -125,74 +153,108 @@ describe('StatsLine', () => {
     expect(emptyView.container.textContent).toBe('')
   })
 
-  it('renders durable counters without a percentage before live capacity is observed', () => {
+  it('renders durable counters without a percentage before a complete request snapshot is observed', () => {
     const { source } = makeSource({
       nodes: [assistant(1, 1)],
-      metrics: {
-        logRevision: 4,
-        projectionRevision: 1,
-        uncachedInputTokens: 120,
-        outputTokens: 20,
-        cacheReadTokens: 30,
-        cacheWriteTokens: 10,
+      modelRequest: {
+        turn: 1, step: 1, provider: 'p', model: 'm',
         contextTokens: 8_000,
       },
     })
-    const view = render(<StatsLine {...props(source)} />)
+    const projection = makeProjection({
+      uncachedInputTokens: 120,
+      outputTokens: 20,
+      cacheReadTokens: 30,
+      cacheWriteTokens: 10,
+    })
+    const view = render(<StatsLine {...props(source, projection)} />)
     expect(view.getByText(
       '120 uncached input · 20 output · 30 cache read · cache hit 20% · context unknown · 1 turns · 1 steps',
     )).toBeTruthy()
     expect(view.container.textContent).not.toContain('% of')
   })
 
-  it('renders honest unknowns when the host projection is missing', () => {
+  it('renders honest unknowns when the tokenUsage key and request snapshot are missing', () => {
     const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsLine {...props(source)} />)
     expect(view.getByText('usage unknown · context unknown · 1 turns · 1 steps')).toBeTruthy()
   })
 
   it.each([
-    { uncachedInputTokens: 1, outputTokens: 0, cacheReadTokens: 0, contextTokens: 0 },
-    { uncachedInputTokens: 0, outputTokens: 1, cacheReadTokens: 0, contextTokens: 0 },
-    { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 1, contextTokens: 0 },
-    { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, contextTokens: 1 },
-  ])('keeps a metrics-only row visible for each nonzero projection bucket', (nonzero) => {
-    const { source } = makeSource({
-      metrics: {
-        logRevision: 1,
-        projectionRevision: 0,
-        cacheWriteTokens: 0,
-        ...nonzero,
+    { uncachedInputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    { uncachedInputTokens: 0, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 1, cacheWriteTokens: 0 },
+    { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 1 },
+  ])('keeps a usage-only row visible for each nonzero projection bucket', (usage) => {
+    const { source } = makeSource()
+    const view = render(<StatsLine {...props(source, makeProjection(usage))} />)
+    expect(view.container.textContent).toContain('0 turns · 0 steps')
+  })
+
+  it('keeps a context-only row visible and hides an all-zero empty session', () => {
+    const context = makeSource({
+      modelRequest: {
+        turn: 1, step: 1, provider: 'p', model: 'm',
+        contextTokens: 1, contextWindow: 10,
       },
     })
-    const view = render(<StatsLine {...props(source)} />)
-    expect(view.container.textContent).toContain('0 turns · 0 steps')
+    expect(render(
+      <StatsLine {...props(context.source, makeProjection({
+        uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      }))} />,
+    ).container.textContent).toContain('context 10% of 10')
+    const empty = makeSource()
+    expect(render(
+      <StatsLine {...props(empty.source, makeProjection({
+        uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      }))} />,
+    ).container.textContent).toBe('')
   })
 
   it('renders ZERO times during streaming chunk frames (RFC hard acceptance)', () => {
     const { set, source } = makeSource({
       nodes: [assistant(1, 1)],
-      metrics: {
-        logRevision: 4,
-        projectionRevision: 0,
-        uncachedInputTokens: 1,
-        outputTokens: 1,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-      },
+    })
+    const projection = makeProjection({
+      uncachedInputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
     })
     let renders = 0
     function Counting(p: StatsLineProps) {
       renders += 1
       return <StatsLine {...p} />
     }
-    render(<Counting {...props(source)} />)
+    render(<Counting {...props(source, projection)} />)
     const before = renders
     // Chunk frames swap partial only; nodes keeps its reference (object-layer contract).
     act(() => { set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'a' }] } }) })
     act(() => { set({ partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'ab' }] } }) })
     act(() => { set({ running: true }) })
     expect(renders).toBe(before)
+  })
+
+  it('updates for a new usage projection or atomic request snapshot', () => {
+    const { set, source } = makeSource({ nodes: [assistant(1, 1)] })
+    const projection = makeProjection()
+    const view = render(<StatsLine {...props(source, projection)} />)
+    expect(view.container.textContent).toContain('usage unknown · context unknown')
+    act(() => {
+      projection.set({
+        uncachedInputTokens: 7, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0,
+      })
+    })
+    expect(view.container.textContent).toContain('7 uncached input · 2 output · 1 cache read')
+    act(() => {
+      set({
+        modelRequest: {
+          turn: 1, step: 2, provider: 'p', model: 'm',
+          contextTokens: 75, contextWindow: 100,
+        },
+      })
+    })
+    expect(view.container.textContent).toContain('context 75% of 100')
   })
 })
 

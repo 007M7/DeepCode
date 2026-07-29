@@ -12,6 +12,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
@@ -28,7 +29,7 @@
   - img
   - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
-- text: cache hit 52% · 17,490 tokens · 1 turns · 2 steps
+- text: 8.3k uncached input · 252 output · 9k cache read · cache hit 52% · context 7% of 128k · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

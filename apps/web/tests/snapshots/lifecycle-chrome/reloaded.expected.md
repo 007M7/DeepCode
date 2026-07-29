@@ -12,12 +12,13 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to reply with a single word. Let me comply.":
   - img
   - img
   - text: Think The user wants me to reply with a single word. Let me comply.
 - paragraph: LIGHTHOUSE
-- text: cache hit 99% · 7,810 tokens · 1 turns · 1 steps
+- text: 109 uncached input · 21 output · 7.7k cache read · cache hit 99% · context unknown · 1 turns · 1 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

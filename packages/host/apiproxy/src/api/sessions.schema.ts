@@ -11,7 +11,7 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, SessionMetrics, SessionProjectionsBlock, SessionSummary,
+  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -151,23 +151,11 @@ export const sessionProjectionsBlockSchema = z.object({
   values: z.record(z.string(), z.unknown()),
 }) as unknown as z.ZodType<SessionProjectionsBlock>
 
-/** Host-owned durable usage and current-pressure projection. */
-export const sessionMetricsSchema = z.object({
-  logRevision: z.number().int().nonnegative(),
-  projectionRevision: z.number().int().nonnegative(),
-  uncachedInputTokens: z.number().nonnegative(),
-  outputTokens: z.number().nonnegative(),
-  cacheReadTokens: z.number().nonnegative(),
-  cacheWriteTokens: z.number().nonnegative(),
-  contextTokens: z.number().nonnegative().optional(),
-}) satisfies z.ZodType<Wire<SessionMetrics>>
-
-/** session.history response value (projections and metrics ride the tail page only). */
+/** session.history response value (projections ride the tail page only). */
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
   projections: sessionProjectionsBlockSchema.optional(),
-  metrics: sessionMetricsSchema.optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.history'>>>
 
 /** session.models request payload. */
@@ -223,4 +211,3 @@ export const sessionCancelRequestSchema = z.object({
 export const sessionCancelValueSchema = z.object({
   accepted: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.cancel'>>>
-

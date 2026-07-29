@@ -12,6 +12,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to:":
   - img
   - img
@@ -42,7 +43,7 @@
   - img
   - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE" and stop.
 - paragraph: CORDIS_UI_DONE
-- text: cache hit 77% · 66,813 tokens · 1 turns · 4 steps
+- text: 15.3k uncached input · 312 output · 51.2k cache read · cache hit 77% · context 13% of 128k · 1 turns · 4 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

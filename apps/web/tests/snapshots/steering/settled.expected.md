@@ -12,6 +12,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
@@ -25,7 +26,7 @@
   - img
   - text: Think The user selected "Yes" and wants me to include the word "BANANA" in my final reply. Let me acknowledge their answer.
 - paragraph: Great, let's move forward. BANANA!
-- text: cache hit 98% · 15,967 tokens · 1 turns · 2 steps
+- text: 323 uncached input · 156 output · 15.5k cache read · cache hit 98% · context 6% of 128k · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

@@ -12,6 +12,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.":
   - img
   - img
@@ -25,7 +26,7 @@
   - img
   - text: Think The user answered "Blue". I should now reply with the single word DONE and stop.
 - paragraph: DONE
-- text: cache hit 95% · 8,769 tokens · 1 turns · 2 steps
+- text: 397 uncached input · 180 output · 8.2k cache read · cache hit 95% · context 4% of 128k · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

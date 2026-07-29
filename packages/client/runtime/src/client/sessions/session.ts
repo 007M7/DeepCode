@@ -5,7 +5,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, SessionMetrics, ToolEventView,
+  ModelRequestTelemetry, SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -43,8 +43,8 @@ export interface SessionOptions {
    * private store (bare object-layer construction).
    */
   projections?: ProjectionValueStore
-  /** Model capacity already observed on this mux generation before lazy construction. */
-  modelRequestContextWindow?: number
+  /** Request telemetry already observed on this mux generation before lazy construction. */
+  modelRequest?: ModelRequestTelemetry
 }
 
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
@@ -110,10 +110,8 @@ export class Session implements SessionFace {
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
-  /** Host-owned durable usage/current-pressure projection. */
-  private metrics: SessionMetrics | null = null
-  /** Latest capacity observed on this mux connection, independent of durable metrics arrival. */
-  private contextWindow: number | undefined
+  /** Latest atomic request snapshot observed on this mux connection. */
+  private modelRequest: ModelRequestTelemetry | null
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
@@ -175,7 +173,7 @@ export class Session implements SessionFace {
     private readonly options: SessionOptions = {},
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
-    this.contextWindow = options.modelRequestContextWindow
+    this.modelRequest = options.modelRequest ?? null
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -331,10 +329,10 @@ export class Session implements SessionFace {
    *  in-flight open first — its history request rode the dead connection and must not settle
    *  the fresh generation into 'error' (audit S4). */
   async resync(): Promise<void> {
-    // Queue, metrics, and request capacity are NOT cleared here: onConnected
+    // Queue and request telemetry are NOT cleared here: onConnected
     // (which drives resync) races the mux frames — fresh-generation state may
-    // have landed already, and the host never resends it. session/subscribed
-    // owns the generation reset before the queue snapshot and metrics frames.
+    // have landed already, and the host never resends request telemetry.
+    // session/subscribed owns the reset before the queue snapshot.
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
@@ -415,24 +413,22 @@ export class Session implements SessionFace {
           this.queueRev++
           changed = true
         }
-        if (this.contextWindow !== undefined) {
-          this.contextWindow = undefined
-          changed = true
-        }
-        if (this.metrics !== null) {
-          this.metrics = null
+        if (this.modelRequest !== null) {
+          this.modelRequest = null
           changed = true
         }
         if (changed) this.notifier.markDirty()
         return
       }
-      case 'session/metrics': {
-        this.installMetrics(frame.metrics)
-        return
-      }
       case 'session/model-request': {
-        if (this.contextWindow === frame.contextWindow) return
-        this.contextWindow = frame.contextWindow
+        const {
+          type: _type,
+          sessionId: _sessionId,
+          ...modelRequest
+        } = frame
+        // Whole-frame replacement is load-bearing: an omitted numerator or
+        // capacity clears that field from the preceding request.
+        this.modelRequest = modelRequest
         this.notifier.markDirty()
         return
       }
@@ -508,17 +504,16 @@ export class Session implements SessionFace {
   /** Connection-loss boundary: clear values that are not replayed before the next stream starts. */
   handleReconnecting(): void {
     this.openGeneration++
-    if (this.metrics === null && this.contextWindow === undefined) return
-    this.metrics = null
-    this.contextWindow = undefined
+    if (this.modelRequest === null) return
+    this.modelRequest = null
     this.notifier.markDirty()
   }
 
-  /** host/session-removed relay: flag the resident snapshot and clear connection-local capacity. */
+  /** host/session-removed relay: flag the resident snapshot and clear request telemetry. */
   handleRemoved(): void {
-    const changed = !this.removed || this.contextWindow !== undefined
+    const changed = !this.removed || this.modelRequest !== null
     this.removed = true
-    this.contextWindow = undefined
+    this.modelRequest = null
     if (changed) this.notifier.markDirty()
   }
 
@@ -567,7 +562,6 @@ export class Session implements SessionFace {
         result.value.events,
         result.value.hasMore,
         result.value.projections,
-        result.value.metrics,
       )
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
@@ -579,7 +573,6 @@ export class Session implements SessionFace {
             result.value.events,
             result.value.hasMore,
             result.value.projections,
-            result.value.metrics,
           )
         }
       }
@@ -606,7 +599,6 @@ export class Session implements SessionFace {
     entries: HistoryEntry[],
     hasMore: boolean,
     projections: ProjectionsBaseline | undefined,
-    metrics: SessionMetrics | undefined,
   ): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
@@ -615,7 +607,6 @@ export class Session implements SessionFace {
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
     if (projections !== undefined) this.projections.seed(projections)
-    if (metrics !== undefined) this.installMetrics(metrics)
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -668,7 +659,6 @@ export class Session implements SessionFace {
           result.value.events,
           result.value.hasMore,
           result.value.projections,
-          result.value.metrics,
         )
       }
     } catch (error) {
@@ -854,20 +844,6 @@ export class Session implements SessionFace {
     return tail === undefined ? null : tail.seq
   }
 
-  /** Install a metrics snapshot unless a newer durable or publication revision already landed. */
-  private installMetrics(metrics: SessionMetrics): void {
-    const current = this.metrics
-    if (
-      current !== null
-      && (
-        metrics.logRevision < current.logRevision
-        || metrics.projectionRevision < current.projectionRevision
-      )
-    ) return
-    this.metrics = metrics
-    this.notifier.markDirty()
-  }
-
   private buildSnapshot(): ConversationSnapshot {
     const { nodes: folded, degraded } = this.foldAdapter.nodes()
     // Frozen interrupted nodes ride fractional seqs: a stable merge keeps them in flow order.
@@ -920,10 +896,7 @@ export class Session implements SessionFace {
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
-      metrics: this.metrics,
-      ...(this.contextWindow === undefined
-        ? {}
-        : { modelRequestContextWindow: this.contextWindow }),
+      modelRequest: this.modelRequest,
     }
   }
 }

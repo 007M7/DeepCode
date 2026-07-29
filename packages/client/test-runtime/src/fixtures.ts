@@ -62,6 +62,7 @@ export function conversationSnapshot(sessionId: SessionId): ConversationSnapshot
     promptError: null,
     blank: false,
     lastAgentError: null,
+    modelRequest: null,
   }
 }
 

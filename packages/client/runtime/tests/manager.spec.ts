@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionId, SessionMetrics } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 import { entries, plainTurn } from './event-script.ts'
@@ -41,7 +41,7 @@ describe('instances', () => {
     expect(manager.get(S2).getSnapshot().pending).toEqual([])
   })
 
-  it('retains the latest transient model capacity until lazy instantiation', () => {
+  it('retains the latest transient request snapshot until lazy instantiation', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
     manager.handleMuxEnvelope({
@@ -53,6 +53,7 @@ describe('instances', () => {
         step: 1,
         provider: 'test',
         model: 'alpha',
+        contextTokens: 12_000,
         contextWindow: 128_000,
       },
     })
@@ -65,14 +66,22 @@ describe('instances', () => {
         step: 2,
         provider: 'test',
         model: 'beta',
+        contextTokens: 32_000,
         contextWindow: 256_000,
       },
     })
 
-    expect(manager.get(S1).getSnapshot().modelRequestContextWindow).toBe(256_000)
+    expect(manager.get(S1).getSnapshot().modelRequest).toEqual({
+      turn: 1,
+      step: 2,
+      provider: 'test',
+      model: 'beta',
+      contextTokens: 32_000,
+      contextWindow: 256_000,
+    })
   })
 
-  it('retains explicit capacity clearing before lazy instantiation', () => {
+  it('retains whole-frame replacement before lazy instantiation', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
     manager.handleMuxEnvelope({
@@ -99,10 +108,15 @@ describe('instances', () => {
       },
     })
 
-    expect(manager.get(S1).getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(manager.get(S1).getSnapshot().modelRequest).toEqual({
+      turn: 1,
+      step: 2,
+      provider: 'test',
+      model: 'unknown-capacity',
+    })
   })
 
-  it('clears retained capacity on subscribed and resident capacity on removal', () => {
+  it('clears retained request telemetry on subscribed and removal', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
     manager.handleMuxEnvelope({
@@ -122,7 +136,7 @@ describe('instances', () => {
       payload: { type: 'session/subscribed', sessionId: S1, lastSeq: 0 },
     })
     const session = manager.get(S1)
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(session.getSnapshot().modelRequest).toBeNull()
 
     manager.handleMuxEnvelope({
       rpcId: 'request-after-subscribe' as never,
@@ -136,12 +150,12 @@ describe('instances', () => {
         contextWindow: 256_000,
       },
     })
-    expect(session.getSnapshot().modelRequestContextWindow).toBe(256_000)
+    expect(session.getSnapshot().modelRequest?.contextWindow).toBe(256_000)
     manager.handleHostEnvelope({
       rpcId: 'removed' as never,
       payload: { type: 'host/session-removed', sessionId: S1 },
     })
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(session.getSnapshot().modelRequest).toBeNull()
 
     manager.handleMuxEnvelope({
       rpcId: 'request-before-lazy-removal' as never,
@@ -159,28 +173,15 @@ describe('instances', () => {
       rpcId: 'lazy-removed' as never,
       payload: { type: 'host/session-removed', sessionId: S2 },
     })
-    expect(manager.get(S2).getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(manager.get(S2).getSnapshot().modelRequest).toBeNull()
   })
 
-  it('clears resident metrics and capacity plus lazy capacity before reconnect', () => {
+  it('clears resident and lazy request telemetry on disconnect', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
     const session = manager.get(S1)
-    const currentMetrics: SessionMetrics = {
-      projectionRevision: 4,
-      logRevision: 10,
-      uncachedInputTokens: 10,
-      outputTokens: 4,
-      cacheReadTokens: 90,
-      cacheWriteTokens: 3,
-      contextTokens: 35,
-    }
     manager.handleMuxEnvelope({
-      rpcId: 'metrics' as never,
-      payload: { type: 'session/metrics', sessionId: S1, metrics: currentMetrics },
-    })
-    manager.handleMuxEnvelope({
-      rpcId: 'resident-capacity' as never,
+      rpcId: 'resident-request' as never,
       payload: {
         type: 'session/model-request',
         sessionId: S1,
@@ -188,11 +189,12 @@ describe('instances', () => {
         step: 1,
         provider: 'test',
         model: 'resident',
+        contextTokens: 35,
         contextWindow: 128_000,
       },
     })
     manager.handleMuxEnvelope({
-      rpcId: 'lazy-capacity' as never,
+      rpcId: 'lazy-request' as never,
       payload: {
         type: 'session/model-request',
         sessionId: S2,
@@ -200,19 +202,20 @@ describe('instances', () => {
         step: 1,
         provider: 'test',
         model: 'lazy',
+        contextTokens: 70,
         contextWindow: 256_000,
       },
     })
-    expect(session.getSnapshot()).toMatchObject({
-      metrics: currentMetrics,
-      modelRequestContextWindow: 128_000,
+    expect(session.getSnapshot().modelRequest).toMatchObject({
+      model: 'resident',
+      contextTokens: 35,
+      contextWindow: 128_000,
     })
 
-    manager.handleReconnecting()
+    manager.handleDisconnected()
 
-    expect(session.getSnapshot().metrics).toBeNull()
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
-    expect(manager.get(S2).getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(session.getSnapshot().modelRequest).toBeNull()
+    expect(manager.get(S2).getSnapshot().modelRequest).toBeNull()
   })
 
   it('caps the pending buffer at 32 keeping the newest, and drops it on session-removed', () => {

@@ -4,7 +4,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   ClientResponse, CommandDescriptor, HostFrame, IApiClient, ModelTarget, MuxFrame,
-  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionMetrics, SessionModels,
+  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels,
   SessionProjectionsBlock, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
@@ -69,7 +69,6 @@ export class FakeApiClient implements IApiClient {
     events: never[]
     hasMore: boolean
     projections?: SessionProjectionsBlock
-    metrics?: SessionMetrics
   }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 

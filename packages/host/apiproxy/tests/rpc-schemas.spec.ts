@@ -10,7 +10,7 @@ import {
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
-  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema, sessionMetricsSchema,
+  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
 } from '../src/api/sessions.schema.ts'
 import {
   hostCreateDirectoryRequestSchema, hostCreateDirectoryValueSchema,
@@ -153,29 +153,13 @@ describe('sessions domain schemas', () => {
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
-    expect(sessionHistoryValueSchema.parse({
+    const history = sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
       projections: { asOfSeq: 11, values: { todos: [] } },
-      metrics: {
-        logRevision: 12,
-        projectionRevision: 4,
-        uncachedInputTokens: 1_000,
-        outputTokens: 200,
-        cacheReadTokens: 4_000,
-        cacheWriteTokens: 500,
-        contextTokens: 8_000,
-      },
       modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-    }).metrics?.contextTokens).toBe(8_000)
-    expect(() => sessionMetricsSchema.parse({
-      logRevision: 1,
-      projectionRevision: 0,
-      uncachedInputTokens: -1,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-    })).toThrow()
+    })
+    expect(history.projections).toEqual({ asOfSeq: 11, values: { todos: [] } })
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
@@ -378,24 +362,13 @@ describe('events frame schemas', () => {
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
       {
-        type: 'session/metrics',
-        sessionId: 's',
-        metrics: {
-          logRevision: 3,
-          projectionRevision: 1,
-          uncachedInputTokens: 100,
-          outputTokens: 20,
-          cacheReadTokens: 300,
-          cacheWriteTokens: 40,
-        },
-      },
-      {
         type: 'session/model-request',
         sessionId: 's',
         turn: 2,
         step: 1,
         provider: 'deepseek',
         model: 'deepseek-chat',
+        contextTokens: 8_000,
         contextWindow: 128_000,
       },
       {
@@ -419,6 +392,7 @@ describe('events frame schemas', () => {
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
     for (const invalid of [
       { type: 'session/model-request', sessionId: 's', turn: 0, step: 1, provider: 'p', model: 'm' },
+      { type: 'session/model-request', sessionId: 's', turn: 1, step: 1, provider: 'p', model: 'm', contextTokens: -1 },
       { type: 'session/model-request', sessionId: 's', turn: 1, step: 1, provider: 'p', model: 'm', contextWindow: 0 },
       { type: 'session/projection', sessionId: 's', key: '', value: null, seq: 0 },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: -1 },

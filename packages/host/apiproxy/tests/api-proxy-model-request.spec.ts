@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -22,7 +22,7 @@ async function nextFrame<K extends MuxFrame['type']>(
 }
 
 describe('ApiProxy model-request telemetry', () => {
-  it('forwards only to open mux connections and never backfills history or reconnect baselines', async () => {
+  it('atomically measures the observed request, forwards only live, and degrades per field', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(UserInteractionService)
@@ -35,6 +35,8 @@ describe('ApiProxy model-request telemetry', () => {
       ctx,
     } as Agent
     ctx.agents.register(agent)
+    const measure = vi.fn(() => ({ totalTokens: 321 }))
+    const removeTokenMeter = ctx.provide('tokenMeter' as never, { measure } as never)
     const api = createApiProxy(ctx, {
       provider: 'test',
       model: 'alpha',
@@ -48,13 +50,13 @@ describe('ApiProxy model-request telemetry', () => {
       primaryAbort.signal,
     )[Symbol.asyncIterator]()
     expect((await nextFrame(primary, 'session/subscribed')).sessionId).toBe(session.id)
-    expect((await nextFrame(primary, 'session/metrics')).metrics).not.toHaveProperty('contextWindow')
 
     agentEvents(ctx, agent).emit('agent/model-request', 1, 2, {
       provider: 'test',
       model: 'alpha',
       contextWindow: 128_000,
     })
+    expect(measure).toHaveBeenCalledWith(session)
     expect(await nextFrame(primary, 'session/model-request')).toEqual({
       type: 'session/model-request',
       sessionId: session.id,
@@ -62,6 +64,7 @@ describe('ApiProxy model-request telemetry', () => {
       step: 2,
       provider: 'test',
       model: 'alpha',
+      contextTokens: 321,
       contextWindow: 128_000,
     })
 
@@ -70,7 +73,8 @@ describe('ApiProxy model-request telemetry', () => {
       payload: { sessionId: session.id },
     })
     if (!history.result.ok) throw new Error('history failed')
-    expect(history.result.value.metrics).not.toHaveProperty('contextWindow')
+    expect(history.result.value).not.toHaveProperty('metrics')
+    expect(history.result.value).not.toHaveProperty('modelRequest')
 
     const reconnectAbort = new AbortController()
     const reconnect = api.events.mux(
@@ -78,8 +82,8 @@ describe('ApiProxy model-request telemetry', () => {
       reconnectAbort.signal,
     )[Symbol.asyncIterator]()
     expect((await nextFrame(reconnect, 'session/subscribed')).sessionId).toBe(session.id)
-    expect((await nextFrame(reconnect, 'session/metrics')).metrics).not.toHaveProperty('contextWindow')
 
+    measure.mockImplementation(() => { throw new Error('unmeasurable replay') })
     agentEvents(ctx, agent).emit('agent/model-request', 2, 1, {
       provider: 'test',
       model: 'without-capacity',
@@ -94,6 +98,22 @@ describe('ApiProxy model-request telemetry', () => {
         model: 'without-capacity',
       })
     }
+
+    removeTokenMeter()
+    agentEvents(ctx, agent).emit('agent/model-request', 3, 1, {
+      provider: 'test',
+      model: 'without-meter',
+      contextWindow: 64_000,
+    })
+    expect(await nextFrame(primary, 'session/model-request')).toEqual({
+      type: 'session/model-request',
+      sessionId: session.id,
+      turn: 3,
+      step: 1,
+      provider: 'test',
+      model: 'without-meter',
+      contextWindow: 64_000,
+    })
 
     primaryAbort.abort()
     reconnectAbort.abort()

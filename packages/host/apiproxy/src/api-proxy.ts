@@ -51,7 +51,6 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
-import { affectsSessionMetrics, SessionMetricsProjector } from './session-metrics.ts'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import { openNativePath } from './native-path-opener.ts'
 
@@ -496,56 +495,34 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     for (const queue of muxQueues) queue.push(envelope)
   }
 
-  const pendingMetricSessions = new Set<Session>()
-  let metricFlushScheduled = false
-  const metricsProjector = new SessionMetricsProjector(ctx)
-
-  /** Queue one full-log metrics publication after synchronous session listeners drain. */
-  function scheduleMetrics(session: Session): void {
-    if (muxQueues.size === 0) return
-    pendingMetricSessions.add(session)
-    if (metricFlushScheduled) return
-    metricFlushScheduled = true
-    queueMicrotask(() => {
-      metricFlushScheduled = false
-      const sessions = [...pendingMetricSessions]
-      pendingMetricSessions.clear()
-      for (const current of sessions) {
-        broadcast({
-          type: 'session/metrics',
-          sessionId: current.id,
-          metrics: metricsProjector.snapshot(current),
-        })
-      }
-    })
-  }
-
   ctx.effect(() => {
-    const disposers = [
-      ctx.on('session/event', (session: Session, event: SessionEvent) => {
-        if (affectsSessionMetrics(event)) scheduleMetrics(session)
-      }),
-      ctx.on('agent/created', (agent: Agent) => { scheduleMetrics(agent.session) }),
-      ctx.on('agent/model-request', (agent, turn, step, request) => {
-        broadcast({
-          type: 'session/model-request',
-          sessionId: agent.session.id,
-          turn,
-          step,
-          provider: request.provider,
-          model: request.model,
-          ...request.contextWindow === undefined
-            ? {}
-            : { contextWindow: request.contextWindow },
-        })
-      }),
-      ctx.on('session/disposed', (session: Session) => { pendingMetricSessions.delete(session) }),
-    ]
-    return () => {
-      pendingMetricSessions.clear()
-      for (const dispose of disposers) dispose()
-    }
-  }, 'api-proxy: session metrics')
+    return ctx.on('agent/model-request', (agent, turn, step, request) => {
+      const tokenMeter = ctx.get('tokenMeter') as {
+        measure(session: Session): { totalTokens: number }
+      } | undefined
+      let contextTokens: number | undefined
+      if (tokenMeter !== undefined) {
+        try {
+          contextTokens = tokenMeter.measure(agent.session).totalTokens
+        } catch {
+          // A malformed or temporarily unmeasurable replay omits only the
+          // numerator; this request still replaces stale telemetry.
+        }
+      }
+      broadcast({
+        type: 'session/model-request',
+        sessionId: agent.session.id,
+        turn,
+        step,
+        provider: request.provider,
+        model: request.model,
+        ...contextTokens === undefined ? {} : { contextTokens },
+        ...request.contextWindow === undefined
+          ? {}
+          : { contextWindow: request.contextWindow },
+      })
+    })
+  }, 'api-proxy: model request telemetry')
 
   // Projection change feed → session/projection push frames. The carrier
   // mints the wire frame (the seam package holds no wire vocabulary); the
@@ -991,16 +968,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return { event, ...view === undefined ? {} : { view } }
         })
         // Baseline rider: tail page only — loadOlder (beforeSeq present) is
-        // the one path that never needs fresh projection or metrics state.
+        // the one path that never needs fresh projection state.
         const projections = beforeSeq === undefined ? projectionsFor(ctx, found.agent) : undefined
-        const metrics = beforeSeq === undefined
-          ? metricsProjector.snapshot(found.agent.session)
-          : undefined
         return ok(request, {
           events: entries,
           hasMore: page.hasMore,
           ...projections === undefined ? {} : { projections },
-          ...metrics === undefined ? {} : { metrics },
         })
       },
 
@@ -1501,11 +1474,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         muxQueues.add(queue)
         for (const session of ctx.sessions.list()) {
           subscribeSession(queue, session)
-          queue.push(frame({
-            type: 'session/metrics',
-            sessionId: session.id,
-            metrics: metricsProjector.snapshot(session),
-          }))
         }
         for (const pending of pendingQuestions.values()) {
           queue.push({
@@ -1556,11 +1524,6 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }),
           ctx.on('session/created', (session: Session) => {
             subscribeSession(queue, session)
-            queue.push(frame({
-              type: 'session/metrics',
-              sessionId: session.id,
-              metrics: metricsProjector.snapshot(session),
-            }))
           }),
           ctx.on('session/disposed', (session: Session) => {
             openCalls.delete(session.id)

@@ -120,18 +120,20 @@ describe('small branch tails', () => {
   it('StatsLine omits the cache-hit segment when no input accounting exists at all', () => {
     const snap = {
       nodes: [{ kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [], usage: { outputTokens: 10 } }],
-      metrics: {
-        logRevision: 2,
-        projectionRevision: 0,
-        uncachedInputTokens: 0,
-        outputTokens: 10,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 5_000,
-      },
+      modelRequest: null,
+    }
+    const usage = {
+      uncachedInputTokens: 0,
+      outputTokens: 10,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 5_000,
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']} />,
+      <StatsLine
+        useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']}
+        useProjection={(() => usage)}
+      />,
     )
     expect(view.getByText(
       '0 uncached input · 10 output · 0 cache read · context unknown · 1 turns · 1 steps',

@@ -36,29 +36,6 @@ export interface HistoryEntry {
 }
 
 /**
- * Host-owned token metrics for one durable session revision. Provider usage
- * buckets are cumulative across the full log; current context pressure
- * describes the replayed request surface at this revision and is absent when
- * the Host cannot measure it.
- */
-export interface SessionMetrics {
-  /** Number of durable events included in this projection. */
-  logRevision: number
-  /** Monotone ordering within one Host process and mux subscription generation. */
-  projectionRevision: number
-  /** Cumulative uncached provider input. */
-  uncachedInputTokens: number
-  /** Cumulative provider output. */
-  outputTokens: number
-  /** Cumulative provider cache reads. */
-  cacheReadTokens: number
-  /** Cumulative provider cache writes; excluded from the Web cache-hit formula. */
-  cacheWriteTokens: number
-  /** Current request pressure from `ctx.tokenMeter.measure(session).totalTokens`. */
-  contextTokens?: number
-}
-
-/**
  * The projection baseline riding the history tail page: one synchronous cut
  * over every registered projection unit, read from the registry's watermark
  * cache. `asOfSeq` is the seq of the last committed event every value
@@ -211,17 +188,14 @@ export interface SessionsApi {
    * the client needs a fresh baseline already pulls the tail page, and
    * loadOlder (the only beforeSeq path) is the only path that never needs one.
    * A deployment without the registry serves histories without the block.
-   * The same tail-only rule carries `metrics`, whose cumulative usage and
-   * current token-meter pressure are Host projections over the full log
-   * rather than products of the returned page. Live model capacity is
-   * connection-local telemetry and is never reconstructed here.
+   * Model-request telemetry is connection-local and is never reconstructed
+   * from history.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
   Promise<RpcResponse<{
     events: HistoryEntry[]
     hasMore: boolean
     projections?: SessionProjectionsBlock
-    metrics?: SessionMetrics
   }>>
 
   /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */

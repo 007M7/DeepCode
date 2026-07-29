@@ -13,7 +13,6 @@ import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
-import type { SessionMetrics } from './sessions.ts'
 import type { WorkspaceView } from './workspace.ts'
 
 // Client-side consumers take the render-intent vocabulary from the contract;
@@ -31,6 +30,18 @@ export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presen
 export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
+
+/** Atomic telemetry captured at one observed model-request boundary. */
+export interface ModelRequestTelemetry {
+  turn: number
+  step: number
+  provider: string
+  model: string
+  /** Token-meter pressure measured synchronously for this exact request. */
+  contextTokens?: number
+  /** Registration-bound capacity from this exact prepared call. */
+  contextWindow?: number
+}
 
 /** Streaming face of the contract: the two SSE stream openers (mux + host). */
 export interface EventsApi {
@@ -58,23 +69,18 @@ export interface EventsApi {
 export type MuxFrame =
   | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
-  | { type: 'session/metrics'; sessionId: SessionId; metrics: SessionMetrics }
   /**
    * One request attempt observed by this already-open mux connection after its
    * final route and outer `llm/stream` handle were obtained. This does not prove
    * provider I/O began. The frame is transient: mux baselines, reconnects, and
-   * session history never replay it. An absent `contextWindow` explicitly clears
-   * a capacity observed from an earlier request on the same connection.
+   * session history never replay it. The optional numerator and capacity are
+   * one atomic request snapshot; absent fields explicitly replace, rather
+   * than inherit from, the preceding request.
    */
-  | {
+  | ({
     type: 'session/model-request'
     sessionId: SessionId
-    turn: number
-    step: number
-    provider: string
-    model: string
-    contextWindow?: number
-  }
+  } & ModelRequestTelemetry)
   | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }

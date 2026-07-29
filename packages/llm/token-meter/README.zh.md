@@ -21,6 +21,12 @@ fold 跟踪完整请求标头快照、步骤边界、表层追加与替换、成
 
 用量计量会求和不重叠的输入、cache-read、cache-write 与输出 bucket；不会再次添加 reasoning。每次成功调用都会记录一个 assistant 锚点，包括无内容调用。显式空溯源列表表示已知空提供方流，而缺失的遗留溯源会保守地将持久 assistant 输出视为提供方输出。
 
+## 会话投影
+
+当组合提供 `ctx.sessionProjections` 时，token-meter 会通过一个可选子 fiber 注册 `tokenUsage` 单元。其可安全传给客户端的值包含完整持久日志中的 `uncachedInputTokens`、`outputTokens`、`cacheReadTokens` 和 `cacheWriteTokens`。即使请求随后失败，用量分片仍会计入；同一 `(turn, step)` 的最终 assistant 消息用量会替换该样本，而不是重复计数。推理仍是输出的一个细分项。
+
+该单元使用标准的投影基线、实时帧、seq 高者胜值仓和 JSON 检查点路径。卸载 token-meter 会移除该键。不带投影 seam 的 headless 或 TUI 组合会保留测量服务的既有行为。
+
 ## 组合
 
 ```yaml

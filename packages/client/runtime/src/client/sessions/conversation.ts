@@ -6,7 +6,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type {
-  RpcError, SessionId, SessionMetrics, ToolCallView, ToolResultView,
+  ModelRequestTelemetry, RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 
@@ -267,16 +267,6 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
-  /**
-   * Host-owned cumulative usage/current pressure. Independent of `nodes`
-   * pagination; null until a tail response or live metrics frame supplies a
-   * current durable value.
-   */
-  metrics: SessionMetrics | null
-  /**
-   * Capacity from the latest model-request attempt observed on this mux
-   * generation. Absent before the first such request, after a request whose
-   * registration exposes no capacity, and after `session/subscribed`.
-   */
-  modelRequestContextWindow?: number
+  /** Latest atomic model-request snapshot on this mux generation. */
+  modelRequest: ModelRequestTelemetry | null
 }

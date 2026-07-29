@@ -221,7 +221,9 @@ function StreamingTail({ useSession, onGrow }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder }: ChatViewSlotProps) {
+export function ChatView({
+  useProjection, useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder,
+}: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
@@ -381,7 +383,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           {running && <TurnDots />}
         </div>
       </div>
-      <StatsLine useSession={useSession} />
+      <StatsLine useSession={useSession} useProjection={useProjection} />
       {!atBottom && (
         <button
           type="button"

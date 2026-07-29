@@ -58,7 +58,7 @@ function snapshotWith(
     sessionId: SID, nodes, foldDegraded: false, partial: null, runningCalls, codeDispatches,
     pending: [], queue: [], running: runningCalls.length > 0, composerPhase: 'active', removed: false,
     openState: 'open', openError: null,
-    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, metrics: null,
+    hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null, modelRequest: null,
   }
 }
 

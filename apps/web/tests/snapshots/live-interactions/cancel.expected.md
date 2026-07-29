@@ -12,8 +12,9 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - paragraph: partial
-- text: 已停止 0 tokens · 1 turns · 1 steps
+- text: 已停止 0 uncached input · 0 output · 0 cache read · context 4% of 128k · 1 turns · 1 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

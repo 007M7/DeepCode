@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  SessionId, SessionMetrics, SessionProjectionsBlock,
+  SessionId, SessionProjectionsBlock,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
@@ -29,32 +29,13 @@ function histResponse(
   events: SessionEvent[],
   hasMore = false,
   projections?: SessionProjectionsBlock,
-  metrics?: SessionMetrics,
 ) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
   return Promise.resolve(ok({
     events: entries(events) as never[],
     hasMore,
     ...projections === undefined ? {} : { projections },
-    ...metrics === undefined ? {} : { metrics },
   }))
-}
-
-function metrics(
-  projectionRevision: number,
-  logRevision: number,
-  over: Partial<SessionMetrics> = {},
-): SessionMetrics {
-  return {
-    projectionRevision,
-    logRevision,
-    uncachedInputTokens: 10,
-    outputTokens: 4,
-    cacheReadTokens: 90,
-    cacheWriteTokens: 3,
-    contextTokens: 35,
-    ...over,
-  }
 }
 
 describe('open', () => {
@@ -70,19 +51,7 @@ describe('open', () => {
     expect(snapshot.openState).toBe('open')
     expect(snapshot.hasMore).toBe(true)
     expect(snapshot.nodes.map(n => n.kind)).toEqual(['user', 'assistant'])
-    expect(snapshot.metrics).toBeNull()
-  })
-
-  it('installs full-log metrics independently of older history pages', async () => {
-    const { api, session } = makeSession()
-    const tailMetrics = metrics(4, 106)
-    api.onHistory = () => histResponse(plainTurn(100, 3, '问', '答'), true, undefined, tailMetrics)
-    await session.open()
-    expect(session.getSnapshot().metrics).toBe(tailMetrics)
-
-    api.onHistory = () => histResponse(plainTurn(94, 2, '旧问', '旧答'))
-    await session.loadOlder()
-    expect(session.getSnapshot().metrics).toBe(tailMetrics)
+    expect(snapshot.modelRequest).toBeNull()
   })
 
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
@@ -147,17 +116,8 @@ describe('live event path', () => {
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
   })
 
-  it('keeps live capacity separate from durable metrics, replaces or clears it on requests, and resets at subscription', async () => {
+  it('replaces the whole request snapshot, clears omitted fields, and resets at subscription', async () => {
     const { session } = await opened()
-    const current = metrics(8, 10)
-    session.handleMuxEnvelope('m1' as never, {
-      type: 'session/metrics',
-      sessionId: SID,
-      metrics: current,
-    })
-    expect(session.getSnapshot().metrics).toBe(current)
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
-
     session.handleMuxEnvelope('request-1' as never, {
       type: 'session/model-request',
       sessionId: SID,
@@ -165,32 +125,17 @@ describe('live event path', () => {
       step: 1,
       provider: 'test',
       model: 'alpha',
+      contextTokens: 32_000,
       contextWindow: 128_000,
     })
-    expect(session.getSnapshot().metrics).toBe(current)
-    expect(session.getSnapshot().modelRequestContextWindow).toBe(128_000)
-
-    session.handleMuxEnvelope('m2' as never, {
-      type: 'session/metrics',
-      sessionId: SID,
-      metrics: metrics(9, 9, { uncachedInputTokens: 1 }),
+    expect(session.getSnapshot().modelRequest).toEqual({
+      turn: 1,
+      step: 1,
+      provider: 'test',
+      model: 'alpha',
+      contextTokens: 32_000,
+      contextWindow: 128_000,
     })
-    session.handleMuxEnvelope('m3' as never, {
-      type: 'session/metrics',
-      sessionId: SID,
-      metrics: metrics(7, 11, { uncachedInputTokens: 2 }),
-    })
-    expect(session.getSnapshot().metrics).toBe(current)
-    expect(session.getSnapshot().modelRequestContextWindow).toBe(128_000)
-
-    const ordinaryUpdate = metrics(9, 11, { contextTokens: 40 })
-    session.handleMuxEnvelope('m4' as never, {
-      type: 'session/metrics',
-      sessionId: SID,
-      metrics: ordinaryUpdate,
-    })
-    expect(session.getSnapshot().metrics).toBe(ordinaryUpdate)
-    expect(session.getSnapshot().modelRequestContextWindow).toBe(128_000)
 
     session.handleMuxEnvelope('request-2' as never, {
       type: 'session/model-request',
@@ -200,16 +145,19 @@ describe('live event path', () => {
       provider: 'test',
       model: 'without-capacity',
     })
-    expect(session.getSnapshot().metrics).toEqual(ordinaryUpdate)
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(session.getSnapshot().modelRequest).toEqual({
+      turn: 2,
+      step: 1,
+      provider: 'test',
+      model: 'without-capacity',
+    })
 
     session.handleMuxEnvelope('sub' as never, {
       type: 'session/subscribed',
       sessionId: SID,
       lastSeq: 5,
     })
-    expect(session.getSnapshot().metrics).toBeNull()
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(session.getSnapshot().modelRequest).toBeNull()
     session.handleMuxEnvelope('request-3' as never, {
       type: 'session/model-request',
       sessionId: SID,
@@ -217,19 +165,17 @@ describe('live event path', () => {
       step: 1,
       provider: 'test',
       model: 'beta',
+      contextTokens: 20,
       contextWindow: 256_000,
     })
-    const nextGeneration = metrics(0, 10, { contextTokens: 20 })
-    session.handleMuxEnvelope('m5' as never, {
-      type: 'session/metrics',
-      sessionId: SID,
-      metrics: nextGeneration,
+    expect(session.getSnapshot().modelRequest).toMatchObject({
+      turn: 3,
+      contextTokens: 20,
+      contextWindow: 256_000,
     })
-    expect(session.getSnapshot().metrics).toBe(nextGeneration)
-    expect(session.getSnapshot().modelRequestContextWindow).toBe(256_000)
   })
 
-  it('publishes a subscribed reset when capacity arrived before durable metrics', async () => {
+  it('publishes a subscribed reset when request telemetry arrived first', async () => {
     const { session } = await opened()
     session.handleMuxEnvelope('request' as never, {
       type: 'session/model-request',
@@ -238,17 +184,17 @@ describe('live event path', () => {
       step: 1,
       provider: 'test',
       model: 'alpha',
+      contextTokens: 8_000,
       contextWindow: 128_000,
     })
-    expect(session.getSnapshot().metrics).toBeNull()
-    expect(session.getSnapshot().modelRequestContextWindow).toBe(128_000)
+    expect(session.getSnapshot().modelRequest?.contextWindow).toBe(128_000)
 
     session.handleMuxEnvelope('sub' as never, {
       type: 'session/subscribed',
       sessionId: SID,
       lastSeq: 5,
     })
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
+    expect(session.getSnapshot().modelRequest).toBeNull()
   })
 
   it('materializes a command node from live lifecycle frames and reproduces it from a history window', async () => {
@@ -876,72 +822,61 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
-  it('fences pre-disconnect history behind a fresh mux metrics baseline', async () => {
+  it('clears request telemetry on reconnect and drops a stale in-flight history response', async () => {
     const { api, session } = makeSession()
     const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
     api.onHistory = () => stale.promise
     const opening = session.open()
-    const oldLiveMetrics = metrics(8, 10)
-    session.handleMuxEnvelope('old-metrics' as never, {
-      type: 'session/metrics',
-      sessionId: SID,
-      metrics: oldLiveMetrics,
-    })
-    session.handleMuxEnvelope('old-capacity' as never, {
+    session.handleMuxEnvelope('old-request' as never, {
       type: 'session/model-request',
       sessionId: SID,
       turn: 1,
       step: 1,
       provider: 'test',
       model: 'old',
+      contextTokens: 20,
       contextWindow: 128_000,
     })
 
     session.handleReconnecting()
-    expect(session.getSnapshot().metrics).toBeNull()
-    expect(session.getSnapshot().modelRequestContextWindow).toBeUndefined()
-    const freshMetrics = metrics(0, 1, { contextTokens: 20 })
-    session.handleMuxEnvelope('fresh-metrics' as never, {
-      type: 'session/metrics',
-      sessionId: SID,
-      metrics: freshMetrics,
-    })
+    expect(session.getSnapshot().modelRequest).toBeNull()
 
     stale.resolve(ok({
       events: entries(plainTurn(0, 0, '旧问', '旧答')) as never[],
       hasMore: false,
-      metrics: metrics(99, 99, { contextTokens: 999 }),
     }))
     await opening
     expect(session.getSnapshot().nodes).toEqual([])
-    expect(session.getSnapshot().metrics).toBe(freshMetrics)
+    expect(session.getSnapshot().modelRequest).toBeNull()
 
     api.onHistory = () => histResponse(plainTurn(6, 1, '新问', '新答'))
     await session.resync()
     expect(session.getSnapshot().openState).toBe('open')
     expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9])
-    expect(session.getSnapshot().metrics).toBe(freshMetrics)
+    expect(session.getSnapshot().modelRequest).toBeNull()
   })
 
-  it('preserves fresh-generation metrics that arrive before a failing history refresh', async () => {
+  it('preserves a fresh-generation request snapshot when history resync fails', async () => {
     const { api, session } = makeSession()
-    const oldMetrics = metrics(8, 10)
-    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'), false, undefined, oldMetrics)
+    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
     await session.open()
-    expect(session.getSnapshot().metrics).toBe(oldMetrics)
 
     session.handleMuxEnvelope('sub' as never, {
       type: 'session/subscribed',
       sessionId: SID,
       lastSeq: 5,
     })
-    expect(session.getSnapshot().metrics).toBeNull()
+    expect(session.getSnapshot().modelRequest).toBeNull()
 
-    const freshMetrics = metrics(0, 10, { contextTokens: 20 })
-    session.handleMuxEnvelope('fresh-metrics' as never, {
-      type: 'session/metrics',
+    session.handleMuxEnvelope('fresh-request' as never, {
+      type: 'session/model-request',
       sessionId: SID,
-      metrics: freshMetrics,
+      turn: 2,
+      step: 1,
+      provider: 'test',
+      model: 'fresh',
+      contextTokens: 20,
+      contextWindow: 256_000,
     })
     api.onHistory = () => Promise.resolve(err({
       code: 'internal',
@@ -953,7 +888,14 @@ describe('resync', () => {
 
     expect(session.getSnapshot()).toMatchObject({
       openState: 'error',
-      metrics: freshMetrics,
+      modelRequest: {
+        turn: 2,
+        step: 1,
+        provider: 'test',
+        model: 'fresh',
+        contextTokens: 20,
+        contextWindow: 256_000,
+      },
     })
   })
 
