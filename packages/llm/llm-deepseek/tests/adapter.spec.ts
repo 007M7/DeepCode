@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, {
+import LlmService, { createUserMessage,
   CONTEXT_WINDOW_EXCEEDED_CODE,
   errorChain,
   LlmError,
@@ -112,7 +112,10 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     const result = await assemble(ctx, {
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(result.finish).toEqual({ kind: 'stop' })
@@ -142,7 +145,10 @@ describe('DeepSeekAdapter against a mock server', () => {
     for await (const chunk of ctx.llm.stream({
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })) {
       kinds.push(chunk.type)
     }
@@ -155,7 +161,10 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     await assemble(ctx, {
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
       sessionId: SessionId('child-session'),
     })
 
@@ -168,7 +177,10 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     await assemble(ctx, {
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
       purpose: 'compaction',
     })
 
@@ -185,17 +197,26 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('off'),
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi again' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi again' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('max'),
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'one more time' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'one more time' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })
     expect(server.requests[0]).toMatchObject({
       thinking: { type: 'enabled' },
@@ -217,7 +238,10 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     await assemble(ctx,{
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })
     expect(server.requests[0]).toMatchObject({
       thinking: { type: 'disabled' },
@@ -239,7 +263,10 @@ describe('DeepSeekAdapter against a mock server', () => {
     await expect(assemble(ctx, {
       model: 'deepseek-v4-flash',
       reasoningEffort: ReasoningEffortId('high'),
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
     expect(server.requests).toHaveLength(0)
   })
@@ -258,7 +285,10 @@ describe('DeepSeekAdapter against a mock server', () => {
         provider: 'deepseek',
         model: 'deepseek-v4-flash',
         reasoningEffort: ReasoningEffortId(effort),
-        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        messages: [createUserMessage({
+          content: [{ type: 'text', text: 'hi' }],
+          source: { kind: 'plugin', plugin: 'test' },
+        })],
       })
       await expect(async () => {
         for await (const _chunk of stream) { /* drain */ }

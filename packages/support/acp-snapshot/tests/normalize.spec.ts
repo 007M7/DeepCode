@@ -7,6 +7,7 @@ import {
   scrubRequestHeaders,
   scrubSystemPrompts,
   scrubToolSchemas,
+  tokenizeSessionFixtureCwd,
 } from '../src/normalize.ts'
 
 /**
@@ -43,6 +44,28 @@ describe('normalizeStdout', () => {
     expect(out).toContain('{{cwd}}')
     expect(out).not.toContain(ctx.cwd)
     expect(out).not.toContain(ctx.sessionIds[0] as string)
+  })
+
+  it('scrubs cwd at file URI and chained-punctuation boundaries', () => {
+    const raw = JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'session/update',
+      params: {
+        uri: `file://${ctx.cwd}/proof.txt`,
+        punctuated: `${ctx.cwd}.,`,
+        dottedSegment: `${ctx.cwd}.backup`,
+        dashedSegment: `${ctx.cwd}-backup`,
+      },
+    })
+    const frame = JSON.parse(normalizeStdout(raw, ctx)) as {
+      params: Record<string, string>
+    }
+    expect(frame.params).toEqual({
+      uri: 'file://{{cwd}}/proof.txt',
+      punctuated: '{{cwd}}.,',
+      dottedSegment: `${ctx.cwd}.backup`,
+      dashedSegment: `${ctx.cwd}-backup`,
+    })
   })
 
   it('scrubs every filesystem spelling of the cwd longest-first', () => {
@@ -212,6 +235,22 @@ describe('normalizeSessionLog', () => {
     expect(out).not.toContain(ctx.cwd)
   })
 
+  it('scrubs cwd at file URI and chained-punctuation boundaries in event data', () => {
+    const ev = JSON.stringify({
+      type: 'tool/result',
+      seq: 2,
+      time: 5,
+      data: {
+        uri: `file://${ctx.cwd}/proof.txt`,
+        punctuated: `${ctx.cwd}.,`,
+      },
+    })
+    const out = normalizeSessionLog(`${header({ cwd: ctx.cwd })}\n${ev}\n`, ctx)
+    expect(out).toContain('file://{{cwd}}/proof.txt')
+    expect(out).toContain('{{cwd}}.,')
+    expect(out).not.toContain(`file://${ctx.cwd}`)
+  })
+
   it('scrubs random local spill paths under the snapshot cwd', () => {
     const ev = JSON.stringify({
       type: 'tool/result', seq: 2, time: 5,
@@ -367,6 +406,74 @@ describe('normalizeSessionLog', () => {
     expect(out).toContain('"type":"note","seq":1')
     expect(out).toContain('"decision":"allow"')
     expect(out).not.toContain('durationMs')
+  })
+})
+
+describe('tokenizeSessionFixtureCwd', () => {
+  it.each([
+    {
+      name: 'macOS',
+      context: {
+        sessionIds: [],
+        cwd: '/var/folders/2g/snapshot/T/acp-snap-cwd-abc123',
+        cwdAliases: ['/private/var/folders/2g/snapshot/T/acp-snap-cwd-abc123'],
+      },
+      reportedCwd: '/private/var/folders/2g/snapshot/T/acp-snap-cwd-abc123',
+    },
+    {
+      name: 'Linux',
+      context: {
+        sessionIds: [],
+        cwd: '/tmp/acp-snap-cwd-abc123',
+      },
+      reportedCwd: '/tmp/acp-snap-cwd-abc123',
+    },
+    {
+      name: 'Windows',
+      context: {
+        sessionIds: [],
+        cwd: String.raw`C:\Users\runner\AppData\Local\Temp\acp-snap-cwd-abc123`,
+      },
+      reportedCwd: String.raw`C:\Users\runner\AppData\Local\Temp\acp-snap-cwd-abc123`,
+    },
+  ])('stores $name temporary workspaces with one portable root token', ({ context, reportedCwd }) => {
+    const raw = [
+      JSON.stringify({ type: 'session', id: 's', createdAt: 1, cwd: context.cwd }),
+      JSON.stringify({
+        type: 'tool/result',
+        seq: 1,
+        time: 2,
+        data: {
+          content: [{
+            type: 'text',
+            text: `wrote ${reportedCwd}/proof.txt. alias /different/root/acp-snap-cwd-abc123/alias.txt. cwd ${context.cwd}. Next; kept ${context.cwd}-backup, ${context.cwd}.backup, and /tmp/authored.txt`,
+          }],
+        },
+      }),
+      '',
+    ].join('\n')
+
+    const out = tokenizeSessionFixtureCwd(raw)
+    const result = JSON.parse(out.split('\n')[1] as string) as {
+      data: { content: { text: string }[] }
+    }
+    const resultText = (result.data.content[0] as { text: string }).text
+
+    expect(out).toContain('"cwd":"{{cwd}}"')
+    expect(resultText).toContain('wrote {{cwd}}/proof.txt')
+    expect(resultText).toContain('alias {{cwd}}/alias.txt')
+    expect(resultText).toContain('cwd {{cwd}}. Next')
+    expect(resultText).toContain(`${context.cwd}-backup`)
+    expect(resultText).toContain(`${context.cwd}.backup`)
+    expect(resultText).toContain('/tmp/authored.txt')
+    expect(resultText).not.toContain(`${reportedCwd}/proof.txt`)
+    expect(tokenizeSessionFixtureCwd(out)).toBe(out)
+  })
+
+  it('rejects a log without a session cwd', () => {
+    expect(() => tokenizeSessionFixtureCwd('')).toThrow(
+      'acp-snapshot: cannot tokenize a cwd without a basename',
+    )
   })
 })
 

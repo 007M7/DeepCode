@@ -5,7 +5,7 @@
  */
 
 import { Context, Service } from 'cordis'
-import { Session, type SessionId } from '@deepseek-ai/dsh-session'
+import { Session, snapshotSessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleSnapshot } from '@deepseek-ai/dsh-session-title'
 import type {
@@ -146,7 +146,7 @@ export abstract class SessionQueryService extends Service {
     new Session(sessionId, loaded.events, loaded.header)
     return {
       session: structuredClone(loaded.header),
-      events: loaded.events.map(event => structuredClone(event)),
+      events: loaded.events.map(snapshotSessionEvent),
     }
   }
 
@@ -330,10 +330,15 @@ export abstract class SessionQueryService extends Service {
     }
     const startSeq = Math.max(0, seq - before)
     const endSeq = Math.min(loaded.events.length - 1, seq + after)
+    const targetSnapshot = snapshotSessionEvent(target)
+    const events = loaded.events.slice(startSeq, endSeq + 1)
+      .map(event => event === target
+        ? targetSnapshot
+        : snapshotSessionEvent(event))
     return {
-      session: loaded.header,
-      target,
-      events: loaded.events.slice(startSeq, endSeq + 1),
+      session: structuredClone(loaded.header),
+      target: targetSnapshot,
+      events,
       startSeq,
       endSeq,
     }

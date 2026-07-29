@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// PendingCard question arm, bash sample state dots, the node-half empty
+// PendingCard approval wait, bash sample state dots, the node-half empty
 // apply, and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -33,11 +33,11 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
   })
 
-  it('PendingCard renders the question arm with its count', () => {
+  it('PendingCard renders the approval wait with its tool name', () => {
     const view = render(
-      <PendingCard item={new PendingWait('question', RpcId('r1'), 's1' as SessionId, { questions: [{}, {}] } as PendingWait<'question'>['payload'], vi.fn())} />,
+      <PendingCard item={new PendingWait('approval', RpcId('r1'), 's1' as SessionId, { toolName: 'bash' } as PendingWait<'approval'>['payload'], vi.fn())} />,
     )
-    expect(view.getByText(/等待回答（2 题）/)).toBeTruthy()
+    expect(view.getByText(/等待审批/)).toBeTruthy()
   })
 
   it('AssistantMarkdown renders reasoning as a Think row and unknown blocks as JSON fallback', () => {

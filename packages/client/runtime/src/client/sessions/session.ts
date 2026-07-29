@@ -11,7 +11,7 @@ import type {
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { ObservableSnapshot } from '../contract/store.ts'
+import type { SessionFace } from '../contract/session.ts'
 import type {
   CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
   PromptError, QueuedMessage, RunningToolCall,
@@ -68,9 +68,11 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
 
 /**
  * Owns a session's event window, derived conversation state, and observable
- * snapshot. React bindings remain outside this data layer.
+ * snapshot. React bindings remain outside this data layer. Features see only
+ * the {@link SessionFace} slice (ISession verbs + the snapshot source); the
+ * remaining public members are manager/runtime entry points.
  */
-export class Session implements ObservableSnapshot<ConversationSnapshot> {
+export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
@@ -217,12 +219,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
       return result
     }
-    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt has logged
-    // its user/message on the host (events.length > 0 is fact, not
-    // optimism), while a rejected first prompt must keep the session blank
-    // — the client-side blank mirror only ever lowers, so flipping early on
-    // a failure would surface the session forever and strip its
-    // connectWorkspace reuse eligibility against the host's authority.
+    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt starts the
+    // conversation's first turn on the host (the host criterion — a logged
+    // turn/start — is fact, not optimism; standalone command and projection
+    // events never flip it), while a rejected first prompt must keep the
+    // session blank — the client-side blank mirror only ever lowers, so
+    // flipping early on a failure would surface the session forever and
+    // strip its connectWorkspace reuse eligibility against the host's
+    // authority.
     if (this.blankBit) {
       this.blankBit = false
       this.options.onEngaged?.(this)
@@ -383,13 +387,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return
       }
       case 'session/queued': {
+        const message = frame.message
         // Row key: the enqueueing prompt's rpcId when it rode this wire (the
         // provisional-echo reconciliation key); otherwise the frame envelope id.
-        const key = 'rpcId' in frame.source ? String(frame.source.rpcId) : `f:${rpcId}`
+        const key = 'rpcId' in message.source ? String(message.source.rpcId) : `f:${rpcId}`
         this.queued.push({
-          row: { key, preview: queuePreviewOf(frame.content) },
+          row: { key, preview: queuePreviewOf(message.content) },
           steering: frame.steering,
-          sourceJson: JSON.stringify(frame.source),
+          sourceJson: JSON.stringify(message.source),
         })
         this.queueRev++
         this.notifier.markDirty()
@@ -626,7 +631,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       if (event.data.trigger.kind !== 'message') return
       index = this.queued.findIndex(entry => !entry.steering)
     } else if (event.type === 'steering/message') {
-      const source = JSON.stringify(event.data.source)
+      const source = JSON.stringify(event.data.message.source)
       index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
     } else {
       return
@@ -724,7 +729,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return
       }
       case 'tool/result': {
-        if (this.openCalls.delete(String(event.data.callId))) this.callsRev++
+        if (this.openCalls.delete(String(event.data.message.source.callId))) this.callsRev++
         return
       }
       case 'turn/end': {

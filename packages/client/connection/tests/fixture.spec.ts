@@ -69,7 +69,12 @@ describe('createFixtureApi', () => {
     // tail block still rides it — empty-log cut at -1, the host convention.
     const empty = await api.sessions.history(req({ sessionId: sid('no-such'), maxMessages: 10 }))
     if (!empty.result.ok) throw new Error('empty failed')
-    expect(empty.result.value).toEqual({ events: [], hasMore: false, projections: { asOfSeq: -1, values: {} } })
+    // Fixture composes the todos + plan units (host parallel when tool-todo
+    // and plan-mode are mounted): the empty-log values.
+    expect(empty.result.value).toEqual({
+      events: [], hasMore: false,
+      projections: { asOfSeq: -1, values: { goal: null, todos: null, plan: { active: false, pending: false } } },
+    })
   })
 
   it('serves grouped models and keeps a selected target for later history and fixture requests', async () => {
@@ -203,7 +208,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 4) abort.abort()
+        if (envelopes.length >= 7) abort.abort()
       }
       return envelopes
     }
@@ -211,13 +216,15 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    // Projection baseline frames follow the subscribed frame (title + todos units).
+    // Projection baseline frames follow the subscribed frame (title + todos + plan + goal units).
     expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
-    expect(first[3]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[3]?.rpcId).toBe(first[3]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[4]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[4]?.rpcId).toBe(first[4]?.rpcId)
+    expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
+    expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
+    expect(first[5]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[5]?.rpcId).toBe(first[5]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[6]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[6]?.rpcId).toBe(first[6]?.rpcId)
   })
 
   it('steer with no replay in flight promotes image bytes to a session-scoped reference', async () => {
@@ -743,6 +750,29 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const moved = await client.workspace.insertSessionBefore({ workspaceId: wsid, sessionId: attached.result.value.sessionId })
     if (!moved.result.ok) throw new Error('workspace move failed')
     expect(moved.result.value.workspace.sessionIds).toEqual([attached.result.value.sessionId])
+    // Goal lifecycle over the fixture fold: create → edit → pause → resume → complete → clear;
+    // every mutation acknowledges with the NEW CAS ref (state rides the projection frames).
+    const goalCreated = await client.goals.create({ sessionId: id, objective: 'ship it' })
+    if (!goalCreated.result.ok) throw new Error('goal create failed')
+    let ref = goalCreated.result.value.ref
+    expect(ref.revision).toBe(1)
+    const edited = await client.goals.edit({ sessionId: id, ref, objective: 'ship it v2' })
+    if (!edited.result.ok) throw new Error('goal edit failed')
+    ref = edited.result.value.ref
+    const paused = await client.goals.pause({ sessionId: id, ref })
+    if (!paused.result.ok) throw new Error('goal pause failed')
+    ref = paused.result.value.ref
+    const resumed = await client.goals.resume({ sessionId: id, ref })
+    if (!resumed.result.ok) throw new Error('goal resume failed')
+    ref = resumed.result.value.ref
+    // A stale ref loses the CAS check.
+    expect((await client.goals.pause({ sessionId: id, ref: { ...ref, revision: 1 } })).result.ok).toBe(false)
+    const completed = await client.goals.complete({ sessionId: id, ref })
+    if (!completed.result.ok) throw new Error('goal complete failed')
+    ref = completed.result.value.ref
+    // complete → complete is an invalid transition.
+    expect((await client.goals.complete({ sessionId: id, ref })).result.ok).toBe(false)
+    expect((await client.goals.clear({ sessionId: id, ref })).result).toEqual({ ok: true, value: { cleared: true } })
   })
 
   it('maps empty, prompt-reject, and workspace-first query scenarios', async () => {

@@ -12,10 +12,17 @@ import type { UseProjection } from './sessions/projection-store.ts'
 export { SlotsService } from './slots.ts'
 export type { RootOwnerProps } from './slots.ts'
 export { SessionCreateError, SessionsService, scopeOf, workspaceTitleOf } from './sessions/service.ts'
+// The provide channel is shared with the client test runtime (one
+// materialization/projection implementation; no test-side mirror to drift).
+export { SessionProvideChannel } from './sessions/provide.ts'
+export type { SessionProvideChannelHost } from './sessions/provide.ts'
 export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
 export { WorkspaceCreateError, WorkspacesService } from './workspaces/service.ts'
 export type { Session } from './sessions/session.ts'
+export type { ISession, ProjectionsFace, SessionFace } from './contract/session.ts'
+export type { ISessions } from './contract/sessions.ts'
+export type { IWorkspaces } from './contract/workspaces.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
@@ -109,8 +116,10 @@ declare module 'cordis' {
   }
   interface Context {
     slots: import('./slots.ts').SlotsService
-    sessions: import('./sessions/service.ts').SessionsService
-    workspaces: import('./workspaces/service.ts').WorkspacesService
+    /** The outward face only; the concrete service stays inside the runtime. */
+    sessions: import('./contract/sessions.ts').ISessions
+    /** The outward face only; the concrete service stays inside the runtime. */
+    workspaces: import('./contract/workspaces.ts').IWorkspaces
   }
 }
 

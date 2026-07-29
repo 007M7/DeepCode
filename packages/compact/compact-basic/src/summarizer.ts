@@ -5,7 +5,7 @@
  */
 
 import type { Context } from 'cordis'
-import { BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
@@ -128,7 +128,10 @@ export async function summarizeWithLlm(
   const assembler = new BlockAssembler()
   const messages: Message[] = [
     ...input.messages,
-    { role: 'user', content: [{ type: 'text', text: COMPACTION_INSTRUCTION }] },
+    createUserMessage({
+      content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
+      source: { kind: 'plugin', plugin: 'dsh-compact-basic' },
+    }),
   ]
   const options: GenerateOptions = {
     provider: target.provider,
@@ -145,7 +148,7 @@ export async function summarizeWithLlm(
   const error = finishError(assembler.finish)
   if (error !== undefined) throw error
 
-  const summary = summaryText(assembler.message().content)
+  const summary = summaryText(assembler.blocks())
   if (!summary.some(block => block.text.trim().length > 0)) {
     throw new Error('summarization produced no text summary content')
   }

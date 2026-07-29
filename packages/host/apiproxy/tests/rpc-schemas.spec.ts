@@ -29,6 +29,7 @@ import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
+import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -65,11 +66,14 @@ describe('rpcErrorSchema', () => {
     }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
     expect(rpcErrorSchema.parse({ code: 'attachment-error', message: 'm', details: { reason: 'r' } }).code).toBe('attachment-error')
+    expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
+    expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
   it('rejects a known code with missing details', () => {
     expect(() => rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: {} })).toThrow()
+    expect(() => rpcErrorSchema.parse({ code: 'command-error', message: 'm' })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'nope', message: 'm', details: {} })).toThrow()
   })
 })
@@ -121,9 +125,19 @@ describe('sessions domain schemas', () => {
     expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: true, blank: false, parentSessionId: 'p', cwd: '/x' }).cwd).toBe('/x')
     // blank is mandatory: a summary without it fails the parse.
     expect(() => sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false })).toThrow()
-    const event = sessionEventSchema.parse({ type: 'user/message', seq: 0, time: 1, data: { any: true } })
+    const event = sessionEventSchema.parse({
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: { any: true },
+    })
     expect(event).toMatchObject({ type: 'user/message' })
-    expect(() => sessionEventSchema.parse({ type: 'user/message', seq: -1, time: 1, data: {} })).toThrow()
+    expect(() => sessionEventSchema.parse({
+      type: 'user/message',
+      seq: -1,
+      time: 1,
+      data: {},
+    })).toThrow()
   })
 
   it('validates the per-method request/value pairs', () => {
@@ -197,6 +211,11 @@ describe('sessions domain schemas', () => {
     expect(prompt.mode).toBe('queue')
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
+    // The command slot appears only when the prompt dispatched a slash command.
+    const dispatched = sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success', text: 'Goal set' } })
+    expect(dispatched.command?.text).toBe('Goal set')
+    expect(sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success' } }).command).toEqual({ kind: 'success' })
+    expect(() => sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'failure' } })).toThrow()
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(promptContentPartSchema.parse({ type: 'text', text: 'x', extra: 1 })).toEqual({ type: 'text', text: 'x' })
@@ -338,6 +357,15 @@ describe('skills domain schemas', () => {
   })
 })
 
+describe('goals domain schemas', () => {
+  it('requires at least one replacement field for goal.edit', () => {
+    const ref = { id: 'g1', revision: 1 }
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, objective: 'updated' }).objective).toBe('updated')
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, maxGoalRounds: 3 }).maxGoalRounds).toBe(3)
+    expect(() => goalEditRequestSchema.parse({ sessionId: 's1', ref })).toThrow()
+  })
+})
+
 describe('events frame schemas', () => {
   it('accepts every mux frame branch', () => {
     const frames = [
@@ -347,8 +375,8 @@ describe('events frame schemas', () => {
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
-      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' }, steering: false },
-      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' }, steering: true },
+      { type: 'session/queued', sessionId: 's', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } }, steering: false },
+      { type: 'session/queued', sessionId: 's', message: { id: 'm2', role: 'user', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' } }, steering: true },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
@@ -367,9 +395,9 @@ describe('events frame schemas', () => {
   })
 
   it('rejects a queued frame missing its members', () => {
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' } })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: { kind: 'user' } })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: {}, steering: false })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', message: 'x', steering: false })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', message: { id: 'm', role: 'user', content: [], source: { kind: 'user' } } })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', message: { id: 'm', role: 'user', content: [], source: {} }, steering: false })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

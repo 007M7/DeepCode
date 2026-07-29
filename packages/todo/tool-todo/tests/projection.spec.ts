@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, TodoItem } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -58,7 +59,10 @@ async function harness(withTodoTool: boolean): Promise<Bench> {
 
 /** One paginable message so the tail page is non-degenerate. */
 function seedMessage(session: Session): void {
-  session.append('user/message', { content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'hi' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
 }
 
 describe('todos projection provider', () => {
@@ -85,6 +89,20 @@ describe('todos projection provider', () => {
     // Last-wins: the latest snapshot, whole.
     expect(projections?.values.todos).toEqual(second)
     expect(projections?.asOfSeq).toBe(session.seq - 1)
+  })
+
+  it('clears the standing plan on the next turn/start (turn/end keeps it)', async () => {
+    const bench = await harness(true)
+    const session = bench.session
+    seedMessage(session)
+    const list: TodoItem[] = [{ content: 'done', status: 'completed' }]
+    session.append('todo/write', { todos: list })
+    session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
+    expect((await bench.tailProjections())?.values.todos).toEqual(list)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const cleared = await bench.tailProjections()
+    expect(cleared?.values.todos).toBeNull()
+    expect(cleared?.asOfSeq).toBe(session.seq - 1)
   })
 
   it('has no todos key when tool-todo is not composed', async () => {

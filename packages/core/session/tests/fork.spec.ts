@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, CallId , createMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionForkError, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 
@@ -23,19 +23,19 @@ function appendClosedTurn(
   reason: TurnEndReason = { kind: 'completed' },
 ): void {
   session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
   session.append('turn/end', { turn, reason })
 }
 
 function appendOpenTurn(session: Session, turn: number): void {
   session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', {
+  session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `open ${turn}` }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 function firstUserMessage(events: readonly SessionEvent[]): SessionEvent<'user/message'> {
@@ -116,7 +116,12 @@ describe('SessionStore.fork', () => {
 
     expect(child.events).toEqual(source.events.slice(0, firstBoundary + 1))
     expect(child.header.seedLength).toBe(firstBoundary + 1)
-    expect(child.deriveMessages()).toEqual([{ role: 'user', content: [{ type: 'text', text: 'first' }] }])
+    expect(child.deriveMessages()).toEqual([{
+      id: expect.any(String) as unknown,
+      role: 'user',
+      content: [{ type: 'text', text: 'first' }],
+      source: { kind: 'user' },
+    }])
   })
 
   it('accepts every turn/end reason as an explicit fork boundary', async () => {
@@ -210,23 +215,42 @@ describe('SessionStore.fork', () => {
       }],
       ['user/message', (session) => {
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-        session.append('user/message', { content: [{ type: 'text', text: 'open' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+        session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: 'open' }], source: { kind: 'user' },
+        }), { surfaceOp: 'append' })
         return lastSeq(session)
       }],
       ['assistant/message', (session) => {
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('step/start', { turn: 1, step: 1 })
-        session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'partial' }] }, { surfaceOp: 'append' })
+        session.append('assistant/message', {
+          turn: 1, step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'partial' }],
+            source: {
+              kind: 'model',
+              ...{ provider: 'mock', model: 'mock' },
+            },
+          }),
+        }, { surfaceOp: 'append' })
         return lastSeq(session)
       }],
       ['tool/call', (session) => {
         const callId = CallId('call-open')
         session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
         session.append('step/start', { turn: 1, step: 1 })
-        session.append('assistant/message', { provenance: { provider: 'mock', model: 'mock' },
+        session.append('assistant/message', {
           turn: 1,
           step: 1,
-          content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+            source: {
+              kind: 'model',
+              ...{ provider: 'mock', model: 'mock' },
+            },
+          }),
         }, { surfaceOp: 'append' })
         session.append('tool/call', { turn: 1, step: 1, callId, name: 'bash', arguments: '{}' })
         return lastSeq(session)

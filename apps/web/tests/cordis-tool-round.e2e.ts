@@ -42,10 +42,10 @@ function assertCompleteCordisLifecycle(events: readonly SessionEvent[]): void {
   const callIds = new Set(calls.map(event => String(event.data.callId)))
   const results = events.filter(
     (event): event is Extract<SessionEvent, { type: 'tool/result' }> =>
-      event.type === 'tool/result' && callIds.has(String(event.data.callId)),
+      event.type === 'tool/result' && callIds.has(String(event.data.message.source.callId)),
   )
   expect(results).toHaveLength(CORDIS_TOOLS.length)
-  expect(results.every(event => !event.data.isError)).toBe(true)
+  expect(results.every(event => !event.data.message.content[0].isError)).toBe(true)
 }
 
 describe('web e2e: Cordis tools use the generic row variants', () => {

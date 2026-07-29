@@ -9,7 +9,7 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmService, { CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -118,7 +118,10 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = await harness(server.url)
     const result = await assemble(ctx, {
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })
     expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
     expect(result.finish).toEqual({ kind: 'stop' })
@@ -276,7 +279,10 @@ describe('PiAiAdapter provider routing', () => {
     const result = await assemble(ctx, {
       provider: 'openai',
       model: 'gpt-4.1',
-      messages: [{ role: 'user', content: [{ type: 'image', attachment: ref }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'image', attachment: ref }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })
 
     expect(result.finish.kind).toBe('error')
@@ -588,24 +594,30 @@ describe('provider profile lifecycle', () => {
     await expect(drain({
       provider: 'deepseek',
       model: 'deepseek-v4-flash',
-      messages: [{ role: 'user', content: [{ type: 'image', attachment: IMAGE_REF }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'image', attachment: IMAGE_REF }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
     await expect(drain({
       provider: 'openai',
       model: 'gpt-4.1',
-      messages: [{ role: 'user', content: [{ type: 'image', attachment: IMAGE_REF }] }],
+      messages: [createUserMessage({
+        content: [{ type: 'image', attachment: IMAGE_REF }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
     await expect(drain({
       provider: 'openai',
       model: 'gpt-4.1',
-      messages: [{
-        role: 'user',
+      messages: [createUserMessage({
         content: [{
           type: 'tool-result',
           toolCallId: 'call-image' as never,
           content: [{ type: 'image', attachment: IMAGE_REF }],
         }],
-      }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
   })
 

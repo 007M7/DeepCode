@@ -12,10 +12,71 @@ import type { Context } from 'cordis'
 // Type-only imports: a plugin-to-plugin value import is a bundle purity
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
-import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
-import { InputHub } from './input/hub.ts'
+import type { InputService } from './input/contract.ts'
+
+/**
+ * The outward conversation face (`ctx.conversation`): the scope-addressed
+ * verbs and the input registry other plugins may reach — and exactly what a
+ * test fake must supply.
+ */
+export interface IConversation {
+  /** The per-session input machine registry (InputService face). */
+  readonly input: InputService
+  /**
+   * Send a prompt into the caller scope's session.
+   * @param text - prompt text, sent verbatim as one text block.
+   * @param mode - queue after the current turn, or steer into it.
+   * @param images - browser-owned temporary images promoted by the host during this call.
+   * @returns completion; business failures reject (and land in promptError).
+   */
+  send(text: string, mode: 'queue' | 'steer', images?: readonly File[]): Promise<void>
+  /**
+   * Cancel the scoped session's in-flight turn.
+   * @returns completion; failures reject as in send.
+   */
+  cancel(): Promise<void>
+  /**
+   * Pull one older history page for the scoped session.
+   * @returns completion of the page pull.
+   */
+  loadOlder(): Promise<void>
+  /**
+   * Create runtime-only draft attachments and preview URLs.
+   * @param files - browser-owned image files.
+   * @param current - images already present in the composer.
+   * @returns ordered descriptors for the input state.
+   */
+  createDraftImages(
+    files: readonly File[],
+    current?: readonly ComposerAttachment[],
+  ): readonly ComposerAttachment[]
+  /**
+   * Resolve ordered draft ids to runtime-owned attachments.
+   * @param ids - ordered composer attachment ids.
+   * @returns attachments still available in this browser runtime.
+   */
+  draftImages(ids: readonly string[]): readonly ComposerAttachment[]
+  /**
+   * Release one draft attachment and its preview URL.
+   * @param id - draft-local attachment id.
+   */
+  releaseDraftImage(id: string): void
+  /**
+   * Resolve a session-authorized historical image to an object URL.
+   * @param sessionId - session whose durable log grants the read.
+   * @param attachment - durable image reference from that log.
+   * @returns browser URL for inline and original-size rendering.
+   */
+  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string>
+  /**
+   * Release every historical image URL owned by one rendered session.
+   * @param sessionId - session whose rendered image scope is ending.
+   */
+  releaseSessionImages(sessionId: SessionId): void
+}
 
 /** Opaque wrapper keeps browser `File` internals outside persisted store state. */
 class BrowserDraftAttachment implements ComposerAttachment {
@@ -42,9 +103,9 @@ interface ImageUrlEntry {
 }
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
-export class ConversationService extends Service {
-  /** The per-session input machine registry. */
-  readonly input: InputHub
+export class ConversationService extends Service implements IConversation {
+  /** The per-session input machine registry (InputService face, design §5.2). */
+  readonly input: InputService
   private readonly draftAttachments = new Map<string, BrowserDraftAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
@@ -53,13 +114,12 @@ export class ConversationService extends Service {
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
-   * @param config - the shared InputHub constructed by the plugin apply
-   * (shared with the slot inject factories); absent = own instance
-   * (object-layer tests that never touch slots).
+   * @param config - carries the InputService instance constructed by the
+   * plugin apply (the same InputHub the slot inject factories close over).
    */
-  constructor(ctx: Context, config?: { input?: InputHub }) {
+  constructor(ctx: Context, config: { input: InputService }) {
     super(ctx, 'conversation')
-    this.input = config?.input ?? new InputHub(ctx)
+    this.input = config.input
     ctx.effect(() => () => {
       for (const url of this.createdImageUrls) URL.revokeObjectURL(url)
       this.createdImageUrls.clear()
@@ -92,7 +152,7 @@ export class ConversationService extends Service {
    * @param imageIds - ordered draft-local attachment ids.
    */
   async sendSession(
-    session: Session,
+    session: SessionFace,
     text: string,
     mode: 'queue' | 'steer',
     imageIds: readonly string[],
@@ -106,7 +166,7 @@ export class ConversationService extends Service {
   }
 
   private async sendFiles(
-    session: Session,
+    session: SessionFace,
     text: string,
     mode: 'queue' | 'steer',
     images: readonly File[],
@@ -239,8 +299,8 @@ export class ConversationService extends Service {
     await this.scopedSession('loadOlder').loadOlder()
   }
 
-  /** Resolve the caller scope's Session or throw on root contexts. */
-  private scopedSession(op: string): Session {
+  /** Resolve the caller scope's session face or throw on root contexts. */
+  private scopedSession(op: string): SessionFace {
     const id = this.scopeId(op)
     const binding = this.requireSessions().binding(id)
     if (binding === undefined) throw new Error(`conversation.${op}: session "${id}" resolved no binding`)
@@ -256,10 +316,9 @@ export class ConversationService extends Service {
     return id
   }
 
-  private requireSessions(): SessionsService {
-    // ctx.get instead of ctx.sessions: the typed Context merge is suspended
-    // while the client/host `sessions` declaration collision awaits
-    // arbitration (see the runtime package's Context merge note).
+  private requireSessions(): ISessions {
+    // Strict ctx.get, not the injection proxy: the scope-addressed pattern
+    // reads the service off whatever context the tracker rebound.
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
     return sessions
@@ -298,7 +357,7 @@ export class ConversationService extends Service {
   }
 
   /** Convert browser files to the prompt wire's canonical base64 image parts. */
-  private serializeImages(images: readonly File[]): Promise<Parameters<Session['prompt']>[0]> {
+  private serializeImages(images: readonly File[]): Promise<Parameters<SessionFace['prompt']>[0]> {
     return Promise.all(images.map(async file => ({
       type: 'image' as const,
       mediaType: imageMediaType(file.type),

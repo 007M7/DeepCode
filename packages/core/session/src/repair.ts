@@ -5,7 +5,8 @@
  * @module @deepseek-ai/dsh-session/repair
  */
 
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import { MessageId, freezeMessage, type CallId } from '@deepseek-ai/dsh-llm'
+import type { ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from './types.ts'
 
 /** Recovery code for an assistant tool request that never reached a recorded call start. */
@@ -51,7 +52,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
       case 'assistant/message':
         // The assistant message carries the tool-call blocks; each is pending
         // until a tool/result event with the same callId is logged.
-        for (const block of event.data.content) {
+        for (const block of event.data.message.content) {
           if (block.type === 'tool-call') pendingCalls.set(block.id, { step: event.data.step })
         }
         break
@@ -65,7 +66,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         }
         break
       case 'tool/result':
-        pendingCalls.delete(event.data.callId)
+        pendingCalls.delete(event.data.message.source.callId)
         break
       // Other event types do not move the turn/step boundary cursor.
       default:
@@ -89,6 +90,22 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   // and Map insertion order preserves their transcript order.
   for (const [callId, { step, callSeq }] of pendingCalls) {
     const started = callSeq !== undefined
+    const message: ToolResultMessage = freezeMessage({
+      id: MessageId(`interrupted-tool-result-${callId}-${seq}`),
+      role: 'user',
+      source: { kind: 'tool', callId },
+      content: [{
+        type: 'tool-result',
+        toolCallId: callId,
+        isError: true,
+        content: [{
+          type: 'text',
+          text: started
+            ? 'The tool call was interrupted after it was recorded, but no result was durably recorded. Its outcome is unknown. Decide whether to retry from the tool semantics: retry only if the operation is read-only or idempotent; if it may have side effects, first verify external state or ask the user. Do not retry blindly.'
+            : 'The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.',
+        }],
+      }],
+    })
     closers.push({
       type: 'tool/result',
       seq: seq++,
@@ -96,14 +113,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
       data: {
         turn: openTurn,
         step,
-        callId,
-        content: [{
-          type: 'text',
-          text: started
-            ? 'The tool call was interrupted after it was recorded, but no result was durably recorded. Its outcome is unknown. Decide whether to retry from the tool semantics: retry only if the operation is read-only or idempotent; if it may have side effects, first verify external state or ask the user. Do not retry blindly.'
-            : 'The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.',
-        }],
-        isError: true,
+        message,
         error: started
           ? { name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN }
           : { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },

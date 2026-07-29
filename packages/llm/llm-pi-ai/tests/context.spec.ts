@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { CallId } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { toPiContext } from '../src/context.ts'
 import { toPiAssistant } from '../src/replay.ts'
 
@@ -28,6 +28,14 @@ function request(messages: GenerateOptions['messages']): GenerateOptions {
   }
 }
 
+function user(content: ContentBlock[]): Message {
+  return createUserMessage({ content, source: { kind: 'plugin', plugin: 'test' } })
+}
+
+function history(role: 'system' | 'assistant', content: ContentBlock[]): Message {
+  return createMessage({ role, content, source: { kind: 'plugin', plugin: 'test' } })
+}
+
 describe('pi-ai request context conversion', () => {
   it('omits absent and empty request-level optional fields', () => {
     const base = { provider: 'openai', model: 'gpt-4.1', messages: [] }
@@ -38,22 +46,16 @@ describe('pi-ai request context conversion', () => {
   it('converts complete text-only history and rejects nested images without storage', () => {
     const callId = CallId('call-1')
     expect(toPiContext(request([
-      { role: 'system', content: [{ type: 'text', text: 'history system' }] },
-      {
-        role: 'assistant',
-        content: [{ type: 'tool-call', id: callId, name: 'lookup', arguments: '{}' }],
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'after tool' },
-          {
-            type: 'tool-result',
-            toolCallId: callId,
-            content: [{ type: 'text', text: '' }],
-          },
-        ],
-      },
+      history('system', [{ type: 'text', text: 'history system' }]),
+      history('assistant', [{ type: 'tool-call', id: callId, name: 'lookup', arguments: '{}' }]),
+      user([
+        { type: 'text', text: 'after tool' },
+        {
+          type: 'tool-result',
+          toolCallId: callId,
+          content: [{ type: 'text', text: '' }],
+        },
+      ]),
     ]))).toMatchObject({
       systemPrompt: 'system prompt',
       tools: [{ name: 'lookup' }],
@@ -71,56 +73,41 @@ describe('pi-ai request context conversion', () => {
       ],
     })
 
-    expect(() => toPiContext(request([{
-      role: 'user',
-      content: [{
-        type: 'tool-result',
-        toolCallId: callId,
-        content: [{ type: 'image', attachment: ref }],
-      }],
-    }]))).toThrow(/durable attachment service/)
+    expect(() => toPiContext(request([user([{
+      type: 'tool-result',
+      toolCallId: callId,
+      content: [{ type: 'image', attachment: ref }],
+    }])]))).toThrow(/durable attachment service/)
   })
 
   it('resolves user and tool-result images while preserving explicit fallbacks', async () => {
     const callId = CallId('missing-call')
     const knownCallId = CallId('known-call')
     const context = await toPiContext(request([
-      { role: 'user', content: [{ type: 'text', text: '' }] },
-      {
-        role: 'assistant',
+      user([{ type: 'text', text: '' }]),
+      history('assistant', [
+        { type: 'text', text: 'calling' },
+        { type: 'tool-call', id: knownCallId, name: 'lookup', arguments: '{}' },
+      ]),
+      user([
+        { type: 'image', attachment: ref },
+        { type: 'text', text: 'caption' },
+        { type: 'reasoning', text: 'ignored' },
+      ]),
+      user([{
+        type: 'tool-result',
+        toolCallId: knownCallId,
+        content: [{ type: 'text', text: '' }],
+      }]),
+      user([{
+        type: 'tool-result',
+        toolCallId: callId,
+        isError: true,
         content: [
-          { type: 'text', text: 'calling' },
-          { type: 'tool-call', id: knownCallId, name: 'lookup', arguments: '{}' },
-        ],
-      },
-      {
-        role: 'user',
-        content: [
+          { type: 'tool-result', toolCallId: callId, content: [] },
           { type: 'image', attachment: ref },
-          { type: 'text', text: 'caption' },
-          { type: 'reasoning', text: 'ignored' },
         ],
-      },
-      {
-        role: 'user',
-        content: [{
-          type: 'tool-result',
-          toolCallId: knownCallId,
-          content: [{ type: 'text', text: '' }],
-        }],
-      },
-      {
-        role: 'user',
-        content: [{
-          type: 'tool-result',
-          toolCallId: callId,
-          isError: true,
-          content: [
-            { type: 'tool-result', toolCallId: callId, content: [] },
-            { type: 'image', attachment: ref },
-          ],
-        }],
-      },
+      }]),
     ]), attachments)
 
     expect(context.messages).toEqual([
@@ -156,22 +143,16 @@ describe('pi-ai request context conversion', () => {
   it('keeps empty text-only users while separating result-only messages', () => {
     const callId = CallId('unknown-call')
     expect(toPiContext(request([
-      { role: 'user', content: [] },
-      {
-        role: 'assistant',
-        content: [
-          { type: 'text', text: 'answer' },
-          { type: 'tool-call', id: CallId('other-call'), name: 'lookup', arguments: '{}' },
-        ],
-      },
-      {
-        role: 'user',
-        content: [{
-          type: 'tool-result',
-          toolCallId: callId,
-          content: [{ type: 'text', text: 'result' }],
-        }],
-      },
+      user([]),
+      history('assistant', [
+        { type: 'text', text: 'answer' },
+        { type: 'tool-call', id: CallId('other-call'), name: 'lookup', arguments: '{}' },
+      ]),
+      user([{
+        type: 'tool-result',
+        toolCallId: callId,
+        content: [{ type: 'text', text: 'result' }],
+      }]),
     ]))).toMatchObject({
       messages: [
         { role: 'user', content: '' },
@@ -182,15 +163,14 @@ describe('pi-ai request context conversion', () => {
   })
 
   it('handles in-history system and assistant messages explicitly on the image path', async () => {
-    await expect(toPiContext(request([{
-      role: 'system',
-      content: [{ type: 'image', attachment: ref }],
-    }]), attachments)).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    await expect(toPiContext(request([
+      history('system', [{ type: 'image', attachment: ref }]),
+    ]), attachments)).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
 
     await expect(toPiContext(request([
-      { role: 'system', content: [{ type: 'text', text: 'history system' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
-      { role: 'user', content: [{ type: 'text', text: 'plain' }] },
+      history('system', [{ type: 'text', text: 'history system' }]),
+      history('assistant', [{ type: 'text', text: 'answer' }]),
+      user([{ type: 'text', text: 'plain' }]),
     ]), attachments)).resolves.toMatchObject({
       messages: [
         { role: 'user', content: 'history system' },
@@ -199,9 +179,8 @@ describe('pi-ai request context conversion', () => {
       ],
     })
 
-    expect(() => toPiAssistant({
-      role: 'assistant',
-      content: [{ type: 'image', attachment: ref }],
-    })).toThrow(/assistant image output/)
+    expect(() => toPiAssistant(
+      history('assistant', [{ type: 'image', attachment: ref }]),
+    )).toThrow(/assistant image output/)
   })
 })

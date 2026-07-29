@@ -12,7 +12,7 @@ Status: implemented
 
 两个耦合的部分，与 `dsh web` PR（#443）提出的 `apps/` 装配层对齐：
 
-**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 作为 `packages/*` 库之上的产品装配层加入 workspaces。bin 的分发把 `web` 和 `-p`/`--prompt` 保留给 PR #443（它们以指引退出），使两个分支能以接近并集的方式合并；其余一切都运行默认表面：交互式 TUI，加载随仓库提供的 `examples/tui-agent/cordis.yml`（或显式的配置参数），并以调用目录为工作区。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，用仓库的 tsx **从源码**运行该 bin，因此 `ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh` 安装的命令永远执行当前工作树。`pnpm run demo:tui` 运行同一入口。
+**`dsh` CLI（`apps/cli`，npm 名 `@deepseek-ai/dsh`）。** `apps/*` 作为 `packages/*` 库之上的产品装配层加入 workspaces。bin 的分发把 `web` 和 `-p`/`--prompt` 保留给 PR #443（它们以指引退出），使两个分支能以接近并集的方式合并；其余一切都运行默认表面：交互式 TUI，加载随仓库提供的 `examples/tui-agent/cordis.yml`（或显式的配置参数），并以调用目录为工作区。已提交的 `bin/dsh` 启动器通过自身真实路径解析 checkout，通过 Node 的原生 TypeScript 转换和应用自身持有的 tsconfig-paths loader **从源码**运行该 bin，因此 `ln -sf "$(pwd)/bin/dsh" ~/.local/bin/dsh` 安装的命令永远执行当前工作树。`pnpm run demo:tui` 运行同一入口。
 
 **个人配置（`dsh-app-boot`）。** 个人 overlay 存放在 Harness home——`$DSH_HOME`，否则 `~/.dsh`——由共享的 [`resolveDshHome`](../architecture/2026-07-24-single-harness-home-resolver.md)（`@deepseek-ai/dsh-paths`）解析，与 skills、AGENTS.md 解析所依据的单一根目录相同。dsh 的 TUI 表面消费其中两个可选文件；各示例 bin 仍然逐字节按已提交的配置树启动：
 
