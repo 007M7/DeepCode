@@ -37,9 +37,7 @@ export interface TuiFocusable {
 export interface TuiTheme {
   /** Render ordinary foreground text. */
   readonly text: (value: string) => string
-  /** Render secondary information. */
-  readonly muted: (value: string) => string
-  /** Render low-emphasis hints. */
+  /** Render secondary information and low-emphasis hints, the one tone below `text`. */
   readonly dim: (value: string) => string
   /** Render the active accent role. */
   readonly accent: (value: string) => string

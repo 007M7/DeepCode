@@ -488,6 +488,20 @@ Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionT
 
 Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/compact/src/index.ts)
 
+## `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
+
+Abstract directory-picking service. Subclass, implement `capability()`, and load the subclass as a plugin — it registers as `ctx.directoryPicker` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior). The capability object must be stable for the service lifetime: consumers may capture it across calls.
+
+```ts cordis-catalog
+/**
+ * The backend's interaction capability.
+ * @returns the discriminated capability consumers switch on.
+ */
+abstract capability(): DirectoryPickerCapability
+```
+
+Source: [`packages/host/directory-picker/src/index.ts:131`](../../packages/host/directory-picker/src/index.ts)
+
 ## `ctx.fs` — `FileSystem` (abstract seam)
 
 Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.
@@ -675,7 +689,7 @@ clear(agent: Agent, ref: GoalRef): GoalRef
 
 Types: [Agent](../core-data-structures/core.md) · [CreateGoalRequest](../core-data-structures/goal.md) · [EditGoalRequest](../core-data-structures/goal.md) · [GoalBlockReason](../core-data-structures/goal.md) · [GoalRef](../core-data-structures/goal.md) · [GoalView](../core-data-structures/goal.md)
 
-Source: [`packages/goal/goal/src/index.ts:135`](../../packages/goal/goal/src/index.ts)
+Source: [`packages/goal/goal/src/index.ts:197`](../../packages/goal/goal/src/index.ts)
 
 ## `ctx.httpServer` — `HttpServerService`
 
@@ -866,18 +880,27 @@ Source: [`packages/ui/permission/src/index.ts:97`](../../packages/ui/permission/
 get(agent: Agent): { active: boolean; pending?: boolean }
 
 /**
- * Select whether plan mode should be active from the next request boundary.
- * Repeated selection of the current or already-pending state is a no-op.
+ * Select whether plan mode should be active. Between turns the change
+ * commits immediately — no request boundary would arrive until the next
+ * prompt, so a queued intent would hang (the open-turn fold is the idle
+ * signal: agent status stays `running` through post-turn checkpointing,
+ * where a boundary equally never comes). During an open turn the
+ * selection is held as pending intent for the next in-turn request
+ * boundary. Repeated selection of the current or already-pending state is
+ * a no-op.
  *
  * @param agent The agent to switch.
  * @param active Whether plan mode should be active.
+ * @returns what happened: `committed` (logged now), `queued` (awaiting the
+ * next boundary), `cancelled` (an opposite pending selection was cleared;
+ * the logged state already matches), or `noop` (already in that state).
  */
-set(agent: Agent, active: boolean): void
+set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop'
 ```
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:142`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -2144,7 +2167,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:191`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:251`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

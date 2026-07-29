@@ -265,6 +265,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'directoryPicker',
+    summary: 'Abstract directory-picking service.',
+    methods: [
+      {
+        signature: 'abstract capability(): DirectoryPickerCapability',
+        jsDoc: '/**\n * The backend\'s interaction capability.\n * @returns the discriminated capability consumers switch on.\n */',
+      },
+    ],
+  },
+  {
     key: 'fs',
     summary: 'Abstract filesystem provider.',
     methods: [
@@ -437,8 +447,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read the logged plan state and any selected state awaiting a boundary.\n *\n * @param agent The agent to read.\n * @returns Current logged state plus a pending selection, when present.\n */',
       },
       {
-        signature: 'set(agent: Agent, active: boolean): void',
-        jsDoc: '/**\n * Select whether plan mode should be active from the next request boundary.\n * Repeated selection of the current or already-pending state is a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n */',
+        signature: 'set(agent: Agent, active: boolean): \'committed\' | \'queued\' | \'cancelled\' | \'noop\'',
+        jsDoc: '/**\n * Select whether plan mode should be active. Between turns the change\n * commits immediately — no request boundary would arrive until the next\n * prompt, so a queued intent would hang (the open-turn fold is the idle\n * signal: agent status stays `running` through post-turn checkpointing,\n * where a boundary equally never comes). During an open turn the\n * selection is held as pending intent for the next in-turn request\n * boundary. Repeated selection of the current or already-pending state is\n * a no-op.\n *\n * @param agent The agent to switch.\n * @param active Whether plan mode should be active.\n * @returns what happened: `committed` (logged now), `queued` (awaiting the\n * next boundary), `cancelled` (an opposite pending selection was cleared;\n * the logged state already matches), or `noop` (already in that state).\n */',
       },
     ],
   },
@@ -1648,6 +1658,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DiffResultView',
     declaration: 'export interface DiffResultView {\n    card: \'diff\';\n    title?: string;\n    diffs: FileDiff[];\n}',
+  },
+  {
+    name: 'DirectoryEntry',
+    declaration: 'export interface DirectoryEntry {\n    name: string;\n    path: string;\n    hidden: boolean;\n}',
+  },
+  {
+    name: 'DirectoryListing',
+    declaration: 'export interface DirectoryListing {\n    path: string;\n    home: string;\n    crumbs: DirectoryEntry[];\n    entries: DirectoryEntry[];\n    truncated: boolean;\n}',
+  },
+  {
+    name: 'DirectoryPickerBrowseCapability',
+    declaration: 'export interface DirectoryPickerBrowseCapability {\n    kind: \'browse\';\n    list(path?: string, signal?: AbortSignal): Promise<DirectoryListing>;\n    createDirectory(path: string, name: string): Promise<string>;\n}',
+  },
+  {
+    name: 'DirectoryPickerCapabilities',
+    declaration: 'export interface DirectoryPickerCapabilities {\n    native: DirectoryPickerNativeCapability;\n    browse: DirectoryPickerBrowseCapability;\n}',
+  },
+  {
+    name: 'DirectoryPickerCapability',
+    declaration: 'export type DirectoryPickerCapability = DirectoryPickerCapabilities[keyof DirectoryPickerCapabilities];',
+  },
+  {
+    name: 'DirectoryPickerNativeCapability',
+    declaration: 'export interface DirectoryPickerNativeCapability {\n    kind: \'native\';\n    pick(signal: AbortSignal): Promise<string | null>;\n}',
   },
   {
     name: 'Domain',
