@@ -12,9 +12,10 @@ interface Profile {
   readonly sha256: string
 }
 
-// Captured from eslint.config.mjs blob 696b08282885296830189fdafe7051a356806fc2
-// after mapping @typescript-eslint/* to typescript/* and the four extension
-// rules to their Oxlint core equivalents.
+// A one-time audit against eslint.config.mjs blob 696b08282885296830189fdafe7051a356806fc2
+// mapped @typescript-eslint/* to typescript/* and four extension rules to their
+// Oxlint core equivalents. These fingerprints pin the resulting repository
+// contract; they do not re-evaluate that deleted baseline or track its preset.
 const profiles = {
   source: {
     count: 88,
@@ -59,13 +60,10 @@ function normalizedRules(rules: Rules): Rules {
     }))
 }
 
-function mergedRules(config: unknown, indexes: readonly number[]): Rules {
-  if (!isRecord(config) || !Array.isArray(config.overrides)) {
-    throw new Error('.oxlintrc.json must contain an overrides array')
-  }
+function mergedRules(overrides: readonly unknown[], indexes: readonly number[]): Rules {
   const merged: Rules = {}
   for (const index of indexes) {
-    const override: unknown = config.overrides[index]
+    const override = overrides[index]
     if (!isRecord(override) || !isRecord(override.rules)) {
       throw new Error(`.oxlintrc.json override ${index} must contain a rules object`)
     }
@@ -74,16 +72,24 @@ function mergedRules(config: unknown, indexes: readonly number[]): Rules {
   return normalizedRules(merged)
 }
 
-describe('Oxlint migration rule parity', () => {
+describe('Oxlint repository rule fingerprint', () => {
   const path = fileURLToPath(new URL('../.oxlintrc.json', import.meta.url))
   const result = parseConfigFileTextToJson(path, readFileSync(path, 'utf8'))
   if (result.error !== undefined) {
     throw new Error(flattenDiagnosticMessageText(result.error.messageText, '\n'))
   }
   const parsed: unknown = result.config
+  if (!isRecord(parsed) || !Array.isArray(parsed.overrides)) {
+    throw new Error('.oxlintrc.json must contain an overrides array')
+  }
+  const overrides: readonly unknown[] = parsed.overrides
 
-  it.each(Object.entries(profiles))('matches the ESLint %s profile pairwise', (_name, profile) => {
-    const rules = mergedRules(parsed, profile.indexes)
+  it('pins the complete override shape', () => {
+    expect(overrides).toHaveLength(6)
+  })
+
+  it.each(Object.entries(profiles))('pins the %s rule profile', (_name, profile) => {
+    const rules = mergedRules(overrides, profile.indexes)
     const fingerprint = createHash('sha256').update(JSON.stringify(rules)).digest('hex')
 
     expect(Object.keys(rules)).toHaveLength(profile.count)
