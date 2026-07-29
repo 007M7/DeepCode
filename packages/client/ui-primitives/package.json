@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-primitives",
-  "description": "Pure React atoms for the dsh web UI: StateDot, ic_ds_* icon set, Button/Pill/Menu/Modal/Input, markdown family (zero cordis)",
+  "description": "Pure React atoms for the dsh web UI: controls, icons, markdown, and JSON inspectors (zero cordis)",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -23,6 +23,9 @@
     "@shikijs/langs": "^4.3.1",
     "anser": "^2.3.5",
     "clsx": "^2.0.0",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm": "^3.1.0",
+    "micromark-extension-gfm": "^3.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
