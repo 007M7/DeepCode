@@ -4,12 +4,11 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
-import {} from '@deepseek-ai/dsh-agent'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
+import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import SkillService from '@deepseek-ai/dsh-skill'
 import * as SkillLocal from '@deepseek-ai/dsh-skill-local'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -30,8 +29,9 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRegistry)
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillService)
-  await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
+  await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -57,6 +57,50 @@ function agentForCwd(cwd: string): Agent {
   }
 }
 
+function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
+  return {
+    id: SessionId(id),
+    options: {},
+    session,
+    status: 'running',
+    acceptsNextStep: false,
+    ctx: new Context(),
+    send: () => {},
+    followup: () => {},
+    steer: () => {},
+    inject(input) {
+      session.append('user/message', input, { surfaceOp: 'append' })
+    },
+    cancel() {},
+    whenIdle: () => Promise.resolve(),
+  }
+}
+
+function openMessageTurn(session: Session, turn = 1): void {
+  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: `turn ${turn}` }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+}
+
+async function fireStep(ctx: Context, agent: Agent, turn: number, step: number): Promise<void> {
+  await agentEvents(ctx, agent).serial('agent/step', turn, step, new AbortController().signal)
+}
+
+function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
+  return session.events.filter((event): event is Extract<SessionEvent, { type: 'user/message' }> => event.type === 'user/message'
+    && event.data.source.kind === 'plugin'
+    && event.data.source.plugin === 'dsh-tool-skill')
+}
+
+function catalogContent(entries: string[]): Message['content'] {
+  return [{
+    type: 'text',
+    text: ['<system-reminder>', '<available_skills>', ...entries, '</available_skills>', '</system-reminder>'].join('\n'),
+  }]
+}
+
 async function composePrefix(ctx: Context, cwd: string, signal = new AbortController().signal): Promise<Message[]> {
   return await composePrefixForAgent(ctx, agentForCwd(cwd), signal)
 }
@@ -66,8 +110,8 @@ async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new Ab
   return agent.session.deriveMessages()
 }
 
-async function mintAgentScope(ctx: Context, cwd: string): Promise<{ agent: Agent; scope: Scope }> {
-  const agent = agentForCwd(cwd)
+async function mintAgentScope(ctx: Context, subject: string | Agent): Promise<{ agent: Agent; scope: Scope }> {
+  const agent = typeof subject === 'string' ? agentForCwd(subject) : subject
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) }, {
     inject: ['tools'],
@@ -80,9 +124,10 @@ describe('dsh-tool-skill', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
     const home = await tempDir('tool-schema')
     await ctx.plugin(SkillService)
-    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
+    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
     ctx.skills.register({ name: 'lifecycle-skill', description: 'Lifecycle', source: 'runtime', content: 'body' })
 
     const fiber = await ctx.plugin(toolSkill)
@@ -106,7 +151,7 @@ describe('dsh-tool-skill', () => {
     const home = await tempDir('tool-prefix-signal')
     const ctx = await setup(home)
     let seenSignal: AbortSignal | undefined
-    ctx.skills.registerProvider({
+    ctx.skills.registerProvider(() => ({
       name: 'signal-probe',
       async list(options) {
         seenSignal = options.signal
@@ -115,7 +160,7 @@ describe('dsh-tool-skill', () => {
       async get() {
         return undefined
       },
-    })
+    }))
     const controller = new AbortController()
 
     await composePrefix(ctx, '/workspace', controller.signal)
@@ -191,15 +236,233 @@ describe('dsh-tool-skill', () => {
     expect(await composePrefix(ctx, '/workspace')).toEqual([])
   })
 
+  it('omits an incomplete initial catalog and retries on a later request boundary', async () => {
+    const home = await tempDir('tool-incomplete-prefix')
+    const ctx = await setup(home)
+    let failing = true
+    const provider = {
+      name: 'recovering',
+      async list() {
+        if (failing) throw new Error('temporarily unavailable')
+        return []
+      },
+      async get() {
+        return undefined
+      },
+    }
+    let invalidate = (): void => {}
+    ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      return provider
+    })
+    const session = new Session(SessionId('incomplete-prefix'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+
+    await composePrefixForAgent(ctx, agent)
+    expect(catalogMessages(session)).toEqual([])
+    failing = false
+    invalidate()
+    await fireStep(ctx, agent, 1, 1)
+
+    expect(catalogMessages(session)).toEqual([])
+  })
+
+  it('records an empty baseline across repeated step observations', async () => {
+    const home = await tempDir('tool-empty-step')
+    const ctx = await setup(home)
+    const session = new Session(SessionId('empty-step'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+
+    await fireStep(ctx, agent, 1, 1)
+    await fireStep(ctx, agent, 1, 2)
+
+    expect(catalogMessages(session)).toEqual([])
+  })
+
+  it('injects complete replacement catalogs for additions and an empty tombstone for removals', async () => {
+    const home = await tempDir('tool-dynamic-catalog')
+    const ctx = await setup(home)
+    const disposeFirst = ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = new Session(SessionId('dynamic-catalog'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+
+    expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('first-skill')
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toHaveLength(1)
+
+    const disposeSecond = ctx.skills.register({
+      name: 'second-skill',
+      description: 'Second skill',
+      source: 'runtime',
+      content: 'Second body.',
+    })
+    await fireStep(ctx, agent, 1, 2)
+
+    const addition = catalogMessages(session)[1]
+    if (addition?.type !== 'user/message') throw new Error('expected catalog addition')
+    expect(JSON.stringify(addition.data.content)).toContain('first-skill')
+    expect(JSON.stringify(addition.data.content)).toContain('second-skill')
+
+    disposeSecond()
+    disposeFirst()
+    await fireStep(ctx, agent, 1, 3)
+
+    const removal = catalogMessages(session)[2]
+    if (removal?.type !== 'user/message') throw new Error('expected catalog removal')
+    expect(JSON.stringify(removal.data.content)).toContain('No skills are currently available')
+    expect(JSON.stringify(removal.data.content)).not.toContain('first-skill')
+    expect(JSON.stringify(removal.data.content)).not.toContain('second-skill')
+
+    await fireStep(ctx, agent, 1, 4)
+    expect(catalogMessages(session)).toHaveLength(3)
+  })
+
+  it('resumes from the latest valid visible catalog content', async () => {
+    const home = await tempDir('tool-catalog-resume')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'resumed-skill',
+      description: 'Resumed skill',
+      source: 'runtime',
+      content: 'Resumed body.',
+    })
+    const session = new Session(SessionId('catalog-resume'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    session.append('user/message', createUserMessage({
+      content: catalogContent(['- `old-skill`: Old skill']),
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'missing catalog markers' }],
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<available_skills>\nmissing closing marker' }],
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'first block' }, { type: 'text', text: 'second block' }],
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'reasoning', text: 'not a user-role catalog block' }],
+      source: { kind: 'plugin', plugin: 'dsh-tool-skill' },
+    }), { surfaceOp: 'append' })
+
+    await fireStep(ctx, agent, 1, 1)
+
+    expect(catalogMessages(session)).toHaveLength(6)
+    expect(JSON.stringify(catalogMessages(session).at(-1)?.data.content)).toContain('resumed-skill')
+  })
+
+  it('re-establishes the current catalog after compaction hides its durable message', async () => {
+    const home = await tempDir('tool-catalog-compaction')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = new Session(SessionId('catalog-compaction'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('first-skill')
+    const initial = catalogMessages(session)[0]
+    if (initial === undefined) throw new Error('expected initial catalog')
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'compacted history' }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    }), {
+      surfaceOp: { op: 'replace', start: initial.seq, end: initial.seq },
+      sourceEventSeqs: [initial.seq],
+    })
+
+    await fireStep(ctx, agent, 1, 1)
+
+    expect(catalogMessages(session)).toHaveLength(2)
+    expect(JSON.stringify(catalogMessages(session).at(-1)?.data.content)).toContain('first-skill')
+  })
+
+  it('keeps body-only edits out of the catalog and loads the latest body on demand', async () => {
+    const home = await tempDir('tool-body-refresh')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'body-skill', 'Stable description', 'First body.')
+    const ctx = await setup(home)
+    const session = new Session(SessionId('body-refresh'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+
+    expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('Stable description')
+    await writeSkill(root, 'body-skill', 'Stable description', 'Second body.')
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toHaveLength(1)
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('body-refresh'),
+      name: 'skill',
+      arguments: { name: 'body-skill' },
+      agent,
+    })
+    expect(result.isError).toBe(false)
+    expect(JSON.stringify(result.content)).toContain('Second body.')
+    expect(JSON.stringify(result.content)).not.toContain('First body.')
+  })
+
+  it('retains the last-good catalog while any provider discovery is incomplete', async () => {
+    const home = await tempDir('tool-incomplete-catalog')
+    const ctx = await setup(home)
+    const disposeStable = ctx.skills.register({
+      name: 'stable-skill',
+      description: 'Stable skill',
+      source: 'runtime',
+      content: 'Stable body.',
+    })
+    const session = new Session(SessionId('incomplete-catalog'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    expect(JSON.stringify(await composePrefixForAgent(ctx, agent))).toContain('stable-skill')
+
+    ctx.skills.registerProvider(() => ({
+      name: 'failing',
+      async list() {
+        throw new Error('temporarily unavailable')
+      },
+      async get() {
+        return undefined
+      },
+    }))
+    disposeStable()
+    await fireStep(ctx, agent, 1, 1)
+
+    expect(catalogMessages(session)).toHaveLength(1)
+  })
+
   it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
     const home = await tempDir('tool-restricted-catalog')
     const ctx = await setup(home)
     ctx.skills.register({ name: 'listed-skill', description: 'Listed', source: 'runtime', content: 'body' })
-    const { agent, scope } = await mintAgentScope(ctx, '/workspace')
+    const session = new Session(SessionId('restricted-catalog'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    const { scope } = await mintAgentScope(ctx, agent)
     scope.ctx.tools.restrict({ deny: ['skill'] })
 
     expect(ctx.tools.get('skill', agent)).toBeUndefined()
-    expect(await composePrefixForAgent(ctx, agent)).toEqual([])
+    await composePrefixForAgent(ctx, agent)
+    expect(catalogMessages(session)).toEqual([])
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toEqual([])
     expect(await composePrefix(ctx, '/workspace')).toHaveLength(1)
     await scope.dispose()
   })
@@ -229,8 +492,9 @@ describe('dsh-tool-skill', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
+    await ctx.plugin(AgentRegistry)
     await ctx.plugin(SkillService)
-    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents') })
+    await ctx.plugin(SkillLocal, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
 
     await expect(ctx.plugin(toolSkill, { catalogDescriptionMaxLength: 2 })).rejects.toThrow('greater than or equal to 3')
   })

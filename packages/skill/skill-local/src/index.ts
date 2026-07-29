@@ -10,9 +10,11 @@
  */
 
 import { access, readdir, readFile, stat } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { unwatchFile, watchFile, type Stats } from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import type { Context } from 'cordis'
+import chokidar from 'chokidar'
 import z from 'schemastery'
 import type Schema from 'schemastery'
 import { parse as parseYaml } from 'yaml'
@@ -24,6 +26,8 @@ import {
   type SkillDefinition,
   type SkillLookupOptions,
   type SkillProvider,
+  type SkillProviderControl,
+  type SkillProviderObservation,
   type SkillSource,
 } from '@deepseek-ai/dsh-skill'
 
@@ -32,6 +36,9 @@ const PROJECT_AGENTS_RANK = 200
 const CUSTOM_RANK = 300
 const USER_DSH_RANK = 400
 const USER_AGENTS_RANK = 500
+const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
+const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
+const DEFAULT_WATCH_MAX_PROJECTS = 128
 const BUNDLED_RANK = 600
 
 export const name = 'skill-local'
@@ -45,6 +52,18 @@ export interface Config {
   agentsHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
+  /** Whether host-local skill roots are watched for catalog changes. */
+  watch?: boolean
+  /** Whether Chokidar uses polling instead of native filesystem events. */
+  watchUsePolling?: boolean
+  /** Milliseconds a changed skill entry must remain stable before it is observed. */
+  watchStabilityThresholdMs?: number
+  /** Milliseconds between Chokidar stability or polling probes. */
+  watchPollIntervalMs?: number
+  /** Maximum distinct project roots whose skill directories remain watched. */
+  watchMaxProjects?: number
+  /** Whether watched symbolic links follow their target files. */
+  watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR`, otherwise mounts none. */
   bundledSkillDir?: string
 }
@@ -53,6 +72,12 @@ export const Config: Schema<Config> = z.object({
   dshHome: z.string(),
   agentsHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
+  watch: z.boolean().default(true),
+  watchUsePolling: z.boolean().default(false),
+  watchStabilityThresholdMs: z.number().default(DEFAULT_WATCH_STABILITY_THRESHOLD_MS),
+  watchPollIntervalMs: z.number().default(DEFAULT_WATCH_POLL_INTERVAL_MS),
+  watchMaxProjects: z.number().default(DEFAULT_WATCH_MAX_PROJECTS),
+  watchFollowSymlinks: z.boolean().default(true),
   bundledSkillDir: z.string(),
 })
 
@@ -61,6 +86,7 @@ interface SkillRoot {
   source: SkillSource
   rank: number
   skipSystem?: boolean
+  projectRoot?: string
   trustedHost?: boolean
 }
 
@@ -84,10 +110,29 @@ interface LocalLocator {
   directory: string
 }
 
+interface ResolvedWatchConfig {
+  enabled: boolean
+  usePolling: boolean
+  stabilityThresholdMs: number
+  pollIntervalMs: number
+  maxProjects: number
+  followSymlinks: boolean
+}
+
 /** Register the local filesystem skill provider on `ctx.skills`. */
 export function apply(ctx: Context, config: Config = {}): void {
-  const provider = new LocalSkillProvider(ctx, config)
-  ctx.skills.registerProvider(provider)
+  let provider!: LocalSkillProvider
+  ctx.skills.registerProvider((control) => {
+    provider = new LocalSkillProvider(ctx, control, config)
+    return provider
+  })
+  ctx.effect(function* () {
+    yield async () => { await provider.dispose() }
+  }, 'skill-local watcher')
+  ctx.on('fs/observed', (target, _version, actor) => {
+    if (mutationToolName(actor) === undefined) return
+    provider.observeHostMutation(target.displayPath)
+  })
 }
 
 /** Provider that maps local project/user skill roots into `ctx.skills`. */
@@ -96,12 +141,20 @@ export class LocalSkillProvider implements SkillProvider {
   private readonly dshHome: string
   private readonly agentsHome: string
   private readonly customSkillDirs: string[]
+  private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
+  private disposal: Promise<void> | undefined
 
-  constructor(private readonly ctx: Context, config: Config = {}) {
+  constructor(
+    private readonly ctx: Context,
+    control: SkillProviderControl,
+    config: Config = {},
+  ) {
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
+    this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
+    control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     const bundledSkillDir = config.bundledSkillDir ?? process.env.DSH_BUNDLED_SKILL_DIR
     this.bundledSkillDir = bundledSkillDir === undefined ? undefined : resolve(bundledSkillDir)
   }
@@ -109,17 +162,25 @@ export class LocalSkillProvider implements SkillProvider {
   /**
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
-   * @returns local provider candidates with stable root ranks.
+   * @returns local provider candidates with stable root ranks; watcher startup
+   *   failure returns readable candidates as an incomplete observation.
    */
-  async list(options: SkillLookupOptions): Promise<SkillCandidate[]> {
+  async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
     const roots = await this.roots(options.cwd)
+    let complete = true
+    try {
+      await this.watchManager.observeRoots(roots)
+    } catch (error) {
+      if (this.disposal !== undefined) throw error
+      complete = false
+    }
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
       for (const skill of await discoverRoot(root, this.ctx)) {
         candidates.push(skill)
       }
     }
-    return candidates
+    return complete ? candidates : { candidates, complete }
   }
 
   /**
@@ -146,13 +207,30 @@ export class LocalSkillProvider implements SkillProvider {
     }
   }
 
+  /**
+   * Invalidate this provider synchronously after a first-party filesystem mutation.
+   * @param path - host display path observed after a model-facing write or edit.
+   */
+  observeHostMutation(path: string): void {
+    this.watchManager.observeHostMutation(path)
+  }
+
+  /**
+   * Close every host watcher and contain late filesystem callbacks.
+   * @returns a shared promise that settles when every watcher reaches quiescence.
+   */
+  dispose(): Promise<void> {
+    this.disposal ??= this.watchManager.dispose()
+    return this.disposal
+  }
+
   private async roots(cwd: string | undefined): Promise<SkillRoot[]> {
     const roots: SkillRoot[] = []
     if (cwd !== undefined) {
       const projectRoot = await findProjectRoot(resolve(cwd), optionalFileSystem(this.ctx))
       roots.push(
-        { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK },
-        { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK },
+        { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
+        { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
       )
     }
     roots.push(
@@ -165,6 +243,453 @@ export class LocalSkillProvider implements SkillProvider {
     )
     return roots
   }
+}
+
+type SkillWatchEvent = 'add' | 'addDir' | 'change' | 'unlink' | 'unlinkDir'
+
+type RootWatchMode =
+  | { kind: 'root'; anchor: string }
+  | { kind: 'ancestor'; anchor: string; nextPath: string }
+
+interface RootWatchState {
+  root: SkillRoot
+  owners: Set<string>
+  watcher: WatchHandle | undefined
+  opening: Promise<void> | undefined
+  unhealthy: boolean
+}
+
+interface WatchHandle {
+  mode: RootWatchMode
+  close(): Promise<void> | void
+}
+
+/** Owns bounded host watchers while discovery and reads remain on the filesystem service. */
+class SkillWatchManager {
+  private readonly roots = new Map<string, RootWatchState>()
+  private readonly projects = new Map<string, Set<string>>()
+  private readonly lifecycle = new AbortController()
+  private closing = false
+  private invalidationQueued = false
+
+  constructor(
+    private readonly ctx: Context,
+    private readonly invalidate: () => void,
+    private readonly config: ResolvedWatchConfig,
+  ) {}
+
+  async observeRoots(roots: readonly SkillRoot[]): Promise<void> {
+    if (this.closing) return
+    const projectRoots = new Map<string, SkillRoot[]>()
+    const pending: Promise<void>[] = []
+    for (const root of roots) {
+      if (root.projectRoot === undefined) {
+        pending.push(this.retainRoot(root, `shared:${root.path}`))
+        continue
+      }
+      const grouped = projectRoots.get(root.projectRoot) ?? []
+      grouped.push(root)
+      projectRoots.set(root.projectRoot, grouped)
+    }
+    for (const [projectRoot, grouped] of projectRoots) {
+      const owner = `project:${projectRoot}`
+      this.projects.delete(projectRoot)
+      const paths = new Set(grouped.map(root => root.path))
+      this.projects.set(projectRoot, paths)
+      for (const root of grouped) pending.push(this.retainRoot(root, owner))
+    }
+    let evictedProject = false
+    while (this.projects.size > this.config.maxProjects) {
+      const oldest = this.projects.entries().next()
+      /* v8 ignore next -- the loop condition proves one project exists. */
+      if (oldest.done) break
+      const [projectRoot, paths] = oldest.value
+      this.projects.delete(projectRoot)
+      const owner = `project:${projectRoot}`
+      for (const path of paths) pending.push(this.releaseRoot(path, owner))
+      evictedProject = true
+    }
+    await Promise.all(pending)
+    if (evictedProject) this.invalidate()
+  }
+
+  observeHostMutation(path: string): void {
+    if (this.closing) return
+    const normalized = resolve(path)
+    if (![...this.roots.values()].some(state => isPotentialSkillPath(state.root, normalized))) return
+    this.invalidate()
+  }
+
+  async dispose(): Promise<void> {
+    this.closing = true
+    this.lifecycle.abort(new Error('skill-local watcher disposed'))
+    const states = [...this.roots.values()]
+    this.roots.clear()
+    this.projects.clear()
+    await Promise.all(states.map(async (state) => {
+      await settleWatcherOpening(state.opening)
+      const watcher = state.watcher
+      state.watcher = undefined
+      if (watcher !== undefined) await this.closeWatcher(watcher)
+    }))
+  }
+
+  private async retainRoot(root: SkillRoot, owner: string): Promise<void> {
+    let state = this.roots.get(root.path)
+    if (state === undefined) {
+      state = { root, owners: new Set(), watcher: undefined, opening: undefined, unhealthy: true }
+      this.roots.set(root.path, state)
+    }
+    state.owners.add(owner)
+    if (this.config.enabled) await this.ensureWatcher(state)
+  }
+
+  private async releaseRoot(path: string, owner: string): Promise<void> {
+    const state = this.roots.get(path)
+    /* v8 ignore next -- Concurrent cwd observations can evict the same shared root before this release settles. */
+    if (state === undefined) return
+    state.owners.delete(owner)
+    if (state.owners.size > 0) return
+    this.roots.delete(path)
+    await settleWatcherOpening(state.opening)
+    const watcher = state.watcher
+    state.watcher = undefined
+    if (watcher !== undefined) await this.closeWatcher(watcher)
+  }
+
+  private ensureWatcher(state: RootWatchState): Promise<void> {
+    /* v8 ignore next -- A scheduled rewatch can reach this guard only when teardown wins its await. */
+    if (this.closing || !this.config.enabled) return Promise.resolve()
+    if (state.opening !== undefined) return state.opening
+    const opening = this.ensureCurrentWatcher(state)
+    state.opening = opening
+    void opening.then(
+      () => {
+        state.opening = undefined
+      },
+      () => {
+        state.opening = undefined
+      },
+    )
+    return opening
+  }
+
+  private async ensureCurrentWatcher(state: RootWatchState): Promise<void> {
+    const watcher = state.watcher
+    if (watcher !== undefined && !state.unhealthy) {
+      const current = await resolveRootWatchMode(state.root.path)
+      // A child unlink can publish an empty catalog before root unlinkDir arrives.
+      // Discovery therefore revalidates the retained handle independently.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- watcher callbacks can mark unhealthy while the probe awaits
+      if (!state.unhealthy && sameWatchMode(watcher.mode, current)) return
+    }
+    await this.replaceWatcher(state)
+  }
+
+  private async replaceWatcher(state: RootWatchState): Promise<void> {
+    const previous = state.watcher
+    state.watcher = undefined
+    if (previous !== undefined) await this.closeWatcher(previous)
+    /* v8 ignore next -- Teardown can win while an unhealthy watcher is still closing. */
+    if (this.closing || state.owners.size === 0) return
+    try {
+      const watcher = await this.openStableWatcher(state)
+      /* v8 ignore next -- The loop returns no handle only when teardown wins between awaited probes. */
+      if (watcher === undefined) return
+      /* v8 ignore start -- Post-open teardown is timing-dependent; the disposal race has an explicit integration test. */
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- teardown can race awaited watcher startup
+      if (this.closing || state.owners.size === 0) {
+        await this.closeWatcher(watcher)
+        return
+      }
+      /* v8 ignore stop */
+      state.watcher = watcher
+      state.unhealthy = false
+    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- teardown can race awaited watcher startup
+      if (!this.closing) {
+        state.unhealthy = true
+        this.ctx.logger.warn(`skill-local: failed to watch ${state.root.path}: ${errorMessage(error)}`)
+      }
+      throw error
+    }
+  }
+
+  // TODO(file-watch-service): Extract Chokidar and missing-root observation below into a Cordis
+  // service; keep skill filtering and invalidation here.
+  private async openStableWatcher(state: RootWatchState): Promise<WatchHandle | undefined> {
+    while (!this.closing && state.owners.size > 0) {
+      const mode = await resolveRootWatchMode(state.root.path)
+      const watcher = mode.kind === 'ancestor'
+        ? this.openAncestorWatcher(state, mode)
+        : await this.openRootWatcher(state, mode)
+      const current = await resolveRootWatchMode(state.root.path)
+      /* v8 ignore else -- A host path transition between the two probes is timing-dependent. */
+      if (sameWatchMode(mode, current)) return watcher
+      /* v8 ignore next -- Covered by the same host path transition guard. */
+      await this.closeWatcher(watcher)
+    }
+    /* v8 ignore next -- The loop exits only when teardown wins between awaited probes. */
+    return undefined
+  }
+
+  private openAncestorWatcher(state: RootWatchState, mode: Extract<RootWatchMode, { kind: 'ancestor' }>): WatchHandle {
+    const listener = (_current: Stats, _previous: Stats): void => {
+      void this.handleAncestorWatchEvent(state, mode)
+    }
+    watchFile(mode.nextPath, {
+      persistent: false,
+      interval: this.config.pollIntervalMs,
+    }, listener)
+    return {
+      mode,
+      close() {
+        unwatchFile(mode.nextPath, listener)
+      },
+    }
+  }
+
+  private async handleAncestorWatchEvent(
+    state: RootWatchState,
+    mode: Extract<RootWatchMode, { kind: 'ancestor' }>,
+  ): Promise<void> {
+    let current: RootWatchMode
+    try {
+      current = await resolveRootWatchMode(state.root.path)
+    } catch (error) {
+      /* v8 ignore start -- Non-absence stat failures need a platform permission or I/O fault. */
+      if (!this.closing && state.owners.size > 0) this.handleWatcherError(state, error)
+      return
+      /* v8 ignore stop */
+    }
+    if (this.closing || state.owners.size === 0 || sameWatchMode(mode, current)) return
+    this.queueInvalidation()
+    state.unhealthy = true
+    this.scheduleRewatch(state)
+  }
+
+  private async openRootWatcher(state: RootWatchState, mode: Extract<RootWatchMode, { kind: 'root' }>): Promise<WatchHandle> {
+    const watcher = chokidar.watch(mode.anchor, {
+      persistent: false,
+      ignoreInitial: true,
+      depth: 1,
+      followSymlinks: this.config.followSymlinks,
+      atomic: true,
+      awaitWriteFinish: {
+        stabilityThreshold: this.config.stabilityThresholdMs,
+        pollInterval: this.config.pollIntervalMs,
+      },
+      usePolling: this.config.usePolling,
+      interval: this.config.pollIntervalMs,
+    })
+    const handle: WatchHandle = {
+      mode,
+      close: () => watcher.close(),
+    }
+    let ready = false
+    const readiness = Promise.withResolvers<undefined>()
+    const signal = this.lifecycle.signal
+    if (signal.aborted) {
+      await this.closeWatcher(handle)
+      signal.throwIfAborted()
+    }
+    const onAbort = (): void => { readiness.reject(signal.reason) }
+    signal.addEventListener('abort', onAbort, { once: true })
+    const onError = (error: unknown): void => {
+      if (!ready) {
+        readiness.reject(error)
+        return
+      }
+      this.handleWatcherError(state, error)
+    }
+    watcher.on('error', onError)
+    watcher.once('ready', () => {
+      ready = true
+      readiness.resolve(undefined)
+    })
+    for (const event of ['add', 'addDir', 'change', 'unlink', 'unlinkDir'] as const) {
+      watcher.on(event, (path) => { this.handleWatchEvent(state, event, path) })
+    }
+    try {
+      await readiness.promise
+    } catch (error) {
+      await this.closeWatcher(handle)
+      throw error
+    } finally {
+      signal.removeEventListener('abort', onAbort)
+    }
+    return handle
+  }
+
+  private handleWatchEvent(
+    state: RootWatchState,
+    event: SkillWatchEvent,
+    path: string,
+  ): void {
+    if (this.closing || !isRelevantWatchEvent(state.root, event, resolve(path))) return
+    this.queueInvalidation()
+    if (resolve(path) === state.root.path && event === 'unlinkDir') {
+      state.unhealthy = true
+      this.scheduleRewatch(state)
+    }
+  }
+
+  private handleWatcherError(state: RootWatchState, error: unknown): void {
+    if (this.closing) return
+    this.ctx.logger.warn(`skill-local: watcher for ${state.root.path} failed: ${errorMessage(error)}`)
+    state.unhealthy = true
+    this.queueInvalidation()
+    this.scheduleRewatch(state)
+  }
+
+  private scheduleRewatch(state: RootWatchState): void {
+    const currentOpening = state.opening ?? Promise.resolve()
+    void (async () => {
+      await settleWatcherOpening(currentOpening)
+      try {
+        await this.ensureWatcher(state)
+      } catch {
+        // Watch startup logged the retry failure; the next incomplete discovery retries it again.
+        return
+      }
+      this.queueInvalidation()
+    })()
+  }
+
+  private queueInvalidation(): void {
+    if (this.closing || this.invalidationQueued) return
+    this.invalidationQueued = true
+    queueMicrotask(() => {
+      this.invalidationQueued = false
+      /* v8 ignore next -- Effect teardown can win this queued microtask before provider disposal emits. */
+      if (this.closing) return
+      this.invalidate()
+    })
+  }
+
+  private async closeWatcher(watcher: WatchHandle): Promise<void> {
+    try {
+      await watcher.close()
+    } catch (error) {
+      this.ctx.logger.warn(`skill-local: failed to close watcher: ${errorMessage(error)}`)
+    }
+  }
+}
+
+async function settleWatcherOpening(opening: Promise<void> | undefined): Promise<void> {
+  if (opening === undefined) return
+  try {
+    await opening
+  } catch {
+    // Watch startup already logged the underlying failure; teardown only contains it.
+  }
+}
+
+function resolveWatchConfig(config: Config): ResolvedWatchConfig {
+  const stabilityThresholdMs = config.watchStabilityThresholdMs ?? DEFAULT_WATCH_STABILITY_THRESHOLD_MS
+  const pollIntervalMs = config.watchPollIntervalMs ?? DEFAULT_WATCH_POLL_INTERVAL_MS
+  const maxProjects = config.watchMaxProjects ?? DEFAULT_WATCH_MAX_PROJECTS
+  assertPositiveInteger('watchStabilityThresholdMs', stabilityThresholdMs)
+  assertPositiveInteger('watchPollIntervalMs', pollIntervalMs)
+  assertPositiveInteger('watchMaxProjects', maxProjects)
+  return {
+    enabled: config.watch ?? true,
+    usePolling: config.watchUsePolling ?? false,
+    stabilityThresholdMs,
+    pollIntervalMs,
+    maxProjects,
+    followSymlinks: config.watchFollowSymlinks ?? true,
+  }
+}
+
+async function resolveRootWatchMode(root: string): Promise<RootWatchMode> {
+  let candidate = root
+  while (true) {
+    try {
+      const info = await stat(candidate)
+      if (info.isDirectory()) {
+        if (candidate === root) return { kind: 'root', anchor: root }
+        const firstSegment = relative(candidate, root).split(sep)[0]
+        /* v8 ignore next -- candidate is a strict ancestor of root. */
+        if (firstSegment === undefined || firstSegment.length === 0) return { kind: 'root', anchor: root }
+        return { kind: 'ancestor', anchor: candidate, nextPath: join(candidate, firstSegment) }
+      }
+    } catch (error) {
+      /* v8 ignore next -- Non-absence stat failures are platform/permission-specific and propagate as incomplete discovery. */
+      if (!isAbsentPathError(error)) throw error
+    }
+    const parent = dirname(candidate)
+    /* v8 ignore next -- Traversal reaches the existing filesystem root before this fallback. */
+    if (parent === candidate) return { kind: 'ancestor', anchor: candidate, nextPath: root }
+    candidate = parent
+  }
+}
+
+function sameWatchMode(left: RootWatchMode, right: RootWatchMode): boolean {
+  return left.kind === right.kind
+    && left.anchor === right.anchor
+    && (left.kind === 'root' || (right.kind === 'ancestor' && left.nextPath === right.nextPath))
+}
+
+function isRelevantWatchEvent(
+  root: SkillRoot,
+  event: SkillWatchEvent,
+  path: string,
+): boolean {
+  const segments = containedSegments(root.path, path)
+  if (segments === undefined) return false
+  if (segments.length === 0) return event === 'addDir' || event === 'unlinkDir'
+  if (root.skipSystem === true && segments[0] === '.system') return false
+  if (segments.length === 1) {
+    if (event === 'addDir' || event === 'unlinkDir') return true
+    return segments[0]?.endsWith('.md') === true
+  }
+  return segments.length === 2
+    && segments[1] === 'SKILL.md'
+    && event !== 'addDir'
+    && event !== 'unlinkDir'
+}
+
+function isPotentialSkillPath(root: SkillRoot, path: string): boolean {
+  const segments = containedSegments(root.path, path)
+  if (segments === undefined || segments.length === 0 || segments.length > 2) return false
+  if (root.skipSystem === true && segments[0] === '.system') return false
+  return segments.length === 1
+    ? segments[0]?.endsWith('.md') === true
+    : segments[1] === 'SKILL.md'
+}
+
+function containedSegments(root: string, path: string): string[] | undefined {
+  const child = relative(root, path)
+  if (child.length === 0) return []
+  if (child === '..' || child.startsWith(`..${sep}`) || isAbsolute(child)) return undefined
+  return child.split(sep)
+}
+
+function mutationToolName(actor: object | undefined): 'edit' | 'write' | undefined {
+  if (actor === undefined || !('name' in actor)) return undefined
+  const value = actor.name
+  return value === 'edit' || value === 'write' ? value : undefined
+}
+
+function assertPositiveInteger(field: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new TypeError(`skill-local: ${field} must be a positive integer`)
+  }
+}
+
+function isAbsentPathError(error: unknown): boolean {
+  return hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'ENOTDIR')
+}
+
+function isAbsentSkillPathError(error: unknown): boolean {
+  return isAbsentPathError(error)
+    || hasErrorCode(error, 'FS_NOT_FOUND')
+    || hasErrorCode(error, 'FS_NOT_DIRECTORY')
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
 async function discoverRoot(root: SkillRoot, ctx: Context): Promise<SkillCandidate[]> {
@@ -204,9 +729,12 @@ async function listSkillRootEntries(root: SkillRoot, ctx: Context): Promise<Skil
 }
 
 async function listSkillRootEntriesFromFileSystem(root: SkillRoot, fs: FileSystem): Promise<SkillRootEntry[]> {
-  // Skill roots are optional; an absent or unlistable root contributes no skills.
-  const entries = await fsListDir(fs, root.path).catch(() => undefined)
-  return entries === undefined ? [] : entries.map(entryFromFs)
+  try {
+    return (await fsListDir(fs, root.path)).map(entryFromFs)
+  } catch (error) {
+    if (isAbsentSkillPathError(error)) return []
+    throw error
+  }
 }
 
 async function fsListDir(fs: FileSystem, path: string): Promise<FsDirEntry[]> {
@@ -222,9 +750,11 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
   let entries
   try {
     entries = await readdir(root.path, { withFileTypes: true, encoding: 'utf8' })
-  } catch {
-    // Missing or unreadable local skill roots are expected in most deployments.
-    return []
+  } catch (error) {
+    /* v8 ignore else -- Native non-absence directory failures are provider-dependent; the ctx.fs path pins incomplete discovery. */
+    if (isAbsentSkillPathError(error)) return []
+    /* v8 ignore next -- Same native error branch as above. */
+    throw error
   }
 
   const result: SkillRootEntry[] = []
@@ -285,31 +815,39 @@ async function readSkillText(ctx: Context, path: string, signal?: AbortSignal, t
   }
   try {
     return await readFile(path, { encoding: 'utf8', signal })
-  } catch {
+  } catch (error) {
     signal?.throwIfAborted()
-    return undefined
+    if (isAbsentSkillPathError(error)) return undefined
+    throw error
   }
 }
 
 async function readSkillTextFromFileSystem(ctx: Context, fs: FileSystem, path: string, signal?: AbortSignal): Promise<string | undefined> {
   // A missing or temporarily inaccessible skill file is not fatal to discovery.
   signal?.throwIfAborted()
-  const target = await fs.resolve(path).catch(() => undefined)
+  let target
+  try {
+    target = await fs.resolve(path)
+  } catch (error) {
+    if (isAbsentSkillPathError(error)) return undefined
+    throw error
+  }
   signal?.throwIfAborted()
-  if (target === undefined) return undefined
   let info
   try {
     info = await fs.stat(target, signal)
   } catch (error) {
     signal?.throwIfAborted()
-    ctx.logger.warn(`skill file ${path} ignored: failed to stat through filesystem service: ${errorMessage(error)}`)
-    return undefined
+    if (isAbsentSkillPathError(error)) return undefined
+    throw error
   }
   if (info === undefined || info.type !== 'file') return undefined
   try {
     return await fs.readText(target, signal)
   } catch (error) {
     signal?.throwIfAborted()
+    if (isAbsentSkillPathError(error)) return undefined
+    if (!hasErrorCode(error, 'FS_NOT_TEXT')) throw error
     ctx.logger.warn(`skill file ${path} ignored: ${fsReadErrorMessage(target, error)}`)
     return undefined
   }
