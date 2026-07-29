@@ -683,13 +683,21 @@ function renderAppComposition(example: AppExample): string {
   return lines.join('\n')
 }
 
+type CallSiteIndex = Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>
+
+/** The only method names visitSource classifies; receiver typing runs on these alone. */
+const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', 'waterfall', 'dispatch'])
+
 /** Collect event dispatch/listener relations from real cross-file receiver types. */
 class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()
-  private readonly callSites = new Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>()
+  private readonly fileCallSites = new Map<ts.SourceFile, CallSiteIndex>()
+  private readonly localCalleeProofs = new Map<ts.FunctionDeclaration, boolean>()
+  private globalCallSites: CallSiteIndex | null = null
   private readonly contextType: ts.Type
   private readonly agentDispatchType: ts.Type
   private readonly eventsServiceType: ts.Type
+  private readonly packageSourceFiles: ReadonlySet<ts.SourceFile>
 
   constructor(
     private readonly project: TypeScriptProject,
@@ -698,7 +706,7 @@ class EventRelationCollector {
     this.contextType = this.declaredType('vendor/cordis/src/context.ts', 'Context')
     this.agentDispatchType = this.declaredType('packages/core/agent/src/dispatch.ts', 'AgentEventDispatch')
     this.eventsServiceType = this.declaredType('vendor/cordis/src/events.ts', 'EventsService')
-    this.indexCallSites()
+    this.packageSourceFiles = new Set(sources.map(source => source.sourceFile))
   }
 
   /** Return all event relations discovered from the Program. */
@@ -718,20 +726,81 @@ class EventRelationCollector {
     return this.project.checker.getDeclaredTypeOfSymbol(symbol)
   }
 
-  /** Index resolved local function calls for narrow argument-flow recovery. */
-  private indexCallSites(): void {
+  /** Index resolved function calls in the given files for narrow argument-flow recovery. */
+  private buildCallSiteIndex(files: Iterable<ts.SourceFile>): CallSiteIndex {
+    const index: CallSiteIndex = new Map()
     const visit = (node: ts.Node): void => {
       if (ts.isCallExpression(node)) {
         const declaration = this.project.checker.getResolvedSignature(node)?.declaration
         if (declaration) {
-          const calls = this.callSites.get(declaration) ?? []
+          const calls = index.get(declaration) ?? []
           calls.push(node)
-          this.callSites.set(declaration, calls)
+          index.set(declaration, calls)
         }
       }
       ts.forEachChild(node, visit)
     }
-    for (const source of this.sources) visit(source.sourceFile)
+    for (const file of files) visit(file)
+    return index
+  }
+
+  /**
+   * Return every indexed call resolving to one local helper declaration.
+   * Fast path: when every same-file reference to the non-exported helper is
+   * provably a direct callee, module scoping confines all of its calls to that
+   * file, so only that file is indexed. Any other reference shape may alias
+   * the function value outward, so the original full package-source index
+   * decides instead.
+   */
+  private callSitesFor(owner: ts.FunctionDeclaration): ts.CallExpression[] {
+    if (!this.globalCallSites && !this.provenLocalCallee(owner)) {
+      this.globalCallSites = this.buildCallSiteIndex(this.packageSourceFiles)
+    }
+    if (this.globalCallSites) return this.globalCallSites.get(owner) ?? []
+    const file = owner.getSourceFile()
+    let index = this.fileCallSites.get(file)
+    if (!index) {
+      index = this.buildCallSiteIndex([file])
+      this.fileCallSites.set(file, index)
+    }
+    return index.get(owner) ?? []
+  }
+
+  /**
+   * Prove every same-file reference to one helper is a direct callee. Alias
+   * escapes (re-export statements, default exports, value reads) resolve back
+   * to the owner symbol at a non-callee position and fail the proof, as does
+   * anything the scan cannot positively classify.
+   */
+  private provenLocalCallee(owner: ts.FunctionDeclaration): boolean {
+    const cached = this.localCalleeProofs.get(owner)
+    if (cached !== undefined) return cached
+    const name = owner.name
+    const ownerSymbol = name && this.project.checker.getSymbolAtLocation(name)
+    let proven = !!ownerSymbol
+    const refersToOwner = (identifier: ts.Identifier): boolean => {
+      // Shorthand properties resolve to the property symbol; ask for the value side.
+      const local = ts.isShorthandPropertyAssignment(identifier.parent)
+        ? this.project.checker.getShorthandAssignmentValueSymbol(identifier.parent)
+        : this.project.checker.getSymbolAtLocation(identifier)
+      if (!local) return false
+      const symbol = local.flags & ts.SymbolFlags.Alias
+        ? this.project.checker.getAliasedSymbol(local)
+        : local
+      return symbol === ownerSymbol
+    }
+    const visit = (node: ts.Node): void => {
+      if (!proven) return
+      if (ts.isIdentifier(node) && node !== name && node.text === name?.text
+        && !isDirectCallee(node) && refersToOwner(node)) {
+        proven = false
+        return
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(owner.getSourceFile())
+    this.localCalleeProofs.set(owner, proven)
+    return proven
   }
 
   /** Walk one package source file and classify event API calls by receiver type. */
@@ -745,7 +814,7 @@ class EventRelationCollector {
               this.addDispatcher(name, source.pkg, 'emitAgentEvent')
             }
           }
-        } else if (ts.isPropertyAccessExpression(node.expression)) {
+        } else if (ts.isPropertyAccessExpression(node.expression) && EVENT_API_METHODS.has(node.expression.name.text)) {
           const receiverKind = this.receiverKind(node.expression.expression)
           const method = node.expression.name.text
           if (receiverKind === 'events-service' && method === 'dispatch') {
@@ -848,7 +917,7 @@ class EventRelationCollector {
     const index = owner.parameters.indexOf(parameter)
     if (index < 0) return new Set()
     const events = new Set<string>()
-    for (const call of this.callSites.get(owner) ?? []) {
+    for (const call of this.callSitesFor(owner)) {
       const argument = call.arguments[index]
       if (argument) addAll(events, this.eventNamesFromArgumentList(argument, new Set(seen)))
     }
@@ -893,6 +962,21 @@ class EventRelationCollector {
     methods.add(method)
     relation.dispatchers.set(pkg, methods)
   }
+}
+
+/** Return whether an identifier is the callee of a call, seen through value-preserving wrappers. */
+function isDirectCallee(identifier: ts.Identifier): boolean {
+  let current: ts.Node = identifier
+  while (
+    ts.isParenthesizedExpression(current.parent)
+    || ts.isAsExpression(current.parent)
+    || ts.isTypeAssertionExpression(current.parent)
+    || ts.isNonNullExpression(current.parent)
+    || ts.isSatisfiesExpression(current.parent)
+  ) {
+    current = current.parent
+  }
+  return ts.isCallExpression(current.parent) && current.parent.expression === current
 }
 
 /** Peel syntax-only wrappers that do not change an expression's runtime value. */
