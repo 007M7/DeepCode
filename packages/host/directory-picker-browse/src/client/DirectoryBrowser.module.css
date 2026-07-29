@@ -55,7 +55,9 @@
   align-items: stretch;
   flex: 1 1 0;
   min-height: 0;
-  gap: 20px;
+  /* Columns already end in an 8px scrollbar clearance, so the divider only
+   * needs a slim gap of its own on each side. */
+  gap: 12px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -136,7 +138,9 @@
   flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
-  padding: 16px 24px;
+  /* Right inset is slimmer than the left: the trailing column's own 8px
+   * scrollbar clearance makes up the optical difference. */
+  padding: 16px 16px 16px 24px;
 }
 
 /* Two-pane columns split the row evenly around the divider; 256px is the
@@ -149,6 +153,9 @@
   flex: 1 1 0;
   min-width: 256px;
   overflow-y: auto;
+  /* The overlay scrollbar paints at the column's edge; keep the row pills
+   * clear of the thumb. */
+  padding-right: 8px;
 }
 
 .columnWide {

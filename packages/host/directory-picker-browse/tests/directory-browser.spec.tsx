@@ -220,6 +220,20 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
   })
 
+  it('clicking away from the path editor cancels it back to the crumb view', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: '/somewhere/else' } })
+    // Focus moving anywhere outside the editor abandons the draft like Escape.
+    fireEvent.blur(input)
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // The crumb view is back and the abandoned draft was never navigated to.
+    expect(screen.getByRole('button', { name: 'browser.editPath' })).toBeTruthy()
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+  })
+
   it('restarts the home listing when Escape cancels an edit opened before any level listed', async () => {
     // The initial home listing hangs; Edit Path supersedes it while parent
     // is still null, and Escape must not strand a blank picker.

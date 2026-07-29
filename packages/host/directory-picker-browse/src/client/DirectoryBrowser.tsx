@@ -200,6 +200,25 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     })
   }, [launchListing])
 
+  /** Abandon path editing (Escape or clicking away) and restore the crumb view. */
+  const cancelPathEdit = useCallback(() => {
+    // Cancel also withdraws a navigation the editor already launched: its
+    // late success must not jump to the cancelled path, so the pending
+    // request is superseded and the view leaves the loading state.
+    supersede()
+    setLoading(false)
+    setPathDraft(null)
+    setError(null)
+    // Editing may have superseded the selection's preview request; a
+    // selection with no preview would render a half-empty two-pane view, so
+    // cancel falls back to the single-pane level.
+    if (child === null) setSelected(null)
+    // With no level listed yet (the editor superseded the initial home
+    // listing), plain cancellation would leave a permanently blank picker:
+    // restart the home listing.
+    if (parent === null) navigate()
+  }, [supersede, child, parent, navigate])
+
   /** A right-column pick advances the view one level: child becomes the level. */
   const advance = useCallback((entry: DirectoryEntry) => {
     /* v8 ignore next -- narrowing guard: the right column only renders with a child listing. */
@@ -382,25 +401,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
                   }
                   if (event.key === 'Escape') {
                     event.stopPropagation()
-                    // Cancel also withdraws a navigation the editor already
-                    // launched: its late success must not jump to the
-                    // cancelled path, so the pending request is superseded
-                    // and the view leaves the loading state.
-                    supersede()
-                    setLoading(false)
-                    setPathDraft(null)
-                    setError(null)
-                    // Editing may have superseded the selection's preview
-                    // request; a selection with no preview would render a
-                    // half-empty two-pane view, so cancel falls back to the
-                    // single-pane level.
-                    if (child === null) setSelected(null)
-                    // With no level listed yet (the editor superseded the
-                    // initial home listing), plain cancellation would leave a
-                    // permanently blank picker: restart the home listing.
-                    if (parent === null) navigate()
+                    cancelPathEdit()
                   }
                 }}
+                // Clicking anywhere outside the editor reads as leaving it:
+                // focus loss cancels the edit like Escape. Enter keeps focus
+                // in the input while its navigation is in flight, so a
+                // submitted path is never withdrawn by this handler.
+                onBlur={cancelPathEdit}
               />
             )}
         </div>
