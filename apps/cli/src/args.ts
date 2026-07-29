@@ -40,6 +40,8 @@ interface WebInvocation {
   port?: number
   dev: boolean
   workspaceRoot?: string
+  /** Extra authorities for the /api browser-trust fence (`host` or `host:port`); LAN IP literals are derived, not listed here. */
+  trustedHosts?: string[]
 }
 
 /** The resolved `dsh` invocation: exactly one mode. `--help`/`--version`/errors exit inside {@link parseDshArgs}. */
@@ -51,6 +53,7 @@ interface WebOptions {
   port?: string
   dev?: boolean
   workspaceRoot?: string
+  trustedHost?: string[]
 }
 
 /**
@@ -66,6 +69,7 @@ function resolveWeb(options: WebOptions): WebInvocation {
     ...options.port !== undefined && { port: Number(options.port) },
     dev: options.dev === true,
     ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
+    ...options.trustedHost !== undefined && { trustedHosts: options.trustedHost },
   }
 }
 
@@ -117,6 +121,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
     .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
     .option('--workspace-root <path>', 'parent directory for name-created workspaces')
+    .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .action((options: WebOptions) => {
       // Commander parses the parent (default-surface) options on either side of
       // the subcommand into `program.opts()`. `web` shares none of them, so a

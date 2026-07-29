@@ -36,6 +36,7 @@ import {
   type TuiRuntime,
 } from '../src/index.ts'
 import { WorkspaceFileSearch } from '../src/chat/file-autocomplete.ts'
+import { ATTRIBUTE_ROLES, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
 import {
   appendAssistant,
   appendUser,
@@ -180,7 +181,7 @@ describe('TUI config', () => {
         color: true,
         truecolor: false,
         leftPrompt: '${cwd}${git/worktree}${model}${token_meter/cache_hit_rate}${context}',
-        rightPrompt: '${timing}',
+        rightPrompt: '${queued}',
         inputPrompt: '${symbol} ${indicator}',
         inputPlaceholder: 'press enter to steer and esc to cancel',
       },
@@ -220,7 +221,7 @@ describe('TUI config', () => {
         color: false,
         truecolor: true,
         leftPrompt: '${cwd}${git/worktree}${model}${token_meter/cache_hit_rate}${context}',
-        rightPrompt: '${timing}',
+        rightPrompt: '${queued}',
         inputPrompt: '${symbol} ${indicator}',
         inputPlaceholder: 'press enter to steer and esc to cancel',
       },
@@ -229,8 +230,7 @@ describe('TUI config', () => {
   })
 })
 
-describe('resume command and /resume', () => {
-  const RESUME = 'dsh --resume {session}'
+describe('goodbye message and /resume', () => {
   const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
     ({ version: 0, id: SessionId(id), createdAt, cwd })
   const resumeEvents = (
@@ -261,11 +261,10 @@ describe('resume command and /resume', () => {
     { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
   ]
 
-  it('prints the resume command on exit once the session is persisted', async () => {
+  it('prints the host goodbye message on exit', async () => {
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: { list: async () => [header('main-session', 1000, '/workspace')] },
+      goodbyeMessage: 'To resume this session: dsh --resume main-session',
     })
     result.terminal.send('/exit')
     result.terminal.send('\r')
@@ -275,8 +274,8 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('omits the exit hint when the session is not yet persisted', async () => {
-    const result = await setup({ cwd: '/workspace', config: { resumeCommand: RESUME } })
+  it('prints nothing on exit when the host supplies no goodbye message', async () => {
+    const result = await setup({ cwd: '/workspace' })
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
@@ -285,17 +284,16 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('omits the exit hint when the session listing fails', async () => {
+  it('escapes terminal controls in the host goodbye message', async () => {
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: { list: () => Promise.reject(new Error('disk gone')) },
+      goodbyeMessage: 'resume \u001b]2;hijacked\u0007now',
     })
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output).not.toContain('To resume this session')
-    expect(result.exit).toHaveBeenCalledWith(0)
+    expect(result.terminal.output).toContain('resume \\x1b]2;hijacked\\x07now')
+    expect(result.terminal.output).not.toContain('\u001b]2;hijacked')
     await dispose(result)
   })
 
@@ -305,7 +303,6 @@ describe('resume command and /resume', () => {
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
       handoffResume: handoff,
       sessionPersistence: {
         list: async () => [older, newer, header('foreign-session', 3000, '/elsewhere')],
@@ -323,7 +320,10 @@ describe('resume command and /resume', () => {
     expect(output).toContain('Older investigation')
     expect(output).toContain('current · live')
     expect(output.indexOf('Newer product work')).toBeLessThan(output.indexOf('Older investigation'))
+    // Default scope is the current workspace; one of the four records (three
+    // listed plus the live current session) belongs to another.
     expect(output).not.toContain('foreign-session')
+    expect(output).toContain('all workspaces (4)')
     result.terminal.send('Older')
     await tick()
     expect(result.terminal.output).toContain('⌕ Older')
@@ -351,7 +351,9 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     result.terminal.send('\x1b[B')
     result.terminal.send('\x1b[A')
-    result.terminal.send('\t')
+    // A key the search editor swallows without changing its value (backspace on
+    // an empty box) keeps the selection and error untouched.
+    result.terminal.send('\x7f')
     result.terminal.send('zz')
     result.terminal.send('\r')
     await tick()
@@ -602,7 +604,6 @@ describe('resume command and /resume', () => {
     const corrupt = header('corrupt', 30, '/workspace')
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
       sessionPersistence: {
         list: async () => [missing, corrupt],
         load: async (id) => {
@@ -683,7 +684,7 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('flushes, releases the terminal, and invokes one host handoff for the same SessionId', async () => {
+  it('flushes, releases the terminal, and invokes one host handoff for the same SessionId and workspace', async () => {
     const target = header('target-session', 10, '/workspace')
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(() => Promise.reject(new Error('test host retained process')))
     const result = await setup({
@@ -701,7 +702,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('\r')
     await tick(); await tick()
     expect(handoff).toHaveBeenCalledTimes(1)
-    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(handoff).toHaveBeenCalledWith(target.id, '/workspace')
     expect(result.terminal.stopped).toBeGreaterThan(0)
     expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
     await dispose(result)
@@ -817,7 +818,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('Query without persistence')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(handoff).toHaveBeenCalledWith(target.id, '/workspace')
     expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
     await dispose(result)
   })
@@ -902,16 +903,23 @@ describe('resume command and /resume', () => {
     expect(result.terminal.output).not.toContain('host rejected after disposal')
   })
 
-  it('rejects a candidate whose cwd changes between listing and preflight', async () => {
+  // A cwd that changes between listing and preflight is no longer a rejection:
+  // resume targets whatever workspace the record names at preflight, so the
+  // handoff must carry the RE-READ cwd rather than the one the row displayed.
+  it('hands off with the cwd re-read at preflight, not the one listed', async () => {
     const target = header('moving-workspace', 10, '/workspace')
+    const moved = header('moving-workspace', 10, '/elsewhere')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(
+      () => Promise.reject(new Error('test host retained process')),
+    )
     let listings = 0
     const result = await setup({
       cwd: '/workspace',
-      handoffResume: vi.fn(),
+      handoffResume: handoff,
       sessionPersistence: {
-        list: async () => [++listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere')],
+        list: async () => [++listings <= 2 ? target : moved],
         load: async () => ({
-          meta: listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere'),
+          meta: listings <= 2 ? target : moved,
           events: resumeEvents('Moving workspace'),
         }),
       },
@@ -922,7 +930,101 @@ describe('resume command and /resume', () => {
     result.terminal.send('Moving workspace')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('different workspace')
+    expect(handoff).toHaveBeenCalledWith(target.id, '/elsewhere')
+    await dispose(result)
+  })
+
+  it('keeps a session with no recorded workspace visible but disabled', async () => {
+    // The key is omitted, not set to undefined: an explicit undefined is not
+    // losslessly JSON-serializable and the header validator rejects it.
+    const { cwd: _cwd, ...rootless } = header('no-workspace', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [rootless],
+        load: async () => ({ meta: rootless, events: resumeEvents('Rootless session') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    // A cwd-less session lists under all workspaces, never the current one.
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('Rootless session')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session has no recorded workspace')
+    expect(handoff).not.toHaveBeenCalled()
+    await dispose(result)
+  })
+
+  it('lists other workspaces only in the all-workspaces scope and resumes into their cwd', async () => {
+    const local = header('local-session', 2000, '/workspace')
+    const foreign = header('foreign-session', 3000, '/elsewhere')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(
+      () => Promise.reject(new Error('test host retained process')),
+    )
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [local, foreign],
+        load: async id => id === local.id
+          ? { meta: local, events: resumeEvents('Local product work') }
+          : { meta: foreign, events: resumeEvents('Foreign investigation') },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    // Three records: the two listed plus the live current session.
+    expect(result.terminal.output).toContain('Local product work')
+    expect(result.terminal.output).not.toContain('Foreign investigation')
+    expect(result.terminal.output).toContain('all workspaces (3)')
+    result.terminal.send('\t')
+    await tick()
+    const scoped = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(scoped).toContain('Foreign investigation')
+    expect(scoped).toContain('workspace /elsewhere')
+    expect(scoped).toContain('this workspace (2)')
+    // Searching the workspace label reaches a row the title would not match.
+    result.terminal.send('elsewhere')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(handoff).toHaveBeenCalledWith(foreign.id, '/elsewhere')
+    await dispose(result)
+  })
+
+  it('returns to the current workspace when Tab toggles back and clears the search', async () => {
+    const local = header('scope-local', 2000, '/workspace')
+    const foreign = header('scope-foreign', 3000, '/elsewhere')
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [local, foreign],
+        load: async id => id === local.id
+          ? { meta: local, events: resumeEvents('Scope local') }
+          : { meta: foreign, events: resumeEvents('Scope foreign') },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('Scope foreign')
+    await tick()
+    expect(result.terminal.output).toContain('⌕ Scope foreign')
+    result.terminal.send('\t')
+    await tick()
+    const back = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(back).not.toContain('⌕ Scope foreign')
+    expect(back).toContain('Scope local')
+    expect(back).not.toContain('Scope foreign')
     await dispose(result)
   })
 
@@ -1018,30 +1120,7 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('keeps resumeCommand as a displayed fallback when the host cannot hand off', async () => {
-    const target = header('fallback-session', 10, '/workspace')
-    const result = await setup({
-      cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: {
-        list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents('Fallback target') }),
-      },
-    })
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick(); await tick()
-    result.terminal.send('Fallback target')
-    result.terminal.send('\r')
-    await vi.waitFor(() => {
-      expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
-    })
-    expect(result.terminal.output).toContain('dsh --resume fallback-session')
-    expect(result.terminal.stopped).toBe(0)
-    await dispose(result)
-  })
-
-  it('keeps the selector independent from an absent command fallback', async () => {
+  it('warns without releasing the terminal when the host cannot hand off', async () => {
     const target = header('no-fallback-session', 10, '/workspace')
     const result = await setup({
       cwd: '/workspace',
@@ -1058,6 +1137,7 @@ describe('resume command and /resume', () => {
     await vi.waitFor(() => {
       expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
     })
+    expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })
 
@@ -1330,10 +1410,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Steering')
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Context · workspace-context')
-    expect(result.terminal.output).toContain('system-reminder')
+    // The redundant `system-reminder` frame element is dropped: the source label
+    // already names the context, so the card body starts at the instruction text.
     expect(result.terminal.output).toContain('Additional instructions from: nested/AGENTS.md')
-    expect(result.terminal.output).not.toContain('<system-reminder>')
-    expect(result.terminal.output).toContain('\\x9b')
+    expect(result.terminal.output).toContain('Render XML context clearly.')
+    // A one-line frame has no open/close line pair to strip, so its text renders as
+    // the prose it is. The card no longer parses context, so a character reference
+    // stays literal instead of expanding to the control character it names — which
+    // is why the expanded-C1 escaping the parser needed is no longer reachable here.
+    expect(result.terminal.output).toContain('&#155;')
+    expect(result.terminal.output).not.toContain('\u009b')
     expect(result.terminal.output).toContain('Context · goal') // goal-sourced injected context labels by kind
     expect(result.terminal.output).toContain('Turn cancelled')
     expect(result.terminal.progress).toContain(true)
@@ -1359,6 +1445,104 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
     expect(result.terminal.stopped).toBe(1)
     expect(result.terminal.drainInput).toHaveBeenCalledWith(100, 20)
+  })
+
+  it('folds an injected-context card by default and expands it with Ctrl+O', async () => {
+    const result = await setup()
+    // A reminder body past the default 6-line budget so the collapsed card shows
+    // the expand marker and hides a middle line until Ctrl+O.
+    const instructions = Array.from({ length: 10 }, (_, index) => `instruction line ${index}`).join('\n')
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: `<system-reminder>\n${instructions}\n</system-reminder>` }],
+      source: { kind: 'plugin', plugin: 'workspace-context' },
+    }), { surfaceOp: 'append' })
+    await tick()
+
+    // The redundant `system-reminder` frame element is dropped; the card is
+    // collapsed by default with the shared Ctrl+O expand marker.
+    expect(result.terminal.output).toContain('Context · workspace-context')
+    expect(result.terminal.output).not.toContain('system-reminder')
+    expect(result.terminal.output).toContain('lines (Ctrl+O to expand)')
+    expect(result.terminal.output).toContain('instruction line 0')
+    expect(result.terminal.output).not.toContain('instruction line 5')
+
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+    expect(result.terminal.output).toContain('instruction line 5')
+
+    // Third state: tool cards hide; a context card is injected instructions,
+    // not tool traffic, so it stays visible at its collapsed preview.
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+    // A repaint proves the context card SURVIVES the hidden phase: injected
+    // instructions are not tool traffic, so they stay at the collapsed preview.
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(hidden).toContain('Context · workspace-context')
+    // Fourth press returns to the collapsed default, closing the cycle.
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards collapsed.')
+
+    // Context with no frame renders as muted prose under the header; a frame
+    // wrapping nothing renders header-only.
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'plain reminder text, no tags' }],
+      source: { kind: 'plugin', plugin: 'plain-context' },
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<system-reminder>\n</system-reminder>' }],
+      source: { kind: 'plugin', plugin: 'empty-context' },
+    }), { surfaceOp: 'append' })
+    // Only a matched open/close pair is a frame: an unpaired tag line is prose and
+    // survives, so a body is never silently truncated by a tag-like first line.
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<available_skills>\nkept prose line\n</other-tag>' }],
+      source: { kind: 'plugin', plugin: 'unpaired-context' },
+    }), { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('Context · plain-context')
+    expect(result.terminal.output).toContain('plain reminder text, no tags')
+    expect(result.terminal.output).toContain('Context · empty-context')
+    expect(result.terminal.output).toContain('<available_skills>')
+    expect(result.terminal.output).toContain('kept prose line')
+    // Ctrl+L invalidates the mounted tree, exercising the card's invalidate hook.
+    result.terminal.send('\x0c')
+    await tick()
+    await dispose(result)
+  })
+
+  it('renders XML-hostile instruction prose verbatim, framed and folded', async () => {
+    const result = await setup()
+    // Real AGENTS.md prose carries a raw `&` (a badge URL's `&logo=`) and
+    // angle-bracket placeholders that name nothing (`packages/<group>/<pkg>/`).
+    // Both are prose the model must read literally, and neither may affect whether
+    // the frame is stripped or the body folds.
+    const lines = Array.from({ length: 10 }, (_, index) => `prose line ${index}`).join('\n')
+    result.session.append('user/message', createUserMessage({
+      content: [{
+        type: 'text',
+        text: `<system-reminder>\nbadge: https://img.shields.io/badge/x?style=flat&logo=deepseek\npath: packages/<group>/<pkg>/\n${lines}\n</system-reminder>`,
+      }],
+      source: { kind: 'plugin', plugin: 'prose-context' },
+    }), { surfaceOp: 'append' })
+    await tick()
+
+    expect(result.terminal.output).toContain('Context · prose-context')
+    expect(result.terminal.output).not.toContain('<system-reminder>')
+    expect(result.terminal.output).toContain('lines (Ctrl+O to expand)')
+    expect(result.terminal.output).not.toContain('prose line 5')
+
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('prose line 5')
+    // Characters that break a strict XML parse survive unescaped and unexpanded.
+    expect(result.terminal.output).toContain('&logo=deepseek')
+    expect(result.terminal.output).toContain('packages/<group>/<pkg>/')
+    await dispose(result)
   })
 
   it('counts failed and recovered request usage once per step', async () => {
@@ -1445,10 +1629,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it('badges queued steering on the prompt context timing and clears it as each drains', async () => {
+  it('badges queued steering on the prompt context and clears it as each drains', async () => {
     // Pin a cwd free of the substring under test; the prompt context renders the path.
     const result = await setup({ status: 'running', cwd: '/workspace' })
-    // Running with nothing queued: timing appears once in the prompt context and the editor keeps its hint.
+    // Running with nothing queued: the badge is absent and the editor keeps its hint.
     expect(result.terminal.output).toContain('Assistant')
     expect(result.terminal.output).toContain('Model wait 0.0s')
     expect(result.terminal.output).toContain('press enter to steer and esc to cancel')
@@ -1854,13 +2038,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }
 
     // Without truecolor there is no per-frame gray: below the fade midpoint the
-    // glyph slot is blank; past it the glyph shows in the palette muted role
-    // (ANSI 90), never the accent (SGR 94).
+    // glyph slot is blank; past it the glyph shows in the palette dim role,
+    // never the accent (ANSI 95).
     const early = await frameAt(60)
     expect(early).not.toMatch(/dsh(?:\x1b\[[0-9;]*m| )*●/u)
     const shown = await frameAt(300)
-    expect(shown).toMatch(/\x1b\[90m●/u)
-    expect(shown).not.toMatch(/\x1b\[94m●/u)
+    expect(shown).toMatch(/\x1b\[2;39m●/u)
+    expect(shown).not.toMatch(/\x1b\[95m●/u)
 
     await dispose(result)
   })
@@ -2065,8 +2249,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
 
     expect(result.terminal.output).not.toContain('stale partial response')
-    result.terminal.send('/reasoning')
-    result.terminal.send('\r')
+    result.terminal.send('\x12')
     result.terminal.send('\x1b[A')
     result.terminal.send('\x1b[A')
     result.terminal.send('\x1b[A')
@@ -2231,8 +2414,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('\u001B]2;unsafe\u0007')
 
     result.terminal.resize(56)
-    result.terminal.send('/redraw')
-    result.terminal.send('\r')
+    result.terminal.send('\x0c')
     await tick()
 
     await dispose(result)
@@ -2304,7 +2486,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
 
     result.agent.status = 'idle'
-    for (const command of ['/help', '/reasoning', '/tools', '/redraw', '/reload']) {
+    for (const command of ['/help', '/palette', '/reload']) {
       result.terminal.send(command)
       result.terminal.send('\r')
       await tick()
@@ -2321,7 +2503,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('Keyboard shortcuts')
     expect(result.terminal.output).toContain('Reasoning blocks')
-    expect(result.terminal.output).toContain('Tool cards')
+    expect(result.terminal.output).toContain('Tool and context cards')
     expect(result.terminal.output).toContain('Unknown command')
     // /reload without a Loader in the context degrades to a warning.
     expect(result.terminal.output).toContain('/reload needs the cordis Loader')
@@ -3133,8 +3315,25 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await vi.waitFor(() => {
       expect(result.terminal.output.slice(firstSelectorOutput)).toContain('Select model')
     })
+    const filterOpenOutput = result.terminal.output.length
+    result.terminal.send('beta')
+    await tick()
+    expect(result.terminal.output.slice(filterOpenOutput)).toContain('> beta')
+    expect(result.terminal.output.slice(filterOpenOutput)).toContain('beta/b1')
+    expect(result.terminal.output.slice(filterOpenOutput)).not.toContain('alpha/a1')
+    const noMatchOutput = result.terminal.output.length
+    result.terminal.send('zzz')
+    await tick()
+    expect(result.terminal.output.slice(noMatchOutput)).toContain('No models match the filter')
+    result.terminal.send('\x1b[D')
+    await tick()
+    expect(result.terminal.output.slice(noMatchOutput)).toContain('No models match the filter')
     result.terminal.send('\x1b')
     await tick()
+    const filterClearedOutput = result.terminal.output.length
+    result.terminal.send('\x1b')
+    await tick()
+    expect(result.terminal.output.slice(filterClearedOutput)).not.toContain('Select model')
 
     const providerDefaultOutput = result.terminal.output.length
     result.terminal.send('/model alpha/shared')
@@ -3669,6 +3868,23 @@ describe('skill slash command', () => {
     await dispose(result)
   })
 
+  it('auto-invokes a launcher-seeded initial skill as the first turn', async () => {
+    const result = await setup({ config: { initialSkill: 'demo-skill' }, configureContext: withSkills })
+    // The seed rides the same path as a typed `/skill:demo-skill`, delivered
+    // once the chat is live; no user input is required.
+    await tick()
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="demo-skill">\nDemo instructions body.\n</skill>' }]])
+    await dispose(result)
+  })
+
+  it('reports an unknown initial skill as a notice without sending', async () => {
+    const result = await setup({ config: { initialSkill: 'nope' }, configureContext: withSkills })
+    await tick()
+    expect(result.terminal.output).toContain('Unknown skill: nope')
+    expect(result.agent.sent).toEqual([])
+    await dispose(result)
+  })
+
   it('reports an unknown skill and an empty skill name without sending', async () => {
     const result = await setup({ configureContext: withSkills })
     result.terminal.send('/skill:does-not-exist')
@@ -3895,8 +4111,7 @@ describe('tool cards and surface replay', () => {
     }
     await tick()
     expect(result.terminal.output).toContain('$ raw command')
-    result.terminal.send('/reasoning')
-    result.terminal.send('\r')
+    result.terminal.send('\x12')
     await tick()
     expect(result.terminal.output).toContain('call presenter boom')
     expect(result.terminal.output).toContain('Symbol(input)')
@@ -4030,8 +4245,7 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('line (number="1"): hello')
     expect(output).not.toContain('<result>')
 
-    result.terminal.send('/redraw')
-    result.terminal.send('\r')
+    result.terminal.send('\x0c')
     await tick()
     const collapsed = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
     expect(collapsed).toContain('Run command')
@@ -4041,7 +4255,7 @@ describe('tool cards and surface replay', () => {
     result.terminal.send('\x0f')
     await tick()
     expect(result.terminal.output).toContain('world')
-    expect(result.terminal.output).toContain('Tool cards expanded.')
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
     expect(result.terminal.output).not.toContain('tools:expanded')
     expect(result.terminal.output).toContain('+ created')
     expect(result.terminal.output).toContain('console')
@@ -4049,6 +4263,42 @@ describe('tool cards and surface replay', () => {
     // expanded (`+ after` is b.txt's new text; the footer counts both files).
     expect(result.terminal.output).toContain('+ after')
     expect(result.terminal.output).toContain('· 2 files')
+
+    // Third Ctrl+O phase hides every tool card: after a redraw the repainted
+    // frame carries no tool header at all, only the conversation.
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+    // A result for an untracked call mints a fallback card mid-hidden: it must
+    // adopt the current visibility instead of rendering collapsed.
+    result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'untracked' as never,
+        content: [{ type: 'text', text: 'fallback result body' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hiddenFrame = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(hiddenFrame).not.toContain('Tool / bash')
+    expect(hiddenFrame).not.toContain('Run command')
+    expect(hiddenFrame).not.toContain('fallback result body')
+    // The dozen hidden cards leave no per-card blank rows behind: each card owns
+    // its leading gap, so the trimmed frame has no long blank run where the
+    // cards used to be.
+    const frameRows = hiddenFrame.split('\n').map(row => row.replaceAll(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim())
+    const first = frameRows.findIndex(row => row.includes('Calling tools'))
+    expect(first).toBeGreaterThan(-1)
+    let blankRun = 0
+    let longestRun = 0
+    for (const row of frameRows.slice(first)) {
+      blankRun = row === '' ? blankRun + 1 : 0
+      longestRun = Math.max(longestRun, blankRun)
+    }
+    expect(longestRun).toBeLessThanOrEqual(2)
     await dispose(result)
   })
 
@@ -4072,6 +4322,46 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('- old')
     expect(output).toContain('+ new')
     expect(output).toContain('· 1 file')
+    await dispose(result)
+  })
+
+  it('drops blank rows from a terminal card result that the dim styling wraps', async () => {
+    const blankRowTools: Record<string, ToolDefinition> = {
+      trailing: {
+        name: 'trailing', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+        presentCall: () => ({ card: 'terminal', title: 'printf out', description: 'Run it', cwd: '/tmp' }),
+        // Real command output ends in a newline, so the split yields a trailing blank row.
+        presentResult: () => ({ card: 'terminal', output: 'first\n\nlast\n', exitCode: 0 }),
+      },
+    }
+    // Color on: the dim wrapper is what makes a blank row non-empty, so the
+    // guard against wrapping one is only observable with ANSI enabled.
+    const result = await setup({ tools: blankRowTools, config: { theme: { color: true } } })
+    appendUser(result.session, 'run it')
+    appendAssistant(result.session, [
+      { type: 'tool-call', id: 'blank' as never, name: 'trailing', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1, step: 1, callId: 'blank' as never, name: 'trailing', arguments: '{}',
+    })
+    result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'blank' as never, content: [{ type: 'text', text: 'ignored' }], isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    await tick()
+    // Each output row is dim-wrapped, and the result's blank rows are dropped
+    // rather than kept as dim-wrapped empty strings: `last` is the row right
+    // after `first`, and no empty dim pair reaches the terminal.
+    expect(result.terminal.output).toContain('\x1b[2;39mfirst\x1b[22;39m')
+    expect(result.terminal.output).toContain('\x1b[2;39mlast\x1b[22;39m')
+    expect(result.terminal.output).not.toContain('\x1b[2;39m\x1b[22;39m')
+    const rows = result.terminal.output.split('\n')
+    const firstRow = rows.findIndex(row => row.includes('first'))
+    expect(firstRow).toBeGreaterThan(-1)
+    expect(rows[firstRow + 1]).toContain('last')
+    expect(rows[firstRow + 2]).toContain('[exit 0]')
     await dispose(result)
   })
 
@@ -4311,7 +4601,6 @@ describe('TUI extension service', () => {
                 host.theme.accent(`${label} plugin overlay`),
                 [
                   host.theme.text('text'),
-                  host.theme.muted('muted'),
                   host.theme.dim('dim'),
                   host.theme.success('success'),
                   host.theme.warning('warning'),
@@ -4605,10 +4894,42 @@ describe('terminal mounting', () => {
     await ctx.fiber.dispose()
   })
 
-  it('detects a light terminal color scheme and switches from dark- to light-optimised ANSI codes', async () => {
+  it('prints every palette role through /palette, each painted by the code it reports', async () => {
     const result = await setup({ config: { theme: { color: true } } })
-    // Initial render uses dark-optimised palette: SGR 2 (dim) for dim text.
-    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+    const before = result.terminal.output.length
+    result.terminal.send('/palette')
+    result.terminal.send('\r')
+    await tick()
+    const printed = result.terminal.output.slice(before)
+
+    // Every declared role appears with its purpose, so a role added to the spec
+    // without a listing entry (or the reverse) fails here rather than silently
+    // going unlisted.
+    const spec = paletteSpec('dark')
+    for (const name of COLOR_ROLES) {
+      expect(printed).toContain(name)
+      expect(printed).toContain(spec.colors[name].purpose)
+    }
+    for (const name of ATTRIBUTE_ROLES) {
+      expect(printed).toContain(name)
+      expect(printed).toContain(spec.attributes[name].purpose)
+    }
+
+    // Each row is painted by the role it names, so the listing cannot report one
+    // code while rendering another: the sample carries the spec's own open code.
+    expect(printed).toContain(`\x1b[${spec.colors.accent.open}m`)
+    expect(printed).toContain(`\x1b[${spec.colors.dim.open}m`)
+    expect(printed).toContain(`\x1b[${spec.attributes.selected.open}m`)
+    // `text` is the terminal default, emitted as no escape at all.
+    expect(printed).toContain('no escape')
+    await dispose(result)
+  })
+
+  it('detects a light terminal color scheme and switches the scheme-dependent code role', async () => {
+    const result = await setup({ config: { theme: { color: true } } })
+    // `dim` is scheme-independent (SGR 2 over the default foreground), so the
+    // startup render carries it on both schemes; `code` is the role that varies.
+    expect(result.terminal.output).toContain('\x1b[2;39mdeepseek-v4-flash')
 
     // A report matching the current scheme is a no-op: no palette rebuild or
     // re-render (ESC [?997;1n = dark, the startup default).
@@ -4622,20 +4943,14 @@ describe('terminal mounting', () => {
     result.terminal.send('\x1b[?997;2n')
     await tick()
     await tick()
+    // The rebuild re-renders under the light palette, where `code` is ANSI 34
+    // (blue) rather than the dark scheme's ANSI 36 (cyan); `dim` is unchanged.
+    expect(result.terminal.output).toContain('\x1b[2;39mdeepseek-v4-flash')
 
-    // After switching to light-optimised palette: palette.dim uses ANSI 90
-    // (gray) instead of SGR 2. The header now uses \x1b[90m for the detail
-    // line. The cumulative output still contains the initial SGR 2 render,
-    // so we assert that a LATER write (appended after the scheme switch)
-    // uses ANSI 90 for the same header text.
-    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
-
-    // Switch back to dark scheme.
     result.terminal.send('\x1b[?997;1n')
     await tick()
     await tick()
-    // After switching back, a new write uses SGR 2 for the header detail.
-    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+    expect(result.terminal.output).toContain('\x1b[2;39mdeepseek-v4-flash')
     await dispose(result)
   })
 
@@ -4656,8 +4971,8 @@ describe('terminal mounting', () => {
       cwd: join(homedir(), 'projects', 'dsh-tui'),
     })
     await tick()
-    expect(terminal.output).toContain('\x1b[94m~/')
-    expect(terminal.output).toContain('\x1b[90m (tui-staging)')
+    expect(terminal.output).toContain('\x1b[95m~/')
+    expect(terminal.output).toContain('\x1b[2;39m (tui-staging)')
     await disposeTuiTestHarness(result)
   })
   it('runs /reload against every file-backed loader subtree, reports completion, and rejects re-entry while in flight', async () => {

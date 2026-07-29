@@ -8,6 +8,8 @@
 
 视图环本身就是 slot：会话注册声明 `'conversation.view'` 列表 slot（Session scope），并将其列在 `children` 表中；ConversationRoot 通过 renderSlot share 渲染活跃配置项（`only: <active id>`）；视图标签页从环账本的注册选项（`id`／`order`／`label`）投影而来。聊天视图是该包自身的环配置项；其他插件（ui-trajectory）通过普通的 `ctx.slots.register` 贡献标签页。先前包内的视图注册表（`registerView`／`ViewEntry`／`ConversationViewMap` 及 chrome 附加表）已退役，逐视图 chrome 则被拆入视图组件自身。
 
+审批经由本包声明的链接管编辑器：`ApprovalPanel` 注册为按选择器路由的 `'conversation.composer'` 配置项（ui-question 模式），在审批等待未决期间取代 InputBar 占据编辑器（琥珀色条、理由标题、来自运行中调用参数的配对命令行、一次性的拒绝／允许）。`contract/slots.ts` 中的 `PendingApproval` 领域面在运行时 `PendingWait` 载体之上拥有 wire 编码——带审计关联的 `ApprovalResponsePayload` 值；广播的 `approval/resolved` 帧使等待落定并恢复编辑器。侧边栏通过 manager 跟踪的 `waitingApproval` 列表位（未实例化会话同样点亮）镜像该阻塞状态，其优先级高于运行中圆环，直至问题解决。未决等待完全离开消息流：问题（ui-question）与审批（ApprovalPanel）都经编辑器接管作答，不再保留只读占位卡。编辑器底行的 Access 席位挂载 `PermissionSelect`，由 host 计算的 `permissions` 投影经标准工具包 `useProjection` 供数（key 缺席即隐藏 chip）；选中会经由输入栏注入的 `command` 回调提交 `/permission <preset>` 命令行。
+
 通用工具行把内置的 bash、read、search、write、edit 和 run_code 名称归入专用视觉变体。文件系统变体会渲染 edit 图标和路径摘要；该路径是悬停下划线链接，点击后通过宿主操作系统的默认应用打开文件（`host.openPath`，相对路径相对会话 cwd 解析）。工具行不再是整行点击目标，也不会打开 details 面板。code 变体以模型撰写的 `description` 作摘要，展开后显示程序本身；其已记录的子调用经由同一个键控 toolview 空位渲染为始终可见的嵌套行（自定义注册和 GenericToolCard fallback 原样适用于子行）。Cordis 生命周期工具复用这些通用变体，同时以统一的 Cordis 强调色呈现 `Inspect`、`Mount temporary Plugin` 和 `Unmount temporary Plugin`；mount 行保留 code 变体的可展开源码渲染。
 
 聊天流会将跨重试轮次连续出现的模型重试节点投影为一个稳定的弱化状态行，并用最新一次尝试更新该行；每个重试事件仍保留在运行时快照与会话日志中。前端倒计时以客户端收到事件的时刻为计划延迟的起点，避免 Host 与浏览器的时钟偏差；剩余时间向上取整到秒，且下限为 1 秒。最近一次尚未完成的重试会显示从左到右的文字渐变动画。后续轮次事实用于区分已开始的尝试与在退避期间取消的尝试，Host 的 running 位只控制实时动画；随后该行会显示静态的已完成或已取消标签。normal 策略行显示有限重试上限；always 策略行显示 `∞`。激活该行会显示最近一次重试的精确延迟和失败消息。客户端运行时会在相应重试节点到达前移除每个失败步骤的流式输出尾部；后续某次尝试成功后，该状态仍保持可见。
@@ -36,5 +38,5 @@ todo 的两个展示界面就是在该形状上的两个注册项，都是普通
 - **详情面板是最小形态**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。
 - **assistant footer 扩展（IconActions 行、逐消息分页）是预留 slot**：设计中已有图稿，尚未实现。
 - **others 工具行的闪光图标是手绘近似版本**：无法在本地导出设计字形的矢量几何；等到存在精确导出后再将其提升到 ui-primitives。
-- **审批卡片只是只读占位符**：问题请求通过编辑器链回答（ui-question），Web 侧审批回答属于 P-II 审批项目。
+- **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。

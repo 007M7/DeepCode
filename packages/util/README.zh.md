@@ -10,6 +10,7 @@
 | `paths/` | 规范的单根 `DSH_HOME` 解析，以及 harness 用户数据的共享文件系统路径常量和辅助工具（无 harness 依赖） |
 | `timeout/` | 超时的时序/分类部分：`clampTimeout`/`deadline`/`timeoutOf`/`TimeoutReason`（纯函数，无 harness 依赖）；终止机制保留在各个功能中 |
 | `retention/` | 有界的面向模型输出：`ItemRetainer`/`TextRetainer` 加上中性通知辅助工具（纯工具，无 harness 依赖）；业务语义保留在各个工具中 |
+| `native-command/` | 宿主原生 OS 集成的免 shell `execFile` 运行器——utf8 捕获、abort 传播、Windows 窗口隐藏（无 harness 依赖）；命令选择保留在各调用方 |
 
 `dsh-brand` 是规范示例：它只负责 `Branded<B>` 辅助工具，因此功能包可以为自己拥有的 id 添加品牌（`dsh-tasks` 的 `TaskId`、`dsh-session` 的 `SessionId` 等），而只需依赖 `dsh-brand`，无需仅为使用 `Branded` 而引入不相关的包。
 

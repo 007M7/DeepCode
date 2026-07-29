@@ -253,7 +253,8 @@ export function WorkspaceBrowser({
   deleteWorkspace,
   insertSessionBefore,
   createWorkspace,
-  pickDirectory,
+  useDirectoryFlow,
+  renderSlot,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const groupBy = useStore(s => s.groupBy)
@@ -371,7 +372,8 @@ export function WorkspaceBrowser({
           anchorRef={wsPlusRef}
           useWorkspaces={useWorkspaces}
           createWorkspace={createWorkspace}
-          pickDirectory={pickDirectory}
+          useDirectoryFlow={useDirectoryFlow}
+          renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
           createOnly
           side="right"
           onPick={(workspaceId) => {

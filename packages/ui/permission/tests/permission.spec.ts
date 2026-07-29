@@ -34,6 +34,9 @@ describe('effectivePermissionPreset', () => {
     session.append('permission/preset', { preset: 'danger-full-access' })
     session.append('permission/preset', { preset: 'workspace-write' })
     expect(effectivePermissionPreset(session.events)).toBe('workspace-write')
+    // The backward scan steps over non-preset events to the latest selection.
+    session.append('sandbox/mode', { mode: 'read-only' })
+    expect(effectivePermissionPreset(session.events)).toBe('workspace-write')
   })
 })
 
