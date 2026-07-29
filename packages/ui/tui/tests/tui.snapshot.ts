@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { Context } from 'cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact'
 import { createUserMessage, CallId, type ContentBlock , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { SessionId, type JsonValue, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
@@ -684,7 +685,7 @@ describe('TUI terminal-state snapshots', () => {
     await disposeSnapshot(harness)
   })
 
-  it('pins compaction surface replacement and narrow-to-wide reflow', async () => {
+  it('pins preserved history, the compaction marker, and narrow-to-wide reflow', async () => {
     // Freeze the clock: the timing header hides zero-duration buckets, so a
     // real-clock millisecond tick between the fixture appends and the render
     // would flip `Tools 0.0s` in and out of the pinned header.
@@ -696,7 +697,7 @@ describe('TUI terminal-state snapshots', () => {
       tools: ADVANCED_CARD_TOOLS,
       beforeMount(session) {
         const user = session.append('user/message', createUserMessage({
-          content: [{ type: 'text', text: 'Old prompt with a long line that exercises wrapping before compaction.' }],
+          content: [{ type: 'text', text: 'Old prompt with a long line that exercises wrapping and stays visible after compaction.' }],
           source: { kind: 'user' },
         }), { surfaceOp: 'append' })
         const assistant = session.append('assistant/message', {
@@ -717,7 +718,7 @@ describe('TUI terminal-state snapshots', () => {
           step: 1,
           message: createToolResultMessage({
             callId: CallId('old-tool'),
-            content: [{ type: 'text', text: 'obsolete output that must disappear' }],
+            content: [{ type: 'text', text: 'tool output that stays readable after compaction' }],
             isError: false,
           }),
         }, { surfaceOp: 'append' })
@@ -732,9 +733,9 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('user/message', createUserMessage({
         content: [{
           type: 'text',
-          text: '<system-reminder>\nAdditional instructions from: nested/AGENTS.md\n\nRender workspace context XML clearly.\n</system-reminder>',
+          text: '<context_checkpoint>\nModel-only summary payload that must never reach the transcript.\n</context_checkpoint>',
         }],
-        source: { kind: 'plugin', plugin: 'workspace-context' },
+        source: COMPACT_CHECKPOINT_SOURCE,
       }), {
         surfaceOp: { op: 'replace', start: replacementStart, end: replacementEnd },
         sourceEventSeqs: replacementSources,
