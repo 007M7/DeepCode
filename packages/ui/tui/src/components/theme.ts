@@ -11,67 +11,149 @@ import type {
   TerminalColorScheme,
 } from '@earendil-works/pi-tui'
 
-/** Theme-agnostic role colors and SGR attribute wrappers. */
+/**
+ * Text carrying exactly one palette color. Branded so the compiler rejects
+ * wrapping it in a second color: SGR has no color stack, so an inner span's
+ * close reverts to the default foreground rather than the outer color, which
+ * silently drops the outer color for the remainder of the line.
+ */
+export type Colored = string & { readonly __coloredBy: unique symbol }
+
+/**
+ * Text a color may still be applied to: a bare string, or one already carrying
+ * SGR attributes. Attributes (bold, italic, underline, strike, reverse) occupy
+ * independent SGR groups from the foreground color, so they compose in either
+ * order without either side clobbering the other.
+ */
+export type Colorable = string & { readonly __coloredBy?: undefined }
+
+/** Applies one color role; rejects input that already carries a color. */
+export type ColorRole = (text: Colorable) => Colored
+
+/** Applies one SGR attribute; accepts colored or uncolored text and preserves its color. */
+export type AttributeRole = <T extends string>(text: T) => T
+
+/**
+ * Theme-agnostic role colors and SGR attribute wrappers.
+ *
+ * One role per visual meaning: `dim` is the single recessed tone, `accent` the
+ * single emphasis color, and `success`/`error` double as a diff's added/removed
+ * pair. Roles that resolved to the same escape were merged rather than kept as
+ * aliases, so a reader cannot pick a name that silently renders as another.
+ *
+ * Colors and attributes are separately typed: `bold(accent(x))` and
+ * `accent(bold(x))` both compile, while `accent(error(x))` does not.
+ */
 export interface Palette {
-  accent: (text: string) => string
-  accent2: (text: string) => string
-  text: (text: string) => string
-  muted: (text: string) => string
-  dim: (text: string) => string
-  success: (text: string) => string
-  warning: (text: string) => string
-  error: (text: string) => string
-  code: (text: string) => string
-  added: (text: string) => string
-  removed: (text: string) => string
-  bold: (text: string) => string
-  italic: (text: string) => string
-  underline: (text: string) => string
-  strike: (text: string) => string
+  accent: ColorRole
+  /** The terminal's own default foreground; still a color, so it does not stack. */
+  text: ColorRole
+  /** The one recessed tone, below `text`: tool-card bodies, chrome, reasoning, footers. */
+  dim: ColorRole
+  success: ColorRole
+  warning: ColorRole
+  error: ColorRole
+  code: ColorRole
+  bold: AttributeRole
+  italic: AttributeRole
+  underline: AttributeRole
+  strike: AttributeRole
   /** Reverse video for the active selection; swaps the theme's own fg/bg so it reads on any scheme. */
-  selected: (text: string) => string
+  selected: AttributeRole
 }
 
-function ansi(open: string, close: string, enabled: boolean): (text: string) => string {
-  return enabled ? text => `\x1b[${open}m${text}\x1b[${close}m` : text => text
+/** Names of the palette's color roles, in the order `/palette` prints them. */
+export const COLOR_ROLES = ['text', 'dim', 'accent', 'code', 'success', 'warning', 'error'] as const
+
+/** Names of the palette's attribute roles, in the order `/palette` prints them. */
+export const ATTRIBUTE_ROLES = ['bold', 'italic', 'underline', 'strike', 'selected'] as const
+
+/** One role's SGR parameters and the reason it carries them. */
+export interface RoleSpec {
+  /** SGR parameters that open the span, without the `ESC [` prefix or `m` suffix. */
+  readonly open: string
+  /** SGR parameters that close it; MUST reset every group `open` sets. */
+  readonly close: string
+  /** What the role means, shown by `/palette`. */
+  readonly purpose: string
 }
 
 /**
- * Theme-agnostic palette built from the standard 16-color ANSI set plus SGR
- * attributes, which every terminal remaps to its active color scheme. Body
- * `text` stays the terminal's default foreground so it reads on light and dark
- * backgrounds alike; grouping uses foreground-only bold, underlined role
- * headers and reverse video rather than fixed background fills or per-line
- * prefixes, so a transcript drag-select copies message text without stray
- * glyphs.
+ * Every SGR code the TUI is allowed to emit, keyed by role. This table is the
+ * single source: {@link createPalette} derives the wrappers from it and
+ * `/palette` prints it, so a role cannot exist in one and not the other, and no
+ * component hand-writes an escape.
+ *
+ * Only the standard 16-color set and SGR attributes appear here. Terminals remap
+ * those to the user's active theme, so the TUI stays legible on any background;
+ * a fixed 24-bit color would not. The brand gradient is the one deliberate
+ * exception ({@link gradientText}).
+ *
+ * @param scheme - Active terminal color scheme; only `code` differs between them.
+ * @returns The SGR spec for every color and attribute role.
+ */
+export function paletteSpec(scheme: TerminalColorScheme): {
+  readonly colors: Readonly<Record<typeof COLOR_ROLES[number], RoleSpec>>
+  readonly attributes: Readonly<Record<typeof ATTRIBUTE_ROLES[number], RoleSpec>>
+} {
+  return {
+    colors: {
+      // The terminal's own foreground, emitted as no escape at all: ordinary body
+      // text must inherit whatever the user's theme uses.
+      text: { open: '', close: '', purpose: 'Body text, the terminal default foreground' },
+      // SGR 2 over an explicit default foreground, closing both groups it sets.
+      // The attribute fades relative to whatever the terminal's own foreground is,
+      // which is the only way to land *below* `text` on both schemes: ANSI 90
+      // (bright black) is a fixed hue that many light themes render heavier than
+      // their default foreground, which made every "dim" surface the most
+      // prominent text on screen.
+      dim: { open: '2;39', close: '22;39', purpose: 'The one recessed tone: tool bodies, chrome, footers' },
+      accent: { open: '95', close: '39', purpose: 'The one emphasis color: role headers, prompt, borders' },
+      // ANSI 36 (cyan) is difficult to read on a light background — use ANSI 34
+      // (blue) which is legible on both light and dark schemes.
+      code: scheme === 'light'
+        ? { open: '34', close: '39', purpose: 'Inline code and code blocks in prose' }
+        : { open: '36', close: '39', purpose: 'Inline code and code blocks in prose' },
+      success: { open: '32', close: '39', purpose: 'Succeeded calls, and a diff\'s added lines' },
+      warning: { open: '33', close: '39', purpose: 'Pending calls and warnings' },
+      error: { open: '31', close: '39', purpose: 'Failures, signals, and a diff\'s removed lines' },
+    },
+    attributes: {
+      bold: { open: '1', close: '22', purpose: 'Emphasis; composes with any color' },
+      italic: { open: '3', close: '23', purpose: 'Reasoning text' },
+      underline: { open: '4', close: '24', purpose: 'Role-header banding' },
+      strike: { open: '9', close: '29', purpose: 'Struck-through Markdown' },
+      selected: { open: '7', close: '27', purpose: 'Reverse video for the active selection' },
+    },
+  }
+}
+
+/**
+ * Wrap text in an SGR pair, or pass it through when color is disabled.
+ * An empty `open` emits nothing, so the `text` role costs no escape.
+ */
+function ansi(spec: RoleSpec, enabled: boolean): (text: string) => string {
+  if (!enabled || spec.open === '') return text => text
+  return text => `\x1b[${spec.open}m${text}\x1b[${spec.close}m`
+}
+
+/**
+ * Theme-agnostic palette derived from {@link paletteSpec}. Body `text` stays the
+ * terminal's default foreground so it reads on light and dark backgrounds alike;
+ * grouping uses foreground-only bold, underlined role headers and reverse video
+ * rather than fixed background fills or per-line prefixes, so a transcript
+ * drag-select copies message text without stray glyphs.
  *
  * @param enabled - Whether ANSI is emitted at all.
- * @param scheme - Active terminal color scheme; adjusts dim and code roles.
+ * @param scheme - Active terminal color scheme; adjusts the code role.
  * @returns The role palette for the given scheme.
  */
 export function createPalette(enabled: boolean, scheme: TerminalColorScheme = 'dark'): Palette {
-  return {
-    accent: ansi('94', '39', enabled),
-    accent2: ansi('95', '39', enabled),
-    text: text => text,
-    muted: ansi('90', '39', enabled),
-    // SGR 2 (dim) lightens text on a light background — substitute ANSI 90
-    // (bright black / gray) which renders as a readable muted tone on any scheme.
-    dim: scheme === 'light' ? ansi('90', '39', enabled) : ansi('2', '22', enabled),
-    success: ansi('32', '39', enabled),
-    warning: ansi('33', '39', enabled),
-    error: ansi('31', '39', enabled),
-    // ANSI 36 (cyan) is difficult to read on a light background — use
-    // ANSI 34 (blue) which is legible on both light and dark schemes.
-    code: scheme === 'light' ? ansi('34', '39', enabled) : ansi('36', '39', enabled),
-    added: ansi('32', '39', enabled),
-    removed: ansi('31', '39', enabled),
-    bold: ansi('1', '22', enabled),
-    italic: ansi('3', '23', enabled),
-    underline: ansi('4', '24', enabled),
-    strike: ansi('9', '29', enabled),
-    selected: ansi('7', '27', enabled),
-  }
+  const spec = paletteSpec(scheme)
+  const roles = {} as Record<string, unknown>
+  for (const name of COLOR_ROLES) roles[name] = ansi(spec.colors[name], enabled)
+  for (const name of ATTRIBUTE_ROLES) roles[name] = ansi(spec.attributes[name], enabled)
+  return roles as unknown as Palette
 }
 
 /**
@@ -145,8 +227,8 @@ export function markdownTheme(palette: Palette): MarkdownTheme {
     // pi-tui presents both fence rows through this callback. Keep the opening
     // language label, but hide Markdown syntax and the otherwise-empty close.
     codeBlockBorder: text => palette.dim(text.slice(3)),
-    quote: text => palette.muted(text),
-    quoteBorder: text => palette.accent2(text),
+    quote: text => palette.dim(text),
+    quoteBorder: text => palette.accent(text),
     hr: text => palette.dim(text),
     listBullet: text => palette.accent(text),
     bold: text => palette.bold(text),
@@ -165,7 +247,7 @@ export function selectTheme(palette: Palette): SelectListTheme {
   return {
     selectedPrefix: palette.accent,
     selectedText: palette.accent,
-    description: palette.muted,
+    description: palette.dim,
     scrollInfo: palette.dim,
     noMatch: palette.warning,
   }
@@ -181,4 +263,50 @@ export function dialogSelectTheme(palette: Palette): SelectListTheme {
     ...selectTheme(palette),
     selectedText: text => palette.selected(palette.accent(text)),
   }
+}
+
+/** Sample text every `/palette` row renders, long enough to judge a tone against its neighbours. */
+const PALETTE_SAMPLE = 'The quick brown fox 0123'
+
+/**
+ * Render every palette role as a labelled sample row, each painted by the role
+ * it names, so a reader compares the actual tones their terminal produces rather
+ * than reading SGR numbers. Colors print first and attributes second because the
+ * two groups compose in that order; every row shows its SGR pair so a mismatch
+ * between the table and the screen is visible.
+ *
+ * @param palette - Active role palette, used to paint each sample.
+ * @param scheme - Active color scheme, reported in the heading and selecting the spec.
+ * @param colorEnabled - Whether ANSI is emitted; reported so an unstyled listing is not confusing.
+ * @returns The rendered rows, without a trailing blank.
+ */
+export function renderPalette(
+  palette: Palette,
+  scheme: TerminalColorScheme,
+  colorEnabled: boolean,
+): string[] {
+  const spec = paletteSpec(scheme)
+  const width = Math.max(...[...COLOR_ROLES, ...ATTRIBUTE_ROLES].map(name => name.length))
+  // Two rows per role: the painted sample beside its name and SGR pair, then the
+  // purpose indented under it. Splitting the purpose onto its own row keeps every
+  // sample on one visual line at the narrow widths a side-by-side pane gives.
+  const head = (name: string, role: RoleSpec, sample: string): string => {
+    const pair = role.open === '' ? 'no escape' : `ESC[${role.open}m ESC[${role.close}m`
+    return `  ${sample}  ${palette.dim(`${name.padEnd(width)} ${pair}`)}`
+  }
+  const purpose = (role: RoleSpec): string => `  ${palette.dim(`    ${role.purpose}`)}`
+  const rows = [
+    palette.bold(palette.accent('Palette')),
+    palette.dim(`${scheme} scheme · color ${colorEnabled ? 'on' : 'off'}`),
+    '',
+    palette.dim('Colors — exactly one per span; they never nest inside each other.'),
+  ]
+  for (const name of COLOR_ROLES) {
+    rows.push(head(name, spec.colors[name], palette[name](PALETTE_SAMPLE)), purpose(spec.colors[name]))
+  }
+  rows.push('', palette.dim('Attributes — compose with any color, in either order.'))
+  for (const name of ATTRIBUTE_ROLES) {
+    rows.push(head(name, spec.attributes[name], palette[name](PALETTE_SAMPLE)), purpose(spec.attributes[name]))
+  }
+  return rows
 }

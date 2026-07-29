@@ -1,6 +1,6 @@
 /** Cross-platform open-with-default-application used by the local GUI carrier. */
 
-import { runNativeCommand, type NativeCommandRunner } from './native-command.ts'
+import { runNativeCommand, type NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 
 /** Testable command boundary; native implementations never invoke a shell. */
 export type PathOpenerRunner = NativeCommandRunner

@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../locale"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {

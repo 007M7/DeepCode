@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -77,6 +77,65 @@ function throwUnknown(value: unknown): never {
 }
 
 describe('the session-persistence Agent Note: AgentLoop factory create/resume', () => {
+  it('resumes a session persisted before messages gained identities', async () => {
+    const sessionId = SessionId('pre-identity-resume')
+    const first = await persistentHarness(new MockAdapter([]))
+    await first.ctx.sessionPersistence.create({
+      version: SESSION_FORMAT_VERSION,
+      id: sessionId,
+      createdAt: 1,
+    })
+    await first.ctx.sessionPersistence.append(sessionId, [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      {
+        type: 'user/message',
+        seq: 1,
+        time: 2,
+        data: { content: [{ type: 'text', text: 'old question' }], source: { kind: 'user' } },
+        surfaceOp: 'append',
+      },
+      { type: 'step/start', seq: 2, time: 3, data: { turn: 1, step: 1 } },
+      {
+        type: 'assistant/message',
+        seq: 3,
+        time: 4,
+        data: {
+          turn: 1,
+          step: 1,
+          content: [{ type: 'text', text: 'old answer' }],
+          provenance: { provider: 'mock', model: 'mock' },
+        },
+        surfaceOp: 'append',
+      },
+      { type: 'step/end', seq: 4, time: 5, data: { turn: 1, step: 1 } },
+      { type: 'turn/end', seq: 5, time: 6, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] as unknown as SessionEvent[])
+    await first.ctx.fiber.dispose()
+
+    const ctx = await mountPersistentHarness(first.root, new MockAdapter([textResponse('new answer')]))
+    const handle = await ctx.agents.resume({
+      resumeSessionId: sessionId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    expect(handle.agent.session.deriveMessages()).toMatchObject([
+      { id: `legacy-message:${sessionId}:1`, role: 'user' },
+      { id: `legacy-message:${sessionId}:3`, role: 'assistant' },
+    ])
+
+    handle.agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'new question' }],
+      source: { kind: 'user' },
+    }))
+    await waitForIdle(ctx, handle.agent)
+    expect(handle.agent.session.deriveMessages()).toHaveLength(4)
+    expect(handle.agent.session.events.at(-1)).toMatchObject({
+      type: 'turn/end',
+      data: { reason: { kind: 'completed' } },
+    })
+    await handle.dispose()
+    await ctx.fiber.dispose()
+  })
+
   it('normalizes a non-Error resume publication failure for rollback and rethrows it', async () => {
     const sessionId = SessionId('unknown-resume-failure-s')
     const root = await persistSession(sessionId)

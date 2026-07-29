@@ -10,7 +10,7 @@ import type {
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { ObservableSnapshot } from '../contract/store.ts'
+import type { SessionFace } from '../contract/session.ts'
 import type {
   CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
   PromptError, QueuedMessage, RunningToolCall,
@@ -67,9 +67,11 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
 
 /**
  * Owns a session's event window, derived conversation state, and observable
- * snapshot. React bindings remain outside this data layer.
+ * snapshot. React bindings remain outside this data layer. Features see only
+ * the {@link SessionFace} slice (ISession verbs + the snapshot source); the
+ * remaining public members are manager/runtime entry points.
  */
-export class Session implements ObservableSnapshot<ConversationSnapshot> {
+export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
@@ -216,12 +218,14 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
       return result
     }
-    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt has logged
-    // its user/message on the host (events.length > 0 is fact, not
-    // optimism), while a rejected first prompt must keep the session blank
-    // — the client-side blank mirror only ever lowers, so flipping early on
-    // a failure would surface the session forever and strip its
-    // connectWorkspace reuse eligibility against the host's authority.
+    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt starts the
+    // conversation's first turn on the host (the host criterion — a logged
+    // turn/start — is fact, not optimism; standalone command and projection
+    // events never flip it), while a rejected first prompt must keep the
+    // session blank — the client-side blank mirror only ever lowers, so
+    // flipping early on a failure would surface the session forever and
+    // strip its connectWorkspace reuse eligibility against the host's
+    // authority.
     if (this.blankBit) {
       this.blankBit = false
       this.options.onEngaged?.(this)
@@ -246,6 +250,21 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle;
+   * outcomes render as flow nodes, never as a response echo).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  async command(line: string): Promise<RpcResult<{ matched: boolean }>> {
+    try {
+      return (await this.api.commands.execute({ sessionId: this.sessionId, line })).result
+    } catch (error) {
+      return transportError(error)
+    }
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -808,7 +827,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       queue: this.queueCache.value,
       running: this.running,
       composerPhase: derivePhase(
-        nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
+        // Command lifecycle nodes are not conversation: running /permission
+        // or /plan on a fresh session keeps the hero (the client mirror of
+        // the host's no-turn sessionBlank predicate).
+        nodes.some(node => node.kind !== 'command') || partial !== null || this.running || this.pendingCache.value.length > 0,
         this.promptAttempted,
       ),
       removed: this.removed,
@@ -829,7 +851,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
  * object: `hasContent` only grows within a window and `promptAttempted` is
  * sticky, so blank → engaging → active never steps back; a failed first
  * prompt stays engaging (retry semantics — see ComposerPhase).
- * @param hasContent - any conversation material exists (nodes, partial, running turn, pending waits).
+ * @param hasContent - any conversation material exists (non-command nodes,
+ *   partial, running turn, pending waits; command lifecycle rows alone keep
+ *   the session blank).
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */

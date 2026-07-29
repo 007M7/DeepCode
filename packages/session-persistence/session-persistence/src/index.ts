@@ -23,7 +23,7 @@ export interface SessionPersistenceSnapshot {
 
 // The backend-agnostic write-path orchestration first-party backends compose.
 export { PersistenceCoordinator } from './coordinator.ts'
-export type { PersistenceBackend, StoredPrefix } from './coordinator.ts'
+export type { PersistenceBackend, StoredPrefix, StoredSuffix } from './coordinator.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -93,7 +93,9 @@ export abstract class SessionPersistence extends Service {
    * A coordinator-backed cold load reserves the identity across storage awaits,
    * so concurrent publication of a same-id live Session rejects.
    * Returned events are detached, and every identified message is deeply
-   * frozen; malformed identified messages reject before any stored event is returned.
+   * frozen. Coordinator-backed implementations upgrade supported pre-identity
+   * message events before validation; other malformed messages reject before
+   * any stored event is returned.
    * @param id - the persisted session to reload.
    * @returns the header and a log ending on a balanced `turn/end`.
    */
@@ -103,13 +105,34 @@ export abstract class SessionPersistence extends Service {
    * Inspect a header and its valid contiguous stored prefix without repairing
    * a torn tail, closing an interrupted turn, or publishing coordinator state.
    * This read is serialized with writes for the same id and returns detached
-   * values with deeply frozen identified messages, so observers cannot mutate message
-   * identity/content or backend-owned state. Malformed identified messages reject.
+   * values with upgraded, deeply frozen identified messages, so observers
+   * cannot mutate message identity/content or backend-owned state. Other
+   * malformed messages reject.
    * @param id - the persisted session to inspect.
    * @param signal - optional cancellation for queued and backend read work.
    * @returns the header and valid stored event prefix exactly as observed.
    */
   abstract inspect(id: SessionId, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }>
+
+  /**
+   * Read the stored events from `fromSeq` onward — the read-from-seq
+   * primitive for read models that resume from a watermark (e.g. a persisted
+   * projection cache folding only the tail past its checkpoint). Like
+   * {@link inspect} it is non-mutating and detached: no torn-tail truncation,
+   * no synthetic closers, no coordinator-state publication; only events from
+   * the valid contiguous stored prefix are returned, so a torn fragment never
+   * reaches the caller. `fromSeq` at or beyond the stored prefix returns an
+   * empty event list (never an error). Backends whose medium can seek by seq
+   * (SQLite) read only the suffix; sequential media (JSONL, both encodings)
+   * still parse the whole artifact and skip forward — the primitive bounds
+   * what is RETURNED and refolded, not every backend's physical read.
+   * @param id - the persisted session to read.
+   * @param fromSeq - first event seq to include; a non-negative safe integer.
+   * @param signal - optional cancellation for queued and backend read work.
+   * @returns the header and the stored events with `seq >= fromSeq`.
+   */
+  abstract readFrom(id: SessionId, fromSeq: number, signal?: AbortSignal):
+  Promise<{ meta: SessionHeader; events: SessionEvent[] }>
 
   /**
    * Lightweight listing from metadata, without a full-log parse.

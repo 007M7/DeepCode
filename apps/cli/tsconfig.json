@@ -51,6 +51,9 @@
       "path": "../../packages/client/ui-models"
     },
     {
+      "path": "../../packages/client/ui-permission"
+    },
+    {
       "path": "../../packages/client/locale"
     },
     {
@@ -61,6 +64,9 @@
     },
     {
       "path": "../../packages/client/ui-conversation"
+    },
+    {
+      "path": "../../packages/client/ui-plan"
     },
     {
       "path": "../../packages/client/ui-trajectory"

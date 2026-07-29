@@ -6,12 +6,16 @@
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the `plan` projection key merge (the TodoDock posture — the
+// composer reads a host-computed value; the domain owns the key).
+import type {} from '@deepseek-ai/dsh-plan-mode/client'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
+import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
 /** Prompt failure surface (derived from promptError). */
@@ -22,13 +26,8 @@ export interface InputBarError {
 
 export type InputBarProps = ComposerBarProps
 
-const READONLY_OPTIONS: readonly { id: string; label: string }[] = [
-  { id: 'readonly', label: 'Read-only' },
-  { id: 'readwrite', label: 'Read-write' },
-]
-
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, renderSlot, useNotices, useLexicon,
+  useSession, useInput, inputActions, keyboard, stop, command, renderSlot, useNotices, useLexicon, useProjection,
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
@@ -37,6 +36,9 @@ export function InputBar({
   const promptError = useSession(s => s.promptError)
   const running = useSession(s => s.running)
   const disabled = useSession(s => s.removed)
+  // Plan mode swaps the textarea placeholder (the projection is the folded
+  // host value; owner-prop placeholders — hero, session-unavailable — win).
+  const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
   // Prompt failures are ordinary failures (no create/attach transaction
   // exists anymore): the strip renders promptError, the draft stays in the
   // machine, and the user resubmits.
@@ -58,9 +60,9 @@ export function InputBar({
     }, 10)
   }
 
-  // Placeholder chrome: Access selection stays local until its seam lands
-  // (plan/model are real seats now — the named single slots below).
-  const [readonlyId, setReadonlyId] = useState('readonly')
+  // The Access seat's data: the host-computed permissions projection
+  // (undefined = capability absent → the chip renders nothing).
+  const permissions = useProjection('permissions')
 
   // Queue cut 1: running input stays free; locked = session disabled only.
   // The transient machine locks (adjudicating pending / submitting) render
@@ -223,19 +225,10 @@ export function InputBar({
     if (!empty && !disabled && !machineBusy) inputActions.submit('queue')
   }
 
-  // Access placeholder select (the one remaining local-chrome control).
+  // The Access seat: the projection-fed permission chip (renders nothing
+  // while the permissions key is absent — permission-less host or Draft).
   const accessSelect: ReactNode = (
-    <select
-      className={css.select}
-      aria-label="Access mode"
-      value={readonlyId}
-      disabled={locked}
-      onChange={(e: ChangeEvent<HTMLSelectElement>) => { setReadonlyId(e.target.value) }}
-    >
-      {READONLY_OPTIONS.map(opt => (
-        <option key={opt.id} value={opt.id}>{opt.label}</option>
-      ))}
-    </select>
+    <PermissionSelect value={permissions} locked={locked} command={command} />
   )
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
@@ -334,7 +327,9 @@ export function InputBar({
             disabled={locked}
             readOnly={machineBusy}
             data-phase={input.phase}
-            placeholder={placeholder ?? (disabled ? 'Session unavailable' : 'Message the agent')}
+            placeholder={placeholder ?? (disabled
+              ? 'Session unavailable'
+              : planActive ? 'describe your task to generate plan' : 'Message the agent')}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}
@@ -361,15 +356,15 @@ export function InputBar({
               <IconPlusOutline16 size={14} />
             </button>
             <div className={css.modes}>
-              {renderSlot('conversation.input.plan', { locked })}
               {accessSelect}
+              {renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
           </div>
           <div className={css.trailing}>
             {rightItems}
             {renderSlot('conversation.input.model', { locked })}
-            {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />}
+            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             <button
               type="button"
               className={css.primary}
