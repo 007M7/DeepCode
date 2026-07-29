@@ -340,6 +340,60 @@ describe('LocalPtySession readiness and output', () => {
     await operation.done
   })
 
+  it('retains a canceled send until asynchronous foreground signalling settles', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const signalGate = Promise.withResolvers<undefined>()
+    terminal.signalForeground = async (signal) => {
+      await signalGate.promise
+      const foreground = await terminal.inspectForeground()
+      if (foreground === undefined) throw new Error('cannot resolve foreground')
+      inspector.signalGroup(foreground.processGroupId, signal)
+      return foreground.processGroupId
+    }
+    const operation = session.startSend({ text: 'first', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+
+    terminal.emitData('\x1b]133;D;130\x07dsh> ')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(() => session.startSend({ text: 'successor', submit: true })).toThrow('active send')
+    signalGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(10)
+    await operation.done
+    expect(inspector.groups).toContainEqual([456, 'SIGINT'])
+    expect(inspector.groups).not.toContainEqual([789, 'SIGINT'])
+  })
+
+  it('does not resume cancellation polling after the terminal exits during signalling', async () => {
+    vi.useFakeTimers()
+    const terminal = new FakeTerminal()
+    const inspector = new FakeInspector()
+    const session = makeSession(terminal, inspector, config())
+    await initialize(session, terminal)
+
+    const signalGate = Promise.withResolvers<undefined>()
+    terminal.signalForeground = async () => {
+      await signalGate.promise
+      return 456
+    }
+    const operation = session.startSend({ text: 'first', submit: true })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(operation.cancel()).toBe(true)
+    terminal.emitExit(0)
+    await expect(operation.done).resolves.toMatchObject({ waitReason: 'session_exit' })
+
+    signalGate.resolve(undefined)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(session.status()).toEqual({ kind: 'exited', exitCode: 0, signal: null })
+  })
+
   it('retains send ownership after timeout until an asynchronous provider write settles', async () => {
     vi.useFakeTimers()
     const terminal = new FakeTerminal()

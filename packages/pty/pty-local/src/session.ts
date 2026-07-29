@@ -166,6 +166,7 @@ export class LocalPtySession implements PtyBackendSession {
   private activeDeadlineTimer: NodeJS.Timeout | undefined
   private activeAbort: (() => void) | undefined
   private readonly terminalOperations = new Set<Promise<void>>()
+  private interrupting: LocalSendOperation | undefined
   private writing: LocalSendOperation | undefined
   private pollingReady: LocalSendOperation | undefined
   private polling = false
@@ -403,7 +404,7 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   private schedulePoll(operation: LocalSendOperation, delayMs = this.config.pollIntervalMs): void {
-    if (this.active !== operation || this.polling) return
+    if (this.active !== operation || this.interrupting === operation || this.polling) return
     if (this.activeTimer !== undefined) clearTimeout(this.activeTimer)
     this.activeTimer = setTimeout(() => {
       this.activeTimer = undefined
@@ -480,9 +481,11 @@ export class LocalPtySession implements PtyBackendSession {
   }
 
   private clearActive(): void {
+    const operation = this.active
     this.stopPolling()
     this.activeAbort?.()
     this.activeAbort = undefined
+    if (this.interrupting === operation) this.interrupting = undefined
     this.writing = undefined
     this.pollingReady = undefined
     this.active = undefined
@@ -503,9 +506,24 @@ export class LocalPtySession implements PtyBackendSession {
 
   private interrupt(operation: LocalSendOperation): void {
     if (this.active !== operation) return
-    this.ownTerminalOperation(this.terminal.signalForeground('SIGINT').then(() => {}, (error: unknown) => {
+    this.interrupting = operation
+    this.stopPolling()
+    this.ownTerminalOperation(this.interruptOnce(operation))
+  }
+
+  private async interruptOnce(operation: LocalSendOperation): Promise<void> {
+    try {
+      await this.terminal.signalForeground('SIGINT')
+    } catch (error: unknown) {
       if (this.active === operation) this.failActive(error, this.writing === operation)
-    }))
+      return
+    } finally {
+      if (this.interrupting === operation) this.interrupting = undefined
+    }
+    if (this.active === operation && !operation.settled && !this.closing && this.writing !== operation) {
+      this.pollingReady = operation
+      this.schedulePoll(operation, 0)
+    }
   }
 
   private async closeOnce(reason: string): Promise<void> {
