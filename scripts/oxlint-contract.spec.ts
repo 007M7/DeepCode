@@ -94,6 +94,53 @@ probePromise()
     }
   }, 20_000)
 
+  it('runs JavaScript compatibility and nursery rules', async () => {
+    const suffix = randomUUID()
+    const configPath = await writeContractConfig(suffix)
+    const path = join(repositoryRoot, 'scripts', `oxlint-contract-${suffix}.ts`)
+    const source = `export function firstProbe(): number {
+  const first = 1
+  const second = 2
+  return first + second
+}
+
+export function secondProbe(): number {
+  const first = 1
+  const second = 2
+  return first + second
+}
+
+export function hasValue(value: string): boolean {
+  return value !== undefined
+}
+
+export const longProbe = 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+`
+
+    try {
+      await writeFile(path, source)
+      const result = runOxlint([
+        '--config',
+        relative(repositoryRoot, configPath),
+        '--format',
+        'unix',
+        relative(repositoryRoot, path),
+      ])
+      const output = normalizedOutput(result)
+
+      expect(result.error).toBeUndefined()
+      expect(result.status, output).toBe(1)
+      expect(output).toContain('@stylistic(max-len)')
+      expect(output).toContain('sonarjs(no-identical-functions)')
+      expect(output).toContain('typescript(no-unnecessary-condition)')
+    } finally {
+      await Promise.all([
+        rm(path, { force: true }),
+        rm(configPath, { force: true }),
+      ])
+    }
+  }, 20_000)
+
   it('applies staged stylistic fixes before Oxlint validation', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
