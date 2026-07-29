@@ -252,6 +252,8 @@ const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   InvariantRegistration: 'service-local lifecycle handle is owned by packages/support/invariants/README.md',
   PresetOption: 'deployment menu metadata is owned by packages/ui/permission/README.md',
   PresetSpec: 'deployment preset composition is owned by packages/ui/permission/README.md',
+  KnobState: 'projection unit state shape is owned by packages/ui/permission/README.md',
+  PermissionSelect: 'permissions projection payload is owned by packages/ui/permission/src/types.ts',
   PromptAssembly: 'assembly result is owned by packages/core/system-prompt/README.md',
   ResumeAgentOptions: 'agent resume contract is owned by packages/core/agent/README.md',
   SessionForkSource: 'service-local fork input is owned by packages/core/session/src/index.ts',

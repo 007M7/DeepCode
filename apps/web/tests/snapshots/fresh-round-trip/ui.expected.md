@@ -1,17 +1,25 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Use the bash tool to" [disabled]
-    - text: · 1 turns
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
     - tab "Waterfall"
 - text: "Use the bash tool to run exactly: echo WEB_E2E_OK. Then reply with the single word DONE and stop."
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
+  - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- text: Echo the test string
+- img
+- text: Bash Echo the test string
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
+  - img
   - img
   - text: Think The command executed successfully and output "WEB_E2E_OK". I just need to reply with "DONE".
 - paragraph: DONE
@@ -19,10 +27,12 @@
 - textbox "Message the agent"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
