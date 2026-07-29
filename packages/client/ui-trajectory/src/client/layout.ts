@@ -3,12 +3,19 @@
  * own-duration times, in-flight partial/runningCalls, and group descriptions.
  */
 import type {
+  AssistantBlock,
   AssistantMessageNode,
   CodeSubCall,
   ConversationSnapshot,
+  RequestInspectionSnapshot,
+  RequestPromptChange,
+  RequestView,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { TrajectoryCellProps } from './TrajectoryCell.tsx'
+import type {
+  TrajectoryCellProps,
+  TrajectorySourceBlock,
+} from './trajectory-record.ts'
 
 /** One Message or Step group inside a turn. */
 export interface TrajectoryGroupModel {
@@ -28,12 +35,16 @@ export interface TrajectoryLayoutInput {
   nodes: ConversationSnapshot['nodes']
   partial: ConversationSnapshot['partial']
   runningCalls: ConversationSnapshot['runningCalls']
+  requests?: readonly RequestView[]
+  callSchemas?: RequestInspectionSnapshot['callSchemas']
   /** run_code sub-dispatches by parent callId (sub-cells nest under the parent Tool cell). */
   codeDispatches: ConversationSnapshot['codeDispatches']
 }
 
 interface UsageLike {
   inputTokens?: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
   outputTokens?: number
   reasoningTokens?: number
 }
@@ -46,15 +57,85 @@ interface LaidCell {
   callId?: string
 }
 
+interface LaidGroup {
+  title: string
+  laid: LaidCell[]
+}
+
+interface TurnBucket {
+  groups: LaidGroup[]
+}
+
+type InputNode = Extract<
+  ConversationSnapshot['nodes'][number],
+  { kind: 'user' | 'steering' | 'context' }
+>
+
+type OrderedLayoutEntry =
+  | {
+    kind: 'node'
+    seq: number
+    node: ConversationSnapshot['nodes'][number]
+    nodeIndex: number
+  }
+  | {
+    kind: 'compaction'
+    seq: number
+    request: RequestView
+  }
+  | {
+    kind: 'system'
+    seq: number
+    request: RequestView
+    change: RequestPromptChange
+  }
+  | {
+    kind: 'request'
+    seq: number
+    request: RequestView
+  }
+
+function layoutEntryOrder(entry: OrderedLayoutEntry): number {
+  return entry.kind === 'system' && entry.change.kind === 'initial'
+    ? Number.NEGATIVE_INFINITY
+    : entry.seq
+}
+
+function inputCellDetail(node: InputNode): Pick<
+  TrajectoryCellProps,
+  'text' | 'sourceSeq' | 'messageSource' | 'inputDetail' | 'sourceBlocks' | 'timeSeconds' | 'startedAt'
+> {
+  return {
+    text: summarizeContent(node.content),
+    sourceSeq: node.seq,
+    messageSource: node.source,
+    inputDetail: detailContent(node.content),
+    sourceBlocks: node.content.map(block => sourceBlock(block)),
+    timeSeconds: 0,
+    startedAt: finiteTime(node.time),
+  }
+}
+
 /**
  * Fold a snapshot into turn → Message/Step groups with expanded cells.
  * @param input - nodes plus in-flight partial/runningCalls.
  * @returns turns ordered by first appearance.
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
-  const { nodes, partial, runningCalls, codeDispatches } = input
+  const {
+    nodes, partial, runningCalls, requests = [], callSchemas, codeDispatches,
+  } = input
   const resultByCall = indexResults(nodes)
-  const turns = new Map<number, { message: LaidCell[]; steps: Map<number, LaidCell[]> }>()
+  const callStartById = new Map<string, number>()
+  for (const result of resultByCall.values()) {
+    const startedAt = finiteTime(result.callTime)
+    if (startedAt !== null) callStartById.set(result.callId, startedAt)
+  }
+  for (const call of runningCalls) {
+    const startedAt = finiteTime(call.time)
+    if (startedAt !== null) callStartById.set(call.callId, startedAt)
+  }
+  const turns = new Map<number, TurnBucket>()
   let index = 0
   let prevAbsTime: number | null = null
   let lastAssistantTurn: number | null = null
@@ -62,26 +143,171 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   const bucket = (turn: number) => {
     let entry = turns.get(turn)
     if (entry === undefined) {
-      entry = { message: [], steps: new Map() }
+      entry = { groups: [] }
       turns.set(turn, entry)
     }
     return entry
   }
 
   const pushMessage = (turn: number, laid: LaidCell) => {
-    bucket(turn).message.push(laid)
+    const groups = bucket(turn).groups
+    const last = groups.at(-1)
+    if (last?.title === 'Message') {
+      last.laid.push(laid)
+      return
+    }
+    groups.push({ title: 'Message', laid: [laid] })
   }
-  const pushStep = (turn: number, step: number, laid: LaidCell) => {
-    const steps = bucket(turn).steps
-    const list = steps.get(step) ?? []
-    list.push(laid)
-    steps.set(step, list)
+  const pushStep = (turn: number, step: number, laid: readonly LaidCell[]) => {
+    if (laid.length === 0) return
+    const groups = bucket(turn).groups
+    const title = `Step ${step}`
+    const existing = groups.find(group => group.title === title)
+    if (existing !== undefined) {
+      existing.laid.push(...laid)
+      return
+    }
+    groups.push({ title, laid: [...laid] })
   }
 
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i]
-    /* v8 ignore next -- dense-array guard: i stays within nodes.length, so the undefined arm needs a sparse array no caller builds. */
-    if (node === undefined) continue
+  const representedRequests = new Set<string>()
+  for (const node of nodes) {
+    if (node.kind === 'assistant' && node.step > 0) {
+      representedRequests.add(`${node.turn}\u0000${node.step}`)
+    }
+  }
+  if (partial !== null && partial.step > 0) {
+    representedRequests.add(`${partial.turn}\u0000${partial.step}`)
+  }
+  for (const call of runningCalls) {
+    if (call.step > 0) representedRequests.add(`${call.turn}\u0000${call.step}`)
+  }
+
+  const entries: OrderedLayoutEntry[] = [
+    ...nodes.map((node, nodeIndex) => ({
+      kind: 'node' as const,
+      seq: node.seq,
+      node,
+      nodeIndex,
+    })),
+    ...requests
+      .filter(request => request.purpose === 'compaction')
+      .map(request => ({
+        kind: 'compaction' as const,
+        seq: request.startSeq,
+        request,
+      })),
+    ...requests.flatMap(request => request.promptChange === undefined || request.prompt === undefined
+      ? []
+      : [{
+        kind: 'system' as const,
+        seq: request.promptChange.seq,
+        request,
+        change: request.promptChange,
+      }]),
+    ...requests
+      .filter(request => request.purpose === 'assistant')
+      .filter(request =>
+        !representedRequests.has(`${request.turn}\u0000${request.step}`),
+      )
+      .map(request => ({
+        kind: 'request' as const,
+        seq: request.startSeq,
+        request,
+      })),
+  ].sort((left, right) => layoutEntryOrder(left) - layoutEntryOrder(right))
+
+  for (const entry of entries) {
+    if (entry.kind === 'request') {
+      const { request } = entry
+      pushStep(request.turn, request.step, [{
+        absTime: finiteTime(request.startedAt),
+        cell: {
+          index: ++index,
+          kind: 'message',
+          text: '',
+          sourceSeq: request.startSeq,
+          requestOnly: true,
+          timeSeconds: request.completedAt === null
+            ? null
+            : durationSeconds(request.completedAt, request.startedAt),
+          startedAt: finiteTime(request.startedAt),
+          ...(request.status === 'error' ? { isError: true } : {}),
+        },
+      }])
+      prevAbsTime = finiteTime(request.completedAt)
+        ?? finiteTime(request.startedAt)
+        ?? prevAbsTime
+      continue
+    }
+    if (entry.kind === 'system') {
+      const { change, request } = entry
+      const turn = change.kind === 'initial'
+        ? firstVisibleTurn(nodes, partial)
+        : enclosingPromptTurn(nodes, change.seq, partial)
+      pushMessage(turn, {
+        absTime: finiteTime(change.time),
+        cell: {
+          index: ++index,
+          kind: 'system',
+          text: promptChangeLabel(change),
+          sourceSeq: change.seq,
+          ...(request.prompt === undefined ? {} : { promptDetail: request.prompt }),
+          ...(change.previous === undefined
+            ? {}
+            : { previousPromptDetail: change.previous }),
+          timeSeconds: 0,
+          startedAt: finiteTime(change.time),
+        },
+      })
+      prevAbsTime = finiteTime(change.time) ?? prevAbsTime
+      continue
+    }
+    if (entry.kind === 'compaction') {
+      const request = entry.request
+      const rawOutput = request.rawOutput ?? request.summary
+      const thinkingDetail = rawOutput === undefined
+        ? ''
+        : detailReasoning(rawOutput)
+      const cell: TrajectoryCellProps = {
+        index: ++index,
+        kind: 'compacted',
+        text: request.status === 'running'
+          ? 'Compacting context…'
+          : request.status === 'error'
+            ? request.error ?? 'Compaction failed'
+            : request.summary === undefined
+              ? 'Context compacted'
+              : summarizeContent(request.summary),
+        sourceSeq: request.startSeq,
+        ...(request.summary === undefined
+          ? {}
+          : {
+            outputDetail: detailContent(request.summary),
+            outputBlocks: request.summary.map(block => sourceBlock(block)),
+          }),
+        ...(thinkingDetail === '' ? {} : { thinkingDetail }),
+        ...(rawOutput === undefined
+          ? {}
+          : { sourceBlocks: rawOutput.map(block => sourceBlock(block)) }),
+        ...(request.status === 'error' ? { isError: true } : {}),
+        timeSeconds: request.completedAt === null
+          ? null
+          : durationSeconds(request.completedAt, request.startedAt),
+        startedAt: finiteTime(request.startedAt),
+      }
+      attachUsage(cell, request.usage as UsageLike | undefined)
+      bucket(request.turn).groups.push({
+        title: `Compaction ${request.startSeq}`,
+        laid: [{
+          absTime: finiteTime(request.startedAt),
+          cell,
+        }],
+      })
+      prevAbsTime = finiteTime(request.completedAt) ?? finiteTime(request.startedAt) ?? prevAbsTime
+      continue
+    }
+    const { node, nodeIndex: i } = entry
     if (node.kind === 'user' || node.kind === 'steering') {
       // user/message has no turn on the wire; enclose it in the next assistant
       // (or partial) turn, else open the turn after the last assistant.
@@ -91,19 +317,22 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
-          index: ++index, kind: 'user', text: summarizeContent(node.content),
-          timeSeconds: 0,
+          index: ++index,
+          kind: 'user',
+          ...inputCellDetail(node),
+          opensTurn: node.kind === 'user',
         },
       })
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
       continue
     }
     if (node.kind === 'assistant') {
-      const laidList = withSubCalls(expandAssistant(node, index + 1, prevAbsTime, resultByCall), codeDispatches)
-      for (const laid of laidList) {
-        if (node.step > 0) pushStep(node.turn, node.step, laid)
-        else pushMessage(node.turn, laid)
-      }
+      const laidList = withSubCalls(
+        expandAssistant(node, index + 1, prevAbsTime, resultByCall, callStartById),
+        codeDispatches,
+      )
+      if (node.step > 0) pushStep(node.turn, node.step, laidList)
+      else for (const laid of laidList) pushMessage(node.turn, laid)
       const last = laidList[laidList.length - 1]
       if (last !== undefined) index = last.cell.index
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
@@ -111,30 +340,47 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (node.kind === 'context') {
-      // No trajectory cell, but the surface still advances the duration cursor.
+      const turn = enclosingUserTurn(nodes, i, partial, lastAssistantTurn)
+      pushMessage(turn, {
+        absTime: finiteTime(node.time),
+        cell: {
+          index: ++index,
+          kind: 'context',
+          ...inputCellDetail(node),
+        },
+      })
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
       continue
     }
     if (node.kind === 'tool-result') {
       if (!callEmittedInAssistant(nodes, node.callId)) {
         const toolName = node.call?.name
-        pushStep(0, 1, {
+        const laidList: LaidCell[] = [{
           absTime: finiteTime(node.callTime ?? node.time),
           ...(toolName !== undefined ? { toolName } : {}),
           callId: node.callId,
           cell: {
             index: ++index,
             kind: 'tool',
+            sourceSeq: node.seq,
             text: node.call !== null
               ? summarizeCall(node.call.name, node.call.argsRaw)
               : summarizeResult(node),
+            ...(node.call !== null ? { inputDetail: node.call.argsRaw } : {}),
+            outputDetail: detailResult(node),
+            outputBlocks: node.content.map(block => sourceBlock(block)),
+            result: summarizeResult(node),
+            callId: node.callId,
+            isError: node.isError,
             timeSeconds: durationSeconds(node.time, node.callTime),
+            startedAt: finiteTime(node.callTime),
           },
-        })
+        }]
         for (const laid of expandSubCalls(codeDispatches.get(node.callId), index)) {
-          pushStep(0, 1, laid)
+          laidList.push(laid)
           index = laid.cell.index
         }
+        pushStep(0, 1, laidList)
       }
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
     }
@@ -145,11 +391,16 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       kind: 'assistant', seq: Number.MAX_SAFE_INTEGER, time: 0,
       turn: partial.turn, step: partial.step, blocks: partial.blocks,
     }
-    const laidList = expandAssistant(fake, index + 1, prevAbsTime, resultByCall, { streaming: true })
-    for (const laid of laidList) {
-      if (partial.step > 0) pushStep(partial.turn, partial.step, laid)
-      else pushMessage(partial.turn, laid)
-    }
+    const laidList = expandAssistant(
+      fake,
+      index + 1,
+      prevAbsTime,
+      resultByCall,
+      callStartById,
+      { streaming: true },
+    )
+    if (partial.step > 0) pushStep(partial.turn, partial.step, laidList)
+    else for (const laid of laidList) pushMessage(partial.turn, laid)
     const last = laidList[laidList.length - 1]
     if (last !== undefined) index = last.cell.index
   }
@@ -157,7 +408,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
   const seenCalls = collectCallIds(turns)
   for (const call of runningCalls) {
     if (seenCalls.has(call.callId)) continue
-    pushStep(call.turn, call.step > 0 ? call.step : 1, {
+    const laidList: LaidCell[] = [{
       absTime: null,
       toolName: call.name,
       callId: call.callId,
@@ -165,30 +416,34 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         index: ++index,
         kind: 'tool',
         text: summarizeCall(call.name, call.argsRaw),
+        inputDetail: call.argsRaw,
+        callId: call.callId,
         timeSeconds: null,
+        startedAt: finiteTime(call.time),
       },
-    })
+    }]
     for (const laid of expandSubCalls(codeDispatches.get(call.callId), index)) {
-      pushStep(call.turn, call.step > 0 ? call.step : 1, laid)
+      laidList.push(laid)
       index = laid.cell.index
     }
+    if (call.step > 0) pushStep(call.turn, call.step, laidList)
+    else for (const laid of laidList) pushMessage(call.turn, laid)
   }
 
   // Orphan turn-0 cells (orphaned tools / steering turn 0) fold into Turn 1.
   const prologue = turns.get(0)
   if (prologue !== undefined) {
     turns.delete(0)
-    const emptyTurn = (): { message: LaidCell[]; steps: Map<number, LaidCell[]> } => ({
-      message: [],
-      steps: new Map(),
-    })
+    const emptyTurn = (): TurnBucket => ({ groups: [] })
     const first = turns.get(1) ?? emptyTurn()
-    first.message = [...prologue.message, ...first.message]
-    for (const [step, cells] of prologue.steps) {
-      const existing = first.steps.get(step) ?? []
-      first.steps.set(step, [...cells, ...existing])
-    }
+    first.groups = [...prologue.groups, ...first.groups]
     turns.set(1, first)
+  }
+
+  for (const entry of turns.values()) {
+    for (const group of entry.groups) {
+      for (const laid of group.laid) attachToolSchema(laid, callSchemas)
+    }
   }
 
   return [...turns.entries()]
@@ -196,32 +451,32 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     .map(([turn, entry]) => toTurnModel(turn, entry))
 }
 
+function attachToolSchema(
+  laid: LaidCell,
+  callSchemas: RequestInspectionSnapshot['callSchemas'] | undefined,
+): void {
+  if (laid.callId === undefined || callSchemas === undefined) return
+  const schema = callSchemas.get(laid.callId)
+  if (schema === undefined) return
+  laid.cell.schemaDetail = JSON.stringify(schema, null, 2)
+}
+
 function toTurnModel(
   turn: number,
-  entry: { message: LaidCell[]; steps: Map<number, LaidCell[]> },
+  entry: TurnBucket,
 ): TrajectoryTurnModel {
-  const groups: TrajectoryGroupModel[] = []
-  if (entry.message.length > 0) {
-    const description = groupDescription(entry.message)
-    groups.push({
-      title: 'Message',
-      ...(description !== undefined ? { description } : {}),
-      cells: entry.message.map(l => l.cell),
-    })
-  }
-  for (const step of [...entry.steps.keys()].sort((a, b) => a - b)) {
-    const laid = entry.steps.get(step) ?? []
+  const groups = entry.groups.map(({ title, laid }): TrajectoryGroupModel => {
     const description = groupDescription(laid)
-    groups.push({
-      title: `Step ${step}`,
+    return {
+      title,
       ...(description !== undefined ? { description } : {}),
       cells: laid.map(l => l.cell),
-    })
-  }
+    }
+  })
   return { turn, groups }
 }
 
-/** Wall-span duration + tool histogram, e.g. `1.5s bash×6`. */
+/** Wall-span duration + tool histogram, e.g. `1.5 s bash×6`. */
 function groupDescription(laid: readonly LaidCell[]): string | undefined {
   const parts: string[] = []
   // Tool rows contribute start (absTime) and end (start + own duration) so a
@@ -256,8 +511,8 @@ function groupDescription(laid: readonly LaidCell[]): string | undefined {
 function formatGroupDuration(seconds: number): string | undefined {
   if (!Number.isFinite(seconds)) return undefined
   const rounded = Math.round(seconds * 10) / 10
-  if (Number.isInteger(rounded)) return `${rounded}s`
-  return `${rounded.toFixed(1)}s`
+  if (Number.isInteger(rounded)) return `${rounded} s`
+  return `${rounded.toFixed(1)} s`
 }
 
 /** Own-duration seconds from two epoch-ms stamps; null when either is unusable. */
@@ -267,8 +522,8 @@ function durationSeconds(later: number, earlier: number | null): number | null {
 }
 
 /** Epoch-ms usable as an absolute time, else null. */
-function finiteTime(time: number): number | null {
-  return Number.isFinite(time) ? time : null
+function finiteTime(time: number | null | undefined): number | null {
+  return typeof time === 'number' && Number.isFinite(time) ? time : null
 }
 
 function expandAssistant(
@@ -276,64 +531,173 @@ function expandAssistant(
   startIndex: number,
   prevAbsTime: number | null,
   results: Map<string, ToolResultNode>,
+  callStarts: ReadonlyMap<string, number>,
   opts?: { streaming?: boolean },
 ): LaidCell[] {
   const out: LaidCell[] = []
   let index = startIndex - 1
   const usage = node.usage as UsageLike | undefined
   const streaming = opts?.streaming === true
-  const messageDuration = streaming ? null : durationSeconds(node.time, prevAbsTime)
+  const recordedStart = finiteTime(node.timing?.stepStartTime)
+  const messageDuration = streaming
+    ? null
+    : durationSeconds(node.time, recordedStart ?? prevAbsTime)
   const nodeAbs = streaming ? null : finiteTime(node.time)
-  let usageAttached = false
+  const messageText = node.blocks
+    .filter(block => block.kind === 'text' && (!streaming || block.text !== ''))
+    .map(block => block.kind === 'text' ? block.text : '')
+    .join('\n\n')
+  const thinkingText = node.blocks
+    .filter(block => block.kind === 'reasoning' && (!streaming || block.text !== ''))
+    .map(block => block.kind === 'reasoning' ? block.text : '')
+    .join('\n\n')
+  const message: TrajectoryCellProps = {
+    index: ++index,
+    kind: 'message',
+    sourceSeq: node.seq,
+    text: messageText !== ''
+      ? summarizeText(messageText)
+      : thinkingText !== ''
+        ? summarizeText(thinkingText)
+        : summarizeAssistantActivity(node.blocks),
+    ...(messageText !== '' ? { outputDetail: messageText } : {}),
+    ...(thinkingText !== '' ? { thinkingDetail: thinkingText } : {}),
+    sourceBlocks: node.blocks.map(block => assistantSourceBlock(block)),
+    timeSeconds: messageDuration,
+    startedAt: recordedStart,
+  }
+  attachUsage(message, usage)
+  message.assistantMetrics = {
+    timingRecorded: node.timing !== undefined,
+    stepStartTime: node.timing?.stepStartTime ?? null,
+    firstTokenTime: node.timing?.firstTokenTime ?? null,
+    completedTime: streaming ? null : finiteTime(node.time),
+    usageProvided: usage !== undefined,
+    outputTokens: Number.isFinite(usage?.outputTokens) ? usage?.outputTokens ?? null : null,
+  }
+  out.push({ absTime: nodeAbs, cell: message })
 
   for (const block of node.blocks) {
-    // Reasoning blocks are skipped: no block-level clock, so no Think cell.
-    if (block.kind === 'reasoning') continue
-    if (block.kind === 'text') {
-      if (block.text === '' && streaming) continue
-      const cell: TrajectoryCellProps = {
-        index: ++index, kind: 'message', text: summarizeText(block.text),
-        timeSeconds: messageDuration,
-      }
-      if (!usageAttached) {
-        attachUsage(cell, usage)
-        usageAttached = usage !== undefined
-      }
-      out.push({ absTime: nodeAbs, cell })
-      continue
-    }
-    if (block.kind === 'tool-call') {
-      const result = results.get(block.callId)
-      const toolDuration = streaming || result === undefined
-        ? null
-        : durationSeconds(result.time, result.callTime)
-      const callAbs = streaming
-        ? null
-        : (result?.callTime !== null && result?.callTime !== undefined && Number.isFinite(result.callTime)
-          ? result.callTime
-          : nodeAbs)
-      out.push({
-        absTime: callAbs,
-        toolName: block.name,
+    // Text and reasoning belong to the one Assistant record emitted above.
+    if (block.kind !== 'tool-call') continue
+    const result = results.get(block.callId)
+    const toolDuration = streaming || result === undefined
+      ? null
+      : durationSeconds(result.time, result.callTime)
+    const callAbs = finiteTime(callStarts.get(block.callId))
+    out.push({
+      absTime: callAbs,
+      toolName: block.name,
+      callId: block.callId,
+      cell: {
+        index: ++index, kind: 'tool',
+        text: summarizeCall(block.name, block.argsRaw),
+        inputDetail: block.argsRaw,
         callId: block.callId,
-        cell: {
-          index: ++index, kind: 'tool',
-          text: summarizeCall(block.name, block.argsRaw),
-          timeSeconds: toolDuration,
-        },
-      })
-    }
-  }
-
-  if (out.length === 0 && !streaming) {
-    // Reasoning-only / empty success still owns provider usage on the Message row.
-    const cell: TrajectoryCellProps = {
-      index: ++index, kind: 'message', text: '', timeSeconds: messageDuration,
-    }
-    attachUsage(cell, usage)
-    out.push({ absTime: nodeAbs, cell })
+        ...(result !== undefined
+          ? {
+            outputDetail: detailResult(result),
+            outputBlocks: result.content.map(block => sourceBlock(block)),
+            result: summarizeResult(result),
+            isError: result.isError,
+          }
+          : {}),
+        timeSeconds: toolDuration,
+        startedAt: callAbs,
+      },
+    })
   }
   return out
+}
+
+function summarizeAssistantActivity(blocks: readonly AssistantBlock[]): string {
+  const tools = new Map<string, number>()
+  for (const block of blocks) {
+    if (block.kind !== 'tool-call') continue
+    tools.set(block.name, (tools.get(block.name) ?? 0) + 1)
+  }
+  if (tools.size > 0) {
+    return 'Tool call only'
+  }
+  return ''
+}
+
+function promptChangeLabel(change: RequestPromptChange): string {
+  if (change.kind === 'initial') return 'Initial System Prompt'
+  if (change.kind === 'system') return 'System Prompt Updated'
+  if (change.kind === 'tools') return 'Tools Updated'
+  return 'System Prompt and Tools Updated'
+}
+
+function assistantSourceBlock(block: AssistantBlock): TrajectorySourceBlock {
+  switch (block.kind) {
+    case 'text': return { type: 'text', content: block.text }
+    case 'reasoning': return { type: 'thinking', content: block.text }
+    case 'tool-call': return {
+      type: 'tool-call',
+      content: block.argsRaw,
+      callId: block.callId,
+      toolName: block.name,
+    }
+    case 'other': return sourceBlock(block.block)
+  }
+}
+
+function sourceBlock(value: unknown): TrajectorySourceBlock {
+  if (typeof value !== 'object' || value === null) {
+    return { type: 'unknown', content: stringifySourceValue(value) }
+  }
+  const block = value as Record<string, unknown>
+  const type = typeof block.type === 'string' ? block.type : 'unknown'
+  if (typeof block.text === 'string') {
+    return { type: type === 'reasoning' ? 'thinking' : type, content: block.text }
+  }
+  const imageSrc = sourceImage(block)
+  const imageAlt = typeof block.alt === 'string' ? block.alt : undefined
+  return {
+    type,
+    content: imageSrc === undefined ? stringifySourceValue(value) : '',
+    ...(imageSrc !== undefined ? { imageSrc } : {}),
+    ...(imageAlt !== undefined ? { imageAlt } : {}),
+  }
+}
+
+function sourceImage(block: Record<string, unknown>): string | undefined {
+  if (typeof block.type !== 'string' || !block.type.toLowerCase().includes('image')) return undefined
+  for (const candidate of [block.url, block.image_url]) {
+    if (typeof candidate === 'string') return safeImageSource(candidate)
+  }
+  if (typeof block.data === 'string') {
+    const mediaType = [block.mimeType, block.mediaType, block.media_type]
+      .find((candidate): candidate is string => typeof candidate === 'string')
+      ?? 'image/png'
+    return safeImageSource(
+      block.data.startsWith('data:')
+        ? block.data
+        : `data:${mediaType};base64,${block.data}`,
+    )
+  }
+  if (typeof block.source !== 'object' || block.source === null) return undefined
+  const source = block.source as Record<string, unknown>
+  if (typeof source.url === 'string') return safeImageSource(source.url)
+  if (typeof source.data !== 'string') return undefined
+  const mediaType = typeof source.media_type === 'string' ? source.media_type : 'image/png'
+  return safeImageSource(`data:${mediaType};base64,${source.data}`)
+}
+
+function safeImageSource(value: string): string | undefined {
+  if (value.startsWith('data:image/') || value.startsWith('blob:')) return value
+  try {
+    const protocol = new URL(value).protocol
+    return protocol === 'http:' || protocol === 'https:' ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function stringifySourceValue(value: unknown): string {
+  const json = JSON.stringify(value, null, 2)
+  return json || String(value)
 }
 
 /**
@@ -357,10 +721,37 @@ function enclosingUserTurn(
   return 1
 }
 
+function enclosingPromptTurn(
+  nodes: ConversationSnapshot['nodes'],
+  seq: number,
+  partial: ConversationSnapshot['partial'],
+): number {
+  const next = nodes.find(node =>
+    node.seq > seq && node.kind === 'assistant' && node.step > 0)
+  if (next?.kind === 'assistant') return next.turn
+  return partial?.turn ?? 1
+}
+
+/** Earliest raw turn represented by the selected trajectory branch. */
+function firstVisibleTurn(
+  nodes: ConversationSnapshot['nodes'],
+  partial: ConversationSnapshot['partial'],
+): number {
+  const turns = nodes.flatMap(node =>
+    (node.kind === 'assistant' || node.kind === 'steering') && node.turn > 0
+      ? [node.turn]
+      : [],
+  )
+  if (partial !== null && partial.turn > 0) turns.push(partial.turn)
+  return turns.length === 0 ? 1 : Math.min(...turns)
+}
+
 /** Copy provider usage onto a Message cell when present. */
 function attachUsage(cell: TrajectoryCellProps, usage: UsageLike | undefined): void {
   if (usage === undefined) return
   if (usage.inputTokens !== undefined) cell.input = usage.inputTokens
+  if (usage.cacheReadTokens !== undefined) cell.cacheRead = usage.cacheReadTokens
+  if (usage.cacheWriteTokens !== undefined) cell.cacheWrite = usage.cacheWriteTokens
   if (usage.outputTokens !== undefined) cell.output = usage.outputTokens
   if (usage.reasoningTokens !== undefined) cell.think = usage.reasoningTokens
 }
@@ -382,15 +773,12 @@ function callEmittedInAssistant(nodes: ConversationSnapshot['nodes'], callId: st
 }
 
 function collectCallIds(
-  turns: Map<number, { message: LaidCell[]; steps: Map<number, LaidCell[]> }>,
+  turns: Map<number, TurnBucket>,
 ): Set<string> {
   const ids = new Set<string>()
   for (const entry of turns.values()) {
-    for (const laid of entry.message) {
-      if (laid.callId !== undefined) ids.add(laid.callId)
-    }
-    for (const list of entry.steps.values()) {
-      for (const laid of list) {
+    for (const group of entry.groups) {
+      for (const laid of group.laid) {
         if (laid.callId !== undefined) ids.add(laid.callId)
       }
     }
@@ -433,12 +821,27 @@ function expandSubCalls(
       cell: {
         index: ++index,
         kind: 'subtool',
+        callId: sub.callId,
         text: settled
           ? (sub.call !== null ? summarizeCall(sub.call.name, sub.call.argsRaw) : summarizeResult(sub))
           : summarizeCall(sub.name, sub.argsRaw),
+        ...(settled
+          ? (sub.call !== null ? { inputDetail: sub.call.argsRaw } : {})
+          : { inputDetail: sub.argsRaw }),
+        ...(settled
+          ? {
+            outputDetail: detailResult(sub),
+            outputBlocks: sub.content.map(block => sourceBlock(block)),
+            result: summarizeResult(sub),
+            isError: sub.isError,
+          }
+          : {}),
         // PR3's start/settle pair carries per-sub-call wall time; a running
         // (unsettled) or pre-pair log entry shows the em dash.
         timeSeconds: settled ? durationSeconds(sub.time, sub.callTime) : null,
+        startedAt: settled
+          ? finiteTime(sub.callTime)
+          : finiteTime(sub.time),
       },
     })
   }
@@ -448,8 +851,7 @@ function expandSubCalls(
 function summarizeCall(name: string, argsRaw: string): string {
   const args = argsRaw.replace(/\s+/g, ' ').trim()
   if (args === '') return name
-  const clipped = args.length > 72 ? `${args.slice(0, 71)}…` : args
-  return `${name} · ${clipped}`
+  return `${name} · ${args}`
 }
 
 function summarizeResult(node: ToolResultNode): string {
@@ -461,7 +863,40 @@ function summarizeResult(node: ToolResultNode): string {
       return summarizeText(block.text)
     }
   }
-  return node.call?.name ?? node.callId
+  return 'No output'
+}
+
+function detailResult(node: ToolResultNode): string {
+  if (node.isError) {
+    return node.error === undefined
+      ? 'error'
+      : `${node.error.name}: ${node.error.code}`
+  }
+  const text = node.content
+    .filter(block => block.type === 'text' && typeof block.text === 'string')
+    .map(block => block.type === 'text' ? block.text : '')
+    .join('\n')
+  if (text !== '') return text
+  if (
+    node.content.length === 0
+    || node.content.every(block =>
+      block.type === 'text' && (typeof block.text !== 'string' || block.text === ''))
+  ) return 'No output'
+  return JSON.stringify(node.content, null, 2)
+}
+
+function detailContent(content: readonly { type: string; text?: string }[]): string {
+  return content
+    .filter(block => block.type === 'text' && typeof block.text === 'string')
+    .map(block => block.text ?? '')
+    .join('\n')
+}
+
+function detailReasoning(content: readonly { type: string; text?: string }[]): string {
+  return content
+    .filter(block => block.type === 'reasoning' && typeof block.text === 'string')
+    .map(block => block.text ?? '')
+    .join('\n')
 }
 
 function summarizeContent(content: readonly { type: string; text?: string }[]): string {
