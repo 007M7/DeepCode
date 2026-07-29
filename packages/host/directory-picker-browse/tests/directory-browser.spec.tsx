@@ -224,6 +224,18 @@ describe('DirectoryBrowser', () => {
     expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
   })
 
+  it('a trailing-separator home is still the display root (single pane on open)', async () => {
+    const listDirectory = vi.fn(async (path?: string) => ({ ...listingFor(path), home: `${HOME}/` }))
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    // `HOME=/home/u/` ships verbatim while the listing path resolves without
+    // the trailing separator; the normalized comparison still collapses to
+    // the Home crumb and no parent leg launches.
+    expect(columns()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
+    expect(listDirectory).toHaveBeenCalledTimes(1)
+  })
+
   it('a navigation to the filesystem root keeps the single wide level', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
@@ -643,8 +655,7 @@ describe('DirectoryBrowser', () => {
     expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
   })
 
-  it('a create landing parks focus on the created row, or the edit zone when the relist lost it', async () => {
-    // First create: the relist contains the created directory.
+  it('a create landing parks focus on the created row', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     b.listDirectory.mockImplementation(async (path?: string) => {

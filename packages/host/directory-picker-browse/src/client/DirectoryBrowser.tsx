@@ -69,15 +69,23 @@ function foldPathFor(sep: '\\' | '/'): (value: string) => string {
   return value => (sep === '\\' ? value.toLowerCase() : value)
 }
 
+/** Drops one trailing separator (`HOME=/home/u/` ships verbatim while resolve() strips it) unless the path IS the bare root. */
+function trimTrailingSeparator(path: string, sep: '\\' | '/'): string {
+  return path.length > sep.length && path.endsWith(sep) ? path.slice(0, -sep.length) : path
+}
+
 /**
  * Breadcrumb rows for display: inside the home subtree the chain starts at a
  * localized Home crumb; outside it the full ancestry shows, the root labeled
- * by its own path. The home comparison folds per platform so a typed-case
- * Windows path still collapses to the Home crumb.
+ * by its own path. The home comparison folds per platform and normalizes a
+ * trailing separator, so a typed-case Windows path or a `HOME=/home/u/`
+ * shape still collapses to the Home crumb.
  */
 function displayCrumbs(listing: DirectoryListing, homeLabel: string): DirectoryEntry[] {
-  const fold = foldPathFor(separatorOf(listing))
-  const homeIndex = listing.crumbs.findIndex(crumb => fold(crumb.path) === fold(listing.home))
+  const sep = separatorOf(listing)
+  const fold = foldPathFor(sep)
+  const home = fold(trimTrailingSeparator(listing.home, sep))
+  const homeIndex = listing.crumbs.findIndex(crumb => fold(trimTrailingSeparator(crumb.path, sep)) === home)
   if (homeIndex === -1) return listing.crumbs
   const tail = listing.crumbs.slice(homeIndex + 1)
   return [{ name: homeLabel, path: listing.home, hidden: false }, ...tail]
@@ -154,10 +162,10 @@ function LevelColumn({ entries, selectedPath, busy, onPick, showHidden, filterPr
               // where the blur lands before our guards) drop this click.
               // Outside editing, rows keep native focus behavior.
               onMouseDown={pathEditing ? (event) => { event.preventDefault() } : undefined}
-              // Editing-time focus parking happens after commit (the
-              // DirectoryBrowser refocus effect): a right-pane pick replaces
-              // this very column, so focusing the clicked node here would
-              // still fall to body.
+              // Focus parking happens after commit (the DirectoryBrowser
+              // refocus effect): a right-pane pick replaces this very
+              // column, so focusing the clicked node here would still fall
+              // to body.
               onClick={() => { onPick(entry) }}
             >
               {selected
@@ -198,9 +206,12 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   // The in-flight listing's controller: superseding intent aborts the wire
   // request too — the Host stops scanning — instead of only discarding the
   // eventual result while the scan keeps consuming host resources. Always
-  // holds a controller (a settled or aborted one between scans) so no
-  // consumer needs a null guard.
-  const scanController = useRef<AbortController>(new AbortController())
+  // holds a controller so no consumer needs a null guard: initially a
+  // placeholder that the first supersede aborts unused (minted lazily —
+  // useRef evaluates its argument every render), afterwards the latest
+  // scan's, settled or aborted between scans.
+  const [initialScanController] = useState(() => new AbortController())
+  const scanController = useRef<AbortController>(initialScanController)
   // Bumped on every open/close edge: settlements from a previous open (a
   // pending creation included) must never mutate a reopened dialog.
   const openGeneration = useRef(0)
@@ -364,7 +375,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // re-parks on the edit zone only if focus actually fell to body.
       refocusEditZone.current = true
     })
-  }, [launchListing, pathDraft])
+  }, [launchListing])
 
   /** Abandon path editing (Escape or clicking away) and restore the crumb view. */
   const cancelPathEdit = useCallback(() => {
@@ -472,10 +483,13 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   }, [crumbTail])
   // On viewports too narrow for both fixed panes the Miller row scrolls;
   // whenever a child preview lands, pin it into view the way the crumb tail
-  // pins — otherwise descent is unreachable on a phone-width window. On a
-  // parent-leg upgrade the refocus effect below runs after this pin and its
-  // row.focus() may scroll the selected LEFT row back into view: for that
-  // one landing, focus placement wins over the child pin by design.
+  // pins — otherwise descent is unreachable on a phone-width window. The
+  // refocus effect's row.focus() and this pin can fight on such viewports,
+  // and whichever commit runs later wins by design: on a parent-leg
+  // upgrade (one commit) focus placement runs after the pin and keeps the
+  // selected LEFT row in view; on a plain advance or create landing the
+  // child arrives in a later commit, so the pin runs after the focus and
+  // descent reachability wins.
   const childPath = child?.path
   useEffect(() => {
     const row = millerRowRef.current
@@ -512,7 +526,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // the user parked elsewhere (a surviving row) stays theirs.
       if (document.activeElement !== document.body) return
       const zone = editZoneRef.current
-      /* v8 ignore next -- narrowing guard: crumb mode renders the edit zone whenever the editor just closed. */
+      // The effect already returned while a draft is open, and the close
+      // reset cleared both flags — so crumb mode's zone is always mounted.
+      /* v8 ignore next -- narrowing guard: crumb mode always renders the edit zone. */
       if (zone === null) return
       zone.focus()
     }
