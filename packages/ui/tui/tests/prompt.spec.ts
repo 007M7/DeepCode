@@ -152,8 +152,8 @@ describe('TUI prompt values', () => {
 describe('TUI prompt templates', () => {
   it('interpolates values and removes separators around unavailable values', () => {
     const tokens = parseTuiPromptTemplate('${cwd} ${git/worktree} :: ${missing} ${model}')
-    const values = new Map([['cwd', '/work'], ['model', 'deepseek']])
-    expect(renderTuiPromptTemplate(tokens, name => values.get(name))).toBe('/work :: deepseek')
+    const values = new Map([['cwd', '/work'], ['model', 'deepseek-official']])
+    expect(renderTuiPromptTemplate(tokens, name => values.get(name))).toBe('/work :: deepseek-official')
   })
 
   it('keeps a trailing literal after the last value', () => {

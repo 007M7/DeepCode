@@ -17,7 +17,7 @@ Harness implements every capability an AI agent needs—including LLM calls, too
 # Select the interactive application
 - name: '@deepseek-ai/dsh-tui-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-flash
     workspaceContext: false
 ```

@@ -1,5 +1,5 @@
 /**
- * Register a {@link DeepSeekAdapter} for the `deepseek` provider route on
+ * Register a {@link DeepSeekAdapter} for the `deepseek-official` provider route on
  * `ctx.llm`, with connection facts resolved per request instead of frozen at
  * load: the plugin layers its `cordis.yml` entry config under the optional
  * `llm-deepseek` user-settings section (`ctx.settings`) and resolves the API
@@ -202,7 +202,7 @@ export function apply(ctx: Context, config: Config): void {
       if (ambient !== undefined && ambient.length > 0) return ambient
     }
     throw new LlmError(
-      'llm-deepseek: no API key for provider route "deepseek"; set the llm-deepseek "apiKey" setting,'
+      'llm-deepseek: no API key for provider route "deepseek-official"; set the llm-deepseek "apiKey" setting,'
       + ` store ${ref} with the credentials service, or export ${ref}`,
       'MISSING_CREDENTIAL',
     )
@@ -211,7 +211,7 @@ export function apply(ctx: Context, config: Config): void {
   const adapter = new DeepSeekAdapter({ options, resolveApiKey })
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below.
-  let disposeRoute = ctx.llm.registerAdapter(['deepseek'], adapter)
+  let disposeRoute = ctx.llm.registerAdapter(['deepseek-official'], adapter)
   let registeredPolicy = options().retryPolicy
   const ensureRegistrationFacts = (): void => {
     const policy = options().retryPolicy
@@ -220,7 +220,7 @@ export function apply(ctx: Context, config: Config): void {
     // fact per-request resolution cannot refresh: swap the registration in one
     // synchronous section (same adapter instance, no NO_ADAPTER window).
     disposeRoute()
-    disposeRoute = ctx.llm.registerAdapter(['deepseek'], adapter)
+    disposeRoute = ctx.llm.registerAdapter(['deepseek-official'], adapter)
     registeredPolicy = policy
   }
 
@@ -228,7 +228,7 @@ export function apply(ctx: Context, config: Config): void {
     // Expected on a first boot with dynamic sources: the route stays
     // registered (the catalog is browsable) and each request fails with the
     // actionable MISSING_CREDENTIAL message until a key arrives.
-    ctx.logger.warn('llm-deepseek: no API key resolved yet for route "deepseek"; requests will fail until one is configured')
+    ctx.logger.warn('llm-deepseek: no API key resolved yet for route "deepseek-official"; requests will fail until one is configured')
   })
 
   installSettingsSection(ctx, NS, Config, config, {

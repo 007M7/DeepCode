@@ -65,7 +65,7 @@ This package ships no bin. The [`dsh`](../../../apps/cli/README.md) CLI is the t
 - id: tui-agent
   name: '@deepseek-ai/dsh-tui-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-flash
     workspaceContext:
       maxBytes: 65536

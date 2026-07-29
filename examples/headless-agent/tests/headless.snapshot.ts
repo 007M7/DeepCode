@@ -153,7 +153,7 @@ describe('headless stream-json snapshots', () => {
         const retries = records.filter(record => record.type === 'llm/retry')
         expect(retries).toHaveLength(1)
         expect(retries[0]?.data).toMatchObject({
-          provider: 'deepseek',
+          provider: 'deepseek-official',
           mode: 'normal',
           policyKey: '["normal",1,["RATE_LIMIT"],1,1,0]',
           retry: 1,
@@ -192,7 +192,7 @@ describe('headless stream-json snapshots', () => {
     })
 
     expect(result.stderr).toBe(
-      'dsh-cli-demo: turn 1 failed at step 1: llm-deepseek: no API key for provider route "deepseek";'
+      'dsh-cli-demo: turn 1 failed at step 1: llm-deepseek: no API key for provider route "deepseek-official";'
       + ' set the llm-deepseek "apiKey" setting, store DEEPSEEK_API_KEY with the credentials service,'
       + ' or export DEEPSEEK_API_KEY\n',
     )

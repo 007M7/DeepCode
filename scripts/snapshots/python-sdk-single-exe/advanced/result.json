@@ -64,7 +64,7 @@
       "data": {
         "header": {
           "config": {
-            "provider": "deepseek",
+            "provider": "deepseek-official",
             "model": "smoke-model",
             "reasoningEffort": "high"
           },
@@ -185,7 +185,7 @@
           }
         ],
         "provenance": {
-          "provider": "deepseek",
+          "provider": "deepseek-official",
           "model": "smoke-model"
         },
         "usage": {
@@ -260,7 +260,7 @@
       "data": {
         "header": {
           "config": {
-            "provider": "deepseek",
+            "provider": "deepseek-official",
             "model": "smoke-model",
             "reasoningEffort": "high"
           },
@@ -382,7 +382,7 @@
           }
         ],
         "provenance": {
-          "provider": "deepseek",
+          "provider": "deepseek-official",
           "model": "smoke-model"
         },
         "usage": {
@@ -579,7 +579,7 @@
           }
         ],
         "provenance": {
-          "provider": "deepseek",
+          "provider": "deepseek-official",
           "model": "smoke-model"
         },
         "usage": {
@@ -743,7 +743,7 @@
           }
         ],
         "provenance": {
-          "provider": "deepseek",
+          "provider": "deepseek-official",
           "model": "smoke-model"
         },
         "usage": {
@@ -907,7 +907,7 @@
           }
         ],
         "provenance": {
-          "provider": "deepseek",
+          "provider": "deepseek-official",
           "model": "smoke-model"
         },
         "usage": {
@@ -982,7 +982,7 @@
       "data": {
         "header": {
           "config": {
-            "provider": "deepseek",
+            "provider": "deepseek-official",
             "model": "smoke-model",
             "reasoningEffort": "high"
           },
@@ -1097,7 +1097,7 @@
           }
         ],
         "provenance": {
-          "provider": "deepseek",
+          "provider": "deepseek-official",
           "model": "smoke-model"
         },
         "usage": {
@@ -1225,7 +1225,7 @@
           "data": {
             "header": {
               "config": {
-                "provider": "deepseek",
+                "provider": "deepseek-official",
                 "model": "smoke-model",
                 "reasoningEffort": "high"
               },
@@ -1382,7 +1382,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {
@@ -1487,7 +1487,7 @@
           "data": {
             "header": {
               "config": {
-                "provider": "deepseek",
+                "provider": "deepseek-official",
                 "model": "smoke-model",
                 "reasoningEffort": "high"
               },
@@ -1645,7 +1645,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {
@@ -1914,7 +1914,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {
@@ -2047,7 +2047,7 @@
           "data": {
             "header": {
               "config": {
-                "provider": "deepseek",
+                "provider": "deepseek-official",
                 "model": "smoke-model",
                 "reasoningEffort": "high"
               },
@@ -2199,7 +2199,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {
@@ -2454,7 +2454,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {
@@ -2587,7 +2587,7 @@
           "data": {
             "header": {
               "config": {
-                "provider": "deepseek",
+                "provider": "deepseek-official",
                 "model": "smoke-model",
                 "reasoningEffort": "high"
               },
@@ -2739,7 +2739,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {
@@ -2994,7 +2994,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {
@@ -3099,7 +3099,7 @@
           "data": {
             "header": {
               "config": {
-                "provider": "deepseek",
+                "provider": "deepseek-official",
                 "model": "smoke-model",
                 "reasoningEffort": "high"
               },
@@ -3250,7 +3250,7 @@
               }
             ],
             "provenance": {
-              "provider": "deepseek",
+              "provider": "deepseek-official",
               "model": "smoke-model"
             },
             "usage": {

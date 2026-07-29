@@ -339,7 +339,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
             '- id: tui-agent',
             "  name: '@deepseek-ai/dsh-tui-demo'",
             '  config:',
-            '    provider: deepseek',
+            '    provider: deepseek-official',
             '    model: deepseek-v4-flash',
             '    workspaceContext: false',
             '    welcome: !!js process.env.DSH_PERSONAL_WELCOME',

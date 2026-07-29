@@ -36,10 +36,10 @@ function scriptedApi(overrides: {
       history: r => ok(r, {
         events: [],
         hasMore: false,
-        modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       }),
       models: r => ok(r, {
-        current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+        current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
         groups: [],
         failures: [],
       }),

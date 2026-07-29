@@ -28,8 +28,8 @@ buffer
 12| "    unavailable: current session                                                            "
   style 2-31 fg=yellow
 13| "    Resume selector design                                                                  "
-14| "    2024-01-01T00:00:08.000Z · turn 1: completed · deepseek/deepseek-v4-pro                 "
-  style 2-74 fg=bright-black
+14| "    2024-01-01T00:00:08.000Z · turn 1: completed · deepseek-official/deepseek-v4-pro        "
+  style 2-83 fg=bright-black
 15| "    persisted · earlier-session                                                             "
   style 2-30 dim
 16| "                                                                                            "

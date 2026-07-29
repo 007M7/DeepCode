@@ -556,7 +556,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
   const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
     session.sessionId,
-    { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
@@ -839,7 +839,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek', model: 'deepseek-v4-flash' })
+        modelTargets.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -878,10 +878,10 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
-          ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
+          ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
         groups: [
           {
-            id: 'deepseek',
+            id: 'deepseek-official',
             name: 'DeepSeek',
             models: [
               {

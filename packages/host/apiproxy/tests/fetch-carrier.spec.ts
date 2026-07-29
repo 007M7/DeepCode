@@ -43,7 +43,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: {
             ok: true,
             value: {
-              current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
               groups: [],
               failures: [],
             },
@@ -204,7 +204,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
     const selected = await c.sessions.selectModel({
       sessionId: 's' as never,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'max',
     })
@@ -212,7 +212,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       ok: true,
       value: {
         selected: {
-          provider: 'deepseek',
+          provider: 'deepseek-official',
           model: 'deepseek-v4-flash',
           reasoningEffort: 'max',
         },

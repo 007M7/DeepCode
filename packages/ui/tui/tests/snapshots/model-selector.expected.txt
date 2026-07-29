@@ -29,13 +29,13 @@ buffer
 9-12| <blank>
 13| "        ╭ Select model ────────────────────────────────────────────────────────────╮        "
   style 8-83 fg=bright-blue
-14| "        │ → deepseek/deepseek-v4-flash      DeepSeek V4 Flash — current            │        "
+14| "        │ → deepseek-official/deepseek-v4-  DeepSeek V4 Flash — current            │        "
   style 8-8 fg=bright-blue
-  style 10-70 fg=bright-blue inverse
+  style 10-41 fg=bright-blue inverse
   style 83-83 fg=bright-blue
-15| "        │   deepseek/deepseek-v4-pro        DeepSeek V4 Pro                        │        "
+15| "        │   deepseek-official/deepseek-v4-  DeepSeek V4 Pro                        │        "
   style 8-8 fg=bright-blue
-  style 36-58 fg=bright-black
+  style 42-58 fg=bright-black
   style 83-83 fg=bright-blue
 16| "        │                                                                          │        "
   style 8-8 fg=bright-blue

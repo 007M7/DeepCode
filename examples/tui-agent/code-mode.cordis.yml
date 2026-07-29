@@ -8,7 +8,7 @@
       - id: tui-agent
         name: '@deepseek-ai/dsh-tui-demo'
         config:
-          provider: deepseek
+          provider: deepseek-official
           model: deepseek-v4-pro
           resumeSessionId: !!js "typeof resumeSessionId === 'string' ? resumeSessionId : undefined"
           persistenceRoot: './.sessions'

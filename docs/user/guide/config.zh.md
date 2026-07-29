@@ -28,7 +28,7 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
 - id: tui-agent
   name: '@deepseek-ai/dsh-tui-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-flash
     workspaceContext: false
 ```

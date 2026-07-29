@@ -17,7 +17,7 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
 # Select the interactive application
 - name: '@deepseek-ai/dsh-tui-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-flash
     workspaceContext: false
 ```

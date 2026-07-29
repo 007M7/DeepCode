@@ -28,7 +28,7 @@ A minimal configuration is a list of plugin entries:
 - id: tui-agent
   name: '@deepseek-ai/dsh-tui-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-flash
     workspaceContext: false
 ```

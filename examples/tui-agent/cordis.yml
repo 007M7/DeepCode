@@ -53,7 +53,7 @@
 - id: tui-agent
   name: '@deepseek-ai/dsh-tui-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-pro
     # `dsh --resume <id>` provides the session id on the boot context (the ids
     # live under ./.sessions); with no flag the identifier is undefined and a
