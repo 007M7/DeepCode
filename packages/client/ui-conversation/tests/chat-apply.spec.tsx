@@ -86,6 +86,8 @@ describe('apply wiring', () => {
     // service being present implies the chat entry declared the hole first.
     const entries = b.slots.entries('conversation.chat.toolview')
     expect(entries.map(e => e.options.key)).toEqual(['bash', 'todo_write'])
+    // Stats stick with the composer (not inside ChatView).
+    expect(b.slots.entries('conversation.composer.dock').map(e => e.options.id)).toEqual(['stats'])
     await b.runtime.dispose()
   })
 

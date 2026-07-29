@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// StatsLine (rendered inside the chat view body): totals derivation + the RFC
+// StatsLine (composer.dock entry): totals derivation + the RFC
 // hard acceptance — zero renders during streaming. Bash sample row: the
 // canonical sub-agent differential decided INSIDE the component off the
 // standard useSessions kit (no registry predicates — tool ring dissolved).

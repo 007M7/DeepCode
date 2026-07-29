@@ -17,6 +17,7 @@ import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
+import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
@@ -237,6 +238,9 @@ export function apply(ctx: Context): void {
       }
     },
   }, ChatView)
+
+  // Session stats stick with the composer (composer.dock = stats-line family).
+  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0 }, StatsLine)
 
   // Class-plugin mount (packages/AGENTS.md service form): the service
   // registers itself as `conversation` and lives on its own child fiber.
