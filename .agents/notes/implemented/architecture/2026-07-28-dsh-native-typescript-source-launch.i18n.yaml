@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-28-dsh-native-typescript-source-launch.md
-2026-07-28-dsh-native-typescript-source-launch.md: 3fa6ee3711ab5a44391e5c261cff1e7c05fa495a
-2026-07-28-dsh-native-typescript-source-launch.zh.md: b749687b3a8c0f0fb92826dabbcedffa21e433f8
+2026-07-28-dsh-native-typescript-source-launch.md: e128ae1a39c6a3838d948b40936dca6e30d324e1
+2026-07-28-dsh-native-typescript-source-launch.zh.md: 5ff1d975f8012e7d831bc3ecf6e5c53a9d43151f

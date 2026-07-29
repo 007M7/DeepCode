@@ -1544,10 +1544,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface BashSandboxInfo {\n    mode: SandboxMode;\n    denied: boolean;\n    enforcement?: SandboxEnforcement;\n    runnerFailed?: boolean;\n}',
   },
   {
-    name: 'BootId',
-    declaration: 'export type BootId = Branded<\'BootId\'>;',
-  },
-  {
     name: 'Branded',
     declaration: 'export type Branded<B extends string> = string & {\n    readonly [BRAND]: B;\n};',
   },
