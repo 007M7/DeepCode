@@ -55,7 +55,6 @@
     "@deepseek-ai/dsh-tasks-local": "workspace:*",
     "@deepseek-ai/dsh-time-context": "workspace:*",
     "@deepseek-ai/dsh-timeout-policy": "workspace:*",
-    "@deepseek-ai/dsh-tmux-context": "workspace:*",
     "@deepseek-ai/dsh-token-meter": "workspace:*",
     "@deepseek-ai/dsh-tool-ask-user": "workspace:*",
     "@deepseek-ai/dsh-tool-cordis": "workspace:*",
