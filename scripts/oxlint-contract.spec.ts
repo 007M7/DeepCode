@@ -17,11 +17,11 @@ function runStagedFormatter(paths: readonly string[]) {
   })
 }
 
-function runOxlint(args: readonly string[]) {
+function runOxlint(args: readonly string[], env: NodeJS.ProcessEnv = {}) {
   return spawnSync(process.execPath, [oxlintCli, ...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, NO_COLOR: '1', ...env },
   })
 }
 
@@ -36,20 +36,18 @@ async function writeContractConfig(suffix: string): Promise<string> {
 }
 
 describe('Oxlint executable contract', () => {
-  it('runs type-aware rules for every owned TypeScript file class', async () => {
+  it('discovers the owning TypeScript project for every file class', async () => {
     const suffix = randomUUID()
     const configPath = await writeContractConfig(suffix)
     const probes = [
-      ['host package source', 'packages/fs/fs-policy/src', 'host-source.ts'],
-      ['host package test', 'packages/fs/fs-policy/tests', 'host-test.spec.ts'],
-      ['client package source', 'packages/client/ui-primitives/src', 'client-source.ts'],
-      ['client package test', 'packages/client/ui-trajectory/tests', 'client-test.spec.ts'],
-      ['client aggregate script', 'scripts', 'client-bundle-purity.spec.ts'],
-      ['example', 'examples', 'example.ts'],
-      ['website', 'website', 'website.ts'],
+      ['host package source', 'packages/fs/fs-policy/src', 'packages/fs/fs-policy/tsconfig.json'],
+      ['host package test', 'packages/fs/fs-policy/tests', 'tsconfig.host.json'],
+      ['client package source', 'packages/client/ui-primitives/src', 'packages/client/ui-primitives/tsconfig.json'],
+      ['client package test', 'packages/client/ui-trajectory/tests', 'tsconfig.client.json'],
+      ['example', 'examples/headless-agent/tests', 'tsconfig.host.json'],
+      ['website', 'website', 'tsconfig.host.json'],
     ] as const
-    const directories: string[] = []
-    const source = `function probePromise(): Promise<void> {
+    const source = `export function probePromise(): Promise<void> {
   return Promise.resolve()
 }
 
@@ -57,15 +55,13 @@ probePromise()
 `
 
     try {
-      const paths: Array<readonly [label: string, path: string]> = []
-      for (const [label, parent, filename] of probes) {
-        const directory = join(repositoryRoot, parent, `.oxlint-contract-${suffix}`)
-        directories.push(directory)
-        await mkdir(directory, { recursive: true })
-        const path = join(directory, filename)
+      const paths: Array<readonly [label: string, path: string, tsconfig: string]> = []
+      for (const [label, parent, tsconfig] of probes) {
+        const path = join(repositoryRoot, parent, `oxlint-contract-${suffix}.ts`)
         await writeFile(path, source)
-        paths.push([label, relative(repositoryRoot, path)])
+        paths.push([label, relative(repositoryRoot, path), tsconfig])
       }
+      const clientScript = 'scripts/client-bundle-purity.spec.ts'
 
       const result = runOxlint([
         '--config',
@@ -73,18 +69,26 @@ probePromise()
         '--format',
         'unix',
         ...paths.map(([, path]) => path),
-      ])
+        clientScript,
+      ], { OXC_LOG: 'debug' })
       const output = normalizedOutput(result)
 
       expect(result.error).toBeUndefined()
       expect(result.status, output).toBe(1)
-      for (const [label, path] of paths) {
+      for (const [label, path, tsconfig] of paths) {
         expect(output, label).toContain(`${path.replaceAll('\\', '/')}:5:1: Promises must be awaited`)
+        expect(output, `${label} project`).toContain(
+          `Got tsconfig for file ${join(repositoryRoot, path).replaceAll('\\', '/')}: ${join(repositoryRoot, tsconfig).replaceAll('\\', '/')}`,
+        )
       }
       expect(output.match(/typescript\(no-floating-promises\)/g)).toHaveLength(probes.length)
+      expect(output, 'client aggregate script project').toContain(
+        `Got tsconfig for file ${join(repositoryRoot, clientScript).replaceAll('\\', '/')}: ${join(repositoryRoot, 'tsconfig.client.json').replaceAll('\\', '/')}`,
+      )
+      expect(output).not.toContain('Unmatched file:')
     } finally {
       await Promise.all([
-        ...directories.map(directory => rm(directory, { recursive: true, force: true })),
+        ...probes.map(([, parent]) => rm(join(repositoryRoot, parent, `oxlint-contract-${suffix}.ts`), { force: true })),
         rm(configPath, { force: true }),
       ])
     }

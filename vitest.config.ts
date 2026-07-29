@@ -98,6 +98,8 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        // A killed executable lint-contract test can leave a non-product source probe behind.
+        'packages/*/*/src/oxlint-contract-*.ts',
         // GUI step-1 skeleton (PR #500): client/web UI files whose remaining
         // branches need a browser-grade harness the jsdom lane doesn't cover
         // yet. TODO(gui): cover and remove as the client test lane matures.
