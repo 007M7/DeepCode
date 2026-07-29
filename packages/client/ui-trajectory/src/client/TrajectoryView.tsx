@@ -503,6 +503,7 @@ export function TrajectoryView({ useSession, loadAllHistory }: ConvViewProps & T
           searchMatchIndexes={searchMatchIndexes}
           onSelectedIndexChange={setSelectedTimelineIndex}
           onRecordSelect={handleRecordSelect}
+          onClearSelection={() => { setTimelineSelection(null) }}
           collapsedTurns={collapsedTurns}
           onToggleTurn={toggleTurn}
           collapsedAssistants={collapsedAssistants}

@@ -247,6 +247,18 @@ describe('tab switching in ConversationRoot', () => {
 
     expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
       .toBe('outside')
+
+    const tablePane = screen.getByRole('table').parentElement
+    expect(tablePane).not.toBeNull()
+    fireEvent.click(tablePane as HTMLElement)
+    expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
+      .toBeNull()
+
+    fireEvent.pointerDown(plot, { button: 0, clientX: 55, pointerId: 2 })
+    fireEvent.pointerMove(plot, { clientX: 95, pointerId: 2 })
+    fireEvent.pointerUp(plot, { clientX: 95, pointerId: 2 })
+    expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
+      .toBe('outside')
     fireEvent.contextMenu(plot)
     expect(screen.getByRole('row', { name: /USER/ }).getAttribute('data-timeline-focus'))
       .toBeNull()

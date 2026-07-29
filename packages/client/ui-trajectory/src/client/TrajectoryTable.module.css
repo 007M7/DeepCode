@@ -740,7 +740,10 @@
 }
 
 .detailBodySummary > .overview {
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .detailBodySummary > .compactedSummary {
@@ -858,7 +861,7 @@
 .overviewSections {
   display: flex;
   flex: 1;
-  min-height: 0;
+  min-height: min-content;
   flex-direction: column;
   overflow: hidden;
   border-top: 0;
@@ -866,15 +869,11 @@
 
 .overviewSection {
   display: flex;
-  flex: 0 1 auto;
-  min-height: 0;
+  flex: 1 1 0;
+  max-height: max-content;
+  min-height: 28px;
   flex-direction: column;
   overflow: hidden;
-}
-
-.overviewSection:has(> .overviewPreview > .overview),
-.overviewSection:has(> .overviewPreview > .noPayload) {
-  flex-shrink: 0;
 }
 
 .overviewSection + .overviewSection {

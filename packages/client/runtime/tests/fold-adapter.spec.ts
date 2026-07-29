@@ -162,6 +162,68 @@ describe('FoldAdapter', () => {
     }
   })
 
+  it('silently degrades when a replacement needs an earlier history page', () => {
+    const adapter = new FoldAdapter()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      adapter.reset([
+        at(10, {
+          type: 'assistant/message',
+          surfaceOp: { op: 'replace', start: 1, end: 3 },
+          sourceEventSeqs: [1, 3],
+          data: {
+            turn: 1,
+            step: 1,
+            message: createMessage({
+              role: 'assistant',
+              content: [{ type: 'text', text: 'partial summary' }],
+              source: { kind: 'model', provider: 'fake', model: 'fake' },
+            }),
+          },
+        }),
+        ev.user(11, 'newer message'),
+      ], 10)
+
+      expect(adapter.nodes()).toMatchObject({
+        degraded: true,
+        nodes: [{ seq: 10 }, { seq: 11 }],
+      })
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('silently degrades when a live replacement needs an earlier history page', () => {
+    const adapter = new FoldAdapter()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      adapter.reset([ev.user(10, 'window head')], 10)
+      adapter.append(at(11, {
+        type: 'assistant/message',
+        surfaceOp: { op: 'replace', start: 1, end: 1 },
+        sourceEventSeqs: [1],
+        data: {
+          turn: 1,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'live summary' }],
+            source: { kind: 'model', provider: 'fake', model: 'fake' },
+          }),
+        },
+      }))
+
+      expect(adapter.nodes()).toMatchObject({
+        degraded: true,
+        nodes: [{ seq: 10 }, { seq: 11 }],
+      })
+      expect(errorSpy).not.toHaveBeenCalled()
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
   it('materializes a tool-result error field when present', () => {
     const adapter = new FoldAdapter()
     adapter.reset([

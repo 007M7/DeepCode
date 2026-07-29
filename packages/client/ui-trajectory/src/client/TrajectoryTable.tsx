@@ -225,6 +225,8 @@ export interface TrajectoryTableProps {
   onSelectedIndexChange?: (index: number | null) => void
   /** Report a direct user selection from a ledger row. */
   onRecordSelect?: (index: number) => void
+  /** Clear selection state owned by the ledger host. */
+  onClearSelection?: () => void
   /** Turn ids whose rows after the first are folded into a summary. */
   collapsedTurns: ReadonlySet<number>
   /** Toggle one turn between folded and expanded. */
@@ -1384,6 +1386,7 @@ function OverviewSection({
 
 /**
  * Render trajectory events as a dense ledger with turn and step separators.
+ * Clicking ledger whitespace clears the active record or request selection.
  * @param props - Grouped trajectory data and whole-ledger fold state.
  * @returns The ledger and an optional local record inspector.
  */
@@ -1394,6 +1397,7 @@ export function TrajectoryTable({
   searchMatchIndexes = null,
   onSelectedIndexChange,
   onRecordSelect,
+  onClearSelection,
   collapsedTurns,
   onToggleTurn,
   collapsedAssistants,
@@ -1517,6 +1521,16 @@ export function TrajectoryTable({
     setActiveTab(tab)
   }
 
+  const clearInspectorSelection = () => {
+    setSelectedIndex(null)
+    setSelectedRequest(null)
+  }
+
+  const clearAllSelections = () => {
+    clearInspectorSelection()
+    onClearSelection?.()
+  }
+
   const selectRecord = (index: number) => {
     const record = allRecords.find(candidate => candidate.cell.index === index)
     onRecordSelect?.(index)
@@ -1562,7 +1576,12 @@ export function TrajectoryTable({
 
   return (
     <div className={css.split} style={splitStyle}>
-      <div className={css.tablePane}>
+      <div
+        className={css.tablePane}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) clearAllSelections()
+        }}
+      >
         <table className={css.table}>
           <colgroup>
             <col className={css.eventColumn} />
@@ -1918,10 +1937,7 @@ export function TrajectoryTable({
               type="button"
               className={css.close}
               aria-label="Close details"
-              onClick={() => {
-                setSelectedIndex(null)
-                setSelectedRequest(null)
-              }}
+              onClick={clearInspectorSelection}
             >
               <span aria-hidden="true">×</span>
             </button>

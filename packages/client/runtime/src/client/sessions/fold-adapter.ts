@@ -1,7 +1,7 @@
 // FoldAdapter: core SurfaceManager wiring + node materialization cache.
-// Padding sentinels solve the paged-window seq offset (core fold asserts seq === index);
-// a cross-window replace throw degrades to a lenient linear scan (foldDegraded —
-// the degradation lives in one branch function in this file, zero scattered removal points).
+// Padding sentinels solve the paged-window seq offset (core fold asserts seq === index).
+// A replace that crosses the loaded window head uses a lenient linear scan until
+// paging reaches its range; unexpected fold failures report and use the same fallback.
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // Subpath export (package.json exports "./surface", alias added for this): all value imports
@@ -69,6 +69,17 @@ export interface CallIndexEntry {
  */
 function paddingEvent(seq: number): SessionEvent {
   return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
+}
+
+/**
+ * Whether a valid replacement range begins before the loaded history window.
+ * @param event - Candidate surface event in the current replay window.
+ * @param baseSeq - Sequence at the loaded window head.
+ * @returns True when strict folding requires an earlier page.
+ */
+function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boolean {
+  if (!isSurfaceEvent(event) || event.surfaceOp === 'append') return false
+  return event.surfaceOp.start < baseSeq || event.surfaceOp.end < baseSeq
 }
 
 /** Minimal generation projection owned by the inspection adapter, not the core live surface. */
@@ -183,7 +194,7 @@ function materializeNode(
   }
 }
 
-/** Window fold over the core SurfaceManager (sentinel padding for the seq offset; degrades to a linear scan on cross-window replace). */
+/** Window fold over the core SurfaceManager with a lenient partial-history fallback. */
 export class FoldAdapter {
   /** padded = [sentinel x baseSeq, ...window events]; SurfaceManager borrows this reference for lazy incremental folding. */
   private padded: SessionEvent[] = []
@@ -247,7 +258,7 @@ export class FoldAdapter {
     for (const event of events) this.padded.push(event)
     this.surface = new SurfaceManager(this.padded)
     this.nodeCache.clear()
-    this.degraded = false
+    this.degraded = events.some(event => replacementCrossesWindowHead(event, baseSeq))
     this.callIdx = new Map()
     this.resultViews.clear()
     this.contextGeneration = 0
@@ -281,6 +292,7 @@ export class FoldAdapter {
     if (this.projectContexts && (isSurfaceEvent(event) || event.type === 'request/header')) {
       this.contextRev++
     }
+    if (replacementCrossesWindowHead(event, this.baseSeq)) this.degraded = true
     this.padded.push(event)
     this.indexCall(event, view)
     if (this.projectContexts) this.indexContextPrompt(event)

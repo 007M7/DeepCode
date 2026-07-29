@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** Trajectory ledger selection, details, status, and fold behavior. */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { TrajectoryTable } from '../src/client/TrajectoryTable.tsx'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
@@ -109,6 +109,30 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText(
       '<background-task-complete id="trajectory-ui-watch"> Command: pnpm test Exit code: 0 </background-task-complete>',
     )).toBeTruthy()
+  })
+
+  it('clears the selected row when ledger whitespace is clicked', () => {
+    const onClearSelection = vi.fn()
+    render(
+      <TrajectoryTable
+        turns={TURNS}
+        {...FOLD_PROPS}
+        onClearSelection={onClearSelection}
+      />,
+    )
+    const row = screen.getByRole('row', { name: /ASSISTANT/ })
+    fireEvent.click(row)
+
+    expect(row.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
+
+    const tablePane = screen.getByRole('table').parentElement
+    expect(tablePane).not.toBeNull()
+    fireEvent.click(tablePane as HTMLElement)
+
+    expect(row.getAttribute('aria-selected')).toBe('false')
+    expect(screen.queryByRole('complementary', { name: 'Event details' })).toBeNull()
+    expect(onClearSelection).toHaveBeenCalledOnce()
   })
 
   it('keeps running and failure semantics distinct from record roles', () => {
