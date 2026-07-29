@@ -49,7 +49,7 @@ interface SkillSessionInvocation {
  * passed — pass-through overrides with no CLI default and no CLI validation:
  * the `dsh-host-webserver` schema (`host` a loopback/all-interfaces literal,
  * `port` a natural ≤ 65535) is the single source of both the default (the
- * shipped `cordis.yml` value stands when a flag is absent) and validity (a bad
+ * shipped Web overlay value stands when a flag is absent) and validity (a bad
  * value fails loud at boot). `port` is `Number`-coerced only because the schema
  * wants a number, not a string. `dev` mounts the client HMR driver;
  * `workspaceRoot` is the parent directory for name-created workspaces.
@@ -185,7 +185,7 @@ Examples:
     })
 
   // Host and port name no default: the CLI passes neither through when the flag
-  // is absent, so the shipped `cordis.yml` value stands and restating it here
+  // is absent, so the shipped Web overlay value stands and restating it here
   // would duplicate a fact this file does not own.
   const web = program.command('web').description('serve the browser UI on the configured host and port')
   web

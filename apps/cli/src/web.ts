@@ -1,7 +1,7 @@
 /**
  * `dsh web` — thin bin over the config-tree boot: run AppCLIEntry with the
  * already-parsed host/port/dev, print the URL line, wire signals. All
- * composition lives in cordis.yml; all boot glue lives in AppCLIEntry. Host and
+ * composition lives in the shared base plus Web overlay; all boot glue lives in AppCLIEntry. Host and
  * port are unvalidated pass-through overrides — the `dsh-host-webserver` schema
  * gates them at boot.
  */
@@ -20,7 +20,7 @@ const LOOPBACK_HOST = '127.0.0.1'
 
 /**
  * Serve the browser UI from the shipped config tree. `host`/`port` are passed
- * through only when the flag was given; absent, the `cordis.yml` value stands.
+ * through only when the flag was given; absent, the shipped Web overlay value stands.
  * @param host - the bind host, or `undefined` to keep the config default.
  * @param port - the listen port (`0` requests an OS-assigned port), or `undefined` to keep the config default.
  * @param dev - mount the client HMR driver and watch plugin bundles for rebuilds.

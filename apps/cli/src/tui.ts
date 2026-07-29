@@ -1,6 +1,6 @@
 /**
  * `dsh` default surface — the interactive TUI coding agent. Boots the shipped
- * tui-agent config (or the `--config` override) with the personal overlay
+ * shared base and TUI overlay, followed by either `--config` or the personal overlay
  * from the Harness home (`~/.dsh`): its `.env` fills environment gaps (precedence:
  * ambient environment, then the invoking directory's `.env`, then the personal one)
  * and its `config.yaml` patches the booted tree. The workspace is the invoking
@@ -47,9 +47,6 @@ import {
 
 const NAME = 'dsh'
 
-// Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
-// one directory under apps/cli, so the shipped default config resolves with
-// the same relative hop from either artifact.
 // The shared core every `dsh` surface mounts, and the TUI's own overlay over
 // it. Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib)
 // sit one directory under apps/cli, so each resolves with the same hop.
@@ -81,7 +78,7 @@ export function launcherSessionsRoot(): string {
 }
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
-   the tui-agent PTY smoke drives this path end to end, personal overlay included */
+   the CLI PTY smoke drives this path end to end, personal overlay included */
 /**
  * Run the interactive TUI with this harness checkout as the workspace
  * (`dsh meta`), whatever directory it was launched from.

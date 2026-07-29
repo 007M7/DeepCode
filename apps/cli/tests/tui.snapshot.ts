@@ -53,7 +53,7 @@ interface Scenario {
   recorded: boolean
   seedWorkspace?: boolean
   /**
-   * Load the opt-in `todo_write` tool for this scenario. The shipped tui-agent
+   * Load the opt-in `todo_write` tool for this scenario. The shipped TUI
    * config omits it, so only the todo-plan scenario (the enabled-path proof)
    * mounts it; the rest cover the default, todo-free composition.
    */

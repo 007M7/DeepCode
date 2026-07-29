@@ -33,7 +33,7 @@ describe('parseDshArgs', () => {
     expect(parse(['meta'])).toEqual({ mode: 'meta' })
     // Credential setup is option-free: it writes the Harness-home .env, so
     // there is nothing for a flag to select.
-    // Bare `web` carries no host/port: the shipped cordis.yml owns the default.
+    // Bare `web` carries no host/port: the shipped Web overlay owns the default.
     expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
     // Host/port are unvalidated pass-throughs (the webserver schema gates them
     // at boot); the adapter only coerces the port string to a number.
@@ -64,7 +64,7 @@ describe('parseDshArgs', () => {
     expect(exitCode(['web', '--resume', 's'])).toBe(1)
     expect(exitCode(['--config', 'c.yml', 'web'])).toBe(1)
     expect(exitCode(['--config-replace', 'tree.yml', 'web'])).toBe(1)
-    // Same rule for credential setup: it shares no option with the default
+    // Same rule for each subcommand that shares no option with the default
     // surface, so a leaked flag is a typo, not something to ignore.
     // `meta` fixes its own config tree and always starts fresh, so every
     // default-surface option is rejected.

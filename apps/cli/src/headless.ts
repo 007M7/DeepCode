@@ -1,6 +1,6 @@
 /**
  * `dsh -p "task"` — headless over the one shared composition: AppCLIEntry
- * boots the same cordis.yml as `dsh web` (port 0, so parallel runs never
+ * boots the same base plus Web overlay as `dsh web` (port 0, so parallel runs never
  * collide), then in-process isomorphic injection (InProcessApiClient over
  * toFetchHandler(ctx.apiProxy), so the full carrier chain — wire
  * serialization, zod, SSE framing — really runs). The printed URL opens the

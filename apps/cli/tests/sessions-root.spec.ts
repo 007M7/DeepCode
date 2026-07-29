@@ -3,7 +3,7 @@
  * its opaque `SESSIONS_ROOT_KEY` boot-slot value to `DSH_HOME/sessions`. The
  * plugin side — the slot treated as opaque, explicit config winning, and a
  * project-local fallback with no globality assumption — is pinned by
- * `packages/examples/tui-demo/tests/tui-agent.spec.ts`.
+ * the former bundled TUI tests.
  */
 
 import { join, resolve } from 'node:path'

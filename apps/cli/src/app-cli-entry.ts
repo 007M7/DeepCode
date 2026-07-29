@@ -1,8 +1,8 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
- * (`dsh web` and `dsh -p` boot the one composition; TUI migrates later).
+ * for the Web/headless surface.
  * Everything here is what must exist before the Loader runs: layered env,
- * the patch composition over the shipped cordis.yml (profile json + CLI
+ * the patch composition over the shipped base and surface overlay (profile json + CLI
  * flags + the resolved frontend dist), and the fail-loud triple after the
  * tree settles.
  */
