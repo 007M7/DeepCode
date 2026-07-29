@@ -1593,7 +1593,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/pty/tool-bash-persistent/src/index.ts:373`](../packages/pty/tool-bash-persistent/src/index.ts)
+Source: [`packages/pty/tool-bash-persistent/src/index.ts:395`](../packages/pty/tool-bash-persistent/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-cordis`
 
@@ -1764,14 +1764,10 @@ export interface Config {
   maxOutputChars?: number
   /** Model-facing tool description. */
   description?: string
-  /** Require local absolute paths like the canonical editor contract (default true). */
-  requireAbsolutePath?: boolean
-  /** Expand tabs across the full file before each mutation, matching the canonical editor (default true). */
-  expandTabsOnMutation?: boolean
 }
 ```
 
-Source: [`packages/fs/tool-str-replace-editor/src/index.ts:539`](../packages/fs/tool-str-replace-editor/src/index.ts)
+Source: [`packages/fs/tool-str-replace-editor/src/index.ts:514`](../packages/fs/tool-str-replace-editor/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-subagent`
 

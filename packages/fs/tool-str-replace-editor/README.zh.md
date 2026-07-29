@@ -10,12 +10,10 @@
 |---|---:|---|
 | `maxOutputChars` | `16000` | 文件和目录查看结果保留的前缀字符数。 |
 | `description` | 编辑器命令指南 | 面向模型的工具描述。 |
-| `requireAbsolutePath` | `true` | 拒绝相对路径；仅当部署明确约定 session cwd 时才应关闭。 |
-| `expandTabsOnMutation` | `true` | 保留 Claude SWE 参考行为：替换/插入前展开整个文件的制表符。设为 `false` 时使用原子字面量替换，并保留未触及的制表符。 |
 
 ## 工具
 
-Schema 提供 `view`、`create`、`str_replace` 与 `insert`。文件查看使用从一开始的行号；目录查看忽略隐藏、依赖与 Python 缓存条目并下探两层。替换要求字面量唯一匹配，错误只使用公开的 `old_str` 词汇。插入遵循所选的零基插入边界，不会隐式补尾换行。
+Schema 提供针对绝对路径的 `view`、`create`、`str_replace` 与 `insert`。文件查看使用从一开始的行号；目录查看忽略隐藏、依赖与 Python 缓存条目并下探两层。替换要求字面量唯一匹配，错误只使用公开的 `old_str` 词汇。插入遵循所选的零基插入边界，不会隐式补尾换行。修改操作会保留请求编辑范围之外的制表符。
 
 ## 模型体验
 
@@ -51,5 +49,4 @@ Schema 提供 `view`、`create`、`str_replace` 与 `insert`。文件查看使�
 
 - 操作面向 UTF-8 文本，不支持二进制文件。
 - `str_replace` 刻意拒绝零匹配或多匹配，且没有 `replace_all` 参数。
-- 规范模式（`expandTabsOnMutation: true`）会在替换或插入前展开整个文件中的制表符，包括未编辑区域。Makefile 等依赖制表符的文件应设为 `false`。
 - 每个修改操作都会经过 `fs/write-intent` 或 `fs/edit-intent`，解析当前 session 的沙箱策略，并交由挂载的文件系统与策略插件执行。

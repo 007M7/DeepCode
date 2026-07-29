@@ -105,12 +105,11 @@ class MutationPolicy {
 async function resolveTarget(
   ctx: Context,
   path: string,
-  requireAbsolutePath: boolean,
   exec: ToolRunContext,
   workspaceRoot?: string,
 ): Promise<FsTarget> {
   if (path.trim().length === 0) throw new Error('path must be a non-empty string')
-  if (requireAbsolutePath && !isAbsolute(path)) {
+  if (!isAbsolute(path)) {
     throw new Error(`The path ${path} is not an absolute path, it should start with \`/\`. Maybe you meant /${path}?`)
   }
   const cwd = exec.agent?.session.header.cwd ?? workspaceRoot
@@ -237,10 +236,9 @@ async function viewPath(
   path: string,
   viewRange: number[] | undefined,
   maxOutputChars: number,
-  requireAbsolutePath: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec)
+  const target = await resolveTarget(ctx, path, exec)
   const info = await statExisting(ctx, target, 'view', exec)
   if (info.type === 'directory') {
     if (viewRange !== undefined) {
@@ -261,12 +259,11 @@ async function createFile(
   policy: MutationPolicy,
   path: string,
   fileText: string | undefined,
-  requireAbsolutePath: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
   const content = requiredForCommand(fileText, 'file_text', 'create')
   const sandboxPolicy = policy.resolve(exec)
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec, sandboxPolicy?.workspaceRoot)
+  const target = await resolveTarget(ctx, path, exec, sandboxPolicy?.workspaceRoot)
   if (await ctx.fs.stat(target, exec.signal) !== undefined) {
     throw new Error(`File already exists at: ${target.displayPath}. Cannot overwrite files using command \`create\`.`)
   }
@@ -298,11 +295,10 @@ async function replaceInFile(
   path: string,
   oldStr: string | undefined,
   newStr: string | undefined,
-  requireAbsolutePath: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
   const sandboxPolicy = policy.resolve(exec)
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec, sandboxPolicy?.workspaceRoot)
+  const target = await resolveTarget(ctx, path, exec, sandboxPolicy?.workspaceRoot)
   const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
   const oldValue = requiredForCommand(oldStr, 'old_str', 'str_replace', false)
   const newValue = newStr ?? ''
@@ -327,10 +323,12 @@ async function replaceInFile(
   }
   let outcome
   try {
-    outcome = await ctx.fs.editText(
+    outcome = await ctx.fs.writeText(
       target,
-      { oldString: oldValue, newString: newValue, replaceAll: false },
-      intent ?? { version: info.version },
+      before.replace(oldValue, newValue),
+      intent === undefined
+        ? { kind: 'replaceIfVersion', version: info.version }
+        : { kind: 'replaceIfVersion', version: intent.version },
       exec.signal,
       sandboxPolicy,
     )
@@ -347,13 +345,12 @@ async function insertInFile(
   path: string,
   insertLine: number | undefined,
   newStr: string | undefined,
-  requireAbsolutePath: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
   if (insertLine === undefined) throw new Error('Parameter `insert_line` is required for command: insert')
   const value = requiredForCommand(newStr, 'new_str', 'insert')
   const sandboxPolicy = policy.resolve(exec)
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec, sandboxPolicy?.workspaceRoot)
+  const target = await resolveTarget(ctx, path, exec, sandboxPolicy?.workspaceRoot)
   const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
   const info = await statExisting(ctx, target, 'insert', exec)
   if (info.type !== 'file') {
@@ -387,7 +384,6 @@ async function insertInFile(
 interface ResolvedConfig {
   maxOutputChars: number
   description: string
-  requireAbsolutePath: boolean
 }
 
 function presentEditorCall(args: {
@@ -484,9 +480,9 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
     async execute(args, exec) {
       switch (args.command) {
         case 'view':
-          return viewPath(ctx, args.path, args.view_range, config.maxOutputChars, config.requireAbsolutePath, exec)
+          return viewPath(ctx, args.path, args.view_range, config.maxOutputChars, exec)
         case 'create':
-          return createFile(ctx, policy, args.path, args.file_text, config.requireAbsolutePath, exec)
+          return createFile(ctx, policy, args.path, args.file_text, exec)
         case 'str_replace':
           return replaceInFile(
             ctx,
@@ -494,7 +490,6 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
             args.path,
             args.old_str,
             args.new_str,
-            config.requireAbsolutePath,
             exec,
           )
         case 'insert':
@@ -504,7 +499,6 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
             args.path,
             args.insert_line,
             args.new_str,
-            config.requireAbsolutePath,
             exec,
           )
       }
@@ -522,15 +516,12 @@ export interface Config {
   maxOutputChars?: number
   /** Model-facing tool description. */
   description?: string
-  /** Require local absolute paths like the canonical editor contract (default true). */
-  requireAbsolutePath?: boolean
 }
 
 /** Runtime configuration schema for the string-replacement editor tool. */
 export const Config: z<Config> = z.object({
   maxOutputChars: z.number().default(16_000),
   description: z.string().default(DEFAULT_DESCRIPTION),
-  requireAbsolutePath: z.boolean().default(true),
 })
 
 /** Register one `str_replace_editor` tool over `ctx.fs`. */
@@ -538,7 +529,6 @@ export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = {
     maxOutputChars: config.maxOutputChars ?? 16_000,
     description: config.description ?? DEFAULT_DESCRIPTION,
-    requireAbsolutePath: config.requireAbsolutePath ?? true,
   }
   if (!Number.isSafeInteger(resolved.maxOutputChars) || resolved.maxOutputChars <= 0) {
     throw new Error('tool-str-replace-editor: maxOutputChars must be a positive safe integer')

@@ -316,6 +316,16 @@ describe('tool-str-replace-editor', () => {
     expect(text(repeatedMultiline))
       .toContain('Multiple occurrences of old_str `alpha\nbeta` in lines [1, 4]')
 
+    const mixedEol = join(root, 'mixed-eol.txt')
+    await writeFile(mixedEol, 'alpha\r\nbeta\nmiddle\nalpha\nbeta')
+    expect((await call(ctx, owner, {
+      command: 'str_replace',
+      path: mixedEol,
+      old_str: 'alpha\r\nbeta',
+      new_str: 'replaced',
+    })).isError).toBe(false)
+    expect(await readFile(mixedEol, 'utf8')).toBe('replaced\nmiddle\nalpha\nbeta')
+
     const relative = await call(ctx, owner, { command: 'view', path: 'ambiguous.txt' })
     expect(relative.isError).toBe(true)
     expect(text(relative)).toContain('is not an absolute path')
@@ -376,13 +386,6 @@ describe('tool-str-replace-editor', () => {
       insert_line: 0,
       new_str: 'x',
     })).error).toMatchObject({ info: { code: 'FS_NOT_REGULAR_FILE' } })
-  })
-
-  it('can opt into session-relative paths for non-canonical deployments', async () => {
-    const { ctx, root, owner } = await setup({ requireAbsolutePath: false })
-    await writeFile(join(root, 'relative.txt'), 'relative')
-    expect(text(await call(ctx, owner, { command: 'view', path: 'relative.txt' })))
-      .toContain("Here's the content of")
   })
 
   it('delegates read-before-edit decisions to fs-policy', async () => {
@@ -490,7 +493,7 @@ describe('tool-str-replace-editor', () => {
     const failWrite = async (): Promise<never> => {
       throw new Error('backend write failed')
     }
-    ctx.fs.editText = failWrite
+    ctx.fs.writeText = failWrite
 
     const replace = await call(ctx, owner, {
       command: 'str_replace',
@@ -501,7 +504,6 @@ describe('tool-str-replace-editor', () => {
     expect(replace.isError).toBe(true)
     expect(text(replace)).toContain('backend write failed')
 
-    ctx.fs.writeText = failWrite
     const insert = await call(ctx, owner, {
       command: 'insert',
       path,
