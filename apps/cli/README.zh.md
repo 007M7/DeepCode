@@ -7,18 +7,18 @@ Argv 只会通过 [Commander](https://github.com/tj/commander.js) 适配器（[`
 
 TUI 界面：
 
-- 启动已交付的默认配置（`apps/cli/base.cordis.yml`），或由 `--config <path>` 指定的树（演示／测试用于启动其他示例树的逃生口），并通过 [`dsh-app-boot`](../../packages/ui/app-boot/README.md) 完成启动；
+- 通过 [`dsh-app-boot`](../../packages/ui/app-boot/README.md) 启动 `base.cordis.yml` 与 `tui.cordis.yml`；`--config <path>` 应用一个补丁列表覆盖并替代个人覆盖，而 `--config-replace <path>` 将指定文件作为完整配置树启动；
 - 使用 `dsh --resume <session-id>` 恢复已持久化会话。当 Node 宿主公开 `process.execve` 时，还会提供 TUI 的原地移交宿主：选择器预检并刷新当前会话后，宿主会释放应用，并以规范化的恢复调用替换进程；不支持进程替换的运行时会让会话继续运行并给出提示。会话身份与退出行由本 CLI 拥有，而非由配置指定：它创建或选定 `main` 会话 id，并把该 id 以及可复现本次调用的确切命令一起提供到启动上下文（[`MAIN_SESSION_ID_KEY`](../../packages/ui/tui/README.md) 与 `TUI_GOODBYE_MESSAGE_KEY`）。任何 `cordis.yml` 键都无法移除恢复能力；缺失或无法读取的 id 会明确报错，而不会创建新会话；
 - 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh meta` 是唯一例外，见下文）；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
 - 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`.env` 填补环境缺口（环境中已有的值 > 项目 `.env` > 个人 `.env`），`config.yaml` 则修补已启动的树。
 
-`dsh meta` 是以本 harness checkout 为 workspace 的同一个 TUI，因此开发 dsh 自身无需 `cd`。它在两层 `.env` 都加载之后才 chdir 到 checkout 根目录（从启动器的真实路径解析，与源码路径提示词段所指的根目录相同），因此环境优先级不变，而会话 cwd、`./.sessions` 持久化根目录与 HMR 监视根目录会一并移动。它只接受 `--resume <id>`；`--config`（会启动其他配置树）和 `-p`（非交互）都会明确报错。由于 meta 会话位于该 checkout 之下，此处的 `--resume` 只能看到其他 meta 会话；原地移交与打印的退出行都会以 `dsh meta --resume <id>` 复现该 mode，因此复制的命令在任何目录下都能恢复到正确的会话。
+`dsh meta` 是以本 harness checkout 为 workspace 的同一个 TUI，因此开发 dsh 自身无需 `cd`。它在两层 `.env` 都加载之后才 chdir 到 checkout 根目录（从启动器的真实路径解析，与源码路径提示词段所指的根目录相同），因此环境优先级不变，而会话 cwd 与 HMR 监视根目录会一并移动。Meta 始终创建新会话，不接受默认界面的任何选项；恢复已持久化会话应使用普通的 `dsh --resume <id>`。
 
 `dsh migrate` 与 `dsh upgrade` 是默认 TUI 界面之上的引导式全新会话入口：各自在调用目录中创建一个全新会话，并以一个内置 skill 播种其首轮（`dsh-migrate` 用于从其他编码 agent 迁移——opencode、pi、Claude Code、Codex；`dsh-upgrade` 用于升级本 checkout），效果等同于用户手动键入 `/skill:<name>`。启动器将 skill 名称提供到启动上下文（[`INITIAL_SKILL_KEY`](../../packages/ui/tui/README.md)），TUI 在聊天就绪后自动调用它。两者都不接受任何选项——`--config`、`-p`、`--resume` 都会明确报错——且仅在首次启动时播种，因此之后 `dsh --resume <id>` 恢复该会话时是普通 TUI 会话，不会重复注入。
 
 
-Web 和无头界面启动同一个共享组合（`cordis.yml`）：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
+Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`；`dsh web --config <path>` 会在 Web 界面默认值之后追加一个覆盖。除此之外，两者共享同一套组合：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 
