@@ -104,7 +104,7 @@ describe('web e2e: resident question composer round trip', () => {
             const inner = child.getBoundingClientRect()
             return Math.max(box.top - inner.top, inner.bottom - box.bottom)
           })))
-          const list = rows[0]?.parentElement ?? null
+          const list = card.querySelector<HTMLElement>('[data-question-scroll]')
           return {
             rows: rows.length,
             spill: Math.max(...spill),

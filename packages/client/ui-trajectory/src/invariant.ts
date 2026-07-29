@@ -16,8 +16,8 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: a pure-consumer plugin — it emits no cordis events
- * and owns no mutable cross-plugin state; both view-slot registrations are
- * plain effects whose disposal the slot ledger's own specs and this
+ * and owns no mutable cross-plugin state; its view-slot registration is a
+ * plain effect whose disposal the slot ledger's own specs and this
  * package's behavior specs observe directly.
  */
 const install: InvariantInstaller = () => {}

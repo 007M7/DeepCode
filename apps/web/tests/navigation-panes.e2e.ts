@@ -1,11 +1,11 @@
-// Web e2e scenarios: navigation & panes — the view tabs (Trajectory /
-// Waterfall) and sidebar search, all over ONE rich two-turn seeded fixture
-// rendered purely from the log (the seeded-history pattern: zero model calls
-// in replay, so every surface here is the client fold + host history RPC,
-// not replay binding). The seed is recorded live under the standard
-// discipline: turn 1 produces a bash call plus two parallel reads in one
-// assistant message (tool-call density for the trajectory/waterfall lanes),
-// turn 2 a markdown-rich reply (a second turn so the waterfall has two lanes).
+// Web e2e scenarios: navigation & panes — the Trajectory view and timing
+// overview, its local details inspector, and sidebar search, all over ONE rich
+// two-turn seeded fixture rendered purely from the log (the seeded-history
+// pattern: zero model calls in replay, so every surface here is the client
+// fold + host history RPC, not replay binding). The seed is recorded live
+// under the standard discipline: turn 1 produces a bash call plus two
+// parallel reads in one assistant message (tool-call density for the
+// trajectory ledger/timing lanes), turn 2 a markdown-rich reply.
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -23,7 +23,6 @@ import { saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/navigation-panes', import.meta.url))
 const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
-const WATERFALL_EXPECTED = join(SNAPSHOT_DIR, 'waterfall.expected.md')
 const TERMINAL_EXPECTED = join(SNAPSHOT_DIR, 'terminal-card.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
@@ -39,6 +38,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let slotErrors: string[]
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({})
@@ -58,6 +58,12 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     browser = await chromium.launch()
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
     tripwire = watchConsole(page)
+    slotErrors = []
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /slot entry crashed/i.test(message.text())) {
+        slotErrors.push(message.text())
+      }
+    })
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
   }, 120_000)
@@ -123,55 +129,68 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('renders the trajectory tab with turn sections and step cells', async () => {
+  it.skipIf(MODE === 'record')('renders the trajectory ledger and opens its local record inspector', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
     await page.getByRole('tab', { name: 'Trajectory' }).click()
-    // Two sticky turn sections; turn 1's step group summarizes its tool mix
-    // (bash + the two parallel reads collapse to 'bash read×2').
-    await expect.poll(() => page.getByText('Turn 1', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
-    await expect.poll(() => page.getByText('Turn 2', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    await expect.poll(() => page.getByText('bash read×2', { exact: false }).count(), { timeout: 10_000 }).toBe(1)
+    await page.waitForTimeout(100)
+    expect({
+      pageErrors: tripwire.pageErrors,
+      slotErrors,
+      warnings: tripwire.warnings,
+    }).toEqual({
+      pageErrors: [],
+      slotErrors: [],
+      warnings: [],
+    })
+    // Turn rules partition the ledger without restoring a separate header row.
+    await expect.poll(() => page.locator('tr[data-turn-start="true"]').count(), { timeout: 15_000 }).toBe(2)
+    await expect.poll(() => page.getByRole('columnheader').count(), { timeout: 10_000 }).toBe(0)
+    await page.locator('tr[data-kind="tool"]').first().click()
+    await expect.poll(() => page.getByRole('complementary', { name: 'Event details' }).count(), { timeout: 10_000 }).toBe(1)
+    await page.getByRole('tab', { name: 'Result' }).click()
+    await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
     const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(TRAJECTORY_EXPECTED, snapshot, MODE)
+    await page.getByRole('complementary', { name: 'Event details' })
+      .getByRole('button', { name: 'Close details' }).click()
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('renders the waterfall tab with span stats and one lane per span', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-waterfall'))
-    await page.getByRole('tab', { name: 'Waterfall' }).click()
-    // The stats header rides the waterfall body. The span fold counts THREE
-    // spans for this two-turn log: only assistant/steering nodes carry a turn
-    // number, so the first user message lands in a turn-0 prologue span (a
-    // P-I placeholder shape — pinned as-is; real spans are deferred to
-    // P-III per the view's deviation ledger). Calls: bash + two reads.
-    await expect.poll(() => page.getByText(/3 turns · \d+ steps · 3 tool calls/).count(), { timeout: 15_000 }).toBe(1)
-    // One lane per span, tagged by turn number, prologue included.
-    for (const tag of ['turn 0', 'turn 1', 'turn 2']) {
-      await expect.poll(() => page.getByText(tag, { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    }
-    const snapshot = (await captureStableAria(page, '[class*="viewArea"]', scaffold.workspaceCwd))
-      .split(SEED_ID).join('{{seededId}}')
-    await compareOrRefreshGolden(WATERFALL_EXPECTED, snapshot, MODE)
+  it.skipIf(MODE === 'record')('focuses the ledger by dragging an overview interval', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-timeline'))
+    const plot = page.getByLabel('Timeline overview; drag horizontally to focus events')
+    const before = await page.locator('tr[data-kind]').count()
+    const box = await plot.boundingBox()
+    if (box === null) throw new Error('trajectory timeline plot has no layout box')
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width * 0.9, box.y + box.height / 2)
+    await page.mouse.up()
+    await expect.poll(() => page.locator('tr[data-timeline-focus="outside"]').count(), { timeout: 10_000 })
+      .toBeGreaterThan(0)
+    await expect.poll(() => page.locator('tr[data-kind]').count(), { timeout: 10_000 }).toBe(before)
+    await plot.click({ button: 'right' })
+    await expect.poll(() => page.locator('tr[data-timeline-focus]').count(), { timeout: 10_000 }).toBe(0)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('bash and file-path rows leave the details column collapsed', async () => {
+  it.skipIf(MODE === 'record')('bash and file-path rows leave the default details column open', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-details'))
     await page.getByRole('tab', { name: 'Chat' }).click()
     const bashRow = page.locator('[data-sample="bash-global"]').first()
     await bashRow.waitFor({ timeout: 15_000 })
-    const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
+    const frame = page.locator('[style*="grid-template-columns"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).toBeNull()
     await bashRow.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
     // The card's own controls are outside the summary row and must not open
     // details either — the terminal card is read in place.
     await page.locator('[data-sample="bash-global"] ~ [data-terminal] [class*="_copyButton_"]').first().click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
     // Read summaries are host-open file links; they also must not open details.
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
     await fileLink.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
   }, 60_000)
 
   it.skipIf(MODE === 'record')('renders the bash row as a terminal card in the real browser', async () => {
@@ -257,9 +276,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.pageErrors).toEqual([])
+    expect(slotErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'seed.jsonl', 'trajectory.expected.md', 'waterfall.expected.md', 'terminal-card.expected.md',
+      'seed.jsonl', 'trajectory.expected.md', 'terminal-card.expected.md',
     ])
   })
 })
