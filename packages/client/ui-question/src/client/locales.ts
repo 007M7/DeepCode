@@ -12,8 +12,6 @@ export const zh = {
   'option.custom': '其他，请填写自定义答案',
   'custom.placeholder': '输入你的答案',
   'action.skip': '跳过本题',
-  'action.submitting': '正在提交…',
-  'action.submit': '提交',
   'action.next': '下一题',
 } satisfies Record<string, string>
 
@@ -21,7 +19,7 @@ export const zh = {
 export type QuestionKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
-export const en: Record<QuestionKey, string> = {
+export const en = {
   'error.incomplete': 'Please complete this question first.',
   'error.unanswered': 'Please select an option or enter a custom answer.',
   'title.multi': 'Multi-select',
@@ -32,7 +30,5 @@ export const en: Record<QuestionKey, string> = {
   'option.custom': 'Other — enter a custom answer',
   'custom.placeholder': 'Type your answer',
   'action.skip': 'Skip this question',
-  'action.submitting': 'Submitting…',
-  'action.submit': 'Submit',
   'action.next': 'Next',
-}
+} satisfies Record<QuestionKey, string>

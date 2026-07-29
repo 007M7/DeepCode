@@ -14,7 +14,6 @@ export const zh = {
   'effort.providerDefault': '服务商默认',
   'status.loading': '正在刷新模型列表…',
   'error.action': '模型操作失败：{message}',
-  'action.retry': '重试',
   'action.reload': '重新加载',
   'warning.groupLoad': '{name} 加载失败：{message}',
   'option.currentUnlisted': '当前模型 · 未列入目录',
@@ -26,7 +25,7 @@ export const zh = {
 export type ModelKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
-export const en: Record<ModelKey, string> = {
+export const en = {
   'command.description': 'Select the model for this conversation',
   'option.unlisted': '{group} · Not in catalog',
   'option.loadError': 'Catalog failed to load: {message}',
@@ -39,10 +38,9 @@ export const en: Record<ModelKey, string> = {
   'effort.providerDefault': 'Provider default',
   'status.loading': 'Refreshing model list…',
   'error.action': 'Model operation failed: {message}',
-  'action.retry': 'Retry',
   'action.reload': 'Reload',
   'warning.groupLoad': '{name} failed to load: {message}',
   'option.currentUnlisted': 'Current model · Not in catalog',
   'empty.models': 'No models available.',
   'empty.efforts': 'This model provides no reasoning effort levels.',
-}
+} satisfies Record<ModelKey, string>

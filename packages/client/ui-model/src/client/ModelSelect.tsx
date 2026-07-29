@@ -238,13 +238,13 @@ export function ModelSelect(
               {state.error !== null && (
                 <div className={css.error}>
                   <span>{t('error.action', { message: state.error })}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('action.retry')}</button>
+                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('retry')}</button>
                 </div>
               )}
               {state.failures.map(failure => (
                 <div className={css.warning} key={failure.id}>
                   <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('action.retry')}</button>
+                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('retry')}</button>
                 </div>
               ))}
               <div className={clsx(css.groups, 'scrollable')}>

@@ -13,6 +13,7 @@ import {
   QuestionComposer, parseQuestionTitle, parseRecommendedLabel,
 } from '../src/client/QuestionComposer.tsx'
 import { zh } from '../src/client/locales.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
 afterEach(cleanup)
 
@@ -29,9 +30,11 @@ const kit = {
   useProjection: (() => undefined) as never,
   useInput: (() => { throw new Error('unused') }) as never,
   inputActions: { setDraft: () => { throw new Error('unused') }, submit: () => { throw new Error('unused') } } as never,
-  // The seat's key domain is question ∪ common; the stub answers from the
-  // package dictionary and falls back to the key like the real chain.
-  t: (key => (zh as Record<string, string>)[key] ?? key) as QuestionComposerProps['t'],
+  // The seat's key domain is question ∪ common; the stub mirrors the real
+  // lookup chain: package dictionary, then common vocabulary, then the key.
+  t: (key => (zh as Record<string, string>)[key]
+    ?? (commonZh as Record<string, string>)[key]
+    ?? key) as QuestionComposerProps['t'],
 }
 
 const QUESTIONS = [

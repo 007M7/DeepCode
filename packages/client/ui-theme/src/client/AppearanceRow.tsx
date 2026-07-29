@@ -11,6 +11,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ThemePreference } from './index.ts'
+import type { ThemeKey } from './locales.ts'
 import type {} from './settings-contract.ts'
 import type { createAppearanceRowStore } from './settings-store.ts'
 import css from './AppearanceRow.module.css'
@@ -27,7 +28,7 @@ export type AppearanceRowComponentProps =
   & PropsLocale<'settings.theme'> & AppearanceRowInjected
 
 /** Cube order and icons (figma 501:30015-30017: Light, Dark, System). */
-const CUBES: readonly { id: ThemePreference; labelKey: 'appearance.light' | 'appearance.dark' | 'appearance.system'; Icon: typeof IconLightOutline16 }[] = [
+const CUBES: readonly { id: ThemePreference; labelKey: ThemeKey; Icon: typeof IconLightOutline16 }[] = [
   { id: 'light', labelKey: 'appearance.light', Icon: IconLightOutline16 },
   { id: 'dark', labelKey: 'appearance.dark', Icon: IconDarkOutline16 },
   { id: 'system', labelKey: 'appearance.system', Icon: IconFollowsystemOutline16 },

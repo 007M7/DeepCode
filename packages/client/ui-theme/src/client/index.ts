@@ -14,9 +14,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
 import { createAppearanceRowStore } from './settings-store.ts'
+import { en, zh, type ThemeKey } from './locales.ts'
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
 export type { AppearanceRowState } from './settings-store.ts'
+export type { ThemeKey } from './locales.ts'
 
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
@@ -24,7 +26,7 @@ export const SETTINGS_NS = 'settings.theme'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** The Appearance settings row's copy. */
-    'settings.theme': 'appearance.title' | 'appearance.light' | 'appearance.dark' | 'appearance.system'
+    'settings.theme': ThemeKey
   }
 }
 
@@ -235,20 +237,7 @@ export function apply(ctx: ClientContext): void {
   const theme = new ThemeService(ctx)
   ctx.provide('theme', theme)
 
-  ctx.effect(() => ctx.locale.register(SETTINGS_NS, {
-    zh: {
-      'appearance.title': '外观',
-      'appearance.light': '浅色',
-      'appearance.dark': '深色',
-      'appearance.system': '跟随系统',
-    },
-    en: {
-      'appearance.title': 'Appearance',
-      'appearance.light': 'Light',
-      'appearance.dark': 'Dark',
-      'appearance.system': 'System',
-    },
-  }), 'ui-theme: settings row dictionaries')
+  ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')
 
   const store = createAppearanceRowStore()
   let bound: BoundActions<typeof store> | undefined

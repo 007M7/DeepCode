@@ -65,7 +65,10 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     selected: [], custom: '', customOpen: (question.options?.length ?? 0) === 0, skipped: false,
   })))
   const [busy, setBusy] = useState<'answer' | 'cancel' | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Validation feedback is stored as a dictionary KEY and translated at
+  // render, so already-shown feedback follows a locale switch; runtime
+  // failure messages (finished strings from the wire) pass through verbatim.
+  const [error, setError] = useState<{ key: 'error.incomplete' | 'error.unanswered' } | { text: string } | null>(null)
   // index stays in bounds (every setIndex site clamps) and drafts mirrors questions 1:1.
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
   const question = questions[index]!
@@ -78,7 +81,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     setError(null)
     void pending.cancel().catch((cause: unknown) => {
       setBusy(null)
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError({ text: cause instanceof Error ? cause.message : String(cause) })
     })
   }
 
@@ -114,7 +117,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     const missing = values.findIndex(item => !completed(item))
     if (missing >= 0) {
       setIndex(missing)
-      setError(t('error.incomplete'))
+      setError({ key: 'error.incomplete' })
       return
     }
     const answer: QuestionAnswer = {
@@ -133,13 +136,13 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
     setError(null)
     void pending.answer(answer).catch((cause: unknown) => {
       setBusy(null)
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError({ text: cause instanceof Error ? cause.message : String(cause) })
     })
   }
 
   const continueFlow = (): void => {
     if (!answered(draft)) {
-      setError(t('error.unanswered'))
+      setError({ key: 'error.unanswered' })
       return
     }
     if (index < questions.length - 1) {
@@ -292,7 +295,7 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
         </div>
 
         <footer className={css.footer}>
-          <div className={css.feedback} role="status">{error}</div>
+          <div className={css.feedback} role="status">{error === null ? null : 'key' in error ? t(error.key) : error.text}</div>
           <div className={css.footerActions}>
             <Button variant="ghost" size="sm" disabled={busy !== null} onClick={skipQuestion}>
               {t('action.skip')}
@@ -302,8 +305,8 @@ function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<Questi
               disabled={busy !== null || !answered(draft)} onClick={continueFlow}
             >
               {busy === 'answer'
-                ? t('action.submitting')
-                : index === questions.length - 1 ? t('action.submit') : t('action.next')}
+                ? t('submitting')
+                : index === questions.length - 1 ? t('submit') : t('action.next')}
             </Button>
           </div>
         </footer>

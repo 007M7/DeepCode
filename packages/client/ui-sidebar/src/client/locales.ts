@@ -12,9 +12,9 @@ export const zh = {
 export type SidebarKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
-export const en: Record<SidebarKey, string> = {
+export const en = {
   'session.new': 'New Session',
   'session.new.label': 'New session',
   'toggle.open': 'Open sidebar',
   'toggle.collapse': 'Collapse sidebar',
-}
+} satisfies Record<SidebarKey, string>

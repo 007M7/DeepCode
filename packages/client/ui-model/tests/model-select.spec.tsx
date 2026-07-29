@@ -7,11 +7,14 @@ import type { ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
 import { ModelSelect } from '../src/client/ModelSelect.tsx'
 import { zh } from '../src/client/locales.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
-// The seat's key domain is model ∪ common; the stub answers from the package
-// dictionary (with template params) and falls back to the key like the real chain.
+// The seat's key domain is model ∪ common; the stub mirrors the real lookup
+// chain: package dictionary, then common vocabulary, then the key.
 const t: ComponentProps<typeof ModelSelect>['t'] = (key, params) => {
-  const template = (zh as Record<string, string>)[key] ?? key
+  const template = (zh as Record<string, string>)[key]
+    ?? (commonZh as Record<string, string>)[key]
+    ?? key
   return params === undefined
     ? template
     : template.replace(/\{(\w+)\}/g, (match, name: string) => name in params ? String(params[name]) : match)
