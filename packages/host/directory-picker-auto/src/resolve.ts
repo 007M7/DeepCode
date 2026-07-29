@@ -6,6 +6,8 @@
  * @module @deepseek-ai/dsh-host-directory-picker-auto/resolve
  */
 
+import type { Config as HttpServerConfig } from '@deepseek-ai/dsh-host-webserver'
+
 /** Concrete interaction backend the resolver chooses between. */
 export type DirectoryPickerBackendKind = 'native' | 'browse'
 
@@ -16,12 +18,14 @@ export type DirectoryPickerEnv = Readonly<
 
 /** Host facts the backend choice is a pure function of, sampled once at boot. */
 export interface DirectoryPickerHostFacts {
-  /** Effective webserver bind host (`127.0.0.1` or `0.0.0.0`). */
-  bindHost: string
+  /** Effective webserver bind host (the schema's closed loopback/all-interfaces union). */
+  bindHost: HttpServerConfig['host']
   /** Host process platform. */
   platform: NodeJS.Platform
   /** Environment sample; SSH marks a remote operator, DISPLAY/WAYLAND_DISPLAY a Linux display. */
   env: DirectoryPickerEnv
+  /** Whether a Linux chooser binary the native backend can drive (zenity/kdialog) is on PATH; consulted only when `platform` is linux. */
+  linuxChooser: boolean
 }
 
 /** An env value counts only when set and non-blank (an empty export is "unset" by shell convention). */
@@ -29,12 +33,14 @@ const present = (value: string | undefined): boolean => value !== undefined && v
 
 /**
  * Resolve which backend serves this boot. `native` requires every signal that
- * the operator can see the host display: a loopback-only bind (an
- * all-interfaces bind admits remote browsers no OS chooser can reach), no SSH
- * launch (under SSH port-forwarding the chooser would open on the unattended
- * server), and a display session (assumed on darwin/win32, `DISPLAY`/
- * `WAYLAND_DISPLAY` elsewhere). Anything ambiguous resolves to `browse`,
- * which works everywhere.
+ * the operator can see the host display and the native backend can serve it:
+ * a loopback-only bind (an all-interfaces bind admits remote browsers no OS
+ * chooser can reach), no SSH launch (under SSH port-forwarding the chooser
+ * would open on the unattended server), and a servable display session —
+ * assumed on darwin/win32, requiring `DISPLAY`/`WAYLAND_DISPLAY` plus a
+ * chooser binary on linux, and never true elsewhere (the native backend
+ * drives exactly darwin/win32/linux). Anything ambiguous resolves to
+ * `browse`, which works everywhere.
  * @param facts - the sampled host facts.
  * @returns the backend kind to mount.
  */
@@ -42,5 +48,6 @@ export function resolveDirectoryPickerBackend(facts: DirectoryPickerHostFacts): 
   if (facts.bindHost !== '127.0.0.1') return 'browse'
   if (present(facts.env.SSH_CONNECTION) || present(facts.env.SSH_TTY)) return 'browse'
   if (facts.platform === 'darwin' || facts.platform === 'win32') return 'native'
+  if (facts.platform !== 'linux' || !facts.linuxChooser) return 'browse'
   return present(facts.env.DISPLAY) || present(facts.env.WAYLAND_DISPLAY) ? 'native' : 'browse'
 }

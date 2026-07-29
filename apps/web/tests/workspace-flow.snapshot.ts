@@ -38,7 +38,8 @@ const PLUGINS: readonly (WebBootEntry & { dir: string })[] = [
   },
   { id: '@deepseek-ai/dsh-client-ui-trajectory', dir: 'ui-trajectory', url: '/plugins/ui-trajectory.js', rev: 'fx', inject: ['@deepseek-ai/dsh-client-ui-conversation'] },
   // Dual-face host package: its browser half fills the directory-flow holes
-  // (the same composition row apps/cli mounts for the node-side backend).
+  // (the backend row apps/cli's -auto chooser resolves to on headless hosts,
+  // and the one the web scaffold pins for interaction-stable goldens).
   {
     id: '@deepseek-ai/dsh-host-directory-picker-browse',
     dir: '../host/directory-picker-browse',
