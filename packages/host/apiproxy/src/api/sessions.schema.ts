@@ -198,7 +198,7 @@ export const imageMediaTypeSchema = z.union([
 /** Prompt wire content is intentionally narrower than merge-extensible durable core content. */
 export const promptContentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
-  z.object({ type: z.literal('image'), mediaType: imageMediaTypeSchema, data: z.string(), name: z.string().optional() }),
+  z.object({ type: z.literal('image'), mediaType: imageMediaTypeSchema, data: z.string(), name: z.string().optional(), alt: z.string().optional() }),
 ])
 
 /** session.prompt request payload. */

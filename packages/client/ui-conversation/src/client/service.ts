@@ -330,11 +330,13 @@ export class ConversationService extends Service implements IConversation {
     current: readonly ComposerAttachment[],
   ): void {
     if (files.length === 0 && current.length === 0) return
+    // Deployment-wide limits only. Model capability is deliberately NOT
+    // checked here: the handshake's activeModel is the host default, not the
+    // session's current target (session.selectModel never refreshes it), so a
+    // client-side modality gate refuses sessions the host would accept and
+    // vice versa. The host preflight on session.prompt is the authority; its
+    // rejection renders through the composer error strip.
     const description = this.requireSessions().hostDescription()
-    const modalities = description?.activeModel?.inputModalities
-    if (modalities !== undefined && !modalities.includes('image')) {
-      throw new Error('当前模型不支持图片输入')
-    }
     const limits = description?.imageLimits
     const all = [...current.map(attachment => attachment.file), ...files]
     if (limits !== undefined && all.length > limits.maxImagesPerMessage) {

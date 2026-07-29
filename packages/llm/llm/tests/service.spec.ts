@@ -857,6 +857,8 @@ describe('LlmService', () => {
     [{ provider: 'route', id: 'model', name: 1 }, 'non-string name'],
     [{ provider: 'route', id: 'model', name: '' }, 'empty name'],
     [{ provider: 'route', id: 'model', name: 'Model', description: 1 }, 'non-string description'],
+    [{ provider: 'route', id: 'model', name: 'Model', inputModalities: 'text' }, 'non-array input modalities'],
+    [{ provider: 'route', id: 'model', name: 'Model', outputModalities: [1] }, 'non-string output modality'],
   ] as const)('rejects invalid exact model metadata (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -869,6 +871,27 @@ describe('LlmService', () => {
 
     await expect(ctx.llm.resolveModelInfo('route', 'model'))
       .rejects.toMatchObject({ code: 'INVALID_MODEL_INFO' })
+  })
+
+  it('preserves modality metadata through exact model resolution', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    const adapter = new class extends ScriptedAdapter {
+      override resolveModel(): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({
+          provider: 'route', id: 'model', name: 'Model',
+          inputModalities: ['text', 'image'], outputModalities: ['text'],
+        })
+      }
+    }(SCRIPT)
+    ctx.llm.registerAdapter(['route'], adapter)
+
+    // Downstream preflights (image admission) act on this exact field; a
+    // rebuild that drops it silently reads as "modalities unknown".
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toEqual({
+      provider: 'route', id: 'model', name: 'Model',
+      inputModalities: ['text', 'image'], outputModalities: ['text'],
+    })
   })
 
   it('resolves detached model context independently of advisory catalog membership', async () => {

@@ -106,7 +106,7 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
       mediaType: item.part.mediaType,
       ...item.part.name === undefined ? {} : { name: item.part.name },
     })
-    return { type: 'image', attachment }
+    return { type: 'image', attachment, ...item.part.alt === undefined ? {} : { alt: item.part.alt } }
   }))
 }
 
@@ -125,6 +125,32 @@ function imageInContent(content: unknown, attachmentId: string): ImageAttachment
     }
   }
   return undefined
+}
+
+/** True when any block (nested tool-result content included) is an image block. */
+function contentHasImage(content: unknown): boolean {
+  if (!Array.isArray(content)) return false
+  for (const value of content) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+    const block = value as { type?: unknown; content?: unknown }
+    if (block.type === 'image') return true
+    if (block.type === 'tool-result' && contentHasImage(block.content)) return true
+  }
+  return false
+}
+
+/**
+ * True when the session log already carries image content on any route a
+ * model request replays (message content, wrapped messages, streamed blocks).
+ * The log is immutable, so a true here is permanent for the session's life.
+ */
+function sessionHasImage(events: readonly SessionEvent[]): boolean {
+  return events.some((event) => {
+    const data = event.data as { content?: unknown; message?: { content?: unknown }; chunk?: { type?: unknown; block?: unknown } }
+    if (contentHasImage(data.content)) return true
+    if (data.message !== undefined && contentHasImage(data.message.content)) return true
+    return event.type === 'assistant/chunk' && data.chunk?.type === 'block-end' && contentHasImage([data.chunk.block])
+  })
 }
 
 function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
@@ -1111,6 +1137,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               ? {}
               : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
           })
+          // An image-bearing log replays into every later request, and both
+          // wire routes reject image content on text-only models — accepting
+          // this selection would strand the session (every turn fails, no
+          // in-product recovery). Refuse at the selection boundary instead.
+          if (sessionHasImage(found.agent.session.events)) {
+            const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
+            if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
+              return err(request, {
+                code: 'model-unavailable',
+                message: `Model "${resolved.model}" does not accept image input, but this session's history already contains images; select an image-capable model.`,
+                details: { provider, model },
+              })
+            }
+          }
           const selected: AgentLlmTarget = {
             provider: resolved.provider,
             model: resolved.model,

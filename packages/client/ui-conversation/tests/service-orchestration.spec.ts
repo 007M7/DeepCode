@@ -20,13 +20,12 @@ async function bench() {
   })
   // config.input is required (the apply shares its hub with the inject
   // factories); the bench passes its own instance explicitly.
-  const fiber = runtime.ctx.plugin(ConversationService, {
-    input: new InputHub(runtime.ctx),
-  })
+  const hub = new InputHub(runtime.ctx)
+  const fiber = runtime.ctx.plugin(ConversationService, { input: hub })
   await fiber.await()
   const root = runtime.ctx.get('conversation') as ConversationService
   const scoped = runtime.sessions.scope('s1')!.get('conversation') as ConversationService
-  return { runtime, root, scoped, prompt, cancel, loadOlder }
+  return { runtime, hub, root, scoped, prompt, cancel, loadOlder }
 }
 
 describe('ConversationService', () => {
@@ -47,6 +46,26 @@ describe('ConversationService', () => {
     await expect(b.scoped.send('x', 'queue')).rejects.toThrow('conversation.send failed: agent-busy: busy')
     b.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'nope', details: {} } } as never)
     await expect(b.scoped.cancel()).rejects.toThrow('conversation.cancel failed: internal: nope')
+    await b.runtime.dispose()
+  })
+
+  it('releases draft images when the session scope is disposed', async () => {
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-1')
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    try {
+      const [attachment] = b.root.createDraftImages([new File([new Uint8Array(4)], 'a.png', { type: 'image/png' })])
+      if (attachment === undefined) throw new Error('draft attachment missing')
+      // Land the id in the session shell exactly as the composer does.
+      b.hub.shell(b.runtime.sessions.behavior('s1').sessionId).addImages([attachment.id])
+      await b.runtime.sessions.remove('s1')
+      // Scope teardown released the service-held File and its object URL.
+      expect(b.root.draftImages([attachment.id])).toEqual([])
+      expect(revoked).toHaveBeenCalledWith('blob:draft-1')
+    } finally {
+      created.mockRestore()
+      revoked.mockRestore()
+    }
     await b.runtime.dispose()
   })
 

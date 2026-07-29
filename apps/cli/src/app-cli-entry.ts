@@ -61,6 +61,61 @@ export function resolveLanTrust(
   return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
 }
 
+/** One provider/model source layer for {@link resolveLlmRoute}, in override order. */
+export interface LlmRouteInput {
+  /** CLI flag values (highest precedence). */
+  cli: { provider?: string | undefined; model?: string | undefined }
+  /** Profile-json values (parsed JSON — validated here, the config boundary). */
+  profile: { provider?: unknown; model?: unknown }
+  /** The api-gateway yml row's config values (deployment defaults). */
+  gateway: { provider?: unknown; model?: unknown }
+  /** Providers the shipped yml already routes through its static pi-ai row. */
+  ymlPiAiProviders: readonly string[]
+}
+
+/** The boot's resolved LLM routing decision. */
+export interface LlmRoute {
+  /** Effective api-gateway provider. */
+  provider: string
+  /** Pi-ai provider to mount dynamically; undefined when DeepSeek or a yml-routed provider serves the request. */
+  dynamicPiAiProvider: string | undefined
+}
+
+/**
+ * Resolve the boot's LLM route from the layered provider/model sources.
+ * A non-DeepSeek provider requires a model set at least as explicitly as the
+ * provider itself (flag/profile) — origin decides, never a comparison against
+ * any deployment's default model value, so editing the yml default cannot
+ * silently disarm the guard. Providers the shipped yml pi-ai row already
+ * routes are NOT mounted again: `LlmService.registerAdapter` rejects
+ * duplicate routes, so the gateway provider/model patch alone selects them.
+ * @param input - the layered provider/model sources and the yml pi-ai roster.
+ * @returns the effective provider and the dynamic pi-ai mount decision.
+ */
+export function resolveLlmRoute(input: LlmRouteInput): LlmRoute {
+  const provider = input.cli.provider ?? input.profile.provider ?? input.gateway.provider
+  if (typeof provider !== 'string' || provider === '') {
+    throw new Error('dsh: api-gateway provider must be a non-empty string')
+  }
+  if (provider !== 'deepseek') {
+    const providerFromYml = input.cli.provider === undefined && input.profile.provider === undefined
+    // A yml-set provider trusts its own row pairing; an override must bring
+    // its model along instead of inheriting the yml default's.
+    const model = providerFromYml
+      ? input.gateway.model
+      : input.cli.model ?? input.profile.model
+    if (typeof model !== 'string' || model === '') {
+      throw new Error(`dsh: provider ${provider} requires an explicit model`)
+    }
+  }
+  return {
+    provider,
+    dynamicPiAiProvider: provider === 'deepseek' || input.ymlPiAiProviders.includes(provider)
+      ? undefined
+      : provider,
+  }
+}
+
 /** One profile-json key mapped onto a yml row's config field. */
 interface ProfileMapping {
   jsonPath: string
@@ -207,15 +262,16 @@ export class AppCLIEntry {
     if (this.options.model !== undefined) put('api-gateway', 'model', this.options.model)
 
     const gatewayConfig = rows.get('api-gateway')?.config as Record<string, unknown> | undefined
-    const provider = this.options.provider ?? profile.provider ?? gatewayConfig?.provider
-    const model = this.options.model ?? profile.model ?? gatewayConfig?.model
-    if (typeof provider !== 'string' || provider === '') {
-      throw new Error('dsh: api-gateway provider must be a non-empty string')
-    }
-    if (provider !== 'deepseek' && (typeof model !== 'string' || model === '' || model === 'deepseek-v4-flash')) {
-      throw new Error(`dsh: provider ${provider} requires an explicit model`)
-    }
-    this.piAiProvider = provider === 'deepseek' ? undefined : provider
+    const piAiRow = rows.get('llm-pi-ai')?.config as { providers?: { provider?: unknown }[] } | undefined
+    const route = resolveLlmRoute({
+      cli: { provider: this.options.provider, model: this.options.model },
+      profile: { provider: profile.provider, model: profile.model },
+      gateway: { provider: gatewayConfig?.provider, model: gatewayConfig?.model },
+      ymlPiAiProviders: (piAiRow?.providers ?? [])
+        .map(p => p.provider)
+        .filter((value): value is string => typeof value === 'string'),
+    })
+    this.piAiProvider = route.dynamicPiAiProvider
 
     // Source 2b: authorities for the /api browser-trust fence (rationale on
     // resolveLanTrust).

@@ -47,12 +47,17 @@ export interface ReasoningBlock {
   text: string
 }
 
-/** A durable raster image reference, valid in user or assistant content. */
+/**
+ * A durable raster image reference, valid in user or assistant content. The
+ * block is deliberately role-neutral; assistant-side rendering is forward
+ * compatibility — the current production adapters declare text-only output,
+ * so only user content carries images today.
+ */
 export interface ImageBlock {
   type: 'image'
   /** Immutable bytes and intrinsic display metadata owned by the attachment service. */
   attachment: ImageAttachmentRef
-  /** Optional provider- and UI-facing alternative text. */
+  /** Optional provider- and UI-facing alternative text, carried from the prompt wire's image part. */
   alt?: string
 }
 

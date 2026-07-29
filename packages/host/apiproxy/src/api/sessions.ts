@@ -162,7 +162,7 @@ export interface SessionSummary {
 /** Browser-submitted prompt content; image bytes are promoted to durable references by the host. */
 export type PromptContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
+  | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string; alt?: string }
 
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
 export interface SessionsApi {

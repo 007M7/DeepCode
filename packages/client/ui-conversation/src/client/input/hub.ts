@@ -28,6 +28,7 @@ interface ConversationAttachmentFace {
     mode: 'queue' | 'steer',
     imageIds: readonly string[],
   ): Promise<void>
+  releaseDraftImage(id: string): void
 }
 
 /** Session-addressed input facade registry (InputService face + composer-layer extras). */
@@ -84,8 +85,13 @@ export class InputHub implements InputService {
       ]
       return () => {
         for (const off of offs) off()
+        // Draft attachments die with the scope: the shell only holds ids, so
+        // the service-owned File objects and object URLs must be released
+        // here or they leak for the page lifetime.
+        const drafts = shell.snapshot.imageIds
         shell.dispose()
         this.shells.delete(id)
+        for (const imageId of drafts) this.conversation().releaseDraftImage(imageId)
       }
     }, 'conversation.input: session shell')
     return shell

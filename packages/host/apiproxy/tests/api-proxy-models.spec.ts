@@ -230,4 +230,91 @@ describe('Web session model selection', () => {
       .toEqual({ provider: 'deepseek', model: 'private-preview', reasoningEffort: 'max' })
     await ctx.fiber.dispose()
   })
+
+  it('refuses a text-only selection once the session log carries an image', async () => {
+    const { ctx, sessionId, agent } = await harness()
+    ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+      }
+    }('Text Only', []))
+    ctx.llm.registerAdapter(['vision'], new class extends CatalogAdapter {
+      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+        return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text', 'image'] })
+      }
+    }('Vision', []))
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    // Before any image lands, a text-only selection is legitimate.
+    expect(expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).selected).toEqual({ provider: 'text-only', model: 'plain' })
+
+    agent.session.append('user/message', {
+      id: 'msg-image', role: 'user', source: { kind: 'user' },
+      content: [{ type: 'image', attachment: { attachmentId: 'att-1', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }],
+    } as never, { surfaceOp: 'append' })
+
+    // The log is immutable: a text-only route would fail every later turn.
+    const stranded = await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))
+    expect(stranded.result).toMatchObject({
+      ok: false,
+      error: { code: 'model-unavailable', message: expect.stringMatching(/history already contains images/) as unknown },
+    })
+
+    // Image-capable and modality-unknown routes stay selectable.
+    expect(expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'vision', model: 'sees',
+    }))).selected).toEqual({ provider: 'vision', model: 'sees' })
+    expect(expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'deepseek', model: 'deepseek-chat',
+    }))).selected).toEqual({ provider: 'deepseek', model: 'deepseek-chat', reasoningEffort: 'high' })
+    await ctx.fiber.dispose()
+  })
+
+  it('detects images on every replayed route: wrapped messages, streamed blocks, nested tool results', async () => {
+    const image = { type: 'image', attachment: { attachmentId: 'att-x', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }
+    const cases: { label: string; append: (agent: Agent) => void }[] = [
+      {
+        label: 'steering message wrapper',
+        append: (agent) => {
+          agent.session.append('steering/message', {
+            turn: 1, message: { id: 'st-1', role: 'user', source: { kind: 'user' }, content: [image] },
+          } as never, { surfaceOp: 'append' })
+        },
+      },
+      {
+        label: 'streamed assistant block',
+        append: (agent) => {
+          agent.session.append('assistant/chunk', {
+            turn: 1, step: 0, chunk: { type: 'block-end', index: 0, block: image },
+          } as never)
+        },
+      },
+      {
+        label: 'nested tool-result content',
+        append: (agent) => {
+          agent.session.append('user/message', {
+            id: 'tr-1', role: 'user', source: { kind: 'tool', callId: 'c1' },
+            content: [{ type: 'tool-result', toolCallId: 'c1', content: [image], isError: false }],
+          } as never, { surfaceOp: 'append' })
+        },
+      },
+    ]
+    for (const { label, append } of cases) {
+      const { ctx, sessionId, agent } = await harness()
+      ctx.llm.registerAdapter(['text-only'], new class extends CatalogAdapter {
+        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({ provider, id: model, name: model, inputModalities: ['text'] })
+        }
+      }('Text Only', []))
+      const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+      append(agent)
+      const stranded = await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))
+      expect(stranded.result.ok, label).toBe(false)
+      await ctx.fiber.dispose()
+    }
+  })
 })

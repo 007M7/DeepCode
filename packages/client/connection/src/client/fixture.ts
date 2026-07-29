@@ -108,7 +108,9 @@ const FIXTURE_IMAGE_DATA = 'iVBORw0KGgoAAAANSUhEUgAAAKAAAABaCAYAAAA/xl1SAAAAvklE
 const FIXTURE_IMAGE_REF: ImageAttachmentRef = {
   attachmentId: 'fixture:image' as AttachmentIdType,
   mediaType: 'image/png',
-  bytes: 68,
+  // Matches the decoded FIXTURE_IMAGE_DATA exactly (the real backend serves
+  // verified metadata; a mismatched fixture would mislead comparisons).
+  bytes: 247,
   width: 160,
   height: 90,
   name: 'fixture-image.png',

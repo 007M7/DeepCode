@@ -333,11 +333,23 @@ export class LlmService extends Service {
         'INVALID_MODEL_CONTEXT',
       )
     }
+    for (const modalities of [resolved.inputModalities, resolved.outputModalities]) {
+      if (modalities !== undefined && (!Array.isArray(modalities) || modalities.some(m => typeof m !== 'string'))) {
+        throw new LlmError(
+          `adapter returned invalid modality metadata for provider "${provider}" model "${model}"`,
+          'INVALID_MODEL_INFO',
+        )
+      }
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
+      // Capability metadata rides through: an explicit modality omission is
+      // negative capability downstream preflights act on (image admission).
+      ...resolved.inputModalities === undefined ? {} : { inputModalities: resolved.inputModalities },
+      ...resolved.outputModalities === undefined ? {} : { outputModalities: resolved.outputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
     }
     const reasoning = resolved.reasoning

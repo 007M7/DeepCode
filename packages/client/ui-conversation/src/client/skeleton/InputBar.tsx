@@ -385,7 +385,7 @@ export function InputBar({
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {attachments.length > 0 && (
-          <div className={css.attachments} aria-label="待发送图片">
+          <div className={css.attachments} role="group" aria-label="待发送图片">
             {attachments.map(attachment => (
               <div key={attachment.id} className={css.attachment}>
                 <button
