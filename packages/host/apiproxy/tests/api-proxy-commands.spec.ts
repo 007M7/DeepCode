@@ -180,17 +180,35 @@ describe('skill.list', () => {
   it('lists skills for the session cwd taken from the header', async () => {
     const ctx = await harness()
     const seenCwds: (string | undefined)[] = []
-    ctx.skills.registerProvider({
+    ctx.skills.registerProvider(() => ({
       name: 'probe',
       list: (options) => {
         seenCwds.push(options.cwd)
-        return Promise.resolve([{
-          name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing',
-          source: 'custom', provider: 'probe', rank: 0, locator: null,
-        }])
+        return Promise.resolve([
+          {
+            name: 'commit-helper', description: 'Git commits', whenToUse: 'when committing',
+            invocation: { modelInvocable: true, userInvocable: true },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'user-only', description: 'User-only',
+            invocation: { modelInvocable: false, userInvocable: true },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'model-only', description: 'Model-only',
+            invocation: { modelInvocable: true, userInvocable: false },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+          {
+            name: 'trusted-only', description: 'Trusted-only',
+            invocation: { modelInvocable: false, userInvocable: false },
+            source: 'custom', provider: 'probe', rank: 0, locator: null,
+          },
+        ])
       },
       get: () => Promise.resolve(undefined),
-    })
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
     // No agent is registered for this session: header resolution must not
     // touch (or resume through) the Agent registry.
@@ -219,11 +237,11 @@ describe('skill.list', () => {
 
   it('folds a provider failure into internal', async () => {
     const ctx = await harness()
-    ctx.skills.registerProvider({
+    ctx.skills.registerProvider(() => ({
       name: 'broken',
       list: () => Promise.reject(new Error('directory exploded')),
       get: () => Promise.resolve(undefined),
-    })
+    }))
     const api = createApiProxy(ctx, DEFAULTS)
     const session = ctx.sessions.create(undefined, { meta: { cwd: '/proj' } })
     const response = await api.skills.list(request({ sessionId: session.id }))

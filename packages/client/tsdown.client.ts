@@ -6,6 +6,7 @@
  * lightningcss inside the bundle: importing `x.module.css` yields the
  * hashed class map, and the css text auto-injects a <style data-plugin="<id>">
  * tag at factory execution (the loader removes plugin-owned tags on unload).
+ * The virtual loader registers each real stylesheet as a watch dependency.
  */
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, resolve as resolvePath } from 'node:path'

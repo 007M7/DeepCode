@@ -143,7 +143,7 @@ it('projects titles and routes the next turn through the selected model in the b
   // allowed for the next turn; stop the fixture's resident run before sending
   // the route-report prompt.
   fireEvent.click(screen.getByRole('button', { name: 'Stop generating' }))
-  const composer = await screen.findByPlaceholderText('Message the agent')
+  const composer = await screen.findByPlaceholderText('给智能体发消息')
   fireEvent.change(composer, { target: { value: 'report model' } })
   fireEvent.keyDown(composer, { key: 'Enter' })
   await screen.findByText('当前模型：openai/gpt-5 · 推理等级：max', {}, { timeout: 10_000 })

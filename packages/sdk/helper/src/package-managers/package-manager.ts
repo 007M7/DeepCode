@@ -5,7 +5,7 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import { scrubbedParentEnv, SENSITIVE_ENV_PATTERN } from '@deepseek-ai/dsh-subprocess'
 import { promisify } from 'node:util'
 import type { PackageJsonFile } from '../documents/package-json-file.ts'
 import { PnpmWorkspaceFile } from '../documents/pnpm-workspace-file.ts'
@@ -60,7 +60,7 @@ export async function probePackageManagerVersion(name: PackageManagerName, cwd: 
  */
 export function scrubEnvironment(environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   if (environment === undefined) return scrubbedParentEnv()
-  return Object.fromEntries(Object.entries(environment).filter(([name]) => !/(?:KEY|SECRET|TOKEN)/i.test(name)))
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => !SENSITIVE_ENV_PATTERN.test(name)))
 }
 
 /** Node child-process command runner with inherited stdio and quiescent completion. */

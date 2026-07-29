@@ -981,7 +981,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillInvocationPolicy",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillSummary",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillCatalogSnapshot",
       "source": "packages/skill/skill/src/index.ts"
     },
     {
@@ -1006,7 +1016,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderObservation",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillProvider",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderControl",
       "source": "packages/skill/skill/src/index.ts"
     },
     {

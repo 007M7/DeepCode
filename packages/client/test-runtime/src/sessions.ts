@@ -115,6 +115,14 @@ export class FixtureSession implements SessionFace {
   loadOlder(): never {
     throw new Error(`test session "${this.sessionId}": loadOlder is not stubbed — supply it on the fixture's session face`)
   }
+
+  /**
+   * Fail-loud stub; supply `rename` on the fixture's session face to exercise it.
+   * @returns never — always throws.
+   */
+  rename(): never {
+    throw new Error(`test session "${this.sessionId}": rename is not stubbed — supply it on the fixture's session face`)
+  }
 }
 
 /** One live test session: fixture-derived stores plus its minted scope state. */
