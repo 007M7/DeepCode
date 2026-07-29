@@ -105,7 +105,7 @@ async function readLoggedRequestContext(cwd: string): Promise<LoggedRequestConte
     if (
       event.type === 'user/message'
       && event.data.source.kind === 'plugin'
-      && event.data.source.plugin === 'tool-skill'
+      && event.data.source.plugin === 'dsh-tool-skill'
     ) {
       skillCatalog = JSON.stringify(event.data.content)
     }
