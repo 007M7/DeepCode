@@ -30,7 +30,7 @@ const invocation = parseDshArgs(process.argv.slice(2), readVersion())
 switch (invocation.mode) {
   case 'web': {
     const { runWeb } = await import('./web.ts')
-    await runWeb(invocation.host, invocation.port, invocation.dev, invocation.workspaceRoot, invocation.trustedHosts, invocation.config)
+    await runWeb(invocation.host, invocation.port, invocation.dev, invocation.workspaceRoot, invocation.trustedHosts)
     break
   }
   case 'headless': {
@@ -40,23 +40,7 @@ switch (invocation.mode) {
   }
   case 'tui': {
     const { runTui } = await import('./tui.ts')
-    await runTui(invocation.config, invocation.resume, undefined, undefined, invocation.configReplace)
-    break
-  }
-  case 'meta': {
-    const { runMeta } = await import('./tui.ts')
-    await runMeta(invocation.resume)
-    break
-  }
-  case 'list-sessions': {
-    const { runListSessions } = await import('./list-sessions.ts')
-    await runListSessions(invocation.json)
-    break
-  }
-  case 'migrate':
-  case 'upgrade': {
-    const { runSkillSession } = await import('./tui.ts')
-    await runSkillSession(`dsh-${invocation.mode}`)
+    await runTui(invocation.config, invocation.resume)
     break
   }
   default:

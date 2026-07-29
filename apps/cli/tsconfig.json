@@ -30,15 +30,6 @@
       "path": "../../packages/util/paths"
     },
     {
-      "path": "../../packages/session-registry/session-registry"
-    },
-    {
-      "path": "../../packages/session-registry/session-registry-file"
-    },
-    {
-      "path": "../../packages/session-registry/session-registry-live"
-    },
-    {
       "path": "../../packages/client/connection"
     },
     {

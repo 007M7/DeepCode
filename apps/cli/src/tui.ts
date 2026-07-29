@@ -33,7 +33,6 @@ import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import type { Context } from 'cordis'
-import { registerLiveSessions } from './register-session.ts'
 import {
   INITIAL_SKILL_KEY,
   MAIN_SESSION_ID_KEY,
@@ -71,8 +70,7 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
  * shared session-store root, `sessions` under the Harness home. Shared-store
  * policy is the launcher's alone — the app bundle treats the slot as opaque and
  * keeps a project-local fallback, so only `dsh` decides that sessions are
- * shared across working directories (making `/resume` and `list-sessions` span
- * every workspace).
+ * shared across working directories (making `/resume` span every workspace).
  * @returns the absolute session-store root this launcher shares.
  */
 export function launcherSessionsRoot(): string {
@@ -238,8 +236,8 @@ export async function runTui(
       hostCtx.provide(MAIN_SESSION_ID_KEY, identity)
       hostCtx.provide(TUI_GOODBYE_MESSAGE_KEY, goodbye)
       // Shared-store policy is the launcher's: sessions live in one root under
-      // the Harness home across every cwd, so /resume and list-sessions see
-      // every workspace. The bundle treats the slot as opaque.
+      // the Harness home across every cwd, so /resume sees every workspace.
+      // The bundle treats the slot as opaque.
       hostCtx.provide(SESSIONS_ROOT_KEY, launcherSessionsRoot())
       // The agent-loop row reads this to bind `main`, and the tui row reads the
       // same id, so a personal overlay repointing the model route cannot drop
@@ -258,8 +256,5 @@ export async function runTui(
   )
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
-  // Publication follows the store; meta mode already chdir'd, so each session
-  // reports its own cwd.
-  await registerLiveSessions(ctx)
 }
 /* v8 ignore stop */
