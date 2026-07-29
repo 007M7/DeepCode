@@ -3,8 +3,8 @@
  * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status
  * rows, collapse), its TodoDock adapter (selects the plan off the session
  * snapshot and follows changes), and the todo_write toolview row (progress
- * summary from args, generic fallback on malformed JSON, error badge,
- * keyboard activation).
+ * summary from args, generic fallback on malformed JSON, shared ToolRow
+ * state dots and leading expansion).
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -120,8 +120,8 @@ describe('TodoRow', () => {
     expect(screen.getByText('1/1 已完成')).toBeTruthy()
   })
 
-  it('keeps the non-ok execution states visible: running dot, interrupted marker', () => {
-    // A running call (no result yet) shows the ongoing dot, never the ok badge.
+  it('keeps the non-ok execution states visible through the shared row states', () => {
+    // A running call (no result yet) carries the running state (row sweep).
     const args = JSON.stringify({ todos: LIST })
     const running = render(<TodoRow {...rowProps({ callId: 'c1', name: 'todo_write', argsRaw: args, turn: 1, step: 1, time: 1_000, callView: null })} />)
     expect(running.container.querySelector('[data-state="running"]')).not.toBeNull()
@@ -130,12 +130,11 @@ describe('TodoRow', () => {
     // A cancelled call wrote no todo/write: the row must not read as a completed update.
     const stopped = render(<TodoRow {...rowProps(resultNode(args, { isError: true, error: { name: 'Interrupted', code: 'interrupted' } }))} />)
     expect(stopped.container.querySelector('[data-state="stopped"]')).not.toBeNull()
-    expect(stopped.getByText('已中断')).toBeTruthy()
   })
 
-  it('falls back to the generic summary on malformed args and flags errors', () => {
-    render(<TodoRow {...rowProps(resultNode('not json', { isError: true }))} />)
-    expect(screen.getByText('failed')).toBeTruthy()
+  it('falls back to the generic summary on malformed args and marks the error state', () => {
+    const view = render(<TodoRow {...rowProps(resultNode('not json', { isError: true }))} />)
+    expect(view.container.querySelector('[data-state="error"]')).not.toBeNull()
     // Generic others summary: "<tool> · <raw>".
     expect(screen.getByText('todo_write · not json')).toBeTruthy()
   })
@@ -148,19 +147,14 @@ describe('TodoRow', () => {
     expect(openDetails).toHaveBeenCalledTimes(1)
   })
 
-  it('opens details from the keyboard on Enter and Space, ignoring other keys', () => {
+  it('leading toggle expands the raw args body without opening details', () => {
     const openDetails = vi.fn()
     render(<TodoRow {...rowProps(resultNode(ARGS), openDetails)} />)
-    const row = screen.getByRole('button')
-    expect(row.getAttribute('tabindex')).toBe('0')
-    fireEvent.keyDown(row, { key: 'Enter' })
-    fireEvent.keyDown(row, { key: ' ' })
-    expect(openDetails).toHaveBeenCalledTimes(2)
-    // Space must not also scroll the flow: the handler claims the event.
-    expect(fireEvent.keyDown(row, { key: ' ' })).toBe(false)
-    fireEvent.keyDown(row, { key: 'a' })
-    fireEvent.keyDown(row, { key: 'ArrowDown' })
-    expect(openDetails).toHaveBeenCalledTimes(3)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
+    // The expanded body is the pretty-printed args, not the tool output.
+    expect(screen.getByText(/搭骨架/)).toBeTruthy()
+    expect(openDetails).not.toHaveBeenCalled()
   })
 
   it.each([

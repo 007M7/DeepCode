@@ -14,6 +14,7 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
+import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
@@ -186,6 +187,9 @@ export function apply(ctx: Context): void {
 
   // The todo_write row rides the same seam (a product registration, not a sample).
   ctx.plugin(todoToolview)
+
+  // The ask_user_question row: waiting/answered/cancelled interaction outcome.
+  ctx.plugin(askQuestionToolview)
 
   // The plan strip rides the input dock above the queue rows (same posture).
   ctx.plugin(todoDockEntry)

@@ -124,9 +124,12 @@ export function clientBundle(id: string, libEntry: readonly string[]): UserConfi
         const abs = importer !== undefined ? resolvePath(dirname(importer), source) : source
         return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
       },
-      async load(virtualId: string) {
+      async load(this: { addWatchFile?: (id: string) => void }, virtualId: string) {
         if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
         const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+        // Virtual modules hide the real file from the watcher; register it so
+        // dev-web rebuilds on a css-only edit.
+        this.addWatchFile?.(fileId)
         const source = await readFile(fileId)
         const { code, exports: cssExports } = transform({
           filename: fileId,

@@ -7,7 +7,6 @@
 // expandable content, retiring the details-panel handoff where feasible.
 
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import clsx from 'clsx'
 import { CodeBlock, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
@@ -74,12 +73,12 @@ export function ToolRow({
     ? (
       <>
         <span className={css.iconIdle}>{icon}</span>
-        <IconChevronDownOutline14 className={clsx(css.chevron, css.chevronHover)} />
+        <IconChevronDownOutline14 className={css.chevronHover} />
       </>
     )
     : icon
   const leading = open
-    ? <IconChevronDownOutline14 className={css.chevron} />
+    ? <IconChevronDownOutline14 />
     : leadingFor(state, collapsedIcon)
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
