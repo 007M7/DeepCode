@@ -228,7 +228,7 @@ export class Include extends EntryTree {
     return { content, data }
   }
 
-  private applyPatches(data: EntryOptions[], patches = this.config.patches): EntryOptions[] {
+  private applyPatches(data: EntryOptions[], patches?: PatchOptions[]): EntryOptions[] {
     return applyEntryPatches(data, patches, (message, ...args) => {
       this.ctx.root.logger?.('loader').warn(message, ...args)
     })
@@ -268,7 +268,7 @@ export class Include extends EntryTree {
   }
 
   private async apply(candidate: ReadCandidate) {
-    const data = this.applyPatches(candidate.data)
+    const data = this.applyPatches(candidate.data, this.config.patches)
     await this.root.update(data)
     this.content = candidate.content
     this.data = candidate.data

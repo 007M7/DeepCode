@@ -328,9 +328,9 @@ describe('include refresh with overlay patches', () => {
       await ctx.loader.await()
       expect(entryConfig(ctx, 'noop')).toEqual({ value: 'patched-v2' })
 
-      // Removing every patch must revert to the file's own values: patching
-      // may not bake earlier patch results into the cached parse.
-      await entry.update({ config: { path: './base.yml', patches: [] } })
+      // Omitting the patch list must remove the overlay rather than reuse the
+      // Include's previous config through a default parameter.
+      await entry.update({ config: { path: './base.yml' } })
       await ctx.loader.await()
       expect(entryConfig(ctx, 'noop')).toEqual({ value: 'edited-2' })
     } finally {
