@@ -4,7 +4,6 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
 - text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
 - button "复制":
   - img
@@ -12,6 +11,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to reply with a single word. Let me comply.":
   - img
   - img

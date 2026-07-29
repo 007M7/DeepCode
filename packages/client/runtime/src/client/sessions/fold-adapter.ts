@@ -7,7 +7,9 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // Subpath export (package.json exports "./surface", alias added for this): all value imports
 // go through it — the package root points at lib/index.js (needs a build) which the vite
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
-import { SurfaceManager, isSurfaceEligibleType } from '@deepseek-ai/dsh-session/surface'
+import {
+  SurfaceManager, isSurfaceEligibleType, isSurfaceEvent,
+} from '@deepseek-ai/dsh-session/surface'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, ConversationNode } from './conversation.ts'
@@ -31,6 +33,11 @@ export interface CallIndexEntry {
  */
 function paddingEvent(seq: number): SessionEvent {
   return { type: 'noop/padding', seq, time: 0, data: {} } as unknown as SessionEvent
+}
+
+function replacementCrossesWindowHead(event: SessionEvent, baseSeq: number): boolean {
+  if (!isSurfaceEvent(event) || event.surfaceOp === 'append') return false
+  return event.surfaceOp.start < baseSeq || event.surfaceOp.end < baseSeq
 }
 
 /** One event -> UI node (pure function; the six-variant ConversationNode union). */
@@ -137,7 +144,7 @@ export class FoldAdapter {
     for (const event of events) this.padded.push(event)
     this.surface = new SurfaceManager(this.padded)
     this.nodeCache.clear()
-    this.degraded = false
+    this.degraded = events.some(event => replacementCrossesWindowHead(event, baseSeq))
     this.callIdx = new Map()
     this.resultViews.clear()
     this.commandIdx = new Map()
@@ -160,6 +167,7 @@ export class FoldAdapter {
   append(event: SessionEvent, view?: ToolEventView): void {
     this.rev++
     this.padded.push(event)
+    if (replacementCrossesWindowHead(event, this.baseSeq)) this.degraded = true
     this.indexCall(event, view)
     this.indexCommand(event)
   }
