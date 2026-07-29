@@ -854,7 +854,7 @@ export function createTuiChat(
     overlayManager,
     // Optional and independently mounted: read at each use so config row order
     // cannot decide whether /resume works.
-    sessionQuery: () => ctx.get('sessionQuery'),
+    sessionQuery: () => ctx.get('sessionQuery', false),
     ui,
     editor,
     appendNotice,
