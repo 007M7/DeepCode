@@ -724,4 +724,36 @@ describe('installSettingsSection', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(changes).toEqual(['user'])
   })
+
+  it('stays silent for a stored change that lands while the consumer unloads', async () => {
+    // The watcher outlives the start of teardown by the width of the unload,
+    // so a document change arriving in that window reaches it. Notifying then
+    // is exactly as harmful as notifying from the disposer.
+    const { ctx, provider } = await boot({ doc: { 'helper-ns': { theme: 'user' } } })
+    const entry = { theme: 'entry' }
+    let current: () => { theme: string } = () => entry
+    const changes: string[] = []
+    const consumer = ctx.plugin({
+      inject: ['settings'],
+      apply: (child: Context) => {
+        installSettingsSection(child, settingsNamespace('helper-ns'), HelperSchema, entry, {
+          setSource: (source) => {
+            current = source
+          },
+          onChange: () => {
+            changes.push(current().theme)
+          },
+        })
+      },
+    })
+    await consumer
+    await vi.waitFor(() => {
+      expect(changes).toEqual(['user'])
+    })
+
+    const unloading = consumer.dispose()
+    provider.pushExternal({ 'helper-ns': { theme: 'racing' } })
+    await unloading
+    expect(changes).toEqual(['user'])
+  })
 })
