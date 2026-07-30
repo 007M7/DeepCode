@@ -978,7 +978,7 @@ signal(owner: Agent, id: PtySessionId, signal: PtySignal): Promise<PtySignalResu
  * @param reason - diagnostic cleanup reason.
  * @returns true for a newly closed session, false when the same close is already in flight.
  */
-async kill(owner: Agent, id: PtySessionId, reason = 'model request'): Promise<boolean>
+async kill(owner: Agent, id: PtySessionId, reason: string = 'model request'): Promise<boolean>
 
 /**
  * List fresh snapshots for exactly one owner.
@@ -1447,7 +1447,7 @@ Exact-read consumer that prepares immutable cross-session message context.
  * @param signal - optional cancellation boundary for host autocomplete teardown.
  * @returns candidates labeled by latest title or, when absent, session id.
  */
-async listCandidates( agent: Agent, query = '', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>
+async listCandidates( agent: Agent, query: string = '', limit: number = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>
 
 /**
  * Snapshot all references before enqueue and return one aggregated durable context.
@@ -1590,7 +1590,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:694`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:695`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1641,7 +1641,7 @@ Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages
 
 ## `ctx.skills` — `SkillService`
 
-Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted model-visible summaries, and loads full skill bodies on demand.
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted invocation-neutral summaries, and loads full skill bodies on demand.
 
 ```ts cordis-catalog
 /**
@@ -1658,22 +1658,23 @@ registerProvider(create: (control: SkillProviderControl) => SkillProvider): () =
  * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
  * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
  * receives a no-op disposer so it cannot remove the winner.
- * @param skill - the complete skill definition to expose for discovery.
+ * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
  * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
  */
 register(skill: SkillRegistration): () => void
 
 /**
- * List model-invocable skill summaries for a workspace. Lookup options and
- * provider candidates are readonly same-process values borrowed throughout
- * discovery.
+ * List invocation-neutral skill summaries for a workspace. Consumers apply
+ * model or user invocation policy at their operational boundary. Lookup
+ * options and provider candidates are readonly same-process values borrowed
+ * throughout discovery.
  * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
- * @returns sorted summaries, excluding skills disabled for model invocation.
+ * @returns all sorted winning summaries.
  */
 async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
 
 /**
- * Observe the current model-invocable catalog and whether discovery completed within a stable revision.
+ * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
  * Incomplete observations are never cached, allowing consumers to retain last-good state and
  * retry on their next request boundary.
  * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
@@ -1694,7 +1695,7 @@ async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefiniti
 
 Types: [SkillCatalogSnapshot](../core-data-structures/skills.md) · [SkillDefinition](../core-data-structures/skills.md) · [SkillLookupOptions](../core-data-structures/skills.md) · [SkillProvider](../core-data-structures/skills.md) · [SkillProviderControl](../core-data-structures/skills.md) · [SkillRegistration](../core-data-structures/skills.md) · [SkillSummary](../core-data-structures/skills.md)
 
-Source: [`packages/skill/skill/src/index.ts:178`](../../packages/skill/skill/src/index.ts)
+Source: [`packages/skill/skill/src/index.ts:209`](../../packages/skill/skill/src/index.ts)
 
 ## `ctx.spillStore` — `SpillStore` (abstract seam)
 
@@ -2197,6 +2198,67 @@ abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
 Source: [`packages/ui/tui/src/index.ts:247`](../../packages/ui/tui/src/index.ts)
+
+## `ctx.typert` — `TypertRegistry`
+
+Registry of generated schemas and package reflection.
+
+```ts cordis-catalog
+/**
+ * Register one generated contribution atomically for the calling fiber.
+ * Duplicate package-face identities or schema keys reject the whole batch.
+ * @param contribution - generated schemas and package metadata.
+ * @returns the exact effect disposer that removes this contribution.
+ */
+register(contribution: TypertContribution): () => void
+
+/**
+ * Look up one schema by `<package>#<name>`.
+ * @param key - global schema key.
+ * @returns the live schema record, or `undefined` when absent.
+ */
+get(key: string): TypertSchemaRecord | undefined
+
+/**
+ * Resolve one required schema.
+ * @param key - global schema key.
+ * @returns the live schema record.
+ * @throws when the key is malformed, the package face is absent, or the schema is not contributed.
+ */
+resolve(key: string): TypertSchemaRecord
+
+/**
+ * Enumerate live schemas in registration order.
+ * @param filter - optional package and face restriction.
+ * @returns matching schema records.
+ */
+list(filter: TypertSchemaFilter = {}): TypertSchemaRecord[]
+
+/**
+ * Look up generated reflection for one package face.
+ * @param packageName - exact npm package name.
+ * @param face - face to query; defaults to the host runtime.
+ * @returns the live package record, or `undefined` when absent.
+ */
+getPackage(packageName: string, face: TypertFace = 'host'): TypertPackageRecord | undefined
+
+/**
+ * Enumerate generated package reflection in registration order.
+ * @param filter - optional package and face restriction.
+ * @returns matching package records.
+ */
+listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]
+
+/**
+ * Project a live Zod schema to JSON Schema without caching the result.
+ * @param key - global schema key.
+ * @param params - Zod projection parameters.
+ * @returns a fresh JSON Schema document.
+ */
+toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema
+```
+
+Source: [`packages/typert/registry/src/index.ts:67`](../../packages/typert/registry/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

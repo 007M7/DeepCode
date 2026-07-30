@@ -14,7 +14,7 @@ Status: implemented
 
 [scripts/run-gates.ts](../../../../scripts/run-gates.ts) 拥有 CI、`doc-sync` 和选择启用的 `check:all` 命令所使用的有界调度器。它将具名模式展开为叶子门禁，在启动子进程前拒绝空的或有歧义的依赖图，遵守产物依赖，缓冲可归因的输出，分别报告退出结果与信号结果，并在调用方需要不同 worker 上限时接受 `DSH_GATE_CONCURRENCY`。
 
-Node 24 消费方 job 采用单个包含七道门禁的模式，而非由 shell 管理的进程池。其默认 worker 数等于门禁数，但门禁是否就绪由依赖关系控制：`publint` 先于已构建包不变式验证运行，快照回放、NodeNext 类型检查、built-bin 冒烟测试和 lint 则等待该验证完成。lint 之所以等待，是因为不变式验证器会临时暂存包视图，而 ESLint 不得遍历这些视图；源码兼容性检查可以与这条验证链重叠运行。
+Node 24 消费方 job 采用单个包含七道门禁的模式，而非由 shell 管理的进程池。其默认 worker 数等于门禁数，但门禁是否就绪由依赖关系控制：`publint` 先于已构建包不变式验证运行，快照回放、NodeNext 类型检查、built-bin 冒烟测试和 lint 则等待该验证完成。lint 之所以等待，是因为不变式验证器会临时暂存包视图，而 linter 不得遍历这些视图；源码兼容性检查可以与这条验证链重叠运行。
 
 [scripts/publint-all.ts](../../../../scripts/publint-all.ts) 从 `packages/<group>/<pkg>` 发现包，并以根据 `availableParallelism()` 确定大小的 worker 池运行 `publint`。`DSH_PUBLINT_CONCURRENCY` 可以针对资源配置不同的本地机器和 CI runner 限制或提高 worker 数量。结果按包缓冲，并按确定性的包顺序打印，因此并行执行不会打乱各包的日志块。
 

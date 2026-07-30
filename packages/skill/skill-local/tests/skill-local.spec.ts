@@ -221,7 +221,7 @@ describe('LocalSkillProvider', () => {
     expect((await ctx.skills.get('runtime-name', { cwd: project }))?.description).toBe('Runtime wins')
   })
 
-  it('parses flat skills and filters invalid or model-disabled skills from listing', async () => {
+  it('parses flat skills and filters invalid skills from the invocation-neutral listing', async () => {
     const home = await tempDir('skill-flat')
     const root = join(home, '.dsh/skills')
     await writeFlatSkill(root, 'flat-skill', 'flat description', 'Flat instructions.')
@@ -230,7 +230,8 @@ describe('LocalSkillProvider', () => {
       'name: rich-skill',
       'description: rich description',
       'whenToUse: For richer local parsing',
-      'disableModelInvocation: false',
+      'disable-model-invocation: off',
+      'user-invocable: YES',
       'metadata:',
       '  owner: tests',
       '---',
@@ -246,8 +247,10 @@ describe('LocalSkillProvider', () => {
     await writeFile(join(root, 'no-trailing-body.md'), '---\nname: no-trailing-body\ndescription: No trailing body\n---')
     await writeFile(join(root, 'notes.txt'), 'ignored')
     await mkdir(join(root, 'not-a-skill'), { recursive: true })
-    await writeSkill(root, 'hidden-skill', 'hidden description', 'Hidden.')
-    await writeFile(join(root, 'hidden-skill/SKILL.md'), '---\nname: hidden-skill\ndescription: hidden description\ndisableModelInvocation: true\n---\n\nHidden.\n')
+    await writeSkill(root, 'user-only-skill', 'user-only description', 'User-only.')
+    await writeFile(join(root, 'user-only-skill/SKILL.md'), '---\nname: user-only-skill\ndescription: user-only description\ndisable-model-invocation: true\n---\n\nUser-only.\n')
+    await writeSkill(root, 'model-only-skill', 'model-only description', 'Model-only.')
+    await writeFile(join(root, 'model-only-skill/SKILL.md'), '---\nname: model-only-skill\ndescription: model-only description\nuser-invocable: false\n---\n\nModel-only.\n')
 
     const ctx = await setupLocal(home)
     const listedBeforeDelete = await ctx.skills.list()
@@ -255,15 +258,97 @@ describe('LocalSkillProvider', () => {
     if (flatSummary === undefined) throw new Error('expected flat-skill')
     await rm(join(root, 'flat-skill.md'))
 
-    expect(listedBeforeDelete.map(skill => skill.name)).toEqual(['flat-skill', 'no-trailing-body', 'rich-skill'])
+    expect(listedBeforeDelete.map(skill => skill.name)).toEqual([
+      'flat-skill',
+      'model-only-skill',
+      'no-trailing-body',
+      'rich-skill',
+      'user-only-skill',
+    ])
+    expect(flatSummary.invocation).toEqual({ modelInvocable: true, userInvocable: true })
     expect(await ctx.skills.get('flat-skill')).toBeUndefined()
-    expect((await ctx.skills.get('hidden-skill'))?.content).toContain('Hidden.')
+    expect(await ctx.skills.get('no-trailing-body')).toMatchObject({
+      invocation: { modelInvocable: true, userInvocable: true },
+    })
+    expect(await ctx.skills.get('user-only-skill')).toMatchObject({
+      invocation: { modelInvocable: false, userInvocable: true },
+      content: 'User-only.',
+    })
+    expect(await ctx.skills.get('model-only-skill')).toMatchObject({
+      invocation: { modelInvocable: true, userInvocable: false },
+      content: 'Model-only.',
+    })
     expect(await ctx.skills.get('rich-skill')).toMatchObject({
       whenToUse: 'For richer local parsing',
-      disableModelInvocation: false,
+      invocation: { modelInvocable: true, userInvocable: true },
       metadata: { owner: 'tests' },
     })
     expect(await ctx.skills.get('Bad_Name')).toBeUndefined()
+  })
+
+  it('accepts the documented boolean spellings for invocation frontmatter', async () => {
+    const home = await tempDir('skill-invocation-booleans')
+    const root = join(home, '.dsh/skills')
+    await mkdir(root, { recursive: true })
+    const truthy = ['true', 'TRUE', '"true"', 'yes', 'ON', '1', '"1"']
+    const falsy = ['false', 'FALSE', '"false"', 'no', 'OFF', '0', '"0"']
+    for (const [index, value] of truthy.entries()) {
+      await writeFile(join(root, `truthy-${index}.md`), [
+        '---',
+        `name: truthy-${index}`,
+        `description: Truthy ${index}`,
+        `disable-model-invocation: ${value}`,
+        '---',
+        '',
+        'Truthy.',
+      ].join('\n'))
+    }
+    for (const [index, value] of falsy.entries()) {
+      await writeFile(join(root, `falsy-${index}.md`), [
+        '---',
+        `name: falsy-${index}`,
+        `description: Falsy ${index}`,
+        `user-invocable: ${value}`,
+        '---',
+        '',
+        'Falsy.',
+      ].join('\n'))
+    }
+
+    const ctx = await setupLocal(home)
+
+    for (const [index] of truthy.entries()) {
+      expect((await ctx.skills.get(`truthy-${index}`))?.invocation).toEqual({
+        modelInvocable: false,
+        userInvocable: true,
+      })
+    }
+    for (const [index] of falsy.entries()) {
+      expect((await ctx.skills.get(`falsy-${index}`))?.invocation).toEqual({
+        modelInvocable: true,
+        userInvocable: false,
+      })
+    }
+  })
+
+  it('rejects legacy and invalid invocation frontmatter without hiding valid siblings', async () => {
+    const home = await tempDir('skill-invalid-invocation')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'good-skill', 'Good skill')
+    const invalid = [
+      ['legacy-model', 'disableModelInvocation: true'],
+      ['legacy-positive-model', 'modelInvocable: false'],
+      ['legacy-user', 'userInvocable: false'],
+      ['bad-string', 'disable-model-invocation: maybe'],
+      ['bad-value', 'user-invocable: null'],
+    ] as const
+    for (const [name, field] of invalid) {
+      await writeFile(join(root, `${name}.md`), `---\nname: ${name}\ndescription: ${name}\n${field}\n---\n\nBad.\n`)
+    }
+
+    const ctx = await setupLocal(home)
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['good-skill'])
   })
 
   it('supports CRLF frontmatter and ignores delimiter-looking text inside YAML values', async () => {
