@@ -26,9 +26,11 @@ interface UserMessage extends Message {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started the model loop.
+   * Opens turn `turn`. Every turn begins when the loop admits queued input;
+   * the following identified `user/message` event or batch records the
+   * admitted input.
    */
-  'turn/start': { turn: number; trigger: TurnTrigger }
+  'turn/start': { turn: number }
   /**
    * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
    * awaits `session/flush` after an ordinary turn ends before claiming the next
@@ -436,7 +438,7 @@ declare class Session {
 - `user/message`（注入上下文，即非 `user` 来源）→ 按时间顺序在相应位置生成一条 user-role 消息，并原样承载其 `content`；溯源信息与领域数据都在其类型化的 source 中。
 - `steering/message` → 按时间顺序在相应位置生成一条携带确切 `content` 的 user-role 消息；可选 envelope 仅作为日志中的展示元数据保留。
 
-其余所有事件（`turn/*`、`step/*`、插件所有的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。操作错误的步骤号记录在 `turn/end.reason`（`kind: 'error'`）中；如果是最终模型请求失败，其中包含规范化的 `LlmFailure` 事实，其他实时错误则包含消息/代码。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝缺少提供方和模型的请求头，以及缺少提供方/模型溯源信息的 assistant 消息，而不会猜测历史数据应走的提供方路由。
+其余所有事件（`turn/*`、`step/*`、插件所有的 `llm/retry`）均为结构信息，不会投影为消息。token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息，因此其用量分片是持久化的记账记录。由于这一尚未发布的格式有意不提供兼容性承诺，seed/load 校验会拒绝缺少提供方和模型的请求头，以及缺少提供方/模型溯源信息的 assistant 消息，而不会猜测历史数据应走的提供方路由。
 
 ## 活跃会话 fork API
 
@@ -446,31 +448,11 @@ declare class Session {
 
 显式 `boundary` 允许调用者从任意稳定的轮次间位置 fork，包括之前的 `turn/end` 或更晚的独立纯日志事件，即使源会话有更新的事件或正在进行的轮次。API 拒绝结束于开放轮次内的前缀，而不是静默截断。更广泛的执行关系健全性检查留在既有的 `dsh-invariants` 插件和持久化修复路径中，不在 `fork()` 中重复。`dsh-subagent-fork` 保留其已完成前缀截断逻辑，因为工具时委托通常在父轮次仍然打开时启动；普通的会话分支应显式指定请求的 boundary。
 
-## 轮次的触发原因：`TurnTriggerMap`
-
-```ts type-equiv
-/**
- * What started a turn.
- * Merge-extensible sum type (same pattern as MessageSourceMap).
- */
-interface TurnTriggerMap {
-  message: { kind: 'message'; source: MessageSource }
-  /** Recovery turn reopened over the repaired current session log. */
-  retry: { kind: 'retry' }
-  /**
-   * An out-of-band producer explicitly enclosed injected context in a one-shot
-   * turn. `Agent.inject()` appends idle context directly and does not use this
-   * trigger; the source mirrors the producer of the enclosed `user/message`.
-   */
-  injection: { kind: 'injection'; source: MessageSource }
-}
-```
-
 <a id="why-a-turn-ended-turnendreasonmap"></a>
 
 ## 轮次的结束原因：`TurnEndReasonMap`
 
-`aborted` 有意作为一种粗粒度的持久结果：它只记录取消中断了实时轮次，不记录是哪个运行时调用方发起取消。仅属于运行时的调用方词汇由 [`AgentCancelCause`](core.md#the-agent-handle) 定义；未来若有审计需求，应新增独立的控制请求事件，而非让终止结果承载这一信息。
+`turn/start` 没有 trigger 字段。已准入的 `user/message` 批次记录进入轮次的内容，`llm/retry` 记录请求恢复，idle 注入则不会打开轮次。`aborted.reason` 保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)。
 
 ```ts type-equiv
 /**
@@ -479,20 +461,11 @@ interface TurnTriggerMap {
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted' }
+  aborted: { kind: 'aborted'; reason: AgentCancelCause }
   /**
-   * The turn failed: a step threw or the model reported a failure. `step` is the
-   * step number the failure occurred on (the operational error's location — the
-   * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other thrown values retain their rendered message and a
-   * real `HarnessError` code when present.
+   * The turn failed.
    */
-  error: { kind: 'error'; step: number } & (
-    | { failure: LlmFailure; message?: never; code?: never }
-    | { message: string; code?: string; failure?: never }
-  )
-  disposed: { kind: 'disposed' }
+  error: { kind: 'error'; error: unknown }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
@@ -503,7 +476,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止；但它只优先于 `completed`，`disposed`/`aborted`/`error` 结果的优先级更高。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.md)）。两个 map 均可通过合并扩展。
+`max-tokens` 与模型调用中同名的 `FinishReason` 对应：只要轮次内有任何步骤以 `max-tokens` 结束，整个轮次就以 `max-tokens` 而不是 `completed` 结束（即使之后继续执行，截断事实仍优先），让消费方能够区分正常停止和截断停止。取消和错误仍是不同的结果。`interrupted` 是唯一不会由任何 loop 发出的原因：它由崩溃恢复合成（见 [persistence.md](persistence.md)）。该 map 可通过合并扩展。
 
 ## 执行封闭与独立事件
 

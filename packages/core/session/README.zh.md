@@ -70,13 +70,13 @@
 
 ### 会话事件词汇（`types.ts`）
 
-生成的[持久化日志事件目录](../../../docs/persistence-catalog.md)逐成员列举仅追加日志的事件类型、载荷、surface 标记和溯源信息。Token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息。提供方／模型／回放溯源信息随 `assistant/message` 一同保存；运行错误的步骤记录在 `turn/end.reason` 上（此时为 `kind: 'error'`），最终模型请求失败时还包含结构化的提供方事实。
+生成的[持久化日志事件目录](../../../docs/persistence-catalog.md)逐成员列举仅追加日志的事件类型、载荷、surface 标记和溯源信息。Token 记账读取每个步骤的 `assistant/chunk { type: 'usage' }` 记录；如果没有用量分片，则将 `assistant/message.usage` 作为已提交步骤的后备。失败的模型请求尝试没有 assistant 消息。提供方／模型／回放溯源信息随 `assistant/message` 一同保存。
 
 `SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、hook（钩子）桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
 
-此包还定义 `TurnTriggerMap` 和 `TurnEndReasonMap`（用于类型化轮次边界、可合并扩展的和类型；以 `kind` 为标签而不是字符串）。最终模型请求错误保留一个结构化 `LlmFailure`；其他轮次错误保留消息／代码，两者均标识失败步骤。
+此包还定义 `TurnEndReasonMap`，即用于轮次结束、可合并扩展且以 `kind` 为标签的和类型。`turn/start` 只携带轮次编号；之后已准入的 `user/message` 批次记录其输入，`llm/retry` 则记录请求恢复。
 
-被中断的实时轮次以粗粒度的 `{ kind: 'aborted' }` 结果结束。调用方身份属于 Agent 的运行时取消信号，不属于持久 transcript（文本记录）；资源释放仍是独立的 `{ kind: 'disposed' }` 终态。
+被中断的实时轮次以 `{ kind: 'aborted', reason: AgentCancelCause }` 结束，在持久 transcript（文本记录）中保留类型化取消原因。轮次失败携带 `{ kind: 'error', error }`；只有崩溃恢复会合成 `{ kind: 'interrupted' }`。
 
 每个 `SessionEvent` 都有两个可选顶层字段（结构元数据）：
 

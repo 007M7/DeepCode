@@ -67,14 +67,13 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 ```
 
-Six canonical maps use this pattern; a plugin author extends these:
+Five canonical maps use this pattern; a plugin author extends these:
 
 | Map | Package | Derives | Catalog |
 |---|---|---|---|
 | `ContentBlockMap` | dsh-llm | `ContentBlock` | [below](#content-blocks-and-messages) |
 | `MessageSourceMap` | dsh-llm | `MessageSource` | [below](#content-blocks-and-messages) |
 | `FinishReasonMap` | dsh-llm | `FinishReason` | [below](#the-model-request-and-result) |
-| `TurnTriggerMap` | dsh-session | `TurnTrigger` | [session.md](session.md) |
 | `TurnEndReasonMap` | dsh-session | `TurnEndReason` | [session.md](session.md) |
 | `SessionEventMap` | dsh-session | `SessionEvent` | [session.md](session.md) |
 
@@ -406,7 +405,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-The twelve event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `user/message`, `assistant/chunk`, `assistant/message`, `tool/call`, `tool/result`, `steering/message`, `todo/write`, `request/header`), the `deriveMessages()` projection rules, the `TurnTrigger`/`TurnEndReason` reasons, and the execution-enclosure and standalone-event rules are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
+The session event variants, `deriveMessages()` projection rules, `TurnEndReason` vocabulary, and execution-enclosure and standalone-event rules are on **[session.md](session.md)**. How the log is made durable — the `SessionPersistence` seam, JSONL/SQLite backends, the `session/flush` checkpoint, crash recovery, and `SessionHeader` — is on **[persistence.md](persistence.md)**.
 
 ## The agent handle
 
@@ -415,60 +414,11 @@ The twelve event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/** Resolved inbox placement reported when an accepted message is enqueued. */
-type InboxPlacement = 'queued' | 'steering'
+/** One of the two ordered pending-message lists owned by an agent. */
+type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-`InboxItemId` is a process-local branded string minted for each accepted FIFO occurrence. It is intentionally distinct from `MessageId`: sending the same immutable message twice creates two independently addressable pending items.
-
-```ts type-equiv
-/** One independently addressable accepted occurrence in an agent inbox. */
-interface InboxItem {
-  /** Agent-loop-minted occurrence identity. */
-  readonly id: InboxItemId
-  /** Identified message delivered by the caller. */
-  readonly message: UserMessage
-  /** Acceptance-time FIFO classification. */
-  readonly placement: InboxPlacement
-}
-```
-
-```ts type-equiv
-/** A user-requested mutation of one still-pending queued occurrence. */
-type InboxAction =
-  | { readonly kind: 'edit'; readonly content: ContentBlock[] }
-  | { readonly kind: 'remove' }
-```
-
-```ts type-equiv
-/** Result of applying an inbox action at the synchronous ownership boundary. */
-type InboxActionResult = 'applied' | 'not-found'
-```
-
-```ts type-equiv
-/**
- * Options for the unified {@link Agent.send} primitive over the
- * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
- * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
- * {@link Agent.inject} (`next-step`/no-wakeup).
- *
- * The object is complete so routing policy is explicit.
- */
-interface SendOptions {
-  /** Queue the item joins. */
-  target: SendTarget
-  /**
-   * Whether this item makes the model run: wake a parked driver (`next-turn`)
-   * or force a continuation step (`next-step` while running). A `false`
-   * `next-turn` item queues without waking; a `false`
-   * `next-step` item attaches durable context without forcing another step
-   * (the injection preset).
-   */
-  wakeup: boolean
-}
-```
-
-The fixed-preset aliases own `target` and `wakeup`; their already identified `UserMessage` carries role, content, and provenance. Its `MessageId` remains stable when an edit replaces the message content, while the enclosing `InboxItemId` identifies one accepted occurrence across `agent/inbox/enqueue`, `agent/inbox/update`, and its terminal dequeue or discard. Injection bypasses the FIFOs and never appears on those events.
+Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.splice(target, start, deleteCount, inserted, outcome?)` uses standard splice coordinates, rejects duplicate pending message ids, and records the normalized mutation as durable `agent/inbox/spliced`. Replaying those events reconstructs both `nextTurn` and `nextStep`, including edits, insertion, admission, and cancellation.
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -476,26 +426,25 @@ interface CancelOptions {
   /**
    * Preserve queued and steering inbox items instead of discarding them. The
    * active turn is still aborted, but un-started and pending work survives for a
-   * later turn and no `agent/inbox/discard` fires.
+   * later turn and no canceled inbox splice is logged.
    */
-  keepInbox?: boolean
+  keepInbox?: boolean | undefined
 }
 ```
 
 ```ts type-equiv
-/** Stable runtime cause accepted by {@link Agent.cancel}. */
+/** Why an active agent driver was cancelled. */
 type AgentCancelCause =
   | { readonly kind: 'user' }
   | { readonly kind: 'parent' }
+  | { readonly kind: 'hook'; readonly reason: string }
+  | { readonly kind: 'disposed' }
 ```
 
 `Agent` is an interface over the public live-agent contract. Concrete drivers implement `followup`, `steer`, and `inject`; routing policy remains private to the driver.
 
 ```ts type-equiv
-/**
- * Public live-agent handle with aliases over the unified delivery primitive.
- * @typert object
- */
+/** Public live-agent handle. */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
@@ -503,61 +452,28 @@ interface Agent {
   readonly options: AgentOptions
   /** The live session this agent drives; its log is the durable source of truth. */
   readonly session: Session
+  /** The agent-owned projection of durable pending work. */
+  readonly inbox: Inbox
   /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
-  /**
-   * Whether a `next-step` send currently stages for prompt admission or the
-   * open turn. Unlike {@link status}, this excludes admission exit and turn
-   * settlement, when a waking `next-step` send becomes a queued follow-up.
-   */
-  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
 
   /**
-   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
-   * It routes the caller's typed content and source as follows:
-   *
-   * - `next-turn` queues an item that becomes the sole ordinary message of its
-   *   own FIFO-ordered turn; `wakeup:true` wakes a
-   *   parked driver, while `wakeup:false` queues without waking.
-   * - `next-step` with `wakeup:true` stages steering during prompt admission
-   *   or an open turn; outside that window it falls back to a woken
-   *   `next-turn`.
-   * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: admission or an open turn stages it for the
-   *   next safe log position, while an injection outside that window appends
-   *   immediately without opening a turn. If admission closes without a turn,
-   *   a context-only boundary appends immediately; context staged beside
-   *   steering remains pending with it.
-   * The agent publishes or queues the identified frozen message as-is.
-   * @param message - identified model-facing content and its producer provenance.
-   * @param options - target queue and wakeup decision.
-   */
-  send(message: UserMessage, options: SendOptions): void
-
-  /**
-   * Mutate one still-pending queued occurrence synchronously. Editing preserves
-   * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
-   * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
-   */
-  updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
-
-  /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
-   * turn. An effective call first emits `agent/cancel-requested` with the
-   * resolved typed cause. The first cause wins for the active turn, and
-   * `whenIdle()` resolves after cancellation reaches quiescence. Idle
-   * cancellation is a no-op and does not arm later work.
+   * turn. The first cause wins for the active turn. Idle cancellation is a
+   * no-op and does not arm later work.
    * @param cause - the stable caller intent carried by the current turn signal.
    * @param options - cancellation options; `keepInbox` preserves pending work.
    */
   cancel(cause: AgentCancelCause, options?: CancelOptions): void
 
-  /** Resolve at idle quiescence; disposal waits for driver exit rather than only the status transition. */
+  /**
+   * Resolve after the current whole-agent activity reaches quiescence. This
+   * follows replacement work scheduled before the observed driver retires,
+   * but does not identify the settlement of any particular message.
+   * @returns fulfillment after no scheduled or active driver remains.
+   */
   whenIdle(): Promise<void>
 
   /**
@@ -568,22 +484,18 @@ interface Agent {
   followup(message: UserMessage): void
 
   /**
-   * Submit steering during prompt admission or an open turn. It stages for the next steering
-   * checkpoint before a request or stop decision. If the activity fails before
-   * that boundary, the remainder stays staged without waking the agent; retry
-   * or a later prompt takes it. Outside that window steering falls back to a
-   * woken follow-up turn, while cancellation or disposal may discard pending
-   * steering.
+   * Submit steering for the nearest step. An idle driver schedules a turn;
+   * collecting and running drivers consume it at their next step boundary.
+   * Cancellation or disposal may discard pending steering.
    * @param message - identified steering content and its producer provenance.
    */
   steer(message: UserMessage): void
 
   /**
-   * Append model-facing context without running the model — the
-   * `next-step`/no-wakeup preset of {@link send}. Admission or an open turn
-   * stages it at the next safe log position; outside that window it appends
-   * immediately without opening a turn. If admission closes without a turn,
-   * a context-only boundary appends immediately; context staged beside
+   * Append model-facing context without running the model. Admission or an
+   * open turn stages it at the next safe log position; outside that window it
+   * appends immediately without opening a turn. If admission closes without a
+   * turn, a context-only boundary appends immediately; context staged beside
    * steering remains pending with it.
    * @param message - identified injected context and its producer provenance.
    */
@@ -591,9 +503,9 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `acceptsNextStep` is the narrower routing predicate for callers that must choose between steering the current admission/turn and submitting a fresh admitted prompt. `AgentOptions` is merge-extensible: core declares `provider?`, `model?`, and `maxTokens?` (dispatch requires provider and model after `agent/request`). When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission leaves the provider default in control. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `followup()` returns no handle: its `MessageId` identifies durable inbox and admission facts, not a later assistant output or turn ending. `whenIdle()` observes the whole agent, so callers may call a receipt-to-idle interval a run only when they explicitly own that interval ([proposal](../../.agents/notes/proposed/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)). `AgentOptions` is merge-extensible: core declares `provider?`, `model?`, and `maxTokens?` (dispatch requires provider and model after `agent/request`). When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission leaves the provider default in control. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
-The cause is a TypeScript-enforced same-process input. An active `TurnCancellation` holder copies its discriminant into the runtime-only `AbortSignal.reason` and is retired before `turn/end` publication; the frozen `AbortSignal.reason` remains readable after that retirement. Only the loop reads the cause (`user`, `parent`, or lifecycle-only `disposed`) back off its own machine-private signal at settlement — there is no public reader, and a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
+The cause is a TypeScript-enforced same-process input. An active cancellation holder copies it into the runtime-only `AbortSignal.reason`; a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
 
 The [event taxonomy](../architecture.md#event) owns the `agent/*` lifecycle, checkpoint, and waterfall contracts. Turn and step boundaries are durable session events rather than agent emits.
 
@@ -603,22 +515,21 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Prompt and post-tool decisions use the same identified `UserMessage` shape as durable user-role input. Each `additionalContexts` entry becomes a separate `user/message`, preserving its identity and provenance. Hook bridges map their native decision fields onto these typed results.
+Prompt decisions use the same identified `UserMessage` shape as durable user-role input. The allowed batch is authoritative and preserves every message's identity and provenance. Hook bridges map their native decision fields onto this typed result.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow may rewrite the claimed prompt or attach `additionalContexts`; block rejects admission without creating turn events:
+`agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow supplies the complete admitted batch; block rejects admission without creating turn events and may leave the claimed messages pending:
 
 ```ts type-equiv
 /**
- * Prompt interception result. `allow.content` replaces the prompt, while
- * `additionalContexts` appends model-facing context before the turn starts.
- * An `allow` returned by a listener is authoritative: a listener wrapping
- * `next()` preserves both fields unless it intentionally replaces them.
+ * Prompt interception result. An allowed batch replaces the submitted
+ * messages. A listener wrapping `next()` preserves the returned batch unless
+ * it intentionally replaces it.
  */
 type PromptDecision =
-  | { kind: 'allow'; content?: ContentBlock[]; additionalContexts?: UserMessage[] }
-  | { kind: 'block'; reason: string }
+  | { kind: 'allow'; messages: UserMessage[] }
+  | { kind: 'block'; reason: string; keepInbox?: boolean }
 ```
 
 `agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; the default `undefined` leaves the failure terminal.
@@ -626,11 +537,6 @@ type PromptDecision =
 ```ts type-equiv
 /** Action returned by a listener that owns model-request recovery. */
 type RequestErrorAction = { kind: 'retry' } | undefined
-```
-
-```ts type-equiv
-/** Model-request failure with an optional machine-routable provider code. */
-type RequestError = Error & { code?: string }
 ```
 
 `agent/step` is the single serial boundary before request derivation. `agent/turn-stopping` runs when a turn has no tool or steering continuation, before one final steering drain.

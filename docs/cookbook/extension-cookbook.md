@@ -64,7 +64,7 @@ export function apply(ctx: Context) {
 
 ## An external protocol driver
 
-A *protocol driver* adapts a wire peer to `ctx.agents`; it may serve a UI or an automation client. A stdio driver owns stdout, creates or resumes agents through the factory, maps the protocol's requests to `followup()` or `cancel()`, and settles each request exactly once from durable `turn/end`. Tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
+A *protocol driver* adapts a wire peer to `ctx.agents`; it may serve a UI or an automation client. A stdio driver owns stdout, creates or resumes agents through the factory, and maps protocol requests to `followup()` or `cancel()`. A low-level prompt request returns its durable enqueue receipt; it does not acquire a result by correlating `MessageId` with `turn/end`. Publish whole-agent status separately. An automation method may wait from its receipt through the next idle and summarize that explicitly owned interval, while a UI normally keeps observing the open-ended event stream. Tear agents down with `AgentHandle.dispose()` so disposal reaches quiescence.
 
 [`packages/acp/acp`](../../packages/acp/acp) is the automation-only worked example: it exposes fresh text sessions over Agent Client Protocol JSON-RPC stdio, emits committed assistant text, and registers a one-shot machine permission answerer for agents it owns. Its [README](../../packages/acp/acp/README.md) owns the exact method and lifecycle contract.
 
@@ -84,7 +84,8 @@ export function apply(ctx: Context) {
       }
     }
   })
-  // Inbound "prompt": create/resume an agent and feed it; settle on turn end.
+  // Inbound "prompt": create/resume an agent, feed it, and return its enqueue receipt.
+  // Whole-agent status is a separate notification; no turn end belongs to this prompt.
   // Teardown reaches quiescence via AgentHandle.dispose() (stop + await exit).
 }
 ```

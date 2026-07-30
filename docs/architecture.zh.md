@@ -123,7 +123,7 @@ idle inject:
 
 ### 失败边界
 
-最终适配器选择、分发与迭代失败会在 loop 处理前成为终止 `finish { kind: 'error' | 'aborted', failure }` chunk。`agent/request-error` 接收请求坐标、标准化 `LlmFailure`、可用时的准备注册重试策略以及信号；middleware 与消费方错误仍在请求恢复之外抛出。失败分片既不提交消息，也不提交工具调用。
+最终适配器选择、分发与迭代失败会在 loop 处理前成为终止 `finish { kind: 'error' | 'aborted', failure }` chunk。`agent/request-error` 接收请求坐标、标准化 `LlmFailure`、可用时已准备注册项的重试策略以及信号；middleware 与消费方错误仍在请求恢复之外抛出。失败分片既不提交消息，也不提交工具调用。
 
 其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
@@ -131,7 +131,7 @@ idle inject:
 
 ### Agent 句柄
 
-`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件用 `followup()`、`steer()` 和 `inject()` 驱动 agent；`cancel()` 停止工作，而拆卸由需等待完成的 disposer 负责。
+`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件用 `followup()`、`steer()` 和 `inject()` 驱动 agent；`cancel()` 停止工作，而拆卸由需等待完成的 disposer 负责。`followup()` 只会将一条带标识的消息排队：其 `MessageId` 跟踪持久 inbox 准入，而不标识某个提示词特有的输出或轮次结束。`agent/status` 与 `whenIdle()` 描述整个 agent 的活动；只有显式拥有某个活动区间的调用方才能将该区间概括为一次运行的结果（[提案](../.agents/notes/proposed/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
 
 ### Agent 作用域
 

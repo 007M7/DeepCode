@@ -70,13 +70,13 @@ A `user/message` stores the complete `UserMessage` directly, including the ident
 
 ### Session event vocabulary (`types.ts`)
 
-The append-only log's event types, enumerated member by member — payloads, surface badges, provenance — in the generated [persistence log event catalog](../../../docs/persistence-catalog.md). Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message. Provider/model/replay provenance rides on `assistant/message`; an operational error's step is on `turn/end.reason` for `kind: 'error'`, with structured provider facts for a final model-request failure.
+The append-only log's event types, enumerated member by member — payloads, surface badges, provenance — in the generated [persistence log event catalog](../../../docs/persistence-catalog.md). Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message. Provider/model/replay provenance rides on `assistant/message`.
 
 Merge-extensible via `SessionEventMap` — a plugin declaration-merges its own types (the compaction seam's `compact/*`, bounded recovery's non-surface `llm/retry`, the hook bridges' `hook/*`); merged members appear in the same catalog. A plugin owns the relational invariant for its merged events, including whether a log-only event may appear between turns. A producer that requires durability appends through `Session` and then awaits `ctx.sessions.flush(session)` without fabricating an execution turn.
 
-Also defines `TurnTriggerMap` and `TurnEndReasonMap` (merge-extensible sum types for typed turn boundaries — `kind`-tagged instead of strings). A final model-request error retains one structured `LlmFailure`; other turn errors retain message/code, and both identify the failed step.
+Also defines `TurnEndReasonMap`, the merge-extensible `kind`-tagged sum type for turn endings. `turn/start` carries only the turn number; the following admitted `user/message` batch records its input, while `llm/retry` records request recovery.
 
-An interrupted live turn ends with the coarse `{ kind: 'aborted' }` outcome. Caller identity belongs to the Agent's runtime cancellation signal rather than the durable transcript; disposal remains the separate `{ kind: 'disposed' }` terminal state.
+An interrupted live turn ends with `{ kind: 'aborted', reason: AgentCancelCause }`, preserving the typed cancellation cause in the durable transcript. A turn failure carries `{ kind: 'error', error }`; crash recovery alone synthesizes `{ kind: 'interrupted' }`.
 
 Every `SessionEvent` carries two optional top-level fields (structural metadata):
 

@@ -78,9 +78,26 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:292`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:235`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:242`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:271`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:303`](../packages/core/session/src/types.ts)
 
 ## Events
+
+### `agent/*`
+
+#### `agent/inbox/spliced` — log-only
+
+```ts persistence-catalog
+/** One normalized mutation of an agent's durable pending-message lists. */
+'agent/inbox/spliced': {
+  target: InboxTarget
+  start: number
+  removedCount?: number
+  inserted: UserMessage[]
+  outcome?: 'admitted' | 'canceled'
+}
+```
+
+Source: [`packages/core/agent/src/types.ts:268`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 
@@ -154,7 +171,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:191`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -170,7 +187,7 @@ Source: [`packages/core/session/src/types.ts:212`](../packages/core/session/src/
 
 Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:219`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:198`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -311,7 +328,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 #### `llm/retry` — log-only
 
 ```ts persistence-catalog
-/** Durable, non-surface record of one provider-routed retry scheduled after a closed failed step. */
+/** Durable, non-surface record of one provider-routed retry scheduled after a failed request attempt. */
 'llm/retry': {
   turn: number
   step: number
@@ -334,7 +351,7 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 }
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:18`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src/index.ts)
 
 ### `permission/*`
 
@@ -379,7 +396,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:231`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -438,7 +455,7 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages
 'steering/message': { turn: number; message: UserMessage }
 ```
 
-Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:224`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -449,7 +466,7 @@ Source: [`packages/core/session/src/types.ts:245`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:180`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -458,7 +475,7 @@ Source: [`packages/core/session/src/types.ts:201`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:178`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -471,7 +488,7 @@ Source: [`packages/core/session/src/types.ts:199`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:226`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -488,7 +505,7 @@ Source: [`packages/core/session/src/types.ts:247`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:225`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -561,7 +578,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:216`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -579,20 +596,20 @@ Source: [`packages/core/session/src/types.ts:237`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:197`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:176`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
 ```ts persistence-catalog
 /**
- * Opens turn `turn`. `trigger` records what started the model loop.
+ * Opens turn `turn`. Every turn begins when the loop admits queued input;
+ * the following identified `user/message` event or batch records the
+ * admitted input.
  */
-'turn/start': { turn: number; trigger: TurnTrigger }
+'turn/start': { turn: number }
 ```
 
-Types: [TurnTrigger](core-data-structures/session.md)
-
-Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:169`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -610,4 +627,4 @@ Source: [`packages/core/session/src/types.ts:190`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:210`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:189`](../packages/core/session/src/types.ts)

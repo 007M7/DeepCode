@@ -56,14 +56,13 @@ describe('DeepSeekHarness', () => {
   it('runs a turn end to end and reuses the runtime across sessions', async () => {
     const harness = harnessWith({ FAKE_TEXT: 'turn answer' })
     const first = await harness.run('say hi')
-    expect(first.status).toBe('ok')
-    expect(first.reason).toEqual({ kind: 'completed' })
     expect(first.finalResponse).toBe('turn answer')
-    expect(first.events.map(event => event.type)).toEqual(['turn/start', 'assistant/chunk', 'assistant/message', 'turn/end'])
+    expect(first.events.map(event => event.type)).toEqual([
+      'agent/inbox/spliced', 'turn/start', 'assistant/chunk', 'assistant/message', 'turn/end',
+    ])
 
     // Same subprocess, second session: ids differ, protocol state is reusable.
     const second = await harness.run([{ type: 'text', text: 'again' }])
-    expect(second.status).toBe('ok')
     expect(second.sessionId).not.toBe(first.sessionId)
     await harness.close()
   })
@@ -76,33 +75,16 @@ describe('DeepSeekHarness', () => {
       onNotification: (n) => { seen.push(n) },
     })
 
-    expect(result.status).toBe('ok')
     // The child session's events arrive through subagent.started lineage.
     expect(seen.map(n => n.method)).toContain('subagent.started')
     expect(seen.map(n => n.method)).toContain('subagent.finished')
     const childEvents = seen.filter(n => n.method === 'session.event' && n.params.sessionId === 'parent-1-child')
     expect(childEvents.length).toBeGreaterThan(0)
-    // TurnResult.events is the root session's typed stream; descendants retain
+    // RunResult.events is the root session's typed stream; descendants retain
     // their session ids in the raw notification stream above.
     expect(result.events.every(event => event.type !== 'assistant/message'
       || event.data.message.content[0]?.type !== 'text'
       || event.data.message.content[0].text !== 'child says hi')).toBe(true)
-    await harness.close()
-  })
-
-  it('reports an error status with the turn-end reason', async () => {
-    const harness = harnessWith({ FAKE_STATUS: 'error', FAKE_REASON_KIND: 'max-tokens' })
-    const result = await harness.run('overflow')
-    expect(result.status).toBe('error')
-    expect(result.reason).toEqual({ kind: 'max-tokens' })
-    await harness.close()
-  })
-
-  it('omits the reason when the runtime settled without one', async () => {
-    const harness = harnessWith({ FAKE_STATUS: 'error', FAKE_REASON_KIND: 'none' })
-    const result = await harness.run('no turn')
-    expect(result.status).toBe('error')
-    expect(result.reason).toBeUndefined()
     await harness.close()
   })
 
@@ -311,14 +293,14 @@ describe('HarnessClient', () => {
     await client.initialize({ cwd: process.cwd(), provider: 'p', model: 'm' })
 
     const all = client.subscribe()
-    const finishedOnly = client.subscribe(n => n.method === 'session.finished')
+    const idleOnly = client.subscribe(n => n.method === 'session.status' && n.params.status === 'idle')
     await client.prompt('sub-test', normalizeInput('go'))
 
     const first = await all.next()
     expect(first.method).toBe('session.event')
-    const finished = await finishedOnly.next()
-    expect(finished.method).toBe('session.finished')
-    expect(finishedOnly.tryNext()).toBeUndefined()
+    const idle = await idleOnly.next()
+    expect(idle.method).toBe('session.status')
+    expect(idleOnly.tryNext()).toBeUndefined()
 
     // A bare unbounded request with omitted params sends `{}` on the wire.
     const identity = await client.request('initialize') as { serverInfo: { name: string } }
@@ -328,12 +310,12 @@ describe('HarnessClient', () => {
     const collected: string[] = []
     for await (const notification of all) {
       collected.push(notification.method)
-      if (notification.method === 'session.finished') break
+      if (notification.method === 'session.status' && notification.params.status === 'idle') break
     }
-    expect(collected.at(-1)).toBe('session.finished')
+    expect(collected.at(-1)).toBe('session.status')
 
     all.close()
-    finishedOnly.close()
+    idleOnly.close()
     await expect(all.next()).rejects.toThrow('notification subscription closed')
     await client.close()
   })
@@ -346,11 +328,11 @@ describe('HarnessClient', () => {
     const broken = client.subscribe(() => { throw new Error('filter exploded') })
     // A non-Error throw is normalized rather than crashing dispatch.
     const brokenNonError = client.subscribe(() => { throw 'string boom' })
-    const healthy = client.subscribe(n => n.method === 'session.finished')
+    const healthy = client.subscribe(n => n.method === 'session.status' && n.params.status === 'idle')
     await client.prompt('filter-contain', normalizeInput('go'))
 
     // The sibling subscription and the read loop are undisturbed.
-    expect((await healthy.next()).method).toBe('session.finished')
+    expect((await healthy.next()).method).toBe('session.status')
     // Each broken subscription failed with ITS OWN error and detached.
     await expect(broken.next()).rejects.toThrow('filter exploded')
     await expect(brokenNonError.next()).rejects.toThrow('string boom')
@@ -445,10 +427,6 @@ describe('wire payload validation', () => {
     await expect(harness.run('no-data')).rejects.toThrow(SdkProtocolError)
   })
 
-  it('rejects a malformed session.finished reason as a protocol error', async () => {
-    const harness = harnessWith({ FAKE_MALFORMED_REASON: '1' })
-    await expect(harness.run('bad-reason')).rejects.toThrow(SdkProtocolError)
-  })
 })
 
 describe('stderr tail bound', () => {

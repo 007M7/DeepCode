@@ -26,9 +26,11 @@ interface UserMessage extends Message {
  */
 interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started the model loop.
+   * Opens turn `turn`. Every turn begins when the loop admits queued input;
+   * the following identified `user/message` event or batch records the
+   * admitted input.
    */
-  'turn/start': { turn: number; trigger: TurnTrigger }
+  'turn/start': { turn: number }
   /**
    * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
    * awaits `session/flush` after an ordinary turn ends before claiming the next
@@ -434,7 +436,7 @@ declare class Session {
 - `user/message` (injected context, i.e. non-`user` source) → a user-role message carrying its `content` verbatim at its chronological position; provenance and domain data live in its typed source.
 - `steering/message` → a user-role message carrying exact `content` at its chronological position; an optional envelope remains log-only display metadata.
 
-Everything else (`turn/*`, `step/*`, plugin-owned `llm/retry`) is structural and does not project into a message. Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message, so their usage chunk is the durable accounting record. An operational error's step number is on `turn/end.reason` for `kind: 'error'`, with normalized `LlmFailure` facts for a final model-request failure and message/code for other live errors. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
+Everything else (`turn/*`, `step/*`, plugin-owned `llm/retry`) is structural and does not project into a message. Token accounting reads per-step `assistant/chunk { type: 'usage' }` records and treats `assistant/message.usage` as the committed-step fallback when no usage chunk exists; failed model-request attempts have no assistant message, so their usage chunk is the durable accounting record. Because this unreleased format intentionally has no compatibility promise, seed/load validation rejects request headers without provider+model and assistant messages without provider/model provenance instead of guessing a route for historical data.
 
 ## Live-session fork API
 
@@ -444,29 +446,9 @@ Everything else (`turn/*`, `step/*`, plugin-owned `llm/retry`) is structural and
 
 An explicit `boundary` lets callers fork from any stable between-turn position, including a previous `turn/end` or a later standalone log-only event, even if the source has newer events or an open current turn. The API rejects a prefix that ends inside an open turn instead of clipping silently. Broader execution-relation sanity stays in the existing `dsh-invariants` plugin and persistence repair path rather than being duplicated in `fork()`. `dsh-subagent-fork` keeps its completed-prefix clipping because tool-time delegation usually starts while the parent turn is open; ordinary session branching should make the requested boundary explicit.
 
-## What started a turn: `TurnTriggerMap`
-
-```ts type-equiv
-/**
- * What started a turn.
- * Merge-extensible sum type (same pattern as MessageSourceMap).
- */
-interface TurnTriggerMap {
-  message: { kind: 'message'; source: MessageSource }
-  /** Recovery turn reopened over the repaired current session log. */
-  retry: { kind: 'retry' }
-  /**
-   * An out-of-band producer explicitly enclosed injected context in a one-shot
-   * turn. `Agent.inject()` appends idle context directly and does not use this
-   * trigger; the source mirrors the producer of the enclosed `user/message`.
-   */
-  injection: { kind: 'injection'; source: MessageSource }
-}
-```
-
 ## Why a turn ended: `TurnEndReasonMap`
 
-`aborted` is intentionally a coarse durable outcome: it records that cancellation interrupted the live turn, not which runtime caller requested it. The runtime-only caller vocabulary belongs to [`AgentCancelCause`](core.md#the-agent-handle); a future audit requirement would use a separate control-request event rather than overloading the terminal result.
+`turn/start` has no trigger field. The admitted `user/message` batch records what entered the turn, `llm/retry` records request recovery, and idle injection opens no turn. `aborted.reason` retains the typed [`AgentCancelCause`](core.md#the-agent-handle) that stopped the driver.
 
 ```ts type-equiv
 /**
@@ -475,20 +457,11 @@ interface TurnTriggerMap {
 interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted' }
+  aborted: { kind: 'aborted'; reason: AgentCancelCause }
   /**
-   * The turn failed: a step threw or the model reported a failure. `step` is the
-   * step number the failure occurred on (the operational error's location — the
-   * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other thrown values retain their rendered message and a
-   * real `HarnessError` code when present.
+   * The turn failed.
    */
-  error: { kind: 'error'; step: number } & (
-    | { failure: LlmFailure; message?: never; code?: never }
-    | { message: string; code?: string; failure?: never }
-  )
-  disposed: { kind: 'disposed' }
+  error: { kind: 'error'; error: unknown }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
@@ -499,7 +472,7 @@ interface TurnEndReasonMap {
 }
 ```
 
-`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one — but only over `completed`: the `disposed`/`aborted`/`error` outcomes take precedence. `interrupted` is the one reason no loop emits — it is synthesized by crash recovery (see [persistence.md](persistence.md)). Both maps are merge-extensible.
+`max-tokens` mirrors the model-call `FinishReason` of the same name: any `max-tokens` step in a turn makes the whole turn end `max-tokens` rather than `completed` (the cut-short fact wins over a later continuation), so a consumer can tell a clean stop from a truncated one. Cancellation and errors remain distinct outcomes. `interrupted` is the one reason no loop emits—it is synthesized by crash recovery (see [persistence.md](persistence.md)). The map is merge-extensible.
 
 ## Execution enclosure and standalone events
 

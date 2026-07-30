@@ -8,15 +8,11 @@ import { FiberState } from 'cordis'
 import type { Context } from 'cordis'
 import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
-import { createUserMessage, assertNever } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
-import { classifyGoalRound } from './outcome.ts'
-import type { GoalRoundOutcome } from './outcome.ts'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { renderGoalRoundPrompt } from './prompt.ts'
 
-export { classifyGoalRound } from './outcome.ts'
-export type { GoalRoundOutcome } from './outcome.ts'
 export { renderGoalRoundPrompt } from './prompt.ts'
 
 export const name = 'goal-session'
@@ -31,13 +27,11 @@ interface RoundIdentity {
   readonly round: number
 }
 
-/** One queued or admitted attempt, retained until its physical turn settles. */
+/** One queued or admitted goal message retained until whole-agent quiescence. */
 interface RoundAttempt extends RoundIdentity {
   readonly messageId: MessageId
   readonly content: ContentBlock[]
   phase: 'queued' | 'admitted'
-  turn: number | undefined
-  reason: TurnEndReason | undefined
   stale: boolean
 }
 
@@ -45,13 +39,11 @@ interface RoundAttempt extends RoundIdentity {
 interface DriverState {
   readonly agent: Agent
   attempt: RoundAttempt | undefined
-  openTurn: number | undefined
   competingQueued: boolean
   needsCheckpoint: boolean
   requested: boolean
   run: Promise<void> | undefined
   stopping: boolean
-  readonly flushFailedTurns: Set<number>
 }
 
 /** Whether a source identifies an automatic, positive-numbered goal round. */
@@ -92,13 +84,11 @@ export function apply(ctx: Context): void {
     const state: DriverState = {
       agent,
       attempt: undefined,
-      openTurn: undefined,
       competingQueued: false,
       needsCheckpoint: false,
       requested: false,
       run: undefined,
       stopping: false,
-      flushFailedTurns: new Set(),
     }
     states.set(agent, state)
     return state
@@ -134,28 +124,7 @@ export function apply(ctx: Context): void {
     }
   }
 
-  /** Apply one closed-round outcome only to the exact still-current revision. */
-  function applyOutcome(state: DriverState, goal: GoalView, outcome: GoalRoundOutcome): void {
-    const ref = goalRef(goal)
-    switch (outcome.kind) {
-      case 'continue':
-        return
-      case 'pause':
-        ctx.goals.pause(state.agent, ref)
-        return
-      case 'blocked':
-        ctx.goals.block(state.agent, ref, { code: outcome.code, message: outcome.message })
-        return
-      case 'disarm':
-        ctx.goals.disarm(state.agent)
-        return
-      /* v8 ignore next 2 -- GoalRoundOutcome is closed and every member is handled above */
-      default:
-        assertNever(outcome, 'goal round outcome')
-    }
-  }
-
-  /** Process a settled attempt, then reserve at most one next round. */
+  /** Process admitted work at quiescence, then reserve at most one next round. */
   async function drive(state: DriverState): Promise<void> {
     const { agent } = state
     if (!readyToDrive(state)) return
@@ -166,8 +135,7 @@ export function apply(ctx: Context): void {
         await ctx.sessions.flush(agent.session)
       } catch (error: unknown) {
         ctx.logger.warn(`goal-session: durability checkpoint failed for agent "${agent.id}": ${renderThrown(error)}`)
-        const goal = currentGoal(state)
-        if (goal !== undefined) applyOutcome(state, goal, { kind: 'disarm', reason: 'durability-failed' })
+        disarm(state)
         return
       }
       // A mutation or ordinary prompt may have arrived while the checkpoint
@@ -177,27 +145,8 @@ export function apply(ctx: Context): void {
 
     const attempt = state.attempt
     if (attempt !== undefined) {
-      // Still unsettled: a contained turn-close failure reaches idle with the
-      // attempt's turn open in the log and no terminal reason recorded, so
-      // the drive pass must yield rather than misread it as settled.
-      if (attempt.reason === undefined) return
+      if (attempt.phase === 'queued') return
       state.attempt = undefined
-      const turn = attempt.turn
-      /* v8 ignore next -- a closed attempt acquired its turn at turn/start */
-      if (turn === undefined) throw new Error('settled goal-round attempt lacks a turn')
-      const durable = !state.flushFailedTurns.delete(turn)
-      const goal = currentGoal(state)
-      if (goal !== undefined && goal.id === attempt.goalId && goal.revision === attempt.revision
-        && goal.phase === 'active' && goal.activation === 'armed') {
-        const outcome = classifyGoalRound(attempt.reason, durable)
-        if (!attempt.stale) applyOutcome(state, goal, outcome)
-      }
-      if (!readyToDrive(state)) return
-      // The loop's persistence is eager write-behind with no turn-end flush,
-      // so this driver owns the round's durability barrier: checkpoint the
-      // settled round before reserving another (re-entering drive through
-      // the flush path above), disarming on failure instead of queueing an
-      // autonomous round on state that was never persisted.
       state.needsCheckpoint = true
       state.requested = true
       return
@@ -226,8 +175,6 @@ export function apply(ctx: Context): void {
       messageId: message.id,
       content,
       phase: 'queued',
-      turn: undefined,
-      reason: undefined,
       stale: false,
     }
     state.attempt = reservation
@@ -286,12 +233,8 @@ export function apply(ctx: Context): void {
   // One composite effect keeps the admission fence installed until this
   // plugin's own scheduling tasks settle.
   ctx.effect(function* () {
-    /** Mark a post-turn persistence failure before idle scheduling can run. */
-    ctx.on('agent/error', (agent, turn) => {
+    ctx.on('agent/error', (agent) => {
       const state = stateFor(agent)
-      const closed = agent.session.events.some(event => event.type === 'turn/end' && event.data.turn === turn)
-      if (!closed) return
-      if (state.attempt?.turn === turn) state.flushFailedTurns.add(turn)
       disarm(state)
     })
 
@@ -300,10 +243,8 @@ export function apply(ctx: Context): void {
     ctx.on('agent/session-start', (agent) => {
       const state = stateFor(agent)
       state.attempt = undefined
-      state.openTurn = undefined
       state.competingQueued = false
       state.needsCheckpoint = false
-      state.flushFailedTurns.clear()
     })
     ctx.on('agent/status', (agent, status) => {
       const state = stateFor(agent)
@@ -311,11 +252,10 @@ export function apply(ctx: Context): void {
         state.competingQueued = false
         const attempt = state.attempt
         const goal = currentGoal(state)
-        if (attempt !== undefined && attempt.turn === undefined && attempt.reason === undefined
-          && goal?.phase === 'active' && goal.activation === 'armed') {
+        if (attempt?.phase === 'queued' && goal?.phase === 'active' && goal.activation === 'armed') {
           state.attempt = undefined
           try {
-            applyOutcome(state, goal, { kind: 'pause', reason: 'cancelled' })
+            ctx.goals.pause(agent, goalRef(goal))
           } catch (error: unknown) {
             ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
             disarm(state)
@@ -345,21 +285,23 @@ export function apply(ctx: Context): void {
           }
           return
         }
-        case 'turn/start': {
-          state.openTurn = event.data.turn
-          return
-        }
         case 'user/message':
           if (state.attempt !== undefined && event.data.id === state.attempt.messageId) {
             state.attempt.phase = 'admitted'
-            /* v8 ignore next -- the loop logs admitted input inside an open turn */
-            if (state.openTurn !== undefined) state.attempt.turn = state.openTurn
           }
           return
         case 'turn/end':
-          if (state.attempt?.turn === event.data.turn) state.attempt.reason = event.data.reason
-          /* v8 ignore next -- balanced live turns close the open turn just observed by this listener */
-          if (state.openTurn === event.data.turn) state.openTurn = undefined
+          if (event.data.reason.kind !== 'aborted') return
+          {
+            const goal = currentGoal(state)
+            if (goal?.phase !== 'active' || goal.activation !== 'armed') return
+            try {
+              ctx.goals.pause(agent, goalRef(goal))
+            } catch (error: unknown) {
+              ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
+              disarm(state)
+            }
+          }
           return
         default:
           return
@@ -413,7 +355,7 @@ export function apply(ctx: Context): void {
         // starve every later drive pass. Clear it and let the driver
         // reschedule the round.
         const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt) && attempt.turn === undefined) {
+        if (attempt !== undefined && sameRound(source, attempt) && attempt.phase === 'queued') {
           state.attempt = undefined
           requestDrive(state)
         }
@@ -468,9 +410,6 @@ export function apply(ctx: Context): void {
         const attempt = state.attempt
         if (attempt !== undefined) {
           attempt.stale = true
-          if (attempt.phase === 'admitted' && state.agent.status === 'running') {
-            state.agent.cancel({ kind: 'parent' })
-          }
         }
         if (state.run !== undefined) waits.push(state.run)
       }

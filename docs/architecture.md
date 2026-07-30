@@ -131,7 +131,7 @@ Turn and step events are turn-enclosed; idle injected `user/message` events may 
 
 ### Agent Handles
 
-`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins drive agents with `followup()`, `steer()`, and `inject()`; `cancel()` stops work, while the awaited disposer owns teardown.
+`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins drive agents with `followup()`, `steer()`, and `inject()`; `cancel()` stops work, while the awaited disposer owns teardown. `followup()` only queues an identified message: its `MessageId` follows durable inbox admission, not a prompt-specific output or turn ending. `agent/status` and `whenIdle()` describe whole-agent activity; only a caller that explicitly owns an activity interval may summarize that interval as a run result ([proposal](../.agents/notes/proposed/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
 
 ### Agent Scope
 

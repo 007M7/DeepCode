@@ -24,7 +24,7 @@ Both fields are optional so another agent/request listener may supply the target
 | `initialize` | Negotiates the supported version and advertises baseline-only prompts (no image, audio, or embedded-context capability). No session, editor, terminal, filesystem, or MCP capability is advertised. |
 | `authenticate` | No-op because the server advertises no authentication methods. |
 | `session/new` | Creates a fresh agent with an absolute primary `cwd`; empty `additionalDirectories` and `mcpServers` are accepted, non-empty values reject. |
-| `session/prompt` | Concatenates text blocks, renders baseline resource links as bracketed textual references, rejects empty or beyond-baseline input, permits one in-flight request per session, and settles from that request's owning durable `turn/end`. |
+| `session/prompt` | Concatenates text blocks, renders baseline resource links as bracketed textual references, rejects empty or beyond-baseline input, permits one in-flight request per session, and waits for the whole agent to become idle. Normal quiescence reports `end_turn`; explicit ACP cancellation or disposal reports `cancelled`. |
 | `session/cancel` | Cancels only the addressed agent and settles its pending prompt as `cancelled`; unknown ids are no-ops. |
 | `session/update` | Emits one `agent_message_chunk` per non-empty text block in a committed `assistant/message`. Raw deltas and non-message events are omitted. |
 | `session/request_permission` | Offers one-shot allow/reject choices for bridge-owned approval requests carrying a tool call id. Clients may answer automatically. |
@@ -36,6 +36,8 @@ Committed-message output intentionally trades token-by-token latency for a clean
 ## Lifecycle
 
 Client disconnect and Cordis disposal share one memoized teardown. The bridge first rejects new sessions and prompts, settles pending prompts, then disposes all owned agent handles in parallel and awaits their loop/session cleanup. An ACP-only plugin reload therefore leaves no orphan agent.
+
+ACP requires each prompt response to carry a `stopReason`, but the bridge does not claim a prompt-specific turn outcome. Committed assistant messages stream across the owned activity, and steering or injected work may contribute before idle. Token-limit and model-error turn endings therefore do not become prompt-level ACP stop reasons.
 
 ## Running
 
