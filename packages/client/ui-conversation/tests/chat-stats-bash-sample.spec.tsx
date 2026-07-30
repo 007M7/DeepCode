@@ -12,7 +12,7 @@ import type {
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { StatsLine, deriveStats, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { StatsLine, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 
 afterEach(cleanup)
@@ -51,7 +51,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 }
 
 describe('deriveStats', () => {
-  it('folds turns/steps/tokens and cache hit percentage', () => {
+  it('folds turns/steps/token split and cache hit percentage', () => {
     const stats = deriveStats([
       assistant(1, 1, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 900 }),
       assistant(2, 1, { inputTokens: 100, outputTokens: 50 }),
@@ -59,18 +59,52 @@ describe('deriveStats', () => {
     ])
     expect(stats.turns).toBe(2)
     expect(stats.steps).toBe(3)
-    expect(stats.tokens).toBe(1200)
+    expect(stats.inputTokens).toBe(1100)
+    expect(stats.outputTokens).toBe(100)
     expect(stats.cacheHitPct).toBe(82)
   })
 
-  it('cache hit stays null with no cache accounting; non-assistant nodes ignored', () => {
+  it('cache hit stays null with no cache accounting; out-of-window tool results ignored', () => {
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
       isError: false, callView: null, resultView: null,
     }
     const stats = deriveStats([tool, assistant(1, 1)])
     expect(stats.steps).toBe(1)
+    expect(stats.toolMs).toBe(0)
     expect(stats.cacheHitPct).toBeNull()
+  })
+
+  it('sums LLM wall time from assistant timing and tool wall time from call/result pairs', () => {
+    const timed: AssistantMessageNode = {
+      ...assistant(1, 1),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_200, completedTime: 3_500 },
+    }
+    const untimed: AssistantMessageNode = {
+      ...assistant(2, 1),
+      timing: { stepStartTime: null, firstTokenTime: null, completedTime: 9_000 },
+    }
+    const tool: ToolResultNode = {
+      kind: 'tool-result', seq: 5, time: 7_000, callId: 'c', call: null, callTime: 4_000, content: [],
+      isError: false, callView: null, resultView: null,
+    }
+    const stats = deriveStats([timed, untimed, tool])
+    expect(stats.llmMs).toBe(2_500)
+    expect(stats.toolMs).toBe(3_000)
+  })
+})
+
+describe('formatters', () => {
+  it('formats token counts compactly', () => {
+    expect(formatTokens(517)).toBe('517')
+    expect(formatTokens(12_240)).toBe('12.2K')
+    expect(formatTokens(517_000)).toBe('517K')
+    expect(formatTokens(1_230_000)).toBe('1.2M')
+  })
+
+  it('formats durations under and over a minute', () => {
+    expect(formatDuration(45_230)).toBe('45.2s')
+    expect(formatDuration(162_000)).toBe('2m42s')
   })
 })
 
@@ -79,12 +113,13 @@ describe('StatsLine', () => {
     return { useSession: bindSnapshotSelector(source) }
   }
 
-  it('renders the joined stats row and hides with zero steps', () => {
+  it('renders the grouped stats row and hides with zero steps', () => {
     const { source } = makeSource({
       nodes: [assistant(1, 1, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90 })],
     })
     const view = render(<StatsLine {...props(source)} />)
-    expect(view.getByText('cache hit 90% · 105 tokens · 1 turns · 1 steps')).toBeTruthy()
+    // No timing on the fixture: the duration group drops out whole.
+    expect(view.container.textContent).toBe('1 turns · 1 steps|Cache hit 90%|Input 100 tok · Output 5 tok')
     const empty = makeSource()
     const emptyView = render(<StatsLine {...props(empty.source)} />)
     expect(emptyView.container.textContent).toBe('')
