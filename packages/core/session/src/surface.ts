@@ -340,7 +340,7 @@ export class SurfaceManager implements SessionSurface {
   /** Fold events appended since the previous access. */
   private _processDelta(): void {
     for (let i = this._lastProcessedSeq + 1; i < this.log.length; i++) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- bounded by the loop condition
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by the loop condition
       applySurfaceEvent(this._state, this.log[i]!, i, this.log)
       this._lastProcessedSeq = i
     }

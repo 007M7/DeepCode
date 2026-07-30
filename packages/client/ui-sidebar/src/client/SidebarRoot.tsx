@@ -32,6 +32,7 @@ export function SidebarRoot({
   width,
   startSession,
   toggleSidebar,
+  t,
   renderSlot,
 }: SidebarRootComponentProps) {
   // Wide content stays mounted while the collapse animates (fading via
@@ -67,7 +68,7 @@ export function SidebarRoot({
           <button
             type="button"
             className={clsx(css.brand, css.wide)}
-            aria-label="New session"
+            aria-label={t('session.new.label')}
             onClick={() => { startSession() }}
           >
             <BrandWordmark />
@@ -75,11 +76,11 @@ export function SidebarRoot({
         )}
         {/* Rail resting state is the whale mark; hovering swaps in the panel
             icon (the expand affordance, figma sidebar-hover flow). */}
-        <Tooltip label="Open sidebar" disabled={wide}>
+        <Tooltip label={t('toggle.open')} disabled={wide}>
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
-            aria-label={collapsed ? 'Open sidebar' : 'Collapse sidebar'}
+            aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
             onClick={() => { toggleSidebar() }}
           >
             {!wide && <FishLogo className={css.railFish} size={24} />}
@@ -89,15 +90,15 @@ export function SidebarRoot({
         </Tooltip>
       </div>
 
-      <Tooltip label="New session" disabled={wide}>
+      <Tooltip label={t('session.new.label')} disabled={wide}>
         <button
           type="button"
           className={css.newSession}
-          aria-label="New session"
+          aria-label={t('session.new.label')}
           onClick={() => { startSession() }}
         >
           <IconNewChatOutline16 size={wide ? 14 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>New Session</span>}
+          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
         </button>
       </Tooltip>
 

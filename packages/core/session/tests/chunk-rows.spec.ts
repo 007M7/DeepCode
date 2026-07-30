@@ -86,7 +86,7 @@ describe('packChunkRuns', () => {
     ['a block-index switch', [...deltaRun('text-delta', 2), ...deltaRun('text-delta', 1, 2, 7)]],
     ['a step switch', deltaRun('text-delta', 3).map((e, k) => k === 2 ? chunkEvent(e.seq, e.time, (e.data as { chunk: StreamChunk }).chunk, 1, 2) : e)],
   ])('breaks a run on %s (both halves too short to pack)', (_label, events) => {
-    expect(packChunkRuns(events as SessionEvent[])).toStrictEqual(events)
+    expect(packChunkRuns(events)).toStrictEqual(events)
   })
 
   it('breaks a tool-call run on call-id or name change', () => {

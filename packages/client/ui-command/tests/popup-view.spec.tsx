@@ -4,17 +4,28 @@
  * focus on open and plain typing filters locally, ↑↓ move the filtered
  * highlight while ←→ stay native to the input, Enter selects single-flight,
  * Escape dismisses back through focusComposer, outside pointerdown dismisses
- * plainly, and the submitting/failed states render pending text and a
- * working retry button.
+ * plainly, the submitting/failed states render pending text and a working
+ * retry button, the highlighted row scrolls into view, and the card height
+ * clamps to the space above the composer.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SelectOption } from '../src/client/contract.ts'
 import type { PopupSpec, TokenSegment } from '../src/client/popup.ts'
 import { PopupSelectController } from '../src/client/popup.ts'
 import { PopupSelectView } from '../src/client/PopupSelectView.tsx'
 
-afterEach(cleanup)
+// jsdom has no scrollIntoView; the view calls it on the highlighted row.
+const scrollIntoView = vi.fn()
+beforeEach(() => {
+  Element.prototype.scrollIntoView = scrollIntoView
+  scrollIntoView.mockClear()
+})
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
 
 const OPTIONS: SelectOption[] = [
   { id: 'dark', label: 'Dark' },
@@ -85,6 +96,27 @@ describe('PopupSelectView', () => {
     // fireEvent returns false when preventDefault was called: arrow left/right must NOT be intercepted.
     expect(fireEvent.keyDown(search, { key: 'ArrowLeft' })).toBe(true)
     expect(fireEvent.keyDown(search, { key: 'ArrowRight' })).toBe(true)
+  })
+
+  it('scrolls the highlighted row into view when the highlight moves', async () => {
+    const { search } = await mountOpen()
+    scrollIntoView.mockClear()
+    act(() => { fireEvent.keyDown(search, { key: 'ArrowDown' }) })
+    const options = screen.getAllByRole('option')
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(options[1])
+  })
+
+  it('caps the card height at the design maximum when the composer sits low enough', async () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 800 } as DOMRect)
+    await mountOpen()
+    expect(screen.getByLabelText('/theme options').style.maxHeight).toBe('320px')
+  })
+
+  it('clamps the card height to the space above the composer minus the safe margin', async () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect)
+    await mountOpen()
+    expect(screen.getByLabelText('/theme options').style.maxHeight).toBe('188px')
   })
 
   it('Enter selects the highlighted row: onSelect, consume, close, focusComposer', async () => {

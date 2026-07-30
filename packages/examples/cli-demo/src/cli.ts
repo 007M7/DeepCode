@@ -148,7 +148,7 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
     throw new CliArgumentError(`expected exactly one positional task or -p, received ${parsed.positionals.length} positional(s)`)
   }
   // Cardinality was checked above, so the fallback index zero exists.
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const task = prompt ?? parsed.positionals[0]!
   if (task.trim().length === 0) throw new CliArgumentError('task must not be blank')
 
@@ -301,7 +301,7 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
 
   try {
     /* v8 ignore next -- skips send only when cancellation wins the listener-registration race above */
-    if (!firstTurnEnded) { // eslint-disable-line @typescript-eslint/no-unnecessary-condition
+    if (!firstTurnEnded) { // oxlint-disable-line typescript/no-unnecessary-condition
       agent.followup(createUserMessage({ content: [{ type: 'text', text: options.task }], source: { kind: 'user' } }))
     }
     await turnEnded
@@ -361,7 +361,7 @@ async function bootInterruptibly(
     return await Promise.race([booting, interruptedBoot])
   } catch (error: unknown) {
     // The awaited race permits the signal to change after the preflight check.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     if (signal.aborted) {
       void booting.then(
         async (lateContext) => {

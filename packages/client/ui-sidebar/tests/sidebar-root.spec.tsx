@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { SidebarRootComponentProps, SidebarSectionOwnerProps, SidebarSettingsOwnerProps } from '../src/client/contract/slots.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
+import { en } from '../src/client/locales.ts'
+
+// English-dictionary translate stub: the shell renders the same copy the
+// assertions below query by accessible name.
+const t: SidebarRootComponentProps['t'] = key => (en as Record<string, string>)[key] ?? key
 
 afterEach(() => {
   cleanup()
@@ -23,7 +28,7 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
     <SidebarRoot
       collapsed={current.collapsed} width={current.width}
       useSessions={neverHook} useWorkspaces={neverHook}
-      startSession={startSession} toggleSidebar={toggleSidebar}
+      startSession={startSession} toggleSidebar={toggleSidebar} t={t}
       renderSlot={((key: string, owner: SidebarSectionOwnerProps | SidebarSettingsOwnerProps) => {
         if (key === 'sidebar.settings') {
           settingsOwner = owner

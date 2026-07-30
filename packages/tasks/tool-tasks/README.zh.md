@@ -14,11 +14,11 @@
 
 它们的规范值依次为 `{ text, task }`、`PublicTaskSnapshot[]` 和 `{ outcome: 'cancellation-requested' | 'already-finished', task }`。公共快照携带 id、kind、label、status/detail 及开始／结束时间；它有意省略 `ownerSession` 和内部 `reported` 通知位。原生 renderer 保留上述状态与确认文本。
 
-当生产方提供 `outputLimitBytes` 时，`task_output`、终止 `task_kill` 和完成通知会在添加状态或通知文本后，对完整的原生 UTF-8 结果施加上限。只要能够容纳，读取就会保留输出尾部与控制后缀；有界完成通知则先为 `background task <id>` 和 `task_output` 收集指令预留空间，再把剩余字节用于可变的 kind、label、status、detail 与截断标记。一个前置 pre-execute 监听器会在策略运行前捕获调用方可见任务；每个任务控制定义的 final-content 回调会把其生产方上限应用到单文本拒绝、短路、规范化工具或流水线失败、替换和阻止；结构化多块策略结果保持自身形状。已有的生产方截断标记会复用，不会重复添加。省略该字段的生产方保留现有的无界控制表层行为。
+当生产方提供 `outputLimitBytes` 时，`task_output`、针对已终止任务的 `task_kill` 和完成通知会在添加状态或通知文本后，对完整的原生 UTF-8 结果施加上限。只要能够容纳，读取就会保留输出尾部与控制后缀；有界完成通知则先为 `background task <id>` 和 `task_output` 收集指令预留空间，再把剩余字节用于可变的 kind、label、status、detail 与截断标记。一个前置 pre-execute 监听器会在策略运行前捕获调用方可见任务；每个任务控制定义的 final-content 回调会把其生产方上限应用到单文本拒绝、短路、规范化工具或流水线失败、替换和阻止；结构化多块策略结果保持自身形状。已有的生产方截断标记会复用，不会重复添加。省略该字段的生产方保留现有的无界控制表层行为。
 
 ## 完成通知
 
-一项尚未报告的完成会向精确 owner 的会话注入 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.`。应用上限时，在 PTY 支持的 64 字节下限内，稳定 id 前缀和收集命令的优先级高于可变 label/detail，因此通知仍可操作。注入是下一次请求使用的持久上下文，并非唤醒。kill 或终止性 read/wait 会把交付标为已报告，并抑制重复通知。owner 释放竞态无需特殊处理：循环没有终结状态，teardown 期间注入的通知作为空闲上下文追加——会话仍挂接时随之持久化以供恢复，脱离后随无引用日志一并丢弃。
+一项尚未报告的完成会向精确 owner 的会话注入 `background task <id> (<kind>: <label>) finished [status: ...]. Read its output with task_output.`。应用上限时，即使采用 PTY 支持的 64 字节下限，稳定 id 前缀和收集命令的优先级也高于可变 label/detail，因此通知仍可操作。注入是下一次请求使用的持久上下文，并非唤醒。kill 或针对已终止任务的 read/wait 会把交付标为已报告，并抑制重复通知。owner 释放竞态无需特殊处理：循环没有终结状态，teardown 期间注入的通知作为空闲上下文追加——会话仍挂接时随之持久化以供恢复，之后随脱离挂接的日志一并丢弃。
 
 ## 配置
 
@@ -35,7 +35,7 @@
 
 #### 模型看到的内容
 
-该插件注册 scope 中的每次请求都包含以下指引。按 agent scope 过滤工具时，可能会隐藏工具，却不会移除独立注册的提示词区段。
+该插件注册 scope 中的每次请求都包含以下指引。按 agent（智能体）scope 过滤工具时，可能会隐藏工具，却不会移除独立注册的提示词区段。
 
 ##### 后台任务指引
 
@@ -45,7 +45,7 @@ Track every background task id you start. You are notified in-session when a tas
 
 #### Token 影响
 
-激活期间，每次请求承担少量固定输入成本。
+激活期间，每次请求都会产生少量固定的输入 token 开销。
 
 #### KV Cache 影响
 
@@ -59,7 +59,7 @@ Track every background task id you start. You are notified in-session when a tas
 
 #### Token 影响
 
-工具可见的每次请求承担固定 schema 成本。
+工具可见时，每次请求都会产生固定的 schema token 开销。
 
 #### KV Cache 影响
 
@@ -69,15 +69,15 @@ Track every background task id you start. You are notified in-session when a tas
 
 #### 模型看到的内容
 
-读取会返回输出或 `(no new output)`，随后是 `[status: <status>]` 和可选 detail。空列表返回 `(no background tasks)`。kill 返回 `requested cancellation of task <id>` 或现有终止状态。尚未报告且有 owner 的完成使用上述通知。
+读取会返回输出或 `(no new output)`，随后是 `[status: <status>]` 和可选 detail。空列表返回 `(no background tasks)`。kill 返回 `requested cancellation of task <id>` 或现有终止状态。尚未报告且有 owner 的任务完成时使用上述通知。
 
 #### Token 影响
 
-结果与通知在压缩前保留于父级历史。流读取不会重复已消费的输出；生产方提供的 `outputLimitBytes` 会限制每次完整读取或通知。
+结果与通知在压缩（compaction）前保留于父级历史。流读取不会重复已消费的输出；生产方提供的 `outputLimitBytes` 会限制每次完整读取或通知。
 
 #### KV Cache 影响
 
-仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 配置项失效。
+仅追加；新可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
 ## 已知限制与暂缓事项
 

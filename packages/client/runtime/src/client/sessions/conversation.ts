@@ -7,11 +7,28 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  RpcError, SessionId, ToolCallView, ToolResultView,
+  InboxItemId, RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
-
 export type { TodoItem }
+
+/** Request configuration recorded for one provider call. */
+export interface AssistantRequestConfig {
+  provider: string
+  model: string
+  purpose?: string
+  thinking?: string
+  reasoningEffort?: string
+  temperature?: number
+  maxTokens?: number
+  stop?: readonly string[]
+}
+
+/** Stable provider/model identity reported for one completed request. */
+export interface AssistantProvenanceView {
+  provider: string
+  model: string
+}
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -54,6 +71,16 @@ export interface UserMessageNode {
   source: unknown
 }
 
+/** Recorded boundaries used to derive assistant latency and throughput. */
+export interface AssistantTiming {
+  /** Matching step/start timestamp, or null when it is outside the current event window. */
+  stepStartTime: number | null
+  /** First non-empty text/reasoning/tool delta timestamp, or null when no token delta was recorded. */
+  firstTokenTime: number | null
+  /** Final assistant/message timestamp. */
+  completedTime: number
+}
+
 /** A finalized (or interruption-frozen) assistant message. */
 export interface AssistantMessageNode {
   kind: 'assistant'
@@ -64,6 +91,10 @@ export interface AssistantMessageNode {
   step: number
   blocks: readonly AssistantBlock[]
   usage?: unknown
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
+  /** Timing derived from the recorded step/chunk/message event sequence. */
+  timing?: AssistantTiming
   /** Frozen partial of an aborted turn (no finalize ever arrives): rendered with a 已停止 marker.
    *  Synthetic seq (fractional, derived from the turn/end seq) keeps it ordered inside the flow. */
   interrupted?: true
@@ -185,10 +216,12 @@ export interface RunningToolCall {
 }
 
 
-/** One queued-message row mirrored from `session/queued` frames (key: the enqueueing prompt's rpcId when wire-sourced). */
+/** One independently addressable row from the transient queue snapshot. */
 export interface QueuedMessage {
-  readonly key: string
+  readonly id: InboxItemId
   readonly preview: string
+  /** Complete editable text; null when the message contains non-text blocks. */
+  readonly text: string | null
 }
 
 /** In-progress assistant output (chunk accumulator product). */
@@ -246,7 +279,7 @@ export interface ConversationSnapshot {
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
-  /** Read-only inbox mirror (session/queued frames + mux-open baseline; cleared by the leave-running flip). */
+  /** Authoritative transient inbox snapshot, replaced after every host-side change. */
   queue: readonly QueuedMessage[]
   running: boolean
   /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */
