@@ -51,6 +51,8 @@ export async function writeFileAtomic(filename: string, content: string, options
     recursive: true,
     ...options.dirMode === undefined ? {} : { mode: options.dirMode },
   })
+  // TODO(settings-atomic-durability): Use a replacement that fsyncs the file
+  // and parent directory and preserves owner-only permissions on Windows.
   const temp = `${filename}.${randomBytes(6).toString('hex')}.tmp`
   try {
     await writeFile(temp, content, { mode: options.mode, flag: 'wx' })
@@ -135,6 +137,8 @@ export async function withFileLock<T>(
     // free right now, so retry without burning backoff or deadline.
     if (ageMs === undefined) continue
     if (ageMs > LOCK_STALE_MS) {
+      // TODO(settings-lock-ownership): Replace age-only takeover with ownership-safe
+      // acquisition and release so a slow writer cannot remove a successor's lock.
       options?.onStaleBreak?.(lockPath)
       await rm(lockPath, { force: true })
       continue
