@@ -1,0 +1,12 @@
+- dialog "添加 DeepSeek API 密钥":
+  - heading "添加 DeepSeek API 密钥" [level=2]
+  - button "稍后配置":
+    - img
+  - paragraph: 配置 DeepSeek 官方模型，即可开始使用。
+  - text: 提供方
+  - textbox "提供方": DeepSeek
+  - text: API 密钥
+  - textbox "API 密钥":
+    - /placeholder: 输入 DeepSeek API 密钥
+  - button "模型高级设置"
+  - button "保存并继续" [disabled]
