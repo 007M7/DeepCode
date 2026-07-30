@@ -111,6 +111,7 @@ const SCENARIOS: Scenario[] = [
     name: 'session-query-spill',
     hasModelTurn: true,
     recorded: false,
+    overridden: true,
     pinsHeader: true,
     headerClass: 'session-query',
     configPath: SESSION_QUERY_CONFIG,
