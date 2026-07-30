@@ -41,7 +41,7 @@ import {
   type InstructionVersionCache,
   type PendingInstructionChange,
 } from '../src/state.ts'
-import { candidateScopeKey, renderInstructionChanges } from '../src/render.ts'
+import { candidateScopeKey, renderInstructionChanges, renderWorkspaceInstructionSet } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /** Per-candidate reconciliation scope key: directory paired with the file name. */
@@ -818,6 +818,15 @@ describe('workspace context rendering', () => {
     expect(Buffer.byteLength(rendered.text, 'utf8')).toBe(120)
   })
 
+  it('represents a genuinely empty instruction when its compact heading fits', () => {
+    const file = { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: '' }
+    const rendered = renderWorkspaceInstructionSet([file], { maxBytes: 117 })
+
+    expect(rendered.rendered.text).toContain('truncated pkg/AGENTS.md from 0 to 0 bytes')
+    expect(rendered.rendered.text).toContain('Instructions from: pkg/AGENTS.md')
+    expect(rendered.included).toEqual([file])
+  })
+
   it('truncates the compact notice itself when the render budget is smaller than the notice', () => {
     const rendered = renderWorkspaceContext([
       { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'x'.repeat(1000) },
@@ -878,6 +887,23 @@ describe('workspace context rendering', () => {
 
     expect(rendered.text).toContain(heading)
     expect(rendered.text).toContain('from 1000 to 0 bytes')
+    expect(rendered.changes).toEqual([])
+  })
+
+  it('does not commit a multibyte change when the budget cuts its first code point', () => {
+    const change = {
+      action: 'set' as const,
+      scope: sk('pkg', 'AGENTS.md'),
+      path: 'pkg/AGENTS.md',
+      digest: 'digest',
+    }
+    const rendered = renderInstructionChanges([{
+      change,
+      file: { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: '😀'.repeat(100) },
+    }], 366)
+
+    expect(rendered.text).not.toContain('�')
+    expect(rendered.text).not.toContain('😀')
     expect(rendered.changes).toEqual([])
   })
 

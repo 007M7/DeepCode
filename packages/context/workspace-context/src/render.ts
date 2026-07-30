@@ -69,18 +69,16 @@ function byteLength(value: string): number {
   return Buffer.byteLength(value, 'utf8')
 }
 
-function zeroContentTruncatedPaths(truncated: TruncatedInstruction[]): Set<string> {
-  return new Set(truncated
-    .filter(item => item.originalBytes > 0 && item.includedBytes === 0)
-    .map(item => item.displayPath))
-}
-
 function truncateUtf8(value: string, maxBytes: number): string {
-  let truncated = Buffer.from(value, 'utf8').subarray(0, Math.max(0, maxBytes)).toString('utf8')
-  while (byteLength(truncated) > maxBytes) {
-    truncated = truncated.slice(0, -1)
+  const bytes = Buffer.from(value, 'utf8')
+  if (bytes.length <= maxBytes) return value
+  let end = Math.max(0, Math.trunc(maxBytes))
+  // If the first excluded byte is a UTF-8 continuation byte, the budget cut
+  // through that code point. Back up to its lead byte and exclude it too.
+  while (end > 0 && (bytes.readUInt8(end) & 0xc0) === 0x80) {
+    end -= 1
   }
-  return truncated
+  return bytes.subarray(0, end).toString('utf8')
 }
 
 function escapeInstructionFrameBody(body: string): string {
@@ -199,12 +197,10 @@ export function renderInstructionChanges(
   }
   const rendered = renderInstructionContext(items.map(item => item.file), maxBytes, style)
   const represented = new Set(rendered.represented.map(file => file.absolutePath))
-  const contentOmitted = zeroContentTruncatedPaths(rendered.truncated)
   return {
     text: rendered.text,
     changes: items
-      .filter(item => represented.has(item.file.absolutePath)
-        && !contentOmitted.has(item.file.displayPath))
+      .filter(item => represented.has(item.file.absolutePath))
       .map(item => item.change),
   }
 }
@@ -294,21 +290,26 @@ function renderInstructionContext(
   /* v8 ignore next -- callers only reach this after a non-empty fullText was built. */
   if (mostSpecific === undefined) return { text: '', omitted: [], truncated: [], represented: [] }
   const omitted = files.slice(0, -1).map(file => ({ absolutePath: file.absolutePath, displayPath: file.displayPath }))
+  const originalBytes = byteLength(mostSpecific.content)
 
   for (const candidateStyle of [style, { ...style, intro: COMPACT_WORKSPACE_CONTEXT_INTRO }]) {
     const truncatedFile = truncateToFit(mostSpecific, [], maxBytes, omitted, candidateStyle)
+    const includedBytes = byteLength(truncatedFile.content)
     const truncated = [{
       displayPath: mostSpecific.displayPath,
-      originalBytes: byteLength(mostSpecific.content),
-      includedBytes: byteLength(truncatedFile.content),
+      originalBytes,
+      includedBytes,
     }]
     const text = buildInstructionText([truncatedFile], maxBytes, omitted, truncated, candidateStyle)
-    if (byteLength(text) <= maxBytes) return { text, omitted, truncated, represented: [mostSpecific] }
+    if (byteLength(text) <= maxBytes) {
+      const represented = includedBytes > 0 || originalBytes === 0 ? [mostSpecific] : []
+      return { text, omitted, truncated, represented }
+    }
   }
 
   const truncated = [{
     displayPath: mostSpecific.displayPath,
-    originalBytes: byteLength(mostSpecific.content),
+    originalBytes,
     includedBytes: 0,
   }]
   const compactNotice = escapeInstructionFrameBody(markerText(maxBytes, omitted, truncated))
@@ -316,7 +317,8 @@ function renderInstructionContext(
     [compactNotice, style.section(withTruncatedContent(mostSpecific, 0))].join('\n\n'),
   )
   if (byteLength(compactWithHeading) <= maxBytes) {
-    return { text: compactWithHeading, omitted, truncated, represented: [mostSpecific] }
+    const represented = originalBytes === 0 ? [mostSpecific] : []
+    return { text: compactWithHeading, omitted, truncated, represented }
   }
   const text = byteLength(compactNotice) <= maxBytes ? compactNotice : truncateUtf8(compactNotice, maxBytes)
   return { text, omitted, truncated, represented: [] }
@@ -334,8 +336,7 @@ export function renderWorkspaceInstructionSet(
   options: { maxBytes: number },
 ): RenderedInstructionSet {
   const { represented, ...rendered } = renderInstructionContext(files, options.maxBytes, BASELINE_RENDER_STYLE)
-  const contentOmitted = zeroContentTruncatedPaths(rendered.truncated)
-  return { rendered, included: represented.filter(file => !contentOmitted.has(file.displayPath)) }
+  return { rendered, included: represented }
 }
 
 /**
