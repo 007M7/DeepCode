@@ -1,10 +1,11 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
  * (`dsh web` and `dsh -p` boot the one composition; TUI migrates later).
- * Everything here is what must exist before the Loader runs: layered env,
- * the patch composition over the shipped cordis.yml (profile json + CLI
- * flags + the resolved frontend dist), and the fail-loud triple after the
- * tree settles.
+ * Everything here is what must exist before the Loader runs: the patch
+ * composition over the shipped cordis.yml (profile json + CLI flags + the
+ * resolved frontend dist) and the fail-loud triple after the tree settles.
+ * The environment is what the bin already loaded (ambient plus the invoking
+ * directory's `.env`); `$DSH_HOME/.env` belongs to the credential provider.
  */
 
 import { readFileSync } from 'node:fs'
@@ -17,7 +18,7 @@ import type { FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { assertEntriesLoaded, installFailLoud, loadEnv } from '@deepseek-ai/dsh-app-boot'
+import { assertEntriesLoaded, installFailLoud } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -147,7 +148,6 @@ export class AppCLIEntry {
    * @returns the settled root context and the listening port.
    */
   async run(): Promise<{ ctx: Context; port: number }> {
-    this.loadEnvLayers()
     this.composePatches()
     await this.bootTree()
     this.assertBoot()
@@ -155,11 +155,6 @@ export class AppCLIEntry {
     /* v8 ignore next -- the sweep above guarantees an ACTIVE webserver row */
     if (port === undefined) throw new Error('dsh: httpServer service missing after settled boot')
     return { ctx: this.ctx, port }
-  }
-
-  /** Layered .env: ambient > cwd (bin already loaded) > $DSH_HOME (loadEnvFile never overrides). */
-  private loadEnvLayers(): void {
-    loadEnv('dsh', resolveDshHome())
   }
 
   /**

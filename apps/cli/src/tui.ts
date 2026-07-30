@@ -1,9 +1,10 @@
 /**
  * `dsh` default surface — the interactive TUI coding agent. Boots the shipped
  * tui-agent config (or the `--config` override) with the personal overlay
- * from the Harness home (`~/.dsh`): its `.env` fills environment gaps (precedence:
- * ambient environment, then the invoking directory's `.env`, then the personal one)
- * and its `config.yaml` patches the booted tree. The workspace is the invoking
+ * from the Harness home (`~/.dsh`): its `config.yaml` patches the booted tree.
+ * The environment layers are the ambient one and the invoking directory's
+ * `.env`; `$DSH_HOME/.env` stays the credential provider's own store and is
+ * never hoisted into `process.env`. The workspace is the invoking
  * directory: sessions, relative paths, and workspace instructions resolve from
  * the cwd, so `dsh` acts on whatever project it is launched in. After boot, the
  * agent's system prompt is told the path to this harness checkout so it can find
@@ -17,12 +18,10 @@ import {
   addHarnessSourceSection,
   boot,
   installFailLoud,
-  loadEnv,
   loadPersonalPatches,
   RESUME_SESSION_ID_KEY,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import type { Context } from 'cordis'
 import {
   TUI_GOODBYE_MESSAGE_KEY,
@@ -63,9 +62,11 @@ export async function runTui(config: string | undefined, resumeSessionId: string
     process.exit(1)
   }
   installFailLoud(NAME)
-  // The bin already loaded the invoking directory's .env; the personal .env
-  // only fills what is still unset (process.loadEnvFile never overrides).
-  loadEnv(NAME, resolveDshHome())
+  // The bin already loaded the invoking directory's .env as the ambient
+  // layer. `$DSH_HOME/.env` is deliberately NOT loaded here: it is the
+  // credential provider's own writable store, and hoisting it into
+  // process.env would make every stored key look like a read-only launch
+  // override on the next run, blocking rotation from the TUI and the web page.
   process.env.DSH_BUNDLED_SKILL_DIR = join(SOURCE_ROOT, 'skills')
   // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
   // flag, so the resumed process rehydrates through this same intake. The host
