@@ -16,11 +16,6 @@
   - img
   - img
   - text: "Think The user wants me to:"
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
@@ -29,11 +24,6 @@
   - img
   - img
   - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button [expanded]:
   - img
 - text: Mount temporary Plugin typescript
@@ -43,11 +33,6 @@
   - img
   - img
   - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
@@ -61,16 +46,13 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}} 15.3k uncached input · 312 output · 51.2k cache read · cache hit 77% · context 13% of 128k · 1 turns · 4 steps
-- textbox "Message the agent"
+- text: {{clock}}
+- textbox "给智能体发消息"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 4 steps Tool call {{duration}} Cache hit 77% Input 66.5K tok · Output 312 tok

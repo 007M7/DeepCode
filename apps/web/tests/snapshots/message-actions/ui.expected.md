@@ -16,11 +16,6 @@
   - img
   - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - img
 - text: Read
 - button "a.txt"
@@ -36,16 +31,13 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}} 339 uncached input · 135 output · 15.5k cache read · cache hit 98% · context unknown · 1 turns · 2 steps
-- textbox "Message the agent"
+- text: {{clock}}
+- textbox "给智能体发消息"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "选择模型，当前 deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 135 tok

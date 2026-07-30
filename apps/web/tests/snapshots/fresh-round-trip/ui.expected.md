@@ -16,13 +16,10 @@
   - img
   - img
   - text: Think The user wants me to run a simple bash command and reply with "DONE".
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - img
-- text: Bash Echo the test string
+- text: Bash Echo the test string 已完成 workspace echo WEB_E2E_OK
+- button "复制"
+- text: WEB_E2E_OK
 - button "Think The command executed successfully and output \"WEB_E2E_OK\". I just need to reply with \"DONE\".":
   - img
   - img
@@ -32,16 +29,13 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}} 219 uncached input · 111 output · 15.5k cache read · cache hit 99% · context 6% of 128k · 1 turns · 2 steps
-- textbox "Message the agent"
+- text: {{clock}}
+- textbox "给智能体发消息"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 99% Input 15.7K tok · Output 111 tok

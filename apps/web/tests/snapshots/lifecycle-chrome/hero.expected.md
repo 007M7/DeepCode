@@ -1,9 +1,9 @@
-- button "New session"
-- button "Collapse sidebar":
+- button "新建会话"
+- button "收起侧边栏":
   - img
-- button "New session":
+- button "新建会话":
   - img
-  - text: New Session
+  - text: 新会话
 - text: Workspaces
 - button "Group by":
   - img
@@ -28,11 +28,7 @@
 - textbox "Describe what you want to build"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

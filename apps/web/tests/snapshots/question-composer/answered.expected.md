@@ -16,11 +16,6 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
@@ -34,16 +29,13 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}} cache hit 95% · 8,769 tokens · 1 turns · 2 steps
-- textbox "Message the agent"
+- text: {{clock}}
+- textbox "给智能体发消息"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 95% Input 8.6K tok · Output 180 tok

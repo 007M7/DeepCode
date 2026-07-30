@@ -16,15 +16,10 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]} 151 uncached input · 115 output · 7.7k cache read · cache hit 98% · context 4% of 128k · 1 turns · 1 steps"
+- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]}"
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]
