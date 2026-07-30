@@ -1,23 +1,17 @@
 - region "Which color do you prefer?":
   - text: Pick one
   - heading "Which color do you prefer?" [level=2]
-  - text: 1 / 1
-  - button "Previous question" [disabled]:
-    - img
-  - button "Next question" [disabled]:
-    - img
   - button "Dismiss all questions":
     - img
   - radiogroup:
-    - radio "Blue":
-      - text: 1 Blue A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.
-      - img
-    - radio "Green":
-      - text: 2 Green A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.
-      - img
-    - button "Other — enter a custom answer":
-      - img
-      - text: Other — enter a custom answer
+    - radio "Blue": 1 Blue A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.
+    - radio "Green": 2 Green A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.
+    - textbox "Type your answer"
+  - button "Previous question" [disabled]:
+    - img
+  - text: 1 / 1
+  - button "Next question" [disabled]:
+    - img
   - status
   - button "Skip this question"
   - button "Submit" [disabled]
