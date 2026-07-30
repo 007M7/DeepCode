@@ -302,6 +302,11 @@ export class CredentialsLocal extends Credentials {
     await this.write(ref, undefined)
   }
 
+  /* jscpd:ignore-start -- the operation-chain and reload lifecycle is the same
+     reviewed contract as settings-local, deliberately mirrored (prefer symmetry
+     for parallel values); the two providers own different documents and
+     failure policies, so extracting the shape would couple their teardown
+     semantics across packages for a handful of lines. */
   /** Queue one exclusive document operation behind every earlier one. */
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const task = this.operations.then(operation)
@@ -319,6 +324,7 @@ export class CredentialsLocal extends Credentials {
       this.ctx.logger.error(error)
     })
   }
+  /* jscpd:ignore-end */
 
   /** Queue one line edit; entry checks reject early, the queue re-judges them at run time. */
   private async write(ref: CredentialRef, value: string | undefined): Promise<void> {
@@ -390,6 +396,9 @@ export class CredentialsLocal extends Credentials {
     this.values = new Map(Object.entries(parse(text)))
   }
 
+  /* jscpd:ignore-start -- same deliberate mirror of settings-local's reload and
+     reconcile policy: warn-and-keep on a reload, throw on a write, invariant
+     failures propagate. */
   /**
    * Re-read the document after a watcher event. Unchanged content (including
    * this provider's own writes) is a no-op; an unreadable document keeps the
@@ -430,6 +439,7 @@ export class CredentialsLocal extends Credentials {
     this.values = next
     for (const ref of changed) this.notifyUpdated(ref)
   }
+  /* jscpd:ignore-end */
 
   /** Seam-addressable entries whose effective (non-empty) value changed. */
   private changedRefs(prev: Map<string, string>, next: Map<string, string>): CredentialRef[] {

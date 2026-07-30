@@ -40,7 +40,7 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## Per-call policy
 
-The complete execution policy is resolved and carried per capability call. It includes `danger-full-access` so a consumer can resolve policy once before deciding whether to bypass confinement. Normal tool calls derive `workspaceRoot` from the calling session's immutable cwd; deployment configuration is the agentless fallback. The root is canonicalized with filesystem semantics before lexical normalization, so a cwd containing `symlink/..` identifies the directory where a spawned process actually runs.
+The complete execution policy is resolved and carried per capability call. It includes `danger-full-access` so a consumer can resolve policy once before deciding whether to bypass confinement. Normal tool calls derive `workspaceRoot` from the calling session's immutable cwd; deployment configuration is the agentless fallback. The root is canonicalized with filesystem semantics before lexical normalization, so a cwd containing `symlink/..` identifies the directory where a spawned process actually runs. `readDenyPaths` names paths a confined execution must not read whatever its mode permits — the harness credential document by default — and backends that cannot express such a denial report `partial` enforcement rather than claiming a boundary the process lacks.
 
 ```ts type-equiv
 /**
@@ -53,6 +53,18 @@ interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /**
+   * Absolute paths a confined execution must not READ, whatever the mode
+   * otherwise permits — the harness's own credential document is the
+   * motivating case, which is why these are exact paths rather than roots:
+   * denying the whole harness home would also take away the model's
+   * documented access to its own session log. Not every backend can express
+   * a read denial (a Landlock allow-list granting `/` cannot subtract from
+   * itself), so {@link ConfinedArgv.enforcement} drops to `partial` when a
+   * denial is requested and the selected backend cannot apply it. Never a
+   * boundary under `danger-full-access`, which confines nothing at all.
+   */
+  readDenyPaths?: readonly string[]
 }
 ```
 

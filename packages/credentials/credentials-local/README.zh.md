@@ -32,12 +32,12 @@ dotenv 格式，用 `dotenv` 解析；写回用物理行级编辑器，保留一
 
 ## 安全边界
 
-文档位于 `0700` 目录下、权限 `0600`，这挡得住其他 OS 用户，**挡不住**模型。工具进程（bash、文件系统工具）以同一用户身份运行，因此在出厂默认的 `danger-full-access` 下，它们读这个文件与读该用户拥有的任何其他文件毫无二致。有两件事收窄了这一点：
+文档在 `0700` 目录下以 `0600` 权限存放，这挡得住其他 OS 用户，**挡不住**模型。工具进程（bash、文件系统工具）以同一用户身份运行，因此在出厂默认的 `danger-full-access` 下，它们读这个文件与读该用户拥有的任何其他文件毫无二致。有两件事收窄了这一点：
 
-- **约束型沙箱模式**会专门拒绝凭据文档：[`dsh-sandbox-policy`](../../sandbox/sandbox-policy/README.md) 把 `readDenyPaths` 默认为 `$DSH_HOME/.env`，Seatbelt 与 bwrap 后端会执行它（Landlock 无法从自己的 `/` 读授权中扣除，只能报 `partial`）。这条拒绝点名的是该文件而非整个 home，因此模型对自己会话日志的既定访问不受影响。
+- **受限沙箱模式**会专门拒绝凭据文档：[`dsh-sandbox-policy`](../../sandbox/sandbox-policy/README.md) 把 `readDenyPaths` 默认为 `$DSH_HOME/.env`，Seatbelt 与 bwrap 后端会执行它（Landlock 无法从自己的 `/` 读授权中扣除，只能报 `partial`）。这条拒绝点名的是该文件而非整个 home，因此模型对自己会话日志的既定访问不受影响。
 - harness 绝不把该文档的解析后路径交给模型，也绝不把它载入进程环境（见 [app-boot 的个人配置](../../ui/app-boot/README.md#personal-config)）。
 
-这两者都不能让未受约束的 agent 变得安全。必须让提供方密钥远离自身 agent 的部署应当运行约束型模式；OS 钥匙串 provider——一个模型的进程根本读不到的存储——才是延后的答案，它应当作为平级包与本 provider 并列。
+这两者都不能让未受限的 agent 变得安全。必须让提供方密钥远离自身 agent 的部署应当运行受限模式；OS 钥匙串 provider——一个模型的进程根本读不到的存储——才是延后的答案，它应当作为平级包与本 provider 并列。
 
 ## Model Experience
 
@@ -51,7 +51,7 @@ dotenv 格式，用 `dotenv` 解析；写回用物理行级编辑器，保留一
 
 - **多行条目拒绝 `set`/`unset`**——行编辑器不改写会被它破坏的条目；`describe` 把它们报为 `writable: false`，编辑必须直接落到文件上。
 - **同一引用的并发写入是后写胜出**——写锁加读-改-写让并发写入者不会丢掉彼此的条目，但两个写入者编辑同一个引用时仍以较后的写入为准；没有修订检查。
-- **同 UID 进程可以读取该文档**——见[安全边界](#security-boundary)：只有约束型沙箱模式会拒绝它，OS 钥匙串 provider 仍是延后项。
+- **同 UID 进程可以读取该文档**——见[安全边界](#security-boundary)：只有受限沙箱模式会拒绝它，OS 钥匙串 provider 仍是延后项。
 - **无法表示的值响亮失败**——控制字符，或同时混用两种引号又含反斜杠的值，无法在 dotenv 行格式中往返。
 - **环境变化不可见**——每次解析实时读取 `process.env`，但那里的变化不可能发出事件。
 - **原子但不保证崩溃持久**——继承自 `dsh-atomic-write`；存储在启动时重新读取。

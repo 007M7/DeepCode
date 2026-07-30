@@ -33,6 +33,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   MessageId: 'core.md',
   HookContext: 'core.md',
   SettleReason: 'core.md',
+  AdapterRegistrationHandle: 'core.md',
   LlmCallConfig: 'core.md',
   LlmModelContext: 'core.md',
   LlmModelReasoningInfo: 'core.md',

@@ -443,13 +443,18 @@ Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src
 
 ### `credentials/updated` — emit
 
-Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit.
+Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage. Ambient process-environment changes are not observable and never emit. Listener failures are contained and logged — a sync throw and an async rejection alike — without changing the committed operation's outcome, except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
 
 ```ts cordis-catalog
 /**
  * Committed change to a provider-managed credential source: a `set`, an
  * `unset`, or an external edit observed in storage. Ambient
- * process-environment changes are not observable and never emit.
+ * process-environment changes are not observable and never emit. Listener
+ * failures are contained and logged — a sync throw and an async rejection
+ * alike — without changing the committed operation's outcome, except
+ * `INVARIANT`-coded failures, which rethrow after every listener ran;
+ * that rethrow reaches the emitter only from synchronous listeners, so
+ * invariant checks on this event must not be async functions.
  * @param ref - the reference whose stored value changed.
  * @mode emit
  */
@@ -458,7 +463,7 @@ Committed change to a provider-managed credential source: a `set`, an `unset`, o
 
 Types: [CredentialRef](../core-data-structures/credentials.md)
 
-Source: [`packages/credentials/credentials/src/index.ts:62`](../../packages/credentials/credentials/src/index.ts)
+Source: [`packages/credentials/credentials/src/index.ts:67`](../../packages/credentials/credentials/src/index.ts)
 
 ## `domain/*`
 

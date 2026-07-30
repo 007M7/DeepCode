@@ -40,7 +40,7 @@ type SandboxEnforcement = 'full' | 'partial'
 
 ## 逐调用策略
 
-完整执行策略会按每次能力调用解析并携带。它包括 `danger-full-access`，因此消费方可以只解析一次策略，再决定是否绕过约束。普通工具调用从调用会话的不可变 cwd 派生 `workspaceRoot`；部署配置是没有 agent（智能体）时的回退值。root 会先按文件系统语义规范化，再做词法规范化，因此包含 `symlink/..` 的 cwd 会标识所生成进程实际运行的目录。
+完整执行策略会按每次能力调用解析并携带。它包括 `danger-full-access`，因此消费方可以只解析一次策略，再决定是否绕过约束。普通工具调用从调用会话的不可变 cwd 派生 `workspaceRoot`；部署配置是没有 agent（智能体）时的回退值。root 会先按文件系统语义规范化，再做词法规范化，因此包含 `symlink/..` 的 cwd 会标识所生成进程实际运行的目录。`readDenyPaths` 点名受限执行无论其模式允许什么都不得读取的路径——默认是 harness 凭据文档——无法表达此类拒绝的后端会把强制执行报为 `partial`，而不是声称一条该进程其实并不具备的边界。
 
 ```ts type-equiv
 /**
@@ -53,6 +53,18 @@ interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
+  /**
+   * Absolute paths a confined execution must not READ, whatever the mode
+   * otherwise permits — the harness's own credential document is the
+   * motivating case, which is why these are exact paths rather than roots:
+   * denying the whole harness home would also take away the model's
+   * documented access to its own session log. Not every backend can express
+   * a read denial (a Landlock allow-list granting `/` cannot subtract from
+   * itself), so {@link ConfinedArgv.enforcement} drops to `partial` when a
+   * denial is requested and the selected backend cannot apply it. Never a
+   * boundary under `danger-full-access`, which confines nothing at all.
+   */
+  readDenyPaths?: readonly string[]
 }
 ```
 
