@@ -8,7 +8,8 @@ import { useEffect, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
+  IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
+  IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import css from './QueueDock.module.css'
@@ -22,11 +23,15 @@ export interface QueueDockInjected {
 /** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
 export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDockInjected
 
-/** Queue strip: one preview line per queued message; renders null when the queue is empty. */
+/**
+ * Queue strip: one item renders directly; multiple items default to a
+ * collapsible count header; an empty queue renders nothing.
+ */
 export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
   const queue = useSession(s => s.queue)
   const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<QueueItemId | null>(null)
+  const [collapsed, setCollapsed] = useState(true)
 
   useEffect(() => {
     if (editing !== null && !queue.some(row => row.id === editing.id)) setEditing(null)
@@ -63,92 +68,107 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
   return (
     <div className={css.dock}>
       <div className={css.panel}>
-        <ul className={css.list}>
-          {queue.map(row => (
-            <li key={row.id} className={css.row}>
-              {editing?.id === row.id
-                ? (
-                  <input
-                    autoFocus
-                    className={css.editor}
-                    aria-label="编辑排队消息"
-                    value={editing.text}
-                    onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Escape') {
-                        setEditing(null)
-                        return
-                      }
-                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                        event.preventDefault()
-                        void saveEdit()
-                      }
-                    }}
-                  />
-                )
-                : <span className={css.preview}>{row.preview}</span>}
-              <div className={css.actions}>
+        {queue.length > 1 && (
+          <button
+            type="button"
+            className={css.header}
+            aria-expanded={!collapsed}
+            onClick={() => { setCollapsed(value => !value) }}
+          >
+            <span className={css.count}>{queue.length} Queued</span>
+            <span className={css.chevron} aria-hidden>
+              {collapsed ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}
+            </span>
+          </button>
+        )}
+        {(queue.length === 1 || !collapsed) && (
+          <ul className={css.list}>
+            {queue.map(row => (
+              <li key={row.id} className={css.row}>
                 {editing?.id === row.id
                   ? (
-                    <>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label="保存排队消息"
-                        title="保存排队消息"
-                        disabled={busy !== null || editing.text.trim() === ''}
-                        onClick={() => { void saveEdit() }}
-                      >
-                        <IconCheckOutline16 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label="取消编辑"
-                        title="取消编辑"
-                        disabled={busy !== null}
-                        onClick={() => { setEditing(null) }}
-                      >
-                        <IconCloseOutline16 size={14} />
-                      </button>
-                    </>
+                    <input
+                      autoFocus
+                      className={css.editor}
+                      aria-label="编辑排队消息"
+                      value={editing.text}
+                      onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          setEditing(null)
+                          return
+                        }
+                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                          event.preventDefault()
+                          void saveEdit()
+                        }
+                      }}
+                    />
                   )
-                  : (
-                    <>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label="编辑排队消息"
-                        title={row.text === null ? '包含非文本内容，暂不支持编辑' : '编辑排队消息'}
-                        disabled={busy !== null || row.text === null}
-                        onClick={() => {
-                          if (row.text !== null) setEditing({ id: row.id, text: row.text })
-                        }}
-                      >
-                        <IconEditOutline16 size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className={css.action}
-                        aria-label="删除排队消息"
-                        title="删除排队消息"
-                        disabled={busy !== null}
-                        onClick={() => {
-                          void applyAction(
-                            row.id,
-                            { kind: 'remove' },
-                            '删除失败：这条消息可能已经开始发送。',
-                          )
-                        }}
-                      >
-                        <IconTrashOutline16 size={14} />
-                      </button>
-                    </>
-                  )}
-              </div>
-            </li>
-          ))}
-        </ul>
+                  : <span className={css.preview}>{row.preview}</span>}
+                <div className={css.actions}>
+                  {editing?.id === row.id
+                    ? (
+                      <>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label="保存排队消息"
+                          title="保存排队消息"
+                          disabled={busy !== null || editing.text.trim() === ''}
+                          onClick={() => { void saveEdit() }}
+                        >
+                          <IconCheckOutline16 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label="取消编辑"
+                          title="取消编辑"
+                          disabled={busy !== null}
+                          onClick={() => { setEditing(null) }}
+                        >
+                          <IconCloseOutline16 size={14} />
+                        </button>
+                      </>
+                    )
+                    : (
+                      <>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label="编辑排队消息"
+                          title={row.text === null ? '包含非文本内容，暂不支持编辑' : '编辑排队消息'}
+                          disabled={busy !== null || row.text === null}
+                          onClick={() => {
+                            if (row.text !== null) setEditing({ id: row.id, text: row.text })
+                          }}
+                        >
+                          <IconEditOutline16 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className={css.action}
+                          aria-label="删除排队消息"
+                          title="删除排队消息"
+                          disabled={busy !== null}
+                          onClick={() => {
+                            void applyAction(
+                              row.id,
+                              { kind: 'remove' },
+                              '删除失败：这条消息可能已经开始发送。',
+                            )
+                          }}
+                        >
+                          <IconTrashOutline16 size={14} />
+                        </button>
+                      </>
+                    )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   )

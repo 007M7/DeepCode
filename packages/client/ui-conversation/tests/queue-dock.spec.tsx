@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * QueueDock rendering and operations: authoritative rows, inline editing,
- * removal, failure notices, and live retirement.
+ * collapse state, removal, failure notices, and live retirement.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
@@ -78,16 +78,40 @@ describe('QueueDock', () => {
     expect(container.innerHTML).toBe('')
   })
 
+  it('renders one row directly and defaults multiple rows to a collapsible count header', () => {
+    const single = snapshotWith([row('i-1', 'one')])
+    const source = liveSession(single)
+    const view = render(<QueueDock {...kitFor(single)} useSession={source.useSession} />)
+    expect(view.queryByRole('button', { name: '1 Queued' })).toBeNull()
+    expect(view.getByText('one')).toBeTruthy()
+
+    act(() => { source.push(snapshotWith([row('i-1', 'one'), row('i-2', 'two')])) })
+    const header = view.getByRole('button', { name: '2 Queued' })
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText('one')).toBeNull()
+    expect(view.queryByText('two')).toBeNull()
+
+    fireEvent.click(header)
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText('one')).toBeTruthy()
+    expect(view.getByText('two')).toBeTruthy()
+
+    fireEvent.click(header)
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText('one')).toBeNull()
+  })
+
   it('renders active actions and disables editing for mixed-content rows', () => {
     const snap = snapshotWith([
       row('i-1', '第一条排队消息'),
       row('i-2', null, 'image [image]'),
     ])
     const source = liveSession(snap)
-    const { container } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
+    const { container, getByRole } = render(<QueueDock {...kitFor(snap)} useSession={source.useSession} />)
+    fireEvent.click(getByRole('button', { name: '2 Queued' }))
     expect([...container.querySelectorAll('li')].map(item => item.textContent))
       .toEqual(['第一条排队消息', 'image [image]'])
-    expect(container.querySelectorAll('button')).toHaveLength(4)
+    expect(container.querySelectorAll('button')).toHaveLength(5)
     expect(container.querySelectorAll('[aria-label="编辑排队消息"]')).toHaveLength(2)
     expect(container.querySelectorAll('[aria-label="删除排队消息"]')).toHaveLength(2)
     expect(container.querySelectorAll('[aria-label="立即发送排队消息"]')).toHaveLength(0)
@@ -162,10 +186,11 @@ describe('QueueDock', () => {
     const snap = snapshotWith([row('i-1', 'one'), row('i-2', 'two')])
     const source = liveSession(snap)
     const updateQueue = vi.fn(() => Promise.resolve())
-    const { getAllByLabelText } = render(
+    const { getAllByLabelText, getByRole } = render(
       <QueueDock {...kitFor(snap, { updateQueue })} useSession={source.useSession} />,
     )
 
+    fireEvent.click(getByRole('button', { name: '2 Queued' }))
     fireEvent.click(getAllByLabelText('删除排队消息')[0]!)
     await waitFor(() => {
       expect(updateQueue).toHaveBeenCalledWith(iid('i-1'), { kind: 'remove' })

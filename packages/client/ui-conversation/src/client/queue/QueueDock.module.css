@@ -30,6 +30,45 @@
   pointer-events: none;
 }
 
+.header {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 4px 16px 4px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.header:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-tertiary);
+  outline-offset: -2px;
+}
+
+.count {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: Inter, var(--dsw-font-family);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.chevron {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .list {
   margin: 0;
   padding: 0;

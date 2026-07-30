@@ -80,6 +80,10 @@ describe('web e2e: queue row actions', () => {
       await input.fill(text)
       await input.press('Enter')
     }
+    const queueHeader = page.getByRole('button', { name: '2 Queued' })
+    await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
+      .toBe('false')
+    await queueHeader.click()
     await expect.poll(
       () => page.getByRole('button', { name: '删除排队消息' }).count(),
       { timeout: 10_000 },

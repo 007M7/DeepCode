@@ -12,6 +12,7 @@
 - button "编辑":
   - img
 - paragraph: partial
+- button "2 Queued" [expanded]
 - list:
   - listitem:
     - text: Queue item to remove
