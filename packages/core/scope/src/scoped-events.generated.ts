@@ -15,7 +15,6 @@ const scopedSubjectResolvers: Readonly<Record<string, ScopedSubjectResolver | nu
   'agent/request': args => args[0],
   'agent/request-error': args => args[0],
   'agent/session-start': args => args[0],
-  'agent/settled': args => args[0],
   'agent/status': args => args[0],
   'agent/step': args => args[0],
   'agent/turn-stopping': args => args[0],

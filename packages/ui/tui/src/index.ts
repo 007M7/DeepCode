@@ -1227,7 +1227,7 @@ export function createTuiChat(
       if (cleanedUp) return
       cleanedUp = true
       detachSubmit()
-      detachDiscard()
+      detachSplice()
     }
     // Prepended so this wrapper is outermost: it observes the exact accepted
     // message identity whether a downstream hook allows or blocks, then detaches.
@@ -1238,11 +1238,16 @@ export function createTuiChat(
       if (decision.kind !== 'allow') return decision
       return { ...decision, messages: [...decision.messages, attachedContext] }
     }, { prepend: true })
-    // Installed before followup(): an enqueue listener can synchronously
-    // cancel and discard before followup() returns its id.
-    const detachDiscard = ctx.on('agent/inbox/discard', (subject, items) => {
-      if (subject !== agent) return
-      for (const item of items) discarded.add(item.message.id)
+    // Installed before followup(): an inbox observer can synchronously cancel
+    // the inserted message before followup() returns.
+    const detachSplice = ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'agent/inbox/spliced'
+        || event.data.target !== 'next-turn' || event.data.outcome !== 'canceled') return
+      const removed = agent.inbox.nextTurn.slice(
+        event.data.start,
+        event.data.start + (event.data.removedCount ?? 0),
+      )
+      for (const item of removed) discarded.add(item.id)
       if (discarded.has(acceptedId)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
@@ -1463,6 +1468,15 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
+    if (event.type === 'agent/inbox/spliced' && event.data.target === 'next-step') {
+      const removed = agent.inbox.nextStep.slice(
+        event.data.start,
+        event.data.start + (event.data.removedCount ?? 0),
+      )
+      let changed = false
+      for (const message of removed) changed = pendingSteering.delete(message.id) || changed
+      if (changed) refreshStatus()
+    }
     if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
@@ -1473,18 +1487,6 @@ export function createTuiChat(
     }
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
-  })
-  const settlePendingSteering = (id: MessageId): void => {
-    if (pendingSteering.delete(id)) refreshStatus()
-  }
-  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, item) => {
-    if (subject === agent) settlePendingSteering(item.message.id)
-  })
-  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, items) => {
-    if (subject !== agent) return
-    let changed = false
-    for (const item of items) changed = pendingSteering.delete(item.message.id) || changed
-    if (changed) refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
@@ -1526,8 +1528,6 @@ export function createTuiChat(
     for (const value of promptValues) value.dispose()
     stopBannerReveal()
     disposeSessionEvents()
-    disposeDequeued()
-    disposeDiscarded()
     disposeStatus()
     disposeError()
     disposeAgent()

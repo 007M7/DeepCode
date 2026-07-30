@@ -59,6 +59,7 @@ describe('scoped-dispatch invariants', () => {
           step: 1,
           provider: 'p',
           failure: { message: 'request', code: 'UNKNOWN' },
+          retryPolicy: undefined,
         },
         signal,
         () => Promise.resolve(undefined),

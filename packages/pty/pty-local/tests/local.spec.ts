@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService from '@deepseek-ai/dsh-pty'
 import type { PtySendOperation } from '@deepseek-ai/dsh-pty'
@@ -33,8 +33,9 @@ class PassthroughSandbox extends SandboxProvider {
 function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scope = ctx.plugin(() => {})
+  const session = new Session(id)
   return {
-    id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
+    id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: scope.ctx,
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }

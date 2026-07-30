@@ -3,7 +3,7 @@ import type { IPty, IPtyForkOptions } from 'node-pty'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox, type Agent } from '@deepseek-ai/dsh-agent'
 import SandboxProvider from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import SandboxPolicyService, { setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
@@ -40,8 +40,9 @@ function config(): ResolvedConfig {
 
 function agent(ctx: Context): Agent {
   const id = SessionId('agent')
+  const session = new Session(id)
   return {
-    id, options: {}, session: new Session(id), status: 'idle', ctx,
+    id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx,
     followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
@@ -248,7 +249,7 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: ownerFiber.ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
@@ -291,7 +292,7 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: ownerFiber.ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)

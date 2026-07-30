@@ -5,17 +5,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, visibleWidth, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
-  agentEvents, assembleContextFor, InboxItemId, type Agent, type InboxItem,
-  type InboxPlacement,
+  agentEvents, assembleContextFor, Inbox, type Agent,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage,
   createToolResultMessage,
   ReasoningEffortId,
   type LlmCallConfig,
   type LlmModelReasoningInfo,
-  MessageId,
   createMessage,
-  freezeMessage,
 } from '@deepseek-ai/dsh-llm'
 import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
@@ -52,13 +49,6 @@ import { TestSessionQueryService } from './session-query.ts'
 const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
   schema: { type: 'null' },
   render: () => [],
-}
-
-let nextInboxItem = 0
-
-/** Wrap one test message in the production inbox occurrence envelope. */
-function inboxItem(message: InboxItem['message'], placement: InboxPlacement): InboxItem {
-  return { id: InboxItemId(`tui-item-${nextInboxItem++}`), message, placement }
 }
 
 class FakeTerminal implements Terminal {
@@ -461,9 +451,9 @@ describe('goodbye message and /resume', () => {
   })
 
   it.each([
-    [{ kind: 'aborted' }, 'cancelled'],
-    [{ kind: 'error', step: 1, message: 'failed' }, 'error'],
-    [{ kind: 'disposed' }, 'disposed'],
+    [{ kind: 'aborted', reason: { kind: 'user' } }, 'cancelled'],
+    [{ kind: 'error', error: new Error('failed') }, 'error'],
+    [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'cancelled'],
     [{ kind: 'max-tokens' }, 'max tokens'],
     [{ kind: 'interrupted' }, 'interrupted'],
     [{ kind: 'future-result' } as unknown as TurnEndReason, 'unknown result'],
@@ -1342,7 +1332,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }), { surfaceOp: 'append' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
-    result.session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
+    result.session.append('turn/end', {
+      turn: 1,
+      reason: { kind: 'aborted', reason: { kind: 'user' } },
+    })
     result.session.append('turn/start', { turn: 2 })
     result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     result.session.append('turn/start', { turn: 3 })
@@ -1660,16 +1653,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const submitSteering = (text: string): void => {
       result.terminal.send(text)
       result.terminal.send('\r')
+      const message = result.agent.steeredOptions.at(-1)
+      if (message !== undefined) {
+        result.agent.inbox.splice('next-step', result.agent.inbox.nextStep.length, 0, [message])
+      }
     }
     const drainSteering = (text: string): void => {
       const id = result.agent.steeredIds.shift()
       if (id !== undefined) {
-        result.ctx.emit('agent/inbox/dequeue', result.agent, inboxItem(freezeMessage({
-          id,
-          role: 'user',
-          content: [{ type: 'text', text }],
-          source: { kind: 'user' },
-        }), 'steering'))
+        const index = result.agent.inbox.nextStep.findIndex(message => message.id === id)
+        if (index >= 0) result.agent.inbox.splice('next-step', index, 1, [], 'admitted')
       }
       result.session.append('steering/message', {
         turn: 1,
@@ -1679,18 +1672,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
         }),
       }, { surfaceOp: 'append' })
     }
-
-    // A steering queue for a different agent never touches this status line.
-    const other = { ...result.agent, id: SessionId('other') } as Agent
-    result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, inboxItem(freezeMessage({
-      id: MessageId('stub'),
-      role: 'user',
-      content: [{ type: 'text', text: 'elsewhere' }],
-      source: { kind: 'user' },
-    }), 'queued'))
-    await tick()
-    expect(result.terminal.output).not.toContain('queued')
 
     // Two steering messages queue while the turn runs.
     submitSteering('first')
@@ -1753,34 +1734,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
     submitSteering('fourth')
     await tick()
     expect(result.terminal.output).toContain('2 queued')
-    const discarded = result.agent.steeredIds.splice(0).map(id => freezeMessage({
-      id,
-      role: 'user' as const,
-      content: [{ type: 'text' as const, text: 'discarded' }],
-      source: { kind: 'user' as const },
-    }))
-    // Another agent's dequeue/discard, and ones naming no pending id, leave
-    // the badge alone.
-    result.ctx.emit('agent/inbox/dequeue', other, inboxItem(discarded[0]!, 'steering'))
-    result.ctx.emit('agent/inbox/dequeue', result.agent, inboxItem(freezeMessage({
-      id: MessageId('never-queued'),
-      role: 'user',
-      content: [{ type: 'text', text: 'x' }],
-      source: { kind: 'user' },
-    }), 'steering'))
-    result.ctx.emit('agent/inbox/discard', other, discarded.map(message => inboxItem(message, 'steering')))
-    result.ctx.emit('agent/inbox/discard', result.agent, [
-      inboxItem(freezeMessage({
-        id: MessageId('never-queued'),
-        role: 'user',
-        content: [{ type: 'text', text: 'x' }],
-        source: { kind: 'user' },
-      }), 'steering'),
-    ])
-    await tick()
-    expect(result.terminal.output).toContain('2 queued')
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/discard', result.agent, discarded.map(message => inboxItem(message, 'steering')))
+    result.agent.steeredIds.splice(0)
+    result.agent.inbox.splice(
+      'next-step',
+      0,
+      result.agent.inbox.nextStep.length,
+      [],
+      'canceled',
+    )
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -2096,12 +2058,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('tracks steering drains without a running status line', async () => {
     const result = await setup()
     const source = { kind: 'user' as const }
-    result.ctx.emit('agent/inbox/enqueue', result.agent, inboxItem(freezeMessage({
-      id: MessageId('stub'),
-      role: 'user',
-      content: [{ type: 'text', text: 'early' }],
-      source,
-    }), 'steering'))
     result.session.append('steering/message', {
       turn: 1,
       message: createUserMessage({
@@ -2609,21 +2565,25 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // Idle: the snapshot rides the prompt's admission (additionalContexts on
     // the allow decision), not a separate pre-admission inject.
     expect(result.agent.injected).toHaveLength(0)
+    const submitted = result.agent.sentMessages[0]!
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sentMessages[0]!,
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [submitted],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [submitted] }),
     )
     expect(decision.kind).toBe('allow')
-    expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
+    expect(decision.kind === 'allow'
+      && decision.messages.find(message => message.source.kind === 'session-reference')?.source)
       .toMatchObject({ kind: 'session-reference', references: [{ sessionId: 'source-session' }] })
 
     // The one-shot wrapper detached itself at admission: replaying the
     // waterfall attaches nothing a second time.
     const replay = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sentMessages[0]!,
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [submitted],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [submitted] }),
     )
-    expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
+    expect(replay.kind === 'allow' && replay.messages).toEqual([submitted])
 
     const mention = formatSessionReferenceMention({ sessionId: sourceId, label: 'Source chat' })
     result.agent.status = 'running'
@@ -2662,31 +2622,32 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // Running each prompt's admission waterfall detaches its wrapper.
     for (const sent of result.agent.sentMessages) {
       await agentEvents(result.ctx, result.agent).waterfall(
-        'agent/prompt-submit', sent,
-        new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+        'agent/prompt-submit', [sent],
+        new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const, messages: [sent] }),
       )
     }
     // Both wrappers now gone: a discard naming either prompt's content finds
     // no armed listener, and an unrelated admission is untouched. The leak
     // regression: a listener installed after its cleanup already ran would
     // survive every future cleanup.
-    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages[0]!, 'queued')])
+    const unrelatedMessage = createUserMessage({
+      content: [{ type: 'text', text: 'unrelated' }],
+      source: { kind: 'user' },
+    })
     const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', createUserMessage({
-        content: [{ type: 'text', text: 'unrelated' }],
-        source: { kind: 'user' },
-      }),
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [unrelatedMessage],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [unrelatedMessage] }),
     )
-    expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
+    expect(unrelated.kind === 'allow' && unrelated.messages).toEqual([unrelatedMessage])
     // Replaying either sent prompt attaches nothing: the one-shot wrappers
     // are gone, not merely spent.
     for (const sent of result.agent.sentMessages) {
       const replay = await agentEvents(result.ctx, result.agent).waterfall(
-        'agent/prompt-submit', sent,
-        new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+        'agent/prompt-submit', [sent],
+        new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const, messages: [sent] }),
       )
-      expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
+      expect(replay.kind === 'allow' && replay.messages).toEqual([sent])
     }
     await dispose(result)
   })
@@ -2704,20 +2665,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // Real send() publishes its already identified snapshot, then an enqueue
     // listener may synchronously cancel and discard it before followup()
     // returns that id. This stub reproduces that ordering.
-    const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
     result.agent.followup = (input) => {
       result.agent.sent.push(input.content)
       result.agent.sentMessages.push(input)
-      const message = freezeMessage({
-        id: input.id,
-        role: 'user' as const,
-        content: structuredClone(input.content),
-        source: structuredClone(input.source),
-      })
-      result.ctx.emit('agent/inbox/enqueue', foreign, inboxItem(message, 'queued'))
-      result.ctx.emit('agent/inbox/enqueue', result.agent, inboxItem(message, 'queued'))
-      result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(message, 'queued')])
-      return message.id
+      result.agent.inbox.splice('next-turn', 0, 0, [input])
+      result.agent.inbox.splice('next-turn', 0, 1, [], 'canceled')
     }
 
     result.terminal.send('@sync-source')
@@ -2731,10 +2683,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // returned the existing id: replaying the prompt's admission attaches no
     // stranded snapshot, and nothing leaks for the TUI lifetime.
     const replay = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sentMessages[0]!,
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [result.agent.sentMessages[0]!],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [result.agent.sentMessages[0]!] }),
     )
-    expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
+    expect(replay.kind === 'allow' && replay.messages).toEqual([result.agent.sentMessages[0]!])
     await dispose(result)
   })
 
@@ -2762,22 +2715,25 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
 
     const blocked = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sentMessages[0]!,
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [result.agent.sentMessages[0]!],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [result.agent.sentMessages[0]!] }),
     )
     expect(blocked.kind).toBe('block')
     // Nothing entered history and nothing waits for a later prompt: a fresh
     // unrelated admission sees no leftover contexts.
     expect(result.agent.injected).toHaveLength(0)
     blockPrompts = false
+    const unrelatedMessage = createUserMessage({
+      content: [{ type: 'text', text: 'unrelated' }],
+      source: { kind: 'user' },
+    })
     const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', createUserMessage({
-        content: [{ type: 'text', text: 'unrelated' }],
-        source: { kind: 'user' },
-      }),
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [unrelatedMessage],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [unrelatedMessage] }),
     )
-    expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
+    expect(unrelated.kind === 'allow' && unrelated.messages).toEqual([unrelatedMessage])
 
     // Second referenced prompt, this time dropped by a broad cancel before
     // any admission runs: the discard listener releases the wrapper.
@@ -2788,31 +2744,33 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
     // A different prompt passing the still-armed wrapper delegates untouched.
+    const differentMessage = createUserMessage({
+      content: [{ type: 'text', text: 'different prompt' }],
+      source: { kind: 'user' },
+    })
     const passthrough = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', createUserMessage({
-        content: [{ type: 'text', text: 'different prompt' }],
-        source: { kind: 'user' },
-      }),
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [differentMessage],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [differentMessage] }),
     )
-    expect(passthrough.kind === 'allow' && passthrough.additionalContexts).toBeUndefined()
-    // A foreign agent's discard leaves the wrapper armed.
-    const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
-    result.ctx.emit('agent/inbox/discard', foreign, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
-    // An unrelated discard for this agent also leaves the wrapper armed.
-    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(createUserMessage({
+    expect(passthrough.kind === 'allow' && passthrough.messages).toEqual([differentMessage])
+    // Canceling the exact pending message releases its wrapper.
+    const canceled = result.agent.sentMessages.at(-1)!
+    result.agent.inbox.splice('next-turn', 0, 0, [canceled])
+    result.agent.inbox.splice('next-turn', 0, 1, [], 'canceled')
+    const unrelatedDiscard = createUserMessage({
       content: [{ type: 'text', text: 'unrelated discard' }],
       source: { kind: 'user' },
-    }), 'queued')])
-    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
+    })
+    result.agent.inbox.splice('next-turn', 0, 0, [unrelatedDiscard])
+    result.agent.inbox.splice('next-turn', 0, 1, [], 'canceled')
     await tick()
-    // Idempotent: a repeat discard after cleanup is a no-op.
-    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
     const afterDiscard = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sentMessages.at(-1)!,
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [canceled],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [canceled] }),
     )
-    expect(afterDiscard.kind === 'allow' && afterDiscard.additionalContexts).toBeUndefined()
+    expect(afterDiscard.kind === 'allow' && afterDiscard.messages).toEqual([canceled])
     await dispose(result)
   })
 
@@ -2963,11 +2921,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.sent).toEqual([[
       { type: 'text', text: '@evil\\x1b\\x07\\x9b\\x0as' },
     ]])
+    const submitted = result.agent.sentMessages[0]!
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sentMessages[0]!,
-      new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
+      'agent/prompt-submit', [submitted],
+      new AbortController().signal,
+      () => Promise.resolve({ kind: 'allow' as const, messages: [submitted] }),
     )
-    expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
+    expect(decision.kind === 'allow'
+      && decision.messages.find(message => message.source.kind === 'session-reference')?.source)
       .toMatchObject({ references: [{ sessionId: unsafeId }] })
     await dispose(result)
   })
@@ -3738,11 +3699,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     agentEvents(events.ctx, unrelatedAgent).emit('agent/disposed')
     agentEvents(events.ctx, events.agent).emit('agent/error', 1, 1, new Error('live failure'))
     events.session.append('step/end', { turn: 1, step: 1 })
-    events.session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'live failure' } })
+    events.session.append('turn/end', { turn: 1, reason: { kind: 'error', error: 'live failure' } })
     events.session.append('turn/start', { turn: 2 })
-    events.session.append('turn/end', { turn: 2, reason: { kind: 'error', step: 1, message: 'durable failure' } })
+    events.session.append('turn/end', { turn: 2, reason: { kind: 'error', error: 'durable failure' } })
     events.session.append('turn/start', { turn: 3 })
-    events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted' } })
+    events.session.append('turn/end', {
+      turn: 3,
+      reason: { kind: 'aborted', reason: { kind: 'user' } },
+    })
     events.session.append('turn/start', { turn: 4 })
     events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
     events.session.append('turn/start', { turn: 5 })
@@ -3750,10 +3714,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/start', { turn: 6 })
     events.session.append('turn/end', {
       turn: 6,
-      reason: { kind: 'error', step: 1, failure: { message: 'structured provider failure', code: 'SERVER' } },
+      reason: { kind: 'error', error: { message: 'structured provider failure', code: 'SERVER' } },
     })
     events.session.append('turn/start', { turn: 8 })
-    events.session.append('turn/end', { turn: 8, reason: { kind: 'disposed' } })
+    events.session.append('turn/end', {
+      turn: 8,
+      reason: { kind: 'aborted', reason: { kind: 'disposed' } },
+    })
     events.session.append('turn/start', { turn: 9 })
     // Merge-extensible reason kind unknown to the TUI still names the stop.
     events.session.append('turn/end', { turn: 9, reason: { kind: 'plugin-policy' } as never })
@@ -4935,7 +4902,7 @@ describe('terminal mounting', () => {
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
-      id: session.id, options: {}, session, status: 'idle', ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
@@ -4960,7 +4927,7 @@ describe('terminal mounting', () => {
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
-      id: session.id, options: {}, session, status: 'idle', ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
@@ -4995,14 +4962,14 @@ describe('terminal mounting', () => {
 
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
-      id: otherSession.id, options: {}, session: otherSession, status: 'idle', ctx,
+      id: otherSession.id, options: {}, session: otherSession, inbox: new Inbox(otherSession), status: 'idle', ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
-      id: session.id, options: {}, session, status: 'idle', ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
@@ -5033,7 +5000,7 @@ describe('terminal mounting', () => {
 
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
-      id: session.id, options: {}, session, status: 'idle', ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
@@ -5077,7 +5044,7 @@ describe('terminal mounting', () => {
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
-      id: session.id, options: {}, session, status: 'running', ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'running', ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()

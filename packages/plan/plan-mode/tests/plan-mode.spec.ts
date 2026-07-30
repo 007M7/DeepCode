@@ -59,14 +59,15 @@ async function setup(config: PlanModeConfig = PLAN_CONFIG): Promise<Context> {
 async function boundary(ctx: Context, agent: Agent & { session: Session }, type: 'turn/start' | 'step/end'): Promise<void> {
   const events = agentEvents(ctx, agent)
   if (type === 'turn/start') {
+    const message = createUserMessage({
+      content: [{ type: 'text', text: 'boundary probe' }],
+      source: { kind: 'user' },
+    })
     await events.waterfall(
       'agent/prompt-submit',
-      createUserMessage({
-        content: [{ type: 'text', text: 'boundary probe' }],
-        source: { kind: 'user' },
-      }),
+      [message],
       new AbortController().signal,
-      () => Promise.resolve({ kind: 'allow' }),
+      () => Promise.resolve({ kind: 'allow', messages: [message] }),
     )
     return
   }

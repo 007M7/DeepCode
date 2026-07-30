@@ -510,9 +510,12 @@ export class LlmService extends Service {
     let completed = false
     try {
       while (true) {
-        let item: IteratorResult<StreamChunk>
+        let item: { done: true } | { done: false; value: StreamChunk }
         try {
-          item = await iterator.next()
+          const next = await iterator.next()
+          item = next.done
+            ? { done: true }
+            : { done: false, value: next.value }
         } catch (error: unknown) {
           completed = true
           yield adapterFailureChunk(error, options.signal)
@@ -527,8 +530,7 @@ export class LlmService extends Service {
         yield item.value
       }
     } finally {
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the iteration catch sets its latch before entering finally.
-      if (!completed && !iterationFailed) {
+      if (!completed) {
         const close = iterator.return?.bind(iterator)
         if (close) await close()
       }

@@ -2,6 +2,7 @@ import { createUserMessage, MessageId , createMessage } from '@deepseek-ai/dsh-l
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
+  Inbox,
   type Agent,
   type AgentCancelCause,
   type AgentOptions,
@@ -190,6 +191,7 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     id: sessionId,
     options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
     session,
+    inbox: new Inbox(session),
     status: options.status ?? 'idle',
     ctx,
     sent,

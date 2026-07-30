@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import AgentRegistry, {} from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import PtyService, { PtyBackendCleanupError, PtyError, PtySessionId } from '@deepseek-ai/dsh-pty'
 import type {
@@ -21,10 +21,12 @@ const ptyServiceDisposers = new WeakMap<Context, () => Promise<void>>()
 function stubAgent(ctx: Context, rawId: string): Agent {
   const id = SessionId(rawId)
   const scopeFiber = ctx.plugin(() => {})
+  const session = new Session(id)
   const agent: Agent = {
     id,
     options: {},
-    session: new Session(id),
+    session,
+    inbox: new Inbox(session),
     status: 'idle',
     ctx: scopeFiber.ctx,
     followup: () => {},

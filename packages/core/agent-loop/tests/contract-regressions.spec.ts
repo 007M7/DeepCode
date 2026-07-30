@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage, freezeMessage, CallId, MessageSource, ProviderRequestId, StreamChunk  } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason, type UserMessage } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -268,7 +268,7 @@ describe('abort during tool execution ends the turn', () => {
         [{ type: 'text', text: 'accepted result context during disposal' }],
       ])
     expect(agent.session.events.find(event => event.type === 'turn/end')?.data.reason)
-      .toEqual({ kind: 'disposed' })
+      .toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
   })
 
   it('limits injection deferral to the current tool batch', async () => {
@@ -390,7 +390,6 @@ describe('steering from late extension points is never stranded', () => {
       if (event.type === 'turn/start') turns.push(event.data.turn)
       if (event.type === 'turn/end' && !steeredOnce) {
         steeredOnce = true
-        expect(agent.acceptsNextStep).toBe(false)
         agent.steer(createUserMessage({ content: [{ type: 'text', text: 'too late for this turn' }], source: { kind: 'user' } }))
       }
     })
@@ -461,7 +460,7 @@ describe('disposal leaves the two-state status contract balanced', () => {
     await driverDone(agent)
 
     expect(statuses).toEqual(['running', 'idle'])
-    expect(reasons).toEqual([{ kind: 'disposed' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'disposed' } }])
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     const messages = agent.session.events
       .filter(event => event.type === 'user/message')
@@ -956,7 +955,7 @@ describe('turn and step boundary recovery', () => {
     const turnEnds = e.filter(x => x.type === 'turn/end').length
     expect(turnStarts).toBe(1)
     expect(turnEnds).toBe(1) // balanced — the turn was closed despite disposal
-    expect(reasons).toEqual([{ kind: 'disposed' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'disposed' } }])
     // no error reason: disposal is not a failure.
     expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
   })
@@ -989,7 +988,7 @@ describe('turn and step boundary recovery', () => {
     // Balanced: one turn/start, one turn/end carrying disposed (NOT error).
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
     expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
     // No step opened (the throw was before step/start) and disposal is not a
     // failure, so no agent/error for the contained throw.
@@ -1225,7 +1224,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
   })
@@ -1272,12 +1271,12 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     expect(e.some(x => x.type === 'assistant/message')).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
   it('disposal during agent/step listeners ends the turn disposed', { timeout: 15000 }, async () => {
@@ -1324,7 +1323,7 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
     // Disposal wins the post-listener check — reason is `disposed`.
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
     // The durable turn/end record is the authoritative turn-boundary signal
@@ -1372,10 +1371,10 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
     expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
     const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
     expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
   it('disposal during assembly does not leak an LLM call or append assistant/chunk', { timeout: 15000 }, async () => {

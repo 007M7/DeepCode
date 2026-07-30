@@ -4,7 +4,7 @@ import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
+  HistoryEntry, IApiClient, MessageId, MuxFrame, QueueAction, RpcError,
   RpcId, RpcResult, SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
@@ -232,7 +232,7 @@ export class Session implements SessionFace {
   }
 
   /** Apply one operation to a still-pending queue occurrence. */
-  async updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
+  async updateQueue(itemId: MessageId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
     try {
       return (await this.api.sessions.updateQueue({ sessionId: this.sessionId, itemId, action })).result
     } catch (error) {
@@ -405,8 +405,8 @@ export class Session implements SessionFace {
       case 'session/queue': {
         this.queued = frame.items.map(item => ({
           id: item.id,
-          preview: queuePreviewOf(item.message.content),
-          text: queueTextOf(item.message.content),
+          preview: queuePreviewOf(item.content),
+          text: queueTextOf(item.content),
         }))
         this.queueRev++
         this.notifier.markDirty()

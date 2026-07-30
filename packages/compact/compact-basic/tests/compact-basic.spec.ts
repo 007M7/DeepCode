@@ -1383,7 +1383,10 @@ describe('automatic listener and loader composition', () => {
     const failure: LlmFailure = { message: error.message, code: error.code ?? 'UNKNOWN' }
     const turn = owner.session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 1
     return agentEvents(ctx, owner).waterfall(
-      'agent/request-error', turn, 1, error, failure, [], undefined, signal, next,
+      'agent/request-error',
+      { turn, step: 1, provider: 'test', failure, retryPolicy: undefined },
+      signal,
+      next,
     ).then(action => action?.kind === 'retry')
   }
 

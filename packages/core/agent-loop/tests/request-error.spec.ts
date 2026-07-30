@@ -59,22 +59,19 @@ describe('agent/request-error', () => {
       turn: number
       step: number
       failure: LlmFailure
-      priorFailures: readonly LlmFailure[]
       retryPolicy: ResolvedRetryPolicy | undefined
     }[] = []
     const statuses: string[] = []
     ctx.on('agent/status', (subject, status) => {
       if (subject === agent) statuses.push(status)
     })
-    ctx.on('agent/request-error', async (
-      subject, turn, step, _error, failure, priorFailures, retryPolicy,
-    ) => {
+    ctx.on('agent/request-error', async (subject, context) => {
       expect(subject).toBe(agent)
       expect(agent.session.events.at(-1)).toMatchObject({
         type: 'step/end',
-        data: { turn, step },
+        data: { turn: context.turn, step: context.step },
       })
-      seen.push({ turn, step, failure, priorFailures, retryPolicy })
+      seen.push(context)
       return { kind: 'retry' }
     })
 
@@ -98,8 +95,6 @@ describe('agent/request-error', () => {
       },
     ])
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
-    expect(seen.map(item => item.priorFailures.map(failure => failure.code)))
-      .toEqual([[], ['RATE_LIMIT']])
     expect(seen.map(item => item.retryPolicy)).toEqual([
       expect.objectContaining({ mode: 'normal' }),
       expect.objectContaining({ mode: 'normal' }),
@@ -123,7 +118,7 @@ describe('agent/request-error', () => {
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events.find(event => event.type === 'turn/end')).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'aborted' } },
+      data: { reason: { kind: 'aborted', reason: { kind: 'user' } } },
     })
   })
 

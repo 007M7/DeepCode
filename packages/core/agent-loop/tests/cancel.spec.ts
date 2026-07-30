@@ -235,7 +235,7 @@ describe('Agent.cancel()', () => {
     agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
     expect(userTexts(agent)).toEqual(['go'])
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(adapter.requests).toHaveLength(1)
@@ -272,7 +272,7 @@ describe('Agent.cancel()', () => {
     dispose()
 
     expect(executions).toBe(0)
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
     const call = agent.session.events.find(event => event.type === 'tool/call')
     const result = agent.session.events.find(event => event.type === 'tool/result')
     expect(call?.type === 'tool/call' ? call.data.callId : undefined).toBe('c1')
@@ -291,7 +291,7 @@ describe('Agent.cancel()', () => {
       .find(block => block.type === 'tool-result')
     expect(replayedResult).toMatchObject({ toolCallId: 'c1', isError: true })
     expect(reasons).toEqual([
-      { kind: 'aborted' },
+      { kind: 'aborted', reason: { kind: 'user' } },
       { kind: 'completed' },
     ])
   })
@@ -342,7 +342,7 @@ describe('Agent.cancel()', () => {
     // the caller's cause — the marker carries `cancel(cause)` through even
     // though no AbortController observed it in this window.
     expect(streamed).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
   it('cancel from a synchronous step/start session-event listener drops the step (post-step-start window)', async () => {
@@ -370,12 +370,12 @@ describe('Agent.cancel()', () => {
     // No step streamed, the turn ended with the coarse aborted outcome, and the
     // log is balanced (the open step was closed by the cancel branch).
     expect(streamed).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
     const types = agent.session.events.map(e => e.type)
     expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
   })
 
-  it('disposal from a synchronous step/start session-event listener closes the open step as disposed', async () => {
+  it('disposal from a synchronous step/start session-event listener stops before adapter dispatch', async () => {
     const adapter = new MockAdapter([textResponse('should not stream')])
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -405,8 +405,7 @@ describe('Agent.cancel()', () => {
 
     expect(streamed).toBe(false)
     expect(adapter.requests).toHaveLength(0)
-    const turnEnd = agent.session.events.findLast(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'disposed' })
+    expect(agent.session.events.some(e => e.type === 'turn/end')).toBe(false)
     const types = agent.session.events.map(e => e.type)
     expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
   })
@@ -437,7 +436,7 @@ describe('Agent.cancel()', () => {
     // Only ONE step ran (the second was cancelled in the stopping window),
     // and the shared turn signal classified the durable outcome as aborted.
     expect(steps).toBe(1)
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
   it('cancel from a synchronous agent/status(running) listener drops the turn (window 2)', async () => {
@@ -569,10 +568,10 @@ describe('Agent.cancel()', () => {
     const reasons = agent.session.events
       .filter(event => event.type === 'turn/end')
       .map(event => event.type === 'turn/end' ? event.data.reason : undefined)
-    expect(reasons).toEqual([{ kind: 'aborted' }, { kind: 'completed' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }, { kind: 'completed' }])
   })
 
-  it('keeps the first typed cause for an active turn and detaches the runtime reason', async () => {
+  it('keeps the first typed cause for an active turn', async () => {
     const adapter = new MockAdapter(['hang'])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('typed-first-wins'), { provider: 'mock', model: 'mock' })
@@ -581,16 +580,17 @@ describe('Agent.cancel()', () => {
     send(agent, 'go')
     await expect.poll(() => adapter.requests.length).toBe(1)
     agent.cancel(supplied)
-    supplied.kind = 'user'
     agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
 
     const runtimeReason: unknown = adapter.requests[0]?.signal?.reason
     expect(runtimeReason).toEqual({ kind: 'parent' })
-    expect(runtimeReason).not.toBe(supplied)
-    expect(Object.isFrozen(runtimeReason)).toBe(true)
+    expect(runtimeReason).toBe(supplied)
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
+      kind: 'aborted',
+      reason: { kind: 'parent' },
+    })
   })
 
   it('preserves the first user cancellation when lifecycle teardown races it', async () => {
@@ -608,7 +608,7 @@ describe('Agent.cancel()', () => {
     await handle.dispose()
 
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
   })
 
   it.each([
@@ -688,7 +688,7 @@ describe('Agent.cancel()', () => {
     if (stage === 'prompt-submit') {
       expect(turnEnd).toBeUndefined()
     } else {
-      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+      expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
     }
     await ctx.fiber.dispose()
   })

@@ -128,9 +128,9 @@ describe('SessionStore.fork', () => {
     const { ctx, sessions } = await setup()
     const reasons: TurnEndReason[] = [
       { kind: 'completed' },
-      { kind: 'aborted' },
-      { kind: 'error', step: 1, message: 'model failed', code: 'MODEL' },
-      { kind: 'disposed' },
+      { kind: 'aborted', reason: { kind: 'user' } },
+      { kind: 'error', error: new Error('model failed') },
+      { kind: 'aborted', reason: { kind: 'disposed' } },
       { kind: 'max-tokens' },
       { kind: 'interrupted' },
     ]

@@ -122,10 +122,12 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n') }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
-      ctx.on('agent/prompt-submit', async () => ({
+      ctx.on('agent/prompt-submit', async (_agent, messages) => ({
         kind: 'allow' as const,
-        content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
-        additionalContexts: [createUserMessage({
+        messages: [{
+          ...messages[0]!,
+          content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
+        }, createUserMessage({
           content: [{ type: 'text' as const, text: 'from-downstream' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
         })],

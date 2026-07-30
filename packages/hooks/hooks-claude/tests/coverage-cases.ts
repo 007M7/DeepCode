@@ -514,10 +514,12 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
-      ctx.on('agent/prompt-submit', async () => ({
+      ctx.on('agent/prompt-submit', async (_agent, messages) => ({
         kind: 'allow' as const,
-        content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
-        additionalContexts: [createUserMessage({
+        messages: [{
+          ...messages[0]!,
+          content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
+        }, createUserMessage({
           content: [{ type: 'text' as const, text: 'from-downstream' }],
           source: { kind: 'plugin' as const, plugin: 'policy' },
         })],

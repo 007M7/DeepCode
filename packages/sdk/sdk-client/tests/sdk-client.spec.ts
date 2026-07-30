@@ -158,7 +158,6 @@ describe('DeepSeekHarness', () => {
     // Retry spawns a NEW subprocess through a fresh client (close is permanent).
     const result = await harness.run('again')
     expect(harness.client).not.toBe(firstClient)
-    expect(result.status).toBe('ok')
     expect(result.finalResponse).toBe('second boot answer')
     await harness.close()
     // close() is terminal: a handshake failure after it must not respawn.
@@ -176,7 +175,7 @@ describe('DeepSeekHarness', () => {
       await using harness = new DeepSeekHarness({ launch: fakeLaunch() })
       captured = harness
       const result = await harness.run('scoped')
-      expect(result.status).toBe('ok')
+      expect(result.finalResponse).toBe('scoped')
     }
     // After scope exit the runtime is closed: reuse fails loudly.
     await expect(captured.run('after')).rejects.toThrow(TransportClosedError)

@@ -3,6 +3,7 @@ import { Context, Service, symbols } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
+  Inbox,
 } from '@deepseek-ai/dsh-agent'
 
 import type {
@@ -15,16 +16,19 @@ import type {
 
 function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
   const id = SessionId(rawId)
+  const session = new Session(id)
   const agent: Agent = {
     id,
     options: {},
-    session: new Session(id),
+    session,
+    inbox: new Inbox(session),
     status: 'idle',
     ctx: new Context(),
     followup: () => {},
     steer: () => {},
     inject: () => {},
     cancel() {},
+    whenIdle: () => Promise.resolve(),
   }
   return Object.assign(agent, overrides)
 }

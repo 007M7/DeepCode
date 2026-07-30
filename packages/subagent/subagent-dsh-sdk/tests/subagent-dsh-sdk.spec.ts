@@ -73,10 +73,10 @@ describe('sdkStopReason', () => {
   it('maps each child turn-end reason to the harness vocabulary', () => {
     expect(sdkStopReason({ kind: 'completed' })).toBe('completed')
     expect(sdkStopReason({ kind: 'max-tokens' })).toBe('max-tokens')
-    expect(sdkStopReason({ kind: 'aborted' })).toBe('aborted')
-    expect(sdkStopReason({ kind: 'error', step: 0, message: 'x' })).toBe('error')
+    expect(sdkStopReason({ kind: 'aborted', reason: { kind: 'user' } })).toBe('aborted')
+    expect(sdkStopReason({ kind: 'error', error: new Error('x') })).toBe('error')
     expect(sdkStopReason({ kind: 'interrupted' })).toBe('error')
-    expect(sdkStopReason({ kind: 'disposed' })).toBe('error')
+    expect(sdkStopReason({ kind: 'aborted', reason: { kind: 'disposed' } })).toBe('aborted')
   })
 
   it('treats an absent or unknown reason as an error', () => {

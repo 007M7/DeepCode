@@ -94,7 +94,7 @@ describe('TelemetryOtel wire', () => {
     const { ctx, fiber } = await boot(url)
     const session = ctx.sessions.create(SessionId('wire'), { meta: { cwd: '/tmp/w' } })
     session.append('turn/start', { turn: 1 })
-    session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: new Error('boom') } })
     await fiber.dispose()
 
     expect(captures.length).toBeGreaterThan(0)

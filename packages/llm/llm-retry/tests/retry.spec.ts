@@ -908,9 +908,7 @@ describe('provider-routed retry policy', () => {
     const captured = Promise.withResolvers<undefined>()
     let invokeCaptured: (() => Promise<void>) | undefined
     const mounted = await harness(adapter, {}, (ctx) => {
-      ctx.on('agent/request-error', (
-        _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
-      ) => {
+      ctx.on('agent/request-error', (_agent, _context, _signal, next) => {
         return new Promise<RequestErrorAction>((resolve) => {
           invokeCaptured = async () => { resolve(await next()) }
           captured.resolve(undefined)
@@ -919,9 +917,7 @@ describe('provider-routed retry policy', () => {
     })
     context = mounted.ctx
     let downstreamCalls = 0
-    context.on('agent/request-error', async (
-      _agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
-    ) => {
+    context.on('agent/request-error', async (_agent, _context, _signal, next) => {
       downstreamCalls += 1
       return next()
     })
@@ -975,9 +971,7 @@ describe('provider-routed retry policy', () => {
       textResponse('must not run'),
     ])
     ;({ ctx: context } = await harness(adapter, { mock: policy }, (ctx) => {
-      ctx.on('agent/request-error', async (
-        agent, _turn, _step, _error, _failure, _history, _retryPolicy, _signal, next,
-      ) => {
+      ctx.on('agent/request-error', async (agent, _context, _signal, next) => {
         agent.cancel({ kind: 'user' })
         return next()
       })

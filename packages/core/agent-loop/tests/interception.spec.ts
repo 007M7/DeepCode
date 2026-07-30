@@ -11,7 +11,6 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, {
   type Agent,
-  type InboxPlacement,
   type PromptDecision,
   type SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
@@ -66,8 +65,8 @@ describe('agent/prompt-submit', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const seen: string[] = []
-    ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
-      seen.push(message.content.map(b => (b.type === 'text' ? b.text : '')).join(''))
+    ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next) => {
+      seen.push(messages[0]!.content.map(b => (b.type === 'text' ? b.text : '')).join(''))
       return next()
     })
 
@@ -86,9 +85,9 @@ describe('agent/prompt-submit', () => {
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
     const observed: UserMessage[] = []
-    ctx.on('agent/inbox/enqueue', (subject, item) => {
-      if (subject !== agent) return
-      const message = item.message
+    ctx.on('agent/prompt-submit', async (subject, messages) => {
+      if (subject !== agent) return { kind: 'allow', messages }
+      const message = messages[0]!
       expect(Object.isFrozen(message)).toBe(true)
       expect(Object.isFrozen(message.content)).toBe(true)
       expect(Object.isFrozen(message.content[0])).toBe(true)
@@ -97,11 +96,7 @@ describe('agent/prompt-submit', () => {
         const block = message.content[0]
         if (block?.type === 'text') block.text = 'listener mutation'
       }).toThrow()
-    })
-    ctx.on('agent/inbox/enqueue', (subject, item) => {
-      if (subject === agent) observed.push(item.message)
-    })
-    ctx.on('agent/prompt-submit', async () => {
+      observed.push(message)
       entered.resolve(undefined)
       return decision.promise
     })
@@ -120,7 +115,7 @@ describe('agent/prompt-submit', () => {
     expect(() => {
       if (input.source.kind === 'plugin') input.source.plugin = 'caller mutation'
     }).toThrow(TypeError)
-    decision.resolve({ kind: 'allow' })
+    decision.resolve({ kind: 'allow', messages: [input] })
     await idle
 
     expect(observed).toHaveLength(1)
@@ -138,8 +133,11 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
-      ({ kind: 'allow', content: [{ type: 'text', text: 'REWRITTEN' }] }))
+    ctx.on('agent/prompt-submit', async (_agent, messages): Promise<PromptDecision> =>
+      ({
+        kind: 'allow',
+        messages: [{ ...messages[0]!, content: [{ type: 'text', text: 'REWRITTEN' }] }],
+      }))
 
     send(agent, 'original')
     await waitForIdle(ctx, agent)
@@ -156,10 +154,10 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
+    ctx.on('agent/prompt-submit', async (_agent, messages): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        additionalContexts: [createUserMessage({
+        messages: [...messages, createUserMessage({
           content: [{ type: 'text', text: '<system-reminder>extra ctx</system-reminder>' }],
           source: { kind: 'plugin', plugin: 'test' },
         })],
@@ -183,11 +181,13 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
+    ctx.on('agent/prompt-submit', async (_agent, messages): Promise<PromptDecision> =>
       ({
         kind: 'allow',
-        content: [{ type: 'text', text: 'REWRITTEN prompt' }],
-        additionalContexts: [createUserMessage({
+        messages: [{
+          ...messages[0]!,
+          content: [{ type: 'text', text: 'REWRITTEN prompt' }],
+        }, createUserMessage({
           content: [{ type: 'text', text: 'injected ctx' }], source: { kind: 'plugin', plugin: 'test' },
         })],
       }))
@@ -236,20 +236,17 @@ describe('agent/prompt-submit', () => {
     const agent = ctx.agentLoop.create(SessionId('admission-outbox'), { provider: 'mock', model: 'mock' })
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
-    const placements: InboxPlacement[] = []
-    ctx.on('agent/prompt-submit', async () => {
+    let claimed: UserMessage[] = []
+    ctx.on('agent/prompt-submit', async (_agent, messages) => {
+      claimed = messages
       entered.resolve(undefined)
       return decision.promise
-    })
-    ctx.on('agent/inbox/enqueue', (subject, item) => {
-      if (subject === agent) placements.push(item.placement)
     })
 
     const idle = waitForIdle(ctx, agent)
     send(agent, 'admitted prompt')
     await entered.promise
     expect(agent.status).toBe('running')
-    expect(agent.acceptsNextStep).toBe(true)
     expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
 
     agent.inject(createUserMessage({
@@ -258,11 +255,15 @@ describe('agent/prompt-submit', () => {
     }))
     agent.steer(createUserMessage({ content: [{ type: 'text', text: 'admission steering' }], source: { kind: 'user' } }))
     expect(events(agent).some(event => event.type === 'user/message')).toBe(false)
-    expect(placements).toEqual(['queued', 'steering'])
+    expect(agent.inbox.nextStep.map(message => message.content[0]))
+      .toEqual([
+        { type: 'text', text: 'attached context' },
+        { type: 'text', text: 'admission steering' },
+      ])
 
-    decision.resolve({ kind: 'allow' })
+    decision.resolve({ kind: 'allow', messages: claimed })
     await idle
-    expect(agent.acceptsNextStep).toBe(false)
+    expect(agent.inbox.hasPending).toBe(false)
 
     const staged = events(agent).filter(event =>
       event.type === 'turn/start' || event.type === 'user/message' || event.type === 'steering/message')
@@ -298,7 +299,6 @@ describe('agent/prompt-submit', () => {
     const blockedIdle = waitForIdle(ctx, agent)
     send(agent, 'blocked prompt')
     await entered.promise
-    expect(agent.acceptsNextStep).toBe(true)
     agent.inject(createUserMessage({
       content: [{ type: 'text', text: 'staged context' }],
       source: { kind: 'plugin', plugin: 'test' },
@@ -307,7 +307,7 @@ describe('agent/prompt-submit', () => {
     decision.resolve({ kind: 'block', reason: 'policy' })
     await blockedIdle
 
-    expect(agent.acceptsNextStep).toBe(false)
+    expect(agent.inbox.nextStep).toHaveLength(2)
     expect(events(agent)).toEqual([])
     expect(adapter.requests).toEqual([])
 
@@ -334,14 +334,16 @@ describe('agent/prompt-submit', () => {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
+    ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next) => {
       const decision = await next()
-      return message.content.some(block => block.type === 'text' && block.text === 'blocked prompt')
+      return messages.some(message =>
+        message.content.some(block => block.type === 'text' && block.text === 'blocked prompt'))
         ? { kind: 'block', reason: 'policy' }
         : decision
     })
-    ctx.on('agent/prompt-submit', async (subject, message, _signal, next) => {
-      if (message.content.some(block => block.type === 'text' && block.text === 'blocked prompt')) {
+    ctx.on('agent/prompt-submit', async (subject, messages, _signal, next) => {
+      if (messages.some(message =>
+        message.content.some(block => block.type === 'text' && block.text === 'blocked prompt'))) {
         subject.inject(createUserMessage({
           content: [{ type: 'text', text: 'earlier state change' }],
           source: { kind: 'plugin', plugin: 'test' },
@@ -446,8 +448,9 @@ describe('agent/prompt-submit', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    ctx.on('agent/prompt-submit', async (_agent, message, _signal, next): Promise<PromptDecision> => {
-      const text = message.content.map(b => (b.type === 'text' ? b.text : '')).join('')
+    ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next): Promise<PromptDecision> => {
+      const text = messages.flatMap(message => message.content)
+        .map(b => (b.type === 'text' ? b.text : '')).join('')
       return text === 'secret' ? { kind: 'block', reason: 'policy: no secrets' } : next()
     })
 
@@ -475,9 +478,9 @@ describe('agent/prompt-submit', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let threw = false
-    ctx.on('agent/prompt-submit', async () => {
+    ctx.on('agent/prompt-submit', async (_agent, messages) => {
       if (!threw) { threw = true; throw new Error('prompt hook broke') }
-      return { kind: 'allow' as const }
+      return { kind: 'allow' as const, messages }
     })
     const errors: Error[] = []
     const reasons: TurnEndReason[] = []
@@ -680,8 +683,9 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
         agent.inject(createUserMessage({ content: [{ type: 'text', text: `policy active (started: ${source})` }], source: { kind: 'plugin', plugin: 'native-guard' } }))
       })
       // 2. PromptSubmit: block a forbidden prompt, annotate the rest.
-      ctx.on('agent/prompt-submit', async (_agent, message, _signal, next): Promise<PromptDecision> => {
-        const text = message.content.map(b => (b.type === 'text' ? b.text : '')).join('')
+      ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next): Promise<PromptDecision> => {
+        const text = messages.flatMap(message => message.content)
+          .map(b => (b.type === 'text' ? b.text : '')).join('')
         if (text.includes('rm -rf')) return { kind: 'block', reason: 'destructive prompt blocked' }
         return next()
       })

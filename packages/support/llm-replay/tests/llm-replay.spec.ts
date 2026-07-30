@@ -166,7 +166,7 @@ describe('deriveReplayScript', () => {
     const events: SessionEvent[] = [
       chunkEvent(1, 1, 1, { type: 'block-start', index: 0, blockType: 'text' }),
       chunkEvent(2, 1, 1, { type: 'text-delta', index: 0, text: 'par' }),
-      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'x' } } },
+      { type: 'turn/end', seq: 3, time: 0, data: { turn: 1, reason: { kind: 'error', error: 'x' } } },
     ]
     expect(() => deriveReplayScript(events)).toThrow(/without a finish chunk.*replay\.override\.json/s)
   })

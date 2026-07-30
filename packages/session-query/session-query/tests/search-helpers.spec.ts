@@ -111,11 +111,10 @@ describe('session-query semantic extraction', () => {
 
   it('extracts meaningful turn outcomes and skips structural or unknown events', () => {
     const reasons: Array<[SessionEvent<'turn/end'>['data']['reason'], string]> = [
-      [{ kind: 'error', step: 2, message: 'boom', code: 'E' }, 'error\nboom\nE'],
-      [{ kind: 'error', step: 2, message: 'boom' }, 'error\nboom'],
-      [{ kind: 'error', step: 2, failure: { message: 'provider boom', code: 'SERVER' } }, 'error\nprovider boom\nSERVER'],
-      [{ kind: 'aborted' }, 'aborted'],
-      [{ kind: 'disposed' }, 'disposed'],
+      [{ kind: 'error', error: new Error('boom') }, 'error\nboom'],
+      [{ kind: 'error', error: 'provider boom' }, 'error\nprovider boom'],
+      [{ kind: 'aborted', reason: { kind: 'user' } }, 'aborted'],
+      [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'aborted'],
       [{ kind: 'max-tokens' }, 'max-tokens'],
       [{ kind: 'interrupted' }, 'interrupted'],
       [{ kind: 'completed' }, ''],

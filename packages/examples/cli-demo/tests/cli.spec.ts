@@ -12,12 +12,11 @@ import { createUserMessage,
   type StreamChunk,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as cliDemo from '../src/index.ts'
 import {
   executeCli,
-  formatTurnFailure,
   parseCliArgs,
   runOneShot,
   type CliResult,
@@ -345,7 +344,7 @@ describe('runOneShot and executeCli', () => {
     const output = await invoke(ctx, ['--output-format', 'json', 'task'])
     const result = JSON.parse(output.stdout) as CliResult
     expect(output.code).toBe(0)
-    expect(result).toMatchObject({ type: 'result', success: true, turn: 1, result: 'done', reason: { kind: 'completed' } })
+    expect(result).toMatchObject({ type: 'result', output: 'done' })
     expect(result.usage).toEqual({
       inputTokens: 17,
       outputTokens: 8,
@@ -376,7 +375,7 @@ describe('runOneShot and executeCli', () => {
       reasoningResponse('reasoning only'),
     ])
     const result = await runOneShot(ctx, { task: 'task' })
-    expect(result.result).toBe('working')
+    expect(result.output).toBe('working')
   })
 
   it('observes only the correlated main message turn', async () => {
@@ -421,8 +420,7 @@ describe('runOneShot and executeCli', () => {
     releaseStartup.resolve(undefined)
 
     const outcome = await result
-    expect(outcome.reason).toEqual({ kind: 'completed' })
-    expect(outcome).toMatchObject({ success: true, turn: 3, result: 'streamed' })
+    expect(outcome).toMatchObject({ type: 'result', output: 'streamed' })
     const events = streamed.map(item => item.event)
     expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 3 } })
     expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 3 } })
@@ -443,15 +441,15 @@ describe('runOneShot and executeCli', () => {
     }))
 
     await expect(runOneShot(ctx, { task: 'original task' })).resolves.toMatchObject({
-      success: true,
-      result: 'rewritten answer',
+      type: 'result',
+      output: 'rewritten answer',
     })
   })
 
-  it('rejects tasks blocked before admission, including retained tasks', async () => {
+  it('settles blocked tasks at whole-agent idle without attributing a result', async () => {
     const blocked = await harness([])
     blocked.ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'denied' }))
-    await expect(runOneShot(blocked.ctx, { task: 'task' })).rejects.toThrow('canceled before admission')
+    await expect(runOneShot(blocked.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
 
     const retained = await harness([])
     retained.ctx.on('agent/prompt-submit', async () => ({
@@ -459,7 +457,7 @@ describe('runOneShot and executeCli', () => {
       reason: 'deferred',
       keepInbox: true,
     }))
-    await expect(runOneShot(retained.ctx, { task: 'task' })).rejects.toThrow('not admitted')
+    await expect(runOneShot(retained.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
     expect(retained.agent.status).toBe('idle')
 
     const failed = await harness([])
@@ -467,12 +465,12 @@ describe('runOneShot and executeCli', () => {
     await expect(runOneShot(failed.ctx, { task: 'task' })).rejects.toThrow('not admitted')
   })
 
-  it('emits partial data and a diagnostic for non-completed turns', async () => {
+  it('emits partial data without attributing a turn outcome', async () => {
     const { ctx } = await harness([textResponse('partial', { inputTokens: 2, outputTokens: 3 }, 'max-tokens')])
     const output = await invoke(ctx, ['--output-format', 'json', 'task'])
-    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, result: 'partial', reason: { kind: 'max-tokens' } })
-    expect(output.code).toBe(1)
-    expect(output.stderr).toContain('output-token limit')
+    expect(JSON.parse(output.stdout)).toMatchObject({ type: 'result', output: 'partial' })
+    expect(output.code).toBe(0)
+    expect(output.stderr).toBe('')
   })
 
   it('cancels an active turn, emits its durable aborted result, and disposes', async () => {
@@ -487,9 +485,9 @@ describe('runOneShot and executeCli', () => {
     await running
     abort.abort('received SIGINT')
     const output = await outcome
-    expect(JSON.parse(output.stdout)).toMatchObject({ success: false, reason: { kind: 'aborted' } })
+    expect(output.stdout).toBe('')
     expect(output.code).toBe(1)
-    expect(output.stderr).toContain('turn 1 was aborted')
+    expect(output.stderr).toContain('received SIGINT')
     expect(agent.status).toBe('idle')
   })
 
@@ -570,20 +568,5 @@ describe('runOneShot and executeCli', () => {
     })
     await expect(runOneShot(queued.ctx, { task: 'task', signal: queuedAbort.signal })).rejects.toThrow('cancel queued')
     await queued.agent.whenIdle()
-  })
-})
-
-describe('formatTurnFailure', () => {
-  it('diagnoses every durable reason and preserves merge-extensible unknowns', () => {
-    const cases: [TurnEndReason, string][] = [
-      [{ kind: 'completed' }, 'completed'],
-      [{ kind: 'aborted', reason: { kind: 'user' } }, 'was aborted'],
-      [{ kind: 'error', error: new Error('bad') }, 'failed: bad'],
-      [{ kind: 'error', error: { message: 'provider bad', code: 'SERVER' } }, 'provider bad'],
-      [{ kind: 'max-tokens' }, 'output-token limit'],
-      [{ kind: 'interrupted' }, 'persistence recovery'],
-    ]
-    for (const [reason, expected] of cases) expect(formatTurnFailure(reason)).toContain(expected)
-    expect(formatTurnFailure({ kind: 'extension' } as unknown as TurnEndReason)).toContain('extension')
   })
 })

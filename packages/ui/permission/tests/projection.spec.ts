@@ -62,7 +62,7 @@ describe('permissions projection unit', () => {
     expect(changes).toHaveLength(3)
     expect(changes.at(-1)).toMatchObject({ key: 'permissions', value: { currentValue: 'danger-full-access' } })
     // Unrelated event: same-reference apply, no notification.
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     expect(changes).toHaveLength(3)
   })
 

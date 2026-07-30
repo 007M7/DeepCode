@@ -52,13 +52,7 @@ describe('goal stream invariants', () => {
       source: changeSource,
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    session.append('turn/start', {
-      turn: 2,
-      trigger: {
-        kind: 'message',
-        source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 1 },
-      },
-    })
+    session.append('turn/start', { turn: 2 })
     expect(() => {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'continue' }],
@@ -102,13 +96,7 @@ describe('goal stream invariants', () => {
 
     await ctx.plugin(InvariantService, { enabled: true })
     await ctx.plugin(GoalInvariantCompanion)
-    session.append('turn/start', {
-      turn: 2,
-      trigger: {
-        kind: 'message',
-        source: { kind: 'goal', goalId: change.goal.id, revision: 1, round: 1 },
-      },
-    })
+    session.append('turn/start', { turn: 2 })
     expect(() => {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'continue after load' }],

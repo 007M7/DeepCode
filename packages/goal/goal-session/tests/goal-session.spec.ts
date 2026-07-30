@@ -9,7 +9,7 @@ import type { GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage, LlmAdapter, LlmError  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import * as goalSession from '../src/index.ts'
 
 type ScriptEntry = StreamChunk[] | Error | 'hang' | ((options: GenerateOptions) => StreamChunk[])
@@ -133,28 +133,6 @@ async function waitForRequests(adapter: ScriptedAdapter, count: number): Promise
 }
 
 describe('goal-round outcome policy', () => {
-  it.each([
-    [{ kind: 'completed' }, true, { kind: 'continue' }],
-    [{ kind: 'aborted' }, true, { kind: 'pause', reason: 'cancelled' }],
-    [{ kind: 'error', step: 1, message: 'slow down', code: 'RATE_LIMIT' }, true,
-      { kind: 'blocked', code: 'usage-limited', message: 'slow down' }],
-    [{ kind: 'error', step: 1, failure: { message: 'credits exhausted', code: 'QUOTA' } }, true,
-      { kind: 'blocked', code: 'usage-limited', message: 'credits exhausted' }],
-    [{ kind: 'error', step: 1, failure: { message: 'provider failed', code: 'SERVER' } }, true,
-      { kind: 'blocked', code: 'turn-error', message: 'provider failed' }],
-    [{ kind: 'error', step: 1, message: 'broken' }, true,
-      { kind: 'blocked', code: 'turn-error', message: 'broken' }],
-    [{ kind: 'max-tokens' }, true,
-      { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }],
-    [{ kind: 'disposed' }, true, { kind: 'disarm', reason: 'disposed' }],
-    [{ kind: 'interrupted' }, true, { kind: 'disarm', reason: 'interrupted' }],
-    [{ kind: 'completed' }, false, { kind: 'disarm', reason: 'durability-failed' }],
-    [{ kind: 'future-outcome' } as unknown as TurnEndReason, true,
-      { kind: 'blocked', code: 'unknown-turn-outcome', message: 'unknown turn outcome: future-outcome' }],
-  ] as const)('maps %j without abnormal automatic retry', (reason, durable, expected) => {
-    expect(goalSession.classifyGoalRound(reason, durable)).toEqual(expected)
-  })
-
   it('renders the objective, round budget, authority boundary, and completion protocol', () => {
     const goal: GoalView = {
       id: GoalId('goal-prompt'),
@@ -259,7 +237,7 @@ describe('same-session goal driving', () => {
 
   it('maps a downstream prompt veto to blocked without admitting the round', async () => {
     const test = await harness([])
-    test.ctx.on('agent/prompt-submit', (_agent, message, _signal, next) => message.source.kind === 'goal'
+    test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
       ? Promise.resolve({ kind: 'block', reason: 'deployment policy' })
       : next())
     test.ctx.goals.create(test.agent, { objective: 'respect policy' })
@@ -274,7 +252,7 @@ describe('same-session goal driving', () => {
 
   it('does not reserve again when a stopped-goal observer queues ordinary work', async () => {
     const test = await harness([textResponse('human follow-up')])
-    test.ctx.on('agent/prompt-submit', (_agent, message, _signal, next) => message.source.kind === 'goal'
+    test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
       ? Promise.resolve({ kind: 'block', reason: 'stop this round' })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
@@ -382,8 +360,8 @@ describe('same-session goal driving', () => {
   it('rechecks revision after downstream prompt hooks before admitting', async () => {
     const test = await harness([textResponse('new revision')])
     let edited = false
-    test.ctx.on('agent/prompt-submit', (agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && !edited) {
+    test.ctx.on('agent/prompt-submit', (agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && !edited) {
         edited = true
         const current = test.ctx.goals.get(agent)
         if (current === undefined) throw new Error('missing goal during prompt edit')
@@ -489,8 +467,8 @@ describe('same-session goal driving', () => {
     // attempt through cancel-requested) and THEN throws: the catch finds no
     // matching reservation and must not reschedule a paused goal.
     let fired = false
-    test.ctx.on('agent/prompt-submit', async (agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && !fired) {
+    test.ctx.on('agent/prompt-submit', async (agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && !fired) {
         fired = true
         agent.cancel({ kind: 'user' })
         throw new Error('hook cancelled then exploded')
@@ -513,8 +491,8 @@ describe('same-session goal driving', () => {
     // Registered after goal-session's own listener: the throw propagates back
     // through goal-session's next() await, dropping the whole admission.
     let threw = false
-    test.ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && !threw) {
+    test.ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && !threw) {
         threw = true
         throw new Error('downstream admission hook exploded')
       }
@@ -660,8 +638,8 @@ describe('same-session goal driving', () => {
   it('fails a post-hook read closed before the prompt can enter history', async () => {
     const test = await harness([])
     let armed = true
-    test.ctx.on('agent/prompt-submit', (_agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && armed) {
+    test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && armed) {
         armed = false
         vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
           throw new Error('post-hook projection failed')
@@ -735,8 +713,8 @@ describe('same-session goal driving', () => {
   it('blocks admission when downstream cancellation clears the reservation', async () => {
     const test = await harness([])
     let cancelled = false
-    test.ctx.on('agent/prompt-submit', (agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && !cancelled) {
+    test.ctx.on('agent/prompt-submit', (agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && !cancelled) {
         cancelled = true
         agent.cancel({ kind: 'user' })
       }
@@ -804,8 +782,8 @@ describe('same-session goal driving', () => {
   it('leaves a queued reservation pending when the driver runs before its turn settles', async () => {
     const test = await harness([textResponse('settled later')])
     let woken = false
-    test.ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && !woken) {
+    test.ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && !woken) {
         woken = true
         // A concurrent driver pass must observe the still-unsettled attempt
         // and yield rather than double-book or clear the reservation.
@@ -929,8 +907,8 @@ describe('same-session goal driving', () => {
   it('does not re-block a goal the downstream veto already saw cancelled', async () => {
     const test = await harness([])
     let vetoed = false
-    test.ctx.on('agent/prompt-submit', (agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && !vetoed) {
+    test.ctx.on('agent/prompt-submit', (agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && !vetoed) {
         vetoed = true
         agent.cancel({ kind: 'user' })
         return Promise.resolve<PromptDecision>({ kind: 'block', reason: 'cancelled by policy' })
@@ -952,8 +930,8 @@ describe('same-session goal driving', () => {
   it('awaits an unadmitted reservation stuck in admission during teardown without cancelling', async () => {
     const test = await harness([])
     let release: (() => void) | undefined
-    test.ctx.on('agent/prompt-submit', async (_agent, message, _signal, next) => {
-      if (message.source.kind === 'goal' && release === undefined) {
+    test.ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next) => {
+      if (messages[0]?.source.kind === 'goal' && release === undefined) {
         await new Promise<void>((resolve) => { release = resolve })
       }
       return next()

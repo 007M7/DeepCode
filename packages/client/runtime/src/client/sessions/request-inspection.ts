@@ -326,15 +326,6 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       })
       continue
     }
-    if (sourceEvent.type === 'turn/end' && sourceEvent.data.reason.kind === 'error') {
-      const reason = sourceEvent.data.reason
-      update(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
-        status: 'error',
-        error: 'failure' in reason ? reason.failure.message : reason.message,
-      })
-      continue
-    }
-
     const type = sourceEvent.type as string
     if (type === 'compact/start') {
       const event = sourceEvent as unknown as CompactionStartEvent

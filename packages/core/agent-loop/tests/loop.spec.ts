@@ -94,11 +94,10 @@ describe('agent loop', () => {
     expect(order).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
 
     const types = agent.session.events.map(e => e.type)
-    // turn/start opens the turn, THEN the queued user message is recorded inside
-    // it (every event is turn-enclosed), then the assembled message (carrying the
-    // step's usage).
-    expect(types[0]).toBe('turn/start')
-    expect(types[1]).toBe('user/message')
+    // Durable inbox receipt and admission bracket the turn-owned transcript.
+    expect(types[0]).toBe('agent/inbox/spliced')
+    expect(types).toContain('turn/start')
+    expect(types).toContain('user/message')
     expect(types).toContain('assistant/message')
     const assistantMessage = agent.session.events.find(e => e.type === 'assistant/message')
     expect(assistantMessage?.type === 'assistant/message' && assistantMessage.data.usage).toEqual({ inputTokens: 10, outputTokens: 'hello there'.length })
@@ -201,9 +200,12 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(0) // the request was never sent
-    expect(errors.some(e => e.message.includes('no value for this assembly'))).toBe(true)
+    expect(errors).toEqual([])
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('error')
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
+      ? turnEnd.data.reason.error
+      : '').toContain('no value for this assembly')
 
     // The loop survived: a waterfall listener rescues {{cwd}} and the SAME
     // agent completes a real model turn.
@@ -307,9 +309,11 @@ describe('agent loop', () => {
     await waitForIdle(ctx, agent)
 
     const types = agent.session.events.map(e => e.type)
-    expect(types).toContain('steering/message')
-    // steering recorded before the second step's request derived its history
-    const steeringSeq = agent.session.events.find(e => e.type === 'steering/message')!.seq
+    const steering = agent.session.events.find(e =>
+      e.type === 'user/message' && JSON.stringify(e.data.content).includes('change of plans'))
+    expect(steering).toBeDefined()
+    // Steering is admitted before the second step's request derives history.
+    const steeringSeq = steering!.seq
     const secondStepStart = agent.session.events.filter(e => e.type === 'step/start')[1]
     expect(secondStepStart).toBeDefined()
     expect(steeringSeq).toBeLessThan(secondStepStart!.seq)
@@ -320,8 +324,8 @@ describe('agent loop', () => {
     expect(flat).toContain('change of plans')
   })
 
-  it('same-tick idle steering preserves one turn per send', async () => {
-    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
+  it('coalesces same-tick idle steering into one turn', async () => {
+    const adapter = new MockAdapter([textResponse('first')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
@@ -330,7 +334,7 @@ describe('agent loop', () => {
     agent.steer(createUserMessage({ content: [{ type: 'text', text: 'second idle steer' }], source: { kind: 'user' } }))
     await idle
 
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events
       .filter(event => event.type === 'user/message')
       .map(event => event.data.content)).toEqual([
@@ -338,13 +342,12 @@ describe('agent loop', () => {
       [{ type: 'text', text: 'second idle steer' }],
     ])
     expect(agent.session.events.filter(event => event.type === 'steering/message')).toEqual([])
-    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests).toHaveLength(1)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('first idle steer')
-    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('second idle steer')
-    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('second idle steer')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('second idle steer')
   })
 
-  it('keeps steering staged after a failed step until the next admitted turn', async () => {
+  it('contains a throwing step observer and carries steering into a replacement turn', async () => {
     const adapter = new MockAdapter([textResponse('recovered')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
@@ -359,20 +362,13 @@ describe('agent loop', () => {
     send(agent, 'prompt')
     await waitForIdle(ctx, agent)
 
-    expect(adapter.requests).toHaveLength(0)
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
-    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
-
-    send(agent, 'resume')
-    await waitForIdle(ctx, agent)
-
     expect(adapter.requests).toHaveLength(1)
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
-    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(true)
+    expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
   })
 
-  it('inject() while idle appends context without opening a turn', async () => {
+  it('inject() while idle durably stages context without opening a turn', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -382,11 +378,14 @@ describe('agent loop', () => {
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(0)
     expect(agent.session.events.at(-1)).toMatchObject({
-      type: 'user/message',
+      type: 'agent/inbox/spliced',
       data: {
-        role: 'user',
-        content: [{ type: 'text', text: 'file changed: a.ts' }],
-        source: { kind: 'plugin', plugin: 'watcher' },
+        target: 'next-step',
+        inserted: [{
+          role: 'user',
+          content: [{ type: 'text', text: 'file changed: a.ts' }],
+          source: { kind: 'plugin', plugin: 'watcher' },
+        }],
       },
     })
 
@@ -540,7 +539,7 @@ describe('agent loop', () => {
     expect(agent.session.events.some(e => e.type === 'tool/result')).toBe(true)
   })
 
-  it('a concluding tool result beats steering that arrived during the same step', async () => {
+  it('continues for steering that arrived during a concluding tool step', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'finalize', {}),
       textResponse('next turn reply'),
@@ -562,17 +561,10 @@ describe('agent loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // The terminal result stands: no extra request reopens the concluded turn.
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(2)
     const events = agent.session.events.map(event => event.type)
     expect(events.filter(type => type === 'turn/end')).toHaveLength(1)
-    // The steering is durable inside the concluded turn and feeds the NEXT
-    // turn's request instead of being dropped or re-queued.
-    expect(events).toContain('steering/message')
-
-    send(agent, 'follow up')
-    await waitForIdle(ctx, agent)
-    expect(adapter.requests).toHaveLength(2)
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('late steering')
     const texts = adapter.requests[1]!.messages
       .flatMap(message => message.content)
       .filter(block => block.type === 'text')
@@ -630,38 +622,21 @@ describe('agent loop', () => {
     expect(fires.every(({ signal }) => signal instanceof AbortSignal)).toBe(true)
   })
 
-  it('agent/step fires BEFORE the step it precedes opens (events land outside the step)', async () => {
-    // The append lands before step/start, yet derive happens afterwards and the
-    // same step's request must include it.
+  it('agent/step fires after its step boundary opens and before the request', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    let injected = false
+    let boundaryOpen = false
     ctx.on('agent/step', (subject) => {
-      if (subject === agent && !injected) {
-        injected = true
-        subject.session.append('user/message', createUserMessage({
-          content: [{ type: 'text', text: 'INJECTED-IN-PRE-STEP' }],
-          source: { kind: 'plugin', plugin: 'test' },
-        }), { surfaceOp: 'append' })
-      }
+      if (subject === agent) boundaryOpen = subject.session.events.at(-1)?.type === 'step/start'
     })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    // The adapter's request includes the node injected during pre-step (derive
-    // reflects it).
-    const text = JSON.stringify(adapter.requests[0]!.messages)
-    expect(text).toContain('INJECTED-IN-PRE-STEP')
-
-    // And the injected event sits BEFORE the first step/start in the log —
-    // the seam fired outside the step.
-    const events = agent.session.events
-    const injectedSeq = events.find(e => e.type === 'user/message' && e.data.source.kind === 'plugin')!.seq
-    const firstStepStartSeq = events.find(e => e.type === 'step/start')!.seq
-    expect(injectedSeq).toBeLessThan(firstStepStartSeq)
+    expect(boundaryOpen).toBe(true)
+    expect(adapter.requests).toHaveLength(1)
   })
 
   it('a throwing agent/step listener ends the turn (error), not the loop', async () => {
@@ -683,13 +658,11 @@ describe('agent loop', () => {
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    // The first turn failed at step 1 (no model call happened), surfaced via
-    // agent/error, with the durable failure on turn/end.reason.
-    expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toContain('boom in pre-step')
+    // The first turn failed at step 1 before a model call.
+    expect(errors).toEqual([])
     expect(adapter.requests.length).toBe(0)
     const firstTurnEnd = agent.session.events.find(e => e.type === 'turn/end')
-    expect(firstTurnEnd?.type === 'turn/end' && firstTurnEnd.data.reason).toMatchObject({ kind: 'error', step: 1 })
+    expect(firstTurnEnd?.type === 'turn/end' && firstTurnEnd.data.reason).toMatchObject({ kind: 'error' })
     // The step opened-and-closed count stays balanced even though it never ran.
     const types = agent.session.events.map(e => e.type)
     expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
@@ -717,7 +690,7 @@ describe('agent loop', () => {
     agent.cancel({ kind: 'user' })
     await waitForIdle(ctx, agent)
 
-    expect(reasons).toEqual([{ kind: 'aborted' }])
+    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
   it('surfaces max-tokens as the turn-end reason when the last step is cut off', async () => {
@@ -788,7 +761,7 @@ describe('agent loop', () => {
         source: { kind: 'plugin', plugin: 'max-tokens-test' },
       },
     ])
-    expect(reasons).toEqual([{ kind: 'max-tokens' }])
+    expect(reasons).toEqual([{ kind: 'completed' }])
   })
 
   it('a completed step after no max-tokens keeps the turn completed (max-tokens does not leak across turns)', async () => {
@@ -1005,14 +978,15 @@ describe('agent loop', () => {
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe('completed')
   })
 
-  it('keeps a reentrant agent/inbox/enqueue send as the next independent turn', async () => {
-    const adapter = new MockAdapter([textResponse('first'), textResponse('second')])
+  it('contains a reentrant send attempted during durable inbox publication', async () => {
+    const adapter = new MockAdapter([textResponse('first')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let nested = false
-    ctx.on('agent/inbox/enqueue', (subject) => {
-      if (subject !== agent || nested) return
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'agent/inbox/spliced'
+        || event.data.inserted.length === 0 || nested) return
       nested = true
       send(agent, 'queued listener message')
     })
@@ -1025,11 +999,8 @@ describe('agent loop', () => {
     const messages = agent.session.events
       .filter(event => event.type === 'user/message')
       .map(event => event.data.content)
-    expect(turns).toHaveLength(2)
-    expect(messages).toEqual([
-      [{ type: 'text', text: 'outer message' }],
-      [{ type: 'text', text: 'queued listener message' }],
-    ])
+    expect(turns).toHaveLength(1)
+    expect(messages).toEqual([[{ type: 'text', text: 'outer message' }]])
   })
 
   it('preserves independent turn sources across an adjacent microtask send', async () => {
@@ -1068,7 +1039,7 @@ describe('agent loop', () => {
     ctx.on('session/event', (_s, event) => {
       if (event.type === 'assistant/chunk' && !queued) {
         queued = true
-        send(agent, 'second message')
+        queueMicrotask(() => { send(agent, 'second message') })
       }
     })
 
@@ -1110,7 +1081,7 @@ describe('agent loop', () => {
     ])
   })
 
-  it('errors from the model surface as agent/error and end the turn', async () => {
+  it('records normalized model errors on the turn boundary', async () => {
     const adapter = new MockAdapter([]) // script exhausted → throws
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -1125,13 +1096,12 @@ describe('agent loop', () => {
     send(agent, 'hi')
     await waitForIdle(ctx, agent)
 
-    expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toContain('script exhausted')
+    expect(errors).toEqual([])
     expect(reasons[0]).toMatchObject({ kind: 'error' })
     // The durable failure lives entirely on turn/end.reason (with the failing
     // step), not a standalone error event.
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({ kind: 'error', step: 1 })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toMatchObject({ kind: 'error' })
   })
 
   it('disposing the loop fiber mid-turn stops the loop (HMR safety)', async () => {

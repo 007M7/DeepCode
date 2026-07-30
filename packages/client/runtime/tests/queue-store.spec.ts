@@ -108,7 +108,7 @@ describe('queue operation transport', () => {
     session.handleMuxEnvelope(rid('env-op'), queueFrame([{ id: 'q-op', body: 'pending' }]))
     const before = session.getSnapshot().queue
 
-    await expect(session.updateQueue(iid('q-op'), { kind: 'edit', content: text('next') }))
+    await expect(session.updateQueue(mid('q-op'), { kind: 'edit', content: text('next') }))
       .resolves.toEqual({ ok: true, value: { accepted: true } })
     expect(api.callsOf('session.updateQueue')).toEqual([{
       sessionId: SID,

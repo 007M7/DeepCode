@@ -387,7 +387,7 @@ describe('TUI terminal-state snapshots', () => {
       })
       harness.session.append('turn/end', {
         turn: 1,
-        reason: { kind: 'aborted' },
+        reason: { kind: 'aborted', reason: { kind: 'user' } },
       })
     })
     await checkpoint('retry-cancelled', harness.terminal, { includeScrollback: true })
@@ -407,8 +407,7 @@ describe('TUI terminal-state snapshots', () => {
         turn: 1,
         reason: {
           kind: 'error',
-          step: 3,
-          failure: { message: 'provider still unavailable', code: 'SERVER', status: 503 },
+          error: { message: 'provider still unavailable', code: 'SERVER', status: 503 },
         },
       })
     })
@@ -587,7 +586,7 @@ describe('TUI terminal-state snapshots', () => {
         session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', {
           turn: 1,
-          reason: { kind: 'error', step: 1, message: `Unsafe turn error ${CONTROL_PROBE}` },
+          reason: { kind: 'error', error: `Unsafe turn error ${CONTROL_PROBE}` },
         })
       },
     }, { columns: 100, rows: 34 })
@@ -771,7 +770,7 @@ describe('TUI terminal-state snapshots', () => {
       harness.session.append('step/end', { turn: 1, step: 1 })
       harness.session.append('turn/end', {
         turn: 1,
-        reason: { kind: 'error', step: 1, message: 'provider stream failed after partial output' },
+        reason: { kind: 'error', error: 'provider stream failed after partial output' },
       })
       harness.session.append('turn/start', { turn: 2 })
       harness.session.append('turn/end', {
@@ -779,7 +778,10 @@ describe('TUI terminal-state snapshots', () => {
         reason: { kind: 'interrupted' },
       })
       harness.session.append('turn/start', { turn: 3 })
-      harness.session.append('turn/end', { turn: 3, reason: { kind: 'disposed' } })
+      harness.session.append('turn/end', {
+        turn: 3,
+        reason: { kind: 'aborted', reason: { kind: 'disposed' } },
+      })
       harness.session.append('turn/start', { turn: 4 })
       // A merge-extensible turn-end kind unknown to the TUI still surfaces its
       // name so the agent never stops without a visible reason.

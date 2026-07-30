@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, HarnessError, type ContentBlock, type MessageSource } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, type UserMessage } from '@deepseek-ai/dsh-session'
@@ -44,6 +44,7 @@ function stubAgentForSession(session: Session): StubAgent {
     id,
     options: {},
     session,
+    inbox: new Inbox(session),
     ctx: new Context(),
     get status() { return status },
     followup: () => {},

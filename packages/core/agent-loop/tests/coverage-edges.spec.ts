@@ -165,8 +165,8 @@ describe('thrown-value propagation', () => {
     expect(errors[0]).toEqual({ code: 500 })
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
-      && ('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code))
-      .toBeUndefined()
+      ? turnEnd.data.reason.error
+      : undefined).toEqual({ code: 500 })
   })
 })
 
@@ -197,8 +197,7 @@ describe('coded error data emission', () => {
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd).toBeDefined()
     if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
-      expect('failure' in turnEnd.data.reason ? turnEnd.data.reason.failure.code : turnEnd.data.reason.code)
-        .toBe('RATE_LIMIT')
+      expect(turnEnd.data.reason.error).toMatchObject({ code: 'RATE_LIMIT' })
     }
   })
 })
@@ -221,7 +220,7 @@ describe('disposed vs aborted branching', () => {
     await driverDone(agent)
 
     // Disposal wins abort classification because the error path checks it first.
-    expect(reasons).toContainEqual({ kind: 'disposed' })
+    expect(reasons).toContainEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
   })
 })
 
@@ -285,9 +284,7 @@ describe('request-error action edges', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('retry-raced'), { provider: 'mock', model: 'mock' })
-    ctx.on('agent/request-error', async (
-      subject, _turn, _step, _error, _failure, _priorFailures, _retryPolicy, signal, next,
-    ) => {
+    ctx.on('agent/request-error', async (subject, _context, signal, next) => {
       await next()
       subject.cancel({ kind: 'user' })
       expect(signal.aborted).toBe(true)
@@ -480,7 +477,7 @@ describe('unrenderable failure settlement', () => {
     if (end?.type === 'turn/end' && end.data.reason.kind === 'error') {
       // The durable failure keeps the adapter facts' message, not the
       // unrenderable chain.
-      expect(end.data.reason.failure?.message).not.toBe('<unrenderable value>')
+      expect(errorChain(end.data.reason.error)).not.toBe('<unrenderable value>')
     }
   })
 })
@@ -493,10 +490,11 @@ describe('driver bookkeeping edges', () => {
       provider: 'mock',
       model: 'mock',
     })
-    ctx.on('agent/inbox/enqueue', (subject) => {
-      if (subject !== agent) return
-      subject.cancel({ kind: 'user' })
-      const mutable = subject as Agent & { done: Promise<void> }
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'agent/inbox/spliced'
+        || event.data.target !== 'next-turn' || event.data.inserted.length === 0) return
+      agent.cancel({ kind: 'user' })
+      const mutable = agent as Agent & { done: Promise<void> }
       mutable.done = Promise.reject(new Error('replacement rejected'))
     })
 
