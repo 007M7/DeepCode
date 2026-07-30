@@ -241,7 +241,7 @@ describe('TUI first-run welcome composition', () => {
           return {} as never
         },
       },
-    } as Context
+    } as unknown as Context
     apply(ctx, { dshHome: home })
     expect(request?.options).toEqual({
       width: '100%',
