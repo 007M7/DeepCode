@@ -4,7 +4,11 @@
 // pending, this panel occupies the composer slot in place of the InputBar:
 // an amber "Waiting for approval" strip on the card top, the model's
 // justification as the headline, the paired command in muted code text, and
-// a right-aligned refuse/allow action row. One-shot: the buttons disable
+// a right-aligned refuse/allow action row. Justification and command are
+// unbounded model text, so they scroll inside the card at the shared composer
+// cap (`data-approval-scroll`) and the action row stays outside it — the
+// buttons must be reachable no matter how long the command is.
+// One-shot: the buttons disable
 // after a click and the panel leaves (the InputBar returns) on the broadcast
 // resolved frame. The draft's "Always allow this type" is deferred with
 // grant storage.
@@ -53,17 +57,20 @@ function ApprovalFlow({ pending, command }: { pending: PendingApproval; command?
     <div className={css.root} data-approval-key={pending.key}>
       <div className={css.card}>
         <div className={css.strip}><span className={css.dot} />等待审批</div>
-        <div className={css.body}>
+        {/* Tab stop: the region scrolls once the command passes the cap and
+            holds nothing focusable of its own, so without one a keyboard-only
+            user cannot reach the command's tail before answering. */}
+        <div className={css.body} data-approval-scroll="" tabIndex={0} role="group" aria-label="审批详情">
           <div className={css.headline}>{pending.reason ?? `工具 ${pending.toolName} 请求越权执行`}</div>
           {command !== undefined && <div className={css.command}>{command}</div>}
-          <div className={css.actionRow}>
-            <button type="button" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
-              拒绝
-            </button>
-            <button type="button" className={css.allow} disabled={answered} onClick={() => { answer('allowed-once') }}>
-              允许一次
-            </button>
-          </div>
+        </div>
+        <div className={css.actionRow}>
+          <button type="button" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
+            拒绝
+          </button>
+          <button type="button" className={css.allow} disabled={answered} onClick={() => { answer('allowed-once') }}>
+            允许一次
+          </button>
         </div>
       </div>
     </div>

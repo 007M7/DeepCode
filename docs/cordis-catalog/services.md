@@ -908,7 +908,7 @@ set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:182`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -2230,7 +2230,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:700`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:704`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 
@@ -2340,7 +2340,7 @@ async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 
 Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
 
-Source: [`packages/ui/user-interaction/src/index.ts:50`](../../packages/ui/user-interaction/src/index.ts)
+Source: [`packages/ui/user-interaction/src/index.ts:51`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 
