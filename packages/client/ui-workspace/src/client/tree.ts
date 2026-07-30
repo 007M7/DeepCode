@@ -20,7 +20,7 @@ export interface SessionNode {
   /** The session HAS children in the data (the twist renders even while folded). */
   hasChildren: boolean
   expanded: boolean
-  /** A pending approval takes display precedence over the running state. */
+  /** The runtime Session list reports a pending approval request for this Session. */
   waitingApproval: boolean
   running: boolean
   updatedAt: number
