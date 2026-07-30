@@ -4,13 +4,13 @@ Status: implemented
 
 [English](2026-07-30-web-read-card.md) | 中文
 
-## 问题
+## Problem
 
 `read` 工具返回规范化输出对象 `{ path, offset, lines: [{ number, text }], totalLines }`，但它的展示层把这个结构压平了。`presentCall` 声明为 `GenericCallView`（`kind: 'read'`，一个跟随定位），`presentResult` 返回 `GenericResultView`，其唯一内容是剥掉 `<path>…</path><type>file</type><content>…</content>` 信封后的面向模型文本。收到该视图的 UI 只看到一个压平的文本块：行号以 `N: ` 前缀烘焙进文本、文件语言未知、`totalLines` 丢失。capable 客户端无法像渲染 diff 那样渲染一次 read——即带行号、语法高亮、行号槽与内容分离的代码视图。
 
 结构化数据在下游无法恢复。线上（wire）的工具结果只携带面向模型的 `ContentBlock[]`（已渲染文本）加上一个不透明的 `meta`；规范化输出对象留在工具内，从不到达客户端或会话日志。因此想要行数组、总数和语言提示的客户端无法从 `N: text` 文本里解析回它们——工具必须把它们投影到一个会持久化的通道上。
 
-## 决策
+## Decision
 
 给[渲染意图 union](../architecture/2026-07-02-tool-render-intent-union.md) 新增第四个 `card` 标签 `read`——仅在结果侧。`ToolResultView` 增加 `ReadResultView { card: 'read'; title?; path; lines: ReadFileLine[]; totalLines; lang?; content? }`；`ReadFileLine { number; text }` 是共享的行单元。`ToolCallView` 不动：待定状态仍是 `GenericCallView`（`kind: 'read'`），因为一次调用在 `execute` 返回前不携带文件内容，调用时没有可展示的结构。这与 bash 终端 card 不同——终端 card 两侧都打标签，因为终端调用在调用时已携带命令和 cwd，而 read 调用既无内容也无总数，给调用侧打标签只会新增一个空变体。
 
@@ -40,7 +40,7 @@ read 工具现在为每次顶层 read 计算 `presentationMeta`，这是对已�
 
 ## Testing
 
-`packages/fs/tool-fs/tests/read-render.spec.ts` 单测 `langFromPath`（已知扩展名的大小写不敏感、扩展名在最后一段与最后一个点之后读取、以及 `undefined` 各情况：dotfile、无扩展名、结尾的点、未知）与 `readMetaFromMeta`（含与不含 `lang` 的良构收窄，以及每种拒绝：非对象、数组、缺失或类型错误的 `path`/`totalLines`/`lines`、畸形行项、以及非字符串 `lang`）。`packages/fs/tool-fs/tests/tools.spec.ts` 固定工具接线：`execute` 把结构化窗口（含与不含 `lang` 提示）作为 `meta` 附上、`presentResult` 把它收窄为携带剥信封 `content` 的 `card: 'read'` 视图、以及各拒绝路径（错误结果、非单文本内容、meta 有效但信封畸形、信封有效但 meta 缺失或畸形）都回退到 `undefined`。两个改动的源文件保持逐文件 100% 覆盖率。已渲染 card 的 keyless 快照与组装应用 transcript 属于消费该视图的后续 Web PR，因为本 PR 不新增任何面向产品用户可见的渲染。
+`packages/fs/tool-fs/tests/read-render.spec.ts` 单测 `langFromPath`（已知扩展名的大小写不敏感、扩展名在最后一段与最后一个点之后读取、以及 `undefined` 各情况：dotfile、无扩展名、结尾的点、未知）与 `readMetaFromMeta`（含与不含 `lang` 的良构收窄，以及每种拒绝：非对象、数组、缺失或类型错误的 `path`/`totalLines`/`lines`、畸形行项、非字符串 `lang`，以及——因为该函数收窄持久化的 opaque `meta` 边界——良构类型的回放 JSON 仍可能携带的语义无效路径：不是 1-based 整数的行 `number`（`0`、`1.5`、`NaN`、`Infinity`）、不是非负整数的 `totalLines`（`-1`、`1.5`、`NaN`）、以及行号重复、递减或超过 `totalLines` 的情况）。`packages/fs/tool-fs/tests/tools.spec.ts` 固定工具接线：`execute` 把结构化窗口（含与不含 `lang` 提示）作为 `meta` 附上、`presentResult` 把它收窄为携带剥信封 `content` 的 `card: 'read'` 视图、以及各拒绝路径（错误结果、非单文本内容、meta 有效但信封畸形、信封有效但 meta 缺失或畸形）都回退到 `undefined`。两个改动的源文件保持逐文件 100% 覆盖率。本 PR 携带的是持久化 meta 与扩展后联合类型的快照证据，而非新渲染视图的证据：重录的 ACP session fixtures（`fs-read`、`fs-read-window`、`fs-edit`、`fs-policy-reject`、`fs-write-overwrite`、`parallel-tool-calls`、`workspace-context`、`workspace-edit`）钉住持久化的读取 `meta`（含 `{{cwd}}` 令牌化路径），`cordis-inspect-jsdoc` 钉住四成员的 `ToolResultView` 联合类型。已渲染读取 card 的 keyless 快照与组装应用 transcript 属于消费该视图的后续 Web PR，因为本 PR 不新增任何面向产品用户可见的渲染——TUI 通过其现有的通用 dim-Markdown 回退路由读取 card（`transcript.ts` 把 `card: 'read'` 当作 `card: 'generic'` 处理），因此其输出保持不变。`apps/cli` 的 `parallel-file-reads` 终端 golden（`examples/tui-agent/tests/snapshots/parallel-file-reads/terminal.expected.txt`）正钉住这一点:一次真实回放执行 read 工具、经新的 `card: 'read'` 门渲染，golden 的 dim-Markdown 行与本 card 出现前 generic read 所产出的逐字节一致。
 
 ## Related
 
