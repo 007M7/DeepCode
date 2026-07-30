@@ -29,7 +29,8 @@
  */
 
 import type { Context } from 'cordis'
-import type {} from '@deepseek-ai/dsh-llm'
+import { LlmError } from '@deepseek-ai/dsh-llm'
+import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
 import { Config, resolveProfiles } from './config.ts'
@@ -45,9 +46,15 @@ export const inject = ['llm']
 
 const NS = settingsNamespace('llm-pi-ai')
 
-/** The registry captures these per route; a change here must re-register. */
+/**
+ * The registry captures these per route; a change here must re-register.
+ * Sorted by provider so a settings document that merely reorders its keys is
+ * not mistaken for a route change.
+ */
 function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>): unknown {
-  return [...profiles.entries()].map(([provider, profile]) => ({ provider, retryPolicy: profile.retryPolicy }))
+  return [...profiles.entries()]
+    .map(([provider, profile]) => ({ provider, retryPolicy: profile.retryPolicy }))
+    .sort((left, right) => left.provider < right.provider ? -1 : left.provider > right.provider ? 1 : 0)
 }
 
 /** Register one generic pi-ai adapter for all configured provider routes. */
@@ -76,17 +83,31 @@ export function apply(ctx: Context, config: Config): void {
   }
   profiles()
 
-  const resolveApiKey = async (profile: ResolvedPiAiProviderProfile): Promise<string | undefined> => {
+  const resolveApiKey = async (
+    provider: string,
+    profile: ResolvedPiAiProviderProfile,
+  ): Promise<string | undefined> => {
     if (profile.apiKey !== undefined) return profile.apiKey
     const ref = profile.apiKeyEnv
+    // Only a profile that names no credential at all defers to pi-ai's
+    // provider-native discovery. Once one is named, a miss must fail loud:
+    // handing pi-ai `undefined` would let it pick up an unrelated ambient key
+    // (OPENAI_API_KEY and friends), billing another tenant for a request the
+    // deployment meant to authenticate differently.
     if (ref === undefined) return undefined
     const credentials = ctx.get('credentials')
-    if (credentials !== undefined) return (await credentials.resolve(ref))?.value
-    // Without the seam, keep an ambient fallback so a plain cordis.yml
-    // composition works from the environment alone; an empty variable defers
-    // to pi-ai's own provider-native discovery like an absent one.
-    const ambient = process.env[ref]
-    return ambient !== undefined && ambient.length > 0 ? ambient : undefined
+    const hit = credentials !== undefined
+      ? (await credentials.resolve(ref))?.value
+      // Without the seam, read exactly the named variable so a plain
+      // cordis.yml composition works from the environment alone.
+      : process.env[ref]
+    if (hit !== undefined && hit.length > 0) return hit
+    throw new LlmError(
+      `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
+      + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`
+      + ' and remove apiKeyEnv only if this provider should authenticate from pi-ai\'s own environment discovery',
+      'MISSING_CREDENTIAL',
+    )
   }
 
   const adapter = new PiAiAdapter({ profiles, resolveApiKey })
@@ -94,18 +115,29 @@ export function apply(ctx: Context, config: Config): void {
   // even when a swap runs inside the scoped settings callback below. A bare
   // mount (zero routes) is the dormant posture: nothing registers until a
   // settings section supplies profiles, and routes drop when it empties.
-  let disposeRoutes: (() => void) | undefined
+  let registration: AdapterRegistrationHandle | undefined
   let registeredFacts: unknown
   const ensureRegistrationFacts = (): void => {
     const facts = registrationFacts(profiles())
     if (deepEqualJson(facts, registeredFacts)) return
     // The registry captures the route set and each route's retry policy at
-    // registration: swap the registration in one synchronous section (same
-    // adapter instance, no NO_ADAPTER window).
-    disposeRoutes?.()
-    disposeRoutes = undefined
+    // registration, so a change to either must re-register. The swap is
+    // atomic (same adapter instance, validated before anything moves): a
+    // conflicting route leaves the previous routes serving requests, and
+    // `registeredFacts` only advances once the registry actually holds the
+    // new set — so returning to a working configuration always re-applies.
     const routes = [...profiles().keys()]
-    if (routes.length > 0) disposeRoutes = ctx.llm.registerAdapter(routes, adapter)
+    if (registration === undefined) {
+      // Dormant bare mount: nothing is registered until a section supplies
+      // profiles, and an empty section keeps it that way.
+      if (routes.length === 0) {
+        registeredFacts = facts
+        return
+      }
+      registration = ctx.llm.registerAdapter(routes, adapter)
+    } else {
+      registration.replace(routes)
+    }
     registeredFacts = facts
   }
   ensureRegistrationFacts()

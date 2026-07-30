@@ -817,8 +817,10 @@ describe('plugin registration and config', () => {
     await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
     await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    // The guidance leads with the credential store — the path that keeps the
+    // secret out of configuration files — and mentions a literal key last.
     await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/store DEEPSEEK_API_KEY with the credentials service, or export DEEPSEEK_API_KEY/)
+      .rejects.toThrow(/store DEEPSEEK_API_KEY through the credentials service.*as a last resort.*"apiKey"/s)
   })
 
   it('prefers explicit config over env for key and base URL', async () => {

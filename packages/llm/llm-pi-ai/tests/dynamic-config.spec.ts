@@ -3,7 +3,7 @@ import { Context } from 'cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import LlmService from '@deepseek-ai/dsh-llm'
+import LlmService, { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -13,6 +13,14 @@ import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const NS = settingsNamespace('llm-pi-ai')
+
+/** Minimal foreign adapter: only needs to own a route the pi-ai plugin then wants. */
+class StubAdapter extends LlmAdapter {
+
+  override async * stream(): AsyncIterable<never> {
+    throw new Error('stub adapter must never stream')
+  }
+}
 
 const cleanups: Array<() => Promise<void>> = []
 
@@ -136,5 +144,46 @@ describe('request-level dynamic profiles', () => {
     // last good route set keeps serving.
     await ctx.settings.update(NS, { providers: { 'not-a-real-provider': {} } })
     expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
+  })
+
+  it('keeps serving its routes when a settings-born route collides with another adapter', async () => {
+    const dir = await home()
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = await boot(dir, { providers: { openai: { apiKey: 'pk', baseURL: `${server.url}/v1` } } })
+    // Another adapter owns `anthropic`; the registry must refuse to hand it over.
+    ctx.llm.registerAdapter(['anthropic'], new StubAdapter())
+
+    await ctx.settings.update(NS, {
+      providers: {
+        openai: { apiKey: 'pk', baseURL: `${server.url}/v1` },
+        anthropic: { apiKey: 'other' },
+      },
+    })
+
+    // The conflicting swap was refused whole: the previous route set still
+    // owns openai (an eager dispose would have dropped it), and anthropic
+    // still belongs to its original adapter.
+    expect(ctx.llm.listProviders().map(provider => provider.id).sort()).toEqual(['anthropic', 'openai'])
+    const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
+    expect(result.finish.kind).toBe('error')
+    expect(server.paths).toEqual(['/v1/responses'])
+
+    // Reverting to the working configuration re-applies, even though its
+    // facts equal the ones the registry already holds.
+    await ctx.settings.replace(NS, {})
+    expect(ctx.llm.listProviders().map(provider => provider.id).sort()).toEqual(['anthropic', 'openai'])
+    await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
+    expect(server.paths).toEqual(['/v1/responses', '/v1/responses'])
+  })
+
+  it('ignores a settings document that merely reorders its provider keys', async () => {
+    const dir = await home()
+    const ctx = await boot(dir, { providers: { openai: {}, anthropic: {} } })
+    const before = ctx.llm.listProviders().map(provider => provider.id)
+
+    // Same routes, different YAML key order: nothing about the registration
+    // changed, so no swap should happen at all.
+    await ctx.settings.update(NS, { providers: { anthropic: {}, openai: {} } })
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(before)
   })
 })
