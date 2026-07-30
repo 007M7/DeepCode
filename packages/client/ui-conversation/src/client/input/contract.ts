@@ -10,6 +10,7 @@ import type {
   ArbitrateKey, ArbitrateOutcome, CommandClaim, ConsumeTokenRequest, PickOutcome,
   ReferenceInsert, SubmitOutcome, TokenSpan,
 } from '@deepseek-ai/dsh-client-ui-slash/client'
+import type { QueueRow } from '../contract/queue.ts'
 
 /**
  * The scoped-event application verbs: the hub's bail listeners call these,
@@ -99,12 +100,8 @@ export interface ComposerKeyboard {
   dismissPopup(): void
 }
 
-/** One queued-message row projected from the session/queued frames (T9 supplies the store). */
-export interface QueuedMessage {
-  /** Stable row key: the enqueueing prompt's rpcId. */
-  readonly key: string
-  readonly preview: string
-}
+/** One independently addressable row projected from the transient queue snapshot. */
+export type QueuedMessage = QueueRow
 
 /** Guard union of the scoped consume-token event, checked by the machine. */
 export type ConsumeTokenGuard = ConsumeTokenRequest['guard']

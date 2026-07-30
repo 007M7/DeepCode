@@ -18,6 +18,7 @@ import type { ModelReasoningEffort, ModelTarget } from '@deepseek-ai/dsh-client-
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 
@@ -34,10 +35,13 @@ interface EffortChoice {
 
 /**
  * Render the composer model seat.
- * @param props - owner share (locked) + injected face (shared directory store/verbs).
+ * @param props - owner share (locked) + injected face (shared directory
+ * store/verbs) + the standard locale seat.
  * @returns the trigger and, while open, the two-level menu.
  */
-export function ModelSelect({ locked, directory, load, select }: ModelSelectInjected & { locked: boolean }) {
+export function ModelSelect(
+  { locked, directory, load, select, t }: ModelSelectInjected & { locked: boolean } & PropsLocale<'model'>,
+) {
   const state = useSyncExternalStore(
     fn => directory.subscribe(fn),
     () => directory.getSnapshot(),
@@ -70,13 +74,13 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
   const effortLabel = reasoning === undefined
     ? undefined
     : effectiveEffort === undefined
-      ? 'Provider default'
+      ? t('effort.providerDefault')
       : reasoning.efforts.find(level => level.id === effectiveEffort)?.name ?? effectiveEffort
   const effortChoices = useMemo<readonly EffortChoice[]>(() => reasoning === undefined
     ? []
     : [
       ...reasoning.defaultEffort === undefined
-        ? [{ key: 'provider-default', effort: undefined, label: 'Provider default' }]
+        ? [{ key: 'provider-default', effort: undefined, label: t('effort.providerDefault') }]
         : [],
       ...reasoning.efforts.map((effort: ModelReasoningEffort) => ({
         key: `effort:${effort.id}`,
@@ -84,7 +88,7 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
         label: effort.name,
         ...effort.description === undefined ? {} : { description: effort.description },
       })),
-    ], [reasoning])
+    ], [reasoning, t])
   const busy = state.status === 'selecting'
 
   // Mount-time load resolves the trigger label; every open refreshes.
@@ -165,7 +169,7 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
     })
   }
 
-  const modelLabel = choices[selectedIndex]?.model.name ?? state.current?.model ?? '选择模型'
+  const modelLabel = choices[selectedIndex]?.model.name ?? state.current?.model ?? t('trigger.fallback')
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
   itemRefs.current = []
   let itemIndex = 0
@@ -180,7 +184,9 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
         ref={triggerRef}
         type="button"
         className={css.trigger}
-        aria-label={`选择模型，当前 ${modelLabel}${effortLabel === undefined ? '' : `，推理等级 ${effortLabel}`}`}
+        aria-label={effortLabel === undefined
+          ? t('trigger.aria', { model: modelLabel })
+          : t('trigger.ariaEffort', { model: modelLabel, effort: effortLabel })}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? `${id}-menu` : undefined}
@@ -204,19 +210,19 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
           id={`${id}-menu`}
           className={css.menu}
           role="menu"
-          aria-label="模型与推理等级"
+          aria-label={t('menu.aria')}
           aria-busy={state.status === 'loading' || busy}
         >
           {pane === 'root' && (
             <>
               <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('model') }}>
-                <span className={css.cellLabel}>Model</span>
+                <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>{modelLabel}</span>
                 <IconChevronRightOutline14 className={css.cellChevron} />
               </button>
               {reasoning !== undefined && (
                 <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('effort') }}>
-                  <span className={css.cellLabel}>Effort</span>
+                  <span className={css.cellLabel}>{t('menu.effort')}</span>
                   <span className={css.cellValue}>{effortLabel}</span>
                   <IconChevronRightOutline14 className={css.cellChevron} />
                 </button>
@@ -227,18 +233,18 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
           {pane === 'model' && (
             <>
               {state.status === 'loading' && (
-                <div className={css.status}>正在刷新模型列表…</div>
+                <div className={css.status}>{t('status.loading')}</div>
               )}
               {state.error !== null && (
                 <div className={css.error}>
-                  <span>模型操作失败：{state.error}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>重试</button>
+                  <span>{t('error.action', { message: state.error })}</span>
+                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('retry')}</button>
                 </div>
               )}
               {state.failures.map(failure => (
                 <div className={css.warning} key={failure.id}>
-                  <span>{failure.name} 加载失败：{failure.message}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>重试</button>
+                  <span>{t('warning.groupLoad', { name: failure.name, message: failure.message })}</span>
+                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('retry')}</button>
                 </div>
               ))}
               <div className={clsx(css.groups, 'scrollable')}>
@@ -267,7 +273,7 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
                                 <span className={css.description}>{model.description}</span>
                               )}
                               {model.unlisted === true && (
-                                <span className={css.unlisted}>当前模型 · 未列入目录</span>
+                                <span className={css.unlisted}>{t('option.currentUnlisted')}</span>
                               )}
                             </span>
                             <span className={css.check}>
@@ -281,7 +287,7 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
                 })}
               </div>
               {state.status === 'ready' && choices.length === 0 && (
-                <div className={css.empty}>没有可用的模型。</div>
+                <div className={css.empty}>{t('empty.models')}</div>
               )}
             </>
           )}
@@ -290,12 +296,12 @@ export function ModelSelect({ locked, directory, load, select }: ModelSelectInje
             <>
               {state.error !== null && (
                 <div className={css.error}>
-                  <span>模型操作失败：{state.error}</span>
-                  <button type="button" className={css.retry} onClick={() => { load() }}>重新加载</button>
+                  <span>{t('error.action', { message: state.error })}</span>
+                  <button type="button" className={css.retry} onClick={() => { load() }}>{t('action.reload')}</button>
                 </div>
               )}
               {effortChoices.length === 0
-                ? <div className={css.empty}>当前模型未提供推理等级。</div>
+                ? <div className={css.empty}>{t('empty.efforts')}</div>
                 : effortChoices.map(level => (
                   <button
                     ref={itemRef()}
