@@ -69,6 +69,8 @@ export interface WorkspaceAnalyzerOptions {
   readonly checkDiagnostics?: boolean
   /** Whether missing annotations fail or are written before a clean re-analysis. */
   readonly mode?: AnalysisMode
+  /** Shared workspace memo; supply one instance to reuse parses across analyzers. */
+  readonly caches?: WorkspaceCaches
 }
 
 /** One package face whose public export graph contains Typert business declarations. */
@@ -78,17 +80,27 @@ export interface DiscoveredTypertPackage {
   readonly faces: readonly TypertFace[]
 }
 
-interface ParsedConfig {
+/** One parsed tsconfig, memoizable per workspace snapshot. */
+export interface ParsedConfig {
+  /** Absolute config path. */
   readonly path: string
+  /** The TypeScript parse result. */
   readonly parsed: ts.ParsedCommandLine
 }
 
-interface PackageRegistration {
+/** One package face registration discovered from an aggregate tsconfig. */
+export interface PackageRegistration {
+  /** The face whose aggregate references this package project. */
   readonly face: TypertFace
+  /** The package manifest name. */
   readonly name: string
+  /** Real package root directory. */
   readonly root: string
+  /** The package's own parsed tsconfig. */
   readonly config: ParsedConfig
+  /** The parsed package.json content. */
   readonly manifest: Record<string, unknown>
+  /** Export subpaths owned by this face for dual-face packages. */
   readonly exportSubpaths?: readonly string[]
 }
 
@@ -114,6 +126,90 @@ type ReferenceSite = ts.TypeReferenceNode | ts.ExpressionWithTypeArguments | ts.
 
 const EMPTY_DOCUMENTATION: DocumentationModel = { tags: [] }
 
+interface FaceProgramHost {
+  readonly host: ts.CompilerHost
+  readonly files: Map<string, ts.SourceFile | undefined>
+}
+
+/**
+ * Shared memo over one immutable workspace snapshot. Passing one instance to
+ * several analyzers (the batched and write-mode children reuse their parent's
+ * automatically) reuses parsed tsconfigs, the registration inventory, and
+ * per-face compiler hosts whose parsed and bound source files and module
+ * resolutions carry across programs. Callers that mutate workspace files
+ * between analyses must start from a fresh instance; write-mode source edits
+ * invalidate themselves through {@link invalidate}.
+ */
+export class WorkspaceCaches {
+  /** Parsed tsconfig files by absolute config path. */
+  readonly configs = new Map<string, ParsedConfig>()
+  /** Registration inventories keyed by root and aggregate config paths. */
+  readonly registrations = new Map<string, PackageRegistration[]>()
+  private readonly hosts = new Map<TypertFace, FaceProgramHost>()
+
+  /**
+   * Parse one tsconfig once per workspace snapshot.
+   * @param path - absolute config path.
+   * @returns the memoized parse result.
+   */
+  config(path: string): ParsedConfig {
+    let parsed = this.configs.get(path)
+    if (parsed === undefined) {
+      parsed = parseConfig(path)
+      this.configs.set(path, parsed)
+    }
+    return parsed
+  }
+
+  /**
+   * Return the shared compiler host for one face. Every program of one face
+   * is built from the same aggregate compiler options (the first call wins),
+   * so parsed source files, binder state, and module resolutions are safe to
+   * reuse across the face's batched programs.
+   * @param face - the face whose programs share this host.
+   * @param options - the face's effective compiler options.
+   * @returns a compiler host with source-file and module-resolution caches.
+   */
+  programHost(face: TypertFace, options: ts.CompilerOptions): ts.CompilerHost {
+    let entry = this.hosts.get(face)
+    if (entry === undefined) {
+      const host = ts.createCompilerHost(options)
+      const files = new Map<string, ts.SourceFile | undefined>()
+      const resolutionCache = ts.createModuleResolutionCache(
+        host.getCurrentDirectory(),
+        fileName => host.getCanonicalFileName(fileName),
+        options,
+      )
+      const base = host.getSourceFile.bind(host)
+      // The snapshot contract makes shouldCreateNewSourceFile irrelevant: it
+      // only fires under oldProgram reuse, which these fresh programs never
+      // request, and invalidate() is the one supported re-read path.
+      host.getSourceFile = (fileName, languageVersionOrOptions, onError) => {
+        if (!files.has(fileName)) files.set(fileName, base(fileName, languageVersionOrOptions, onError))
+        return files.get(fileName)
+      }
+      host.getModuleResolutionCache = () => resolutionCache
+      entry = { host, files }
+      this.hosts.set(face, entry)
+    }
+    return entry.host
+  }
+
+  /**
+   * Drop cached parses of one edited source file so the next analysis reads
+   * the written content.
+   * @param file - path of the edited file.
+   */
+  invalidate(file: string): void {
+    const target = realPath(file)
+    for (const { files } of this.hosts.values()) {
+      for (const key of [...files.keys()]) {
+        if (realPath(key) === target) files.delete(key)
+      }
+    }
+  }
+}
+
 /** Analyze host and client as independent TypeScript programs. */
 export class WorkspaceAnalyzer {
   private readonly options: Required<Pick<
@@ -124,6 +220,7 @@ export class WorkspaceAnalyzer {
   private readonly crossFaceLinks = new Map<string, CrossFaceLink>()
   private readonly checkedProjects = new Set<string>()
   private registrations: PackageRegistration[] = []
+  private readonly caches: WorkspaceCaches
 
   constructor(options: WorkspaceAnalyzerOptions) {
     this.options = {
@@ -135,6 +232,7 @@ export class WorkspaceAnalyzer {
       mode: options.mode ?? 'check',
       ...(options.packages === undefined ? {} : { packages: options.packages }),
     }
+    this.caches = options.caches ?? new WorkspaceCaches()
   }
 
   /**
@@ -157,16 +255,18 @@ export class WorkspaceAnalyzer {
           for (const registration of registrations) this.checkProject(registration)
         }
         const aggregatePath = resolve(this.options.root, face === 'host' ? this.options.hostConfig : this.options.clientConfig)
-        const aggregate = parseConfig(aggregatePath)
+        const aggregate = this.caches.config(aggregatePath)
         const rootNames = [...new Set(registrations.flatMap(registration => registration.config.parsed.fileNames))]
+        const options: ts.CompilerOptions = {
+          ...aggregate.parsed.options,
+          composite: false,
+          incremental: false,
+          noEmit: true,
+        }
         const program = ts.createProgram({
           rootNames,
-          options: {
-            ...aggregate.parsed.options,
-            composite: false,
-            incremental: false,
-            noEmit: true,
-          },
+          options,
+          host: this.caches.programHost(face, options),
         })
         faces.push(new FaceAnalyzer({
           root: this.options.root,
@@ -185,11 +285,11 @@ export class WorkspaceAnalyzer {
 
     if (this.queuedEdit !== undefined) {
       this.applyEdit(this.queuedEdit)
-      return new WorkspaceAnalyzer({ ...this.options, mode: 'write' }).analyze()
+      return new WorkspaceAnalyzer({ ...this.options, caches: this.caches, mode: 'write' }).analyze()
     }
 
     if (this.options.mode === 'write') {
-      return new WorkspaceAnalyzer({ ...this.options, mode: 'check' }).analyze()
+      return new WorkspaceAnalyzer({ ...this.options, caches: this.caches, mode: 'check' }).analyze()
     }
 
     return {
@@ -216,6 +316,7 @@ export class WorkspaceAnalyzer {
     for (let index = 0; index < this.options.packages.length; index += batchSize) {
       batches.push(new WorkspaceAnalyzer({
         ...this.options,
+        caches: this.caches,
         packages: this.options.packages.slice(index, index + batchSize),
       }).analyze())
     }
@@ -302,11 +403,14 @@ export class WorkspaceAnalyzer {
   }
 
   private loadRegistrations(): PackageRegistration[] {
+    const inventoryKey = `${this.options.root}\0${this.options.hostConfig}\0${this.options.clientConfig}`
+    const cached = this.caches.registrations.get(inventoryKey)
+    if (cached !== undefined) return cached
     const registrations: PackageRegistration[] = []
     for (const face of ['host', 'client'] as const) {
       const aggregatePath = resolve(this.options.root, face === 'host' ? this.options.hostConfig : this.options.clientConfig)
       if (!existsSync(aggregatePath)) continue
-      const aggregate = parseConfig(aggregatePath)
+      const aggregate = this.caches.config(aggregatePath)
       for (const reference of aggregate.parsed.projectReferences ?? []) {
         const configPath = projectConfigPath(reference.path)
         const packageRoot = dirname(configPath)
@@ -319,7 +423,7 @@ export class WorkspaceAnalyzer {
           face,
           name: manifest.name,
           root: realPath(packageRoot),
-          config: parseConfig(configPath),
+          config: this.caches.config(configPath),
           manifest,
         }
         const packagePath = slash(relative(this.options.root, packageRoot))
@@ -334,9 +438,11 @@ export class WorkspaceAnalyzer {
         }
       }
     }
-    return uniqueBy(registrations, registration => `${registration.face}\0${registration.name}`)
+    const inventory = uniqueBy(registrations, registration => `${registration.face}\0${registration.name}`)
       .sort((left, right) =>
         left.face.localeCompare(right.face) || left.name.localeCompare(right.name))
+    this.caches.registrations.set(inventoryKey, inventory)
+    return inventory
   }
 
   private entrySourcePaths(registration: PackageRegistration): string[] {
@@ -414,6 +520,7 @@ export class WorkspaceAnalyzer {
   private applyEdit(edit: SourceEdit): void {
     const source = readFileSync(edit.file, 'utf8')
     writeFileSync(edit.file, source.slice(0, edit.position) + edit.text + source.slice(edit.position))
+    this.caches.invalidate(edit.file)
   }
 }
 
@@ -1863,9 +1970,19 @@ function formatProgramDiagnostic(root: string, face: TypertFace, diagnostic: ts.
   return `typert(${face}): ${file}:${String(position.line + 1)}:${String(position.character + 1)}: TypeScript TS${String(diagnostic.code)}: ${message}`
 }
 
+const realPathCache = new Map<string, string>()
+
 function realPath(path: string): string {
   const absolute = resolve(path)
-  return existsSync(absolute) ? realpathSync(absolute) : absolute
+  const cached = realPathCache.get(absolute)
+  if (cached !== undefined) return cached
+  // Only existing paths are memoized: a path can come into existence later,
+  // but an existing path's canonical form is stable for the process lifetime
+  // (analysis edits rewrite file contents, never the directory tree).
+  if (!existsSync(absolute)) return absolute
+  const resolved = realpathSync(absolute)
+  realPathCache.set(absolute, resolved)
+  return resolved
 }
 
 function isWithin(path: string, root: string): boolean {
