@@ -82,7 +82,9 @@ describe('sessions.fork', () => {
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) return
     const child = ctx.sessions.get(response.result.value.sessionId)
-    expect(child?.events.length).toBe(3)
+    expect(child?.events.map(event => event.type)).toEqual([
+      'turn/start', 'user/message', 'turn/end', 'session/end-seed',
+    ])
     expect(child?.header.parentSession).toBe(source.id)
     expect(child?.header.cwd).toBe('/proj')
     await ctx.fiber.dispose()
@@ -92,13 +94,23 @@ describe('sessions.fork', () => {
     const ctx = await composed()
     const source = liveAgent(ctx, 'session-tail', 2, true)
     const proxy = api(ctx)
+    const expectedTypes = [
+      'turn/start', 'user/message', 'turn/end',
+      'turn/start', 'user/message', 'turn/end',
+      'session/end-seed',
+    ]
     const omitted = await proxy.sessions.fork(request({ sessionId: source.id }))
     expect(omitted.result.ok).toBe(true)
     if (omitted.result.ok) {
-      expect(ctx.sessions.get(omitted.result.value.sessionId)?.events.length).toBe(6)
+      expect(ctx.sessions.get(omitted.result.value.sessionId)?.events.map(event => event.type))
+        .toEqual(expectedTypes)
     }
     const pastEnd = await proxy.sessions.fork(request({ sessionId: source.id, atSeq: 999 }))
     expect(pastEnd.result.ok).toBe(true)
+    if (pastEnd.result.ok) {
+      expect(ctx.sessions.get(pastEnd.result.value.sessionId)?.events.map(event => event.type))
+        .toEqual(expectedTypes)
+    }
     await ctx.fiber.dispose()
   })
 

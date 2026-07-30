@@ -87,13 +87,41 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })
 
-  it.skipIf(MODE === 'record')('forks the session through the settled user-message action', async () => {
+  it.skipIf(MODE === 'record')('forks through the settled-message and session-row actions', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-fork'))
     await page.getByRole('button', { name: '在新对话中分支' }).first().click()
     await expect.poll(
       () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SEED_ID)),
       { timeout: 15_000 },
     ).toBeDefined()
+    await expect.poll(
+      () => page.locator('[role="treeitem"]').count(),
+      { timeout: 10_000 },
+    ).toBe(3)
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-selected="true"]').count(),
+      { timeout: 10_000 },
+    ).toBe(1)
+    // The row action owns a distinct ui-workspace injection from the message
+    // action above, so exercise both through the loaded app before capture.
+    const sourceRow = page.locator('[role="treeitem"][aria-expanded="true"]').last()
+    const rowBox = await sourceRow.boundingBox()
+    if (rowBox === null) throw new Error('fork source row has no layout box')
+    const actionButton = sourceRow.locator('button[aria-label^="Session actions for "]')
+    await sourceRow.hover({ position: { x: rowBox.width - 16, y: rowBox.height / 2 } })
+    await expect.poll(() => actionButton.isVisible(), { timeout: 2_000 }).toBe(true)
+    const buttonBox = await actionButton.boundingBox()
+    if (buttonBox === null) throw new Error('fork source row action has no layout box')
+    await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
+    await page.getByRole('menuitem', { name: 'Fork session' }).click()
+    await expect.poll(
+      () => scaffold.ctx.agents.list().filter(agent => agent.session.header.parentSession !== undefined).length,
+      { timeout: 15_000 },
+    ).toBe(2)
+    await expect.poll(
+      () => page.locator('[role="treeitem"]').count(),
+      { timeout: 10_000 },
+    ).toBe(4)
     await expect.poll(
       () => page.locator('[role="treeitem"][aria-selected="true"]').count(),
       { timeout: 10_000 },

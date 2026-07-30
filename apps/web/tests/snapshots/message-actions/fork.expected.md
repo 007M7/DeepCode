@@ -1,9 +1,10 @@
 - tree "Sessions":
-  - treeitem "Ungrouped 2 sessions" [expanded]:
+  - treeitem "Ungrouped 3 sessions" [expanded]:
     - img
-    - text: Ungrouped 2 sessions
+    - text: Ungrouped 3 sessions
   - treeitem "Collapse Use the read tool twice 1min" [expanded]:
     - button "Collapse":
       - img
     - text: Use the read tool twice 1min
   - treeitem "Use the read tool twice now" [selected]
+  - treeitem "Use the read tool twice now"
