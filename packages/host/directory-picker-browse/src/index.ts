@@ -215,22 +215,14 @@ export default class BrowseDirectoryPicker extends DirectoryPicker {
   }
 
   private async list(path?: string, signal?: AbortSignal): Promise<DirectoryListing> {
-    // Resolved like every other path in the listing: the environment may
-    // decorate HOME (trailing or repeated separators, dot segments, win32
-    // forward slashes) and homedir() ships it verbatim, while the wire
-    // contract promises one canonical shape for every listing path. A
-    // relative or drive-less HOME rebases under the process cwd / current
-    // drive here — the behavior the fullyQualified fence refuses for wire
-    // values — accepted for the host's own environment, since the listed
-    // target derives from home and stays consistent with it.
-    const home = resolve(homedir())
+    const home = homedir()
     // The seam contract takes fully qualified paths only; resolve() would
     // silently rebase a relative or empty wire value under the host process
     // cwd (or, for rooted drive-less Windows forms, its current drive).
     if (path !== undefined && !fullyQualified(path)) {
       throw new DirectoryPickerError('directory-unreadable', path, `cannot list "${path}": not a fully qualified path`)
     }
-    const target = path === undefined ? home : resolve(path)
+    const target = resolve(path ?? home)
     // Stream the level (opendir, one dirent at a time) into a name-sorted
     // window of maxEntries + 1 candidates: memory stays bounded no matter how
     // many children the directory holds, the window keeps the name-sorted

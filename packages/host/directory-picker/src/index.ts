@@ -34,21 +34,11 @@ export interface DirectoryEntry {
   hidden: boolean
 }
 
-/**
- * One directory level plus its ancestry, as a browse backend reports it.
- * Every path in one listing — `path`, `crumbs[].path`, `entries[].path`,
- * and `home` — is host-resolved canonical form: no `.`/`..` segments, no
- * repeated or trailing separators (bare roots `/`, `C:\`, `\\server\share\`
- * excepted), one platform separator. Resolution is lexical (`resolve()`),
- * never realpath: a symlinked ancestry keeps the logical path the operator
- * navigated (the seam Agent Note's symlink ruling). Clients compare paths
- * on this promise without re-normalizing; every backend must resolve
- * before stamping.
- */
+/** One directory level plus its ancestry, as a browse backend reports it. */
 export interface DirectoryListing {
   /** Absolute path of the listed directory. */
   path: string
-  /** The host account's home directory (breadcrumb "Home" rooting), in the interface's canonical shape like every other path here. */
+  /** The host account's home directory (breadcrumb "Home" rooting). */
   home: string
   /**
    * Ancestor chain from the filesystem root to the listed directory
@@ -89,10 +79,7 @@ export interface DirectoryPickerBrowseCapability {
    * Create one child directory under an existing parent.
    * @param path - absolute existing parent directory.
    * @param name - single non-blank path segment (no separators, not `.`/`..`).
-   * @returns the created directory's absolute path, in the listing
-   * contract's canonical shape — verbatim equal to the child's
-   * `entries[].path` in the parent's next listing (clients anchor the
-   * create landing's selection and focus on that equality).
+   * @returns the created directory's absolute path.
    * @throws {DirectoryPickerError} `directory-exists` for an existing child,
    * `directory-create-failed` for a parent that is not fully qualified or any other failure.
    */

@@ -2,7 +2,7 @@
 
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
@@ -48,9 +48,7 @@ describe('BrowseDirectoryPicker', () => {
   it('lists directories only, flags hidden rows, follows symlinks, skips broken links, sorts by name', async () => {
     const listing = await capability.list(root)
     expect(listing.path).toBe(root)
-    // The environment may decorate HOME; every listing path ships in the
-    // DirectoryListing contract's canonical shape, home included.
-    expect(listing.home).toBe(resolve(homedir()))
+    expect(listing.home).toBe(homedir())
     expect(listing.entries.map(entry => entry.name)).toEqual(['.hidden-dir', 'linked', 'projects'])
     expect(listing.entries.map(entry => entry.hidden)).toEqual([true, false, false])
     // Every entry path is absolute and host-joined — clients never join segments.
@@ -163,6 +161,11 @@ describe('BrowseDirectoryPicker', () => {
     expect(listing.crumbs[0]!.name).toBe(listing.crumbs[0]!.path)
   })
 
+  it('lists the home directory when no path is given', async () => {
+    const listing = await capability.list()
+    expect(listing.path).toBe(homedir())
+  })
+
   it('throws directory-unreadable for a missing target', async () => {
     const missing = join(root, 'no-such-dir')
     const failure = await capability.list(missing).catch((error: unknown) => error)
@@ -203,18 +206,10 @@ describe('BrowseDirectoryPicker', () => {
   })
 
   it('creates one child directory and surfaces it in the next listing', async () => {
-    // The composed-form name (U+00E9) doubles as the name-rewriting
-    // tripwire: a volume that stores names NFD-decomposed hands back a
-    // different dirent.name and the equality below goes red — the README's
-    // documented boundary.
-    const created = await capability.createDirectory(root, 'café')
-    expect(created).toBe(join(root, 'café'))
+    const created = await capability.createDirectory(root, 'fresh')
+    expect(created).toBe(join(root, 'fresh'))
     const listing = await capability.list(root)
-    expect(listing.entries.map(entry => entry.name)).toContain('café')
-    // The contract's cross-method equality: the returned path is verbatim
-    // the child's entries[].path (clients anchor the create landing's
-    // selection and focus on it).
-    expect(listing.entries.find(entry => entry.name === 'café')!.path).toBe(created)
+    expect(listing.entries.map(entry => entry.name)).toContain('fresh')
   })
 
   it('refuses an existing child with directory-exists', async () => {

@@ -142,18 +142,13 @@ export class TestWorkspaces implements IWorkspaces {
    * Browse child creation (recorded). The default joins parent and name.
    * @param path - absolute existing parent directory.
    * @param name - single path segment.
-   * @returns the created directory's absolute path, in the shape
-   * `IWorkspaces.createDirectory` contracts.
+   * @returns the created directory's absolute path.
    */
   async createDirectory(path: string, name: string): Promise<string> {
     this.calls.push({ method: 'createDirectory', args: [path, name] })
     const stub = this.stubs.get('createDirectory')
     if (stub !== undefined) return await (stub(path, name) as Promise<string>)
-    // Join in the parent's own separator flavor (a canonical parent ends
-    // with one only when it is a bare root), so the contract's verbatim
-    // equality holds for POSIX and Windows fixture trees alike.
-    const sep = path.includes('\\') ? '\\' : '/'
-    return path.endsWith(sep) ? `${path}${name}` : `${path}${sep}${name}`
+    return `${path}/${name}`
   }
 
   /**

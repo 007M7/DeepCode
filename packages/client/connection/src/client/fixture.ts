@@ -1016,10 +1016,6 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       // same tree the browse primitives serve).
       pickDirectory: request => ok(request, { path: `${FIXTURE_HOME}/Documents/project` }),
       listDirectory: (request) => {
-        // The fixture accepts CANONICAL paths only: a decorated input
-        // (./, //, ..) misses the tree map and reads as unreadable, where
-        // the real backend resolve()s it first. The keyless lanes drive
-        // canonical paths, so the divergence stays out of transcripts.
         const target = request.payload.path ?? FIXTURE_HOME
         const children = childrenOf(target)
         if (children === undefined) {

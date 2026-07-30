@@ -19,6 +19,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **Windows hidden attribute is not read** — Node dirents do not expose `FILE_ATTRIBUTE_HIDDEN`, so `hidden` means dot-prefixed on every platform until a native probe is worth its cost.
-- **Name-normalizing volumes void the create-path equality** — `createDirectory` promises its return verbatim-equal to the child's next `entries[].path`; Node's namespaced Win32 paths store even trailing-dot/space segments literally, but a volume that rewrites names on storage (NFD normalization on HFS+-style volumes) breaks the match, and the create landing degrades to a two-pane view whose left pane lacks the aria-current row while focus falls back to the crumb edit zone.
 - **No drive-root enumeration** — on Windows the ancestry stops at the drive root; crossing drives waits for the browser UI's path-entry affordance rather than an enumeration primitive here.
 - **Whole-filesystem scope** — no per-deployment browse-root restriction; `workspace.create` accepts arbitrary paths today, so a root here would be UX scoping, not a boundary — deferred until a deployment needs it.

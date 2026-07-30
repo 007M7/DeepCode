@@ -52,6 +52,24 @@
 
 /* Deep chains scroll inside the trail (the effect pins the tail into view)
  * so the edit zone to the right never leaves the bar. */
+/* The Miller columns keep their own row so a status/error line below never
+ * competes with the fixed column widths for horizontal space. */
+/* A narrow viewport shrinks the dialog below two fixed panes; the row
+ * scrolls horizontally (the effect pins the child pane into view) so
+ * descent never hides behind the Modal's clipping. */
+.millerRow {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-height: 0;
+  /* 12px of row gap on each side of the divider; the left side reads wider
+   * by the column's trailing 8px scrollbar clearance, which is deliberate —
+   * the thumb needs that room, the right pane's rows do not. */
+  gap: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
 .crumbTrail {
   display: flex;
   align-items: center;
@@ -60,12 +78,6 @@
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
-}
-
-/* Pseudo-element-path engines (see .millerRow's twin rule): the 20px crumb
- * bar has no room for a bar at all. */
-.crumbTrail::-webkit-scrollbar {
-  display: none;
 }
 
 .crumbSeat {
@@ -134,34 +146,9 @@
   flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
-  /* Right inset is slimmer than the left: the trailing column's own
-   * scrollbar clearance (see .column) makes up the optical difference. */
+  /* Right inset is slimmer than the left: the trailing column's own 8px
+   * scrollbar clearance makes up the optical difference. */
   padding: 16px 16px 16px 24px;
-}
-
-/* The Miller columns keep their own row so a status/error line below never
- * competes with the fixed column widths for horizontal space. */
-/* A narrow viewport shrinks the dialog below two fixed panes; the row
- * scrolls horizontally (the effect pins the child pane into view) so
- * descent never hides behind the Modal's clipping. */
-.millerRow {
-  display: flex;
-  align-items: stretch;
-  flex: 1 1 0;
-  min-height: 0;
-  /* 12px of row gap on each side of the divider; the left side reads wider
-   * by the column's trailing scrollbar clearance (see .column) — the thumb
-   * needs that room, the right pane's rows do not. */
-  gap: 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-/* Engines that predate scrollbar-width take the pseudo-element path (the
- * two are mutually exclusive by construction — see ui-theme's scrollbar
- * contract); hide the row's horizontal bar there too. */
-.millerRow::-webkit-scrollbar {
-  display: none;
 }
 
 /* Columns split the row evenly around the divider (a solo column takes the
@@ -303,12 +290,6 @@
 
 .showHiddenToggleActive {
   color: var(--dsw-alias-label-primary);
-}
-
-/* Flex-none: the nowrap label refuses to shrink, which would leave the
- * glyph as the only compressible item under wrap or narrow-viewport clamp. */
-.toggleCheck {
-  flex: none;
 }
 
 .footerGap {
