@@ -23,6 +23,11 @@ export const askUserQuestionItemSchema = z.object({
   detail: z.string().optional(),
   options: z.array(z.object({ label: z.string(), description: z.string().optional() })).optional(),
   multiSelect: z.boolean().optional(),
+  // Presentation intent: a tagged union on the wire, so an unknown tag is a
+  // rejected frame rather than a silently generic render.
+  intent: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('plan-review'), approve: z.string() }),
+  ]).optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
 
 /** Unified message envelope carried by transient queue frames. */

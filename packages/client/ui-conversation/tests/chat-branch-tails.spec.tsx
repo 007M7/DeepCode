@@ -107,32 +107,48 @@ describe('MessageItem arms', () => {
     expect(view.queryByRole('button', { name: '复制' })).toBeNull()
   })
 
-  it('context nodes render a title-only tool row that expands the injected text without labels', () => {
-    const view = render(
+  it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {
+    const ctxView = render(
       <MessageItem node={{
-        kind: 'context', seq: 3, source: null,
-        content: [{ type: 'text', text: 'memory line one\nsecond line' }] as never,
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'x\n"y":,[{}]' }],
+        source: { kind: 'plugin', plugin: 'fixture', empty: {}, list: [] },
       } as never}
       />,
     )
-    const row = view.getByRole('button', { name: /上下文注入/ })
-    // Title-only collapsed row: the injected text stays behind the expand.
-    expect(view.queryByText(/memory line one/)).toBeNull()
-    fireEvent.click(row)
-    expect(view.getByText(/second line/)).toBeTruthy()
-    // Label-less card: the injection is ambient context, not a call's IN payload.
-    expect(view.queryByText('IN')).toBeNull()
-  })
+    const disclosure = ctxView.getByRole('button', { name: '上下文注入' })
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+    expect(ctxView.container.querySelector('[data-context-injection-body]')).toBeNull()
+    expect(ctxView.container.querySelector('svg')).not.toBeNull()
 
-  it('a context node without pure text expands to the full JSON payload', () => {
-    const view = render(
-      <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null } as never} />,
+    fireEvent.click(disclosure)
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true')
+    expect(ctxView.container.querySelector('[data-context-injection-body]')?.textContent).toBe(
+      '{ "content": [ { "type": "text", "text": "x\\n\\"y\\":,[{}]" } ], '
+      + '"source": { "kind": "plugin", "plugin": "fixture", "empty": {}, "list": [] } }',
     )
-    fireEvent.click(view.getByRole('button', { name: /上下文注入/ }))
-    expect(view.getByText(/"source": null/)).toBeTruthy()
+
+    fireEvent.keyDown(disclosure, { key: ' ' })
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('unknown nodes render their JSON rows', () => {
+  it('context preserves the bounded JSON truncation contract', () => {
+    const view = render(
+      <MessageItem node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'x'.repeat(21_000) }],
+        source: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
+    expect(view.container.querySelector('[data-context-injection-body]')?.textContent)
+      .toMatch(/… 已截断，共 \d+ 字符$/)
+  })
+
+  it('unknown nodes retain the generic JSON row', () => {
     const unknownView = render(
       <MessageItem node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )

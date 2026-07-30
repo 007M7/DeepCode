@@ -398,7 +398,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:148`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:157`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 
@@ -658,6 +658,35 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
 Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/src/index.ts)
+
+## `settings/*`
+
+### `settings/updated` — emit
+
+Committed change to one registered namespace's resolved value. Emitted after the provider persisted (for `update`) or published (`provider`) the change; never emitted when the resolved value is deep-equal. Listener failures are contained and logged — a sync throw and an async rejection alike — except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
+
+```ts cordis-catalog
+/**
+ * Committed change to one registered namespace's resolved value. Emitted
+ * after the provider persisted (for `update`) or published (`provider`)
+ * the change; never emitted when the resolved value is deep-equal.
+ * Listener failures are contained and logged — a sync throw and an async
+ * rejection alike — except `INVARIANT`-coded failures, which rethrow
+ * after every listener ran; that rethrow reaches the emitter only from
+ * synchronous listeners, so invariant checks on this event must not be
+ * async functions.
+ * @param ns - the namespace whose resolved value changed.
+ * @param next - the new resolved value.
+ * @param prev - the previous resolved value.
+ * @param source - whether the change entered through `update()` or the provider.
+ * @mode emit
+ */
+'settings/updated'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void
+```
+
+Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:108`](../../packages/settings/settings/src/index.ts)
 
 ## `skills/*`
 

@@ -1,26 +1,27 @@
 // ToolRow: the single-line tool summary row (figma component set 122:9479) —
 // 16px leading slot (state dot / tool icon, chevron on hover or expanded) + title +
-// separator dot + FILL-truncated summary. The collapsed row is always one
-// line; every row with body, output, or terminal material is a whole-row
-// expand toggle (click / Enter / Space, icon→chevron hover preview); the
-// summary stays inline while open, except Think, whose body opens with the
-// same first line and would repeat it.
+// separator dot + FILL-truncated summary, drawn through the shared
+// DisclosureRow chrome with the whole row as the expand toggle (click /
+// Enter / Space, icon→chevron hover preview). The collapsed row is always
+// one line; every row with body, output, or terminal material is expandable;
+// the summary stays inline while open, except Think, whose body opens with
+// the same first line and would repeat it.
 // The expanded body — an IN/OUT gutter-labeled card (figma 1249:35657) for
 // text input/output, the run_code program through CodeBlock, or a terminal
 // card's command output through TerminalBlock — lives in a max-height scroll
 // container so a long payload scrolls internally instead of taking over the
 // message flow; Think's prose is the exception and flows uncapped like
-// message text. Expand state is component-local view state. File-tool summaries are path links that open
-// through the host (stopPropagation keeps the two gestures independent); an
-// error row's collapsed summary is the failure's first line in the error
-// color.
+// message text. Expand state is component-local view state. File-tool
+// summaries are path links that open through the host (stopPropagation keeps
+// the two gestures independent); an error row's collapsed summary is the
+// failure's first line in the error color.
 
-import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
+import { DisclosureRow } from './DisclosureRow.tsx'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
@@ -44,11 +45,6 @@ export interface ToolRowProps {
    * expandable.
    */
   terminal?: TerminalCardModel | null | undefined
-  /**
-   * Render the expanded body in the card without the IN gutter label — for
-   * material that is not a call's input payload (context injection).
-   */
-  plainBody?: boolean | undefined
   state: ToolRowState
   /**
    * Filesystem path from tool args; when set with onOpenFile, the summary
@@ -60,7 +56,7 @@ export interface ToolRowProps {
   /**
    * Jump to this call in the trajectory view: a hover-revealed Inspect pill
    * over the expanded body. Absent = no affordance (rows without a call
-   * identity, like Think and context injection).
+   * identity, like Think).
    */
   inspect?: (() => void) | undefined
 }
@@ -95,7 +91,6 @@ export function ToolRow({
   output,
   errorSummary,
   terminal,
-  plainBody,
   state,
   filePath,
   onOpenFile,
@@ -115,11 +110,6 @@ export function ToolRow({
   const toggleExpand = () => {
     setExpanded(v => !v)
   }
-  const toggleFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!expandable || (event.key !== 'Enter' && event.key !== ' ')) return
-    event.preventDefault()
-    toggleExpand()
-  }
   const openFile = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
     if (filePath !== undefined) onOpenFile?.(filePath)
@@ -131,40 +121,26 @@ export function ToolRow({
   // The code variant's program renders through CodeBlock (shiki), so only its
   // output joins the IN/OUT card; every other variant's input does too.
   const cardBody = variant === 'code' ? null : body
-  // Expandable rows preview the toggle on hover: the idle leading — the tool
-  // icon OR the state dot — yields to a down chevron (CSS swap on .row:hover).
-  // The state substitution happens inside the idle slot so an error row keeps
-  // the hover preview instead of losing it with the icon.
-  const idleLeading = leadingFor(state, icon)
-  const collapsedIcon = expandable
-    ? (
-      <>
-        <span className={css.iconIdle}>{idleLeading}</span>
-        <IconChevronDownOutline14 className={clsx(css.chevron, css.chevronHover)} />
-      </>
-    )
-    : idleLeading
-  const leading = open
-    ? <IconChevronDownOutline14 className={css.chevron} />
-    : collapsedIcon
+  // The state substitution rides the idle icon slot, so an expandable error
+  // row keeps DisclosureRow's icon→chevron hover preview (its default) instead
+  // of losing it with the icon.
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
-      <div
-        className={css.row}
-        data-expandable={expandable || undefined}
-        role={expandable ? 'button' : undefined}
-        tabIndex={expandable ? 0 : undefined}
-        aria-expanded={expandable ? open : undefined}
-        onClick={expandable ? toggleExpand : undefined}
-        onKeyDown={expandable ? toggleFromKeyboard : undefined}
-      >
-        <span className={css.leading}>
-          {leading}
-        </span>
-        <span className={css.title}>{title}</span>
-        {/* An empty summary drops the separator with it (a row that is only
-            its title, like the context-injection row, shows no trailing dot). */}
-        {!(open && isThink) && summaryText !== '' && (
+      <DisclosureRow
+        rowClassName={css.row}
+        leadingClassName={css.leading}
+        titleClassName={css.title}
+        chevronClassName={css.chevron}
+        icon={leadingFor(state, icon)}
+        title={title}
+        open={open}
+        expandable={expandable}
+        expandOnRowClick
+        keepContentWhenOpen={!isThink}
+        onToggle={toggleExpand}
+        collapsedContent={summaryText !== '' && (
+          /* An empty summary drops the separator with it (a row that is only
+             its title shows no trailing dot). */
           <>
             <span className={css.sep} aria-hidden />
             {fileLink ? (
@@ -182,10 +158,9 @@ export function ToolRow({
             )}
           </>
         )}
-      </div>
-      {open && (
-        /* The wrapper (sibling of .row, so clicks inside never toggle the
-           row) carries the expanded body and the Inspect pill below it. */
+      >
+        {/* The wrapper (sibling of the header row, so clicks inside never
+            toggle it) carries the expanded body and the Inspect pill below. */}
         <div className={css.bodyWrap}>
           {terminalBody !== null
             ? <TerminalBlock {...terminalBody.card} maxLines={Infinity} className={css.terminalBody} />
@@ -198,12 +173,7 @@ export function ToolRow({
                       <CodeBlock code={body} lang="typescript" className={css.codeBody} />
                     </div>
                   )}
-                  {plainBody === true && cardBody !== null && (
-                    <div className={clsx(css.ioCard, css.ioCardPlain)}>
-                      <span className={css.ioText}>{cardBody}</span>
-                    </div>
-                  )}
-                  {plainBody !== true && (cardBody !== null || outputText !== null) && (
+                  {(cardBody !== null || outputText !== null) && (
                     <div className={css.ioCard}>
                       {cardBody !== null && (
                         <div className={css.ioSection}>
@@ -237,7 +207,7 @@ export function ToolRow({
             </button>
           )}
         </div>
-      )}
+      </DisclosureRow>
     </div>
   )
 }

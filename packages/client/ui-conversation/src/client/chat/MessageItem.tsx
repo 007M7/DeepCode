@@ -1,23 +1,23 @@
 // MessageItem: the four simple node kinds — user bubble (right-aligned, with
 // clock + copy / branch / edit IconActions), steering (badged bubble), context
-// injection (a ToolRow-chromed collapsible row: the injection reads as "the
-// harness read something into context", so it borrows the read variant's icon
-// and the IN-card expanded body) and unknown-surface JSON rows. Props are
-// frozen node slices off the snapshot cache; memo holds across streaming
-// because unchanged nodes keep their references.
+// injection and unknown-surface JSON rows. Props are frozen node slices off
+// the snapshot cache; memo holds across streaming because unchanged nodes
+// keep their references.
 
 import { memo } from 'react'
 import type { ReactNode } from 'react'
 import type {
   ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { IconBrowseOutline16, JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
-import { ToolRow } from './ToolRow.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
   node: UserMessageNode | SteeringMessageNode | ContextMessageNode | UnknownSurfaceNode
+  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  onFork?: (seq: number) => void
 }
 
 function contentText(content: readonly unknown[]): { text: string; rest: unknown[] } {
@@ -63,7 +63,7 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-export const MessageItem = memo(function MessageItem({ node }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ node, onFork }: MessageItemProps) {
   switch (node.kind) {
     case 'user': {
       const { text, rest } = contentText(node.content)
@@ -78,6 +78,7 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
             time={node.time}
             clock="start"
             edit
+            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
           />
         </div>
@@ -95,29 +96,10 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
         </div>
       )
     }
-    case 'context': {
-      // Pure-text injections show their text; anything with non-text blocks
-      // (or nothing at all) keeps the full JSON payload so no material is lost.
-      // Title-only collapsed row (no summary), label-less expanded card: the
-      // injection is ambient context, not a call's input.
-      const { text, rest } = contentText(node.content)
-      const body = rest.length === 0 && text !== ''
-        ? text
-        : JSON.stringify({ content: node.content, source: node.source }, null, 2)
+    case 'context':
       return (
-        <div className={css.contextRow}>
-          <ToolRow
-            variant="read"
-            icon={<IconBrowseOutline16 size={14} />}
-            title="上下文注入"
-            summary=""
-            body={body}
-            plainBody
-            state="ok"
-          />
-        </div>
+        <ContextInjectionRow content={node.content} source={node.source} />
       )
-    }
     default:
       return (
         <div className={css.contextRow}>

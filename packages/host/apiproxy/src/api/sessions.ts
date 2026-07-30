@@ -186,9 +186,11 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
-   * Reads a window of history events; page boundaries align to message boundaries: one page =
-   * all raw events owned by a whole number of messages (including their chunk / tool events),
-   * never cut mid-message. The tail page (beforeSeq absent) additionally carries the in-flight
+   * Reads a window of history events; page boundaries align to append-origin message
+   * boundaries: one page = all raw events owned by a whole number of such messages (including
+   * their chunk / tool events), never cut mid-message. Model-only replacement copies consume no
+   * `maxMessages`, so a compaction's provenance stays on the page of its replacement. The tail
+   * page (beforeSeq absent) additionally carries the in-flight
    * partial — chunk events already emitted for the last unfinalized message.
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
@@ -236,6 +238,21 @@ export interface SessionsApi {
    * one — carried for future rendering; the state change is the feedback). A usage/state error is an
    * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
    */
+  /**
+   * Forks a new session from a completed-turn prefix of the source. `atSeq`
+   * anchors the cut: the boundary is the first `turn/end` at or after it
+   * (a message's fork button passes the message seq, so the fork includes
+   * that whole turn); a boundary past the log end, or an omitted `atSeq`,
+   * falls back to the source's last completed turn. An in-log anchor whose
+   * turn is still open fails with `fork-unavailable` instead of clipping to
+   * an earlier turn. The child inherits the source cwd, latest logged model
+   * target, workspace attachment, and `parentSessionId` lineage; the seed
+   * prefix carries the source title.
+   */
+  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
+  Promise<RpcResponse<{ sessionId: SessionId }>>
+
+  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 

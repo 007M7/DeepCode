@@ -280,6 +280,13 @@ export function apply(ctx: Context): void {
           },
           read: () => chatScrollTops.get(sessionId) ?? null,
         },
+        forkAt: (seq) => {
+          sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
+            .then((childId) => { sessions.open(childId) })
+            .catch(() => {
+              // Fork or child-rename failure keeps the source view untouched.
+            })
+        },
       }
     },
   }, ChatView)
