@@ -16,7 +16,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { contentHasImage, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { lastActivityTime } from '@deepseek-ai/dsh-session'
+import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
@@ -62,7 +62,7 @@ import { openNativePath } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
-/** Surface message event types (the pagination counting unit). */
+/** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
 
 function decodeBase64(data: string): Uint8Array {
@@ -162,10 +162,14 @@ function referencedImage(events: readonly SessionEvent[], attachmentId: string):
 }
 
 /**
- * Message-boundary pagination: count maxMessages surface messages backwards from
- * the window tail; the cut is the starting seq of the oldest message group
- * (chunks group via sourceEventSeqs — never cut mid-message). The tail page
- * naturally includes the in-progress partial.
+ * Message-boundary pagination: count maxMessages append-origin messages
+ * backwards from the window tail. Replacement copies never entered the
+ * conversation a reader sees — they restate a shadowed range for the model
+ * alone — so they consume no quota; the page stays one contiguous raw range,
+ * which keeps a compaction's log-only provenance on the same page as its
+ * replacement. The cut is the starting seq of the oldest message group (chunks
+ * group via sourceEventSeqs — never cut mid-message). The tail page naturally
+ * includes the in-progress partial.
  */
 function paginate(
   events: readonly SessionEvent[],
@@ -177,7 +181,7 @@ function paginate(
   let cut = 0
   for (let i = window.length - 1; i >= 0; i--) {
     const event = window[i] as SessionEvent
-    if (!MESSAGE_TYPES.has(event.type)) continue
+    if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
     count++
     const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
     const groupStart = sources !== undefined && sources.length > 0 ? Math.min(event.seq, ...sources) : event.seq
