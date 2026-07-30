@@ -28,6 +28,10 @@ flowchart LR
   cfg --> plugin_tui_tasks
   plugin_tui_llm_retry["llm-retry<br/>@deepseek-ai/dsh-llm-retry"]
   cfg --> plugin_tui_llm_retry
+  plugin_tui_settings["settings<br/>@deepseek-ai/dsh-settings-local"]
+  cfg --> plugin_tui_settings
+  plugin_tui_credentials["credentials<br/>@deepseek-ai/dsh-credentials-local"]
+  cfg --> plugin_tui_credentials
   plugin_tui_llm_pi_ai["llm-pi-ai<br/>@deepseek-ai/dsh-llm-pi-ai"]
   cfg --> plugin_tui_llm_pi_ai
   plugin_tui_session_persistence_jsonl["session-persistence-jsonl<br/>@deepseek-ai/dsh-session-persistence-jsonl"]
@@ -114,6 +118,8 @@ flowchart LR
 | `agent` | `@deepseek-ai/dsh-agent` |
 | `tasks` | `@deepseek-ai/dsh-tasks-local` |
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
+| `settings` | `@deepseek-ai/dsh-settings-local` |
+| `credentials` | `@deepseek-ai/dsh-credentials-local` |
 | `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |
 | `session-persistence-jsonl` | `@deepseek-ai/dsh-session-persistence-jsonl` |
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |

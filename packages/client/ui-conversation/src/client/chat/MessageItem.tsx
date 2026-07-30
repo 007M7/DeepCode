@@ -16,6 +16,8 @@ import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
   node: UserMessageNode | SteeringMessageNode | ContextMessageNode | UnknownSurfaceNode
+  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  onFork?: (seq: number) => void
 }
 
 function contentText(content: readonly unknown[]): { text: string; rest: unknown[] } {
@@ -61,7 +63,7 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-export const MessageItem = memo(function MessageItem({ node }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ node, onFork }: MessageItemProps) {
   switch (node.kind) {
     case 'user': {
       const { text, rest } = contentText(node.content)
@@ -76,6 +78,7 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
             time={node.time}
             clock="start"
             edit
+            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
           />
         </div>

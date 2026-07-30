@@ -13,8 +13,18 @@ export class PartialAccumulator {
   private changed = true
   private snapshot: PartialAssistant
 
-  constructor(readonly turn: number, readonly step: number) {
-    this.snapshot = { turn, step, blocks: [] }
+  /**
+   * @param turn - Owning agent turn.
+   * @param step - Owning model step.
+   * @param initialBlocks - Materialized prefix when accumulation begins after history replay.
+   */
+  constructor(
+    readonly turn: number,
+    readonly step: number,
+    initialBlocks: readonly AssistantBlock[] = [],
+  ) {
+    this.blocks = [...initialBlocks]
+    this.snapshot = { turn, step, blocks: initialBlocks }
   }
 
   /**

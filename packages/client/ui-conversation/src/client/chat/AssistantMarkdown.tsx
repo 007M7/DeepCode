@@ -25,6 +25,10 @@ export interface AssistantMarkdownProps {
   /** Unix epoch ms for the IconActions clock; omitted while streaming or when
    *  the parent withholds chrome (mid-turn content assistants). */
   time?: number | undefined
+  /** Event sequence used as the fork boundary; omitted while streaming. */
+  seq?: number | undefined
+  /** Fork the session through the turn containing this finalized message. */
+  onFork?: ((seq: number) => void) | undefined
 }
 
 function firstLine(text: string): string {
@@ -62,7 +66,7 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time,
+  blocks, streaming, interrupted, time, seq, onFork,
 }: AssistantMarkdownProps) {
   const last = blocks.length - 1
   // Tool-call heads render as tool rows in the chat view's grouping pass, so
@@ -93,6 +97,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           text={copyText(blocks)}
           time={time}
           clock="end"
+          onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
           className={css.actions}
         />
       )}

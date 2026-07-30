@@ -17,6 +17,7 @@ import { clientRequestSchema, clientResponseSchema } from '../api/rpc.schema.ts'
 import {
   sessionCancelRequestSchema,
   sessionCreateRequestSchema,
+  sessionForkRequestSchema,
   sessionHistoryRequestSchema,
   sessionListRequestSchema,
   sessionModelsRequestSchema,
@@ -71,6 +72,7 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
   'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
+  'session.fork': { schema: sessionForkRequestSchema, invoke: (api, r) => api.sessions.fork(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
   'session.updateQueue': { schema: sessionUpdateQueueRequestSchema, invoke: (api, r) => api.sessions.updateQueue(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
