@@ -70,7 +70,7 @@
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
-    root: !!js process.env.DSH_HOME + '/sessions'
+    root: !!js process.getBuiltinModule('node:path').join(process.env.DSH_HOME || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.dsh'), 'sessions')
 
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
