@@ -29,6 +29,9 @@ interface PluginReference {
 }
 
 const root = resolve(import.meta.dirname, '..')
+// These example files are overlays consumed by the built dsh app, so their bare
+// specifiers resolve from apps/cli rather than the examples workspace.
+const appOverlayFiles = new Set(['examples/web-cordis/cordis.yml'])
 const metadataFields = ['id', 'name', 'group', 'disabled', 'inject', 'intercept', 'isolate'] as const
 const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
   kind: 'scalar',
@@ -109,7 +112,7 @@ function validateExampleResolution(): string[] {
   const dependencies = exampleManifest.dependencies ?? {}
   const localPackages = localPackageDirectories()
   const rootReferences = rootProjectReferences()
-  const exampleReferences = pluginReferences.filter(reference => reference.file.startsWith('examples/'))
+  const exampleReferences = pluginReferences.filter(reference => reference.file.startsWith('examples/') && !appOverlayFiles.has(reference.file))
   violations.push(...missingPluginDependencies(exampleReferences, dependencies, 'examples/package.json'))
   const requiredPackages = new Set(exampleReferences.map(reference => packageNameFromSpecifier(reference.name)))
 
@@ -129,12 +132,9 @@ function validateExampleResolution(): string[] {
 
 function validateAppResolution(): string[] {
   const dependencies = readManifest('apps/cli/package.json').dependencies ?? {}
-  const shipped = new Set([
-    'apps/cli/config/base.cordis.yml',
-    'apps/cli/config/tui.cordis.yml',
-    'apps/cli/config/web.cordis.yml',
-  ])
-  const references = pluginReferences.filter(reference => shipped.has(reference.file))
+  const shipped = new Set(globSync('*.cordis.yml', { cwd: resolve(root, 'apps/cli/config') })
+    .map(file => `apps/cli/config/${file}`))
+  const references = pluginReferences.filter(reference => shipped.has(reference.file) || appOverlayFiles.has(reference.file))
   return missingPluginDependencies(references, dependencies, 'apps/cli/package.json')
 }
 

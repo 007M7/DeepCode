@@ -71,6 +71,7 @@
     "@deepseek-ai/dsh-sandbox-local": "workspace:^",
     "@deepseek-ai/dsh-sandbox-policy": "workspace:^",
     "@deepseek-ai/dsh-scope": "workspace:^",
+    "@deepseek-ai/dsh-tool-cordis": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-checkpoint-policy": "workspace:^",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:^",

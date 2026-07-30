@@ -50,8 +50,7 @@
   config:
     cwd: !!js process.cwd()
 
-# The shipped TUI presents the native tool registry. `examples/code-mode` is the
-# overlay that switches this row to the `run_code` transport.
+# The shipped TUI presents the native tool registry.
 - id: tools
   config:
     mode: native
@@ -78,11 +77,6 @@
     # The derived query index behind `/resume`. The launcher provides a unique
     # process-local path because this SQLite backend has one writer owner; the
     # project-local fallback applies when no launcher sets the typed slot.
-    - id: session-query-sqlite
-      name: '@deepseek-ai/dsh-session-query-sqlite'
-      config:
-        path: !!js launcherSessionQueryPath ?? './.sessions/session-query.db'
-
     - id: session-reference
       name: '@deepseek-ai/dsh-session-reference'
 

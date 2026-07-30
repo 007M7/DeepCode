@@ -70,7 +70,15 @@
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
-    root: !!js process.getBuiltinModule('node:path').join(process.env.DSH_HOME || process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:os').homedir(), '.dsh'), 'sessions')
+    root: !!js >-
+      (() => { const path = process.getBuiltinModule('node:path'); const home = process.getBuiltinModule('node:os').homedir(); const configured = process.env.DSH_HOME; const selected = configured !== undefined && configured.trim().length > 0 ? configured : path.join(home, '.dsh'); const expanded = selected === '~' ? home : selected.startsWith('~/') || selected.startsWith('~\\') ? path.join(home, selected.slice(2)) : selected; return path.join(path.resolve(expanded), 'sessions') })()
+
+# TUI consumes this shared session capability. Its launcher supplies a unique
+# process-local path; non-TUI surfaces disable the row in their overlay.
+- id: session-query-sqlite
+  name: '@deepseek-ai/dsh-session-query-sqlite'
+  config:
+    path: !!js launcherSessionQueryPath ?? './.sessions/session-query.db'
 
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceSection, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  addHarnessSourceSection, assertEntriesActive, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
   installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
@@ -211,6 +211,33 @@ describe('boot', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
+  })
+
+  it('rejects a settled tree with a pending inject and names every missing service', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'waiting.mjs'), "export const inject = ['alpha', 'beta']\nexport function apply() {}\n")
+    writeFileSync(join(dir, 'cordis.yml'), '- id: waiting\n  name: ./waiting.mjs\n')
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow('./waiting.mjs: pending (waiting for services: alpha, beta)')
+  })
+
+  it('uses singular diagnostics for one missing pending dependency', () => {
+    const ctx = {
+      loader: { entries: () => [{ disabled: false, options: { name: 'waiting' }, fiber: { state: 0, inject: { alpha: {} } } }] },
+      get: () => undefined,
+    } as unknown as Context
+    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow('waiting: pending (waiting for service: alpha)')
+  })
+
+  it('reports unknown pending dependencies and unexpected fiber states', () => {
+    const entries = [
+      { disabled: false, options: { name: 'unknown' }, fiber: { state: 0, inject: {} } },
+      { disabled: false, options: { name: 'failed' }, fiber: { state: 3, inject: {} } },
+    ]
+    const ctx = {
+      loader: { entries: () => entries },
+      get: () => undefined,
+    } as unknown as Context
+    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow(`${NAME}: 2 entries did not activate\nunknown: pending (waiting for services: unknown)\nfailed: fiber state 3`)
   })
 })
 

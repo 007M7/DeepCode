@@ -14,9 +14,9 @@
 - id: hmr
   disabled: true
 
-- id: system-prompt
-  config:
-    persona: ''
+# Session query is a TUI capability; Web owns its own session presentation.
+- id: session-query-sqlite
+  disabled: true
 
 - id: tools
   config:
@@ -25,10 +25,6 @@
     # designed; unset keeps the schema default (native). Remove the env seam
     # once the web UI owns the choice per session.
     mode: !!js process.env.DSH_TOOLS_MODE
-
-- id: agent-loop
-  config:
-    agents: []
 
 - id: llm-deepseek
   config:

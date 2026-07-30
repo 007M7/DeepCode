@@ -31,10 +31,9 @@ describe('parseDshArgs', () => {
     expect(parse(['--resume', 'sess', '--config', 'app.yml'])).toEqual({ mode: 'tui', config: 'app.yml', resume: 'sess' })
     expect(parse(['-p', 'do the thing'])).toEqual({ mode: 'headless', prompt: 'do the thing' })
     expect(parse(['meta'])).toEqual({ mode: 'meta' })
-    // Credential setup is option-free: it writes the Harness-home .env, so
-    // there is nothing for a flag to select.
     // Bare `web` carries no host/port: the shipped Web overlay owns the default.
     expect(parse(['web'])).toEqual({ mode: 'web', dev: false })
+    expect(parse(['web', '--config', 'web.yml'])).toEqual({ mode: 'web', dev: false, config: 'web.yml' })
     // Host/port are unvalidated pass-throughs (the webserver schema gates them
     // at boot); the adapter only coerces the port string to a number.
     expect(parse(['web', '--host', '0.0.0.0', '--port', '8080', '--dev', '--workspace-root', '/w']))
@@ -72,7 +71,7 @@ describe('parseDshArgs', () => {
     expect(exitCode(['meta', '--config', 'c.yml'])).toBe(1)
     expect(exitCode(['meta', '--config-replace', 'tree.yml'])).toBe(1)
     expect(exitCode(['meta', '-p', 'task'])).toBe(1)
-    // `upgrade` take no options: any leaked default-surface flag is a
+    // `upgrade` takes no options: any leaked default-surface flag is a
     // mistyped invocation, not a silently-dropped input.
     expect(exitCode(['upgrade', '--resume', 's'])).toBe(1)
     expect(exitCode(['upgrade', '--config', 'c.yml'])).toBe(1)

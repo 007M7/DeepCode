@@ -126,6 +126,9 @@ Examples:
   dsh --resume <id>       continue a past session
 `)
     .exitOverride()
+    // Stop parent options at a subcommand boundary so `web --config` belongs to
+    // Web while `--config ... web` remains a leaked default-surface option.
+    .enablePositionalOptions()
     // Default surface: option-only (no positional), so `web` can be a real
     // subcommand without a positional collision.
     .option('-p, --prompt <task>', 'answer this task without the interactive UI, then exit')

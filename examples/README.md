@@ -10,12 +10,6 @@ A non-interactive agent demo that accepts one positional task, runs one complete
 
 Run with: `pnpm run demo:headless "task"` (needs `DEEPSEEK_API_KEY`). See [headless-agent/README.md](headless-agent/README.md) for the output contract, safety boundaries, and snapshot suite.
 
-## code-mode
-
-An **overlay** over the shipped TUI that reduces the model-facing registry to the `run_code` transport, so the model batches tool work into TypeScript programs instead of one call per turn.
-
-Run with: `pnpm run demo:code-mode` (needs `DEEPSEEK_API_KEY`). See [../apps/cli/README.md](../apps/cli/README.md). The interactive agent itself is not an example: `pnpm run demo:tui` boots [`apps/cli/config/tui.cordis.yml`](../apps/cli/config/tui.cordis.yml) over the shared base, and its PTY and snapshot scenarios live in `apps/cli/tests/`.
-
 ## jsonrpc-agent
 
 An unattended coding agent driven through the Python SDK: JSON-RPC stdio, foreground-only `bash`, `read` / `write` / `edit`, one foreground `subagent`, `todo_write`, JSONL persistence, and compaction. It excludes terminal UI, stdout logging, approvals, skills, and background task controls. See [jsonrpc-agent/README.md](jsonrpc-agent/README.md).
@@ -30,6 +24,6 @@ Run the browser UI at `http://127.0.0.1:3081` with `pnpm run demo:cordis`, or th
 
 An agent exposed as an **Agent Client Protocol (ACP)** automation server over JSON-RPC stdio, via [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo). Programmatic clients create fresh sessions, send text prompts, consume committed assistant text, answer one-shot permission requests, and cancel work. It owns the ACP keyless snapshot suite.
 
-Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode acp` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the protocol and snapshot-test contracts.
+Run with: `pnpm run demo:acp` (needs `DEEPSEEK_API_KEY`); `pnpm run demo:code-mode` boots the same server in Code Mode via the `code-mode.cordis.yml` overlay. See [acp-agent/README.md](acp-agent/README.md) for the protocol and snapshot-test contracts.
 
 The default `cordis.yml` composes [`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local), [`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox), and [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval). `workspace-write` confines bash and filesystem mutations to each session workspace; a wider retry becomes a one-shot machine permission request over ACP.

@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
-import { Context } from 'cordis'
+import { Context, type FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -192,6 +192,31 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   }
 }
 
+/** Runtime mirrors for Cordis's erased const-enum fiber states. */
+const FIBER_ACTIVE = 2 as FiberState.ACTIVE
+const FIBER_PENDING = 0 as FiberState.PENDING
+
+/**
+ * Reject enabled Loader entries whose fibers did not reach ACTIVE after settle.
+ * @param ctx - The settled application root.
+ * @param binName - Diagnostic prefix.
+ */
+export function assertEntriesActive(ctx: Context, binName: string): void {
+  const failures: string[] = []
+  for (const entry of ctx.loader.entries()) {
+    if (entry.fiber === undefined || entry.disabled || entry.fiber.state === FIBER_ACTIVE) continue
+    if (entry.fiber.state === FIBER_PENDING) {
+      const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
+      failures.push(`${entry.options.name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
+    } else {
+      failures.push(`${entry.options.name}: fiber state ${String(entry.fiber.state)}`)
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`${binName}: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
+  }
+}
+
 /**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
  * tree settles. Entry names load through the Loader's internal module loader
@@ -231,6 +256,7 @@ export async function boot(
   })
   await ctx.loader.await()
   assertEntriesLoaded(ctx, binName)
+  assertEntriesActive(ctx, binName)
   return ctx
 }
 

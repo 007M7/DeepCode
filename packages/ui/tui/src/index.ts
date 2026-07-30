@@ -841,11 +841,9 @@ export function createTuiChat(
     palette,
     overlayManager,
     // Optional and independently mounted: read at each use so config row order
-    // cannot decide whether /resume works.
-    // The TUI and query provider are sibling Loader fibers. During a command
-    // callback Cordis may transiently mark the provider non-ACTIVE even though
-    // its init completed and its disposal is ordered after this consumer.
-    sessionQuery: () => ctx.get('sessionQuery', false),
+    // cannot decide whether /resume works. Strict lookup excludes a closing or
+    // closed provider rather than dispatching into a stale SQLite handle.
+    sessionQuery: () => ctx.get('sessionQuery'),
     ui,
     editor,
     appendNotice,
@@ -1654,9 +1652,35 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
   if (existing !== undefined) start(existing)
 }
 
+const ROOT_DISPOSE_TIMEOUT_MS = 5_000
+
+/**
+ * Dispose the whole application before process exit, with a bounded fallback.
+ * @param ctx - The TUI plugin context whose root owns sibling resources.
+ * @param code - Process status to report.
+ * @param exit - Exit boundary, replaceable by tests.
+ */
+export function disposeRootAndExit(
+  ctx: Context,
+  code: number,
+  exit: (status: number) => void = (status) => { process.exit(status) },
+): void {
+  let exited = false
+  const exitOnce = (): void => {
+    if (exited) return
+    exited = true
+    exit(code)
+  }
+  const timeout = setTimeout(exitOnce, ROOT_DISPOSE_TIMEOUT_MS)
+  void ctx.root.fiber.dispose().then(
+    () => { clearTimeout(timeout); exitOnce() },
+    () => { clearTimeout(timeout); exitOnce() },
+  )
+}
+
 /** Cordis entry point using the process terminal; explicit TUI composition requires a TTY pair. */
 /* v8 ignore start -- production process wiring; fake-terminal tests cover mountTui/createTuiChat,
-   and the tui-agent PTY smoke covers the real entry */
+   and apps/cli PTY smokes cover the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('ui-tui: both stdin and stdout must be TTYs; use the one-shot @deepseek-ai/dsh-cli-demo app for pipes')
@@ -1676,9 +1700,7 @@ export function apply(ctx: Context, config: Config): void {
     initialSkill === undefined ? {} : { initialSkill },
   ), {
     terminal: new ProcessTerminal(),
-    exit: (code) => {
-      void ctx.fiber.dispose().finally(() => { process.exit(code) })
-    },
+    exit: (code) => { disposeRootAndExit(ctx, code) },
     ...resumeHost === undefined ? {} : { handoffResume: (sessionId, cwd) => resumeHost.handoff(sessionId, cwd) },
     ...goodbyeMessage === undefined ? {} : { goodbyeMessage },
   })

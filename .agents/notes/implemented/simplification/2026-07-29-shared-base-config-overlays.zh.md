@@ -24,7 +24,7 @@ Status: implemented
 
 patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆分方式：取值因 surface 而异的配置项住在 overlay 中，绝不住在 base 里，从而没有任何配置项会被三层同时 patch。因此会话身份根本不能经由配置键传递——它迁移到了 `dsh-agent-loop` 的 `CONFIGURED_AGENT_IDENTITIES_KEY`，如[启动器持有身份的 note](../architecture/2026-07-28-launcher-owned-resume-identity.md) 现在所记录。
 
-`examples/tui-agent`、`examples/cordis-agent` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/cordis/tool-cordis/tests/`，而 `examples/code-mode` 作为一个名副其实的示例保留下来：一个 patch `tools.mode` 并 insert code runtime 的 overlay。
+`examples/tui-agent`、`examples/cordis-agent`、`examples/code-mode` 与 `packages/examples/tui-demo` 均被删除。TUI 测试迁往 `apps/cli/tests/`，cordis 工具集的 e2e 迁入 `packages/cordis/tool-cordis/tests/`，受支持的 Code Mode demo 则保留为 `examples/acp-agent/code-mode.cordis.yml` 中的 ACP overlay。
 
 ## 备选方案
 
@@ -46,7 +46,7 @@ patch 会整体替换目标配置项的 `config` 而不合并，这决定了拆�
 
 ## 验证
 
-组合的正确性通过用真实 Loader 启动每棵树并检查已就绪的条目来核对，而不是靠阅读 YAML：两个界面都能稳定完成且没有未加载项；Web 会以沙箱化 Bash 与文件系统提供方启动 `httpServer`。三层叠加的情形（`base` + `tui` + `code-mode`）确认 `tools.mode` 越过 TUI overlay 的 `native` 达到了 `code`。
+组合的正确性通过用真实 Loader 启动每棵树并检查已就绪的条目来核对，而不是靠阅读 YAML：两个界面都能稳定完成且没有未加载项；Web 会以沙箱化 Bash 与文件系统提供方启动 `httpServer`。Code Mode 继续由 ACP overlay 与程序化 TUI 快照覆盖，而不再维护独立交付的 TUI 应用。
 
 全部八个终端快照场景在迁移后逐字节重放一致，14 个用例的 PTY 冒烟测试全部通过，其中两个用例断言个人 overlay 能触达一个 **insert 进来的**配置项——这正是 vendored `plugin-include` 修复所启用的行为（[`vendor/README.md`](../../../../vendor/README.md) 本地修改第 8 条，由 `packages/ui/app-boot/tests/config-reload.spec.ts` 覆盖）。
 

@@ -14,7 +14,7 @@ Status: implemented
 
 DeepSeek Harness 将 [`@deepseek-ai/dsh-tui`](../../../../packages/ui/tui/README.md) 作为独立的 Cordis 插件交付。该插件只负责终端输入与呈现；agent 生命周期、会话持久化、工具执行以及模型可见的提问工具仍由不同组合项负责。插件要求 stdin 和 stdout 均为 TTY；条件不满足时会失败，不会静默切换为逐行输出。
 
-只有一个终端入口。`@deepseek-ai/dsh-tui` 在已配置 agent 之前挂载，而 `apps/cli/config/tui.cordis.yml`——叠加在共享 `base.cordis.yml` 之上的 overlay——拥有交互式 coding 组装，Code Mode overlay 则位于 `examples/code-mode`。非交互任务使用 `@deepseek-ai/dsh-cli-demo`；ACP 仍是独立的自动化协议。
+只有一个终端入口。`@deepseek-ai/dsh-tui` 在已配置 agent 之前挂载，而 `apps/cli/config/tui.cordis.yml`——叠加在共享 `base.cordis.yml` 之上的 overlay——拥有交互式 coding 组装。非交互任务使用官方 headless 界面；ACP 仍是独立的自动化协议，并拥有受支持的 Code Mode demo。
 
 所选入口接收预创建 agent 使用的同一个新建或恢复 `SessionId`。入口先于 agent 组合挂载，等待相符的根 agent 出现，然后才进入全屏模式。因此，相符的 `agent-loop/config-start-failed` 事件会在接管屏幕前报告，并以状态码 1 退出。
 

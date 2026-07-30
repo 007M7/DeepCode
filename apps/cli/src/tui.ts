@@ -10,8 +10,8 @@
  * workspace, and an in-place resume enters the selected session's own directory.
  * `dsh meta`
  * ({@link runMeta}) is the one exception — it makes this harness checkout the
- * workspace. `dsh upgrade` ({@link runSkillSession}) are fresh
- * sessions whose first turn auto-invokes a bundled skill. After boot, the
+ * workspace. `dsh upgrade` ({@link runSkillSession}) is a fresh
+ * session whose first turn auto-invokes a bundled skill. After boot, the
  * agent's system prompt is told the path to this harness checkout so it can
  * find its own source.
  * @module @deepseek-ai/dsh/tui
@@ -146,7 +146,7 @@ export async function runTui(
   const app: { current?: Context } = {}
   // Resume always enters the default surface because meta rejects parent
   // options, including `--resume`. The resumed session already persists its cwd.
-  const resumeArgs = (sessionId: string, _targetCwd?: string): string[] => [
+  const resumeArgs = (sessionId: string): string[] => [
     `--resume=${sessionId}`,
     // Both config flags must survive the handoff: resuming into a different
     // tree than the session was created in would silently change the agent.
@@ -167,7 +167,7 @@ export async function runTui(
         process.execPath,
         ...process.execArgv,
         entry,
-        ...resumeArgs(sessionId, cwd),
+        ...resumeArgs(sessionId),
       ]
       // `execve` inherits the cwd, and the target session may belong to another
       // workspace. Enter it BEFORE teardown commits: an unreachable directory
@@ -199,14 +199,14 @@ export async function runTui(
   const replaceTree = configReplace !== undefined
   const patches = replaceTree ? [] : [
     ...loadOverlayPatches(NAME, TUI_OVERLAY),
-    ...config === undefined
+    ...resolvedConfig === undefined
       ? loadPersonalPatches(NAME) ?? []
-      : loadOverlayPatches(NAME, resolveConfigPath(resolve(config), undefined)),
+      : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
   ]
   const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
-    replaceTree ? resolveConfigPath(resolve(configReplace), undefined) : BASE_CONFIG,
+    resolvedConfigReplace === undefined ? BASE_CONFIG : resolveConfigPath(resolvedConfigReplace, undefined),
     patches,
     (hostCtx) => {
       // The launcher owns session identity and the exit line: a config-mounted
@@ -230,7 +230,7 @@ export async function runTui(
           rm(`${queryIndexPath}-wal`, { force: true }),
           rm(`${queryIndexPath}-shm`, { force: true }),
         ])
-      }, 'launcherSessionQueryPath.cleanup')
+      }, `${SESSION_QUERY_SQLITE_PATH_KEY}.cleanup`)
       if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
       // Seed the first turn only for a fresh session, so resuming never
       // re-invokes the skill.

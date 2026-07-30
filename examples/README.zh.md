@@ -10,12 +10,6 @@
 
 运行：`pnpm run demo:headless "task"`（需要 `DEEPSEEK_API_KEY`）。输出契约、安全边界和快照套件详见 [headless-agent/README.md](headless-agent/README.md)。
 
-## code-mode
-
-叠加在交付 TUI 之上的 **overlay**：把面向模型的注册表收敛为 `run_code` 这一个传输，使模型把工具工作批量写进 TypeScript 程序，而不是每轮一次调用。
-
-运行：`pnpm run demo:code-mode`（需要 `DEEPSEEK_API_KEY`）。详见 [../apps/cli/README.md](../apps/cli/README.md)。交互式 agent 本身不再是示例：`pnpm run demo:tui` 在共享 base 之上启动 [`apps/cli/config/tui.cordis.yml`](../apps/cli/config/tui.cordis.yml)，其 PTY 与快照场景位于 `apps/cli/tests/`。
-
 ## jsonrpc-agent
 
 通过 Python SDK 驱动的无人值守编码 agent：JSON-RPC stdio、仅前台 `bash`、`read`/`write`/`edit`、一个前台 `subagent`、`todo_write`、JSONL 持久化和压缩。它不包含终端 UI、stdout 日志、批准、skill 和后台任务控制。详见 [jsonrpc-agent/README.md](jsonrpc-agent/README.md)。
@@ -30,6 +24,6 @@
 
 作为 **Agent Client Protocol (ACP)** 自动化服务器通过 JSON-RPC stdio 公开的 agent，由 [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) 提供。程序化客户端可以创建新会话、发送文本提示词、消费已提交的 assistant 文本、回答一次性权限请求并取消工作。它拥有 ACP 无密钥快照套件。
 
-运行：`pnpm run demo:acp`（需要 `DEEPSEEK_API_KEY`）；`pnpm run demo:code-mode acp` 通过 `code-mode.cordis.yml` 覆盖以 Code Mode 启动同一服务器。协议与快照测试契约详见 [acp-agent/README.md](acp-agent/README.md)。
+运行：`pnpm run demo:acp`（需要 `DEEPSEEK_API_KEY`）；`pnpm run demo:code-mode` 通过 `code-mode.cordis.yml` 覆盖以 Code Mode 启动同一服务器。协议与快照测试契约详见 [acp-agent/README.md](acp-agent/README.md)。
 
 默认 `cordis.yml` 组合 [`@deepseek-ai/dsh-sandbox-local`](../packages/sandbox/sandbox-local)、[`@deepseek-ai/dsh-bash-sandbox`](../packages/bash/bash-sandbox) 和 [`@deepseek-ai/dsh-user-approval`](../packages/ui/user-approval)。`workspace-write` 将 bash 和文件系统变更限制在每个会话 workspace 中；范围更广的重试会通过 ACP 成为一次性机器权限请求。

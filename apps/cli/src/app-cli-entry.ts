@@ -12,7 +12,6 @@ import { createRequire } from 'node:module'
 import { networkInterfaces } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Context } from 'cordis'
-import type { FiberState } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
 import { boot, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
@@ -87,14 +86,6 @@ const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
   construct: data => ({ __jsExpr: String(data) }),
 })
 const includeYamlSchema = yaml.JSON_SCHEMA.extend(jsExprType)
-
-/**
- * Value mirror of cordis's `FiberState` const enum members the sweep needs
- * (a const enum has no runtime object to import; same rationale as the
- * client-side mirror in dsh-client-web).
- */
-const FIBER_ACTIVE = 2 as FiberState.ACTIVE
-const FIBER_PENDING = 0 as FiberState.PENDING
 
 /** Constructor facts for one dsh invocation over the shared composition (argv already parsed by the surface bin). */
 export interface AppCLIEntryOptions {
@@ -174,10 +165,8 @@ export class AppCLIEntry {
   }
 
   /**
-   * Compose the patch set from the non-yml config sources: computed
-   * engineering defaults (the global session root), profile json (user
-   * config, overriding those defaults), CLI flags, and the resolved frontend
-   * dist. Patches replace a row's config wholesale, so each patched row's yml
+   * Compose the patch set from profile json, CLI flags, and the resolved
+   * frontend dist. Patches replace a row's config wholesale, so each patched row's yml
    * static values are re-read here (bypass parse) and merged under the overrides.
    */
   private composePatches(): void {
@@ -188,7 +177,6 @@ export class AppCLIEntry {
       bag[key] = value
       overrides.set(entryId, bag)
     }
-
 
     // Source 1: profile json (missing file = empty; unmapped key = loud).
     for (const [key, value] of Object.entries(this.readProfile())) {
@@ -215,7 +203,6 @@ export class AppCLIEntry {
     // user config. Workspace knowledge stays here.
     put('webserver', 'distIndex', this.resolveDistIndex())
 
-
     this.patches = [...overrides.entries()].map(([id, bag]) => {
       const yml = rows.get(id)
       if (yml === undefined) throw new Error(`dsh: patch target row "${id}" not found in ${this.options.configPath}`)
@@ -241,28 +228,9 @@ export class AppCLIEntry {
     })
   }
 
-  /**
-   * Shared boot catches import failures, installFailLoud catches late apply
-   * rejections, and the all-ACTIVE sweep
-   * below catches PENDING fibers (cordis inject waiting has no timeout).
-   */
+  /** Install the diagnostic for plugin rejections that happen after settled boot. */
   private assertBoot(): void {
     installFailLoud('dsh')
-    const failures: string[] = []
-    for (const entry of this.ctx.loader.entries()) {
-      if (entry.fiber === undefined || entry.disabled) continue
-      const state = entry.fiber.state
-      if (state === FIBER_ACTIVE) continue
-      if (state === FIBER_PENDING) {
-        const missing = Object.keys(entry.fiber.inject).filter(service => this.ctx.get(service) === undefined)
-        failures.push(`${entry.options.name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
-      } else {
-        failures.push(`${entry.options.name}: fiber state ${String(state)}`)
-      }
-    }
-    if (failures.length > 0) {
-      throw new Error(`dsh: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
-    }
   }
 
   /**
