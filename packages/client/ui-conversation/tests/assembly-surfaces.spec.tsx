@@ -29,9 +29,20 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const SID = 's1' as SessionId
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 beforeEach(() => {
   localStorage.clear()
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
 const TODOS: TodoItem[] = [

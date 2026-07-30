@@ -468,6 +468,7 @@ describe('fixture session face', () => {
     const bare = runtime.sessions.behavior('s1')
     expect(() => bare.prompt()).toThrow(/prompt is not stubbed/)
     expect(() => bare.readAttachment('att-1' as Parameters<typeof bare.readAttachment>[0])).toThrow(/readAttachment is not stubbed/)
+    expect(() => bare.updateQueue()).toThrow(/updateQueue is not stubbed/)
     expect(() => bare.cancel()).toThrow(/cancel is not stubbed/)
     expect(() => bare.command()).toThrow(/command is not stubbed/)
     expect(() => bare.loadOlder()).toThrow(/loadOlder is not stubbed/)

@@ -2,7 +2,7 @@
 // chain stay mounted across no-session/session transitions. Only the inert
 // input body swaps for the strict session InputBar.
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSlotProps, InputZone } from '../contract/slots.ts'
@@ -28,6 +28,23 @@ export function ConversationRoot({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pendingWorkspaceId, setPendingWorkspaceId] = useState<WorkspaceId | undefined>()
   const pickerAnchor = useRef<HTMLButtonElement>(null)
+
+  // Publishes the seat's live height as --dsh-composer-height on the scroll
+  // body so floating controls (ChatView back-to-bottom) clear the composer as
+  // it grows. Callback ref, not an effect: the seat remounts when the tree
+  // moves between the no-session and session paths. Stable identity so React
+  // reattaches only on those remounts, not on every render.
+  const seatObserver = useRef<ResizeObserver | null>(null)
+  const seatResizeRef = useCallback((seat: HTMLDivElement | null): void => {
+    seatObserver.current?.disconnect()
+    seatObserver.current = null
+    const scroller = seat?.parentElement ?? null
+    if (seat === null || scroller === null) return
+    seatObserver.current = new ResizeObserver(() => {
+      scroller.style.setProperty('--dsh-composer-height', `${seat.offsetHeight}px`)
+    })
+    seatObserver.current.observe(seat)
+  }, [])
 
   const sessionWorkspace = sessionId === undefined
     ? undefined
@@ -106,6 +123,9 @@ export function ConversationRoot({
       overlay: renderSlot('conversation.input.overlay', {}),
       leftItems: zone === undefined ? null : renderSlot('conversation.input.left', zone),
       rightItems: zone === undefined ? null : renderSlot('conversation.input.right', zone),
+      // Stats band under the card, inside the bar's width column so both
+      // share one constraint (composer.dock = stats-line family).
+      footer: !hero && zone !== undefined ? renderSlot('conversation.composer.dock', zone) : null,
     })
 
   const composerBar = (
@@ -113,9 +133,6 @@ export function ConversationRoot({
       {hero && <HeroGlow className={css.heroGlow} />}
       {hero && <HeroShell />}
       {hero && heroWorkspaceRow}
-      {/* Stats band above the input-dock strips so the prior ChatView footer
-          order (stats → todo/queue → card) is preserved under the sticky stack. */}
-      {!hero && zone !== undefined && renderSlot('conversation.composer.dock', zone)}
       {!hero && zone !== undefined && renderSlot('conversation.input.dock', zone)}
       {inputBar}
     </div>
@@ -133,7 +150,7 @@ export function ConversationRoot({
   // on the fallback alone would leave Question/Approval panels at the content
   // end off-screen when the user is not pinned to the floor.
   const composerSeat = (
-    <div className={css.composerSeat} data-composer-seat="">
+    <div ref={seatResizeRef} className={css.composerSeat} data-composer-seat="">
       {composer}
     </div>
   )

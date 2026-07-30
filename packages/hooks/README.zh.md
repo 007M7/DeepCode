@@ -10,4 +10,4 @@ hooks 子系统让用户可以像使用 Claude Code 和 Codex 一样，在 agent
 | `hooks-claude/` | Claude Code `hooks.json`／settings 的桥接 | 插件 |
 | `hooks-codex/` | Codex `hooks.json` 的桥接 | 插件 |
 
-Codex 有意重新实现 Claude Code 协议的一个*子集*（`hooks.json` 结构相同、5 个事件而非 CC 的众多事件、仅命令、仅正则表达式 matcher、没有 env／替换），因此 `hook-protocol` 负责真正相同的原语，每个桥接只负责不同部分（逐事件 stdin 载荷、env，以及把 hook 的中性结果映射到 harness 类型化 Decision 的方式）。参见 [hook-protocol/README.md](hook-protocol/README.md)。
+Codex 有意重新实现 Claude Code 协议的一个*子集*（`hooks.json` 结构相同、5 个事件而非 CC 的众多事件、仅命令、仅使用正则的 matcher、没有 env／替换），因此 `hook-protocol` 负责真正相同的原语，每个桥接只负责不同部分（逐事件 stdin 载荷、env，以及把 hook 的中性结果映射到 harness 类型化 Decision 的方式）。参见 [hook-protocol/README.md](hook-protocol/README.md)。

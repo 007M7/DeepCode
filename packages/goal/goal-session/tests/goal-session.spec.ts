@@ -287,7 +287,7 @@ describe('same-session goal driving', () => {
   it('pauses and drops a reserved round when cancellation lands before admission', async () => {
     const test = await harness([])
     const cancel = test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent === test.agent && info.source.kind === 'goal') {
+      if (agent === test.agent && info.message.source.kind === 'goal') {
         cancel()
         agent.cancel({ kind: 'user' })
       }
@@ -340,7 +340,7 @@ describe('same-session goal driving', () => {
     test.ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof test.ctx.logger.warn
     let inserted = false
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
+      if (agent !== test.agent || info.message.source.kind !== 'goal' || inserted) return
       inserted = true
       const lastStart = agent.session.events.findLast(event => event.type === 'turn/start')
       const turn = (lastStart?.data.turn ?? 0) + 1
@@ -363,7 +363,7 @@ describe('same-session goal driving', () => {
     const test = await harness([textResponse('human batch'), textResponse('later goal')])
     let inserted = false
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
+      if (agent !== test.agent || info.message.source.kind !== 'goal' || inserted) return
       inserted = true
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human joined the pending batch' }], source: { kind: 'user' } }))
     })
@@ -381,7 +381,7 @@ describe('same-session goal driving', () => {
     const test = await harness([textResponse('new revision')])
     let edited = false
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent !== test.agent || info.source.kind !== 'goal' || edited) return
+      if (agent !== test.agent || info.message.source.kind !== 'goal' || edited) return
       edited = true
       const current = test.ctx.goals.get(agent)
       if (current === undefined) throw new Error('missing goal during queued edit')
@@ -661,7 +661,7 @@ describe('same-session goal driving', () => {
     const test = await harness([textResponse('retry after containment')])
     let armed = true
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent !== test.agent || info.source.kind !== 'goal' || !armed) return
+      if (agent !== test.agent || info.message.source.kind !== 'goal' || !armed) return
       armed = false
       vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
         throw new Error('admission projection failed')
@@ -737,7 +737,7 @@ describe('same-session goal driving', () => {
   it('falls back to disarming when a cancelled reservation cannot be paused', async () => {
     const test = await harness([])
     const cancel = test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent !== test.agent || info.source.kind !== 'goal') return
+      if (agent !== test.agent || info.message.source.kind !== 'goal') return
       cancel()
       vi.spyOn(test.ctx.goals, 'pause').mockImplementationOnce(() => {
         throw new Error('pause failed')
@@ -791,7 +791,7 @@ describe('same-session goal driving', () => {
     const test = await harness([])
     let unloading: Promise<void> | undefined
     test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent === test.agent && info.source.kind === 'goal' && unloading === undefined) {
+      if (agent === test.agent && info.message.source.kind === 'goal' && unloading === undefined) {
         unloading = Promise.resolve(test.driver.dispose())
       }
     })

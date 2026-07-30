@@ -361,11 +361,12 @@ describe('Web session model selection', () => {
       id: 'q-1', role: 'user', source: { kind: 'user' },
       content: [{ type: 'image', attachment: { attachmentId: 'att-q', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }],
     } as never
-    ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
+    const queuedItem = { id: 'i-q-1', message: queued, placement: 'queued' } as never
+    ctx.emit('agent/inbox/enqueue', agent, queuedItem)
     expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
 
     // Dequeue precedes the authoritative append, so it cannot open a switch window.
-    ctx.emit('agent/inbox/dequeue', agent, queued, 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, queuedItem)
     expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
 
     const imageEvent = agent.session.append('user/message', queued, { surfaceOp: 'append' })
@@ -411,7 +412,7 @@ describe('Web session model selection', () => {
     } as never)
     Object.assign(agent, {
       followup(message: UserMessage) {
-        ctx.emit('agent/inbox/enqueue', agent, message, 'queued')
+        ctx.emit('agent/inbox/enqueue', agent, { id: `i-${message.id}`, message, placement: 'queued' } as never)
       },
     })
     const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })

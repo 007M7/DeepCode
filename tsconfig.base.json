@@ -61,6 +61,7 @@
       "@deepseek-ai/dsh-tools/presentation": ["./packages/core/tools/src/presentation.ts"],
       "@deepseek-ai/dsh-user-approval/types": ["./packages/ui/user-approval/src/types.ts"],
       "@deepseek-ai/dsh-user-interaction/types": ["./packages/ui/user-interaction/src/types.ts"],
+      "@deepseek-ai/dsh-agent/brand": ["./packages/core/agent/src/brand.ts"],
       "@deepseek-ai/dsh-agent/invariant": ["./packages/core/agent/src/invariant.ts"],
       "@deepseek-ai/dsh-scope/invariant": ["./packages/core/scope/src/invariant.ts"],
       "@deepseek-ai/dsh-agent-loop/invariant": ["./packages/core/agent-loop/src/invariant.ts"],

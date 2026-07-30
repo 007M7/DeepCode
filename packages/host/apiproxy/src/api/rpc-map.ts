@@ -26,6 +26,7 @@ export interface RpcMethodMap {
   'session.rename': SessionsApi['rename']
   'session.prompt': SessionsApi['prompt']
   'session.attachment': SessionsApi['attachment']
+  'session.updateQueue': SessionsApi['updateQueue']
   'session.cancel': SessionsApi['cancel']
   'host.describe': HostApi['describe']
   'host.pickDirectory': HostApi['pickDirectory']

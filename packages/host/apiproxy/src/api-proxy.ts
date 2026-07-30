@@ -9,13 +9,13 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxItem, InboxItemId,
 } from '@deepseek-ai/dsh-agent'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
@@ -620,70 +620,140 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   })
 
   /**
-   * Per-session inbox occurrence mirror serving the mux-open queue snapshot
+   * Per-session queued-occurrence mirror serving the mux-open queue snapshot
    * (the same refresh-recovery baseline as pending questions). Each terminal
-   * inbox event retires one matching occurrence, so repeated sends of the same
-   * identified message remain visible until every occurrence is published or
-   * discarded. Dequeue is not publication: the log append follows it.
+   * queue event retires one matching occurrence, so repeated sends of the same
+   * identified message remain visible until every occurrence is claimed.
    */
-  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean; claimed: boolean }[]>()
-  ctx.effect(() => {
-    const retire = (sessionId: SessionId, id: MessageId, placement?: InboxPlacement): void => {
-      const entries = queuedMirror.get(sessionId)
-      if (entries === undefined) return
-      const index = entries.findIndex(entry =>
-        entry.message.id === id
-        && (placement === undefined || entry.steering === (placement === 'steering')))
-      if (index !== -1) entries.splice(index, 1)
-      if (entries.length === 0) queuedMirror.delete(sessionId)
+  const queuedMirror = new Map<SessionId, InboxItem[]>()
+  /**
+   * Claimed-but-unpublished queued occurrences: dequeue is not publication —
+   * the `user/message` append follows it asynchronously — so an image carrier
+   * stays a model-selection gate until its durable event lands, its discard
+   * arrives, or the admission's turn settles idle. Kept apart from the mirror
+   * so the mux-open snapshot never replays a claimed occurrence as queued.
+   */
+  const pendingPublication = new Map<SessionId, InboxItem[]>()
+  type UnseenQueueEvent =
+    | { readonly kind: 'update'; readonly item: InboxItem }
+    | { readonly kind: 'terminal' }
+  const unseenQueueEvents = new Map<SessionId, Map<InboxItemId, UnseenQueueEvent>>()
+  const rememberUnseen = (sessionId: SessionId, itemId: InboxItemId, event: UnseenQueueEvent): void => {
+    let events = unseenQueueEvents.get(sessionId)
+    if (events === undefined) {
+      events = new Map()
+      unseenQueueEvents.set(sessionId, events)
     }
-    const retireClaimed = (sessionId: SessionId): void => {
-      const entries = queuedMirror.get(sessionId)
-      if (entries === undefined) return
-      const pending = entries.filter(entry => !entry.claimed)
-      if (pending.length === 0) queuedMirror.delete(sessionId)
-      else queuedMirror.set(sessionId, pending)
+    events.set(itemId, event)
+    // Only synchronous re-entrancy may deliver a mutation before its outer
+    // enqueue observer. Drop unmatched protocol-invalid observations instead
+    // of retaining process-local ids indefinitely.
+    queueMicrotask(() => {
+      const current = unseenQueueEvents.get(sessionId)
+      if (current?.get(itemId) !== event) return
+      current.delete(itemId)
+      if (current.size === 0) unseenQueueEvents.delete(sessionId)
+    })
+  }
+  const takeUnseen = (sessionId: SessionId, itemId: InboxItemId): UnseenQueueEvent | undefined => {
+    const events = unseenQueueEvents.get(sessionId)
+    const event = events?.get(itemId)
+    if (event === undefined) return undefined
+    events?.delete(itemId)
+    if (events?.size === 0) unseenQueueEvents.delete(sessionId)
+    return event
+  }
+  const publishQueue = (sessionId: SessionId): void => {
+    const items = queuedMirror.get(sessionId) ?? []
+    broadcast({
+      type: 'session/queue',
+      sessionId,
+      items: items.map(item => ({
+        id: item.id,
+        message: item.message,
+      })),
+    })
+  }
+  ctx.effect(() => {
+    const retire = (agent: Agent, item: InboxItem): boolean => {
+      const entries = queuedMirror.get(agent.id)
+      if (entries === undefined) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      const index = entries.findIndex(entry => entry.id === item.id)
+      if (index === -1) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      entries.splice(index, 1)
+      if (entries.length === 0) queuedMirror.delete(agent.id)
+      return true
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
+        if (item.placement !== 'queued') return
+        const unseen = takeUnseen(agent.id, item.id)
+        if (unseen?.kind === 'terminal') return
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
           entries = []
           queuedMirror.set(agent.id, entries)
         }
-        const steering = placement === 'steering'
-        entries.push({ message, steering, claimed: false })
-        broadcast({
-          type: 'session/queued',
-          sessionId: agent.id,
-          message,
-          steering,
-        })
+        entries.push(unseen?.kind === 'update' ? unseen.item : item)
+        publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage, placement) => {
-        // A later claim proves any earlier claimed item either published (and
-        // was retired by session/event) or its admission ended without one.
-        retireClaimed(agent.id)
-        const entry = queuedMirror.get(agent.id)?.find(candidate =>
-          candidate.message.id === message.id
-          && candidate.steering === (placement === 'steering'))
-        if (entry !== undefined) entry.claimed = true
+      ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem) => {
+        const entries = queuedMirror.get(agent.id)
+        if (entries === undefined) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        const index = entries.findIndex(entry => entry.id === item.id)
+        if (index === -1) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        entries.splice(index, 1, item)
+        publishQueue(agent.id)
+      }),
+      ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
+        if (item.placement === 'queued') {
+          const pending = pendingPublication.get(agent.id) ?? []
+          pending.push(item)
+          pendingPublication.set(agent.id, pending)
+        }
+        if (retire(agent, item)) publishQueue(agent.id)
       }),
       ctx.on('session/event', (session: Session, event: SessionEvent) => {
-        if (event.type === 'user/message') {
-          retire(session.id, event.data.id, 'queued')
-        } else if (event.type === 'steering/message') {
-          retire(session.id, (event.data as { message: UserMessage }).message.id, 'steering')
-        }
+        if (event.type !== 'user/message') return
+        const pending = pendingPublication.get(session.id)
+        if (pending === undefined) return
+        const index = pending.findIndex(entry => entry.message.id === (event.data).id)
+        if (index === -1) return
+        pending.splice(index, 1)
+        if (pending.length === 0) pendingPublication.delete(session.id)
       }),
-      ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
-        for (const message of messages) retire(agent.id, message.id)
+      ctx.on('agent/inbox/discard', (agent: Agent, items: InboxItem[]) => {
+        let changed = false
+        for (const item of items) changed = retire(agent, item) || changed
+        const pending = pendingPublication.get(agent.id)
+        if (pending !== undefined) {
+          const kept = pending.filter(entry => !items.some(item => item.id === entry.id))
+          if (kept.length === 0) pendingPublication.delete(agent.id)
+          else pendingPublication.set(agent.id, kept)
+        }
+        if (changed) publishQueue(agent.id)
       }),
       ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
-        if (status === 'idle') retireClaimed(agent.id)
+        // Idle proves every claimed admission either published (retired by its
+        // session event) or ended without one; drop the stale gate carriers.
+        if (status === 'idle') pendingPublication.delete(agent.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
+        pendingPublication.delete(session.id)
+        unseenQueueEvents.delete(session.id)
       }),
     ]
     return () => { for (const dispose of disposers) dispose() }
@@ -1173,8 +1243,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // A current image-bearing surface replays into the next request,
             // while a dequeued prompt remains pending until its message event
             // publishes. Refuse a text-only route at this shared boundary.
-            const queuedImage = (queuedMirror.get(sessionId) ?? [])
-              .some(entry => contentHasImage(entry.message.content))
+            const queuedImage = [
+              ...queuedMirror.get(sessionId) ?? [],
+              ...pendingPublication.get(sessionId) ?? [],
+            ].some(entry => contentHasImage(entry.message.content))
             if (queuedImage || messagesHaveImage(found.agent.session.deriveMessages())) {
               const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
               if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
@@ -1309,6 +1381,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: {},
           })
         }
+      },
+
+      updateQueue(request) {
+        const { sessionId, itemId, action } = request.payload
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
+          return Promise.resolve(err(request, {
+            code: 'queue-item-not-found',
+            message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        return Promise.resolve(ok(request, { accepted: true as const }))
       },
 
       cancel(request) {
@@ -1706,15 +1791,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // Queue snapshot baseline (pendingQuestions precedent): frames replayed
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
-        for (const [sessionId, entries] of queuedMirror) {
-          for (const entry of entries) {
-            queue.push(frame({
-              type: 'session/queued',
-              sessionId,
-              message: entry.message,
-              steering: entry.steering,
-            }))
-          }
+        for (const [sessionId, items] of queuedMirror) {
+          queue.push(frame({
+            type: 'session/queue',
+            sessionId,
+            items: items.map(item => ({
+              id: item.id,
+              message: item.message,
+            })),
+          }))
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream

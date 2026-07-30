@@ -32,7 +32,7 @@ export type InputBarProps = ComposerBarProps
 export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
   stop, command, translateHint, renderSlot, useNotices, useLexicon, useProjection,
-  variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
+  variant, placeholder, accessory, overlay, leftItems, rightItems, footer, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
@@ -516,6 +516,7 @@ export function InputBar({
         </div>
       </div>
       {preview !== null && <ImageLightbox src={preview.previewUrl} alt={preview.file.name || '原图'} onClose={closePreview} />}
+      {footer}
     </div>
   )
 }
