@@ -393,10 +393,16 @@ export class ToolCardComponent implements Component {
     // content (the `web` view carries no `content` copy), both render as one dim
     // Markdown block below, so links/lists/headings keep the unified dim styling
     // rather than reading as bare text. Terminal and diff cards own their body
-    // styling, so they are excluded (mirrors renderBody's fallback at line 511).
+    // styling, so they are excluded (mirrors renderBody's post-terminal/diff fallback).
     const markdownContent = view.card === 'generic'
       ? view.content ?? this.result?.content
-      : view.card === 'web' ? this.result?.content : undefined
+      : view.card === 'web'
+        // A web resultView is only assigned alongside this.result (the result
+        // handler sets both) and the pending callView is never a web card, so
+        // the optional-chain undefined side is unreachable here.
+        /* v8 ignore next */
+        ? this.result?.content
+        : undefined
     const unknownXml = this.definition === undefined && markdownContent !== undefined
       ? renderUnknownXml(
         displayText(contentText(markdownContent)),
