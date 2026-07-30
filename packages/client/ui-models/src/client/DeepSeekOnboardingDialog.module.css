@@ -2,51 +2,6 @@
   width: min(420px, 100%);
 }
 
-.fields {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.label {
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.input {
-  width: 100%;
-  height: 36px;
-  box-sizing: border-box;
-  padding-inline: 12px;
-  border-radius: 10px;
-}
-
-.input > input {
-  width: 100%;
-  font-size: 13px;
-}
-
-.advanced {
-  align-self: flex-start;
-  padding-inline: 0;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.error {
-  margin: 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
-}
-
 .diagnostic {
   margin: 0;
   font-size: 13px;

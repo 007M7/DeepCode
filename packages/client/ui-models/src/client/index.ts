@@ -1,9 +1,9 @@
 /**
  * Models settings plugin, browser half. Registers the `models` nav entry and
  * official-DeepSeek first-run overlay into shell-declared slots. Both consume
- * one provider/settings/credential join; the full page edits through the
- * schema-driven form while onboarding exposes only write-only credential
- * setup. Export discipline: packages/client/AGENTS.md.
+ * one provider/settings/credential join; the overlay routes missing-key users
+ * to the full page's single credential editor. Export discipline:
+ * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
@@ -68,7 +68,6 @@ export function apply(ctx: ClientContext): void {
   const onboardingInjected = (): DeepSeekOnboardingInjected => ({
     controller,
     useSnapshot,
-    credentials: connection.api.credentials,
     t,
   })
 

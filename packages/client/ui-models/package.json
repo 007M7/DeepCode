@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-models",
-  "description": "Models settings and official-DeepSeek first-run credential UI over one live provider/settings/credential join",
+  "description": "Models settings and official-DeepSeek first-run routing over one live provider/settings/credential join",
   "version": "0.0.1",
   "private": true,
   "type": "module",

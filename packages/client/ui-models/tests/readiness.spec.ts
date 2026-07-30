@@ -43,12 +43,8 @@ describe('deepSeekReadiness', () => {
     expect(deepSeekReadiness(state({ rows: [] }))).toEqual({ kind: 'adapter-absent' })
   })
 
-  it('addresses the effective credential reference when it is missing and writable', () => {
-    expect(deepSeekReadiness(state())).toEqual({
-      kind: 'credential-missing',
-      displayName: 'DeepSeek',
-      ref: 'DEEPSEEK_API_KEY',
-    })
+  it('reports a missing writable effective credential', () => {
+    expect(deepSeekReadiness(state())).toEqual({ kind: 'credential-missing' })
   })
 
   it('accepts file and process-environment credentials without prompting', () => {

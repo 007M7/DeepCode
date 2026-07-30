@@ -181,7 +181,7 @@ export type DeepSeekReadiness =
   | { kind: 'loading' }
   | { kind: 'adapter-absent' }
   | { kind: 'configured'; source: 'literal' | 'credential'; ref?: string; credential?: CredentialView }
-  | { kind: 'credential-missing'; displayName: string; ref: string }
+  | { kind: 'credential-missing' }
   | {
     kind: 'unavailable'
     reason:
@@ -196,7 +196,7 @@ export type DeepSeekReadiness =
 /**
  * Project official-DeepSeek readiness from the provider/settings/credential
  * join used by the Models page. A missing directory entry means the adapter
- * is not mounted and therefore cannot be repaired by a key form.
+ * is not mounted and therefore cannot be repaired by navigating to Models.
  * @param state - current shared Models join snapshot.
  * @returns the onboarding state without reading a parallel fact source.
  */
@@ -264,9 +264,5 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
       message: `credential reference "${row.apiKeyEnv}" is missing and read-only`,
     }
   }
-  return {
-    kind: 'credential-missing',
-    displayName: row.entry.displayName,
-    ref: row.apiKeyEnv,
-  }
+  return { kind: 'credential-missing' }
 }

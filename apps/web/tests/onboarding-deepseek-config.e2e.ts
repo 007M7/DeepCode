@@ -1,7 +1,6 @@
 // Keyless browser e2e: the shipped DeepSeek adapter stays mounted while its
-// credential is absent, onboarding writes the effective reference through
-// the real wire into an isolated harness home, and the live page converges
-// without a reload or model call.
+// credential is absent, onboarding routes to the real Models editor, and its
+// write lands in an isolated harness home without a reload or model call.
 import { randomBytes } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -43,16 +42,23 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
 
   it('stores a key write-only and observes configured state without restarting', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-config'))
-    const dialog = page.getByRole('dialog', { name: '添加 DeepSeek API 密钥' })
+    const dialog = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
     await dialog.waitFor({ timeout: 15_000 })
-    expect(await dialog.getByLabel('提供方').inputValue()).toBe('DeepSeek')
+    expect(await dialog.getByRole('textbox').count()).toBe(0)
     const initial = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(MISSING_EXPECTED, initial, MODE)
 
-    const secret = `dsh_onboarding_${randomBytes(12).toString('hex')}`
-    await dialog.getByLabel('API 密钥', { exact: true }).fill(secret)
-    await dialog.getByRole('button', { name: '保存并继续' }).click()
+    await dialog.getByRole('button', { name: '前往配置' }).click()
     await dialog.waitFor({ state: 'detached', timeout: 15_000 })
+    const settings = page.getByRole('dialog', { name: '设置' })
+    await settings.waitFor({ timeout: 10_000 })
+    const keyInput = settings.getByLabel('API 密钥', { exact: true })
+    await keyInput.waitFor({ timeout: 10_000 })
+
+    const secret = `dsh_onboarding_${randomBytes(12).toString('hex')}`
+    await keyInput.fill(secret)
+    await settings.getByRole('button', { name: '保存', exact: true }).click()
+    await keyInput.waitFor({ state: 'detached', timeout: 15_000 })
 
     const stored = await readFile(join(scaffold.harnessHome, '.env'), 'utf8')
     expect(stored.includes(`DEEPSEEK_API_KEY=${secret}`)).toBe(true)
@@ -60,18 +66,15 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect((await page.locator('body').ariaSnapshot()).includes(secret)).toBe(false)
     expect(browserConsole.some(line => line.includes(secret))).toBe(false)
 
-    // The same running composition reuses the refreshed join. Opening Models
-    // and its write-only key field proves the configured view without reload.
-    await page.getByRole('button', { name: '设置', exact: true }).click()
-    const settings = page.getByRole('dialog', { name: '设置' })
-    await settings.getByRole('button', { name: '模型' }).click()
+    // The same open Models surface reuses the refreshed join and exposes the
+    // configured write-only placeholder without a reload.
     const deepSeekRow = settings.getByText('DeepSeek', { exact: true }).first()
     await deepSeekRow.waitFor({ timeout: 10_000 })
     await deepSeekRow.locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()
-    const keyInput = settings.getByLabel('API 密钥', { exact: true })
-    await keyInput.waitFor({ timeout: 10_000 })
+    const configuredInput = settings.getByLabel('API 密钥', { exact: true })
+    await configuredInput.waitFor({ timeout: 10_000 })
     await expect.poll(
-      () => keyInput.getAttribute('placeholder'),
+      () => configuredInput.getAttribute('placeholder'),
       { timeout: 10_000 },
     ).toBe('已配置——输入新值可替换')
 
