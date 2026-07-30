@@ -111,7 +111,11 @@ describe('MessageItem arms', () => {
     const ctxView = render(
       <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null } as never} />,
     )
-    expect(ctxView.getByText(/上下文注入/)).toBeTruthy()
+    const contextToggle = ctxView.getByRole('button', { name: '上下文注入' })
+    expect(contextToggle.getAttribute('aria-expanded')).toBe('false')
+    expect(contextToggle.querySelector('svg')).not.toBeNull()
+    fireEvent.click(contextToggle)
+    expect(contextToggle.getAttribute('aria-expanded')).toBe('true')
     const unknownView = render(
       <MessageItem node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )

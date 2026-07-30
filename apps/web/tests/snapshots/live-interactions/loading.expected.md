@@ -12,6 +12,8 @@
 - button "编辑":
   - img
 - button "上下文注入"
+- paragraph: partial
+- status: Deep diving...
 - textbox "Message the agent"
 - button "Add attachment":
   - img
@@ -20,4 +22,4 @@
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
-- button "Send message" [disabled]
+- button "Stop generating"

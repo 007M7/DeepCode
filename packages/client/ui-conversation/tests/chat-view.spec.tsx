@@ -318,6 +318,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()
     expect(view.getByText('cmd-r1')).toBeTruthy()
+    expect(view.getByRole('status').textContent).toBe('Deep diving...')
   })
 
   it('dispatches each tool row through the keyed slot with the tool name as entryKey', () => {

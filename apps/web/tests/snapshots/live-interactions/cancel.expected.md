@@ -11,6 +11,7 @@
   - img
 - button "编辑":
   - img
+- button "上下文注入"
 - paragraph: partial
 - text: 已停止
 - button "复制":
