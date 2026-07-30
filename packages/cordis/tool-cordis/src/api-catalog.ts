@@ -2165,11 +2165,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SearchMatchesResultView',
-    declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    kind: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n    content?: ContentBlock[];\n}',
+    declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    shape: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n}',
   },
   {
     name: 'SearchPathsResultView',
-    declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    kind: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n    content?: ContentBlock[];\n}',
+    declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    shape: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n}',
   },
   {
     name: 'SearchResultView',

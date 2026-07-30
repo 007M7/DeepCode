@@ -196,12 +196,14 @@ export interface SearchFileMatches {
 /**
  * A completed content search (`grep`) rendered as a search card whose matches are
  * grouped by file, so a capable UI can list each file as an expandable group of
- * its matched lines. `kind: 'matches'` discriminates this shape from the path
- * shape ({@link SearchPathsResultView}) within {@link SearchResultView}.
+ * its matched lines. `shape: 'matches'` discriminates this variant from the path
+ * variant ({@link SearchPathsResultView}) within {@link SearchResultView}. The
+ * discriminant is `shape`, not `kind`, so it never collides with the
+ * {@link ToolCallKind} `kind` an icon-picking bridge reads off a call view.
  */
 export interface SearchMatchesResultView {
   card: 'search'
-  kind: 'matches'
+  shape: 'matches'
   /** Replacement title for the completed call. Omit to keep the pending-state title. */
   title?: string
   /** Matched lines grouped by file, in first-seen file order. */
@@ -214,22 +216,16 @@ export interface SearchMatchesResultView {
   truncated: boolean
   /** Total matches the search found before capping (equals the retained count when not `truncated`). */
   total: number
-  /**
-   * UI-facing content blocks reproducing the model-facing result text, so a UI
-   * without a dedicated search card renders it as text. Omit to let the UI render
-   * the raw result content.
-   */
-  content?: ContentBlock[]
 }
 
 /**
  * A completed path search (`glob`) rendered as a search card whose result is a flat
- * path list. `kind: 'paths'` discriminates this shape from the grouped-matches
- * shape ({@link SearchMatchesResultView}) within {@link SearchResultView}.
+ * path list. `shape: 'paths'` discriminates this variant from the grouped-matches
+ * variant ({@link SearchMatchesResultView}) within {@link SearchResultView}.
  */
 export interface SearchPathsResultView {
   card: 'search'
-  kind: 'paths'
+  shape: 'paths'
   /** Replacement title for the completed call. Omit to keep the pending-state title. */
   title?: string
   /** The discovered paths, in the tool's result order (the retained page when `truncated`). */
@@ -242,24 +238,18 @@ export interface SearchPathsResultView {
   truncated: boolean
   /** Total paths the search found before capping (equals `paths.length` when not `truncated`). */
   total: number
-  /**
-   * UI-facing content blocks reproducing the model-facing result text, so a UI
-   * without a dedicated search card renders it as text. Omit to let the UI render
-   * the raw result content.
-   */
-  content?: ContentBlock[]
 }
 
 /**
  * A completed search rendered as a search card, the result-time view a discovery
  * tool (`grep`, `glob`) returns from `presentResult`. One `card: 'search'` view
- * with two `kind`-discriminated shapes: grouped-by-file content matches
+ * with two `shape`-discriminated variants: grouped-by-file content matches
  * ({@link SearchMatchesResultView}) and a flat path list
  * ({@link SearchPathsResultView}). Both carry a `truncated`/`total` signal so a UI
- * never presents a capped result as complete, and an optional `content` a UI
- * without a search card renders as text. There is no call-time analogue: a search
- * call stays a {@link GenericCallView} (`kind: 'search'`) because the pending
- * state has no matches or paths to show — the structured shape exists only after
- * `execute`.
+ * never presents a capped result as complete. The view carries no result text: a
+ * UI without a search card falls back to the raw `tool/result` content. There is
+ * no call-time analogue: a search call stays a {@link GenericCallView}
+ * (`kind: 'search'`) because the pending state has no matches or paths to show —
+ * the structured shape exists only after `execute`.
  */
 export type SearchResultView = SearchMatchesResultView | SearchPathsResultView
