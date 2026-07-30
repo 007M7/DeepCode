@@ -145,6 +145,8 @@ function compareToolNames(a: ToolSchema, b: ToolSchema): number {
 
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.persona} for its contract). */
 export interface Config {
+  /** Include the fixed DeepSeek Harness identity before the deployment persona (default true). */
+  includeHarnessIdentity?: boolean
   /**
    * Deployment-wide order-0 persona template. A scoped section named
    * `deployment:persona` shadows it; `{{variable}}` references are strict.
@@ -245,6 +247,7 @@ class PromptLayer implements ScopeLayer {
 /** Registry service for the prompt inputs assembled before each model step. */
 export class SystemPrompt extends Service {
   static Config: z<Config> = z.object({
+    includeHarnessIdentity: z.boolean().default(true),
     persona: z.string().default(''),
     // Preserve omission because an explicit empty order lacks the rest marker.
     toolOrder: z.array(z.string()).default(undefined as unknown as string[]),
@@ -260,11 +263,13 @@ export class SystemPrompt extends Service {
     super(ctx, 'systemPrompt')
     this.toolOrder = validateToolOrder(config.toolOrder)
     // Keep harness-owned openers independent of the selected loop plugin.
-    this.section({
-      name: 'harness:identity',
-      order: -100,
-      text: 'You are an AI agent powered by the DeepSeek Harness SDK.',
-    })
+    if (config.includeHarnessIdentity ?? true) {
+      this.section({
+        name: 'harness:identity',
+        order: -100,
+        text: 'You are an AI agent powered by the DeepSeek Harness SDK.',
+      })
+    }
     this.section({
       name: 'deployment:persona',
       order: 0,

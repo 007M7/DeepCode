@@ -22,7 +22,7 @@ pnpm exec tsx scripts/build-exe-for-python-sdk.ts --skip-build    # lib/ artifac
 pnpm exec tsx scripts/build-exe-for-python-sdk.ts --targets=node24-linux-x64,node24-linux-arm64,node24-macos-arm64
 ```
 
-Products land in `dist-exe/` and are synced into this package at `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>` (platform: `linux`/`macos`; arch: `x64`/`arm64`) — after a local build the SDK finds the executable with no further setup. The `build-exe-for-python-sdk` CI workflow (manual dispatch, or the `build-exe` PR label) exercises the same binaries. A full three-target run retains four release wheels; a subset dispatch retains the SDK wheel and selected platform wheels. Which plugins the exe bundles and how the carriers are organized: [sdk-runtime README](sdk-runtime/README.md); the build also refreshes the dev-only node carrier (see "against the Node source" below).
+Products land in `dist-exe/` and are synced into this package as `sdk-runtime/src/deepseek_harness_runtime/runtime/dsh-jsonrpc-agent-pkg-<platform>-<arch>` (platform: `linux`/`macos`; arch: `x64`/`arm64`); macOS builds also sync the matching `-spawn-helper` required by `node-pty`. After a local build the SDK finds the runtime with no further setup. The `build-exe-for-python-sdk` CI workflow (manual dispatch, or the `build-exe` PR label) exercises the same products. A full three-target run retains four release wheels; a subset dispatch retains the SDK wheel and selected platform wheels. Which plugins the exe bundles and how the carriers are organized: [sdk-runtime README](sdk-runtime/README.md); the build also refreshes the dev-only node carrier (see "against the Node source" below).
 
 ## Validating the SDK against the executable
 

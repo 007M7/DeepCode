@@ -7,6 +7,37 @@
   - button "Edit path"
   - list:
     - listitem:
+      - button "adopted":
+        - img
+        - text: adopted
+        - img
+    - listitem:
+      - button "alpha-ws":
+        - img
+        - text: alpha-ws
+        - img
+    - listitem:
+      - button "beta-ws":
+        - img
+        - text: beta-ws
+        - img
+    - listitem:
+      - button "browse-golden":
+        - img
+        - text: browse-golden
+        - img
+    - listitem:
+      - button "same-name":
+        - img
+        - text: same-name
+        - img
+    - listitem:
+      - button "workspace":
+        - img
+        - text: workspace
+        - img
+  - list:
+    - listitem:
       - button "alpha":
         - img
         - text: alpha
@@ -19,5 +50,6 @@
   - button "New folder":
     - img
     - text: New folder
+  - button "Show hidden files"
   - button "Cancel"
   - button "Open"
