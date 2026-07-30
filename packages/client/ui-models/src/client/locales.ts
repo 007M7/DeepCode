@@ -1,6 +1,6 @@
 /** Copy dictionaries for the Models settings section. */
 
-/** English strings. */
+/** English strings (the key-set source of truth for this pair). */
 export const en = {
   nav: 'Models',
   title: 'Models',
@@ -33,6 +33,9 @@ export const en = {
   onboardingGoToSettings: 'Go to settings',
   onboardingLater: 'Configure later',
 }
+
+/** The settings.models namespace key union. */
+export type ModelsKey = keyof typeof en
 
 /** Chinese strings (same keys as {@link en}). */
 export const zh: typeof en = {

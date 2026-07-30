@@ -1,6 +1,7 @@
-/** Models section registration: declaration-aware deferral, locale re-registration, and HMR recovery. */
+/** Models section registration: declaration-aware deferral, the locale-following label thunk, and HMR recovery. */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject, refreshIfLoaded } from '@deepseek-ai/dsh-client-ui-models/client'
@@ -42,7 +43,9 @@ describe('ui-models apply', () => {
     await before.ctx.plugin({ inject: [...inject], apply }).await()
     const entry = before.slots.entries('settings.section')[0]!
     expect(entry.component).toBe(ModelsSection)
-    expect(entry.options).toMatchObject({ id: 'models', order: 10, label: '模型' })
+    expect(entry.options).toMatchObject({ id: 'models', order: 10 })
+    // The nav label is a locale-following thunk; owners resolve at read time.
+    expect(resolveSlotLabel(entry.options.label)).toBe('模型')
     const injected = (entry.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected)()
     expect(injected.t('nav')).toBe('模型')
     expect(typeof injected.controller.load).toBe('function')
@@ -64,14 +67,14 @@ describe('ui-models apply', () => {
     expect(after.slots.entries('settings.section')).toHaveLength(1)
   })
 
-  it('re-registers with fresh label text on locale change', async () => {
+  it('the label thunk follows the active locale without re-registration', async () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     b.locale.setLocale('en')
-    expect(b.slots.entries('settings.section')[0]!.options.label).toBe('Models')
+    expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
     b.locale.setLocale('zh')
-    expect(b.slots.entries('settings.section')[0]!.options.label).toBe('模型')
+    expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('模型')
   })
 
   it('locale change while the slot is undeclared stays a no-op', async () => {
@@ -98,7 +101,7 @@ describe('ui-models apply', () => {
     expect(b.slots.entries('settings.onboarding')[0]!.component).toBe(DeepSeekOnboardingDialog)
     // The locale path also recovers through the same ledger re-check.
     b.locale.setLocale('en')
-    expect(b.slots.entries('settings.section')[0]!.options.label).toBe('Models')
+    expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
     b.locale.setLocale('zh')
   })
 
