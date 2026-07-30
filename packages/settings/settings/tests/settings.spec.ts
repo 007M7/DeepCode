@@ -228,6 +228,14 @@ describe('update', () => {
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 18 })
   })
 
+  it('ignores an explicit undefined entry in the composition base layer', async () => {
+    const { ctx } = await boot({ doc: { 'ui-theme': { theme: 'light' } } })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {
+      base: { theme: undefined, fontSize: 16 },
+    })
+    expect(scope.get()).toEqual({ theme: 'light', fontSize: 16 })
+  })
+
   it('rejects a non-object patch', async () => {
     const { ctx } = await boot()
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
@@ -433,11 +441,11 @@ describe('second review regressions', () => {
     expect(applied).toEqual([1, 2])
   })
 
-  it('rejects a plain object that is not structured-cloneable', async () => {
+  it('rejects a function value as not JSON-shaped', async () => {
     const { ctx } = await boot()
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
     await expect(scope.update({ theme: () => 'dark' }))
-      .rejects.toThrow(/JSON-shaped/)
+      .rejects.toThrow(/JSON-shaped.*function at \$\.theme/)
   })
 
   it('rejects a write still queued when the service disposes', async () => {
@@ -529,6 +537,99 @@ describe('publish', () => {
     expect(scope.get()).toEqual({ theme: 'dark', fontSize: 14 })
     provider.pushExternal({ 'ui-theme': { fontSize: 18 } })
     expect(scope.get()).toEqual({ theme: 'dark', fontSize: 18 })
+  })
+})
+
+describe('third review regressions', () => {
+  it('skips a queued watch invocation whose disposer ran before it started', async () => {
+    const { ctx, provider } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    const watcher = vi.fn()
+    const dispose = scope.watch(watcher)
+    // The commit chains the invocation as a microtask; the disposer runs in
+    // the same synchronous frame, before that invocation could start.
+    provider.pushExternal({ 'ui-theme': { theme: 'light' } })
+    dispose()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(watcher).not.toHaveBeenCalled()
+  })
+
+  it('waits for an in-flight watch invocation at service dispose', async () => {
+    const { ctx, provider, fiber } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    let release: (() => void) | undefined
+    let finished = false
+    scope.watch(async () => {
+      await new Promise<void>((resolve) => { release = resolve })
+      finished = true
+    })
+    provider.pushExternal({ 'ui-theme': { theme: 'light' } })
+    await vi.waitFor(() => { expect(release).toBeDefined() })
+    let disposed = false
+    const disposal = fiber.dispose().then(() => { disposed = true })
+    await new Promise(resolve => setTimeout(resolve, 15))
+    expect(disposed).toBe(false)
+    release!()
+    await disposal
+    expect(finished).toBe(true)
+  })
+
+  it('rejects a Date at its path before anything persists', async () => {
+    const { ctx, provider } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), z.object({ value: z.any() }))
+    await expect(scope.update({ value: { at: new Date(0) } }))
+      .rejects.toThrow(/JSON-shaped.*Date at \$\.value\.at/)
+    expect(provider.persisted).toEqual([])
+  })
+
+  it.each([
+    ['a Map', { value: new Map() }, /Map at \$\.value/],
+    ['a bigint', { value: [10n] }, /bigint at \$\.value\[0\]/],
+    ['a symbol', { value: Symbol('x') }, /symbol at \$\.value/],
+    ['a non-finite number', { value: Number.NaN }, /non-finite number at \$\.value/],
+    ['an undefined array entry', { value: [undefined] }, /undefined at \$\.value\[0\]/],
+    ['a class instance', { value: Object.create({ marker: true }) as object }, /non-plain object at \$\.value/],
+  ])('rejects %s that structuredClone would admit', async (_label, patch, message) => {
+    const { ctx } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), z.object({ value: z.any() }))
+    await expect(scope.update(patch)).rejects.toThrow(message)
+  })
+
+  it('rejects a circular patch instead of storing an alias-looped document', async () => {
+    const { ctx } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), z.object({ value: z.any() }))
+    const cyclic: Record<string, unknown> = {}
+    cyclic['self'] = cyclic
+    await expect(scope.update({ value: cyclic })).rejects.toThrow(/circular reference at \$\.value\.self/)
+    const loop: unknown[] = []
+    loop.push(loop)
+    await expect(scope.update({ value: loop })).rejects.toThrow(/circular reference at \$\.value\[0\]/)
+  })
+
+  it('accepts one object referenced twice without a cycle', async () => {
+    const { ctx } = await boot()
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), z.object({ value: z.any() }))
+    const shared = { leaf: 1 }
+    await scope.update({ value: { left: shared, right: shared } })
+    expect(scope.get()).toEqual({ value: { left: { leaf: 1 }, right: { leaf: 1 } } })
+  })
+
+  it('contains an async settings/updated listener rejection and keeps other listeners running', async () => {
+    const { ctx, provider } = await boot()
+    // An async listener violates the event's synchronous signature (typed
+    // consumers get a lint error for it), but an unlinted JS plugin can still
+    // register one; the cast simulates exactly that caller.
+    ctx.on('settings/updated', async () => {
+      throw new Error('async listener boom')
+    })
+    const second = vi.fn()
+    ctx.on('settings/updated', second)
+    ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    provider.pushExternal({ 'ui-theme': { theme: 'light' } })
+    expect(second).toHaveBeenCalledTimes(1)
+    // Containment gives the rejection a handler; vitest observes no unhandled
+    // rejection out of this test.
+    await new Promise(resolve => setTimeout(resolve, 10))
   })
 })
 
