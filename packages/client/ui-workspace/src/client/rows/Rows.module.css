@@ -192,6 +192,13 @@
   overflow-wrap: break-word;
 }
 
+.hoverPath {
+  font-size: 12px;
+  line-height: 16px;
+  color: #CFD3D6;
+  word-break: break-all;
+}
+
 .hoverTime {
   font-size: 12px;
   line-height: 16px;

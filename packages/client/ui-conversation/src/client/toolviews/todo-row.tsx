@@ -1,15 +1,16 @@
 // todo_write toolview: plan-flavored summary row replacing the generic
 // "Tool call" card, registered into the keyed 'conversation.chat.toolview'
 // hole like the bash sample (a product registration, not a sample). The row
-// summarizes the written list (counts + active item) from the call args; the
+// composes ToolRow (chrome, running sweep, leading expansion) and swaps in a
+// summary of the written list (counts + active item) from the call args; the
 // durable list itself renders in the TodoPanel above the composer, so the
-// row stays one line. Chrome matches ToolRow (figma 780:53675).
+// row stays one line.
 
+import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from 'cordis'
-import { IconChecklistOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
-import css from './todo-row.module.css'
+import { toolRowModel } from '../contract/tool-call-model.ts'
+import { ToolRow } from '../chat/ToolRow.tsx'
 
 /** One parsed args item, shape-checked (model JSON: any field may be missing or mistyped). */
 interface TodoWriteItem { content?: unknown; status?: unknown }
@@ -39,37 +40,23 @@ function summarize(argsRaw: string): string | null {
     : head
 }
 
-/** Leading-slot state substitution matches ToolRow / bash: icon yields to the
- *  state semantic while running or failed; ok keeps the checklist glyph. */
-function leadingFor(state: ToolRowState) {
-  switch (state) {
-    case 'running': return <StateDot state="ongoing" />
-    case 'error': return <StateDot state="error" />
-    case 'stopped': return <StateDot state="warning" />
-    default: return <IconChecklistOutline16 />
-  }
-}
-
-/** One-line plan update row. Non-ok execution states keep the generic row's
- *  dot semantics — a cancelled call wrote no todo/write, so it must not read
- *  as a completed update. */
+/** One-line plan update row (leading toggle expands the raw args). Non-ok
+ *  execution states keep the shared row's dot semantics — a cancelled call
+ *  wrote no todo/write, so it must not read as a completed update. */
 export function TodoRow({ toolName, block }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
   const summary = summarize(argsRaw) ?? model.summary
   return (
-    <div
-      className={css.row}
-      data-sample="todo-row"
-      data-state={model.state}
-    >
-      <span className={css.leading} aria-hidden>{leadingFor(model.state)}</span>
-      <span className={css.title}>更新任务清单</span>
-      <span className={css.sep} aria-hidden />
-      <span className={css.summary}>{summary}</span>
-      {model.state === 'error' && <span className={css.err}>failed</span>}
-      {model.state === 'stopped' && <span className={css.err}>已中断</span>}
-    </div>
+    <ToolRow
+      variant={model.variant}
+      toolName={toolName}
+      icon={<IconChecklistOutline14 />}
+      title="更新任务清单"
+      summary={summary}
+      body={model.body}
+      state={model.state}
+    />
   )
 }
 

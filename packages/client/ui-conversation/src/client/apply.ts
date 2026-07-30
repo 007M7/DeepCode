@@ -10,6 +10,7 @@ import type {
   ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
   ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
+import type { InputNotice } from './input/contract.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
 import { ConversationService } from './service.ts'
@@ -21,6 +22,7 @@ import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
+import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
@@ -29,6 +31,19 @@ import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 
 /** Services required by the conversation plugin. */
 export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
+
+// Static no-session sources for the composer-bar hooks compartment: module
+// constants so the render side's per-source hook cache (observableHook) keeps
+// one identity across every no-session render.
+const ABSENT_NOTICES = {
+  getSnapshot: (): InputNotice | null => null,
+  subscribe: () => () => {},
+}
+const EMPTY_LEXICON: ReadonlyMap<'/' | '@', readonly string[]> = new Map()
+const ABSENT_LEXICON = {
+  getSnapshot: () => EMPTY_LEXICON,
+  subscribe: () => () => {},
+}
 
 /** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
 function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
@@ -120,7 +135,7 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.session': { kind: 'single', scope: 'session' },
       'conversation.composer': { kind: 'chain', scope: 'session' },
-      'conversation.composer.bar': { kind: 'single', scope: 'session' },
+      'conversation.composer.bar': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.overlay': { kind: 'list', scope: 'session' },
       'conversation.input.dock': { kind: 'list', scope: 'session' },
       'conversation.composer.dock': { kind: 'list', scope: 'session' },
@@ -165,6 +180,9 @@ export function apply(ctx: Context): void {
   // chain's fallback (decision 20). Public machine surface arrives via the
   // provide channel above; the keyboard command face and the stop/retry
   // verbs ride this inject (package-internal — hub and bar are one plugin).
+  // Session-maybe: with no current session the machine faces are absent and
+  // the hooks compartment binds static empty sources (module constants, so
+  // observableHook caching and hook order stay stable across transitions).
   slots.register({
     name: 'conversation.composer.bar',
     // The two named control seats in the bar's tool row (plan beside the
@@ -174,7 +192,16 @@ export function apply(ctx: Context): void {
       'conversation.input.plan': { kind: 'single', scope: 'session' },
       'conversation.input.model': { kind: 'single', scope: 'session' },
     },
-    inject: (sessionId: SessionId): ComposerBarInjected => {
+    inject: (sessionId: SessionId | undefined): ComposerBarInjected => {
+      if (sessionId === undefined) {
+        return {
+          keyboard: undefined,
+          stop: undefined,
+          command: undefined,
+          translateHint,
+          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON },
+        }
+      }
       const shell = inputHub.shell(sessionId)
       return {
         keyboard: shell,
@@ -256,6 +283,9 @@ export function apply(ctx: Context): void {
 
   // The todo_write row rides the same seam (a product registration, not a sample).
   ctx.plugin(todoToolview)
+
+  // The ask_user_question row: waiting/answered/cancelled interaction outcome.
+  ctx.plugin(askQuestionToolview)
 
   // The plan strip rides the input dock above the queue rows (same posture).
   ctx.plugin(todoDockEntry)
