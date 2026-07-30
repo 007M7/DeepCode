@@ -186,6 +186,11 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ToolRegistry: 'tools.md',
   ToolRestriction: 'tools.md',
   ToolSchema: 'tools.md',
+  SettingsNamespace: 'settings.md',
+  SettingsRegisterOptions: 'settings.md',
+  SettingsScope: 'settings.md',
+  SettingsDescriptor: 'settings.md',
+  SettingsUpdateSource: 'settings.md',
   AskUserQuestionAnswer: 'user-interaction.md',
   AskUserQuestionRequest: 'user-interaction.md',
   UserInteractionProvider: 'user-interaction.md',
@@ -216,6 +221,7 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 /** Project types deliberately documented outside the core-data catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentFactory: 'agent creation seam is owned by packages/core/agent/README.md',
+  z: 'schemastery schema constructor is owned by vendor/schemastery (vendored upstream)',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
