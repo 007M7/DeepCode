@@ -2,12 +2,27 @@
 import { existsSync, mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { fileURLToPath } from 'node:url'
-import type { Page } from 'playwright'
+import type { Browser, Page } from 'playwright'
 
 /** The built page under test; `pnpm run test:web` rebuilds it before running. */
 export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.meta.url))
 
 export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+
+/**
+ * Open the standard browser-test page with English selected before client
+ * boot. This keeps role locators and goldens deterministic across localized
+ * component migrations; the settings locale scenario deliberately bypasses
+ * this helper to cover the product's default Chinese state.
+ * @param browser - Playwright browser owning the page.
+ * @param height - Viewport height; width is fixed to the lane baseline.
+ * @returns the initialized page.
+ */
+export async function newEnglishPage(browser: Browser, height = 1000): Promise<Page> {
+  const page = await browser.newPage({ viewport: { width: 1680, height } })
+  await page.addInitScript(() => { localStorage.setItem('dsh.locale', 'en') })
+  return page
+}
 
 /** Fail loud on a stale checkout instead of testing yesterday's bundle. */
 export function requireDist(): void {
