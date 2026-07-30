@@ -137,7 +137,16 @@ export function ToolRow({
         {terminalBody !== null
           ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
           : searchBody !== null
-            ? <SearchBlock {...searchBody.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.searchBody} />
+            ? (
+              <>
+                <SearchBlock {...searchBody.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.searchBody} />
+                {/* A capped search's recovery locator lives only in the result
+                    text; show it below the card so the dropped rows survive. */}
+                {searchBody.recovery !== undefined && (
+                  <div className={css.searchRecovery}>{searchBody.recovery}</div>
+                )}
+              </>
+            )
             : variant === 'code'
               ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
               : <div className={css.body}>{text}</div>}

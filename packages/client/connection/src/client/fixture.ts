@@ -159,6 +159,15 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
       { lineNumber: 60, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
     ],
   },
+  {
+    path: 'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+    matches: [
+      { lineNumber: 71, line: 'export function SearchRow({ toolName, block }: ToolRowProps) {' },
+      { lineNumber: 73, line: '  const search = searchCardModel(block)' },
+      { lineNumber: 90, line: '        <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />' },
+      { lineNumber: 113, line: "    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep' }, SearchRow)" },
+    ],
+  },
 ]
 
 /**
@@ -169,7 +178,7 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
  * `Line N:` rows, then a spill-recovery footer.
  */
 const SEARCH_MATCHES_TEXT = [
-  'Found 5 of 42 matches',
+  'Found 9 of 42 matches',
   '',
   ...SEARCH_MATCHES_FIXTURE.map(file =>
     [file.path, ...file.matches.map(m => `Line ${m.lineNumber}: ${m.line}`)].join('\n')),

@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-`SearchBlock` 是一个 `ui-primitives` 组件，把一次已完成的搜索渲染成两种形态之一，`grep`/`glob` 调用的 Web 渲染点都通过它消费搜索 render intent。`ui-conversation/src/client/contract/search-card-model.ts` 是把 snapshot 的 `resultView` 转成组件 props 的唯一位置，因此没有渲染点重新推导形态。当结果视图不是搜索卡片时它返回 null（走 generic 路径），包括仍在运行的调用（搜索卡片仅在结果阶段存在，`execute` 前无内容）、`grep`/`glob` 失败或嵌套 `run_code` dispatch 产生的 generic 结果、terminal 结果视图，以及本客户端版本不认识的 `card` 值。
+`SearchBlock` 是一个 `ui-primitives` 组件，把一次已完成的搜索渲染成两种形态之一，`grep`/`glob` 调用的 Web 渲染点都通过它消费搜索 render intent。`ui-conversation/src/client/contract/search-card-model.ts` 是把 snapshot 的 `resultView` 转成组件 props 的唯一位置，因此没有渲染点重新推导形态。当结果视图不是搜索卡片时它返回 null（走 generic 路径），包括仍在运行的调用（搜索卡片仅在结果阶段存在，`execute` 前无内容）、`grep`/`glob` 失败或嵌套 `run_code` dispatch 产生的 generic 结果、terminal 结果视图、本客户端版本不认识的 `card` 值、`kind` 是本版本无法编译的 `card: 'search'` 视图，以及 —— 因为 `kind` 和分组/扁平形态与 host schema 只做字符串校验的那同一个不可信 wire 帧同行 —— 一个 `kind` 已知但 `files`/`paths` 缺失或格式错误的视图（否则会让 `SearchBlock` 在 `.reduce`/`.map` 处崩溃）。
 
 与终端卡片的不对称是刻意的，继承自后端契约：`terminalCardModel` 同时读 `callView` 和 `resultView`，因为命令、cwd、description 在调用时就存在；`searchCardModel` 只读 `resultView`，因为搜索的匹配或路径只在执行后存在。因此运行中的搜索行只显示摘要，没有卡片。
 
@@ -22,7 +22,8 @@ Status: implemented
 
 - **按文件分组的匹配，逐文件可折叠。** 每个文件是一个头行（加粗路径加它的匹配计数，整行即折叠控件），后面跟它的 `lineNumber: line` 行。折叠一个组会把它的匹配行从压平列表和高度上限的算术里去掉，但绝不从复制文本里去掉。
 - **扁平路径列表。** paths 形态每行一个路径，无头行。
-- **截断指示。** `truncated` 时，横幅摘要把截断前总数折入 —— grep 为 `显示 X / 共 N 处匹配 · K 个文件`，glob 为 `显示 X / 共 N 个路径` —— 因此卡片绝不把一个被截断的页面呈现为完整结果；想要其余部分的读者跟随面向模型文本里的溢出定位符，与模型的做法完全一致。未 `truncated` 时摘要是一个朴素的结构计数（`{n} 处匹配 · {m} 个文件`，或 `{n} 个路径`）。
+- **截断指示。** `truncated` 时，横幅摘要把截断前总数折入 —— grep 为 `显示 X / 共 N 处匹配 · K 个文件`，glob 为 `显示 X / 共 N 个路径` —— 因此卡片绝不把一个被截断的页面呈现为完整结果。未 `truncated` 时摘要是一个朴素的结构计数（`{n} 处匹配 · {m} 个文件`，或 `{n} 个路径`）。
+- **被截断结果的恢复脚注。** 卡片只持有保留的那一页，但通往其余部分的定位符 —— grep/glob 的 `Full … stored at: <locator>` 脚注 —— 只存在于结果视图的 `content` 文本里，而非结构化的 matches/paths 中。由于每个渲染点都用卡片替换了原始结果，`searchCardModel` 在（且仅在）结果被截断时把压平后的 `content` 作为 `SearchCardModel.recovery` 暴露出来，每个渲染点把它画在卡片下方。没有它，通往被丢弃行的唯一路径就会从 UI 里消失；未截断的结果携带了每一行，其 `content` 不增加任何信息，因此被丢弃。
 - **不软换行。** 结果行在一个横向滚动的盒子里 `white-space: pre`，因此一条长匹配行或一个深路径横向滚动而不折叠。
 - **带展开控件的高度上限。** 超过 `DEFAULT_SEARCH_MAX_LINES`（16）行时显示一个头/尾切片，中间一个按钮报告被隐藏的行数，形状和算术与 `TerminalBlock` 相同。
 - **复制。** 复制控件写入整个结构化结果 —— 每个文件与匹配，或每个路径 —— 无关高度上限或哪些组被折叠，因此剪贴板携带的是结果本身，而不是卡片此刻恰好显示的内容。
@@ -33,9 +34,9 @@ Status: implemented
 
 三个渲染点消费该推导，与终端卡片的落位完全一致：
 
-- **keyed `SearchRow`**（`toolviews/search-row.tsx`）把一个组件同时注册到 `conversation.chat.toolview` keyed hole 的 `grep` 与 `glob` 键下，并把卡片作为常驻（resident）渲染在摘要行下方，上限为 `CHAT_SEARCH_MAX_LINES`（8）—— 与 `BashRow` 对其终端卡片采取的姿态相同。两个工具名共用同一行，因为推导出的 `kind` 决定形态，第二个组件只会重复它。（该常驻姿态与当前的 terminal/diff 卡片一致；一个单独的后续 PR 会统一整行折叠/展开交互并一次性翻转所有常驻卡片 —— 不在本 PR 范围内。）
-- **generic fallback**（`chat/GenericToolCard` → `chat/ToolRow`）把推导出的 model 作为展开门控的 body 传入，与 `terminal` 用的是同一分支：没有 keyed 行的 `grep`/`glob` 结果（发布应用里没有，因为两者都注册了）仍在行的展开开关后渲染其卡片。
-- **details panel**（`skeleton/DetailsPanel`）在 Output 段以 primitive 自身的完整高度渲染卡片，保留 JSON Input 段。
+- **keyed `SearchRow`**（`toolviews/search-row.tsx`）把一个组件同时注册到 `conversation.chat.toolview` keyed hole 的 `grep` 与 `glob` 键下，并把卡片作为常驻（resident）渲染在摘要行下方，上限为 `CHAT_SEARCH_MAX_LINES`（8）—— 与 `BashRow` 对其终端卡片采取的姿态相同。两个工具名共用同一行，因为推导出的 `kind` 决定形态，第二个组件只会重复它。被截断结果的恢复脚注画在卡片下方。因为 keyed 行占据了这个渲染槽，一个没有搜索卡片的已结算调用 —— 出错的搜索（grep/glob 出错时不产出结果视图）、成功的嵌套 `run_code` 子派发（后端不为其计算 `presentationMeta`，故 `resultView` 为 null）、或旧日志的 generic 结果 —— 否则只会显示摘要而丢失内容；该行把这段面向模型的文本作为 fallback body 暴露出来，判据是 `search === null && 已结算`，而非仅凭错误状态。（该常驻姿态与当前的 terminal/diff 卡片一致；一个单独的后续 PR 会统一整行折叠/展开交互并一次性翻转所有常驻卡片 —— 不在本 PR 范围内。）
+- **generic fallback**（`chat/GenericToolCard` → `chat/ToolRow`）把推导出的 model 作为展开门控的 body 传入，与 `terminal` 用的是同一分支：没有 keyed 行的 `grep`/`glob` 结果（发布应用里没有，因为两者都注册了）仍在行的展开开关后渲染其卡片，并带恢复脚注。
+- **details panel**（`skeleton/DetailsPanel`）在 Output 段以 primitive 自身的完整高度渲染卡片，恢复脚注画在其下方，保留 JSON Input 段。
 
 `CHAT_SEARCH_MAX_LINES`（8）是行内上限，为 primitive 默认值的一半（panel 保留默认值），理由与 `CHAT_TERMINAL_MAX_LINES` 相同：chat 流是跨多次调用扫读的摘要表面，panel 是单次调用的阅读表面。
 
@@ -55,7 +56,7 @@ Status: implemented
 
 `packages/client/ui-primitives/tests/search-block.spec.tsx` 以 per-file 100% 覆盖固定组件：两种 kind、折入摘要的截断前总数、空结果分支、逐文件折叠/再展开且不影响邻居、一个文件头与其匹配一起计为一个被截断行、切口落在文件中间时尾部切片恢复其所属文件头、跨两种形态的头/尾上限及其展开控件（含无尾与默认上限的边界），以及复制控件在接受与拒绝的剪贴板路径上写入整个结构化结果。
 
-`packages/client/ui-conversation/tests/search-card.spec.tsx` 固定每个渲染点的接线：`searchCardModel` 对两种 kind 的推导、截断信号、替换标题，以及每个 null 分支（运行中、无视图、generic、terminal、未知卡片）；通过 `GenericToolCard` 的展开门控 matches 与 paths body，对照非搜索的 args-JSON body；`SearchRow` 对两种 kind 的常驻卡片、它与摘要行运行状态的一致、替换标题优先级，以及一个组件在 `grep` 与 `glob` 两个键下的 keyed 注册；以及 details panel 的 Output 段对两种 kind，对照非搜索的压平形态。`packages/client/ui-conversation/src/*` 在覆盖排除清单上，因此该文件不受 gate 压力。`packages/client/connection/src/client/fixture.ts` 新增一个发出 `kind: 'matches'` 的 `grep` turn 与一个发出 `kind: 'paths'` 的 `glob` turn 作为 `resultView`，两者都截断，驱动 built-boot snapshot 与实时 `?fixture` 服务。
+`packages/client/ui-conversation/tests/search-card.spec.tsx` 固定每个渲染点的接线：`searchCardModel` 对两种 kind 的推导、截断信号、替换标题、仅在截断时暴露的恢复文本，以及每个 null 分支（运行中、无视图、generic、terminal、未知卡片、本版本无法编译的 `kind`、以及一个形态缺失/错误的已知 kind）；通过 `GenericToolCard` 的展开门控 matches 与 paths body（含恢复脚注），对照非搜索的 args-JSON body；`SearchRow` 对两种 kind 的常驻卡片、它的恢复脚注、它对出错搜索与已结算无卡片结果两者的 fallback body、它与摘要行运行状态的一致、替换标题优先级，以及一个组件在 `grep` 与 `glob` 两个键下的 keyed 注册；以及 details panel 的 Output 段对两种 kind（含恢复脚注），对照非搜索的压平形态。`packages/client/ui-conversation/src/*` 在覆盖排除清单上，因此该文件不受 gate 压力。`packages/client/connection/src/client/fixture.ts` 新增一个发出 `kind: 'matches'` 的 `grep` turn（三个文件、十二行超过行内上限、`truncated` 且带溢出恢复脚注，因此在组装快照里同时演练头/尾上限与恢复脚注）与一个发出 `kind: 'paths'` 的 `glob` turn，两者都驱动 built-boot snapshot 与实时 `?fixture` 服务。`apps/web/tests/search-card.snapshot.ts` 是仓库契约要求的组装输出检查：它通过 keyless fixture 传输启动真实构建的 `client.js` bundle，打开 fixture 会话，并把 grep 卡片的组装形态——kind、截断摘要、头/尾切片及其展开控件——固定在 `apps/web/tests/snapshots/search-card/` 下，因此一个损坏的 SearchRow 注册或被丢弃的卡片会让一个 golden 失败，而 built-boot smoke（按契约只测启动）无法捕获它。
 
 ## Related
 

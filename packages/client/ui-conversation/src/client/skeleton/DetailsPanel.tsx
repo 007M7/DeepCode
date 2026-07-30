@@ -130,8 +130,9 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, clo
  * at the primitive's own full height allowance, so column-aligned output keeps
  * its alignment and scrolls sideways instead of folding. A search-card call —
  * a `grep`/`glob` result view — renders through the shared SearchBlock at the
- * same full height allowance. Every other call, and a running call with no card
- * yet, keeps the flattened text form.
+ * same full height allowance, with a capped search's recovery footer below it.
+ * Every other call, and a running call with no card yet, keeps the flattened
+ * text form.
  * @param props.material - the selected call's material from {@link materialFor}.
  * @param props.cwd - the session workspace root, resolving the terminal view's cwd.
  * @returns the Output section's body element.
@@ -151,7 +152,18 @@ function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | u
     )
   }
   const search = searchCardModel(material.block)
-  if (search !== null) return <SearchBlock {...search.card} className={css.terminal} />
+  if (search !== null) {
+    return (
+      <>
+        <SearchBlock {...search.card} className={css.terminal} />
+        {/* A capped search's recovery locator lives only in the result text;
+            show it below the card so the dropped rows stay reachable. */}
+        {search.recovery !== undefined && (
+          <div className={css.searchRecovery}>{search.recovery}</div>
+        )}
+      </>
+    )
+  }
   // A settled call always carries the result node the flattened form needs;
   // the running shape has no result to flatten.
   if (!('kind' in material.block)) return <div className={css.empty}>运行中…</div>

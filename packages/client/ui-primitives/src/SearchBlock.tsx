@@ -209,17 +209,23 @@ export function SearchBlock(props: SearchBlockProps) {
   const headLines = Math.ceil(maxLines / 2)
   const tailLines = maxLines - headLines
   const head = capped ? rows.slice(0, headLines) : rows
-  const tail = capped ? rows.slice(rows.length - tailLines) : []
+  const naturalTail = capped ? rows.slice(rows.length - tailLines) : []
   // When the tail slice begins inside a file's matches, its own header sits
   // above the cut and is not shown, so those rows could not be attributed to a
   // file. Restore the owning header at the top of the tail — unless the head
   // slice already carries it (a single large file), where it would duplicate.
-  const tailLead = tail[0]
+  const tailLead = naturalTail[0]
   const tailHeader = tailLead?.type === 'match'
     && !head.some(row => row.type === 'file' && row.index === tailLead.fileIndex)
     ? rows.find((row): row is Extract<SearchRow, { type: 'file' }> =>
       row.type === 'file' && row.index === tailLead.fileIndex)
     : undefined
+  // The restored header is itself a row. Left extra it would push the card to
+  // maxLines + 1 and overstate `hidden` by one, so it consumes a tail slot: drop
+  // the tail's first row (the match whose header this is) for it. Visible rows
+  // hold at maxLines and `hidden` stays exact; the dropped match joins the
+  // hidden middle.
+  const tail = tailHeader === undefined ? naturalTail : naturalTail.slice(1)
 
   const renderRow = (row: SearchRow): ReactNode => {
     if (row.type === 'path') return <div className={css.line}>{row.path}</div>

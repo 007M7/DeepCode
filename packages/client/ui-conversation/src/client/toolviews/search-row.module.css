@@ -104,3 +104,14 @@
   font: var(--dsw-font-xs-13);
   color: var(--dsw-alias-state-error-primary);
 }
+
+/* The recovery footer for a capped search: the model-facing result text (its
+   `Full … stored at …` locator) shown below the card in the muted tone, since
+   the card holds only the retained rows. Same column indent as the card body. */
+.recovery {
+  margin: 4px 0 4px 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+}

@@ -42,11 +42,14 @@ function stateStatus(state: ToolRowState): string | null {
 
 /**
  * A settled result's text, flattened from its content blocks, for the arm that
- * shows a failure the search card cannot: grep/glob have no `presentResult` on
- * an error result, so an errored search has no card, and the keyed row is not a
- * details-panel target. Without this the failure — a bad pattern, a missing
- * path, a nested run_code dispatch that returned no card — would read as a bare
- * red dot with the model-facing error text nowhere on screen.
+ * shows a result the search card cannot. Two cases reach it: an errored search
+ * (grep/glob emit no `presentResult` on an error result, so an errored search
+ * has no card), and a settled call whose result view is not a search card at all
+ * — a nested `run_code` sub-dispatch (the backend computes no presentationMeta
+ * for it, so `resultView` is null) or a legacy generic result. In both the keyed
+ * SearchRow owns the render slot, so without this arm the model-facing text would
+ * have nowhere to go: an errored search would read as a bare red dot, and a
+ * successful cardless result would show only its summary with its content lost.
  * @param block - the frozen call slice.
  * @returns the result text, or null for a running call or an empty result.
  */
@@ -63,18 +66,24 @@ function errorText(block: ToolRowProps['block']): string | null {
 
 /**
  * Search row: icon + Search · {summary} in the shared ToolRow chrome, with the
- * completed search's card resident below it. The summary row is not a
- * details-panel control, so the card's copy, per-file collapse, and expand
- * controls are the row's only interactions. Registered under both `grep` and
- * `glob`; the derived model's `kind` decides the card shape.
+ * completed search's card resident below it, and — when the result was capped —
+ * the recovery footer below the card. The summary row is not a details-panel
+ * control, so the card's copy, per-file collapse, and expand controls are the
+ * row's only interactions. Registered under both `grep` and `glob`; the derived
+ * model's `kind` decides the card shape.
  */
 export function SearchRow({ toolName, block }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const search = searchCardModel(block)
   const status = stateStatus(model.state)
-  // An errored search has no card (grep/glob return no presentResult on error);
-  // surface its result text so the failure is more than a red dot.
-  const failure = search === null && model.state === 'error' ? errorText(block) : null
+  // A settled call with no search card — an errored search (grep/glob emit no
+  // result view on error), a successful nested run_code sub-dispatch, or a
+  // legacy generic result — has its model-facing text nowhere else to go, since
+  // the keyed SearchRow owns this render slot. Surface it as the fallback body.
+  // A running call ('kind' absent) has no result to flatten; errorText returns
+  // null for it, so the arm stays closed until settle.
+  const settled = 'kind' in block
+  const fallback = search === null && settled ? errorText(block) : null
   return (
     <div className={css.card}>
       <div className={css.root} data-variant="search" data-tool={toolName} data-state={model.state}>
@@ -89,7 +98,11 @@ export function SearchRow({ toolName, block }: ToolRowProps) {
       {search !== null && (
         <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />
       )}
-      {failure !== null && <div className={css.failure}>{failure}</div>}
+      {/* A capped search drops rows from the card; its recovery locator (the
+          `Full … stored at …` footer) lives only in the result text, so show it
+          below the card so the one path to the dropped rows survives. */}
+      {search?.recovery !== undefined && <div className={css.recovery}>{search.recovery}</div>}
+      {fallback !== null && <div className={css.failure}>{fallback}</div>}
     </div>
   )
 }

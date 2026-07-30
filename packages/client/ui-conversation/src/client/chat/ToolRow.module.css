@@ -125,6 +125,17 @@
   margin: 4px 0 4px 22px;
 }
 
+/* The recovery footer for a capped search: the result text (its `Full … stored
+   at …` locator) below the card in the muted tone, since the card holds only the
+   retained rows. Same column indent as the card body. */
+.searchRecovery {
+  margin: 4px 0 4px 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* Indented to the body's own column so the description reads as the card's
    heading rather than as another summary row, and sits tight against the card
    below it. Its own rule: grouping it with a body would put description

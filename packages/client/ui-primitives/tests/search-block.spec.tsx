@@ -140,16 +140,20 @@ describe('SearchBlock height cap', () => {
 
   it('restores the owning file header above a tail slice that begins mid-file', () => {
     // Two files of 10 matches each → 22 rows. Cap 8: head 4 (a.ts header + 3
-    // matches), tail 4 (last 4 of b.ts, whose header sits above the cut).
+    // matches), tail 4. The tail begins mid-b.ts, so its header is restored —
+    // and, being a row itself, it consumes one tail slot rather than pushing the
+    // card to 9 rows: the tail keeps its last 3 matches, total visible = 8.
     const view = render(<SearchBlock kind="matches" truncated={false} total={20} maxLines={8} files={[
       group('a.ts', 10), group('b.ts', 10, 11),
     ]} />)
-    // The tail's own header is restored so its rows can be attributed to b.ts.
     expect(fileHeaders(view.container)).toEqual(['a.ts10', 'b.ts10'])
     expect(lines(view.container)).toEqual([
       '1: hit 1', '2: hit 2', '3: hit 3',
-      '17: hit 17', '18: hit 18', '19: hit 19', '20: hit 20',
+      '18: hit 18', '19: hit 19', '20: hit 20',
     ])
+    // Visible rows hold at maxLines (2 headers + 6 matches = 8), so the hidden
+    // count stays exact: 22 − 8 = 14.
+    expect(view.getByRole('button', { name: '展开其余 14 行结果' })).toBeTruthy()
   })
 
   it('caps at the documented default when maxLines is absent', () => {
