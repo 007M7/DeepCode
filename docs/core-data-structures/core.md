@@ -201,6 +201,10 @@ interface AdapterRegistrationHandle {
    * one synchronous section, so no request can observe a gap. An empty array
    * is legal here (a settings section that emptied holds zero routes while
    * staying registered), unlike an empty initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been released: its routes are gone and its disposer has already run,
+   * so anything registered afterwards would have no owner left to release it.
    * @param providers - the complete next route set for this registration.
    */
   replace(providers: string[]): void
