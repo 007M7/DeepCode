@@ -354,7 +354,7 @@ export function createTuiChat(
   // the controller needs `appendNotice`/`overlayManager`, defined after that
   // closure. Declare here, assign once after those exist, and defer the first
   // `updatePromptValues()` call until after the assignment so no read precedes it.
-  // eslint-disable-next-line prefer-const -- single assignment is a forward-reference, not a const.
+  // oxlint-disable-next-line prefer-const -- single assignment is a forward-reference, not a const.
   let modelController!: ModelController
   const now = (): number => runtime.now?.() ?? Date.now()
   const agentStatus = (): AgentStatus => agent.status
@@ -1034,11 +1034,12 @@ export function createTuiChat(
     requestRender()
   }
 
-  // Skill listing is async while `createTuiChat` is synchronous, so the
-  // completions rebuild once the catalog resolves. Disabled-for-model skills
-  // are absent from `list()`, so they never appear as completions; a user can
-  // still invoke one by typing its exact name.
+  // Skill listing is async while `createTuiChat` is synchronous, so the TUI
+  // retains the last complete invocation-neutral catalog for synchronous
+  // editor completion, filters it for user invocation, and refreshes it after
+  // registry invalidation.
   let skillCommands: SlashCommand[] = []
+  let skillCommandScan = 0
   const refreshCommandAutocomplete = (): void => {
     const base = new CombinedAutocompleteProvider(
       [
@@ -1059,24 +1060,37 @@ export function createTuiChat(
       agent,
     ))
   }
+  const refreshVisibleSlashAutocomplete = (): void => {
+    const cursor = editor.getCursor()
+    const textBeforeCursor = editor.getLines().slice(cursor.line, cursor.line + 1).join('').slice(0, cursor.col)
+    if (cursor.line === 0 && textBeforeCursor.startsWith('/') && !textBeforeCursor.includes(' ')) {
+      // pi-tui's provider setter closes an existing menu but does not query
+      // the replacement for the current draft. Tab in a slash-name context
+      // only requests suggestions, so it refreshes without editing the text.
+      editor.handleInput('\t')
+    }
+  }
   const disposeCommandChanges = ctx.on('commands/change', refreshCommandAutocomplete)
   refreshCommandAutocomplete()
 
-  const loadSkillCommands = (service: SkillService): void => {
-    service.list({ cwd, signal: skillAbort.signal }).then(
-      (summaries) => {
-        if (disposed || summaries.length === 0) return
+  const refreshSkillCommands = (service: SkillService): void => {
+    const scan = ++skillCommandScan
+    service.snapshot({ cwd, signal: skillAbort.signal }).then(
+      (snapshot) => {
+        if (disposed || scan !== skillCommandScan || !snapshot.complete) return
+        const invocable = snapshot.skills.filter(skill => skill.invocation.userInvocable)
         // The argument-hint slot shows in the menu but is never inserted on
         // selection, so it carries the skill's scope instead of an
         // instructions placeholder. `SkillSource` is open-ended; every
         // non-project source (user, custom, bundled, runtime, …) collapses
         // to `(user)`.
-        skillCommands = summaries.map(skill => ({
+        skillCommands = invocable.map(skill => ({
           name: `skill:${skill.name}`,
           description: skill.description,
           argumentHint: skill.source.startsWith('project-') ? '(project)' : '(user)',
         }))
         refreshCommandAutocomplete()
+        refreshVisibleSlashAutocomplete()
         requestRender()
       },
       () => {
@@ -1085,7 +1099,10 @@ export function createTuiChat(
       },
     )
   }
-  if (skills !== undefined) loadSkillCommands(skills)
+  const disposeSkillChanges = skills === undefined
+    ? () => {}
+    : ctx.on('skills/change', () => { refreshSkillCommands(skills) })
+  if (skills !== undefined) refreshSkillCommands(skills)
 
   // The agent scope is minted by agent-loop and intentionally inherits only
   // that core plugin's dependencies. A child command producer declares its own
@@ -1181,11 +1198,64 @@ export function createTuiChat(
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
       return
     }
-    if (attachedContext !== undefined) agent.inject(attachedContext)
-    const message = createUserMessage({ content, source: { kind: 'user' } })
-    agent.steer(message)
-    pendingSteering.add(message.id)
-    refreshStatus()
+    if (agent.acceptsNextStep) {
+      // Steering is never subject to prompt admission; an attached snapshot
+      // drains beside it at the same step boundary through the outbox.
+      if (attachedContext !== undefined) {
+        agent.inject(attachedContext)
+      }
+      const message = createUserMessage({ content, source: { kind: 'user' } })
+      agent.steer(message)
+      pendingSteering.add(message.id)
+      refreshStatus()
+      return
+    }
+    if (attachedContext === undefined) {
+      agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
+      return
+    }
+    // Idle: the snapshot rides the prompt's admission transaction so a
+    // blocking hook discards both together.
+    let cleanedUp = false
+    const message: UserMessage = createUserMessage({ content, source: { kind: 'user' } })
+    const acceptedId = message.id
+    const discarded = new Set<MessageId>()
+    const cleanup = (): void => {
+      // Every completion path detaches both listeners. Keep this
+      // idempotent so later cleanup paths cannot double-release them.
+      /* v8 ignore next -- unreachable idempotence guard, see above */
+      if (cleanedUp) return
+      cleanedUp = true
+      detachSubmit()
+      detachDiscard()
+    }
+    // Prepended so this wrapper is outermost: it observes the exact accepted
+    // message identity whether a downstream hook allows or blocks, then detaches.
+    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _signal, next) => {
+      if (subject !== agent || !submitted.some(item => item.id === message.id)) return next()
+      cleanup()
+      const decision = await next()
+      if (decision.kind !== 'allow') return decision
+      return { ...decision, messages: [...decision.messages, attachedContext] }
+    }, { prepend: true })
+    // Installed before followup(): an enqueue listener can synchronously
+    // cancel and discard before followup() returns its id.
+    const detachDiscard = ctx.on('agent/inbox/discard', (subject, items) => {
+      if (subject !== agent) return
+      for (const item of items) discarded.add(item.message.id)
+      if (discarded.has(acceptedId)) cleanup()
+    })
+    // followup() accepts any typed input and contains listener failures;
+    // this guards a future synchronous throw so the wrapper cannot leak.
+    /* v8 ignore start -- future-proofing guard, see above */
+    try {
+      agent.followup(message)
+      if (discarded.has(acceptedId)) cleanup()
+    } catch (error: unknown) {
+      cleanup()
+      throw error
+    }
+    /* v8 ignore stop */
   }
 
   /** Deliver user input to the nearest step, or report a disposed agent. */
@@ -1199,19 +1269,40 @@ export function createTuiChat(
       appendNotice('Skills are not available in this session.', 'warning')
       return
     }
-    skills.get(name, { cwd, signal: skillAbort.signal }).then(
-      (skill) => {
+    const lookup = { cwd, signal: skillAbort.signal }
+    const reportFailure = (error: unknown): void => {
+      if (disposed) return
+      appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
+    }
+    skills.list(lookup).then(
+      (summaries) => {
         if (disposed) return
-        if (skill === undefined) {
+        const summary = summaries.find(skill => skill.name === name)
+        if (summary === undefined) {
           appendNotice(`Unknown skill: ${name}`, 'warning')
           return
         }
-        deliver(renderSkillInvocation(skill, instructions))
+        if (!summary.invocation.userInvocable) {
+          appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
+          return
+        }
+        skills.get(name, lookup).then(
+          (skill) => {
+            if (disposed) return
+            if (skill === undefined) {
+              appendNotice(`Unknown skill: ${name}`, 'warning')
+              return
+            }
+            if (!skill.invocation.userInvocable) {
+              appendNotice(`Skill "${name}" is not available for user invocation.`, 'warning')
+              return
+            }
+            deliver(renderSkillInvocation(skill, instructions))
+          },
+          reportFailure,
+        )
       },
-      (error: unknown) => {
-        if (disposed) return
-        appendNotice(`Skill "${name}" failed to load: ${errorChain(error)}`, 'error')
-      },
+      reportFailure,
     )
   }
 
@@ -1386,11 +1477,14 @@ export function createTuiChat(
   const settlePendingSteering = (id: MessageId): void => {
     if (pendingSteering.delete(id)) refreshStatus()
   }
-  const disposeDequeued = ctx.on('agent/inbox/admitted', (subject, message) => {
-    if (subject === agent) settlePendingSteering(message.id)
+  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, item) => {
+    if (subject === agent) settlePendingSteering(item.message.id)
   })
-  const disposeDiscarded = ctx.on('agent/inbox/canceled', (subject, message) => {
-    if (subject === agent && pendingSteering.delete(message.id)) refreshStatus()
+  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, items) => {
+    if (subject !== agent) return
+    let changed = false
+    for (const item of items) changed = pendingSteering.delete(item.message.id) || changed
+    if (changed) refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
@@ -1427,6 +1521,7 @@ export function createTuiChat(
     fileSearch.dispose()
     removeInputListener()
     disposeCommandChanges()
+    disposeSkillChanges()
     disposePromptChanges()
     for (const value of promptValues) value.dispose()
     stopBannerReveal()

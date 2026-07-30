@@ -35,12 +35,14 @@ interface BenchOptions {
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
+  permissions?: { options: { value: string; name: string; description?: string }[]; currentValue: string }
   draft?: string
   running?: boolean
   disabled?: boolean
   promptError?: ConversationSnapshot['promptError']
   variant?: 'hero' | 'composer'
   placeholder?: string
+  translateHint?: (key: string) => string
   accessory?: React.ReactNode
   overlay?: React.ReactNode
   leftItems?: React.ReactNode
@@ -90,14 +92,20 @@ function bench(over?: BenchOptions) {
       items: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
-    useProjection: ((_key: string, selector?: (v: unknown) => unknown) =>
-      (selector ?? (v => v))(over?.plan)),
+    useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
+      (selector ?? (v => v))(key === 'permissions' ? over?.permissions : key === 'plan' ? over?.plan : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     stop,
+    command: () => Promise.resolve(true),
+    // Mirrors the en 'command.hint' locale entries the production apply wires in.
+    translateHint: over?.translateHint ?? ((key: string) => ({
+      'placeholder.default': 'Message the agent',
+      'placeholder.plan': 'describe your task to generate plan',
+    } as Record<string, string>)[key] ?? key),
     renderSlot,
     variant: over?.variant ?? 'composer',
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
@@ -225,6 +233,56 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect((textarea).value).toBe('typed')
   })
 
+  it('wheel over a non-overflowing textarea forwards to the conversation host', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
+    const { view, textarea } = bench()
+    host.appendChild(view.container)
+    document.body.appendChild(host)
+    try {
+      const wheeled = fireEvent.wheel(textarea, { deltaY: 30 })
+      expect(wheeled).toBe(false) // preventDefault
+      expect(host.scrollTop).toBe(70)
+    } finally {
+      host.remove()
+    }
+  })
+
+  it('wheel chains: long drafts scroll inside the textarea until each edge, then the host', () => {
+    const host = document.createElement('div')
+    host.setAttribute('data-conversation-scroll', '')
+    Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
+    const { view, textarea } = bench()
+    host.appendChild(view.container)
+    document.body.appendChild(host)
+    Object.defineProperty(textarea, 'clientHeight', { value: 100, configurable: true })
+    Object.defineProperty(textarea, 'scrollHeight', { value: 400, configurable: true })
+    let scrollTop = 150
+    Object.defineProperty(textarea, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value },
+    })
+    try {
+      // Mid-draft: both directions stay local — host must not move.
+      expect(fireEvent.wheel(textarea, { deltaY: 30 })).toBe(true)
+      expect(fireEvent.wheel(textarea, { deltaY: -30 })).toBe(true)
+      expect(host.scrollTop).toBe(40)
+      // At the bottom edge, further down-scroll forwards to the host.
+      scrollTop = 300
+      expect(fireEvent.wheel(textarea, { deltaY: 30 })).toBe(false)
+      expect(host.scrollTop).toBe(70)
+      // At the top edge, further up-scroll forwards to the host.
+      scrollTop = 0
+      host.scrollTop = 70
+      expect(fireEvent.wheel(textarea, { deltaY: -20 })).toBe(false)
+      expect(host.scrollTop).toBe(50)
+    } finally {
+      host.remove()
+    }
+  })
+
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
     const { textarea } = bench({ disabled: true })
     expect(textarea.placeholder).toBe('Session unavailable')
@@ -288,6 +346,19 @@ describe('decorations', () => {
     act(() => { shell.setDraft('/goal 发布') })
     expect(view.container.querySelector('[data-decoration="hint"]')).toBeNull()
     expect(view.container.querySelector('[data-decoration="token"]')).not.toBeNull()
+  })
+
+  it('a locale entry for the claimed command overrides the raw claim hint (trailing-space token)', () => {
+    const dict: Record<string, string> = { goal: '输入目标，智能体将持续执行' }
+    const { view, shell } = bench({ translateHint: key => dict[key] ?? key })
+    act(() => {
+      shell.setDraft('/goal ')
+      shell.beginCommand(
+        { token: '/goal ', hint: '[<objective>|clear|edit <objective>|pause|resume]', submit: () => Promise.resolve({ kind: 'success' as const }) },
+        { start: 0, end: 6, draftRev: shell.snapshot.draftRev },
+      )
+    })
+    expect(view.container.querySelector('[data-decoration="hint"]')?.textContent).toBe('输入目标，智能体将持续执行')
   })
 
   it('an inserted reference renders as a chip at its placeholder offset', () => {
@@ -368,14 +439,39 @@ describe('strips and variants', () => {
 })
 
 describe('placeholder chrome and control seats', () => {
-  it('renders attach + Access placeholder; plan/model seats render EMPTY without entries (B ruling)', () => {
+  it('renders attach; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
     const { view, slotCalls } = bench()
     expect(view.getByLabelText('Add attachment')).toBeTruthy()
-    expect((view.getByLabelText('Access mode') as HTMLSelectElement).value).toBe('readonly')
+    // Capability absent (no projection value): the chip renders nothing.
+    expect(view.queryByLabelText(/^Access mode/)).toBeNull()
     // Both seats dispatched, nothing rendered.
     expect(slotCalls.map(c => c.key)).toEqual(['conversation.input.plan', 'conversation.input.model'])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()
+  })
+
+  it('the Access chip renders the projection value and submits /permission on pick', async () => {
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions })
+    const trigger = view.getByLabelText(/^Access mode/) as HTMLButtonElement
+    // Title-case display is presentation only; the menu ids stay machine names.
+    expect(trigger.textContent).toBe('Workspace Write')
+    fireEvent.click(trigger)
+    const items = view.getAllByRole('menuitem')
+    expect(items.map(o => o.textContent)).toEqual(['Workspace Write', 'Danger Full Access'])
+    fireEvent.click(items[1]!)
+    // Optimistic pick + disable until admission resolves (command stub resolves true).
+    const busy = view.getByLabelText(/^Access mode/) as HTMLButtonElement
+    expect(busy.textContent).toBe('Danger Full Access')
+    expect(busy.disabled).toBe(true)
+    await act(async () => {})
+    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('a registered entry fills its seat and receives the locked owner prop', () => {
@@ -393,12 +489,13 @@ describe('placeholder chrome and control seats', () => {
     expect(live.slotCalls.every(c => !(c.owner as { locked: boolean }).locked)).toBe(true)
   })
 
-  it('disabled locks the Access placeholder and attach control (running does not)', () => {
-    const { view } = bench({ disabled: true })
+  it('disabled locks the Access chip and attach control (running does not)', () => {
+    const permissions = { options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' }
+    const { view } = bench({ disabled: true, permissions })
     expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
-    expect((view.getByLabelText('Access mode') as HTMLSelectElement).disabled).toBe(true)
+    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(true)
     cleanup()
-    const live = bench({ running: true })
-    expect((live.view.getByLabelText('Access mode') as HTMLSelectElement).disabled).toBe(false)
+    const live = bench({ running: true, permissions })
+    expect((live.view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(false)
   })
 })

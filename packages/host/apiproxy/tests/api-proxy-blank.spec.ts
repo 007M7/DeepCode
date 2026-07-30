@@ -1,7 +1,7 @@
 /**
  * The summary blank bit means "conversation not started" (no turn has run),
  * not "log empty": standalone plugin events — command lifecycle records,
- * plan/mode, session titles — never flip it, so running /plan or /goal on a
+ * plan/mode, permission knob events, session titles — never flip it, so running /plan or /goal on a
  * fresh session keeps it list-hidden and reusable, while the first accepted
  * prompt's turn/start clears it. The host/session-added frame shares the
  * same predicate function (covered by the workspace spec's frame assertion).
@@ -15,6 +15,10 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
+// Side-effect type imports: the knob-event SessionEventMap merges.
+import type {} from '@deepseek-ai/dsh-permission'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ApiProxy, RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
@@ -48,6 +52,10 @@ function appendStandalone(session: Session): void {
   session.append('session/title', {
     title: 'standalone title', messageSeqs: [], source: { kind: 'fallback' },
   })
+  // The three permission knob events (a /permission switch on a fresh session).
+  session.append('permission/preset', { preset: 'danger-full-access' })
+  session.append('sandbox/mode', { mode: 'danger-full-access' })
+  session.append('approval/policy', { policy: 'never' })
 }
 
 async function listBlank(api: ApiProxy, id: string): Promise<boolean | undefined> {

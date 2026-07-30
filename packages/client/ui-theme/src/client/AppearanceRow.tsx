@@ -9,26 +9,26 @@ import clsx from 'clsx'
 import {
   IconDarkOutline16, IconFollowsystemOutline16, IconLightOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ThemePreference } from './index.ts'
+import type { ThemeKey } from './locales.ts'
 import type {} from './settings-contract.ts'
 import type { createAppearanceRowStore } from './settings-store.ts'
 import css from './AppearanceRow.module.css'
 
-/** Injected business face: namespace-bound translate + the preference write. */
+/** Injected business face: the preference write (t rides the standard locale seat). */
 export interface AppearanceRowInjected {
-  /** Translate a `settings.theme` dictionary key to the active-locale text. */
-  t: (key: string) => string
   /** Switch the theme preference. */
   setTheme: (id: ThemePreference) => void
 }
 
-/** Full component props: runtime share + store share + injected face. */
+/** Full component props: runtime share + store share + locale seat + injected face. */
 export type AppearanceRowComponentProps =
-  PropsRuntime<'settings.general.item'> & PropsStore<ReturnType<typeof createAppearanceRowStore>> & AppearanceRowInjected
+  PropsRuntime<'settings.general.item'> & PropsStore<ReturnType<typeof createAppearanceRowStore>>
+  & PropsLocale<'settings.theme'> & AppearanceRowInjected
 
 /** Cube order and icons (figma 501:30015-30017: Light, Dark, System). */
-const CUBES: readonly { id: ThemePreference; labelKey: string; Icon: typeof IconLightOutline16 }[] = [
+const CUBES: readonly { id: ThemePreference; labelKey: ThemeKey; Icon: typeof IconLightOutline16 }[] = [
   { id: 'light', labelKey: 'appearance.light', Icon: IconLightOutline16 },
   { id: 'dark', labelKey: 'appearance.dark', Icon: IconDarkOutline16 },
   { id: 'system', labelKey: 'appearance.system', Icon: IconFollowsystemOutline16 },

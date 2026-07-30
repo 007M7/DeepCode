@@ -3,9 +3,12 @@ import type { Context } from 'cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
+  ApprovalWait, ChatViewInjected, ComposerBarInjected, ComposerChainProps, ConversationInjected,
+  ConversationSessionInjected, DetailsInjected,
 } from './contract/slots.ts'
 import { resolveToolPath } from './contract/tool-call-model.ts'
 import { createChatStore } from './stores.ts'
@@ -14,7 +17,9 @@ import type { IConversation } from './service.ts'
 import { InputHub } from './input/hub.ts'
 import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
+import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { queueDockEntry } from './queue/QueueDock.tsx'
@@ -23,7 +28,7 @@ import { ConversationSession } from './skeleton/ConversationSession.tsx'
 import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 
 /** Services required by the conversation plugin. */
-export const inject = ['slots', 'layout', 'sessions', 'workspaces']
+export const inject = ['slots', 'layout', 'sessions', 'workspaces', 'locale']
 
 /** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
 function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
@@ -34,6 +39,11 @@ function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   return conversation
 }
 
+/** Chain routing: claim the composer while an approval wait is pending (pure — owner props only). */
+function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | null {
+  return interactions.find((i): i is ApprovalWait => i.kind === 'approval') ?? null
+}
+
 /** Mounts the conversation plugin.
  * @param ctx - Client root context.
  */
@@ -42,6 +52,33 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
+
+  // Command hint locale: friendly placeholder text for claimed commands. The
+  // claimed /plan hint and the plan-mode textarea placeholder share one
+  // string: both describe the same next action.
+  const HINT_NS = 'command.hint'
+  const PLAN_HINT_ZH = '描述你的任务以生成计划'
+  const PLAN_HINT_EN = 'describe your task to generate plan'
+  ctx.effect(() => {
+    const disposers = [
+      ctx.locale.register(HINT_NS, 'zh', {
+        plan: PLAN_HINT_ZH,
+        goal: '输入目标，智能体将持续执行',
+        'goal.active': '当前目标进行中。可输入 edit 修改 / pause 暂停 / resume 继续 / clear 清除',
+        'placeholder.plan': PLAN_HINT_ZH,
+        'placeholder.default': '给智能体发消息',
+      }),
+      ctx.locale.register(HINT_NS, 'en', {
+        plan: PLAN_HINT_EN,
+        goal: 'describe the objective for a long-running task',
+        'goal.active': 'goal active — edit / pause / resume / clear',
+        'placeholder.plan': PLAN_HINT_EN,
+        'placeholder.default': 'Message the agent',
+      }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-conversation: command hint dictionaries')
+  const translateHint = ctx.locale.bind(HINT_NS)
 
   // Apply-time construction keeps store identity bound to this fiber.
   const chatStore = createChatStore()
@@ -146,10 +183,27 @@ export function apply(ctx: Context): void {
             // Stop failure surfaces via snapshot.promptError; nothing to restore.
           })
         },
+        command: async (line) => {
+          const session = sessions.binding(sessionId)?.session
+          if (session === undefined) return false
+          const result = await session.command(line)
+          return result.ok && result.value.matched
+        },
+        translateHint,
         hooks: { notices: shell.notices, lexicon: shell.lexicon },
       }
     },
   }, InputBar)
+
+  // The approval takeover: a selector-routed entry of the chain this package
+  // just declared (the ui-question registration pattern; the entry lives here
+  // because approval answering is core conversation UX, not an optional tool).
+  // Zero business face — data and verbs both ride the matched carrier.
+  // priority 1: question takeovers (default 0) win when both kinds are
+  // pending — a question is a conversation the model is waiting on, while an
+  // approval only blocks one tool call; answering the question first cannot
+  // strand the approval (it re-elects the moment the question resolves).
+  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1 }, ApprovalPanel)
 
   // The chat view: first entry of the ring this package just declared.
   // Declaring the keyed toolview hole here is claiming it: ChatView is the
@@ -184,6 +238,9 @@ export function apply(ctx: Context): void {
       }
     },
   }, ChatView)
+
+  // Session stats stick with the composer (composer.dock = stats-line family).
+  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0 }, StatsLine)
 
   // Class-plugin mount (packages/AGENTS.md service form): the service
   // registers itself as `conversation` and lives on its own child fiber.

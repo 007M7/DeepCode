@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-遥测（telemetry）seam：会话事件上报的捕获侧，隔在一个后端契约之后，任何上报 SDK 都无需变形即可满足该契约。塑造本包一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)。
+遥测（telemetry）seam：会话事件上报的捕获侧，隔在一个后端契约之后，任何上报 SDK 都无需变形即可满足该契约。塑造本包（package）一切设计的边界公理：**本包的职责止于 `emit()`**。批处理、重试、排队与丢失策略都属于后端自身的 SDK，本包既不为其立规，也不做包装。设计依据与被否决的替代方案见[复活 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)。
 
 ## 后端契约
 
@@ -10,11 +10,11 @@
 
 ## 捕获点
 
-协调器的全部注册都经由组合方 fiber 的 effect 完成：`session/created`（收养：记录 header，并经投影从构造边界起回读日志；来自 fork 或恢复的构造函数种子绝不会在 firehose 上再次发出，也绝不会再次导出）、`session/event`（投影、深拷贝、脱敏、交接；零 I/O）、`session/flush`（转发可选的 `flush()` 提示并返回 void；循环所等待的并行任务绝不能等待遥测）、`session/disposed`（在会话自身的终止边缘发出该会话的 `shutdown` 运维记录，接收端正是在这个边缘锚定崩溃检测；随后将该会话退役，因此长生命周期的后端既不会保留已关闭的会话，也不会在卸载时再次标记它们）、`agent/error`（唯一的实时总线转发；会话事件词汇有意不包含运行错误记录）、一个 dispose effect（拆卸时先标记每个仍存活的会话，再等待后端的 `shutdown()`；失败只发出警告而不抛出），以及对 `ctx.sessions.list()` 的收养扫描（热重载不会重放 `session/created`）。
+协调器的全部注册都经由组合方 fiber 的 effect 完成：`session/created`（收养：记录 header，并经投影从构造边界起回读日志；来自 fork 或恢复的构造函数种子绝不会在 firehose 上再次发出，也绝不会再次导出）、`session/event`（投影、深拷贝、脱敏、交接；零 I/O）、`session/flush`（转发可选的 `flush()` 提示并返回 void；循环所等待的并行任务绝不能等待遥测）、`session/disposed`（在会话自身的终止边缘发出该会话的 `shutdown` 运维记录，接收端正是在这个边缘锚定崩溃检测；随后将该会话退役，因此长生命周期的后端既不会保留已关闭的会话，也不会在卸载时再次标记它们）、`agent/error`（唯一的实时总线转发；会话事件词汇有意不包含运维错误记录）、一个 dispose effect（拆卸时先标记每个仍存活的会话，再等待后端的 `shutdown()`；失败只发出警告而不抛出），以及对 `ctx.sessions.list()` 的收养扫描（热重载不会重放 `session/created`）。
 
-## 脱敏 waterfall
+## 脱敏 waterfall（瀑布式事件）
 
-每条记录在投影与 `emit()` 之间都要经过 `telemetry/record` waterfall（瀑布式事件），这是该 seam 的擦除扩展点。seam 自身不带任何规则：最内层的 `next()` 原样透传记录，因此未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式扣下这一条记录。脱敏只作用于导出副本；权威会话日志永不改写。
+每条记录在投影与 `emit()` 之间都要经过 `telemetry/record` waterfall，这是该 seam 的脱敏扩展点。seam 自身不带任何规则：最内层的 `next()` 原样透传记录，因此未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式拦下这一条记录。脱敏只作用于导出副本；权威会话日志永不改写。
 
 ## handoff 游标
 
@@ -36,7 +36,7 @@
 
 无；本包既不组装也不发送提供方请求。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
-- **尽力而为的投递**：游标标记的是已交接而非已投递；在重载窗口内被拆除的会话无法重新收养；崩溃时留在后端队列中的内容会丢失。持久 outbox（spool、每 sink 游标、at-least-once）推迟到有部署方提出明确的崩溃丢失要求时再实现；见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)。
+- **尽力而为的投递**：游标标记的是已交接而非已投递；在重载窗口内被拆除的会话无法重新收养；崩溃时留在后端队列中的内容会丢失。持久化 outbox（spool、每 sink 游标、at-least-once）推迟到有部署方提出明确的崩溃丢失要求时再实现；见[复活 Agent Note](../../../.agents/notes/implemented/feature/2026-07-23-session-telemetry-otel-revival.md)。
 - **不内置脱敏规则**：未挂载 `telemetry/record` 监听器时，记录以捕获时的原样离开进程，包括文件内容或命令输出中内嵌的任何凭据；向共享 collector 导出的部署方自行负责其规则集。

@@ -467,8 +467,11 @@ describe('fixture session face', () => {
     await runtime.sessions.add({ id: 's1' })
     const bare = runtime.sessions.behavior('s1')
     expect(() => bare.prompt()).toThrow(/prompt is not stubbed/)
+    expect(() => bare.updateQueue()).toThrow(/updateQueue is not stubbed/)
     expect(() => bare.cancel()).toThrow(/cancel is not stubbed/)
+    expect(() => bare.command()).toThrow(/command is not stubbed/)
     expect(() => bare.loadOlder()).toThrow(/loadOlder is not stubbed/)
+    expect(() => bare.rename()).toThrow(/rename is not stubbed/)
     await runtime.dispose()
   })
 

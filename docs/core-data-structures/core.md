@@ -419,7 +419,56 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 type InboxPlacement = 'queued' | 'steering'
 ```
 
-The delivery methods accept an already identified `UserMessage` carrying role, content, and provenance. Its `MessageId` remains stable across that message's `agent/inbox/*` events without being returned by the delivery methods. Injection bypasses the FIFOs and never appears on those events.
+`InboxItemId` is a process-local branded string minted for each accepted FIFO occurrence. It is intentionally distinct from `MessageId`: sending the same immutable message twice creates two independently addressable pending items.
+
+```ts type-equiv
+/** One independently addressable accepted occurrence in an agent inbox. */
+interface InboxItem {
+  /** Agent-loop-minted occurrence identity. */
+  readonly id: InboxItemId
+  /** Identified message delivered by the caller. */
+  readonly message: UserMessage
+  /** Acceptance-time FIFO classification. */
+  readonly placement: InboxPlacement
+}
+```
+
+```ts type-equiv
+/** A user-requested mutation of one still-pending queued occurrence. */
+type InboxAction =
+  | { readonly kind: 'edit'; readonly content: ContentBlock[] }
+  | { readonly kind: 'remove' }
+```
+
+```ts type-equiv
+/** Result of applying an inbox action at the synchronous ownership boundary. */
+type InboxActionResult = 'applied' | 'not-found'
+```
+
+```ts type-equiv
+/**
+ * Options for the unified {@link Agent.send} primitive over the
+ * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
+ * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
+ * {@link Agent.inject} (`next-step`/no-wakeup).
+ *
+ * The object is complete so routing policy is explicit.
+ */
+interface SendOptions {
+  /** Queue the item joins. */
+  target: SendTarget
+  /**
+   * Whether this item makes the model run: wake a parked driver (`next-turn`)
+   * or force a continuation step (`next-step` while running). A `false`
+   * `next-turn` item queues without waking; a `false`
+   * `next-step` item attaches durable context without forcing another step
+   * (the injection preset).
+   */
+  wakeup: boolean
+}
+```
+
+The fixed-preset aliases own `target` and `wakeup`; their already identified `UserMessage` carries role, content, and provenance. Its `MessageId` remains stable when an edit replaces the message content, while the enclosing `InboxItemId` identifies one accepted occurrence across `agent/inbox/enqueue`, `agent/inbox/update`, and its terminal dequeue or discard. Injection bypasses the FIFOs and never appears on those events.
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -443,7 +492,10 @@ type AgentCancelCause =
 `Agent` is an interface over the public live-agent contract. Concrete drivers implement `followup`, `steer`, and `inject`; routing policy remains private to the driver.
 
 ```ts type-equiv
-/** Public live-agent handle. */
+/**
+ * Public live-agent handle with aliases over the unified delivery primitive.
+ * @typert object
+ */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
@@ -461,6 +513,38 @@ interface Agent {
   readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
+
+  /**
+   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
+   * It routes the caller's typed content and source as follows:
+   *
+   * - `next-turn` queues an item that becomes the sole ordinary message of its
+   *   own FIFO-ordered turn; `wakeup:true` wakes a
+   *   parked driver, while `wakeup:false` queues without waking.
+   * - `next-step` with `wakeup:true` stages steering during prompt admission
+   *   or an open turn; outside that window it falls back to a woken
+   *   `next-turn`.
+   * - `next-step` with `wakeup:false` injects durable model-facing context
+   *   without running the model: admission or an open turn stages it for the
+   *   next safe log position, while an injection outside that window appends
+   *   immediately without opening a turn. If admission closes without a turn,
+   *   a context-only boundary appends immediately; context staged beside
+   *   steering remains pending with it.
+   * The agent publishes or queues the identified frozen message as-is.
+   * @param message - identified model-facing content and its producer provenance.
+   * @param options - target queue and wakeup decision.
+   */
+  send(message: UserMessage, options: SendOptions): void
+
+  /**
+   * Mutate one still-pending queued occurrence synchronously. Editing preserves
+   * the message identity and queue position; removal publishes its terminal
+   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * @param id - independently addressable queued occurrence.
+   * @param action - edit or remove operation.
+   * @returns whether the pending occurrence was found and updated.
+   */
+  updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active

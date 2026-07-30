@@ -47,6 +47,8 @@ function stubAgent(session: Session): Agent {
     status: 'idle',
     acceptsNextStep: false,
     ctx: new Context(),
+    send: () => {},
+    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject: () => {},

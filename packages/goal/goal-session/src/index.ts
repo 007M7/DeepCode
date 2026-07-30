@@ -324,6 +324,37 @@ export function apply(ctx: Context): void {
         requestDrive(state)
       }
     })
+    ctx.on('agent/inbox/enqueue', (agent, item) => {
+      const state = stateFor(agent)
+      const attempt = state.attempt
+      if (attempt !== undefined && sameQueued(item.message.content, item.message.source, attempt)) return
+      state.competingQueued = true
+      if (attempt?.phase === 'queued') attempt.stale = true
+    })
+    ctx.on('agent/cancel-requested', (agent, cause) => {
+      const state = stateFor(agent)
+      const attempt = state.attempt
+      state.competingQueued = false
+      const goal = currentGoal(state)
+      if (goal?.phase === 'active' && goal.activation === 'armed') {
+        if (attempt === undefined) {
+          disarm(state)
+          return
+        }
+        // An admitted round closes durably as aborted; retain it so the normal
+        // turn outcome path appends pause after cancellation reaches idle.
+        // Pausing here would stage context into the active outbox only for this
+        // same cancel() call to discard it.
+        if (attempt.turn !== undefined || attempt.phase === 'admitted') return
+        state.attempt = undefined
+        try {
+          applyOutcome(state, goal, { kind: 'pause', reason: cause.kind })
+        } catch (error: unknown) {
+          ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
+          disarm(state)
+        }
+      }
+    })
     ctx.on('goal/changed', (agent) => {
       const state = stateFor(agent)
       state.needsCheckpoint = true

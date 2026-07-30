@@ -118,14 +118,14 @@ describe('web e2e: Code Mode round renders nested sub-calls', () => {
     expect(await nest.locator('[data-state="error"]').count()).toBeGreaterThanOrEqual(1)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('a bash sub-row click leaves the details panel collapsed', async () => {
+  it.skipIf(MODE === 'record')('a bash sub-row click leaves the default details panel open', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-code-mode-details'))
     const nest = page.locator('[data-subcalls]').first()
-    const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
+    const frame = page.locator('[style*="grid-template-columns"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).toBeNull()
     await nest.locator('[data-sample="bash-global"]').first().click()
-    // Tool rows no longer open details; the column stays width 0.
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    // Tool rows do not drive layout geometry; the Session's default panel stays open.
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
   })
 
   it.skipIf(MODE === 'record')('matches the conversation aria golden with stable anchors', async () => {

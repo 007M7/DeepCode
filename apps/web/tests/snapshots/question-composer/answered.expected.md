@@ -1,36 +1,49 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Use the ask_user_question tool to" [disabled]
-    - text: · 1 turns
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: "Use the ask_user_question tool to ask me exactly one question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and two options: label \"Blue\" with description \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\", and label \"Green\" with description \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\" After I answer, reply with the single word DONE and stop."
+- text: "Use the ask_user_question tool to ask me exactly one question with id \"color\", question \"Which color do you prefer?\", header \"Pick one\", and two options: label \"Blue\" with description \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\", and label \"Green\" with description \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\" After I answer, reply with the single word DONE and stop. {{clock}}"
 - button "复制":
   - img
 - button "在新对话中分支":
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.":
   - img
+  - img
   - text: Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
 - button:
+  - img
   - img
 - text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"color\", \"question\": \"Which color do you prefer?\", \"header\": \"Pick one\", \"options\": [{\"label\": \"Blue\", \"description\": \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\"}, {\"label\": \"Green\", \"description\": \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\"}]}]}"
 - button "Think The user answered \"Blue\". I should now reply with the single word DONE and stop.":
   - img
+  - img
   - text: Think The user answered "Blue". I should now reply with the single word DONE and stop.
 - paragraph: DONE
-- text: cache hit 95% · 8,769 tokens · 1 turns · 2 steps
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}} cache hit 95% · 8,769 tokens · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
+- button "选择模型，当前 DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]

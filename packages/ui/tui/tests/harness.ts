@@ -205,6 +205,13 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     injected,
     injectedOptions,
     cancelled,
+    send(input, options) {
+      sent.push(input.content)
+      sentMessages.push(input)
+      sentOptions.push(options)
+      return input.id
+    },
+    updateInbox: () => 'not-found',
     followup(input) {
       sent.push(input.content)
       sentMessages.push(input)

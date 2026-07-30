@@ -1,12 +1,11 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { Context } from 'cordis'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, ToolEventView,
+  HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
+  RpcId, RpcResult, SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -49,13 +48,6 @@ export interface SessionOptions {
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
 const QUEUE_PREVIEW_CHARS = 200
 
-/** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
-interface QueuedEntry {
-  row: QueuedMessage
-  /** Stable message identity used when an admitted message retires the row. */
-  messageId: MessageId
-}
-
 /** Single-line queue-row preview: text blocks flattened, non-text as tags, capped by code point. */
 function queuePreviewOf(content: readonly ContentBlock[]): string {
   const flat = content
@@ -63,6 +55,12 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
     .join(' ').replace(/\s+/g, ' ').trim()
   const chars = Array.from(flat)
   return chars.length > QUEUE_PREVIEW_CHARS ? `${chars.slice(0, QUEUE_PREVIEW_CHARS).join('')}…` : flat
+}
+
+/** Recover complete composer text only when editing cannot discard non-text blocks. */
+function queueTextOf(content: readonly ContentBlock[]): string | null {
+  if (!content.every(block => block.type === 'text')) return null
+  return content.map(block => block.text).join('')
 }
 
 /**
@@ -102,9 +100,8 @@ export class Session implements SessionFace {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
-  /** Inbox mirror (session/queued frames + mux-open baseline). Queue frames never hit history,
-   *  so this is stream-only state: reconnect clears it and the fresh baseline re-populates. */
-  private queued: QueuedEntry[] = []
+  /** Authoritative stream-only inbox snapshot; pending work never hits history. */
+  private queued: QueuedMessage[] = []
   private queueRev = 0
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
@@ -234,6 +231,15 @@ export class Session implements SessionFace {
     return result
   }
 
+  /** Apply one operation to a still-pending queue occurrence. */
+  async updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
+    try {
+      return (await this.api.sessions.updateQueue({ sessionId: this.sessionId, itemId, action })).result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
   /**
    * Stop: contract session.cancel 1:1; failures land in promptError (same error-strip display slot).
    * @returns the cancel result.
@@ -250,6 +256,40 @@ export class Session implements SessionFace {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Rename: contract session.rename 1:1. On success settle the 'title'
+   * projection cell from the response's `{title, seq}` under the store's
+   * higher-seq-wins rule (the push frame arriving later is a no-op replay),
+   * so the list row and any useProjection('title') reader update without
+   * waiting for the mux frame.
+   * @param title - raw title text (the host normalizes acceptance).
+   * @returns the rename result (normalized accepted title + title event seq).
+   */
+  async rename(title: string): Promise<RpcResult<{ title: string; seq: number }>> {
+    try {
+      const { result } = await this.api.sessions.rename({ sessionId: this.sessionId, title })
+      if (result.ok) this.projections.apply('title', result.value.title, result.value.seq)
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle;
+   * outcomes render as flow nodes, never as a response echo).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  async command(line: string): Promise<RpcResult<{ matched: boolean }>> {
+    try {
+      return (await this.api.commands.execute({ sessionId: this.sessionId, line })).result
+    } catch (error) {
+      return transportError(error)
+    }
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -359,19 +399,15 @@ export class Session implements SessionFace {
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
     switch (frame.type) {
       case 'session/event': {
-        this.retireQueued(frame.event)
         this.acceptLiveEvent(frame.event, frame.view)
         return
       }
-      case 'session/queued': {
-        const message = frame.message
-        // Row key: the enqueueing prompt's rpcId when it rode this wire (the
-        // provisional-echo reconciliation key); otherwise the frame envelope id.
-        const key = 'rpcId' in message.source ? String(message.source.rpcId) : `f:${rpcId}`
-        this.queued.push({
-          row: { key, preview: queuePreviewOf(message.content) },
-          messageId: message.id,
-        })
+      case 'session/queue': {
+        this.queued = frame.items.map(item => ({
+          id: item.id,
+          preview: queuePreviewOf(item.message.content),
+          text: queueTextOf(item.message.content),
+        }))
         this.queueRev++
         this.notifier.markDirty()
         return
@@ -424,15 +460,6 @@ export class Session implements SessionFace {
    * @param running - the new running state.
    */
   handleRunning(running: boolean): void {
-    // Leave-running sweep (host queuedMirror precedent): discard paths (cancel,
-    // terminal steering drop) have no per-entry frame, so ANY not-running signal
-    // with a nonempty mirror clears it — checked before the equality return so a
-    // stale replay on an already-idle session still sweeps.
-    if (!running && this.queued.length > 0) {
-      this.queued = []
-      this.queueRev++
-      this.notifier.markDirty()
-    }
     // Turn-start conversion: a blank session never runs, so the first
     // running:true proves another端's first message landed (设计稿 2.2).
     if (running && this.blankBit) {
@@ -595,22 +622,6 @@ export class Session implements SessionFace {
     } finally {
       this.stitching = false
     }
-  }
-
-  /** Retire the oldest queued occurrence of an admitted identified message. */
-  private retireQueued(event: SessionEvent): void {
-    if (this.queued.length === 0) return
-    const id = event.type === 'user/message'
-      ? event.data.id
-      : event.type === 'steering/message'
-        ? event.data.message.id
-        : undefined
-    if (id === undefined) return
-    const index = this.queued.findIndex(entry => entry.messageId === id)
-    if (index < 0) return
-    this.queued.splice(index, 1)
-    this.queueRev++
-    this.notifier.markDirty()
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
@@ -792,7 +803,7 @@ export class Session implements SessionFace {
       this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
     }
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
-      this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
+      this.queueCache = { rev: this.queueRev, value: this.queued }
     }
     const partial = this.partial?.toPartial() ?? null
     return {
@@ -806,7 +817,10 @@ export class Session implements SessionFace {
       queue: this.queueCache.value,
       running: this.running,
       composerPhase: derivePhase(
-        nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
+        // Command lifecycle nodes are not conversation: running /permission
+        // or /plan on a fresh session keeps the hero (the client mirror of
+        // the host's no-turn sessionBlank predicate).
+        nodes.some(node => node.kind !== 'command') || partial !== null || this.running || this.pendingCache.value.length > 0,
         this.promptAttempted,
       ),
       removed: this.removed,
@@ -827,7 +841,9 @@ export class Session implements SessionFace {
  * object: `hasContent` only grows within a window and `promptAttempted` is
  * sticky, so blank → engaging → active never steps back; a failed first
  * prompt stays engaging (retry semantics — see ComposerPhase).
- * @param hasContent - any conversation material exists (nodes, partial, running turn, pending waits).
+ * @param hasContent - any conversation material exists (non-command nodes,
+ *   partial, running turn, pending waits; command lifecycle rows alone keep
+ *   the session blank).
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */
