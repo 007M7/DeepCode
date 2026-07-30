@@ -56,6 +56,11 @@ export interface SettingsDescriptor {
   schema: unknown
   /** Current resolved value. */
   value: unknown
+  /**
+   * Monotonic revision of the raw user section this descriptor was read at.
+   * Send it back as `expectedRevision` on a write to refuse a stale one.
+   */
+  revision: number
   /** Registrant's composition `base` layer (detached), when one was declared. */
   base?: unknown
   /**
@@ -130,6 +135,19 @@ declare module 'cordis' {
      * @mode emit
      */
     'settings/updated'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void
+
+    /**
+     * One registered namespace's RAW user section changed, whether or not the
+     * resolved value did. `settings/updated` is the consumer-facing event and
+     * stays deep-equal-gated; this one exists for configuration surfaces,
+     * which must learn that a field went from inherited to overridden (same
+     * resolved value, different meaning) and that their held revision is
+     * stale. Listener containment matches `settings/updated`.
+     * @param ns - the namespace whose stored section changed.
+     * @param revision - the namespace's new revision.
+     * @mode emit
+     */
+    'settings/document-updated'(ns: SettingsNamespace, revision: number): void
   }
 }
 
@@ -153,6 +171,32 @@ export function deepEqualJson(a: unknown, b: unknown): boolean {
   const keys = Object.keys(left)
   if (keys.length !== Object.keys(right).length) return false
   return keys.every(key => key in right && deepEqualJson(left[key], right[key]))
+}
+
+/**
+ * A write refused because the namespace moved since the caller read it. The
+ * seam's serialized write queue orders writes; it cannot tell a fresh writer
+ * from one holding a stale snapshot, which is what this reports.
+ */
+export class SettingsConflictError extends Error {
+  /** Stable machine code for wire layers mapping this to their own taxonomy. */
+  readonly code = 'SETTINGS_CONFLICT'
+  /** The revision the write expected. */
+  readonly expected: number
+  /** The revision the namespace actually stands at. */
+  readonly actual: number
+
+  /**
+   * @param ns - the namespace whose write was refused.
+   * @param expected - the revision the caller sent.
+   * @param actual - the revision now stored.
+   */
+  constructor(ns: SettingsNamespace, expected: number, actual: number) {
+    super(`settings namespace "${ns}" changed since it was read (expected revision ${String(expected)}, now ${String(actual)})`)
+    this.name = 'SettingsConflictError'
+    this.expected = expected
+    this.actual = actual
+  }
 }
 
 /** Whether a value is a plain data object (not an array, null, or class instance). */
@@ -300,6 +344,15 @@ interface SettingsRegistration {
   base: unknown
   applies: SettingsApplies
   resolved: unknown
+  /**
+   * Monotonic counter over this namespace's RAW user section — bumped by any
+   * change to what is stored, including one whose resolved value is
+   * unchanged (adding an override equal to the composition base). Editors
+   * carry it as `expectedRevision` to detect a concurrent write, and the
+   * document event carries it so another tab learns a field went from
+   * inherited to overridden.
+   */
+  revision: number
   watchers: Set<SettingsWatcher>
 }
 
@@ -383,6 +436,7 @@ export abstract class Settings extends Service {
       base: options?.base,
       applies: options?.applies ?? 'live',
       resolved: deepFreeze(this.resolve(schema, options?.base, this.section(ns))),
+      revision: 0,
       watchers: new Set(),
     }
     this.ctx.effect(() => {
@@ -430,6 +484,7 @@ export abstract class Settings extends Service {
         ns: registration.ns,
         schema: registration.schema.toJSON(),
         value: registration.resolved,
+        revision: registration.revision,
         ...base === undefined ? {} : { base },
         ...detachedUser === undefined ? {} : { user: detachedUser },
         applies: registration.applies,
@@ -464,9 +519,11 @@ export abstract class Settings extends Service {
    * merging over the previous write's committed section.
    * @param ns - the registered namespace to update.
    * @param patch - plain-object patch over the user section.
+   * @param expectedRevision - the descriptor `revision` the caller read; a
+   *   namespace that moved past it rejects with {@link SettingsConflictError}.
    */
-  async update(ns: SettingsNamespace, patch: object): Promise<void> {
-    return this.write(ns, patch, 'merge')
+  async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void> {
+    return this.write(ns, patch, 'merge', expectedRevision)
   }
 
   /**
@@ -476,9 +533,11 @@ export abstract class Settings extends Service {
    * merge-only patch cannot express (`replace({})` re-inherits everything).
    * @param ns - the registered namespace to replace.
    * @param section - the complete next user section.
+   * @param expectedRevision - the descriptor `revision` the caller read; a
+   *   namespace that moved past it rejects with {@link SettingsConflictError}.
    */
-  async replace(ns: SettingsNamespace, section: object): Promise<void> {
-    return this.write(ns, section, 'replace')
+  async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void> {
+    return this.write(ns, section, 'replace', expectedRevision)
   }
 
   /**
@@ -490,8 +549,10 @@ export abstract class Settings extends Service {
    * holding a redacted view; `replace` remains the wholesale reset.
    * @param ns - the registered namespace to edit.
    * @param ops - ordered path edits; later ops observe earlier ones.
+   * @param expectedRevision - the descriptor `revision` the caller read; a
+   *   namespace that moved past it rejects with {@link SettingsConflictError}.
    */
-  async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[]): Promise<void> {
+  async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void> {
     if (!Array.isArray(ops)) throw new TypeError(`settings mutate for "${ns}" must be an array of path ops`)
     for (const op of ops) {
       if (!isPlainObject(op) || (op['op'] !== 'set' && op['op'] !== 'unset')) {
@@ -501,11 +562,16 @@ export abstract class Settings extends Service {
         throw new TypeError(`settings mutate for "${ns}" op paths must be arrays of strings`)
       }
     }
-    return this.write(ns, ops, 'mutate')
+    return this.write(ns, ops, 'mutate', expectedRevision)
   }
 
   /** Validate a write, then queue it on the namespace's serialized write chain. */
-  private write(ns: SettingsNamespace, input: object, mode: 'merge' | 'replace' | 'mutate'): Promise<void> {
+  private write(
+    ns: SettingsNamespace,
+    input: object,
+    mode: 'merge' | 'replace' | 'mutate',
+    expectedRevision?: number,
+  ): Promise<void> {
     const verb = mode === 'merge' ? 'update' : mode === 'replace' ? 'replace' : 'mutate'
     const registration = this.registrations.get(ns)
     if (registration === undefined) {
@@ -544,6 +610,12 @@ export abstract class Settings extends Service {
       // Every mode derives from the section as it stands NOW, at the front of
       // the queue — never from whatever the caller last saw.
       const current = this.section(ns) ?? {}
+      // The revision check belongs HERE, not at call time: the queue orders
+      // writes but cannot tell a fresh writer from one holding a snapshot
+      // that a predecessor already superseded.
+      if (expectedRevision !== undefined && expectedRevision !== registration.revision) {
+        throw new SettingsConflictError(ns, expectedRevision, registration.revision)
+      }
       const section = mode === 'merge'
         ? mergeLayers(current, snapshot) as Record<string, unknown>
         : mode === 'replace'
@@ -558,6 +630,7 @@ export abstract class Settings extends Service {
       // TODO(settings-replacement-resync): Re-resolve any replacement registration
       // from this persisted section so an old in-flight write cannot leave it stale.
       if (this.registrations.get(ns) === registration && !this.isStopped()) {
+        this.bumpRevision(registration, current, section)
         this.commit(registration, next, 'update')
       }
     })
@@ -573,6 +646,19 @@ export abstract class Settings extends Service {
    * @param source - change origin; defaults to `provider`.
    */
   protected publish(doc: Record<string, unknown>, source: SettingsUpdateSource = 'provider'): void {
+    // Read every raw section BEFORE swapping the document, so the revision
+    // bump below compares what was stored with what now is — an external edit
+    // moves the revision exactly like an in-process write.
+    const before = new Map<SettingsNamespace, unknown>()
+    for (const registration of this.registrations.values()) {
+      try {
+        before.set(registration.ns, this.section(registration.ns))
+      } catch {
+        // A malformed stored section is not a readable "before"; treating it
+        // as absent still bumps against any well-formed replacement.
+        before.set(registration.ns, undefined)
+      }
+    }
     this.document = doc
     for (const registration of this.registrations.values()) {
       let next: unknown
@@ -583,6 +669,7 @@ export abstract class Settings extends Service {
         this.ctx.logger.warn(error)
         continue
       }
+      this.bumpRevision(registration, before.get(registration.ns), this.section(registration.ns))
       this.commit(registration, next, source)
     }
   }
@@ -602,6 +689,42 @@ export abstract class Settings extends Service {
     // The merged candidate is untyped by construction; the schema call is the
     // runtime validation that admits it into T.
     return schema(mergeLayers(base, section) as never)
+  }
+
+  /**
+   * Advance a namespace's revision when its RAW section changed, and announce
+   * it. Deliberately independent of {@link commit}'s resolved-value equality:
+   * storing an override equal to the composition base leaves the resolved
+   * value alone but changes what the document says, which is exactly what a
+   * configuration surface must re-read.
+   */
+  private bumpRevision(registration: SettingsRegistration, before: unknown, after: unknown): void {
+    if (deepEqualJson(before, after)) return
+    registration.revision += 1
+    this.emitDocumentUpdated(registration.ns, registration.revision)
+  }
+
+  /** Contained fan-out of `settings/document-updated`, mirroring {@link commit}'s. */
+  private emitDocumentUpdated(ns: SettingsNamespace, revision: number): void {
+    let invariantFailure: unknown
+    const args = ['settings/document-updated', ns, revision]
+    for (const listener of this.ctx.events.dispatch('emit', args) as Array<(...listenerArgs: unknown[]) => unknown>) {
+      try {
+        const returned = listener(ns, revision)
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+            this.warnListenerFailure(ns, error)
+          })
+        }
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
+          invariantFailure ??= error
+          continue
+        }
+        this.warnListenerFailure(ns, error)
+      }
+    }
+    if (invariantFailure !== undefined) throw invariantFailure as Error
   }
 
   /** Commit a resolved value when changed: swap, notify watchers, emit the event. */

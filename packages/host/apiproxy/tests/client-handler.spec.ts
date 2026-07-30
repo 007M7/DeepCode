@@ -602,6 +602,7 @@ describe('config unary surface', () => {
       user: { baseURL: 'https://next' },
       applies: 'live' as const,
       secrets: [{ path: ['apiKey'], set: true }],
+      revision: 0,
     }
     const providerRow = {
       provider: 'openai',

@@ -1742,8 +1742,10 @@ get(ns: SettingsNamespace): unknown
  * merging over the previous write's committed section.
  * @param ns - the registered namespace to update.
  * @param patch - plain-object patch over the user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
  */
-async update(ns: SettingsNamespace, patch: object): Promise<void>
+async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>
 
 /**
  * Replace one registered namespace's user section wholesale, validate,
@@ -1752,13 +1754,29 @@ async update(ns: SettingsNamespace, patch: object): Promise<void>
  * merge-only patch cannot express (`replace({})` re-inherits everything).
  * @param ns - the registered namespace to replace.
  * @param section - the complete next user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
  */
-async replace(ns: SettingsNamespace, section: object): Promise<void>
+async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void>
+
+/**
+ * Apply path-addressed edits to one registered namespace's user section,
+ * validate, persist, then commit and emit. The ops are applied to the
+ * section as it stands when the write reaches the front of the queue, so a
+ * caller never has to restate fields it did not touch — and, crucially,
+ * cannot delete fields it never saw. This is the write path for any caller
+ * holding a redacted view; `replace` remains the wholesale reset.
+ * @param ns - the registered namespace to edit.
+ * @param ops - ordered path edits; later ops observe earlier ones.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
+ */
+async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
 ```
 
-Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:270`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

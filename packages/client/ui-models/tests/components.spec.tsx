@@ -44,6 +44,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       user: { reasoningEffort: 'high' },
       applies: 'live',
       secrets: [{ path: ['apiKey'], set: false }],
+      revision: 0,
     },
     {
       ns: 'llm-plain',
@@ -53,6 +54,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       value: {},
       applies: 'live',
       secrets: [],
+      revision: 0,
     },
     {
       ns: 'llm-pi-ai',
@@ -61,6 +63,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
       applies: 'live',
       secrets: [{ path: ['token'], set: false }, { path: ['providers', 'openai', 'apiKey'], set: false }],
+      revision: 0,
     },
   ]
 }
@@ -225,6 +228,7 @@ describe('ModelsSection', () => {
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
       ops: [{ op: 'set', path: ['baseURL'], value: 'https://next2' }],
+      expectedRevision: 0,
     })
   })
 
@@ -243,6 +247,7 @@ describe('ModelsSection', () => {
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
       ops: [{ op: 'unset', path: ['reasoningEffort'] }],
+      expectedRevision: 0,
     })
   })
 
@@ -254,6 +259,7 @@ describe('ModelsSection', () => {
       value: {},
       applies: 'live',
       secrets: [],
+      revision: 0,
     }
     const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
     render(<ProviderEditor
@@ -308,6 +314,7 @@ describe('ModelsSection', () => {
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
       ops: [{ op: 'set', path: ['providers', 'openai', 'reasoning'], value: 'xhigh' }],
+      expectedRevision: 0,
     })
   })
 
@@ -330,6 +337,7 @@ describe('ModelsSection', () => {
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
       ops: [{ op: 'set', path: ['providers', 'anthropic', 'apiKeyEnv'], value: 'ANTHROPIC_API_KEY' }],
+      expectedRevision: 0,
     })
     await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'ANTHROPIC_API_KEY', value: 'sk-ant' }) })
   })
@@ -360,6 +368,19 @@ describe('ModelsSection', () => {
     fireEvent.change(keys[keys.length - 1] as HTMLInputElement, { target: { value: 'sk-x' } })
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
     await screen.findByText(/unknown pi-ai provider/)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('tells the user to reopen when another writer moved the namespace first', async () => {
+    // The stale-draft overwrite: two tabs open the same card, the other saves,
+    // and this one must be refused rather than replay its opening snapshot.
+    const { set } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(fail('changed since it was read', 'settings-conflict'))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://mine' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await screen.findByText(en.conflict)
     expect(set).not.toHaveBeenCalled()
   })
 

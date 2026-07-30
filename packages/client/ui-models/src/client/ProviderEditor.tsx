@@ -127,6 +127,10 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const [keyState, setKeyState] = useState<CredentialView | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
+  // The revision this card opened at. A write carrying it is refused if
+  // anything else — another tab, an external edit of settings.yaml — moved the
+  // namespace meanwhile, instead of silently overwriting that change.
+  const [openedAt] = useState(() => namespace.revision)
   const root = useMemo(() => rehydrateSchema(namespace.schema), [namespace.schema])
   const node = useMemo(() => nodeAtPath(root, settingsPath), [root, settingsPath])
   const fallback = getPath(namespace.value, settingsPath)
@@ -175,8 +179,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     }
     const ops = pathOps(settingsPath, original, next)
     if (ops.length > 0) {
-      const response = await api.settings.mutate({ ns, ops })
-      if (!response.result.ok) return response.result.error.message
+      const response = await api.settings.mutate({ ns, ops, expectedRevision: openedAt })
+      if (!response.result.ok) {
+        return response.result.error.code === 'settings-conflict'
+          ? t('conflict')
+          : response.result.error.message
+      }
     }
     if (keyDraft.length > 0) {
       const stored = await api.credentials.set({ ref: keyRef, value: keyDraft })

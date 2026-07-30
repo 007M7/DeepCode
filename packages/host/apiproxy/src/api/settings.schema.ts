@@ -23,6 +23,7 @@ export const settingsNamespaceViewSchema = z.object({
   user: z.unknown().optional(),
   applies: z.union([z.literal('live'), z.literal('restart')]),
   secrets: z.array(settingsSecretViewSchema),
+  revision: z.number(),
 }) satisfies z.ZodType<Wire<SettingsNamespaceView>>
 
 /** settings.describe request payload. */
@@ -38,6 +39,7 @@ export const settingsDescribeValueSchema = z.object({
 export const settingsUpdateRequestSchema = z.object({
   ns: z.string().min(1),
   patch: z.record(z.string(), z.unknown()),
+  expectedRevision: z.number().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'settings.update'>>>
 
 /** settings.update response value: the namespace's new redacted view. */
@@ -47,6 +49,7 @@ export const settingsUpdateValueSchema = settingsNamespaceViewSchema satisfies z
 export const settingsReplaceRequestSchema = z.object({
   ns: z.string().min(1),
   section: z.record(z.string(), z.unknown()),
+  expectedRevision: z.number().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'settings.replace'>>>
 
 /** One path-addressed edit of settings.mutate. */
@@ -59,6 +62,7 @@ export const settingsPathOpSchema = z.discriminatedUnion('op', [
 export const settingsMutateRequestSchema = z.object({
   ns: z.string().min(1),
   ops: z.array(settingsPathOpSchema),
+  expectedRevision: z.number().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'settings.mutate'>>>
 
 /** settings.mutate response value: the namespace's new redacted view. */

@@ -26,6 +26,7 @@ const NAMESPACES = [
     base: { baseURL: 'https://base' },
     applies: 'live' as const,
     secrets: [{ path: ['apiKey'], set: false }],
+    revision: 0,
   },
   {
     ns: 'llm-pi-ai',
@@ -34,6 +35,7 @@ const NAMESPACES = [
     user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } },
     applies: 'live' as const,
     secrets: [],
+    revision: 0,
   },
 ]
 
@@ -151,6 +153,7 @@ describe('edge joins', () => {
           value: { providers: { weird: 'oops' } },
           applies: 'live' as const,
           secrets: [],
+          revision: 0,
         }] as never,
       })),
       providers: () => Promise.resolve(ok({
@@ -170,7 +173,7 @@ describe('edge joins', () => {
     const { face, seenRefs } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
-        namespaces: [{ ns: 'llm-pi-ai', schema: {}, value: { providers: {} }, applies: 'live' as const, secrets: [] }] as never,
+        namespaces: [{ ns: 'llm-pi-ai', schema: {}, value: { providers: {} }, applies: 'live' as const, secrets: [], revision: 0 }] as never,
       })),
       providers: () => Promise.resolve(ok({
         providers: [

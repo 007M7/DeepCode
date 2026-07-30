@@ -84,6 +84,11 @@ interface SettingsDescriptor {
   schema: unknown
   /** Current resolved value. */
   value: unknown
+  /**
+   * Monotonic revision of the raw user section this descriptor was read at.
+   * Send it back as `expectedRevision` on a write to refuse a stale one.
+   */
+  revision: number
   /** Registrant's composition `base` layer (detached), when one was declared. */
   base?: unknown
   /**
@@ -96,6 +101,21 @@ interface SettingsDescriptor {
   /** Schema-declared secret positions; present only under `redactSecrets`. */
   secrets?: RedactedSecret[]
 }
+```
+
+A caller that holds only the redacted descriptor cannot safely rebuild a section, so removals travel as path ops instead. Each descriptor also carries a `revision` over the raw section; a write may send it back as `expectedRevision`, and one that no longer matches is refused rather than applied over the writer that landed first.
+```ts type-equiv
+/**
+ * One path-addressed edit to a namespace's user section. Path mutation exists
+ * for a caller holding an INCOMPLETE view of the section — a configuration UI
+ * reads the redacted descriptor, which by construction never received the
+ * `role('secret')` fields. Such a caller can name the field it means without
+ * restating the section: a wholesale `replace` rebuilt from a redacted
+ * document silently deletes every secret the wire never returned.
+ */
+type SettingsPathOp =
+  | { op: 'set'; path: readonly string[]; value: unknown }
+  | { op: 'unset'; path: readonly string[] }
 ```
 
 ```ts type-equiv

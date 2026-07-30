@@ -257,6 +257,40 @@ describe('settings domain', () => {
       .toBe('settings-not-exposed')
   })
 
+  it('invalidates the model catalog when a provider namespace changes, and broadcasts a raw-only change', async () => {
+    // Editing `models` changes no route, so llm/adapters-updated never fires
+    // and an open model picker kept serving the old catalog. And storing an
+    // override equal to the resolved value emits nothing on settings/updated,
+    // so another tab never learned the field became overridden.
+    const ctx = await harness()
+    ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
+    const api = createApiProxy(ctx, DEFAULTS)
+    const frames = await collectHost(api, ['host/settings-changed', 'host/models-changed'], 2, async () => {
+      await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://base' } }))
+    })
+    expect(frames).toEqual([
+      { type: 'host/settings-changed', ns: 'llm-deepseek' },
+      { type: 'host/models-changed' },
+    ])
+    // The resolved value never moved: base already said https://base.
+    expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.value)
+      .toEqual({ apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' })
+  })
+
+  it('maps a stale expectedRevision to settings-conflict carrying both revisions', async () => {
+    const ctx = await harness()
+    ctx.settings.register(NS, AdapterConfig)
+    const api = createApiProxy(ctx, DEFAULTS)
+    const opened = expectOk(await api.settings.describe(request({}))).namespaces[0]!.revision
+    expect(expectOk(await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://first' }, expectedRevision: opened })))
+      .revision).toBe(opened + 1)
+    const error = expectErr(await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://second' }, expectedRevision: opened })))
+    expect(error.code).toBe('settings-conflict')
+    expect(error.details).toEqual({ ns: 'llm-deepseek', expected: opened, actual: opened + 1 })
+    // The refused write changed nothing.
+    expect(expectOk(await api.settings.describe(request({}))).namespaces[0]!.user).toEqual({ baseURL: 'https://first' })
+  })
+
   it('updates the user layer, answers with the new redacted view, and broadcasts the frame', async () => {
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })

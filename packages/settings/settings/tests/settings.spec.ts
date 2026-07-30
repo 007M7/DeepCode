@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { Settings, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
+import { Settings, SettingsConflictError, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
 import { MemorySettings } from './memory.ts'
 
 /** A provider implementing only the three primitives: the seam owns init. */
@@ -809,5 +809,89 @@ describe('mutate (path-addressed writes)', () => {
     const ctx = await mounted({ keyed: {} })
     await expect(ctx.settings.mutate(KEYED, [{ op: 'set', path: ['baseURL'], value: new Date() }]))
       .rejects.toThrow(/must be JSON-shaped data/)
+  })
+})
+
+describe('revision and conflict detection', () => {
+  const REV = settingsNamespace('rev')
+  const RevSchema: z<{ a: string; b: string }> = z.object({
+    a: z.string().default('base-a'),
+    b: z.string(),
+  })
+
+  async function mounted(doc: Record<string, unknown> = {}) {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc })
+    return ctx
+  }
+
+  it('refuses a write whose expected revision is stale, leaving the winner in place', async () => {
+    // Two editors open the same namespace, both holding revision 0. The first
+    // to land wins; the second must be told rather than overwrite it.
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const opened = ctx.settings.describe().find(d => d.ns === REV)!.revision
+
+    await ctx.settings.update(REV, { b: 'from-tab-B' }, opened)
+    await expect(ctx.settings.update(REV, { a: 'from-tab-A' }, opened))
+      .rejects.toThrow(/changed since it was read \(expected revision 0, now 1\)/)
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.user).toEqual({ b: 'from-tab-B' })
+  })
+
+  it('carries the machine code and both revisions on the refusal', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    await ctx.settings.update(REV, { b: 'first' })
+    const error = await ctx.settings.update(REV, { b: 'second' }, 0).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SettingsConflictError)
+    expect(error).toMatchObject({ code: 'SETTINGS_CONFLICT', expected: 0, actual: 1 })
+  })
+
+  it('accepts a write that carries no expectation at all', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    await ctx.settings.update(REV, { b: 'one' })
+    await ctx.settings.update(REV, { b: 'two' })
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.revision).toBe(2)
+  })
+
+  it('announces a raw change whose resolved value is unchanged', async () => {
+    // Storing an override equal to the schema default leaves `value` alone but
+    // changes what the document says: the field is now overridden, not
+    // inherited, and another tab has to learn that.
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const documents: Array<[string, number]> = []
+    const resolved: string[] = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    ctx.on('settings/updated', (ns) => { resolved.push(String(ns)) })
+
+    await ctx.settings.update(REV, { a: 'base-a' })
+
+    expect(documents).toEqual([['rev', 1]])
+    expect(resolved).toEqual([])
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.user).toEqual({ a: 'base-a' })
+  })
+
+  it('does not move the revision when a write stores an identical section', async () => {
+    const ctx = await mounted({ rev: { b: 'same' } })
+    ctx.settings.register(REV, RevSchema)
+    const documents: unknown[] = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    await ctx.settings.update(REV, { b: 'same' })
+    expect(documents).toEqual([])
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.revision).toBe(0)
+  })
+
+  it('moves the revision for an external edit the provider publishes', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const documents: Array<[string, number]> = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    ;(ctx.settings as unknown as { publish(doc: Record<string, unknown>): void })
+      .publish({ rev: { b: 'edited on disk' } })
+    expect(documents).toEqual([['rev', 1]])
+    // An editor that opened before the external edit is now refused.
+    await expect(ctx.settings.update(REV, { b: 'stale' }, 0)).rejects.toThrow(SettingsConflictError)
   })
 })

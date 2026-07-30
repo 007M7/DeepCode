@@ -41,7 +41,7 @@ import type {} from '@deepseek-ai/dsh-skill'
 // The settings/credentials seams: brand guards run at this wire boundary; the
 // service reads stay optional (`ctx.get`) so a composition without either
 // provider still serves every other domain.
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { SettingsConflictError, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsDescriptor, SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
@@ -1007,6 +1007,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       ...descriptor.user === undefined ? {} : { user: descriptor.user },
       applies: descriptor.applies,
       secrets: (descriptor.secrets ?? []).map(secret => ({ path: [...secret.path], set: secret.set })),
+      revision: descriptor.revision,
     }
   }
 
@@ -1044,14 +1045,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     ns: string,
     mode: 'update' | 'replace' | 'mutate',
     section: object,
+    expectedRevision?: number,
   ): Promise<RpcResponse<SettingsNamespaceView>> {
     const settings = ctx.get('settings')
     if (settings === undefined) return err(request, settingsAbsent())
-    const rejected = (error: unknown): RpcResponse<SettingsNamespaceView> => err(request, {
-      code: 'settings-rejected',
-      message: error instanceof Error ? error.message : String(error),
-      details: { ns },
-    })
+    const rejected = (error: unknown): RpcResponse<SettingsNamespaceView> => {
+      // A stale writer is its own outcome, not a malformed request: the client
+      // must re-read and re-apply rather than treat the write as invalid.
+      if (error instanceof SettingsConflictError) {
+        return err(request, {
+          code: 'settings-conflict',
+          message: error.message,
+          details: { ns, expected: error.expected, actual: error.actual },
+        })
+      }
+      return err(request, {
+        code: 'settings-rejected',
+        message: error instanceof Error ? error.message : String(error),
+        details: { ns },
+      })
+    }
     let branded: SettingsNamespace
     try {
       branded = settingsNamespace(ns)
@@ -1062,9 +1075,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
     if (!exposedNamespaces().has(ns)) return notExposed(request, ns)
     try {
-      if (mode === 'update') await settings.update(branded, section)
-      else if (mode === 'replace') await settings.replace(branded, section)
-      else await settings.mutate(branded, section as SettingsPathOp[])
+      if (mode === 'update') await settings.update(branded, section, expectedRevision)
+      else if (mode === 'replace') await settings.replace(branded, section, expectedRevision)
+      else await settings.mutate(branded, section as SettingsPathOp[], expectedRevision)
     } catch (error: unknown) {
       return rejected(error)
     }
@@ -1667,9 +1680,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             .map(namespaceView),
         }))
       },
-      update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch),
-      replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section),
-      mutate: request => settingsWrite(request, request.payload.ns, 'mutate', request.payload.ops),
+      update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch, request.payload.expectedRevision),
+      replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section, request.payload.expectedRevision),
+      mutate: request => settingsWrite(request, request.payload.ns, 'mutate', request.payload.ops, request.payload.expectedRevision),
     },
 
     credentials: {
@@ -1884,8 +1897,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           ctx.on('commands/change', () => {
             queue.push(frame({ type: 'host/commands-changed' }))
           }),
-          ctx.on('settings/updated', (ns) => {
+          ctx.on('settings/document-updated', (ns) => {
+            // The RAW-section event, not the resolved one: a field going from
+            // inherited to overridden leaves the resolved value equal, and a
+            // configuration client still has to re-read (its held revision is
+            // stale, and the field's meaning changed).
             queue.push(frame({ type: 'host/settings-changed', ns: String(ns) }))
+            // A provider's own settings carry its model catalog and endpoint,
+            // so a change there invalidates the model list even when the route
+            // set is untouched — `llm/adapters-updated` alone misses it.
+            if (exposedNamespaces().has(String(ns))) queue.push(frame({ type: 'host/models-changed' }))
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))
