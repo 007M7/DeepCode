@@ -271,7 +271,7 @@ interface SurfaceIntent {
 }
 ```
 
-对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生历史的唯一来源）。非 surface 类型在编译期拒绝此参数。
+对 `SurfaceEventType` 事件必填：每个产生消息的事件都必须声明它如何加入 surface（派生模型历史的唯一来源）。面向人类的记录（transcript）是另一个投影，读取的是日志中追加来源的事件，因为 surface 会有意遮蔽替换所概括的范围（见 [dsh-session](../../packages/core/session/README.md) 的 `isAppendSurfaceEvent`）。非 surface 类型在编译期拒绝此参数。
 
 此处适用相同的溯源区分：只有 `assistant/message` 可以携带存在但为空的 `sourceEventSeqs`；省略该字段并不表示其源流为空。
 
@@ -390,7 +390,8 @@ declare class Session {
    *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived history) and
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
