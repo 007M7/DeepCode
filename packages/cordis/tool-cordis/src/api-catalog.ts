@@ -2156,6 +2156,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ScopeKey = object;',
   },
   {
+    name: 'SearchFileMatches',
+    declaration: 'export interface SearchFileMatches {\n    path: string;\n    matches: SearchLineMatch[];\n}',
+  },
+  {
+    name: 'SearchLineMatch',
+    declaration: 'export interface SearchLineMatch {\n    lineNumber: number;\n    line: string;\n}',
+  },
+  {
+    name: 'SearchMatchesResultView',
+    declaration: 'export interface SearchMatchesResultView {\n    card: \'search\';\n    kind: \'matches\';\n    title?: string;\n    files: SearchFileMatches[];\n    truncated: boolean;\n    total: number;\n    content?: ContentBlock[];\n}',
+  },
+  {
+    name: 'SearchPathsResultView',
+    declaration: 'export interface SearchPathsResultView {\n    card: \'search\';\n    kind: \'paths\';\n    title?: string;\n    paths: string[];\n    truncated: boolean;\n    total: number;\n    content?: ContentBlock[];\n}',
+  },
+  {
+    name: 'SearchResultView',
+    declaration: 'export type SearchResultView = SearchMatchesResultView | SearchPathsResultView;',
+  },
+  {
     name: 'SendOptions',
     declaration: 'export interface SendOptions {\n    target: SendTarget;\n    wakeup: boolean;\n}',
   },
@@ -2697,7 +2717,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolResultView',
-    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView;',
+    declaration: 'export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | SearchResultView;',
   },
   {
     name: 'ToolRunContext',

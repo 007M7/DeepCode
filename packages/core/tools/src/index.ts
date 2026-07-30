@@ -82,6 +82,11 @@ export type {
   GenericResultView,
   TerminalResultView,
   DiffResultView,
+  SearchResultView,
+  SearchMatchesResultView,
+  SearchPathsResultView,
+  SearchFileMatches,
+  SearchLineMatch,
 } from './presentation.ts'
 
 declare module 'cordis' {

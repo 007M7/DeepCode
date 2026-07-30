@@ -12,13 +12,14 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { SearchError, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { grepSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { singleQuote } from './shell-quote.ts'
 import { acceptedSurfaceValue } from './surface.ts'
 
@@ -269,6 +270,27 @@ export function presentGrepCall(args: { pattern: string; path?: string; include?
 }
 
 /**
+ * Completed-call presentation: the search card projected from the result's
+ * `presentationMeta` (matches grouped by file, with the truncation signal), with
+ * the model-facing result text attached as `content` for a UI without a search
+ * card. Malformed or absent metadata (an obsolete or hand-edited replayed log)
+ * falls back to the generic card.
+ *
+ * @param _args - the raw tool arguments; unused, the view derives from the result.
+ * @param result - the final model-facing tool result carrying the projected metadata.
+ * @returns the search card view, or `undefined` for the generic fallback.
+ */
+export function presentGrepResult(
+  _args: { pattern: string; path?: string; include?: string },
+  result: ToolResult,
+): SearchResultView | undefined {
+  if (result.isError) return undefined
+  const view = searchViewFromMeta(result.meta)
+  if (view === undefined || view.kind !== 'matches') return undefined
+  return { ...view, content: result.content }
+}
+
+/**
  * Register the `grep` tool and its system-prompt guidance.
  *
  * @param ctx - the plugin context; registrations are effects scoped to it, and
@@ -317,6 +339,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
         type: 'text',
         text: renderGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes),
       }],
+      presentationMeta: (_args, value) => grepSearchMeta(value.matches, caps.maxMatches, caps.maxLineBytes),
     },
     async execute(args, exec) {
       const input = parseGrepArgs(args)
@@ -335,6 +358,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       return { matches: all }
     },
     presentCall: presentGrepCall,
+    presentResult: presentGrepResult,
   })
   ctx.tools.register(tool)
 
