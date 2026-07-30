@@ -739,7 +739,7 @@ Source: [`packages/goal/goal/src/index.ts:197`](../../packages/goal/goal/src/ind
 
 ## `ctx.httpServer` — `HttpServerService`
 
-The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the static dist fallback answers anything not yet claimed during the boot window). Listen conflict handling follows the explicit config policy; every unhandled listen failure throws out of init — a FAILED fiber the boot's activation audit reports.
+The web-shape HTTP carrier service. Activation listens immediately (route registration order carries no request-facing semantics: named routes are composed to be disjoint, and the static dist fallback answers anything not yet claimed during the boot window). A listen failure throws out of init — a FAILED fiber the boot's fail-loud sweep reports.
 
 ```ts cordis-catalog
 /**
@@ -759,7 +759,7 @@ register(route: WebRoute): () => void
 tapIndex(transform: (html: string) => string): () => void
 ```
 
-Source: [`packages/host/webserver/src/index.ts:58`](../../packages/host/webserver/src/index.ts)
+Source: [`packages/host/webserver/src/index.ts:55`](../../packages/host/webserver/src/index.ts)
 
 ## `ctx.invariants` — `InvariantService`
 
