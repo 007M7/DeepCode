@@ -47,6 +47,7 @@ function scriptedApi(overrides: {
         selected: { provider: r.payload.provider, model: r.payload.model },
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
+      fork: r => ok(r, { sessionId: sid('s-fork') }),
       prompt: r => ok(r, { accepted: true as const }),
       updateQueue: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
@@ -108,6 +109,21 @@ describe('unary round trip', () => {
     expect(seen?.rpcId).toBeTruthy()
     expect(response.rpcId).toBe(seen?.rpcId)
     expect(response.result).toEqual({ ok: true, value: { items: [{ sessionId: 's1', updatedAt: 7, running: false, blank: false }] } })
+  })
+
+  it('routes session fork with its optional cut anchor through the wire', async () => {
+    let seen: RpcRequest<{ sessionId: SessionId; atSeq?: number }> | undefined
+    const api = scriptedApi({
+      sessions: {
+        fork: (request) => {
+          seen = request
+          return ok(request, { sessionId: sid('s-child') })
+        },
+      },
+    })
+    const response = await client(api).sessions.fork({ sessionId: sid('s-parent'), atSeq: 7 })
+    expect(seen?.payload).toEqual({ sessionId: 's-parent', atSeq: 7 })
+    expect(response.result).toEqual({ ok: true, value: { sessionId: 's-child' } })
   })
 
   it('routes workspace rename, delete, and insertSessionBefore through the wire', async () => {
