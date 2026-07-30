@@ -62,10 +62,12 @@ export default defineConfig({
         plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
-          // Node 24 has aborted in its CJS lexer from a macOS arm64 worker
-          // thread. A fork contains that external runtime failure to the test
-          // process; other hosts retain the lower-overhead thread pool.
-          pool: process.platform === 'darwin' ? 'forks' : 'threads',
+          // Node 24 has aborted in its CJS lexer (v8::ToLocalChecked Empty
+          // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS
+          // arm64 and later on Linux. A fork contains that external runtime
+          // failure to the test process; Windows keeps the thread pool, where
+          // the abort has not reproduced and process spawn is costlier.
+          pool: process.platform === 'win32' ? 'threads' : 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
