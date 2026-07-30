@@ -146,9 +146,24 @@
   flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
+  /* Anchors the floating loading pill (.loadingFloat). */
+  position: relative;
   /* Right inset is slimmer than the left: the trailing column's own 8px
    * scrollbar clearance makes up the optical difference. */
   padding: 16px 16px 16px 24px;
+}
+
+/* The slow-scan indicator floats over the content's bottom-left on the card
+ * background instead of occupying a row: a scan must never shift the
+ * columns' height, and the stale view keeps rendering beneath it (it only
+ * appears at all once a scan outlives SLOW_SCAN_DELAY_MS). */
+.loadingFloat {
+  position: absolute;
+  left: 24px;
+  bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 /* Columns split the row evenly around the divider (a solo column takes the

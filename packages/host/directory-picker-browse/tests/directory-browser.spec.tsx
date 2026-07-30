@@ -235,7 +235,7 @@ describe('DirectoryBrowser', () => {
     expect(columns()).toHaveLength(1)
   })
 
-  it('commits the target immediately, aborts a superseded parent leg on the wire, and drops its late resolution', async () => {
+  it('lands the target single-pane at the wait bound, aborts a superseded parent leg on the wire, and drops its late resolution', async () => {
     const signals: (AbortSignal | undefined)[] = []
     const settlers: ((value: DirectoryListing) => void)[] = []
     // Only the FIRST explicit HOME request (the parent leg) hangs; the later
@@ -253,8 +253,8 @@ describe('DirectoryBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
     fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
-    // The target leg commits at once: editor closed, single-pane DOCS level,
-    // while the parent leg (upgrade) is still in flight.
+    // The parent leg (upgrade) hangs past the landing wait bound: the target
+    // commits alone — editor closed, single-pane DOCS level.
     await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
     expect(columns()).toHaveLength(1)
@@ -268,6 +268,128 @@ describe('DirectoryBrowser', () => {
     await act(async () => { settlers[0]!(listingFor(HOME)) })
     expect(columns()).toHaveLength(1)
     expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBeNull()
+  })
+
+  /**
+   * Listing fake whose explicit-path scans stay pending until the test
+   * settles them by path; the absent-path form (the initial home listing)
+   * resolves normally so mounting is a one-flush setup.
+   */
+  function manualLister() {
+    const settlers = new Map<string, (value: DirectoryListing) => void>()
+    const listDirectory = vi.fn((path?: string, _signal?: AbortSignal) => {
+      if (path === undefined) return Promise.resolve(listingFor(path))
+      return new Promise<DirectoryListing>((resolve) => { settlers.set(path, resolve) })
+    })
+    return { settlers, listDirectory }
+  }
+
+  it('lands a navigation as ONE two-pane frame: the stale view holds until both legs arrive', async () => {
+    vi.useFakeTimers()
+    try {
+      const { settlers, listDirectory } = manualLister()
+      mount({ listDirectory })
+      await act(async () => {})
+      fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+      fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
+      fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+      // The target settles while the parent leg is still in flight: nothing
+      // commits yet — the editor stays open over the stale home level, and no
+      // single-pane DOCS frame ever renders.
+      await act(async () => { settlers.get(DOCS)!(listingFor(DOCS)) })
+      expect(screen.getByLabelText('browser.editPath', { selector: 'input' })).toBeTruthy()
+      expect(screen.queryByText('harness')).toBeNull()
+      // The parent leg settles inside the wait bound: one commit straight to
+      // the two-pane landing, editor closed.
+      await act(async () => { settlers.get(HOME)!(listingFor(HOME)) })
+      expect(columns()).toHaveLength(2)
+      expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
+      expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+      expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+      expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+      // The wait-bound timer firing after the landing is a no-op.
+      await act(async () => { vi.advanceTimersByTime(200) })
+      expect(columns()).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a stalled parent leg lands the target alone at the wait bound, then upgrades in place', async () => {
+    vi.useFakeTimers()
+    try {
+      const { settlers, listDirectory } = manualLister()
+      mount({ listDirectory })
+      await act(async () => {})
+      fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+      fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
+      fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+      await act(async () => { settlers.get(DOCS)!(listingFor(DOCS)) })
+      // The parent leg outlives PARENT_LEG_WAIT_MS: the target lands alone.
+      await act(async () => { vi.advanceTimersByTime(200) })
+      expect(columns()).toHaveLength(1)
+      expect(screen.getByRole('listitem').textContent).toBe('harness')
+      expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+      // The late parent leg still upgrades the landing in place, exactly as
+      // if it had made the bound. (Reopening the editor meanwhile would
+      // supersede the upgrade — the editor-open handler withdraws pending
+      // listings — so a late upgrade can never close a resumed draft.)
+      await act(async () => { settlers.get(HOME)!(listingFor(HOME)) })
+      expect(columns()).toHaveLength(2)
+      expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
+      expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('Escape inside the landing window withdraws the submitted navigation', async () => {
+    vi.useFakeTimers()
+    try {
+      const { settlers, listDirectory } = manualLister()
+      mount({ listDirectory })
+      await act(async () => {})
+      fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+      const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+      fireEvent.change(input, { target: { value: DOCS } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await act(async () => { settlers.get(DOCS)!(listingFor(DOCS)) })
+      // Nothing has committed yet; Escape supersedes the landing entirely.
+      fireEvent.keyDown(input, { key: 'Escape' })
+      await act(async () => { vi.advanceTimersByTime(200) })
+      expect(columns()).toHaveLength(1)
+      expect(screen.queryByText('harness')).toBeNull()
+      expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+      expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the loading indicator only once a scan outlives its silence window, floating over the stale view', async () => {
+    vi.useFakeTimers()
+    try {
+      const { settlers, listDirectory } = manualLister()
+      mount({ listDirectory })
+      await act(async () => {})
+      expect(screen.queryByText('browser.loading')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+      fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
+      fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+      // In flight but still inside the silence window: nothing shows.
+      expect(screen.queryByText('browser.loading')).toBeNull()
+      await act(async () => { vi.advanceTimersByTime(300) })
+      // Past it: the indicator floats while the stale level keeps rendering.
+      expect(screen.getByRole('status').textContent).toBe('browser.loading')
+      expect(screen.getByText('Documents')).toBeTruthy()
+      // Landing (both legs) retires the indicator with the scan.
+      await act(async () => { settlers.get(DOCS)!(listingFor(DOCS)) })
+      await act(async () => { settlers.get(HOME)!(listingFor(HOME)) })
+      expect(screen.queryByText('browser.loading')).toBeNull()
+      expect(columns()).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps the single-pane landing when the truncated parent level lacks the target', async () => {
