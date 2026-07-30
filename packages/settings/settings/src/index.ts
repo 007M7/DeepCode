@@ -538,6 +538,20 @@ export abstract class Settings extends Service {
   }
 }
 
+/**
+ * Value mirror of the `FiberState` members {@link isUnloading} compares
+ * against: a const enum has no runtime object to import, and the value is
+ * needed at runtime (same rationale as the CLI boot driver's mirror).
+ */
+const FIBER_DISPOSED = 4
+const FIBER_UNLOADING = 5
+
+/** Whether the consumer's own fiber is tearing down (not just losing the settings service). */
+function isUnloading(ctx: Context): boolean {
+  const state: number = ctx.fiber.state
+  return state === FIBER_UNLOADING || state === FIBER_DISPOSED
+}
+
 /** Hooks a consumer hands to {@link installSettingsSection}. */
 export interface SettingsSectionHooks<T> {
   /**
@@ -578,6 +592,13 @@ export function installSettingsSection<T>(
     const scope = sctx.settings.register(ns, schema, { base: entry })
     hooks.setSource(() => scope.get())
     sctx.effect(() => () => {
+      // This disposer runs for two different reasons. A settings provider
+      // detaching leaves the consumer running, so it must fall back to its
+      // composition entry and re-judge what it derived. The consumer's own
+      // unload runs it too — and there `onChange` would re-register routes
+      // and touch resources the teardown is releasing, so the fallback is
+      // pointless and the notification actively harmful.
+      if (isUnloading(ctx)) return
       hooks.setSource(() => entry)
       hooks.onChange()
     })
