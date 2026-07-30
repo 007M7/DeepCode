@@ -128,6 +128,7 @@ function copyText(rows: DiffRow[]): string {
       case 'add': return `+ ${row.text}`
       case 'path': return row.text
       case 'gap': return row.text
+      /* v8 ignore next -- closed-union backstop; only reached if a row kind is forged */
       default: return assertNever(row.kind)
     }
   }).join('\n')
