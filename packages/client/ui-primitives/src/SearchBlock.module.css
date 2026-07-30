@@ -37,11 +37,6 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.truncated {
-  flex: none;
-  color: var(--dsw-alias-state-business-primary);
-}
-
 .copyButton {
   flex: none;
   background-color: transparent;

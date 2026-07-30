@@ -10,7 +10,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { writeClipboard } from './clipboard.ts'
-import { Pill } from './Pill.tsx'
 import css from './SearchBlock.module.css'
 
 /**
@@ -109,17 +108,22 @@ function shownCount(props: SearchBlockProps): number {
 }
 
 /**
- * The banner summary: the structural count of the retained result. The
- * truncation pill beside it carries the capped-vs-complete signal, so this
- * stays a plain count of what the card holds.
+ * The banner summary. When the search was capped it reads `显示 X / 共 N …` so
+ * the retained count and the pre-cap total sit in one clause (mirroring the read
+ * card's `显示 X / Y 行`); when it was not capped it is a plain count of what the
+ * card holds. The unit — `处匹配 · K 个文件` for grep, `个路径` for glob — trails
+ * the count either way.
  * @param props - the card's props.
  * @param shown - the retained result count from {@link shownCount}.
+ * @param truncated - whether the search was capped.
+ * @param total - the pre-cap total the truncation clause reports.
  * @returns the summary text.
  */
-function summaryText(props: SearchBlockProps, shown: number): string {
+function summaryText(props: SearchBlockProps, shown: number, truncated: boolean, total: number): string {
+  const count = truncated ? `显示 ${shown} / 共 ${total}` : `${shown}`
   return props.kind === 'paths'
-    ? `${shown} 个路径`
-    : `${shown} 处匹配 · ${props.files.length} 个文件`
+    ? `${count} 个路径`
+    : `${count} 处匹配 · ${props.files.length} 个文件`
 }
 
 /**
@@ -227,8 +231,7 @@ export function SearchBlock(props: SearchBlockProps) {
   return (
     <div className={clsx(css.block, className)} data-search={props.kind}>
       <div className={css.header}>
-        <span className={css.summary}>{summaryText(props, shown)}</span>
-        {truncated && <Pill className={css.truncated}>{`已截断 · 共 ${total}`}</Pill>}
+        <span className={css.summary}>{summaryText(props, shown, truncated, total)}</span>
         {!empty && (
           <button type="button" className={css.copyButton} onClick={onCopy}>
             {copied ? '复制成功' : '复制'}

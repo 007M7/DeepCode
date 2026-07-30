@@ -61,10 +61,10 @@ describe('SearchBlock matches kind', () => {
     expect(lines(view.container)).toEqual(['1: x', '2: y'])
   })
 
-  it('shows the truncation pill with the pre-cap total', () => {
+  it('folds the pre-cap total into the summary when truncated', () => {
     const view = render(<SearchBlock kind="matches" truncated total={99} files={[group('a.ts', 2)]} />)
-    expect(view.getByText('已截断 · 共 99')).toBeTruthy()
-    expect(view.getByText('2 处匹配 · 1 个文件')).toBeTruthy()
+    expect(view.getByText('显示 2 / 共 99 处匹配 · 1 个文件')).toBeTruthy()
+    expect(view.queryByText(/已截断/u)).toBeNull()
   })
 })
 
@@ -77,9 +77,10 @@ describe('SearchBlock paths kind', () => {
     expect(fileHeaders(view.container)).toEqual([])
   })
 
-  it('shows the truncation pill with the pre-cap total', () => {
+  it('folds the pre-cap total into the paths summary when truncated', () => {
     const view = render(<SearchBlock kind="paths" truncated total={50} paths={['a', 'b']} />)
-    expect(view.getByText('已截断 · 共 50')).toBeTruthy()
+    expect(view.getByText('显示 2 / 共 50 个路径')).toBeTruthy()
+    expect(view.queryByText(/已截断/u)).toBeNull()
   })
 })
 
