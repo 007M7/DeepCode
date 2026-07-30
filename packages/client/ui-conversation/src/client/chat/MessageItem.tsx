@@ -10,6 +10,7 @@ import type {
   ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
@@ -94,9 +95,7 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
     }
     case 'context':
       return (
-        <div className={css.contextRow}>
-          <JsonBlock label="上下文注入" payload={{ content: node.content, source: node.source }} />
-        </div>
+        <ContextInjectionRow content={node.content} source={node.source} />
       )
     default:
       return (
