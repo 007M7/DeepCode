@@ -41,7 +41,6 @@
         "headless-agent/tests/fixtures/telemetry-otel-driver.ts",
         "headless-agent/tests/fixtures/telemetry-redact-rule.ts",
         "acp-agent/tests/snapshots/lsp-definition/workspace/subject.ts",
-        "tui-agent/tests/fixtures/tui-scripted-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/mock-delegating-llm.ts",
         "acp-agent/tests/fixtures/subagent/subagent-acp/driver.ts",
         "jsonrpc-agent/tests/fixtures/subagent/subagent-dsh-sdk/driver.ts",
@@ -478,15 +477,6 @@
         "tests/**/*.ts"
       ]
     },
-    "packages/examples/tui-demo": {
-      "entry": [
-        "tests/**/*.spec.ts"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "tests/**/*.ts"
-      ]
-    },
     "packages/examples/cli-demo": {
       "entry": [
         "tests/**/*.spec.ts",
@@ -628,8 +618,15 @@
       ]
     },
     "apps/cli": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.e2e.ts",
+        "tests/**/*.snapshot.ts",
+        "tests/fixtures/tui-scripted-llm.ts"
+      ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ],
       "ignoreDependencies": [
         "@deepseek-ai/.+",

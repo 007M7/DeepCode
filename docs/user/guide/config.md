@@ -8,7 +8,7 @@ Harness uses `cordis.yml` to describe which plugins an agent loads and the confi
 
 The repository examples are runnable configurations and the most reliable starting points for a new project:
 
-- [tui-agent](../../../examples/tui-agent/cordis.yml) combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
+- [the shared `dsh` base](../../../apps/cli/config/base.cordis.yml) plus the [`tui.cordis.yml`](../../../apps/cli/config/tui.cordis.yml) overlay combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
 - [headless-agent](../../../examples/headless-agent/cordis.yml) exposes the coding composition as a one-shot task.
 - [acp-agent](../../../examples/acp-agent/cordis.yml) exposes fresh sessions to programmatic ACP clients.
 
@@ -25,12 +25,13 @@ A minimal configuration is a list of plugin entries:
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 
-- id: tui-agent
-  name: '@deepseek-ai/dsh-tui-demo'
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
   config:
-    provider: deepseek
-    model: deepseek-v4-flash
-    workspaceContext: false
+    agents:
+      - id: main
+        provider: deepseek
+        model: deepseek-v4-flash
 ```
 
 ## Plugin entries
@@ -46,6 +47,12 @@ A minimal configuration is a list of plugin entries:
 ```
 
 Plugins load in file order. Place plugins that depend on services after the applications or capability plugins that provide them. Missing models, tools, and plugins fail as early as possible instead of being silently ignored.
+
+## CLI overlays
+
+The TUI composes `base.cordis.yml` and `tui.cordis.yml`, then applies one optional patch list. By default that final list is `~/.dsh/config.yaml`; `dsh --config <path>` replaces the personal list with the named overlay. `dsh --config-replace <path>` instead boots the named file as the complete tree, without shipped or personal layers. `dsh web --config <path>` adds its overlay after the shared base and Web surface defaults and before Web profile and CLI-flag patches.
+
+A patch replaces a row's entire `config` value; it does not deep-merge keys. For example, patching `llm-deepseek` with only `config: { thinking: disabled }` also removes that row's configured `apiKey` and `baseURL`, so restate every key the row must retain.
 
 ## JavaScript values and environment variables
 
