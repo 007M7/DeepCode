@@ -29,10 +29,9 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/approval-composer', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
+// The scenario's one golden: the waiting panel. Everything the answered state
+// proves is asserted directly — see the world-state block at the end.
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
-// Second golden: the answered transcript — the granted escalation ran and the
-// turn finished, the state the waiting golden cannot see.
-const ANSWERED_EXPECTED = join(SNAPSHOT_DIR, 'answered.expected.md')
 const MODE = webSnapshotMode()
 
 // Irreducible payload: the command has to be long enough to pass the card's
@@ -160,19 +159,23 @@ describe('web e2e: approval takeover keeps its actions reachable', () => {
       return
     }
     // World state: the granted escalation is what let the command run, and the
-    // panel leaves with the regular composer restored.
+    // panel leaves with the regular composer restored. Asserted on the world
+    // and the DOM rather than through a transcript golden — the denied first
+    // attempt renders the OS's own refusal ("Operation not permitted" on
+    // macOS, "Read-only file system" on Linux), so the answered transcript is
+    // not a platform-neutral golden surface.
     expect(JSON.stringify(sessionEvents.filter(e => e.type === 'approval/decided').at(-1)))
       .toContain('allowed-once')
+    const written = await readFile(join(scaffold.workspaceCwd, 'workspace', 'notes.txt'), 'utf8')
+    expect(written).toContain(TOKENS.slice(0, 64))
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 20_000 }).toBeGreaterThanOrEqual(1)
     expect(await page.locator('[data-approval-key]').count()).toBe(0)
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
-    const answered = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
-    await compareOrRefreshGolden(ANSWERED_EXPECTED, answered, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 300_000)
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md', 'answered.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md'])
   })
 })

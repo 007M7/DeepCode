@@ -43,6 +43,8 @@ Confirmed both directions against the built client. With the cap reverted, the r
 
 Reproducing the off-screen buttons needs a card taller than the scrollport, not merely a tall card. The composer seat is `position: sticky; bottom: 0`, so while the card still fits it stays pinned to the viewport bottom and the buttons remain visible — at 900x1000 the uncapped card ate the whole transcript yet kept its action row on screen. Only once the card outgrows the scrollport does sticky stop being able to hold the bottom edge, and the row goes under.
 
-The geometry block and the goldens are replay-only, so record mode reaches the fixture write instead of aborting on layout.
+The geometry block and the golden are replay-only, so record mode reaches the fixture write instead of aborting on layout.
+
+The scenario keeps exactly one golden — the waiting panel — and asserts the answered state on the world instead (the decided outcome, the file the escalated command wrote, `DONE`, the panel gone, the composer re-enabled). An answered-transcript golden was recorded first and failed on Linux CI: the denied first attempt renders the OS's own refusal, and that text is platform-specific (`bash: notes.txt: Operation not permitted` on macOS against `bash: line 1: notes.txt: Read-only file system` on Linux). Any scenario whose transcript contains a sandbox-denied command inherits that, so the denial belongs in assertions, never in a golden.
 
 The panel ships as a client-module bundle: `pnpm run build:web` alone does not pick up a change to `ApprovalPanel.module.css` or a new `data-` hook in `ApprovalPanel.tsx` — the package build must run first, or the browser lane asserts against an older client than the tree.
