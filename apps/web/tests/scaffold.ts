@@ -9,7 +9,8 @@
 // from live session memory), refresh (keyless replay that rewrites goldens).
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
-// patches after the shipped surface overlay: temp persistenceRoot;
+// patches after the shipped surface overlay: temp persistenceRoot; user skill
+// roots redirected to empty temp directories (project discovery remains real);
 // workspace-context disabled (recorded fixtures must not embed this repo's
 // AGENTS.md); session-title-llm disabled (its fire-and-forget title call
 // would race the loop for the session's replay cursor); webserver pinned to
@@ -172,6 +173,16 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // per write; the scaffold restores the original cwd after boot, so the
     // row gets an absolute temp root (removed with the workspace at close).
     { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
+    // Host-level skills are ambient machine state and must not change replay
+    // goldens. Keep the provider enabled so project skills under workspaceCwd
+    // remain discoverable, but give its user roots empty scaffold-owned paths.
+    {
+      id: 'skill-local',
+      config: {
+        dshHome: join(persistenceRoot, 'skill-dsh-home'),
+        agentsHome: join(persistenceRoot, 'skill-agents-home'),
+      },
+    },
     // fs/bash cwd default to process.cwd(); the gateway injects the same
     // value into session.cwd — chdir below anchors all three to the temp
     // workspace, keeping the composition untouched.
