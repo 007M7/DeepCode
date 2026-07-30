@@ -82,6 +82,10 @@ export type {
   GenericResultView,
   TerminalResultView,
   DiffResultView,
+  WebResultView,
+  WebSearchResultView,
+  WebFetchResultView,
+  WebSource,
 } from './presentation.ts'
 
 declare module 'cordis' {
