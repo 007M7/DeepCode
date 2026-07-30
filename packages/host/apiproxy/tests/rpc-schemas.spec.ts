@@ -85,7 +85,7 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'subagent-catalog-diagnostic', message: 'm', details: { parentSessionId: 'p', childSessionId: 'c', reason: 'corrupt' } }).code).toBe('subagent-catalog-diagnostic')
     expect(rpcErrorSchema.parse({ code: 'subagent-not-resumable', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-not-resumable')
     expect(rpcErrorSchema.parse({ code: 'subagent-unauthorized', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-unauthorized')
-    expect(rpcErrorSchema.parse({ code: 'subagent-not-delivered', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-not-delivered')
+    expect(rpcErrorSchema.parse({ code: 'subagent-delivery-unavailable', message: 'm', details: { childSessionId: 'c' } }).code).toBe('subagent-delivery-unavailable')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
@@ -291,29 +291,34 @@ describe('sessions domain schemas', () => {
 
 describe('subagent domain schemas', () => {
   it('validates the direct catalog and addressed history pair', () => {
-    const child = { kind: 'child', id: 'c', label: 'worker', activity: 'running' }
+    const child = {
+      kind: 'child', id: 'c', mode: 'continuable', label: 'worker', activity: 'running',
+    }
+    const oneShot = { kind: 'child', id: 'o', mode: 'one-shot', activity: 'inactive' }
     const diagnostic = { kind: 'diagnostic', id: 'bad', reason: 'unsupported' }
     expect(subagentListEntrySchema.parse(child)).toEqual(child)
+    expect(subagentListEntrySchema.parse(oneShot)).toEqual(oneShot)
     expect(subagentListEntrySchema.parse(diagnostic)).toEqual(diagnostic)
     expect(subagentListRequestSchema.parse({ parentSessionId: 'p' })).toEqual({ parentSessionId: 'p' })
     expect(subagentListValueSchema.parse({
-      entries: [child, diagnostic], parentAvailable: true,
-    }).entries).toHaveLength(2)
+      entries: [child, oneShot, diagnostic], parentAvailable: true,
+    }).entries).toHaveLength(3)
     expect(subagentHistoryRequestSchema.parse({
-      parentSessionId: 'p', childSessionId: 'c', beforeSeq: 4, maxMessages: 2,
+      parentSessionId: 'p', childSessionId: 'c', mode: 'continuable', beforeSeq: 4, maxMessages: 2,
     }).beforeSeq).toBe(4)
     expect(() => subagentHistoryRequestSchema.parse({
-      parentSessionId: 'p', childSessionId: 'c', maxMessages: 0,
+      parentSessionId: 'p', childSessionId: 'c', mode: 'continuable', maxMessages: 0,
     })).toThrow()
     expect(subagentHistoryValueSchema.parse({ events: [], hasMore: false }).hasMore).toBe(false)
   })
 
-  it('validates prompt content and the accepted inbox identity', () => {
+  it('validates continuable prompt content and the accepted inbox identity', () => {
     expect(subagentPromptRequestSchema.parse({
-      parentSessionId: 'p', childSessionId: 'c', content: [{ type: 'text', text: '继续' }],
+      parentSessionId: 'p', childSessionId: 'c', mode: 'continuable',
+      content: [{ type: 'text', text: '继续' }],
     }).childSessionId).toBe('c')
     expect(subagentPromptValueSchema.parse({ messageId: 'm1' }).messageId).toBe('m1')
-    expect(() => subagentPromptValueSchema.parse({ taskId: 't1' })).toThrow()
+    expect(() => subagentPromptValueSchema.parse({ route: 'started', taskId: 't2' })).toThrow()
   })
 })
 

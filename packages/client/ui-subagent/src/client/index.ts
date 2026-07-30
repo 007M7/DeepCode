@@ -15,19 +15,26 @@ import type {
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ClientSessionContext, SlashServiceContract, SlashSource } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { SubagentCatalogAction, type SubagentCatalogInjected } from './SubagentCatalogAction.tsx'
-import { SubagentReadOnlyComposer } from './SubagentReadOnlyComposer.tsx'
+import {
+  SubagentReadOnlyComposer, type SubagentReadOnlyMatch,
+} from './SubagentReadOnlyComposer.tsx'
 
 export type {
   SubagentCatalogActionProps, SubagentCatalogInjected,
 } from './SubagentCatalogAction.tsx'
-export type { SubagentReadOnlyComposerProps } from './SubagentReadOnlyComposer.tsx'
+export type {
+  SubagentReadOnlyComposerProps, SubagentReadOnlyMatch,
+} from './SubagentReadOnlyComposer.tsx'
 
 /** Required services for references, conversation slots, and session navigation. */
 export const inject = ['slash', 'sessions', 'conversation', 'slots']
 
-/** Claim the composer only when an addressed child has no live continuation owner. */
-function selectReadOnlySubagent(owner: ComposerChainProps): ComposerChainProps | null {
-  return owner.subagentReadOnly ? owner : null
+/** Claim the composer for one-shot history or an unavailable continuation owner. */
+function selectReadOnlySubagent(owner: ComposerChainProps): SubagentReadOnlyMatch | null {
+  const subagent = owner.session?.subagent
+  if (subagent === undefined || subagent === null) return null
+  if (subagent.address.mode === 'one-shot') return { reason: 'one-shot' }
+  return subagent.parentAvailable ? null : { reason: 'parent-unavailable' }
 }
 
 /**
@@ -98,9 +105,9 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(
     () => ctx.slots.register({
       name: 'conversation.composer',
-      priority: 10,
+      priority: -10,
       select: selectReadOnlySubagent,
     }, SubagentReadOnlyComposer),
-    'ui-subagent: unavailable-parent composer',
+    'ui-subagent: read-only addressed composer',
   )
 }

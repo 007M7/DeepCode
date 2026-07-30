@@ -1,19 +1,29 @@
 /** Zod schemas for the browser-safe subagent domain. */
 
 import { z } from 'zod'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import { contentBlockSchema, historyEntrySchema, sessionIdSchema } from './sessions.schema.ts'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import {
+  contentBlockSchema, historyEntrySchema, sessionIdSchema, sessionProjectionsBlockSchema,
+} from './sessions.schema.ts'
 import type { SubagentListEntry } from './subagents.ts'
 
 /** Healthy and diagnostic durable catalog rows. */
-export const subagentListEntrySchema = z.discriminatedUnion('kind', [
+export const subagentListEntrySchema = z.union([
   z.object({
     kind: z.literal('child'),
     id: sessionIdSchema,
-    label: z.string(),
+    mode: z.literal('one-shot'),
     activity: z.union([z.literal('running'), z.literal('inactive')]),
+    label: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('child'),
+    id: sessionIdSchema,
+    mode: z.literal('continuable'),
+    activity: z.union([z.literal('running'), z.literal('inactive')]),
+    label: z.string(),
   }),
   z.object({
     kind: z.literal('diagnostic'),
@@ -37,6 +47,7 @@ export const subagentListValueSchema = z.object({
 export const subagentHistoryRequestSchema = z.object({
   parentSessionId: sessionIdSchema,
   childSessionId: sessionIdSchema,
+  mode: z.union([z.literal('one-shot'), z.literal('continuable')]),
   beforeSeq: z.number().int().nonnegative().optional(),
   maxMessages: z.number().int().positive().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'subagent.history'>>>
@@ -45,12 +56,14 @@ export const subagentHistoryRequestSchema = z.object({
 export const subagentHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
+  projections: sessionProjectionsBlockSchema.optional(),
 }) as unknown as z.ZodType<Wire<ResponseValue<'subagent.history'>>>
 
 /** subagent.prompt request payload. */
 export const subagentPromptRequestSchema = z.object({
   parentSessionId: sessionIdSchema,
   childSessionId: sessionIdSchema,
+  mode: z.literal('continuable'),
   content: z.array(contentBlockSchema),
 }) as unknown as z.ZodType<RequestPayload<'subagent.prompt'>>
 

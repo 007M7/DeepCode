@@ -286,38 +286,43 @@ describe('subagent catalogs', () => {
       summary(S2, { parentSessionId: S1, origin: 'subagent' }),
     ] as never[] }))
     api.onSubagentList = () => Promise.resolve(ok({
-      entries: [{ kind: 'child', id: S2, label: 'worker', activity: 'running' }] as never[],
+      entries: [{
+        kind: 'child', id: S2, mode: 'continuable', label: 'worker', activity: 'running',
+      }] as never[],
       parentAvailable: true,
     }))
     const manager = new SessionManager(api)
     await manager.refreshList()
     await manager.refreshSubagents(S1)
-    manager.selectSubagent({ parentSessionId: S1, childSessionId: S2 })
+    manager.selectSubagent({ parentSessionId: S1, childSessionId: S2, mode: 'continuable' })
 
     expect(manager.getListSnapshot().currentAddress).toEqual({
-      parentSessionId: S1, childSessionId: S2,
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable',
     })
     expect(manager.get(S2).getSnapshot().subagent).toEqual({
-      address: { parentSessionId: S1, childSessionId: S2 },
+      address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
       parentAvailable: true,
     })
     // Clicking the same child through an ordinary list-selection path must not
     // erase the catalog-derived address and fall back to session.* transport.
     manager.select(S2)
     expect(manager.getListSnapshot().currentAddress).toEqual({
-      parentSessionId: S1, childSessionId: S2,
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable',
     })
     expect(manager.get(S2).getSnapshot().subagent).toEqual({
-      address: { parentSessionId: S1, childSessionId: S2 },
+      address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
       parentAvailable: true,
     })
     await manager.get(S2).open()
     await manager.get(S2).prompt([{ type: 'text', text: 'continue' }], 'queue')
     expect(api.callsOf('subagent.history')).toEqual([
-      { parentSessionId: S1, childSessionId: S2, maxMessages: 50 },
+      { parentSessionId: S1, childSessionId: S2, mode: 'continuable', maxMessages: 50 },
     ])
     expect(api.callsOf('subagent.prompt')).toEqual([
-      { parentSessionId: S1, childSessionId: S2, content: [{ type: 'text', text: 'continue' }] },
+      {
+        parentSessionId: S1, childSessionId: S2, mode: 'continuable',
+        content: [{ type: 'text', text: 'continue' }],
+      },
     ])
     expect(api.callsOf('session.history')).toEqual([])
     expect(api.callsOf('session.prompt')).toEqual([])
@@ -337,7 +342,9 @@ describe('subagent catalogs', () => {
     })
     expect(manager.get(S2).getSnapshot()).toMatchObject({
       removed: false,
-      subagent: { address: { parentSessionId: S1, childSessionId: S2 } },
+      subagent: {
+        address: { parentSessionId: S1, childSessionId: S2, mode: 'continuable' },
+      },
     })
   })
 
@@ -554,7 +561,9 @@ describe('connected generation', () => {
 
   it('reloads the durable parent address for a restored child selection', async () => {
     const api = new FakeApiClient()
-    const address = { parentSessionId: S1, childSessionId: S2 }
+    const address = {
+      parentSessionId: S1, childSessionId: S2, mode: 'continuable' as const,
+    }
     const manager = new SessionManager(api, S2, address)
 
     manager.handleConnected()

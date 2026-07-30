@@ -18,8 +18,13 @@ const GRANDCHILD = 'grandchild' as SessionId
 function catalog(over: Partial<SubagentCatalogSnapshot> = {}): SubagentCatalogSnapshot {
   return {
     entries: [
-      { kind: 'child', id: CHILD, label: 'worker', activity: 'running' },
-      { kind: 'child', id: 'child-2' as SessionId, label: 'reviewer', activity: 'inactive' },
+      {
+        kind: 'child', id: CHILD, mode: 'continuable', label: 'worker', activity: 'running',
+      },
+      {
+        kind: 'child', id: 'child-2' as SessionId, mode: 'one-shot',
+        label: 'reviewer', activity: 'inactive',
+      },
       { kind: 'diagnostic', id: 'bad' as SessionId, reason: 'corrupt' },
     ],
     parentAvailable: true,
@@ -42,6 +47,7 @@ function props(
         displayTitle: 'worker',
         running: true,
         blank: false,
+        waitingApproval: false,
         updatedAt: Date.now(),
       },
     },
@@ -49,9 +55,12 @@ function props(
     subagentsByParent: value === undefined ? nested : { [PARENT]: value, ...nested },
     currentAddress: undefined,
   } satisfies SessionListState
+  function useSessions<T>(select: (snapshot: SessionListState) => T): T {
+    return select(state)
+  }
   return {
     sessionId: PARENT,
-    useSessions: (<T,>(select: (snapshot: SessionListState) => T) => select(state)),
+    useSessions,
     openChild: vi.fn(),
     refresh: vi.fn(),
     setCatalogOpen: vi.fn(),
@@ -67,14 +76,14 @@ describe('SubagentCatalogAction', () => {
 
     expect(input.setCatalogOpen).toHaveBeenCalledWith(PARENT, true)
     expect(screen.getAllByRole('treeitem')).toHaveLength(3)
-    expect(screen.getByText('正在扫描项目文件')).toBeTruthy()
-    expect(screen.getByText('已完成')).toBeTruthy()
+    expect(screen.getByText('正在扫描项目文件 · 可继续 · 正在运行')).toBeTruthy()
+    expect(screen.getByText('一次性 · 当前未运行')).toBeTruthy()
     const diagnostic = screen.getByRole('treeitem', { name: /会话记录损坏/ })
     expect(diagnostic.getAttribute('aria-disabled')).toBe('true')
 
     fireEvent.click(screen.getByRole('treeitem', { name: /worker/ }))
     expect(input.openChild).toHaveBeenCalledWith({
-      parentSessionId: PARENT, childSessionId: CHILD,
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
     })
     expect(input.setCatalogOpen).toHaveBeenLastCalledWith(PARENT, false)
   })
@@ -102,7 +111,10 @@ describe('SubagentCatalogAction', () => {
   it('lazily expands and collapses descendant catalogs with direct-parent navigation', () => {
     const childCatalog = catalog({
       entries: [
-        { kind: 'child', id: GRANDCHILD, label: 'indexer', activity: 'inactive' },
+        {
+          kind: 'child', id: GRANDCHILD, mode: 'continuable',
+          label: 'indexer', activity: 'inactive',
+        },
       ],
     })
     const grandchildCatalog = catalog({ entries: [] })
@@ -120,7 +132,7 @@ describe('SubagentCatalogAction', () => {
 
     fireEvent.click(nested)
     expect(input.openChild).toHaveBeenCalledWith({
-      parentSessionId: CHILD, childSessionId: GRANDCHILD,
+      parentSessionId: CHILD, childSessionId: GRANDCHILD, mode: 'continuable',
     })
     expect(input.setCatalogOpen).toHaveBeenCalledWith(PARENT, false)
     expect(input.setCatalogOpen).toHaveBeenCalledWith(CHILD, false)
@@ -129,7 +141,10 @@ describe('SubagentCatalogAction', () => {
   it('uses ArrowRight and ArrowLeft for branch disclosure', async () => {
     const input = props(catalog(), {
       [CHILD]: catalog({
-        entries: [{ kind: 'child', id: GRANDCHILD, label: 'indexer', activity: 'running' }],
+        entries: [{
+          kind: 'child', id: GRANDCHILD, mode: 'continuable',
+          label: 'indexer', activity: 'running',
+        }],
       }),
     })
     render(<SubagentCatalogAction {...input} />)
@@ -165,7 +180,10 @@ describe('SubagentCatalogAction', () => {
   it('closes every observed catalog when the root becomes empty', () => {
     const populated = props(catalog(), {
       [CHILD]: catalog({
-        entries: [{ kind: 'child', id: GRANDCHILD, label: 'indexer', activity: 'inactive' }],
+        entries: [{
+          kind: 'child', id: GRANDCHILD, mode: 'continuable',
+          label: 'indexer', activity: 'inactive',
+        }],
       }),
     })
     const view = render(<SubagentCatalogAction {...populated} />)
@@ -182,7 +200,12 @@ describe('SubagentCatalogAction', () => {
 
 describe('SubagentReadOnlyComposer', () => {
   it('explains the exact missing-parent recovery path', () => {
-    render(<SubagentReadOnlyComposer />)
+    render(<SubagentReadOnlyComposer matched={{ reason: 'parent-unavailable' }} />)
     expect(screen.getByRole('status').textContent).toContain('父会话当前不在线')
+  })
+
+  it('explains that one-shot histories never accept follow-ups', () => {
+    render(<SubagentReadOnlyComposer matched={{ reason: 'one-shot' }} />)
+    expect(screen.getByRole('status').textContent).toContain('一次性任务不支持后续消息')
   })
 })

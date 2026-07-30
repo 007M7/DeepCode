@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-Web subagent feature owner: contributes the lazily expandable catalog tree to `conversation.session.header.actions`, the unavailable-parent replacement to the conversation composer chain, and the existing `@` reference source to `ctx.slash`.
+Web subagent feature owner: contributes the lazily expandable catalog tree to `conversation.session.header.actions`, reason-specific read-only replacements to the conversation composer chain, and the existing `@` reference source to `ctx.slash`.
 
-The header action reads `subagentsByParent` and session summaries through the standard `useSessions` hook. After a non-empty catalog arrives it shows the healthy direct-child count and a compact tree in service order. Each healthy row combines its durable label, `running`/`inactive` activity (rendered as `正在处理`/`已完成`), optional log-backed title, and session-summary activity time; corrupt, unsupported, or unavailable rows remain readable but disabled. Expanding a row lazily opens that child's direct catalog and reports every visible branch to the runtime so membership frames cause a debounced refresh only where the tree is being consumed. Selecting any depth calls `SessionsService.openSubagent()` with the row's exact `{parentSessionId, childSessionId}` address. Component-local state owns tree visibility, expanded branches, and keyboard focus. ArrowRight/ArrowLeft expand and collapse branches; ArrowUp/ArrowDown, Home, End, and Escape navigate or close the tree; closing returns focus to the trigger. Styling uses tokens only.
+The header action reads `subagentsByParent` and session summaries through the standard `useSessions` hook. After a non-empty catalog arrives it shows the healthy direct-child count and a compact tree in service order. Continuable and one-shot rows display mode plus `running`/`inactive` activity, an optional log-backed title, and session-summary activity time; an unlabeled one-shot row falls back to its session id. Corrupt, unsupported, or unavailable rows remain readable but disabled. Expanding a row lazily opens that child's direct catalog and reports every visible branch to the runtime so membership frames cause a debounced refresh only where the tree is being consumed. Selecting any depth calls `SessionsService.openSubagent()` with the row's exact `{parentSessionId, childSessionId, mode}` address. Component-local state owns tree visibility, expanded branches, and keyboard focus. ArrowRight/ArrowLeft expand and collapse branches; ArrowUp/ArrowDown, Home, End, and Escape navigate or close the tree; closing returns focus to the trigger. Styling uses tokens only.
 
-An addressed child with no exact live parent elects the read-only composer entry and explains the recovery path. A child with a live parent keeps the ordinary input chrome, whose Session routes through `subagent.prompt`; this package never receives host context or calls a model-facing tool. The catalog and composer behavior are specified by the [Web subagent conversations Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-web-subagent-conversations.md).
+A one-shot child always elects a read-only composer that identifies the transcript as a completed execution record. A continuable child does so only when its exact parent is unavailable, with copy explaining the recovery path. A continuable child with a live parent keeps the ordinary input chrome, whose Session routes through `subagent.prompt`; running input remains Send because every follow-up joins the child's FIFO inbox, and addressed sessions never expose Stop. This package never receives host context or calls a model-facing tool. The catalog and composer behavior are specified by the [Web subagent conversations Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-web-subagent-conversations.md).
 
 Subagent-origin Session rows are omitted from the ordinary sidebar, so the parent header catalog is their navigation entry point. Ordinary forks remain in the sidebar.
 
@@ -18,7 +18,7 @@ The `@` source remains deliberately separate and inert. Candidates are zero-RPC 
 
 #### What the model sees
 
-Only the legacy `@` reference source affects model input: a picked candidate reaches the ordinary user message as literal `@label`, without a dedicated block or host-side resolution. Catalog browsing, child navigation, persisted transcript viewing, and human continuation UI add no prompt section; continuation content becomes a normal user-role event through the host subagent adapter.
+Only the legacy `@` reference source affects model input: a picked candidate reaches the ordinary user message as literal `@label`, without a dedicated block or host-side resolution. Catalog browsing, child navigation, and persisted transcript viewing add no prompt section; accepted continuation content becomes a normal FIFO user message through the host subagent adapter.
 
 #### Token effect
 
@@ -30,5 +30,5 @@ Append-only. This package never edits earlier request tokens.
 
 ## Known Limitations and Deferred Work
 
-- **The catalog has coarse liveness only** — it cannot show durable outcome, elapsed time, exact Activation state, or a correct cancel button.
+- **The catalog has coarse activity only** — it cannot show durable outcome, elapsed time, Activation identity, or an authority-safe cancel button.
 - **`@` references remain display-title text** — duplicate or renamed labels are ambiguous, so they intentionally do not acquire continuation semantics.

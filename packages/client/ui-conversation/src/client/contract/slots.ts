@@ -334,8 +334,8 @@ export type ComposerBarProps =
  */
 export interface ComposerChainProps {
   interactions: readonly PendingInteraction[]
-  /** A catalog-addressed child whose exact parent Agent is unavailable. */
-  subagentReadOnly: boolean
+  /** Current conversation facts for feature-owned takeover selectors. */
+  session: ConversationSnapshot | undefined
 }
 
 /**

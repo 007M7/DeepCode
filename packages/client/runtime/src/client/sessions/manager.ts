@@ -153,7 +153,7 @@ export class SessionManager {
   selectSubagent(address: SubagentAddress): void {
     const catalog = this.catalogs.get(address.parentSessionId)
     const entry = catalog?.entries.find(candidate => candidate.id === address.childSessionId)
-    if (entry === undefined || entry.kind !== 'child') {
+    if (entry === undefined || entry.kind !== 'child' || entry.mode !== address.mode) {
       throw new Error(`sessions.selectSubagent: ${address.childSessionId} is not a healthy catalog child`)
     }
     this.addresses.set(address.childSessionId, address)
@@ -625,7 +625,7 @@ export class SessionManager {
       case 'host/session-removed': {
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         if (this.addresses.has(frame.sessionId)) {
-          // A continuable activation detaching is not durable child deletion:
+          // An Activation detaching is not durable child deletion:
           // keep the addressed conversation usable and return its catalog row
           // to the inactive state.
           this.sessions.get(frame.sessionId)?.handleRunning(false)

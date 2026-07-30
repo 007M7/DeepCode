@@ -642,7 +642,7 @@ export class SessionsService implements ISessions {
       if (child?.kind === 'child') {
         byId[current] = {
           id: current,
-          displayTitle: child.label,
+          displayTitle: child.label ?? current,
           parentId: currentAddress.parentSessionId,
           origin: 'subagent',
           running: child.activity === 'running',
@@ -660,7 +660,8 @@ export class SessionsService implements ISessions {
     } else if (byId[current] !== undefined
       && (persisted !== current
         || this.selection.getSnapshot().subagentAddress?.childSessionId !== currentAddress?.childSessionId
-        || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId)) {
+        || this.selection.getSnapshot().subagentAddress?.parentSessionId !== currentAddress?.parentSessionId
+        || this.selection.getSnapshot().subagentAddress?.mode !== currentAddress?.mode)) {
       this.selection.set({
         sessionId: current,
         ...(currentAddress === undefined ? {} : { subagentAddress: currentAddress }),

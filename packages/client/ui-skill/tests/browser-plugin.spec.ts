@@ -31,7 +31,7 @@ async function bench(list: ListFn, addressed?: SessionId) {
   ctx.provide('connection', { api: { skills: { list } } })
   ctx.provide('sessions', {
     subagentAddress: (id: SessionId) => id === addressed
-      ? { parentSessionId: sid('parent'), childSessionId: id }
+      ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
   })
   await ctx.plugin({ inject: [...inject], apply }).await()

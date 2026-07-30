@@ -80,7 +80,7 @@ export interface RpcErrorDetailsMap {
   }
   'subagent-not-resumable': { childSessionId: SessionId }
   'subagent-unauthorized': { childSessionId: SessionId }
-  'subagent-not-delivered': { childSessionId: SessionId }
+  'subagent-delivery-unavailable': { childSessionId: SessionId }
   'internal': {}
 }
 

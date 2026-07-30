@@ -22,6 +22,7 @@ const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/t
 const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const LABEL = 'event-sourcing researcher'
+const ONE_SHOT_LABEL = 'event-sourcing reviewer'
 const NESTED_LABEL = 'example editor'
 const PARENT_PROMPT = 'Ask a research subagent to explain event sourcing.'
 const INITIAL_PROMPT = 'Explain event sourcing in one sentence.'
@@ -41,12 +42,21 @@ function childFixture(source: string, fixtureId: string, withContinuation: boole
   return [childHeader, ...eventLines, ...continued, ''].join('\n')
 }
 
+async function waitForAgentToSettle(scaffold: WebScaffold, id: SessionId): Promise<void> {
+  const deadline = Date.now() + 30_000
+  while (scaffold.ctx.agents.get(id) !== undefined) {
+    if (Date.now() >= deadline) throw new Error(`subagent ${id} did not settle`)
+    await new Promise<void>(resolve => setTimeout(resolve, 10))
+  }
+}
+
 describe('web e2e: persisted subagent conversation and human continuation', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
   let sidecarRoot: string
   let childId: SessionId
+  let oneShotId: SessionId
   let grandchildId: SessionId
   let tripwire: ReturnType<typeof watchConsole>
   const apiCalls: string[] = []
@@ -70,7 +80,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
 
     const parent = scaffold.ctx.agents.roots()[0]
     if (parent === undefined) throw new Error('fresh workspace did not publish its parent Agent')
@@ -90,10 +100,50 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       },
     })
     childId = started.childId
-    await expect.poll(
-      () => scaffold.ctx.agents.get(childId),
-      { timeout: 30_000 },
-    ).toBeUndefined()
+    await waitForAgentToSettle(scaffold, childId)
+    oneShotId = sessionId('recorded-one-shot')
+    const oneShotAt = Date.now()
+    await scaffold.ctx.sessionPersistence.create({
+      version: SESSION_FORMAT_VERSION,
+      id: oneShotId,
+      createdAt: oneShotAt,
+      cwd: scaffold.workspaceCwd,
+      parentSession: parent.id,
+      origin: 'subagent',
+      delegationDepth: 1,
+    })
+    await scaffold.ctx.sessionPersistence.append(oneShotId, [
+      {
+        type: 'turn/start',
+        seq: 0,
+        time: oneShotAt,
+        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      },
+      {
+        type: 'user/message',
+        seq: 1,
+        time: oneShotAt + 1,
+        data: {
+          content: [{ type: 'text', text: 'Review the event sourcing explanation.' }],
+          source: { kind: 'user' },
+        },
+        surfaceOp: 'append',
+      },
+      {
+        type: 'subagent/descriptor',
+        seq: 2,
+        time: oneShotAt + 2,
+        data: snapshotSubagentDescriptor({
+          mode: 'one-shot', provider: 'spawn', label: ONE_SHOT_LABEL,
+        }),
+      },
+      {
+        type: 'turn/end',
+        seq: 3,
+        time: oneShotAt + 3,
+        data: { turn: 1, reason: { kind: 'completed' } },
+      },
+    ] as SessionEvent[])
     grandchildId = sessionId('recorded-grandchild')
     const authoredAt = Date.now()
     await scaffold.ctx.sessionPersistence.create({
@@ -102,6 +152,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       createdAt: authoredAt,
       cwd: scaffold.workspaceCwd,
       parentSession: childId,
+      origin: 'subagent',
       delegationDepth: 2,
     })
     await scaffold.ctx.sessionPersistence.append(grandchildId, [
@@ -125,7 +176,9 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
         type: 'subagent/descriptor',
         seq: 2,
         time: authoredAt + 2,
-        data: snapshotSubagentDescriptor({ provider: 'spawn', label: NESTED_LABEL }),
+        data: snapshotSubagentDescriptor({
+          mode: 'continuable', provider: 'spawn', label: NESTED_LABEL,
+        }),
       },
       {
         type: 'turn/end',
@@ -135,14 +188,22 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       },
     ] as SessionEvent[])
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
+    expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
     expect(scaffold.ctx.agents.get(grandchildId)).toBeUndefined()
     await expect(scaffold.ctx.subagents.listChildren(parent.id)).resolves.toMatchObject([
-      { kind: 'child', id: childId, label: LABEL, activity: 'inactive' },
+      { kind: 'child', id: childId, mode: 'continuable', label: LABEL, activity: 'inactive' },
+      {
+        kind: 'child', id: oneShotId, mode: 'one-shot',
+        label: ONE_SHOT_LABEL, activity: 'inactive',
+      },
     ])
     await expect(scaffold.ctx.subagents.listChildren(childId)).resolves.toMatchObject([
-      { kind: 'child', id: grandchildId, label: NESTED_LABEL, activity: 'inactive' },
+      {
+        kind: 'child', id: grandchildId, mode: 'continuable',
+        label: NESTED_LABEL, activity: 'inactive',
+      },
     ])
-    await page.getByRole('button', { name: '1 个子代理' }).waitFor({ timeout: 15_000 })
+    await page.getByRole('button', { name: '2 个子代理' }).waitFor({ timeout: 15_000 })
   }, 120_000)
 
   afterAll(async () => {
@@ -159,7 +220,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('expands a persisted grandchild progressively without activating either level', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-tree'))
-    await page.getByRole('button', { name: '1 个子代理' }).click()
+    await page.getByRole('button', { name: '2 个子代理' }).click()
     await page.getByRole('button', { name: `展开 ${LABEL} 的下级子代理` }).click()
     await page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) }).waitFor({ timeout: 15_000 })
     expect(scaffold.ctx.agents.get(childId)).toBeUndefined()
@@ -175,7 +236,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
 
   it('opens the completed child from persistence without activating it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-open'))
-    await page.getByRole('button', { name: '1 个子代理' }).click()
+    await page.getByRole('button', { name: '2 个子代理' }).click()
     await page.getByRole('treeitem', { name: new RegExp(LABEL) }).click()
     await expect.poll(
       () => page.getByText(INITIAL_PROMPT, { exact: true }).count(),
@@ -193,7 +254,7 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
   })
 
-  it('continues through a cold-resumed Activation and receives the child mux events', async () => {
+  it('continues through FIFO follow-up admission and receives the child mux events', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-followup'))
     const ended = new Promise<void>((resolveEnded, reject) => {
       const timer = setTimeout(() => {
@@ -222,5 +283,17 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
+  })
+
+  it('opens a one-shot child as permanently read-only history', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-subagent-one-shot'))
+    const parentSession = page.getByRole('tree', { name: 'Sessions' })
+      .getByRole('treeitem')
+      .last()
+    await parentSession.click()
+    await page.getByRole('button', { name: '2 个子代理' }).click()
+    await page.getByRole('treeitem', { name: new RegExp(ONE_SHOT_LABEL) }).click()
+    await page.getByText('一次性任务不支持后续消息，可在这里查看完整执行记录。').waitFor()
+    expect(scaffold.ctx.agents.get(oneShotId)).toBeUndefined()
   })
 })

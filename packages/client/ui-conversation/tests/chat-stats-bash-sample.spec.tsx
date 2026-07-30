@@ -248,6 +248,8 @@ describe('bash sample row', () => {
       },
       current: undefined,
       phase: 'ready',
+      subagentsByParent: {},
+      currentAddress: undefined,
     })
   }
 

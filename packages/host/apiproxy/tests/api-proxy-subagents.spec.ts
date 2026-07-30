@@ -71,7 +71,14 @@ describe('subagent gateway', () => {
     expect(response.rpcId).toBe('subagent-rpc')
     expect(response.result).toMatchObject({
       ok: true,
-      value: { parentAvailable: false, entries: [{ kind: 'child' }, { kind: 'diagnostic' }] },
+      value: {
+        parentAvailable: false,
+        entries: [
+          { kind: 'child', mode: 'continuable' },
+          { kind: 'child', mode: 'one-shot' },
+          { kind: 'diagnostic' },
+        ],
+      },
     })
     expect(listChildren).toHaveBeenCalledWith(PARENT, undefined)
   })
@@ -79,7 +86,7 @@ describe('subagent gateway', () => {
   it('reads a healthy direct child without looking up or activating any Agent', async () => {
     const { api, getAgent, readSession } = bench()
     const response = await api.subagents.history(request({
-      parentSessionId: PARENT, childSessionId: CHILD, maxMessages: 10,
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', maxMessages: 10,
     }))
     expect(response.result).toMatchObject({
       ok: true,
@@ -89,12 +96,26 @@ describe('subagent gateway', () => {
     expect(getAgent).not.toHaveBeenCalled()
   })
 
+  it('reads one-shot history and rejects an address with the wrong mode', async () => {
+    const oneShot = {
+      kind: 'child', id: CHILD, mode: 'one-shot', label: 'batch', activity: 'inactive',
+    }
+    const { api, readSession } = bench({ entries: [oneShot] })
+    expect((await api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'one-shot',
+    }))).result).toMatchObject({ ok: true })
+    expect((await api.subagents.history(request({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
+    }))).result).toMatchObject({ ok: false, error: { code: 'subagent-not-found' } })
+    expect(readSession).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects a diagnostic address before reading history', async () => {
     const { api, readSession } = bench({ entries: [
       { kind: 'diagnostic', id: CHILD, reason: 'unsupported' },
     ] })
     const response = await api.subagents.history(request({
-      parentSessionId: PARENT, childSessionId: CHILD,
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
     }))
     expect(response.result).toMatchObject({
       ok: false,
@@ -109,30 +130,36 @@ describe('subagent gateway', () => {
   it('routes human content through the exact live parent with rpc attribution', async () => {
     const { api, parent, followup } = bench()
     const content = [{ type: 'text' as const, text: '继续' }]
+    const signal = new AbortController().signal
     const response = await api.subagents.prompt(request({
-      parentSessionId: PARENT, childSessionId: CHILD, content,
-    }))
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content,
+    }), signal)
     expect(response.result).toMatchObject({
       ok: true, value: { messageId: 'message-1' },
     })
-    expect(followup).toHaveBeenCalledTimes(1)
-    const [actualParent, actualChild, actualContent, delivery] = followup.mock.calls[0]!
-    expect([actualParent, actualChild, actualContent]).toEqual([parent, CHILD, content])
-    expect(delivery.source).toEqual({ kind: 'user', rpcId: RpcId('subagent-rpc') })
-    expect(delivery.signal).toBeInstanceOf(AbortSignal)
+    expect(followup).toHaveBeenCalledWith(
+      parent,
+      CHILD,
+      content,
+      { source: { kind: 'user', rpcId: RpcId('subagent-rpc') }, signal },
+    )
   })
 
   it('fails before delivery when the parent is absent and maps continuation failures', async () => {
     const absent = bench({ parentLive: false })
     expect((await absent.api.subagents.prompt(request({
-      parentSessionId: PARENT, childSessionId: CHILD, content: [],
-    }))).result).toMatchObject({ ok: false, error: { code: 'subagent-parent-unavailable' } })
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content: [],
+    }), new AbortController().signal)).result).toMatchObject({
+      ok: false, error: { code: 'subagent-parent-unavailable' },
+    })
     expect(absent.listChildren).not.toHaveBeenCalled()
 
-    const failed = bench({ followupError: new SubagentError('not delivered', 'DRAINING') })
+    const failed = bench({ followupError: new SubagentError('draining', 'DRAINING') })
     expect((await failed.api.subagents.prompt(request({
-      parentSessionId: PARENT, childSessionId: CHILD, content: [],
-    }))).result).toMatchObject({ ok: false, error: { code: 'subagent-not-delivered' } })
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content: [],
+    }), new AbortController().signal)).result).toMatchObject({
+      ok: false, error: { code: 'subagent-delivery-unavailable' },
+    })
   })
 
   it('maps history disappearance and hides unexpected backend details', async () => {
@@ -140,7 +167,7 @@ describe('subagent gateway', () => {
       readError: new SessionQueryError('secret path', 'SESSION_QUERY_SESSION_NOT_FOUND'),
     })
     expect((await disappeared.api.subagents.history(request({
-      parentSessionId: PARENT, childSessionId: CHILD,
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable',
     }))).result).toMatchObject({
       ok: false,
       error: {
@@ -160,8 +187,8 @@ describe('subagent gateway', () => {
 
     const prompt = bench({ followupError: new Error('secret provider') })
     expect((await prompt.api.subagents.prompt(request({
-      parentSessionId: PARENT, childSessionId: CHILD, content: [],
-    }))).result).toMatchObject({
+      parentSessionId: PARENT, childSessionId: CHILD, mode: 'continuable', content: [],
+    }), new AbortController().signal)).result).toMatchObject({
       ok: false,
       error: { code: 'internal', message: 'subagent prompt failed' },
     })

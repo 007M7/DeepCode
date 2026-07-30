@@ -223,6 +223,15 @@ export class Session implements SessionFace {
     try {
       if (this.address === undefined) {
         result = (await this.api.sessions.prompt({ sessionId: this.sessionId, mode, content })).result
+      } else if (this.address.mode === 'one-shot') {
+        result = {
+          ok: false,
+          error: {
+            code: 'subagent-not-resumable',
+            message: 'one-shot subagent conversations are read-only',
+            details: { childSessionId: this.address.childSessionId },
+          },
+        }
       } else {
         const routed = (await this.api.subagents.prompt({ ...this.address, content })).result
         result = routed.ok ? { ok: true, value: { accepted: true } } : routed
@@ -270,7 +279,7 @@ export class Session implements SessionFace {
       const result: RpcResult<{ accepted: true }> = {
         ok: false,
         error: {
-          code: 'subagent-not-delivered',
+          code: 'subagent-delivery-unavailable',
           message: 'subagent activation cancellation is unavailable',
           details: { childSessionId: this.address.childSessionId },
         },
@@ -512,6 +521,7 @@ export class Session implements SessionFace {
   configureSubagent(address: SubagentAddress | undefined, parentAvailable = false): void {
     const same = this.address?.parentSessionId === address?.parentSessionId
       && this.address?.childSessionId === address?.childSessionId
+      && this.address?.mode === address?.mode
     this.address = address
     this.parentAvailable = parentAvailable
     if (!same && this.openState !== 'cold') void this.resync()

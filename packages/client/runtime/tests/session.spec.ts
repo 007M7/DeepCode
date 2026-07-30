@@ -584,7 +584,7 @@ describe('prompt and cancel errors', () => {
   it('routes an addressed child through non-activating history and continuation prompt only', async () => {
     const api = new FakeApiClient()
     const session = new Session(SID, api, {
-      address: { parentSessionId: PARENT, childSessionId: SID },
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
       parentAvailable: true,
     })
     await session.open()
@@ -592,20 +592,38 @@ describe('prompt and cancel errors', () => {
     const cancelled = await session.cancel()
 
     expect(prompted).toEqual({ ok: true, value: { accepted: true } })
-    expect(cancelled).toMatchObject({ ok: false, error: { code: 'subagent-not-delivered' } })
+    expect(cancelled).toMatchObject({ ok: false, error: { code: 'subagent-delivery-unavailable' } })
     expect(api.callsOf('subagent.history')).toEqual([
-      { parentSessionId: PARENT, childSessionId: SID, maxMessages: 50 },
+      { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable', maxMessages: 50 },
     ])
     expect(api.callsOf('subagent.prompt')).toEqual([
-      { parentSessionId: PARENT, childSessionId: SID, content: [{ type: 'text', text: '继续' }] },
+      {
+        parentSessionId: PARENT, childSessionId: SID, mode: 'continuable',
+        content: [{ type: 'text', text: '继续' }],
+      },
     ])
     expect(api.callsOf('session.history')).toEqual([])
     expect(api.callsOf('session.prompt')).toEqual([])
     expect(api.callsOf('session.cancel')).toEqual([])
     expect(session.getSnapshot().subagent).toEqual({
-      address: { parentSessionId: PARENT, childSessionId: SID },
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
       parentAvailable: true,
     })
+  })
+
+  it('keeps one-shot history readable without exposing prompt or cancel transport', async () => {
+    const api = new FakeApiClient()
+    const session = new Session(SID, api, {
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot' },
+    })
+    await session.open()
+    const prompted = await session.prompt([{ type: 'text', text: '继续' }], 'queue')
+
+    expect(prompted).toMatchObject({ ok: false, error: { code: 'subagent-not-resumable' } })
+    expect(api.callsOf('subagent.history')).toEqual([
+      { parentSessionId: PARENT, childSessionId: SID, mode: 'one-shot', maxMessages: 50 },
+    ])
+    expect(api.callsOf('subagent.prompt')).toEqual([])
   })
 
   it('sends content through session.prompt; composerPhase steps blank → engaging synchronously at send entry', async () => {

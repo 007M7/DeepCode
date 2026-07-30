@@ -88,6 +88,8 @@ export function childSessionMeta(
   return {
     ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
     parentSession: parentHeader.id,
+    // Navigation classification only; the descriptor remains the authority
+    // for mode and continuation capability.
     origin: 'subagent',
     // Durable: the recursion budget must survive persistence and resume.
     delegationDepth: childDepth,

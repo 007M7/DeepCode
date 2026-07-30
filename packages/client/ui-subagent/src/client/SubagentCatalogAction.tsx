@@ -16,9 +16,9 @@ type Catalogs = SessionListState['subagentsByParent']
 
 /** Business actions supplied by the slot registration. */
 export interface SubagentCatalogInjected {
-  openChild(address: SubagentAddress): void
-  refresh(parentSessionId: SessionId): void
-  setCatalogOpen(parentSessionId: SessionId, open: boolean): void
+  openChild: (address: SubagentAddress) => void
+  refresh: (parentSessionId: SessionId) => void
+  setCatalogOpen: (parentSessionId: SessionId, open: boolean) => void
 }
 
 /** Full props for the session-header catalog action. */
@@ -33,16 +33,16 @@ interface CatalogRowsProps {
   expanded: ReadonlySet<SessionId>
   level: number
   now: number
-  openChild(address: SubagentAddress): void
-  refresh(parentSessionId: SessionId): void
-  toggleBranch(childSessionId: SessionId): void
-  closeCatalog(): void
+  openChild: (address: SubagentAddress) => void
+  refresh: (parentSessionId: SessionId) => void
+  toggleBranch: (childSessionId: SessionId) => void
+  closeCatalog: () => void
 }
 
 function diagnosticReason(entry: Extract<CatalogEntry, { kind: 'diagnostic' }>): string {
   switch (entry.reason) {
     case 'corrupt': return '会话记录损坏'
-    case 'unsupported': return '不是可继续的子代理'
+    case 'unsupported': return '子代理记录版本不受支持'
     case 'unavailable': return '会话记录暂不可用'
   }
 }
@@ -119,11 +119,16 @@ function CatalogRows({
         const isExpanded = expanded.has(entry.id)
         const knownLeaf = childCatalog?.state === 'ready' && childCatalog.entries.length === 0
         const summary = summaries[entry.id]
-        const secondary = summary?.title ?? (entry.activity === 'running' ? '正在处理' : '已完成')
+        const label = entry.label ?? entry.id
+        const mode = entry.mode === 'one-shot' ? '一次性' : '可继续'
+        const activity = entry.activity === 'running' ? '正在运行' : '当前未运行'
+        const secondary = [summary?.title, mode, activity]
+          .filter(value => value !== undefined)
+          .join(' · ')
         const time = relativeTime(summary?.updatedAt, now)
 
         const open = (): void => {
-          openChild({ parentSessionId, childSessionId: entry.id })
+          openChild({ parentSessionId, childSessionId: entry.id, mode: entry.mode })
           closeCatalog()
         }
         const handleKey = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -131,11 +136,10 @@ function CatalogRows({
             event.preventDefault()
             event.stopPropagation()
             open()
-          } else if (event.key === 'ArrowRight' && !knownLeaf && !isExpanded) {
-            event.preventDefault()
-            event.stopPropagation()
-            toggleBranch(entry.id)
-          } else if (event.key === 'ArrowLeft' && isExpanded) {
+          } else if (
+            (event.key === 'ArrowRight' && !knownLeaf && !isExpanded)
+            || (event.key === 'ArrowLeft' && isExpanded)
+          ) {
             event.preventDefault()
             event.stopPropagation()
             toggleBranch(entry.id)
@@ -153,7 +157,7 @@ function CatalogRows({
               role="treeitem"
               tabIndex={0}
               aria-level={level}
-              aria-label={[entry.label, secondary, time].filter(value => value !== undefined).join(' ')}
+              aria-label={[label, secondary, time].filter(value => value !== undefined).join(' ')}
               {...knownLeaf ? {} : { 'aria-expanded': isExpanded }}
               className={css.row}
               onClick={open}
@@ -166,7 +170,7 @@ function CatalogRows({
                     type="button"
                     tabIndex={-1}
                     className={`${css.disclosure} ${isExpanded ? css.disclosureOpen : ''}`}
-                    aria-label={`${isExpanded ? '收起' : '展开'} ${entry.label} 的下级子代理`}
+                    aria-label={`${isExpanded ? '收起' : '展开'} ${label} 的下级子代理`}
                     onClick={toggle}
                   >
                     <IconChevronRightOutline14 />
@@ -174,7 +178,7 @@ function CatalogRows({
                 )}
               <StateDot state={entry.activity === 'running' ? 'ongoing' : 'done'} />
               <span className={css.content}>
-                <span className={css.label}>{entry.label}</span>
+                <span className={css.label}>{label}</span>
                 <span className={css.summary}>{secondary}</span>
               </span>
               {time !== undefined && <span className={css.time}>{time}</span>}
@@ -341,7 +345,7 @@ export function SubagentCatalogAction({
         <span>{healthy.length} 个子代理</span>
         <IconChevronDownOutline14 className={open ? css.triggerOpen : undefined} />
       </button>
-      {open && catalog !== undefined && (
+      {open && (
         <div className={css.menu} role="tree" aria-label="子代理会话">
           <CatalogRows
             parentSessionId={sessionId}

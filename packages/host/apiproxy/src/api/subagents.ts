@@ -1,23 +1,31 @@
 /**
  * Browser-safe subagent domain contract. Persisted transcript reads never
- * activate an Agent, while prompts route through the direct parent's
- * Activation-backed continuation owner.
+ * activate an Agent, while continuable prompts route through the exact live
+ * direct parent into the child's Agent inbox.
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RpcRequest, RpcResponse } from './rpc.ts'
-import type { HistoryEntry } from './sessions.ts'
+import type { HistoryEntry, SessionProjectionsBlock } from './sessions.ts'
 
 /** Complete durable direct-child catalog row. */
 export type SubagentListEntry =
   | {
     kind: 'child'
     id: SessionId
-    label: string
     activity: 'running' | 'inactive'
-  }
+  } & (
+    | {
+      mode: 'one-shot'
+      label?: string
+    }
+    | {
+      mode: 'continuable'
+      label: string
+    }
+  )
   | {
     kind: 'diagnostic'
     id: SessionId
@@ -30,10 +38,15 @@ export interface SubagentPromptReceipt {
 }
 
 /** Durable parent/child address that selects subagent transport in the client. */
-export interface SubagentAddress {
-  parentSessionId: SessionId
-  childSessionId: SessionId
-}
+export type SubagentAddress =
+  & {
+    parentSessionId: SessionId
+    childSessionId: SessionId
+  }
+  & (
+    | { mode: 'one-shot' }
+    | { mode: 'continuable' }
+  )
 
 /** Complete direct-child catalog plus the delivery-time parent availability hint. */
 export interface SubagentCatalog {
@@ -44,8 +57,9 @@ export interface SubagentCatalog {
 /** Subagent-domain unary methods. */
 export interface SubagentsApi {
   /**
-   * Lists direct continuable children without loading either side. Parent
-   * availability is a hint; prompt performs the authoritative check.
+   * Lists direct session-backed children without loading either side. Parent
+   * availability is a hint; continuable prompt performs the authoritative
+   * check.
    */
   list(
     request: RpcRequest<{ parentSessionId: SessionId }>,
@@ -59,14 +73,21 @@ export interface SubagentsApi {
   history(
     request: RpcRequest<SubagentAddress & { beforeSeq?: number; maxMessages?: number }>,
     signal?: AbortSignal,
-  ): Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean }>>
+  ): Promise<RpcResponse<{
+    events: HistoryEntry[]
+    hasMore: boolean
+    projections?: SessionProjectionsBlock
+  }>>
 
   /**
-   * Delivers human content through the exact live parent's continuation
-   * owner. Success identifies the accepted inbox message.
+   * Delivers human content to a continuable child through the exact live
+   * parent's continuation owner. Success identifies the message accepted by
+   * the child's FIFO inbox; later execution is independent of this request.
    */
   prompt(
-    request: RpcRequest<SubagentAddress & { content: ContentBlock[] }>,
-    signal?: AbortSignal,
+    request: RpcRequest<
+      Extract<SubagentAddress, { mode: 'continuable' }> & { content: ContentBlock[] }
+    >,
+    signal: AbortSignal,
   ): Promise<RpcResponse<SubagentPromptReceipt>>
 }
