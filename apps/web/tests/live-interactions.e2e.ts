@@ -167,6 +167,9 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // "no crash, composer recovers, turn logged as error".
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
+    // The blank workspace also has an enabled composer. Wait for the driven
+    // session's only visible message before capturing its no-error-copy state.
+    await expect.poll(() => page.getByText(PROMPT, { exact: true }).first().isVisible(), { timeout: 10_000 }).toBe(true)
     // Golden of the same gap: the prompt bubble alone, no error copy in the
     // tree — the diff that changes when web-error-surface lands.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
