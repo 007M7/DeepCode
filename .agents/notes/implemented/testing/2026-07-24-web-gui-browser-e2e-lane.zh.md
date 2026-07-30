@@ -46,7 +46,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### CI 立场
 
-根据[浏览器快照 CI 决策](2026-07-30-web-browser-snapshot-ci-gate.md)，该车道是 Linux 拉取请求必需的只比较门禁。static 任务会把 `apps/web/dist` 与包构建产物一同发布；消费方任务安装锁文件选定的 Chromium，恢复以操作系统和锁文件为键的缓存，并用 `DSH_SNAPSHOT=replay` 运行该车道。CI 从不录制或刷新预期输出。默认分支上的 Linux 串行任务执行同样的比较，并填充托管浏览器缓存。场景仍面向 POSIX，并继续置于 Windows 和 macOS 矩阵之外。
+根据[浏览器快照 CI 决策](2026-07-30-web-browser-snapshot-ci-gate.md)，该车道是 Linux 拉取请求必需的只比较门禁。static 任务会把 `apps/web/dist` 与包构建产物一同发布；`node 24 / snapshots and artifacts` 消费方任务安装锁文件选定的 Chromium，恢复以操作系统和锁文件为键的缓存，并用 `DSH_SNAPSHOT=replay` 运行该车道。CI 从不录制或刷新预期输出。默认分支串行任务不供给 Chromium，也不运行该车道。场景仍面向 POSIX，并继续置于 Windows 和 macOS 矩阵之外。
 
 ## 业界先例
 
@@ -88,4 +88,4 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 后果
 
-Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在发布的 128k 目录窗口下保持闲置；必需的 Linux CI 承担 Chromium 供给与串行浏览器运行的成本，使改动组装后 UI 的 PR（Pull Request）持有相应的预期输出 diff。
+Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在发布的 128k 目录窗口下保持闲置；必需的消费方任务承担 Chromium 供给与一次浏览器运行的成本，使改动组装后 UI 的 PR（Pull Request）持有相应的预期输出 diff。

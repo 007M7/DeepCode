@@ -34,7 +34,7 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 | 基础 | `pnpm run test:gui` | 1+2 层 vitest（`packages/client packages/host`），秒级、无浏览器无 server | 改 GUI 任意源码后随手跑 |
 | 语义快照 | `DSH_EXAMPLE_MODE=lib pnpm run test:snapshot` | 无需密钥的组装应用语义，以及仓库按传输形态划分的预期输出 | 用户可见的 GUI 变更后；交付前 |
 | 浏览器端到端 | `pnpm run test:web` | 先重建前端 dist，再跑 3 层浏览器全集：双级 smoke（fixture 级 + 真 host 级 self-skip）加上无密钥回放 e2e 场景（`DSH_SNAPSHOT=record`/`refresh` 重录 fixture / 重写期望输出） | 改构建面/boot/承载后；交付前 |
-| 浏览器预期输出门禁 | `DSH_SNAPSHOT=replay pnpm run test:web:built` | 复用 CI 构建的产物，并在不写入的情况下比较每份已提交的浏览器预期输出 | 每个 Linux 拉取请求和默认分支推送 |
+| 浏览器预期输出门禁 | `DSH_SNAPSHOT=replay pnpm run test:web:built` | 复用 CI 构建的产物，并在不写入的情况下比较每份已提交的浏览器预期输出 | 每个 Linux 拉取请求 |
 | 门禁 | `pnpm run test:coverage` | 全仓 gate（host 与 client GUI 包均纳入，仅排除带注释的浏览器级例外） | PR 窗口 |
 
 **浏览器脚本与 vitest 的分工**：Playwright 负责浏览器/承载层黑盒回归和较长的连续用户操作流程；普通 vitest 负责引用稳定性、时序和 wire 结构等数据层语义；快照 vitest 通过构建后的组合负责稳定的应用层语义输出。这些车道彼此互补，而不重复断言。
