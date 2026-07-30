@@ -293,7 +293,7 @@ export function InputBar({
   const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
     if (!event.dataTransfer.types.includes('Files')) return
     event.preventDefault()
-    event.dataTransfer.dropEffect = locked || machineBusy ? 'none' : 'copy'
+    event.dataTransfer.dropEffect = locked || machineBusy || addImages === undefined ? 'none' : 'copy'
   }
 
   const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
@@ -307,7 +307,7 @@ export function InputBar({
     event.preventDefault()
     dragDepthRef.current = 0
     setDragActive(false)
-    if (locked || machineBusy) return
+    if (locked || machineBusy || addImages === undefined) return
     const dropped = [...event.dataTransfer.files]
     if (dropped.length === 0) return
     setDropError(addImages(dropped))
