@@ -4,6 +4,8 @@ import {
   Session,
   SessionId,
   foldSurface,
+  isAppendSurfaceEvent,
+  isReplacementSurfaceEvent,
   isSurfaceEligibleType,
   isSurfaceEvent,
 } from '@deepseek-ai/dsh-session'
@@ -860,6 +862,40 @@ describe('surface type guards', () => {
     }
     expect(isSurfaceEligibleType(markerless.type)).toBe(true)
     expect(isSurfaceEvent(markerless)).toBe(false)
+  })
+
+  it('splits surface events into append-origin and replacement by their marker', () => {
+    const s = surfaceSession()
+    s.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'plugin', plugin: 'compact' },
+    }), { surfaceOp: { op: 'replace', start: 1, end: 2 }, sourceEventSeqs: [1, 2] })
+    const appended = s.events.find(e => e.type === 'user/message')!
+    const replacement = s.events.at(-1)!
+
+    expect(isAppendSurfaceEvent(appended)).toBe(true)
+    expect(isReplacementSurfaceEvent(appended)).toBe(false)
+    expect(isAppendSurfaceEvent(replacement)).toBe(false)
+    expect(isReplacementSurfaceEvent(replacement)).toBe(true)
+  })
+
+  it('rejects log-only and markerless events from both marker guards', () => {
+    const s = surfaceSession()
+    const turnStart = s.events.find(e => e.type === 'turn/start')!
+    // A surface-eligible type whose mandatory marker is absent has no origin at
+    // all: it never entered the surface.
+    const markerless: SessionEvent = {
+      type: 'user/message',
+      seq: 0,
+      time: 0,
+      data: createUserMessage({
+        content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
+      }),
+    }
+
+    expect(isAppendSurfaceEvent(turnStart)).toBe(false)
+    expect(isReplacementSurfaceEvent(turnStart)).toBe(false)
+    expect(isAppendSurfaceEvent(markerless)).toBe(false)
+    expect(isReplacementSurfaceEvent(markerless)).toBe(false)
   })
 })
 

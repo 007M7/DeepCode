@@ -60,6 +60,7 @@ Providers stream token-sized deltas, so a raw log stores hundreds of `assistant/
 - `SessionSurface` — the readonly live `nodes` and `replaceGeneration` projection exposed by `session.surface`; candidate validation remains private to `Session`.
 - `foldSurface(events)` — replay the canonical surface contract into detached current event sequences and actual replacement ranges. The same pass rejects non-contiguous seqs, misplaced or malformed metadata, empty or duplicate provenance, non-earlier sources, invalid positional ranges, replacements that fail to cite every shadowed surface entry, and a `tool/result` replacement that changes anything except one current result's `content`; `SurfaceManager` shares the atomic transition while retaining only its incremental sequence cache.
 - `isSurfaceEvent(event)` / `isSurfaceEligibleType(type)` — the first narrows a `SessionEvent` to a fully formed surface event; the second detects a surface-eligible event missing its marker when validating a seed or loaded log.
+- `isAppendSurfaceEvent(event)` / `isReplacementSurfaceEvent(event)` — split a formed surface event by marker variant. Append-origin events are the durable source for a human transcript, which is not the model-visible surface: a landed replacement shadows the range it summarizes, so projecting a transcript from `session.surface` erases conversation the reader already saw. Consumers that must send exactly what the model sees keep reading `session.surface`.
 
 ### Request-header reconstruction (`request-header.ts`)
 
