@@ -242,6 +242,10 @@
 .status,
 .error {
   padding: 4px;
+  /* The loading pill occupies the opposite corner while a stale status stays
+   * visible. Reserve its widest localized footprint so wrapped text cannot
+   * run underneath it on a narrow card. */
+  padding-right: 120px;
   font-size: 12px;
   line-height: 18px;
 }
@@ -259,15 +263,15 @@
  * the columns' height, and the stale view keeps rendering beneath it (it
  * only appears at all once a scan outlives SLOW_SCAN_DELAY_MS). Right,
  * not left: the truncated/error status rows flow at the bottom LEFT and
- * stay on screen through a scan, so the opposite corner keeps both
- * legible. After .status in the cascade — the element carries both
- * classes and this padding must win the same-specificity race. */
+ * stay on screen through a scan, with their reserved right padding keeping
+ * both legible even on a narrow card. After .status in the cascade — the
+ * element carries both classes and this padding must win the
+ * same-specificity race. */
 .loadingFloat {
   position: absolute;
   right: 16px;
   bottom: 8px;
   padding: 2px 8px;
-  border-radius: 6px;
   background: var(--dsw-alias-bg-layer-2);
 }
 
