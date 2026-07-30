@@ -125,7 +125,7 @@ export interface DiffCallView {
  * `ToolDefinition.presentResult`; omitting the method keeps the pending
  * title and renders the raw result content.
  */
-export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView
+export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | WebResultView
 
 /**
  * The default completed card: an optional replacement title and reformatted
@@ -175,4 +175,86 @@ export interface DiffResultView {
   title?: string
   /** The change to show, in file order — applied contextual hunks, or a whole-file diff when there is no before-image. */
   diffs: FileDiff[]
+}
+
+/**
+ * One citeable source in a completed {@link WebSearchResultView}, the faithful
+ * projection of one web-search source. The render text a web tool returns is
+ * lossy — its markdown list collapses `title`/`snippet`/`publishedAt` into one
+ * free-text line and labels a source by title OR hostname — so a UI cannot
+ * reliably recover these fields by reparsing that text. A tool therefore
+ * projects this structured shape through `output.presentationMeta`, and its
+ * `presentResult` reads it back.
+ */
+export interface WebSource {
+  /** The source URL. */
+  url: string
+  /** The source title, when the provider returned one. */
+  title?: string
+  /** A short excerpt or summary, when the provider returned one. */
+  snippet?: string
+  /** Publication/crawl timestamp as a provider-supplied ISO-8601 string, when present. */
+  publishedAt?: string
+}
+
+/**
+ * A completed web retrieval rendered as a structured card by a capable UI. Set
+ * by a web tool whose call retrieves from the web (`web_search`, `web_fetch`).
+ * One `kind`-tagged union carries both shapes because both are web retrieval and
+ * a UI renders them with one component family; a UI switches on `kind`. An
+ * incapable UI falls back to `content` (the reformatted model-facing text). This
+ * is the result-time analogue of the `web_search`/`web_fetch` calls' generic
+ * call views (`kind: 'search'`/`'fetch'`); those tools keep their generic
+ * pending card and add only this completed card.
+ */
+export type WebResultView = WebSearchResultView | WebFetchResultView
+
+/**
+ * The completed state of a `web_search` call: the structured sources the model
+ * cited, an optional provider answer, and whether the source list was cut to the
+ * result cap. A capable UI renders the sources as a citation list; an incapable
+ * UI renders `content`.
+ */
+export interface WebSearchResultView {
+  card: 'web'
+  kind: 'search'
+  /** Replacement title for the completed call. Omit to keep the pending-state title. */
+  title?: string
+  /** The faithful, structured sources — the field render text cannot losslessly carry. */
+  sources: WebSource[]
+  /** The provider-generated answer text, when any. */
+  answer?: string
+  /** True when the tool cut the source list to its result cap. */
+  truncated: boolean
+  /**
+   * UI-facing fallback content (harness {@link ContentBlock}s), reformatted from
+   * the model-facing result. A UI without the `web` capability renders this.
+   * Omit to let the UI render the raw result content.
+   */
+  content?: ContentBlock[]
+}
+
+/**
+ * The completed state of a `web_fetch` call: the fetched URL, its HTTP status,
+ * and whether the content was cut. The body itself is already markdown in the
+ * result content, so this card carries the retrieval summary and leaves the body
+ * to `content`.
+ */
+export interface WebFetchResultView {
+  card: 'web'
+  kind: 'fetch'
+  /** Replacement title for the completed call. Omit to keep the pending-state title. */
+  title?: string
+  /** The final URL after allowed redirects. */
+  url: string
+  /** HTTP status code of the fetched response. */
+  statusCode: number
+  /** True when the provider or the output cap cut the content. */
+  truncated: boolean
+  /**
+   * UI-facing fallback content (harness {@link ContentBlock}s): the already-markdown
+   * body. A UI without the `web` capability renders this. Omit to let the UI
+   * render the raw result content.
+   */
+  content?: ContentBlock[]
 }

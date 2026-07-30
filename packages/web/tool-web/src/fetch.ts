@@ -9,7 +9,7 @@ import type { Context } from 'cordis'
 import TurndownService from 'turndown'
 import { gfm } from '@joplin/turndown-plugin-gfm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, JsonValue, ToolResult, WebFetchResultView } from '@deepseek-ai/dsh-tools'
 import type { WebFetchBody, WebFetchResult } from '@deepseek-ai/dsh-web'
 import { assertNever } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -279,6 +279,78 @@ export function presentFetchCall(args: { url: string }): GenericCallView {
 }
 
 /**
+ * The `web_fetch` tool's private `tool/result` `meta` payload: the fetch summary
+ * a UI cannot recover from the model-facing render text without reparsing its
+ * header line. Attached opaquely (as `JsonValue`) on the tool result and
+ * persisted with the session log, so `presentResult` reproduces the fetch card
+ * on replay. The body itself is already markdown in the result content, so it is
+ * not duplicated here.
+ */
+export interface WebFetchMeta {
+  /** The final URL after allowed redirects. */
+  url: string
+  /** HTTP status code of the fetched response. */
+  statusCode: number
+  /** True when the provider or the output cap cut the content. */
+  truncated: boolean
+}
+
+/** The `web_fetch` canonical output value projected into presentation meta. */
+type WebFetchValue = {
+  url: string
+  statusCode: number
+  truncated: boolean
+}
+
+/**
+ * Project a validated `web_fetch` output value into its replayable presentation
+ * meta ({@link WebFetchMeta} as opaque JSON).
+ *
+ * @param value - the canonical `web_fetch` output value.
+ * @returns the URL, status code, and truncation flag.
+ */
+export function fetchMetaFromValue(value: WebFetchValue): JsonValue {
+  return { url: value.url, statusCode: value.statusCode, truncated: value.truncated }
+}
+
+/**
+ * Narrow opaque live or replayed result metadata to a {@link WebFetchMeta}.
+ * Malformed metadata returns `undefined` so presentation can fall back to the
+ * generic card instead of throwing during replay.
+ *
+ * @param meta - result metadata.
+ * @returns the validated fetch meta, or `undefined` for absent or malformed data.
+ */
+export function fetchMetaFromResult(meta: unknown): WebFetchMeta | undefined {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
+  const { url, statusCode, truncated } = meta as Record<string, unknown>
+  if (typeof url !== 'string' || typeof statusCode !== 'number' || typeof truncated !== 'boolean') return undefined
+  return { url, statusCode, truncated }
+}
+
+/**
+ * Completed-call presentation: a `web` fetch card carrying the retrieval summary
+ * from `meta` alongside the already-markdown body as fallback content.
+ *
+ * @param result - the final model-facing tool result; `meta` carries the summary.
+ * @returns the fetch result view, or `undefined` (generic card) on failure or
+ *   malformed meta.
+ */
+export function presentFetchResult(result: ToolResult): WebFetchResultView | undefined {
+  if (result.isError) return undefined
+  const meta = fetchMetaFromResult(result.meta)
+  if (meta === undefined) return undefined
+  return {
+    card: 'web',
+    kind: 'fetch',
+    url: meta.url,
+    statusCode: meta.statusCode,
+    truncated: meta.truncated,
+    content: result.content,
+  }
+}
+
+/**
  * Register the `web_fetch` tool and its system-prompt guidance.
  *
  * @param ctx - context whose `tools` and `systemPrompt` registries receive the
@@ -333,6 +405,7 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
         },
       },
       render: (_args, value) => [{ type: 'text', text: formatFetchOutput(value, maxOutputChars) }],
+      presentationMeta: (_args, value) => fetchMetaFromValue(value),
     },
     timeoutMs,
     // Provider reads do not mutate parent-agent state.
@@ -351,5 +424,6 @@ export function applyWebFetchTool(ctx: Context, timeoutMs: number, maxOutputChar
       }
     },
     presentCall: presentFetchCall,
+    presentResult: (_args, result) => presentFetchResult(result),
   }))
 }

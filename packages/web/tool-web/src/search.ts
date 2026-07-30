@@ -7,7 +7,7 @@
 
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, JsonValue, ToolResult, WebSearchResultView, WebSource } from '@deepseek-ai/dsh-tools'
 import type { WebSearchResult } from '@deepseek-ai/dsh-web'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 
@@ -85,6 +85,106 @@ export function presentSearchCall(args: { query: string }): GenericCallView {
 }
 
 /**
+ * The `web_search` tool's private `tool/result` `meta` payload: the structured
+ * sources, the optional provider answer, and the truncation flag. Attached
+ * opaquely (as `JsonValue`) on the tool result and persisted with the session
+ * log, so `presentResult` reproduces the search card on replay. The render text
+ * is lossy — its markdown source list collapses each source's title, snippet,
+ * and date into one free-text line labelled by title OR hostname — so reparsing
+ * that text cannot recover the per-source fields; this projection is the only
+ * faithful route to them.
+ */
+export interface WebSearchMeta {
+  /** The faithful structured sources, in result order. */
+  sources: WebSource[]
+  /** True when the tool cut the source list to its result cap. */
+  truncated: boolean
+  /** The provider-generated answer text, when any. */
+  answer?: string
+}
+
+/** The `web_search` canonical output value projected into presentation meta. */
+type WebSearchValue = {
+  content?: string
+  sources: readonly WebSource[]
+  truncated: boolean
+}
+
+/**
+ * Project a validated `web_search` output value into its replayable
+ * presentation meta ({@link WebSearchMeta} as opaque JSON).
+ *
+ * @param value - the canonical `web_search` output value.
+ * @returns the structured sources, the truncation flag, and the answer when present.
+ */
+export function searchMetaFromValue(value: WebSearchValue): JsonValue {
+  return {
+    sources: value.sources.map(source => ({
+      url: source.url,
+      ...source.title !== undefined ? { title: source.title } : {},
+      ...source.snippet !== undefined ? { snippet: source.snippet } : {},
+      ...source.publishedAt !== undefined ? { publishedAt: source.publishedAt } : {},
+    })),
+    truncated: value.truncated,
+    ...value.content !== undefined ? { answer: value.content } : {},
+  }
+}
+
+/** Whether `value` is a valid {@link WebSource} (defensive narrowing from opaque `meta`). */
+function isWebSource(value: unknown): value is WebSource {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const { url, title, snippet, publishedAt } = value as Record<string, unknown>
+  return typeof url === 'string'
+    && (title === undefined || typeof title === 'string')
+    && (snippet === undefined || typeof snippet === 'string')
+    && (publishedAt === undefined || typeof publishedAt === 'string')
+}
+
+/**
+ * Narrow opaque live or replayed result metadata to a {@link WebSearchMeta}.
+ * Malformed metadata returns `undefined` so presentation can fall back to the
+ * generic card instead of throwing during replay.
+ *
+ * @param meta - result metadata.
+ * @returns the validated search meta, or `undefined` for absent or malformed data.
+ */
+export function searchMetaFromResult(meta: unknown): WebSearchMeta | undefined {
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
+  const { sources, truncated, answer } = meta as Record<string, unknown>
+  if (!Array.isArray(sources) || !sources.every(isWebSource)) return undefined
+  if (typeof truncated !== 'boolean') return undefined
+  if (answer !== undefined && typeof answer !== 'string') return undefined
+  return {
+    sources,
+    truncated,
+    ...answer !== undefined ? { answer } : {},
+  }
+}
+
+/**
+ * Completed-call presentation: a `web` search card carrying the faithful
+ * structured sources from `meta` alongside the model-facing text as fallback
+ * content.
+ *
+ * @param result - the final model-facing tool result; `meta` carries the sources.
+ * @returns the search result view, or `undefined` (generic card) on failure or
+ *   malformed meta.
+ */
+export function presentSearchResult(result: ToolResult): WebSearchResultView | undefined {
+  if (result.isError) return undefined
+  const meta = searchMetaFromResult(result.meta)
+  if (meta === undefined) return undefined
+  return {
+    card: 'web',
+    kind: 'search',
+    sources: meta.sources,
+    truncated: meta.truncated,
+    ...meta.answer !== undefined ? { answer: meta.answer } : {},
+    content: result.content,
+  }
+}
+
+/**
  * Register the `web_search` tool and its system-prompt guidance.
  *
  * @param ctx - context whose `tools` and `systemPrompt` registries receive the
@@ -131,6 +231,7 @@ export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: 
         },
       },
       render: (_args, value) => [{ type: 'text', text: formatSearchOutput(value) }],
+      presentationMeta: (_args, value) => searchMetaFromValue(value),
     },
     timeoutMs,
     // Provider reads do not mutate parent-agent state.
@@ -153,5 +254,6 @@ export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: 
       }
     },
     presentCall: presentSearchCall,
+    presentResult: (_args, result) => presentSearchResult(result),
   }))
 }
