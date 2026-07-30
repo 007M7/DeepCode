@@ -51,6 +51,7 @@ export interface RpcErrorDetailsMap {
   /** A leading-/ prompt named no registered command; the message names the token. */
   'unknown-command': {}
   'title-invalid': { sessionId: SessionId }
+  'fork-unavailable': { sessionId: SessionId }
   'internal': {}
 }
 

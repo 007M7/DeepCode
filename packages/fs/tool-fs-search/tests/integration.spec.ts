@@ -64,7 +64,7 @@ describe.skipIf(!hasRg)('search tools over the real bash executor + real rg', ()
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(LocalSubprocessService)
     await ctx.plugin(LocalBashExecutor, { cwd: dir, timeoutMs: 20_000 })
-    await ctx.plugin(ToolFsSearch)
+    await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: true })
   })
 
   afterEach(async () => {
