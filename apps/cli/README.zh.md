@@ -12,7 +12,7 @@ TUI 界面：
 - 使用 `dsh --resume <session-id>` 恢复已持久化会话。当 Node 宿主公开 `process.execve` 时，还会提供 TUI 的原地移交宿主：选择器预检并刷新当前会话后，宿主会释放应用，并以规范化的 `dsh --resume <id>` 替换进程；不支持进程替换的运行时保留屏幕上显示的命令回退。该标志通过 `RESUME_SESSION_ID_KEY` 在启动上下文中提供 id（不使用环境变量），已交付的配置通过 `!!js` 读取它；缺失或无法读取的 id 会明确报错，而不会创建新会话；
 - 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
-- 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`.env` 填补环境缺口（环境中已有的值 > 项目 `.env` > 个人 `.env`），`config.yaml` 则修补已启动的树。
+- 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`config.yaml` 修补已启动的树，而那里的 `.env` 是凭据 provider 自己的存储（绝不会被提升进环境，因此密钥始终可轮换）。环境优先级为环境中已有的值 > 项目 `.env`。
 
 Web 和无头界面启动同一个共享组合（`cordis.yml`）：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，并选用首条消息模型标题。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 

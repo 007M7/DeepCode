@@ -405,8 +405,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The abstract `llm` service: an adapter registry plus a streaming model-call surface, interceptable via the `llm/stream` waterfall.',
     methods: [
       {
-        signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): () => void',
-        jsDoc: '/**\n * Register an adapter for the given provider routes. Throws `LlmError` with code\n * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).\n * Disposed with the fiber.\n * @param providers - every provider route this adapter should serve.\n * @param adapter - the adapter that streams calls for those providers.\n * @returns the disposer that unregisters all of them.\n */',
+        signature: 'registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle',
+        jsDoc: '/**\n * Register an adapter for the given provider routes. Throws `LlmError` with code\n * `DUPLICATE_ADAPTER` if any provider already has an adapter (all-or-nothing).\n * Disposed with the fiber.\n * @param providers - every provider route this adapter should serve.\n * @param adapter - the adapter that streams calls for those providers.\n * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.\n */',
       },
       {
         signature: 'listProviders(): LlmProviderInfo[]',
@@ -1305,7 +1305,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'credentials/updated',
     mode: 'emit',
     signature: '\'credentials/updated\'(ref: CredentialRef): void',
-    jsDoc: '/**\n * Committed change to a provider-managed credential source: a `set`, an\n * `unset`, or an external edit observed in storage. Ambient\n * process-environment changes are not observable and never emit.\n * @param ref - the reference whose stored value changed.\n * @mode emit\n */',
+    jsDoc: '/**\n * Committed change to a provider-managed credential source: a `set`, an\n * `unset`, or an external edit observed in storage. Ambient\n * process-environment changes are not observable and never emit. Listener\n * failures are contained and logged — a sync throw and an async rejection\n * alike — without changing the committed operation\'s outcome, except\n * `INVARIANT`-coded failures, which rethrow after every listener ran;\n * that rethrow reaches the emitter only from synchronous listeners, so\n * invariant checks on this event must not be async functions.\n * @param ref - the reference whose stored value changed.\n * @mode emit\n */',
     summary: 'Committed change to a provider-managed credential source: a `set`, an `unset`, or an external edit observed in storage.',
   },
   {
@@ -1536,6 +1536,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
 
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
+  {
+    name: 'AdapterRegistrationHandle',
+    declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
+  },
   {
     name: 'Agent',
     declaration: 'export interface Agent {\n    readonly id: SessionId;\n    readonly options: AgentOptions;\n    readonly session: Session;\n    readonly status: AgentStatus;\n    readonly acceptsNextStep: boolean;\n    readonly ctx: Context;\n    send(message: UserMessage, options: SendOptions): void;\n    updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult;\n    cancel(cause: AgentCancelCause, options?: CancelOptions): void;\n    whenIdle(): Promise<void>;\n    followup(message: UserMessage): void;\n    steer(message: UserMessage): void;\n    inject(message: UserMessage): void;\n}',

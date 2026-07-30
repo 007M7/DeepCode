@@ -33,6 +33,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AdapterRegistrationHandle",
+      "source": "packages/llm/llm/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "LlmProviderInfo",
       "source": "packages/llm/llm/src/types.ts"
     },

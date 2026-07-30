@@ -197,6 +197,26 @@ export abstract class LlmAdapter {
 }
 
 /**
+ * What {@link LlmService.registerAdapter} returns: the disposer, plus an
+ * atomic route replacement for the same adapter instance.
+ */
+export interface AdapterRegistrationHandle {
+  /** Release every route this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's routes with `providers`, keeping the same
+   * adapter instance. The candidate set is validated in full first — a
+   * conflict with another adapter, an invalid name, or bad provider metadata
+   * throws and leaves the current routes untouched — and the swap itself is
+   * one synchronous section, so no request can observe a gap. An empty array
+   * is legal here (a settings section that emptied holds zero routes while
+   * staying registered), unlike an empty initial registration.
+   * @param providers - the complete next route set for this registration.
+   */
+  replace(providers: string[]): void
+}
+
+/**
  * The abstract `llm` service: an adapter registry plus a streaming model-call
  * surface, interceptable via the `llm/stream` waterfall.
  */
@@ -235,41 +255,74 @@ export class LlmService extends Service {
    * Disposed with the fiber.
    * @param providers - every provider route this adapter should serve.
    * @param adapter - the adapter that streams calls for those providers.
-   * @returns the disposer that unregisters all of them.
+   * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.
    */
-  registerAdapter(providers: string[], adapter: LlmAdapter): () => void {
+  registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle {
+    // The routes this registration currently holds; `replace` rewrites it, and
+    // the disposer releases whatever it holds at disposal time.
+    const owned = new Set<string>()
     const dispose = this.ctx.effect(function* (this: LlmService) {
       if (providers.length === 0) throw new LlmError('an adapter must register at least one provider', 'INVALID_ADAPTER')
-      const unique = new Set<string>()
-      const registrations: AdapterRegistration[] = []
-      for (const provider of providers) {
-        if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
-        if (unique.has(provider) || this.adapters.has(provider)) {
-          throw new LlmError(`an adapter for provider "${provider}" is already registered`, 'DUPLICATE_ADAPTER')
-        }
-        const info = adapter.providerInfo(provider)
-        if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
-          throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
-        }
-        unique.add(provider)
-        const retryPolicy = adapter.providerRetryPolicy(provider)
-          ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
-        registrations.push({
-          adapter,
-          provider: { id: info.id, name: info.name },
-          retryPolicy,
-        })
-      }
-      for (const registration of registrations) this.adapters.set(registration.provider.id, registration)
-      this.emitAdaptersUpdated()
+      this.commitRoutes(owned, this.prepareRoutes(providers, adapter, owned))
       yield () => {
-        for (const provider of providers) this.adapters.delete(provider)
+        for (const provider of owned) this.adapters.delete(provider)
+        owned.clear()
         this.emitAdaptersUpdated()
       }
     }.bind(this), 'llm.registerAdapter()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
     // synchronous fire-and-forget — discard the (always-resolved) promise.
-    return () => void dispose()
+    const handle = (() => void dispose()) as AdapterRegistrationHandle
+    handle.replace = (next: string[]): void => {
+      this.commitRoutes(owned, this.prepareRoutes(next, adapter, owned))
+    }
+    return handle
+  }
+
+  /**
+   * Validate one candidate route set for `adapter`, treating routes this
+   * registration already holds as available. Nothing is mutated: a rejected
+   * candidate leaves the registry exactly as it was.
+   */
+  private prepareRoutes(providers: string[], adapter: LlmAdapter, owned: ReadonlySet<string>): AdapterRegistration[] {
+    const unique = new Set<string>()
+    const registrations: AdapterRegistration[] = []
+    for (const provider of providers) {
+      if (provider.length === 0) throw new LlmError('adapter provider names must be non-empty', 'INVALID_ADAPTER')
+      if (unique.has(provider) || (this.adapters.has(provider) && !owned.has(provider))) {
+        throw new LlmError(`an adapter for provider "${provider}" is already registered`, 'DUPLICATE_ADAPTER')
+      }
+      const info = adapter.providerInfo(provider)
+      if (typeof info.id !== 'string' || info.id !== provider || typeof info.name !== 'string' || info.name.length === 0) {
+        throw new LlmError(`adapter metadata for provider "${provider}" must preserve its id and have a non-empty name`, 'INVALID_ADAPTER')
+      }
+      unique.add(provider)
+      const retryPolicy = adapter.providerRetryPolicy(provider)
+        ?? resolveRetryPolicy(undefined, `llm: provider "${provider}" retryPolicy`)
+      registrations.push({
+        adapter,
+        provider: { id: info.id, name: info.name },
+        retryPolicy,
+      })
+    }
+    return registrations
+  }
+
+  /**
+   * Swap this registration's routes for the prepared ones in one synchronous
+   * section, so no observer can see the registry between the release and the
+   * re-registration. The route set's one mutation point is also where
+   * `llm/adapters-updated` is published, so a `replace` announces itself
+   * exactly like a first registration.
+   */
+  private commitRoutes(owned: Set<string>, registrations: readonly AdapterRegistration[]): void {
+    for (const provider of owned) this.adapters.delete(provider)
+    owned.clear()
+    for (const registration of registrations) {
+      this.adapters.set(registration.provider.id, registration)
+      owned.add(registration.provider.id)
+    }
+    this.emitAdaptersUpdated()
   }
 
   /**

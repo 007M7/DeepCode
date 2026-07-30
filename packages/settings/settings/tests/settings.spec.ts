@@ -694,4 +694,34 @@ describe('installSettingsSection', () => {
     })
     expect(current()).toEqual({ theme: 'entry' })
   })
+
+  it('stays silent when the consumer itself unloads', async () => {
+    const { ctx } = await boot({ doc: { 'helper-ns': { theme: 'user' } } })
+    const entry = { theme: 'entry' }
+    let current: () => { theme: string } = () => entry
+    const changes: string[] = []
+    const consumer = ctx.plugin({
+      inject: ['settings'],
+      apply: (child: Context) => {
+        installSettingsSection(child, settingsNamespace('helper-ns'), HelperSchema, entry, {
+          setSource: (source) => {
+            current = source
+          },
+          onChange: () => {
+            changes.push(current().theme)
+          },
+        })
+      },
+    })
+    await consumer
+    await vi.waitFor(() => {
+      expect(changes).toEqual(['user'])
+    })
+
+    // The consumer's own teardown must not re-derive anything: an onChange
+    // here would re-register routes and touch resources being released.
+    await consumer.dispose()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(changes).toEqual(['user'])
+  })
 })

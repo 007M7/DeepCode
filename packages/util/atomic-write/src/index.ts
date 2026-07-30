@@ -1,14 +1,17 @@
 /**
- * Zero-dependency atomic file replacement. `writeFileAtomic` writes a
- * random-suffix sibling with exclusive create and the caller's permission
- * bits, then renames it over the target, so readers observe either the old or
- * the new complete content and a replaced file ends up with exactly the
- * stated mode.
+ * Zero-dependency atomic file replacement and writer coordination.
+ * `writeFileAtomic` writes a random-suffix sibling with exclusive create and
+ * the caller's permission bits, then renames it over the target, so readers
+ * observe either the old or the new complete content and a replaced file ends
+ * up with exactly the stated mode. `withFileLock` serializes cross-process
+ * writers of one file through a `wx`-created `<file>.lock` sibling, so a
+ * read-modify-write cycle can never resurrect a state another writer just
+ * replaced; readers stay lock-free because the rename commit is atomic.
  * @module @deepseek-ai/dsh-atomic-write
  */
 
 import { randomBytes } from 'node:crypto'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 /**
@@ -21,6 +24,12 @@ export interface WriteFileAtomicOptions {
    * rename (subject to the process umask, like every fresh inode).
    */
   mode: number
+  /**
+   * Permission bits for parent directories this call creates (subject to the
+   * umask; existing directories keep their mode). Omission uses the mkdir
+   * default — pass `0o700` when the tree holds user-private data.
+   */
+  dirMode?: number
 }
 
 /**
@@ -38,7 +47,10 @@ export interface WriteFileAtomicOptions {
  * @param options - permission bits for the replacement inode.
  */
 export async function writeFileAtomic(filename: string, content: string, options: WriteFileAtomicOptions): Promise<void> {
-  await mkdir(dirname(filename), { recursive: true })
+  await mkdir(dirname(filename), {
+    recursive: true,
+    ...options.dirMode === undefined ? {} : { mode: options.dirMode },
+  })
   const temp = `${filename}.${randomBytes(6).toString('hex')}.tmp`
   try {
     await writeFile(temp, content, { mode: options.mode, flag: 'wx' })
@@ -46,5 +58,96 @@ export async function writeFileAtomic(filename: string, content: string, options
   } catch (error) {
     await rm(temp, { force: true })
     throw error
+  }
+}
+
+/** Whether an exclusive create failed because the path already exists. */
+function isEEXIST(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'EEXIST'
+}
+
+/** Whether a filesystem error means absence. */
+function isENOENT(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+}
+
+/**
+ * Writer-lock protocol constants. These are robustness invariants of the
+ * cross-process write protocol, not deployment tunables: a holder rewrites one
+ * small file in milliseconds, so contention resolves well inside the retry
+ * deadline, and a lock older than the stale age can only belong to a crashed
+ * holder.
+ */
+const LOCK_RETRY_INITIAL_MS = 20
+const LOCK_RETRY_MAX_MS = 200
+const LOCK_TIMEOUT_MS = 2_000
+const LOCK_STALE_MS = 5_000
+
+/** Options for {@link withFileLock}. */
+export interface WithFileLockOptions {
+  /**
+   * Called once each time a stale (crashed-holder) lock is broken, so the
+   * caller can log the takeover in its own voice.
+   */
+  onStaleBreak?: (lockPath: string) => void
+}
+
+/** Age of the lock file, or `undefined` when it vanished after a failed create. */
+async function lockAgeMs(lockPath: string): Promise<number | undefined> {
+  try {
+    return Date.now() - (await stat(lockPath)).mtimeMs
+  } catch (error) {
+    if (!isENOENT(error)) throw error
+    return undefined
+  }
+}
+
+/**
+ * Hold the cross-process writer lock for `filename` around one operation. The
+ * lock is a `wx`-created sibling (`<filename>.lock`); paired with the
+ * rename-based commit of {@link writeFileAtomic}, readers stay lock-free and
+ * only writers contend. Contention backs off exponentially; a lock older than
+ * the stale age is a crashed holder and is broken (see
+ * {@link WithFileLockOptions.onStaleBreak}); a live holder past the deadline
+ * fails the operation with a timed-out error. The parent directory must exist.
+ * @param filename - the file whose writers this lock serializes.
+ * @param operation - the read-render-commit cycle to run while holding the lock.
+ * @param options - stale-takeover notification hook.
+ * @returns the operation's result; the lock releases on both outcomes.
+ */
+export async function withFileLock<T>(
+  filename: string,
+  operation: () => Promise<T>,
+  options?: WithFileLockOptions,
+): Promise<T> {
+  const lockPath = `${filename}.lock`
+  const deadline = Date.now() + LOCK_TIMEOUT_MS
+  let delay = LOCK_RETRY_INITIAL_MS
+  for (;;) {
+    try {
+      await writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+      break
+    } catch (error) {
+      if (!isEEXIST(error)) throw error
+    }
+    const ageMs = await lockAgeMs(lockPath)
+    // The holder released between the failed create and the stat: the lock is
+    // free right now, so retry without burning backoff or deadline.
+    if (ageMs === undefined) continue
+    if (ageMs > LOCK_STALE_MS) {
+      options?.onStaleBreak?.(lockPath)
+      await rm(lockPath, { force: true })
+      continue
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`atomic-write: timed out waiting for the writer lock at ${lockPath}`)
+    }
+    await new Promise(resolve => setTimeout(resolve, delay))
+    delay = Math.min(delay * 2, LOCK_RETRY_MAX_MS)
+  }
+  try {
+    return await operation()
+  } finally {
+    await rm(lockPath, { force: true })
   }
 }

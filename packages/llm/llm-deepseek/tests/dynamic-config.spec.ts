@@ -143,6 +143,29 @@ describe('request-level dynamic configuration', () => {
     ])
   })
 
+  it('sends the whole last-good snapshot when a rejected one changed both the key and the URL', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const dir = await home()
+    const good = await mockServer([{ kind: 'sse', events: textEvents }])
+    const rejected = await mockServer([{ kind: 'sse', events: textEvents }])
+    const { ctx } = await boot(dir, { apiKey: 'good-key', baseURL: good.url })
+
+    // One snapshot moves the endpoint AND the literal key, and fails the
+    // resolve step beyond the schema (duplicate catalog ids).
+    await ctx.settings.update(NS, {
+      apiKey: 'rejected-key',
+      baseURL: rejected.url,
+      models: [{ id: 'dup' }, { id: 'dup' }],
+    })
+
+    await prompt(ctx)
+    // The rejected generation contributes nothing: not its endpoint, and — the
+    // regression this pins — not its key either.
+    expect(rejected.requests).toHaveLength(0)
+    expect(good.requests).toHaveLength(1)
+    expect(good.headers[0]?.authorization).toBe('Bearer good-key')
+  })
+
   it('falls back to the composition entry when settings detach', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()

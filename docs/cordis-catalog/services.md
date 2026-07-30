@@ -532,7 +532,7 @@ abstract unset(ref: CredentialRef): Promise<void>
 
 Types: [CredentialInfo](../core-data-structures/credentials.md) · [CredentialRef](../core-data-structures/credentials.md) · [ResolvedCredential](../core-data-structures/credentials.md)
 
-Source: [`packages/credentials/credentials/src/index.ts:72`](../../packages/credentials/credentials/src/index.ts)
+Source: [`packages/credentials/credentials/src/index.ts:77`](../../packages/credentials/credentials/src/index.ts)
 
 ## `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
 
@@ -790,9 +790,9 @@ The abstract `llm` service: an adapter registry plus a streaming model-call surf
  * Disposed with the fiber.
  * @param providers - every provider route this adapter should serve.
  * @param adapter - the adapter that streams calls for those providers.
- * @returns the disposer that unregisters all of them.
+ * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.
  */
-registerAdapter(providers: string[], adapter: LlmAdapter): () => void
+registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle
 
 /**
  * Describe provider routes with a registered adapter.
@@ -880,9 +880,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:203`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:223`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

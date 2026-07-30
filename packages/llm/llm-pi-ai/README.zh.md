@@ -8,7 +8,7 @@
 
 ## 配置
 
-按提供方配置凭据与部署特定传输设置，并以提供方路由本身为键。优先使用 `apiKeyEnv`——按请求解析的凭据*引用*——而非字面 `apiKey`，让机密不进入该文件；两者都省略则把认证委托给 pi-ai 的提供方原生环境发现。`baseURL` 只会覆盖所选 catalog 模型的端点，保留其 API 家族与兼容性元数据，因此仍支持 `https://proxy.example.com:8443` 等私有 proxy。
+按提供方配置凭据与部署特定传输设置，并以提供方路由本身为键。优先使用 `apiKeyEnv`——按请求解析的凭据*引用*——而非字面 `apiKey`，让机密不进入该文件。**两者**都省略，才会把认证委托给 pi-ai 的提供方原生环境发现；已配置却解析不出任何值的引用则相反，会让请求以 `MISSING_CREDENTIAL` 失败，因为放行下去就会用环境里恰好持有的某个无关密钥完成认证。`baseURL` 只会覆盖所选 catalog 模型的端点，保留其 API 家族与兼容性元数据，因此仍支持 `https://proxy.example.com:8443` 等私有 proxy。
 
 ```yaml
 - id: llm
@@ -41,7 +41,7 @@
 
 适配器经由一个 thunk **每操作读取一次** profile，而非在构造期冻结。插件在可选的 `ctx.settings` seam 上用同一份 `Config` schema 注册 `llm-pi-ai` namespace，并以其 `cordis.yml` 条目为组合 `base`；由于 `providers` 是字典，base 与用户的 `llm-pi-ai:` settings 分节**按提供方**合并：用户可以新增路由、覆盖组合路由的单个字段，或把路由指向另一个 proxy，全部在下一次请求生效，无需重启。未挂载 settings 服务时，仅由 entry 配置驱动适配器，行为不变。
 
-凭据按每次 stream 调用解析：非空的字面 `apiKey` 优先，其次经可选的 `ctx.credentials` seam 解析 `apiKeyEnv`（活跃环境之下的 `$DSH_HOME/.env`；未挂载 seam 时为原始环境变量），最后是 pi-ai 的环境发现。路由集合与每条路由捕获的重试策略是注册级事实：两者任一变化时，插件都会在一个同步区段内重新注册同一适配器实例，因此 `ctx.llm.listProviders()` 与 `providerRetryPolicy()` 始终反映当前配置。存活 settings 快照若点名未知提供方（或违反任何其他 resolver 约束），则保留最后可用 profile 并记录失败；entry 配置本身仍会使插件加载失败。
+凭据按每次 stream 调用解析：非空的字面 `apiKey` 优先，其次经可选的 `ctx.credentials` seam 解析 `apiKeyEnv`（活跃环境之下的 `$DSH_HOME/.env`；未挂载 seam 时恰好读取该环境变量）。只有完全没有点名任何凭据的 profile——仅限这一种情况——才交给 pi-ai 的环境发现。路由集合与每条路由捕获的重试策略是注册级事实：两者任一变化时，插件都会原子地替换自己的注册（同一适配器实例，候选集合先经校验），因此某条路由若已被另一适配器占有，先前的路由会继续服务，而改回可用配置时注册会重新生效。提供方键的顺序绝不算作变化。存活 settings 快照若点名未知提供方（或违反任何其他 resolver 约束），则保留最后可用 profile 并记录失败；entry 配置本身仍会使插件加载失败。
 
 适配器通过 `ctx.llm.listModels(provider)` 公开每个已配置提供方已安装的 pi-ai 模型。这是从 `getModels(provider)` 派生的提供方无关 selector 元数据；请求时解析仍会执行权威 catalog 查找，因此发现不会创建第二个模型注册表。`ctx.llm.resolveModelInfo(provider, model)` 会执行一次精确 descriptor 查找，并返回其身份、上下文窗口和可选思考级别，让权威元数据保留在拥有路由的适配器上，而非消费方。
 
@@ -77,7 +77,7 @@ pi-ai 会安装多个提供方 SDK，并延迟加载 catalog 模型所选的 SDK
 
 ## 测试
 
-单元测试使用重定向到本地 mock 服务器的 pi-ai catalog 模型，覆盖提供方／profile 路由、每次适配器调用只发起一个协议请求、idle-timeout 响应终止、调用方 abort、原生 API 选择、端点覆盖、归因、转换、回放状态验证，以及一个适配器实例内的跨提供方／模型回放。`tests/dynamic-config.spec.ts` 驱动真实的 settings-local 与 credentials-local provider：settings 里新生的路由实时完成注册，并在用户层重置时随之移除，`apiKeyEnv` 凭据在两次请求之间轮换，点名未知提供方的快照则保留最后可用 profile。真实 API 覆盖仍需 key 才会启用，并通过 `pnpm run test:e2e` 运行。
+单元测试使用重定向到本地 mock 服务器的 pi-ai catalog 模型，覆盖提供方／profile 路由、每次适配器调用只发起一个协议请求、idle-timeout 响应终止、调用方 abort、原生 API 选择、端点覆盖、归因、转换、回放状态验证，以及一个适配器实例内的跨提供方／模型回放。`tests/dynamic-config.spec.ts` 驱动真实的 settings-local 与 credentials-local provider：settings 里新生的路由实时完成注册，并在用户层重置时随之移除，`apiKeyEnv` 凭据在两次请求之间轮换，点名未知提供方的快照则保留最后可用 profile。`tests/loader-composition.spec.ts` 从仅测试用的 `cordis.yml` 出发，经真实 Loader 拉起休眠姿态，并从磁盘上的一次 `settings.yaml` 编辑注册出它的路由。真实 API 覆盖仍需 key 才会启用，并通过 `pnpm run test:e2e` 运行。
 
 ## 模型体验
 

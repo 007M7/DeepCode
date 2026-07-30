@@ -27,7 +27,7 @@ async function harness(baseURL: string, overrides: Record<string, unknown> = {})
 function adapterOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>): PiAiAdapter {
   return new PiAiAdapter({
     profiles: () => resolveProfiles(providers),
-    resolveApiKey: profile => Promise.resolve(profile.apiKey),
+    resolveApiKey: (_provider, profile) => Promise.resolve(profile.apiKey),
   })
 }
 
@@ -385,13 +385,19 @@ describe('provider profile lifecycle', () => {
     expect(server.headers[0]?.authorization).toBe('Bearer custom-ref-key')
   })
 
-  it('treats an empty apiKeyEnv variable as absent and defers to SDK ambient discovery', async () => {
+  it('fails a named-but-missing apiKeyEnv instead of using another ambient key', async () => {
+    // The exact confusion this guards: the named reference is empty while an
+    // unrelated provider key sits in the environment. Deferring to pi-ai's own
+    // discovery here would authenticate as another tenant.
     vi.stubEnv('PI_CUSTOM_REF_KEY', '')
     vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
-    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
-    expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toThrow(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
+    expect(server.requests).toHaveLength(0)
   })
 
   it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
