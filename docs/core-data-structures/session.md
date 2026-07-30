@@ -101,6 +101,10 @@ interface SessionEventMap {
    * ending in a boundary is not re-marked, so reopening an untouched session
    * does not grow its log per pickup.
    *
+   * `Session`'s constructor is the only legitimate writer. The invariant
+   * companion deliberately constrains nothing here, so a plugin appending one
+   * would silently turn every live bracket below it into dead history.
+   *
    * An owner of a standalone open/close bracket (`compact/start` …
    * `compact/end`) reads it because inherited history and live work are
    * otherwise byte-identical: an unmatched opening marker below the boundary
@@ -346,14 +350,17 @@ declare class Session {
    * session's constructor seed is its full stored log, while its header keeps
    * the original fork value — this field is the in-process construction fact.
    *
-   * Not persisted itself: a nonzero value is projected into the log as the
-   * `session/inherited` event at this seq, which is what a consumer reading
-   * STORED history reads. Prefer this field in-process — it is exact before
-   * the marker's write reaches storage.
+   * Not persisted itself: a seeded session projects it into the log as the
+   * `session/inherited` event, which is what a consumer reading STORED history
+   * reads. Locate that event as the log's LAST boundary, not at this seq — a
+   * seed already ending in one is not re-marked, so reopening an untouched
+   * session leaves the boundary below `firstLiveSeq`. Prefer this field
+   * in-process: it is exact before the marker's write reaches storage.
    *
-   * The marker is appended before the store attaches, so when one exists the
-   * event AT this seq did not publish either: the firehose gap runs through
-   * `firstLiveSeq`, not just below it.
+   * When this lifecycle did append a boundary it sits at this seq, appended
+   * before the store attached, so that event did not publish either — the
+   * firehose gap then runs through `firstLiveSeq` rather than stopping below
+   * it. Otherwise this seq holds an ordinary published write.
    */
   readonly firstLiveSeq: number;
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);
@@ -535,7 +542,9 @@ The optional `dsh-session/invariant` companion enforces the relations owned by c
 
 ## The inherited-history boundary: `session/inherited`
 
-A seeded session — resume, fork, or replay — appends this log-only event as its first live write, at the seq its `firstLiveSeq` names. It is the durable projection of that field: `firstLiveSeq` answers "which prefix did I inherit" for a consumer holding the object, this event for one holding only stored bytes. The payload is empty, so position and `time` carry the whole meaning, and it produces no message. An empty seed writes nothing, and a seed already ending in one is not re-marked, so reopening an untouched session does not grow its log per open.
+A seeded session — resume, fork, or replay — appends this log-only event as its first live write. It is the durable projection of `firstLiveSeq`: that field answers "which prefix did I inherit" for a consumer holding the object, this event for one holding only stored bytes. The payload is empty, so position and `time` carry the whole meaning, and it produces no message. `Session`'s constructor is the only legitimate writer.
+
+An empty seed writes nothing, and a seed already ending in a boundary is not re-marked, so reopening an untouched session does not grow its log per pickup. Locate the boundary as the log's LAST one rather than at `firstLiveSeq`: after a pickup with no work, the next one leaves it below that seq.
 
 It exists because inherited history and live work are otherwise byte-identical, which defeats any plugin owning a standalone open/close bracket: an unmatched `compact/start` reads the same whether the writer crashed mid-compaction or is compacting right now. An opening marker below the boundary belongs to an ended lifecycle, whatever ended it (a crash, a succeeding process, or a fork out of a still-running parent), so its owner may treat it as dead. That covers only brackets *this* session inherited: a concurrently live session holding an open bracket over the same history has its own boundary elsewhere, so tolerating concurrent writers needs a liveness signal beyond the log. Core writes the boundary and reads nothing from it — a bracket's vocabulary stays with its owning plugin, which is why crash repair closes turn/step/tool boundaries and never `compact/*`.
 

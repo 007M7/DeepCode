@@ -390,14 +390,17 @@ export class Session {
    * session's constructor seed is its full stored log, while its header keeps
    * the original fork value — this field is the in-process construction fact.
    *
-   * Not persisted itself: a nonzero value is projected into the log as the
-   * `session/inherited` event at this seq, which is what a consumer reading
-   * STORED history reads. Prefer this field in-process — it is exact before
-   * the marker's write reaches storage.
+   * Not persisted itself: a seeded session projects it into the log as the
+   * `session/inherited` event, which is what a consumer reading STORED history
+   * reads. Locate that event as the log's LAST boundary, not at this seq — a
+   * seed already ending in one is not re-marked, so reopening an untouched
+   * session leaves the boundary below `firstLiveSeq`. Prefer this field
+   * in-process: it is exact before the marker's write reaches storage.
    *
-   * The marker is appended before the store attaches, so when one exists the
-   * event AT this seq did not publish either: the firehose gap runs through
-   * `firstLiveSeq`, not just below it.
+   * When this lifecycle did append a boundary it sits at this seq, appended
+   * before the store attached, so that event did not publish either — the
+   * firehose gap then runs through `firstLiveSeq` rather than stopping below
+   * it. Otherwise this seq holds an ordinary published write.
    */
   readonly firstLiveSeq: number
 

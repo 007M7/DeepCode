@@ -101,6 +101,10 @@ interface SessionEventMap {
    * ending in a boundary is not re-marked, so reopening an untouched session
    * does not grow its log per pickup.
    *
+   * `Session`'s constructor is the only legitimate writer. The invariant
+   * companion deliberately constrains nothing here, so a plugin appending one
+   * would silently turn every live bracket below it into dead history.
+   *
    * An owner of a standalone open/close bracket (`compact/start` …
    * `compact/end`) reads it because inherited history and live work are
    * otherwise byte-identical: an unmatched opening marker below the boundary
@@ -348,14 +352,17 @@ declare class Session {
    * session's constructor seed is its full stored log, while its header keeps
    * the original fork value — this field is the in-process construction fact.
    *
-   * Not persisted itself: a nonzero value is projected into the log as the
-   * `session/inherited` event at this seq, which is what a consumer reading
-   * STORED history reads. Prefer this field in-process — it is exact before
-   * the marker's write reaches storage.
+   * Not persisted itself: a seeded session projects it into the log as the
+   * `session/inherited` event, which is what a consumer reading STORED history
+   * reads. Locate that event as the log's LAST boundary, not at this seq — a
+   * seed already ending in one is not re-marked, so reopening an untouched
+   * session leaves the boundary below `firstLiveSeq`. Prefer this field
+   * in-process: it is exact before the marker's write reaches storage.
    *
-   * The marker is appended before the store attaches, so when one exists the
-   * event AT this seq did not publish either: the firehose gap runs through
-   * `firstLiveSeq`, not just below it.
+   * When this lifecycle did append a boundary it sits at this seq, appended
+   * before the store attached, so that event did not publish either — the
+   * firehose gap then runs through `firstLiveSeq` rather than stopping below
+   * it. Otherwise this seq holds an ordinary published write.
    */
   readonly firstLiveSeq: number;
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);
@@ -539,7 +546,9 @@ interface TurnEndReasonMap {
 
 ## 继承历史边界：`session/inherited`
 
-带种子的会话（恢复、fork 或重放）把这个仅日志事件作为自己的第一次实时写入追加，位置正是 `firstLiveSeq` 指出的 seq。它是该字段的持久投影：`firstLiveSeq` 为持有对象的消费方回答"我继承了哪一段前缀"，这个事件则为只持有存储字节的消费方回答同一问题。payload 为空，因此位置与 `time` 承载全部含义，且不产生任何消息。空种子不写入任何内容；种子本身已以该事件结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次打开都增长日志。
+带种子的会话（恢复、fork 或重放）把这个仅日志事件作为自己的第一次实时写入追加。它是 `firstLiveSeq` 的持久投影：该字段为持有对象的消费方回答"我继承了哪一段前缀"，这个事件则为只持有存储字节的消费方回答同一问题。payload 为空，因此位置与 `time` 承载全部含义，且不产生任何消息。`Session` 的构造函数是唯一合法的写入方。
+
+空种子不写入任何内容；种子本身已以该边界结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次拾起都增长日志。定位边界应取日志中的**最后一条**，而不是读 `firstLiveSeq`：在一次没有产生工作的拾起之后，下一次拾起会让边界落在该 seq 之下。
 
 它之所以必要，是因为继承历史与实时工作在字节层面完全相同，这会让任何拥有独立开／闭括号的插件失效：一个未配对的 `compact/start`，无论写入方是在压缩中途崩溃、还是此刻正在压缩，读起来都一样。边界之下的开启标记属于一个已结束的生命周期，无论结束原因为何（崩溃、进程接替，或从仍在运行的父会话 fork 出来），因此其所有方可以视之为已死。这只覆盖*本*会话继承的括号：另一个并发存活的会话可能在同一段历史上持有开放括号，而它自己的边界在别处，因此容忍并发写入方还需要日志之外的存活信号。核心写入该边界但不从中读取任何内容——括号的词汇表仍归其所属插件，这也正是崩溃修复只关闭轮次／步骤／工具边界而从不处理 `compact/*` 的原因。
 

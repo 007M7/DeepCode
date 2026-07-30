@@ -260,6 +260,10 @@ export interface SessionEventMap {
    * ending in a boundary is not re-marked, so reopening an untouched session
    * does not grow its log per pickup.
    *
+   * `Session`'s constructor is the only legitimate writer. The invariant
+   * companion deliberately constrains nothing here, so a plugin appending one
+   * would silently turn every live bracket below it into dead history.
+   *
    * An owner of a standalone open/close bracket (`compact/start` …
    * `compact/end`) reads it because inherited history and live work are
    * otherwise byte-identical: an unmatched opening marker below the boundary

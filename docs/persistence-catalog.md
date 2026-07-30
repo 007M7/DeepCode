@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:281`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:310`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:342`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:278`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:285`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:314`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:346`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -417,6 +417,10 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
  * ending in a boundary is not re-marked, so reopening an untouched session
  * does not grow its log per pickup.
  *
+ * `Session`'s constructor is the only legitimate writer. The invariant
+ * companion deliberately constrains nothing here, so a plugin appending one
+ * would silently turn every live bracket below it into dead history.
+ *
  * An owner of a standalone open/close bracket (`compact/start` …
  * `compact/end`) reads it because inherited history and live work are
  * otherwise byte-identical: an unmatched opening marker below the boundary
@@ -427,7 +431,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/inherited': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 

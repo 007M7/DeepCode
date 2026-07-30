@@ -1,8 +1,10 @@
 /**
  * Crash-recovery repair for an interrupted session log. It preserves a fully
  * written final turn and supplies the missing tool, step, and turn boundaries
- * needed to resume with a provider-valid transcript, plus the inherited-history
- * boundary a plugin-owned bracket reads to tell dead history from live work.
+ * needed to resume with a provider-valid transcript, plus the activity-time
+ * read that must skip the inherited-history boundary — which this module does
+ * not write (`Session`'s constructor does) but whose synthetic closers can
+ * inherit that boundary's timestamp, the one real coupling between the two.
  * @module @deepseek-ai/dsh-session/repair
  */
 
