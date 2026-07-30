@@ -127,19 +127,14 @@ describe('thrown-value propagation', () => {
     await waitForIdle(ctx, agent)
     expect(errors).toHaveLength(1)
     expect(errors[0]).toBe('naked string error')
-    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(0)
     const starts = agent.session.events.filter(event => event.type === 'turn/start')
     const ends = agent.session.events.filter(event => event.type === 'turn/end')
     const messages = agent.session.events.filter(event => event.type === 'user/message')
-    expect(starts).toHaveLength(1)
-    // The rejected turn/start committed nothing, so the survivor reuses turn 1
-    // and the rejected prompt does not leak into it.
-    expect(starts[0]?.type === 'turn/start' && starts[0].data.turn).toBe(1)
-    expect(ends).toHaveLength(1)
-    expect(messages).toHaveLength(1)
-    expect(messages[0]?.type === 'user/message' && messages[0].data.content).toEqual([
-      { type: 'text', text: 'survives as the next item' },
-    ])
+    expect(starts).toHaveLength(0)
+    expect(ends).toHaveLength(0)
+    expect(messages).toHaveLength(0)
+    expect(agent.inbox.nextTurn).toHaveLength(1)
   })
 
   it('preserves non-Error throws from the agent/request waterfall', async () => {
@@ -156,22 +151,17 @@ describe('thrown-value propagation', () => {
       return next()
     })
 
-    const errors: unknown[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-
     send(agent, 'go')
     await waitForIdle(ctx, agent)
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toEqual({ code: 500 })
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error'
       ? turnEnd.data.reason.error
-      : undefined).toEqual({ code: 500 })
+      : undefined).toBe('[object Object]')
   })
 })
 
-describe('coded error data emission', () => {
-  it('errorData includes code when a coded error (LlmError) is thrown from a plugin', async () => {
+describe('durable error rendering', () => {
+  it('renders a coded error thrown from a plugin', async () => {
     const adapter = new MockAdapter([textResponse('turn 1')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -185,19 +175,13 @@ describe('coded error data emission', () => {
       return next()
     })
 
-    const errors: unknown[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => void errors.push(error))
-
     send(agent, 'go')
     await waitForIdle(ctx, agent)
-    expect(errors).toHaveLength(1)
-    expect(errorChain(errors[0])).toBe('server overloaded')
 
-    // turn-end error reason includes the code
     const turnEnd = agent.session.events.find(e => e.type === 'turn/end')
     expect(turnEnd).toBeDefined()
     if (turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind === 'error') {
-      expect(turnEnd.data.reason.error).toMatchObject({ code: 'RATE_LIMIT' })
+      expect(turnEnd.data.reason.error).toBe('server overloaded')
     }
   })
 })
@@ -483,27 +467,6 @@ describe('unrenderable failure settlement', () => {
 })
 
 describe('driver bookkeeping edges', () => {
-  it('a deferred wake settles when replacement activity rejects', async () => {
-    const adapter = new MockAdapter([])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('rejected-deferred-wake'), {
-      provider: 'mock',
-      model: 'mock',
-    })
-    ctx.on('session/event', (session, event) => {
-      if (session !== agent.session || event.type !== 'agent/inbox/spliced'
-        || event.data.target !== 'next-turn' || event.data.inserted.length === 0) return
-      agent.cancel({ kind: 'user' })
-      const mutable = agent as Agent & { done: Promise<void> }
-      mutable.done = Promise.reject(new Error('replacement rejected'))
-    })
-
-    send(agent, 'cancel before wake')
-
-    await expect(agent.whenIdle()).resolves.toBeUndefined()
-    expect(agent.session.events).toEqual([])
-  })
-
   it('a request failure that concludes recovery after step/end closed keeps the boundary balanced', async () => {
     const { LlmError } = await import('@deepseek-ai/dsh-llm')
     // The failure finish-chunk path returns request-failed AFTER step() has

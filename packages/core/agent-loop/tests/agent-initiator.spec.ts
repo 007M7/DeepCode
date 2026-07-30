@@ -198,7 +198,7 @@ describe('AgentLoop initiator scope', () => {
     expect(firstSignal).toBeDefined()
     expect(new Set([...signals, ...adapter.requests.slice(0, 2).map(request => request.signal!)])).toEqual(new Set([firstSignal]))
     expect(admissionSignals).toHaveLength(1)
-    expect(admissionSignals[0]).not.toBe(firstSignal)
+    expect(admissionSignals[0]).toBe(firstSignal)
 
     signals = []
     admissionSignals = []
@@ -209,7 +209,7 @@ describe('AgentLoop initiator scope', () => {
     expect(secondSignal).toBeDefined()
     expect(new Set([...signals, adapter.requests[2]!.signal!])).toEqual(new Set([secondSignal]))
     expect(admissionSignals).toHaveLength(1)
-    expect(admissionSignals[0]).not.toBe(secondSignal)
+    expect(admissionSignals[0]).toBe(secondSignal)
     expect(secondSignal).not.toBe(firstSignal)
     expect(ctx.agents.currentInitiator()).toBeUndefined()
     await ctx.fiber.dispose()
