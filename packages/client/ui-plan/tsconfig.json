@@ -18,6 +18,9 @@
       "path": "../connection"
     },
     {
+      "path": "../locale"
+    },
+    {
       "path": "../ui-conversation"
     },
     {

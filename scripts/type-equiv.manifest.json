@@ -88,6 +88,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmCallConfigAdapterDefaults",
+      "source": "packages/llm/llm/src/call-config.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "SessionEvent",
       "source": "packages/core/session/src/types.ts"
     },

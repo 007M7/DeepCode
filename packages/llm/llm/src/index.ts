@@ -21,7 +21,7 @@ import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
-import type { LlmCallConfig } from './call-config.ts'
+import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 import { HarnessError } from './error.ts'
 import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
 import type { AdapterFailureScope } from './adapter-failure.ts'
@@ -35,7 +35,7 @@ export * from './message.ts'
 export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
-export type { LlmCallConfig } from './call-config.ts'
+export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 export { isLlmAdapterFailure, llmFailureOf, llmRetryPolicyOf } from './adapter-failure.ts'
 
 declare module 'cordis' {
@@ -125,6 +125,8 @@ export class LlmError extends HarnessError {
 export interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Config fields materialized by the captured adapter rather than proposed by the caller. */
+  readonly adapterDefaults: LlmCallConfigAdapterDefaults
   /**
    * Dispatch this call once through the registration captured during
    * preparation. The request's call-config fields must match {@link config};
@@ -178,7 +180,7 @@ export abstract class LlmAdapter {
    * @param model - exact model id passed to {@link GenerateOptions.model}.
    * @param _signal - cancellation for this exact-model lookup; asynchronous
    *   implementations must settle promptly after it aborts.
-   * @returns provider/model identity plus any context and reasoning metadata.
+   * @returns provider/model identity plus any context, call-default, and reasoning metadata.
    */
   resolveModel(
     provider: string,
@@ -490,12 +492,21 @@ export class LlmService extends Service {
         'INVALID_MODEL_CONTEXT',
       )
     }
+    const defaultMaxTokens = resolved.defaultMaxTokens
+    if (defaultMaxTokens !== undefined
+      && (!Number.isSafeInteger(defaultMaxTokens) || defaultMaxTokens <= 0)) {
+      throw new LlmError(
+        `adapter returned invalid default maxTokens for provider "${provider}" model "${model}"`,
+        'INVALID_MODEL_MAX_TOKENS',
+      )
+    }
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
+      ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
     }
     const reasoning = resolved.reasoning
     if (reasoning === undefined) return info
@@ -544,7 +555,7 @@ export class LlmService extends Service {
 
   /**
    * Validate a conversation call config against its exact model capability and
-   * materialize an adapter-configured default. Unsupported explicit efforts
+   * materialize adapter-configured defaults. Unsupported explicit efforts
    * reject before provider I/O; no clamping or aliasing is performed. This
    * standalone query does not bind a later dispatch; use {@link prepareCall}
    * when logging and streaming must share one adapter registration.
@@ -561,8 +572,12 @@ export class LlmService extends Service {
     config: LlmCallConfig,
     signal?: AbortSignal,
   ): Promise<LlmCallConfig> {
-    const reasoning = (await this.resolveModelInfoFor(registration, config.model, signal)).reasoning
-    const requested = config.reasoningEffort
+    const info = await this.resolveModelInfoFor(registration, config.model, signal)
+    const defaulted = config.maxTokens === undefined && info.defaultMaxTokens !== undefined
+      ? { ...config, maxTokens: info.defaultMaxTokens }
+      : config
+    const reasoning = info.reasoning
+    const requested = defaulted.reasoningEffort
     if (reasoning === undefined) {
       if (requested !== undefined) {
         throw new LlmError(
@@ -570,17 +585,17 @@ export class LlmService extends Service {
           'UNSUPPORTED_REASONING_EFFORT',
         )
       }
-      return config
+      return defaulted
     }
     const effective = requested ?? reasoning.defaultEffort
-    if (effective === undefined) return config
+    if (effective === undefined) return defaulted
     if (!reasoning.efforts.some(effort => effort.id === effective)) {
       throw new LlmError(
         `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
         'UNSUPPORTED_REASONING_EFFORT',
       )
     }
-    return requested === effective ? config : { ...config, reasoningEffort: effective }
+    return requested === effective ? defaulted : { ...defaulted, reasoningEffort: effective }
   }
 
   /**
@@ -593,12 +608,20 @@ export class LlmService extends Service {
    */
   async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall> {
     const registration = this.registration(config.provider)
-    const resolvedConfig = deepFreeze(structuredClone(
-      await this.resolveCallConfigFor(registration, config, signal),
-    ))
+    const resolved = await this.resolveCallConfigFor(registration, config, signal)
+    const resolvedConfig = deepFreeze(structuredClone(resolved))
+    const adapterDefaults = deepFreeze<LlmCallConfigAdapterDefaults>({
+      ...config.reasoningEffort === undefined && resolved.reasoningEffort !== undefined
+        ? { reasoningEffort: true }
+        : {},
+      ...config.maxTokens === undefined && resolved.maxTokens !== undefined
+        ? { maxTokens: true }
+        : {},
+    })
     let dispatched = false
     return Object.freeze({
       config: resolvedConfig,
+      adapterDefaults,
       stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
         if (dispatched) {
           throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')

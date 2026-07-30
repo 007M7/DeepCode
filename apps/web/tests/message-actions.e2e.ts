@@ -66,12 +66,12 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     // Focus-reveal the footers (hover:hover keeps them opacity-hidden until
     // hover/focus-within). User has three actions; each turn's last content
     // assistant has copy + branch.
-    const copyButtons = page.getByRole('button', { name: '复制' })
+    const copyButtons = page.getByRole('button', { name: 'Copy' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     await copyButtons.first().focus()
-    await expect.poll(() => page.getByRole('button', { name: '在新对话中分支' }).count(), { timeout: 5_000 })
+    await expect.poll(() => page.getByRole('button', { name: 'Branch into a new conversation' }).count(), { timeout: 5_000 })
       .toBeGreaterThanOrEqual(2)
-    await expect.poll(() => page.getByRole('button', { name: '编辑' }).count(), { timeout: 5_000 }).toBe(1)
+    await expect.poll(() => page.getByRole('button', { name: 'Edit' }).count(), { timeout: 5_000 }).toBe(1)
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the conversation aria golden with IconActions and clocks', async () => {
@@ -81,7 +81,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     }).waitFor({ timeout: 10_000 })
     // Keep a footer focused so opacity-hidden actions stay in the a11y tree
     // as an active/focused control during the capture.
-    await page.getByRole('button', { name: '复制' }).first().focus()
+    await page.getByRole('button', { name: 'Copy' }).first().focus()
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
@@ -91,7 +91,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-fork'))
     // Exercise the assistant action specifically; package coverage pins the
     // user action separately at its own event seq.
-    await page.getByRole('button', { name: '在新对话中分支' }).last().click()
+    await page.getByRole('button', { name: 'Branch into a new conversation' }).last().click()
     await expect.poll(
       () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SEED_ID)),
       { timeout: 15_000 },

@@ -1,6 +1,11 @@
 // Shared chrome helpers for user/assistant IconActions rows: clipboard write
 // and the compact date+clock label from a session-event epoch.
 
+import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
+
+/** The date-template share of the conversation dictionary the clock consumes. */
+export type ClockTranslate = Translate<'clock.md' | 'clock.ymd'>
+
 /**
  * Best-effort clipboard write; rejections stay swallowed (no success chrome).
  * @param text - Plain text to place on the clipboard.
@@ -67,14 +72,16 @@ export function msUntilNextLocalMidnight(ms: number): number {
 }
 
 /**
- * Compact local timestamp for message IconActions.
- * Same calendar day → `HH:mm`; earlier this year → `M月D日 HH:mm`;
- * other years → `YYYY年M月D日 HH:mm`.
+ * Compact local timestamp for message IconActions. Same calendar day →
+ * `HH:mm`; earlier this year → the `clock.md` date template + clock; other
+ * years → the `clock.ymd` template + clock. Pure: the date templates arrive
+ * through the caller's locale seat.
  * @param time - Unix epoch ms from the source session event.
+ * @param t - translate seat supplying the `clock.md` / `clock.ymd` templates.
  * @param now - Reference instant for the day/year cut (defaults to wall clock).
  * @returns Date-aware clock string (24-hour, zero-padded time).
  */
-export function formatMessageClock(time: number, now: number = Date.now()): string {
+export function formatMessageClock(time: number, t: ClockTranslate, now: number = Date.now()): string {
   const d = new Date(time)
   const n = new Date(now)
   const clock = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
@@ -85,7 +92,7 @@ export function formatMessageClock(time: number, now: number = Date.now()): stri
   ) {
     return clock
   }
-  const md = `${d.getMonth() + 1}月${d.getDate()}日`
-  if (d.getFullYear() === n.getFullYear()) return `${md} ${clock}`
-  return `${d.getFullYear()}年${md} ${clock}`
+  const params = { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() }
+  const md = d.getFullYear() === n.getFullYear() ? t('clock.md', params) : t('clock.ymd', params)
+  return `${md} ${clock}`
 }

@@ -11,15 +11,29 @@
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from './contract/slots.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './WorkspaceBrowser.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
+import { en, zh, type WorkspaceKey } from './locales.ts'
 
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
   WorkspaceBrowserInjected, WorkspaceBrowserProps, WorkspacePickerInjected, WorkspacePickerProps,
 } from './contract/slots.ts'
+export type { WorkspaceKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** The workspace browsing region and pick/create flow copy. */
+    workspace: WorkspaceKey
+  }
+}
+
+/** Dictionary namespace owned by this plugin. */
+const NS = 'workspace'
 
 /**
  * Required services (cordis fiber inject). The target slots are declared by
@@ -29,7 +43,7 @@ export type {
  * provides a waitable service. apply therefore registers via
  * declaration-aware deferral instead of assuming order.
  */
-export const inject = ['slots', 'sessions', 'workspaces']
+export const inject = ['slots', 'sessions', 'workspaces', 'locale']
 
 /**
  * Register the browser and picker once their slot declarations are on the
@@ -38,6 +52,8 @@ export const inject = ['slots', 'sessions', 'workspaces']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-workspace: dictionaries')
+
   // Stable per-surface occupancy sources (the renderer's hook cache keys by
   // source identity): true while the surface's directory-flow hole is filled.
   const flowSource = (hole: 'sidebar.workspaces.directoryFlow' | 'conversation.hero.workspace.directoryFlow'): HostObservable<boolean> => ({
@@ -93,6 +109,7 @@ export function apply(ctx: ClientContext): void {
             children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
             store: createWorkspaceViewStore(),
             inject: browserInjected,
+            locale: NS,
           },
           WorkspaceBrowser,
         )),
@@ -102,6 +119,7 @@ export function apply(ctx: ClientContext): void {
             name: 'conversation.hero.workspace',
             children: { 'conversation.hero.workspace.directoryFlow': { kind: 'single', scope: 'root' } },
             inject: pickerInjected,
+            locale: NS,
           },
           WorkspacePicker,
         )),

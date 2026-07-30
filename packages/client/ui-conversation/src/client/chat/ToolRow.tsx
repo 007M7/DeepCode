@@ -10,12 +10,15 @@
 
 import { useState, type MouseEvent, type ReactNode } from 'react'
 import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
-import { CHAT_TERMINAL_MAX_LINES, type TerminalCardModel } from '../contract/terminal-card-model.ts'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { CHAT_TERMINAL_MAX_LINES, terminalBlockLabels, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import { DisclosureRow } from './DisclosureRow.tsx'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
+  /** The render site's conversation locale seat (terminal/code body copy). */
+  t: TranslateNS<'conversation'>
   variant: ToolRowVariant
   /** Wire tool name for tool-owned styling layered over the generic variant. */
   toolName?: string | undefined
@@ -56,6 +59,7 @@ function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
 }
 
 export function ToolRow({
+  t,
   variant,
   toolName,
   icon,
@@ -125,9 +129,16 @@ export function ToolRow({
           <div className={css.terminalDescription}>{terminalBody.description}</div>
         )}
         {terminalBody !== null
-          ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
+          ? (
+            <TerminalBlock
+              {...terminalBody.card}
+              maxLines={CHAT_TERMINAL_MAX_LINES}
+              labels={terminalBlockLabels(t)}
+              className={css.terminalBody}
+            />
+          )
           : variant === 'code'
-            ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
+            ? <CodeBlock code={text} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
             : <div className={css.body}>{text}</div>}
       </DisclosureRow>
     </div>

@@ -13,6 +13,7 @@ import { useEffect, useRef } from 'react'
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { IconCheckOutline16, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { filterOptions } from './popup.ts'
 import type { PopupSelectController } from './popup.ts'
 import css from './PopupSelectView.module.css'
@@ -26,12 +27,15 @@ export interface PopupSelectInjected {
   popup: PopupSelectController
 }
 
+/** Full shell props: injected face + the locale seat. */
+export type PopupSelectViewProps = PopupSelectInjected & PropsLocale<'command'>
+
 /**
  * Render the popupSelect shell overlay entry.
- * @param props - injected face: the session's shell controller.
+ * @param props - injected face: the session's shell controller; `t` rides the standard locale seat.
  * @returns the select card while open; null while closed.
  */
-export function PopupSelectView({ popup }: PopupSelectInjected) {
+export function PopupSelectView({ popup, t }: PopupSelectViewProps) {
   const state = useSyncExternalStore(
     fn => popup.state.subscribe(fn),
     () => popup.state.getSnapshot(),
@@ -103,15 +107,15 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
       ref={cardRef}
       className={css.card}
       style={{ maxHeight }}
-      aria-label={`/${String(state.command)} options`}
+      aria-label={t('overlay.aria', { command: String(state.command) })}
       onKeyDown={onKeyDown}
     >
       <input
         ref={searchRef}
         className={css.search}
         type="text"
-        placeholder="Search…"
-        aria-label="Filter options"
+        placeholder={t('search.placeholder')}
+        aria-label={t('search.aria')}
         value={state.search}
         readOnly={state.submitting}
         onChange={(ev) => { popup.setSearch(ev.currentTarget.value) }}
@@ -120,15 +124,15 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
         <div className={css.error} role="alert">
           <span className={css.errorText}>{state.error}</span>
           {state.status === 'failed' && (
-            <button type="button" className={css.retry} onClick={() => { popup.retry() }}>Retry</button>
+            <button type="button" className={css.retry} onClick={() => { popup.retry() }}>{t('retry')}</button>
           )}
         </div>
       )}
-      {state.status === 'pending' && <div className={css.status}>Loading options…</div>}
-      {state.submitting && <div className={css.status}>Applying…</div>}
-      {state.status === 'ready' && rows.length === 0 && <div className={css.status}>No options</div>}
+      {state.status === 'pending' && <div className={css.status}>{t('status.loading')}</div>}
+      {state.submitting && <div className={css.status}>{t('status.applying')}</div>}
+      {state.status === 'ready' && rows.length === 0 && <div className={css.status}>{t('status.empty')}</div>}
       {state.status === 'ready' && (
-        <div role="listbox" aria-label={`/${String(state.command)} matches`} className={css.viewport}>
+        <div role="listbox" aria-label={t('listbox.aria', { command: String(state.command) })} className={css.viewport}>
           {rows.map((option, index) => (
             <div
               key={option.id}

@@ -18,10 +18,20 @@ import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  DeepSeekAdapter,
+} from './adapter.ts'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
 
-export { DeepSeekAdapter } from './adapter.ts'
+export {
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  DeepSeekAdapter,
+} from './adapter.ts'
 export type { DeepSeekAdapterOptions, DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
 export type { RequestDefaults } from './serialize.ts'
 export type * from './types.ts'
@@ -35,8 +45,8 @@ const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
 const PROVIDER = 'deepseek-official'
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
-  { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 256_000 },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 256_000 },
+  { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: DEFAULT_CONTEXT_WINDOW },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: DEFAULT_CONTEXT_WINDOW },
 ]
 
 /**
@@ -58,7 +68,9 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Default thinking effort (default `high`); `off` disables thinking per request. */
   reasoningEffort?: 'off' | 'high' | 'max'
-  /** Positive context capacity used when the selected model has no exact value. */
+  /** Default per-request output cap (default 256,000); explicit request values win. */
+  maxTokens?: number
+  /** Positive context capacity used when the selected model has no exact value (default 1,000,000). */
   defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
@@ -81,7 +93,8 @@ export const Config: z<Config> = z.object({
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['off', 'high', 'max']),
-  defaultContextWindow: z.number().step(1).min(1),
+  maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_TOKENS),
+  defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   retryPolicy: RetryPolicySchema,
@@ -141,6 +154,10 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
     && (!Number.isInteger(config.defaultContextWindow) || config.defaultContextWindow <= 0)) {
     throw new Error('llm-deepseek: defaultContextWindow must be a positive integer')
   }
+  if (config.maxTokens !== undefined
+    && (!Number.isSafeInteger(config.maxTokens) || config.maxTokens <= 0)) {
+    throw new Error('llm-deepseek: maxTokens must be a positive safe integer')
+  }
   const streamIdleTimeoutMs = config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
   if (!Number.isFinite(streamIdleTimeoutMs)
     || streamIdleTimeoutMs <= 0
@@ -157,9 +174,8 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
       thinking: config.thinking,
       reasoningEffort: config.reasoningEffort,
     },
-    ...config.defaultContextWindow === undefined
-      ? {}
-      : { defaultContextWindow: config.defaultContextWindow },
+    maxTokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
+    defaultContextWindow: config.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
     models: resolveModels(config.models),
     streamIdleTimeoutMs,
     retryPolicy: resolveRetryPolicy(config.retryPolicy, 'llm-deepseek: retryPolicy'),

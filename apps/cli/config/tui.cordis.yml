@@ -36,8 +36,8 @@
       Verify your work by running the code or tests. Keep answers brief and
       factual.
 
-# Shipped default: full thinking at max effort on every request (wire-only
-# defaults; they never enter the request header).
+# Shipped default: full thinking at max effort on every request. Exact-model
+# resolution materializes request defaults before the request header is logged.
 - id: llm-deepseek
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY

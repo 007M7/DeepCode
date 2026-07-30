@@ -6,11 +6,11 @@
     - tab "Trajectory"
 - img
 - text: "plan Plan mode on. Use /plan off to leave. Plan a small change: add a --greeting flag to a CLI. Do not read or write any files. Call exit_plan_mode with a short plan of at most five bullet points. Once the plan is approved, reply with the single word DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Edit":
   - img
 - 'button "Think The user wants me to plan a small change to add a `--greeting` flag to a CLI. They explicitly told me not to read or write any files, and to call exit_plan_mode with a short plan. Let me do that directly."':
   - img
@@ -29,9 +29,9 @@
   - img
   - text: "Think The plan was approved. The user's last instruction says: \"Once the plan is approved, reply with the single word DONE and stop.\" So I should just reply with DONE and stop."
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"

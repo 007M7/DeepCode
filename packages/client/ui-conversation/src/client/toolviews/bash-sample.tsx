@@ -15,10 +15,15 @@
 
 import type { Context } from 'cordis'
 import { IconApiOutline14, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { CHAT_TERMINAL_MAX_LINES, terminalCardModel } from '../contract/terminal-card-model.ts'
+import { CHAT_TERMINAL_MAX_LINES, terminalBlockLabels, terminalCardModel } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
+import { NS } from '../locales.ts'
 import css from './bash-sample.module.css'
+
+/** Bash row props: the toolview runtime share plus the standard locale seat. */
+type BashRowProps = ToolRowProps & PropsLocale<'conversation'>
 
 function leadingFor(state: ToolRowState) {
   switch (state) {
@@ -30,11 +35,11 @@ function leadingFor(state: ToolRowState) {
 }
 
 /** Visually hidden status — StateDot is aria-hidden; AT needs a text label. */
-function stateStatus(state: ToolRowState): string | null {
+function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
   switch (state) {
-    case 'running': return '运行中'
-    case 'error': return '失败'
-    case 'stopped': return '已停止'
+    case 'running': return t('bash.running')
+    case 'error': return t('bash.failed')
+    case 'stopped': return t('bash.stopped')
     default: return null
   }
 }
@@ -45,14 +50,14 @@ function stateStatus(state: ToolRowState): string | null {
  * details-panel control (tool rows stopped being one), so the card's copy and
  * expand controls are the row's only interactions.
  */
-export function BashRow({ toolName, block, sessionId, useSessions }: ToolRowProps) {
+export function BashRow({ toolName, block, sessionId, useSessions, t }: BashRowProps) {
   const model = toolRowModel(toolName, block)
   // Session workspace root: the terminal view's cwd resolves against it (an
   // omitted workdir IS the workspace), which the pure presenter cannot do.
   const cwd = useSessions(list => list.byId[sessionId]?.cwd)
   const terminal = terminalCardModel(block, cwd)
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
-  const status = stateStatus(model.state)
+  const status = stateStatus(model.state, t)
   return (
     <div className={css.card}>
       <div
@@ -71,7 +76,12 @@ export function BashRow({ toolName, block, sessionId, useSessions }: ToolRowProp
         <span className={css.summary}>{terminal?.description ?? model.summary}</span>
       </div>
       {terminal !== null && (
-        <TerminalBlock {...terminal.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminal} />
+        <TerminalBlock
+          {...terminal.card}
+          maxLines={CHAT_TERMINAL_MAX_LINES}
+          labels={terminalBlockLabels(t)}
+          className={css.terminal}
+        />
       )}
     </div>
   )
@@ -91,6 +101,6 @@ export const bashToolviewSample = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash' }, BashRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow)
   },
 }

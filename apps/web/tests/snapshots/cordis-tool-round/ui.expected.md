@@ -5,11 +5,11 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Edit":
   - img
 - button "Think The user wants me to:":
   - img
@@ -26,7 +26,7 @@
 - button [expanded]:
   - img
 - text: Mount temporary Plugin typescript
-- button "复制"
+- button "Copy"
 - code: "return { name: \"snapshot-noop\", apply(ctx) {} }"
 - 'button "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."':
   - img
@@ -41,9 +41,9 @@
   - img
   - text: Think All three calls succeeded. I should now reply exactly "CORDIS_UI_DONE" and stop.
 - paragraph: CORDIS_UI_DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"

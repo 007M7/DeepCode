@@ -11,8 +11,14 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/client'
 import { PlanChip, type PlanChipProps } from '../src/client/PlanModeControl.tsx'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+// The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
+const t: PlanChipProps['t'] = makeTranslate(zh, commonZh)
 
 function setup(
   plan: PlanProjection | undefined,
@@ -22,12 +28,12 @@ function setup(
   const store = createSnapshotStore<{ value: PlanProjection | undefined }>({ value: plan })
   const useProjection = (_key: string, selector?: (v: unknown) => unknown) =>
     bindSnapshotSelector(store)(s => (selector ?? (v => v))(s.value))
-  const props = { useProjection, locked, exitPlanMode } as unknown as PlanChipProps
+  const props = { useProjection, locked, exitPlanMode, t } as unknown as PlanChipProps
   const view = render(<PlanChip {...props} />)
   return { store, exitPlanMode, view }
 }
 
-const chip = () => screen.getByRole('button', { name: 'Plan mode on, press to turn off' })
+const chip = () => screen.getByRole('button', { name: 'plan mode 已开启，按下关闭' })
 
 describe('PlanChip', () => {
   it('renders nothing for an absent capability or a default-mode target', () => {
@@ -60,7 +66,7 @@ describe('PlanChip', () => {
     resolve(null)
     store.set({ value: { active: true, pending: true } })
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Plan mode on, press to turn off' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'plan mode 已开启，按下关闭' })).toBeNull()
     })
   })
 
@@ -76,7 +82,7 @@ describe('PlanChip', () => {
       .mockRejectedValueOnce('socket closed')
     setup({ active: true, pending: false }, exitPlanMode)
     fireEvent.click(chip())
-    expect((await screen.findByText('退出 plan mode 失败')).getAttribute('title')).toBe('host said no')
+    expect((await screen.findByText('failed to exit plan mode')).getAttribute('title')).toBe('host said no')
     expect(chip()).toBeTruthy()
 
     fireEvent.click(chip())
