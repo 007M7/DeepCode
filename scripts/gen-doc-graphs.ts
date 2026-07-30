@@ -153,6 +153,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time.',
   },
   {
+    key: 'settings',
+    pkg: 'settings',
+    title: 'User-settings seam',
+    mode: 'seam',
+    implementations: ['settings-local'],
+    consumers: [],
+    note: 'Plugins register namespace schemas and resolve layered values; providers store the raw document. No production consumer is migrated yet.',
+  },
+  {
     key: 'telemetry',
     pkg: 'session-telemetry',
     title: 'Session telemetry seam',
