@@ -94,10 +94,14 @@ export class WorkspacesService implements IWorkspaces {
     if (inflight !== undefined) return inflight
     // Reuse: blank && same canonical cwd (workspace.path is the host realpath
     // canon; summary cwd is the session header passthrough of the same canon).
+    // An archived blank is never reused: reuse would open a session no
+    // grouping surface can show, so New Session mints a fresh one instead.
+    const archived = this.list.getSnapshot().archivedSessionIds
     const sessions = this.sessions.list.getSnapshot()
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
-      if (summary !== undefined && summary.blank && summary.cwd === workspace.path) return summary.id
+      if (summary !== undefined && summary.blank && summary.cwd === workspace.path
+        && !archived.has(summary.id)) return summary.id
     }
     const attempt = this.sessions.create({ workspaceId })
       .finally(() => { this.connecting.delete(workspaceId) })

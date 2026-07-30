@@ -183,6 +183,12 @@ describe('WorkspacesService', () => {
 
     // Unknown workspace fails loud instead of silently creating in nowhere.
     await expect(workspaces.connectWorkspace(wid('ghost'))).rejects.toThrow(/unknown workspace ghost/)
+
+    // An archived blank is never reused: no surface can show it, so New
+    // Session mints a fresh one for alpha instead.
+    await workspaces.archiveSession(sid('s-blank'))
+    api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-fresh-2') }))
+    await expect(workspaces.connectWorkspace(wid('alpha'))).resolves.toBe('s-fresh-2')
   })
 
   it('a rejected first prompt keeps the blank session eligible for connectWorkspace reuse', async () => {
