@@ -1381,14 +1381,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           const spec = PERMISSION_PRESETS[preset]
           if (preset === '') {
             const current = permissionSelectOf(logOf(id)).currentValue
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Current permission preset: ${current}. Available: ${Object.keys(PERMISSION_PRESETS).join(', ')}.` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `current preset ${current} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else if (spec === undefined) {
-            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown permission preset ${JSON.stringify(preset)} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown preset "${preset}" (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else {
             if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
             append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
             append(id, { type: 'approval/policy', data: { policy: spec.approval } })
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Permission preset: ${preset}.` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `preset ${preset}` } })
           }
           return ok(request, { matched: true as const, commandId })
         }
