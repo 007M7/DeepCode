@@ -54,7 +54,7 @@ describe('time-context through a real headless cordis.yml', () => {
     expect(contexts).toHaveLength(2)
     expect(starts).toHaveLength(2)
     for (let index = 0; index < contexts.length; index += 1) {
-      expect(contexts[index]!.seq).toBeLessThan(starts[index]!.seq)
+      expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
       expect(contexts[index]!.surfaceOp).toBe('append')
       expect(contexts[index]!.data.source).toEqual({ kind: 'plugin', plugin: 'time-context' })
     }

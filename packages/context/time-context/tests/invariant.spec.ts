@@ -58,6 +58,7 @@ function preparing(turn: number, step: number): Session {
     session.append('step/start', { turn, step: priorStep })
     session.append('step/end', { turn, step: priorStep })
   }
+  session.append('step/start', { turn, step })
   return session
 }
 
@@ -92,8 +93,8 @@ describe('time-context invariants', () => {
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    appendReading(session, reading())
     session.append('step/start', { turn: 1, step: 1 })
+    appendReading(session, reading())
 
     await ctx.plugin(InvariantService, { enabled: true })
     await expect(ctx.plugin(TimeInvariant)).resolves.toBeDefined()
@@ -108,6 +109,7 @@ describe('time-context invariants', () => {
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
+    session.append('step/start', { turn: 1, step: 1 })
     appendReading(session, reading('1', '2', 'step context'))
 
     await ctx.plugin(InvariantService, { enabled: true })
@@ -127,17 +129,17 @@ describe('time-context invariants', () => {
     const session = preparing(1, 2)
     session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     expect(() => { ctx.emit('session/event', session, event(reading('1', '2', 'step context'))) })
-      .toThrow(/inside an open turn/)
+      .toThrow(/inside an open step/)
   })
 
-  it('rejects a reading after step/start or without any open turn', async () => {
+  it('rejects a reading outside an open step', async () => {
     const ctx = await setup()
-    const started = preparing(1, 1)
-    started.append('step/start', { turn: 1, step: 1 })
-    expect(() => { ctx.emit('session/event', started, event(reading())) }).toThrow(/must precede step\/start/)
+    const ended = preparing(1, 1)
+    ended.append('step/end', { turn: 1, step: 1 })
+    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/inside an open step/)
     expect(() => {
       ctx.emit('session/event', new Session(SessionId('time-invariant-empty')), event(reading()))
-    }).toThrow(/inside an open turn/)
+    }).toThrow(/inside an open step/)
   })
 
   it.each([

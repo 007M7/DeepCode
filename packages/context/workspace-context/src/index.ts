@@ -116,20 +116,20 @@ export function apply(ctx: Context, config: Config): void {
       { includeBaselineScopes: false, signal },
     )
     if (update !== undefined) {
-      agent.inject(update.context)
+      agent.session.append('user/message', update.context, { surfaceOp: 'append' })
       applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
     }
     const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent)
     if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
-      agent.inject(createUserMessage({
+      agent.session.append('user/message', createUserMessage({
         content: baselineMessage.content,
         source: {
           kind: 'workspace-instructions',
           baseline: true,
           changes: [...baseline.changes.values()],
         },
-      }))
+      }), { surfaceOp: 'append' })
     }
     baselineLoaded.add(agent.session)
   })

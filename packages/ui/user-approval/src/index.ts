@@ -277,10 +277,10 @@ export class ApprovalService extends Service {
       const cause = overrideSource === 'delegation'
         ? 'inherited from the delegating session'
         : overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
-      agent.inject(createUserMessage({
+      session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
         source: { kind: 'plugin', plugin: 'user-approval' },
-      }))
+      }), { surfaceOp: 'append' })
     })
   }
 

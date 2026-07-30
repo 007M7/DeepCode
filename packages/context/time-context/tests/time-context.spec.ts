@@ -45,9 +45,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     ctx: new Context(),
     followup: () => {},
     steer: () => {},
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
+    inject: () => { throw new Error('time-context must append directly to the open step') },
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -358,7 +356,7 @@ describe('real agent-loop request history', () => {
   it.each([
     ['throws', 'error'],
     ['cancels', 'aborted'],
-  ] as const)('discards the pending preparation reading when a later step listener %s', async (mode, reasonKind) => {
+  ] as const)('retains the durable preparation reading when a later step listener %s', async (mode, reasonKind) => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
     let laterSawReading = false
@@ -372,10 +370,10 @@ describe('real agent-loop request history', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
-    expect(laterSawReading).toBe(false)
-    expect(contextTexts(agent.session)).toHaveLength(0)
+    expect(laterSawReading).toBe(true)
+    expect(contextTexts(agent.session)).toHaveLength(1)
     expect(adapter.requests).toHaveLength(0)
-    expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
+    expect(agent.session.events.some(event => event.type === 'step/start')).toBe(true)
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe(reasonKind)
     await ctx.fiber.dispose()
@@ -405,7 +403,7 @@ describe('real agent-loop request history', () => {
     expect(contexts).toHaveLength(adapter.requests.length)
     expect(starts).toHaveLength(adapter.requests.length)
     for (let index = 0; index < contexts.length; index += 1) {
-      expect(contexts[index]!.seq).toBeLessThan(starts[index]!.seq)
+      expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
     }
     expect(contexts.every(event => event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context'

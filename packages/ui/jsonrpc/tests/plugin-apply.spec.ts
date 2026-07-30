@@ -185,7 +185,12 @@ describe('dsh-jsonrpc plugin apply', () => {
         params: { sessionId: 'main', contentBlocks: [{ type: 'text', text: 'fix it' }] },
       })
       const response = await harness.waitForFrame(frame => frame.id === 2, 'prompt response')
-      expect(response.result).toEqual({ accepted: true })
+      expect((response.result as { messageId?: unknown }).messageId).toBeTypeOf('string')
+      await harness.waitForFrame(
+        frame => frame.method === 'session.status'
+          && (frame.params as { status?: string } | undefined)?.status === 'idle',
+        'idle session status',
+      )
 
       expect(llmServer.requests).toHaveLength(1)
       const body = llmServer.requests[0] as { model: string; messages: { role: string }[] }
@@ -195,9 +200,9 @@ describe('dsh-jsonrpc plugin apply', () => {
       // Notifications use the same transport and arrive as id-less frames.
       const notifications = harness.frames().filter(frame => frame.id === undefined)
       expect(notifications.some(frame => frame.method === 'session.event')).toBe(true)
-      expect(notifications.find(frame => frame.method === 'session.finished')).toMatchObject({
+      expect(notifications.findLast(frame => frame.method === 'session.status')).toMatchObject({
         jsonrpc: '2.0',
-        params: { sessionId: 'main', status: 'ok' },
+        params: { sessionId: 'main', status: 'idle' },
       })
     } finally {
       await harness.dispose()

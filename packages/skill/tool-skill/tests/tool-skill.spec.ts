@@ -48,9 +48,7 @@ function agentForCwd(cwd: string): Agent {
     status: 'idle',
     followup: () => {},
     steer: () => {},
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
+    inject: () => { throw new Error('step-boundary catalog must not use agent.inject()') },
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -66,9 +64,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     ctx: new Context(),
     followup: () => {},
     steer: () => {},
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
+    inject: () => { throw new Error('step-boundary catalog must not use agent.inject()') },
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -200,7 +196,10 @@ describe('dsh-tool-skill', () => {
       content: 'User-only body.',
     })
     ctx.on('agent/step', (agent) => {
-      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'later contribution' }], source: { kind: 'plugin', plugin: 'later-contribution' } }))
+      agent.session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'later contribution' }],
+        source: { kind: 'plugin', plugin: 'later-contribution' },
+      }), { surfaceOp: 'append' })
     })
 
     const prefix = await composePrefix(ctx, '/workspace')

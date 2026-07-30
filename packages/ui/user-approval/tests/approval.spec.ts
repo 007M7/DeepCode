@@ -358,22 +358,26 @@ describe('approval policy (the approval/policy fold)', () => {
    * An agent stand-in over a REAL Session — gate, section, and narrator fold
    * real events; the opened turn satisfies request()'s enclosure precondition.
    */
-  function sessionAgent(id: string): { agent: Agent; session: Session; injected: string[] } {
+  function sessionAgent(id: string): { agent: Agent; session: Session } {
     const session = new Session(SessionId(id))
     session.append('turn/start', { turn: 1 })
-    const injected: string[] = []
     const agent = {
       id,
       session,
-      inject: (input: { content: Array<{ type: string; text: string }> }) => {
-        injected.push(input.content[0]?.text ?? '')
-      },
+      inject: () => { throw new Error('step-boundary narration must not use agent.inject()') },
     } as unknown as Agent
-    return { agent, session, injected }
+    return { agent, session }
   }
 
   const preStep = (ctx: Context, agent: Agent): Promise<void> =>
     agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+
+  const narrations = (session: Session): string[] => session.events.flatMap(event =>
+    event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === 'user-approval'
+      ? [event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')]
+      : [])
 
   /** Append a `request/header` snapshot whose system text is exactly `system`. */
   function appendHeader(session: Session, system: string): void {
@@ -482,20 +486,20 @@ describe('approval policy (the approval/policy fold)', () => {
   it('narrates nothing cold, once per coalesced switch (user wording), and idempotently', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-1')
+    const { agent, session } = sessionAgent('sess-narr-1')
     await preStep(ctx, agent)
-    expect(injected).toEqual([])
+    expect(narrations(session)).toEqual([])
     setApprovalPolicy(session, 'never')
     setApprovalPolicy(session, 'ask')
     setApprovalPolicy(session, 'never')
     await preStep(ctx, agent)
-    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
+    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
     await preStep(ctx, agent)
-    expect(injected).toHaveLength(1)
+    expect(narrations(session)).toHaveLength(1)
     setApprovalPolicy(session, 'ask')
     setApprovalPolicy(session, 'never')
     await preStep(ctx, agent)
-    expect(injected).toHaveLength(1)
+    expect(narrations(session)).toHaveLength(1)
   })
 
   it('reads what the model was told back from the folded header text after a restart', async () => {
@@ -503,69 +507,69 @@ describe('approval policy (the approval/policy fold)', () => {
     // an ask default: the narrator attributes the change to the operator.
     const ctx = new Context()
     await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-2')
+    const { agent, session } = sessionAgent('sess-narr-2')
     appendHeader(session, `persona\n\n${NEVER_SENTENCE}\n${NEVER_MARKER}`)
     await preStep(ctx, agent)
-    expect(injected).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
+    expect(narrations(session)).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
   })
 
   it('attributes a constructor-seeded policy event to delegation', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-inherited')
+    const { agent, session } = sessionAgent('sess-narr-inherited')
     appendHeader(session, ASK_MARKER)
     session.append('approval/policy', { policy: 'never', source: 'delegation' })
 
     await preStep(ctx, agent)
 
-    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
+    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
   })
 
   it('narrates a config default drift from the logged ask marker', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session, injected } = sessionAgent('sess-narr-3')
+    const { agent, session } = sessionAgent('sess-narr-3')
     appendHeader(session, `persona only\n${ASK_MARKER}`)
     await preStep(ctx, agent)
-    expect(injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
+    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
   })
 
   it('a pinned override survives a default change silently', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session, injected } = sessionAgent('sess-narr-4')
+    const { agent, session } = sessionAgent('sess-narr-4')
     appendHeader(session, `persona only\n${ASK_MARKER}`)
     setApprovalPolicy(session, 'ask')
     appendHeader(session, `persona only\n${ASK_MARKER}`)
     await preStep(ctx, agent)
-    expect(injected).toEqual([])
+    expect(narrations(session)).toEqual([])
   })
 
   it('does not infer never from deployment prose that quotes the never sentence', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-spoof-prose')
+    const { agent, session } = sessionAgent('sess-narr-spoof-prose')
     appendHeader(session, `persona quotes this warning: ${NEVER_SENTENCE}\n${ASK_MARKER}`)
     await preStep(ctx, agent)
-    expect(injected).toEqual([])
+    expect(narrations(session)).toEqual([])
   })
 
   it('treats a legacy header with no source-owned marker as untold', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService, { policy: 'never' })
-    const { agent, session, injected } = sessionAgent('sess-narr-unmarked-header')
+    const { agent, session } = sessionAgent('sess-narr-unmarked-header')
     appendHeader(session, 'legacy persona-only header')
     await preStep(ctx, agent)
-    expect(injected).toEqual([])
+    expect(narrations(session)).toEqual([])
   })
 
   it('uses the service marker after an earlier persona marker', async () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService)
-    const { agent, session, injected } = sessionAgent('sess-narr-spoof-marker')
+    const { agent, session } = sessionAgent('sess-narr-spoof-marker')
     appendHeader(session, `persona quotes ${NEVER_MARKER}\n${ASK_MARKER}`)
     await preStep(ctx, agent)
-    expect(injected).toEqual([])
+    expect(narrations(session)).toEqual([])
   })
 
   it('disposes the service prompt section and pre-step narrator together (HMR safety)', async () => {
@@ -581,7 +585,7 @@ describe('approval policy (the approval/policy fold)', () => {
     appendHeader(live.session, `persona\n${ASK_MARKER}`)
     setApprovalPolicy(live.session, 'never')
     await preStep(ctx, live.agent)
-    expect(live.injected).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
+    expect(narrations(live.session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
 
     appendHeader(afterDispose.session, `persona\n${ASK_MARKER}`)
     setApprovalPolicy(afterDispose.session, 'never')
@@ -589,6 +593,6 @@ describe('approval policy (the approval/policy fold)', () => {
 
     expect(await sectionFor()).toBeUndefined()
     await preStep(ctx, afterDispose.agent)
-    expect(afterDispose.injected).toEqual([])
+    expect(narrations(afterDispose.session)).toEqual([])
   })
 })

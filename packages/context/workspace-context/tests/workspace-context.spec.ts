@@ -180,9 +180,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     status: 'idle',
     followup: () => {},
     steer: () => {},
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
+    inject: () => { throw new Error('workspace-context must append directly to the open step') },
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -1164,7 +1162,7 @@ describe('workspace context request injection', () => {
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
       ctx.on('agent/step', (agent) => {
-        agent.inject(createUserMessage({ content: [{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }], source: { kind: 'plugin', plugin: 'test-skills' } }))
+        agent.session.append('user/message', createUserMessage({ content: [{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }], source: { kind: 'plugin', plugin: 'test-skills' } }), { surfaceOp: 'append' })
       })
 
       const prefix = await composeBaselinePrefix(ctx, stubAgent(root))

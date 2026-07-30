@@ -18,31 +18,22 @@ export const name = 'time-context-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Derive the pre-step position at which a time-context reading may append. */
+/** Derive the open step in which a time-context reading may append. */
 function preparationPosition(history: readonly SessionEvent[], fail: InvariantFailure): { turn: number; step: number } {
-  const currentTurnEvents: SessionEvent[] = []
-  let openTurn: number | undefined
   for (const event of history.slice().reverse()) {
-    if (event.type === 'turn/end') {
-      fail('time-context reading must be appended inside an open turn')
-    }
-    if (event.type === 'turn/start') {
-      openTurn = event.data.turn
-      break
-    }
-    currentTurnEvents.push(event)
-  }
-  if (openTurn === undefined) fail('time-context reading must be appended inside an open turn')
-
-  for (const event of currentTurnEvents) {
-    if (event.type === 'step/start') {
-      fail(`time-context reading must precede step/start, but step ${event.data.step} is already open`)
-    }
-    if (event.type === 'step/end') {
-      return { turn: openTurn, step: event.data.step + 1 }
+    switch (event.type) {
+      case 'step/start':
+        return event.data
+      case 'step/end':
+      case 'turn/start':
+      case 'turn/end':
+        fail('time-context reading must be appended inside an open step')
+        break
+      default:
+        break
     }
   }
-  return { turn: openTurn, step: 1 }
+  fail('time-context reading must be appended inside an open step')
 }
 
 /** Validate one plugin-attributed time reading against its session position and timestamp. */

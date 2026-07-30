@@ -149,7 +149,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const catalog = history.published
       ? renderCatalogUpdate(skills, catalogDescriptionMaxLength)
       : renderCatalogMessage(skills, catalogDescriptionMaxLength)
-    agent.inject(catalog)
+    agent.session.append('user/message', catalog, { surfaceOp: 'append' })
   })
 }
 

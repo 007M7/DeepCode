@@ -101,9 +101,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     ctx: new Context(),
     followup: () => {},
     steer: () => {},
-    inject(input) {
-      session.append('user/message', input, { surfaceOp: 'append' })
-    },
+    inject: () => { throw new Error('tmux-context must append directly to the open step') },
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

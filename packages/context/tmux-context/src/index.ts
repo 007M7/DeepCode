@@ -233,9 +233,9 @@ export function apply(ctx: Context, config: Config): void {
     if (location === undefined) return
     const state = renderState(location)
     if (previous !== undefined && previous.state === state) return
-    agent.inject(createUserMessage({
+    agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: renderReading(location, turn) }],
       source: { kind: 'plugin', plugin: name },
-    }))
+    }), { surfaceOp: 'append' })
   }, { prepend: true })
 }
