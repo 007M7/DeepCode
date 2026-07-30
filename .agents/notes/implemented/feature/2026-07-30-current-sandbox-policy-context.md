@@ -20,6 +20,12 @@ The provider runs during normal request assembly, after a `/permission` switch h
 
 Ownership stays narrow. Approval policy remains the separate `approval:policy` section, plan mode remains `plan:policy`, and tool plugins continue to own schemas plus attempt, denial, and escalation guidance. The prompt states standing policy; filesystem, one-shot bash, and terminal backends remain the enforcement boundaries.
 
+## Wording evidence
+
+The wording experiment pre-registered preemptive refusal as its primary endpoint and required the old standing sentence to produce at least one refusal in twelve fresh sessions before any replacement could be judged. On 2026-07-30, commit `2bf41990401b194bd8637f07bbd90c67a9eeac75` ran `deepseek-v4-flash` through the shipped Web composition with the exact positive-control sentence `Bash commands run under the "read-only" file sandbox.` and the current tool-owned attempt guidance. The control produced zero preemptive refusals and zero speculative escalations; all twelve sessions made an ordinary bash call, observed a denial, escalated in the same turn, received approval, and landed the requested file. No sample was excluded.
+
+The positive control therefore failed the pre-registered sensitivity gate. Candidate A and B were not run, and this experiment does not select or validate the current wording. It instead establishes that the earlier five-of-twelve result is not reproducible under this task and current tool guidance, and that a stronger positive control or different task distribution is required before making model-behavior rate claims. Deterministic tests below establish truthful request construction and replay only.
+
 ## Alternatives considered
 
 **Narrate only mode changes.** Rejected because it leaves a fresh session uninformed and makes the first denied operation the policy-discovery mechanism. It also requires a baseline definition that is unnecessary when current state can be rendered directly.
@@ -40,4 +46,4 @@ Ownership stays narrow. Approval policy remains the separate `approval:policy` s
 
 A model can answer what registered file operations the standing mode governs before probing a tool, and the next request after `/permission` reflects the committed mode. This adds a small dynamic system section and intentionally invalidates the request prefix when policy or enforcing-family composition changes; unchanged state remains cache-stable. The statement is guidance, not an enforcement guard: runtime safety still comes from the registered filesystem, one-shot bash, and terminal backends consuming the same resolved policy.
 
-Focused tests pin all modes, family combinations, contribution disposal, canonical roots, switch timing, and byte stability across different `TMPDIR` values. Keyless assembled snapshots pin the request header through real Loader compositions, including all three families. Real-provider selection uses pre-registered behavioral endpoints to choose wording, while keyless replay owns the selected denial-to-escalation trajectory.
+Focused tests pin all modes, family combinations, contribution disposal, canonical roots, switch timing, and byte stability across different `TMPDIR` values. Keyless assembled snapshots pin the request header through real Loader compositions, including all three families. Keyless replay owns the neutral denial-to-escalation trajectory; it is a structural regression proof, not wording-selection evidence.
