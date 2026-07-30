@@ -1639,6 +1639,62 @@ Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](.
 
 Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages/session-title/session-title/src/index.ts)
 
+## `ctx.settings` — `Settings` (abstract seam)
+
+Abstract settings service. Providers implement raw-document storage (`load`/`persist`) and push external changes through Settings.publish; the base class owns namespace registration, resolution, validation, change detection, and the `settings/updated` commit event.
+
+```ts cordis-catalog
+/**
+ * Register a namespace schema and receive its owner scope. The registration
+ * is an effect on the calling plugin's fiber: disposing that fiber removes
+ * the namespace and its observers. An invalid stored section fails the
+ * registration itself — the earliest point where the schema can judge it.
+ * @param ns - unique namespace; duplicate registration fails loud.
+ * @param schema - schemastery schema resolving this namespace's value.
+ * @param options - composition `base` layer and effect timing.
+ * @returns the owner scope for reads, observation, and updates.
+ */
+register<T>(ns: SettingsNamespace, schema: z<T>, options?: SettingsRegisterOptions<T>): SettingsScope<T>
+
+/**
+ * Describe every registered namespace for configuration surfaces.
+ * @returns one descriptor per registered namespace, in registration order.
+ */
+describe(): SettingsDescriptor[]
+
+/**
+ * Read one registered namespace's resolved value.
+ * @param ns - the namespace to read.
+ * @returns the resolved value, or `undefined` while unregistered.
+ */
+get(ns: SettingsNamespace): unknown
+
+/**
+ * Merge a patch into one registered namespace's user layer, validate the
+ * resolved candidate, persist through the provider, then commit and emit.
+ * A validation failure rejects before anything is persisted. Writes to one
+ * namespace are serialized: concurrent updates apply in call order, each
+ * merging over the previous write's committed section.
+ * @param ns - the registered namespace to update.
+ * @param patch - plain-object patch over the user section.
+ */
+async update(ns: SettingsNamespace, patch: object): Promise<void>
+
+/**
+ * Replace one registered namespace's user section wholesale, validate,
+ * persist, then commit and emit. Keys absent from `section` fall back to the
+ * composition `base` and schema defaults — this is the removal/reset path a
+ * merge-only patch cannot express (`replace({})` re-inherits everything).
+ * @param ns - the registered namespace to replace.
+ * @param section - the complete next user section.
+ */
+async replace(ns: SettingsNamespace, section: object): Promise<void>
+```
+
+Types: [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:250`](../../packages/settings/settings/src/index.ts)
+
 ## `ctx.skills` — `SkillService`
 
 Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted invocation-neutral summaries, and loads full skill bodies on demand.
