@@ -1050,14 +1050,22 @@ function unionSets<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): Set<T> {
   return out
 }
 
-function collectEventRelations(): Map<string, EventRelation> {
-  const project = new TypeScriptProject(root)
-  const sources = project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
+/**
+ * Select the package source files of one project in deterministic order.
+ * @param project - the loaded repository TypeScript project.
+ * @returns `packages/<group>/<pkg>/src` files tagged with their package name.
+ */
+export function collectPackageSources(project: TypeScriptProject): PackageSource[] {
+  return project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
     const rel = project.relativePath(sourceFile)
     const match = /^packages\/[^/]+\/([^/]+)\/src\/.+\.ts$/.exec(rel)
     return match?.[1] ? [{ rel, pkg: match[1], sourceFile }] : []
   }).sort((left, right) => left.rel.localeCompare(right.rel))
-  return new EventRelationCollector(project, sources).collect()
+}
+
+function collectEventRelations(): Map<string, EventRelation> {
+  const project = new TypeScriptProject(root)
+  return new EventRelationCollector(project, collectPackageSources(project)).collect()
 }
 
 function relationPackages(map: Map<string, Set<string>>, pkgsByShort: Map<string, Pkg>): string {

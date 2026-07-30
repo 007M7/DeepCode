@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { EventRelationCollector, type PackageSource } from './gen-doc-graphs.ts'
+import { collectPackageSources, EventRelationCollector } from './gen-doc-graphs.ts'
 import { TypeScriptProject } from './ts-project.ts'
 
 const FIXTURE: Record<string, string> = {
@@ -69,11 +69,7 @@ for (const [rel, content] of Object.entries(FIXTURE)) {
   writeFileSync(join(root, rel), content)
 }
 const project = new TypeScriptProject(root)
-const sources = project.sourceFiles().flatMap((sourceFile): PackageSource[] => {
-  const rel = project.relativePath(sourceFile)
-  const match = /^packages\/[^/]+\/([^/]+)\/src\/.+\.ts$/.exec(rel)
-  return match?.[1] ? [{ rel, pkg: match[1], sourceFile }] : []
-}).sort((left, right) => left.rel.localeCompare(right.rel))
+const sources = collectPackageSources(project)
 
 afterAll(() => {
   rmSync(root, { recursive: true, force: true })
