@@ -28,6 +28,10 @@ export const en = {
   effort: 'Reasoning effort',
   effortInherit: 'Default',
   advancedHint: 'Other fields live in settings.yaml; edit that section directly.',
+  onboardingTitle: 'Add an API key to get started',
+  onboardingDescription: 'Configure the official DeepSeek provider to start building.',
+  onboardingGoToSettings: 'Go to settings',
+  onboardingLater: 'Configure later',
 }
 
 /** Chinese strings (same keys as {@link en}). */
@@ -58,4 +62,8 @@ export const zh: typeof en = {
   effort: '推理强度',
   effortInherit: '默认',
   advancedHint: '其余字段在 settings.yaml 中，请直接编辑对应段。',
+  onboardingTitle: '添加一个 API Key 开始使用',
+  onboardingDescription: '配置 DeepSeek 官方模型，即可开始使用。',
+  onboardingGoToSettings: '前往配置',
+  onboardingLater: '稍后配置',
 }

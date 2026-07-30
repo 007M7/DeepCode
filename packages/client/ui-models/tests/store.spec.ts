@@ -77,6 +77,7 @@ describe('ModelsSettingsStore', () => {
     const state = store.store.getSnapshot()
     expect(state.status).toBe('ready')
     expect(state.writable).toBe(true)
+    expect(state.credentialError).toBeNull()
     expect(seenRefs).toEqual([['DEEPSEEK_API_KEY', 'OPENAI_API_KEY']])
     const byProvider = new Map(state.rows.map(row => [row.entry.provider, row]))
     expect(byProvider.get('deepseek-official')).toMatchObject({
@@ -84,6 +85,7 @@ describe('ModelsSettingsStore', () => {
       removable: false,
       apiKeyEnv: 'DEEPSEEK_API_KEY',
       credential: { configured: false, writable: true },
+      literalApiKeyConfigured: false,
     })
     expect(byProvider.get('openai')).toMatchObject({
       configured: true,
@@ -103,7 +105,53 @@ describe('ModelsSettingsStore', () => {
     await store.load()
     const state = store.store.getSnapshot()
     expect(state.status).toBe('ready')
+    expect(state.credentialError).toBe('no provider')
     expect(state.rows.every(row => row.credential === undefined)).toBe(true)
+  })
+
+  it('settles a credential transport rejection without leaving the store loading', async () => {
+    const { face } = api({
+      describeCredentials: () => Promise.reject(new Error('credential transport down')),
+    })
+    const store = new ModelsSettingsStore(face)
+    await expect(store.load()).resolves.toBeUndefined()
+    expect(store.store.getSnapshot()).toMatchObject({
+      status: 'ready',
+      credentialError: 'credential transport down',
+    })
+  })
+
+  it('stringifies a non-Error credential transport rejection', async () => {
+    const { face } = api({
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario
+      describeCredentials: () => Promise.reject('credential transport refusal'),
+    })
+    const store = new ModelsSettingsStore(face)
+    await expect(store.load()).resolves.toBeUndefined()
+    expect(store.store.getSnapshot().credentialError).toBe('credential transport refusal')
+  })
+
+  it('joins a configured literal key from the redacted secret sidecar', async () => {
+    const { face } = api({
+      describeSettings: () => Promise.resolve(ok({
+        writable: true,
+        namespaces: [{
+          ...NAMESPACES[0],
+          secrets: [
+            { path: ['apiKey', 'nested'], set: true },
+            { path: ['different'], set: true },
+            { path: ['apiKey'], set: true },
+          ],
+        }] as never,
+      })),
+      providers: () => Promise.resolve(ok({ providers: [DIRECTORY[0]] as never })),
+    })
+    const store = new ModelsSettingsStore(face)
+    await store.load()
+    expect(store.store.getSnapshot().rows[0]).toMatchObject({
+      literalApiKeyConfigured: true,
+      apiKeyEnv: 'DEEPSEEK_API_KEY',
+    })
   })
 
   it('surfaces a directory failure and keeps the last good rows', async () => {
@@ -196,7 +244,7 @@ describe('edge joins', () => {
 
   it('stringifies a non-Error load failure', async () => {
     // The wire can surface non-Error throwables; the store must stringify them.
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario
     const { face } = api({ providers: () => Promise.reject('plain refusal') })
     const store = new ModelsSettingsStore(face)
     await store.load()

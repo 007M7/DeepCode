@@ -24,6 +24,9 @@
       "path": "../schema-form"
     },
     {
+      "path": "../ui-primitives"
+    },
+    {
       "path": "../web-react"
     },
     {

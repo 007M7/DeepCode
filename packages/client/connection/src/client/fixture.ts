@@ -716,7 +716,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
   /** Credential store double: set/unset flip the describe badge, values never read back. */
-  const fixtureCredentials = new Map<string, string>()
+  const fixtureCredentials = new Map<string, true>([
+    // The assembled fixture represents an already-configured shipped
+    // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
+    ['DEEPSEEK_API_KEY', true],
+  ])
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -1580,19 +1584,28 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
     },
     settings: {
-      // The fixture registers no namespaces yet: the Models surface renders
-      // its provider list from llm.providers alone, and a real settings form
-      // rides the HTTP transport (a hand-written schema envelope here would
-      // drift from schemastery's real serialization).
-      describe: request => ok(request, { writable: true, namespaces: [] }),
+      // Only the resolved DeepSeek address needed by first-run readiness is
+      // represented here. Fixture-backed journeys do not open its Models
+      // editor; real schema-driven forms ride the HTTP transport.
+      describe: request => ok(request, {
+        writable: true,
+        namespaces: [{
+          ns: 'llm-deepseek',
+          schema: {},
+          value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+          applies: 'live',
+          secrets: [{ path: ['apiKey'], set: false }],
+          revision: 0,
+        }],
+      }),
       update: request => err(request, {
         code: 'settings-rejected',
-        message: 'fixture: no settings namespaces are registered',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
         details: { ns: request.payload.ns },
       }),
       replace: request => err(request, {
         code: 'settings-rejected',
-        message: 'fixture: no settings namespaces are registered',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
         details: { ns: request.payload.ns },
       }),
       mutate: request => err(request, {
@@ -1610,7 +1623,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }])),
       }),
       set: (request) => {
-        fixtureCredentials.set(request.payload.ref, request.payload.value)
+        fixtureCredentials.set(request.payload.ref, true)
         return ok(request, {})
       },
       unset: (request) => {

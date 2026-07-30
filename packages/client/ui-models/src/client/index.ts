@@ -1,9 +1,9 @@
 /**
- * Models settings section plugin, browser half. Registers the `models` nav
- * entry into the shell-declared `settings.section` list slot and mounts the
- * provider configuration page: the configurable-provider directory joined
- * with settings namespaces and credential states, edited through the
- * schema-driven form. Export discipline: packages/client/AGENTS.md.
+ * Models settings plugin, browser half. Registers the `models` nav entry and
+ * official-DeepSeek first-run overlay into shell-declared slots. Both consume
+ * one provider/settings/credential join; the overlay routes missing-key users
+ * to the full page's single credential editor. Export discipline:
+ * packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
@@ -15,6 +15,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { ModelsSection } from './ModelsSection.tsx'
 import type { ModelsSectionInjected } from './ModelsSection.tsx'
+import { DeepSeekOnboardingDialog } from './DeepSeekOnboardingDialog.tsx'
+import type { DeepSeekOnboardingInjected } from './DeepSeekOnboardingDialog.tsx'
 import { ModelsSettingsStore } from './store.ts'
 import { en, zh } from './locales.ts'
 
@@ -63,6 +65,11 @@ export function apply(ctx: ClientContext): void {
     api: connection.api,
     t,
   })
+  const onboardingInjected = (): DeepSeekOnboardingInjected => ({
+    controller,
+    useSnapshot,
+    t,
+  })
 
   // Pushed invalidations converge every open surface without polling: any
   // settings/credentials/topology change refetches once the page loaded.
@@ -78,7 +85,7 @@ export function apply(ctx: ClientContext): void {
   }, 'ui-models: pushed invalidations')
 
   ctx.effect(() => {
-    const deferred = deferRegistration(ctx.slots, 'settings.section', ModelsSection, () =>
+    const section = deferRegistration(ctx.slots, 'settings.section', ModelsSection, () =>
       ctx.slots.register({
         name: 'settings.section',
         id: 'models',
@@ -86,12 +93,27 @@ export function apply(ctx: ClientContext): void {
         label: t('nav'),
         inject: injected,
       }, ModelsSection))
+    const onboarding = deferRegistration(
+      ctx.slots,
+      'settings.onboarding',
+      DeepSeekOnboardingDialog,
+      () => ctx.slots.register({
+        name: 'settings.onboarding',
+        id: 'deepseek-official',
+        order: 0,
+        inject: onboardingInjected,
+      }, DeepSeekOnboardingDialog),
+    )
     // Nav labels are registrant-localized: refresh on locale change so the
     // ledger carries fresh text (the version bump re-renders the shell).
-    const offLocale = ctx.on('locale/change', () => { deferred.refresh() })
+    const offLocale = ctx.on('locale/change', () => {
+      section.refresh()
+      onboarding.refresh()
+    })
     return () => {
       offLocale()
-      deferred.dispose()
+      section.dispose()
+      onboarding.dispose()
     }
-  }, 'ui-models: settings section registration')
+  }, 'ui-models: settings registrations')
 }

@@ -6,7 +6,7 @@ import Schema from 'schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
 import { ModelsSection, needsSetup, removeProviderProfile } from '../src/client/ModelsSection.tsx'
-import type { ModelsSectionInjected } from '../src/client/ModelsSection.tsx'
+import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
@@ -141,6 +141,12 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
 }
 
 describe('ModelsSection', () => {
+  it('renders nothing before the slot injects its dependencies', () => {
+    const uninjected = {} as ModelsSectionProps
+    render(<ModelsSection {...uninjected} />)
+    expect(document.body.textContent).toBe('')
+  })
+
   it('renders the unkeyed whole-section provider as an open setup card beside the rows', async () => {
     await mountSection()
     // DeepSeek has no configured credential and no stored apiKey → setup card.
@@ -172,17 +178,24 @@ describe('ModelsSection', () => {
     expect(screen.queryByLabelText(en.keyInput)).toBeNull()
   })
 
-  it('decides setup need from the credential state and the stored apiKey slot', () => {
-    const namespace = wireNamespaces()[0] as SettingsNamespaceView
+  it('decides setup need from the joined credential state and literal-key sidecar', () => {
     const entry = { provider: 'p', displayName: 'p', settingsNs: 'llm-deepseek', settingsPath: [], active: true }
-    const row = (credential: ProviderRow['credential']): ProviderRow =>
-      ({ entry, configured: true, removable: false, apiKeyEnv: 'X', credential })
-    expect(needsSetup(row(undefined), namespace)).toBe(true)
-    expect(needsSetup(row({ configured: true, writable: true }), namespace)).toBe(false)
-    const stored: SettingsNamespaceView = { ...namespace, secrets: [{ path: ['apiKey'], set: true }] }
-    expect(needsSetup(row(undefined), stored)).toBe(false)
+    const row = (
+      credential: ProviderRow['credential'],
+      literalApiKeyConfigured = false,
+    ): ProviderRow => ({
+      entry,
+      configured: true,
+      removable: false,
+      apiKeyEnv: 'X',
+      credential,
+      literalApiKeyConfigured,
+    })
+    expect(needsSetup(row(undefined))).toBe(true)
+    expect(needsSetup(row({ configured: true, writable: true }))).toBe(false)
+    expect(needsSetup(row(undefined, true))).toBe(false)
     const nested = { ...row(undefined), entry: { ...entry, settingsPath: ['providers', 'x'] } }
-    expect(needsSetup(nested, namespace)).toBe(false)
+    expect(needsSetup(nested)).toBe(false)
   })
 
   it('derives conventional credential references from route ids', () => {

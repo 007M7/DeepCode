@@ -25,6 +25,8 @@ export interface ProviderRow {
   apiKeyEnv: string | undefined
   /** Credential state for {@link apiKeyEnv}, once described. */
   credential: CredentialView | undefined
+  /** Whether the redacted secret sidecar reports an effective literal `apiKey`. */
+  literalApiKeyConfigured: boolean
 }
 
 /** Page snapshot. */
@@ -32,6 +34,8 @@ export interface ModelsSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** Whole-load failure text; row-level write failures stay in the editor. */
   error: string | null
+  /** Credential enrichment failure; provider/settings rows remain usable. */
+  credentialError: string | null
   /** Whether the settings provider accepts writes. */
   writable: boolean
   /** Every configurable provider joined with its configured/credential state. */
@@ -71,11 +75,24 @@ function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonl
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
 }
 
+/** Whether one namespace's redacted sidecar reports a set literal API key. */
+function literalApiKeyConfigured(
+  namespace: SettingsNamespaceView | undefined,
+  path: readonly string[],
+): boolean {
+  if (namespace === undefined) return false
+  const secretPath = [...path, 'apiKey']
+  return namespace.secrets.some(secret =>
+    secret.set
+    && secret.path.length === secretPath.length
+    && secret.path.every((key, index) => key === secretPath[index]))
+}
+
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
-    status: 'idle', error: null, writable: false, rows: [], namespaces: new Map(),
+    status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
   })
 
   /** Latest load wins; an older response never overwrites a newer one. */
@@ -143,22 +160,29 @@ export class ModelsSettingsStore {
         removable,
         apiKeyEnv: apiKeyEnvOf(namespace, entry.settingsPath),
         credential: undefined,
+        literalApiKeyConfigured: literalApiKeyConfigured(namespace, entry.settingsPath),
       }
     })
     const refs = [...new Set(rows.flatMap(row => row.apiKeyEnv === undefined ? [] : [row.apiKeyEnv]))]
     let credentials: Record<string, CredentialView> = {}
+    let credentialError: string | null = null
     if (refs.length > 0) {
-      // Credential state is an enrichment: rows render without it, so neither
-      // a business rejection nor a transport failure (disconnect, a request
-      // the host refuses) may fail the load — an escaping rejection would
-      // leave the page stuck in `loading` with no error shown.
-      const response = await this.api.credentials.describe({ refs }).catch(() => undefined)
-      if (response?.result.ok === true) credentials = response.result.value.credentials
+      try {
+        const response = await this.api.credentials.describe({ refs })
+        // Credential state is an enrichment for the Models page: neither a
+        // business rejection nor a transport failure fails the load. The
+        // onboarding projection below retains the failure distinction.
+        if (response.result.ok) credentials = response.result.value.credentials
+        else credentialError = response.result.error.message
+      } catch (error) {
+        credentialError = messageOf(error)
+      }
     }
     if (generation !== this.generation) return
     this.store.update((s) => {
       s.status = 'ready'
       s.error = null
+      s.credentialError = credentialError
       s.writable = writable
       s.rows = rows.map(row => ({
         ...row,
@@ -169,4 +193,93 @@ export class ModelsSettingsStore {
       s.namespaces = namespaces
     })
   }
+}
+
+/** DeepSeek onboarding readiness derived only from the shared Models join. */
+export type DeepSeekReadiness =
+  | { kind: 'loading' }
+  | { kind: 'adapter-absent' }
+  | { kind: 'configured' }
+  | { kind: 'credential-missing' }
+  | {
+    kind: 'unavailable'
+    reason:
+      | 'load-failed'
+      | 'provider-inactive'
+      | 'settings-unavailable'
+      | 'credential-ref-unavailable'
+      | 'credentials-unavailable'
+      | 'settings-read-only'
+      | 'credential-read-only'
+  }
+
+/**
+ * Project official-DeepSeek readiness from the provider/settings/credential
+ * join used by the Models page. A missing official configurable-provider
+ * declaration means the adapter is not repairable by navigating to Models.
+ * @param state - current shared Models join snapshot.
+ * @returns the onboarding state without reading a parallel fact source.
+ */
+export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness {
+  if ((state.status === 'idle' || state.status === 'loading') && state.rows.length === 0) {
+    return { kind: 'loading' }
+  }
+  if (state.status === 'error') {
+    return {
+      kind: 'unavailable',
+      reason: 'load-failed',
+    }
+  }
+  const row = state.rows.find(candidate =>
+    candidate.entry.provider === 'deepseek-official'
+    && candidate.entry.settingsNs === 'llm-deepseek'
+    && candidate.entry.settingsPath.length === 0)
+  if (row === undefined) return { kind: 'adapter-absent' }
+  if (!row.entry.active) {
+    return {
+      kind: 'unavailable',
+      reason: 'provider-inactive',
+    }
+  }
+  if (!row.configured) {
+    return {
+      kind: 'unavailable',
+      reason: 'settings-unavailable',
+    }
+  }
+  if (row.literalApiKeyConfigured) return { kind: 'configured' }
+  if (row.apiKeyEnv === undefined) {
+    return {
+      kind: 'unavailable',
+      reason: 'credential-ref-unavailable',
+    }
+  }
+  if (state.credentialError !== null) {
+    return {
+      kind: 'unavailable',
+      reason: 'credentials-unavailable',
+    }
+  }
+  if (row.credential === undefined) {
+    return {
+      kind: 'unavailable',
+      reason: 'credentials-unavailable',
+    }
+  }
+  if (row.credential.configured) {
+    return { kind: 'configured' }
+  }
+  if (!state.writable) {
+    return {
+      kind: 'unavailable',
+      reason: 'settings-read-only',
+    }
+  }
+  if (!row.credential.writable) {
+    return {
+      kind: 'unavailable',
+      reason: 'credential-read-only',
+    }
+  }
+  return { kind: 'credential-missing' }
 }

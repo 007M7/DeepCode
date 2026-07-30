@@ -10,7 +10,7 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
+import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { messageOf } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
@@ -81,14 +81,12 @@ export async function removeProviderProfile(
  * the credential configured and no literal `apiKey` is stored, so the page
  * opens the setup card instead of showing a row.
  * @param row - the joined provider row.
- * @param namespace - the owning namespace view.
  * @returns whether to render the setup card.
  */
-export function needsSetup(row: ProviderRow, namespace: SettingsNamespaceView): boolean {
+export function needsSetup(row: ProviderRow): boolean {
   if (row.entry.settingsPath.length > 0) return false
   if (row.credential?.configured === true) return false
-  return !namespace.secrets.some(secret =>
-    secret.set && secret.path.length === 1 && secret.path[0] === 'apiKey')
+  return !row.literalApiKeyConfigured
 }
 
 function targetOf(row: ProviderRow): EditorTarget {
@@ -153,7 +151,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
           const namespace = state.namespaces.get(target.settingsNs)
           /* v8 ignore next -- the join marks a row configured only when its namespace resolved */
           if (namespace === undefined) return null
-          if (needsSetup(row, namespace)) {
+          if (needsSetup(row)) {
             // First-run posture: the provider exists but has no key — the
             // setup card IS its presence on the page.
             return (

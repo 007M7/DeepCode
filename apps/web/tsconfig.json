@@ -34,6 +34,7 @@
     "tests/details-session-lifecycle.e2e.ts",
     "tests/settings-chrome.e2e.ts",
     "tests/models-settings.e2e.ts",
+    "tests/onboarding-deepseek-config.e2e.ts",
     "tests/workspace-management.e2e.ts",
     "tests/replay-round-trip.e2e.ts",
     "tests/seeded-history.e2e.ts",
