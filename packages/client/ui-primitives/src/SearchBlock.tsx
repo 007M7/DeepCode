@@ -10,7 +10,8 @@
 
 import { useCallback, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { writeClipboard } from './clipboard.ts'
+import { headTailCap } from './head-tail-cap.ts'
+import { useCopyFeedback } from './use-copy-feedback.ts'
 import css from './SearchBlock.module.css'
 
 /**
@@ -173,23 +174,13 @@ export function SearchBlock(props: SearchBlockProps) {
   const { truncated, total, maxLines = DEFAULT_SEARCH_MAX_LINES, className } = props
   const [expanded, setExpanded] = useState(false)
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())
-  const [copied, setCopied] = useState(false)
 
   // `props` is a fresh object each render, so memoizing on it never hits; the
   // flatten is cheap, so it runs inline keyed on the collapse set instead.
   const rows = toRows(props, collapsed)
   const shown = shownCount(props)
   const empty = rows.length === 0
-  const text = copyText(props)
-
-  const onCopy = useCallback(() => {
-    if (copied) return
-    void writeClipboard(text).then((ok) => {
-      if (!ok) return
-      setCopied(true)
-      window.setTimeout(() => { setCopied(false) }, 1000)
-    })
-  }, [copied, text])
+  const { copied, onCopy } = useCopyFeedback(copyText(props))
 
   const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
 
@@ -202,12 +193,7 @@ export function SearchBlock(props: SearchBlockProps) {
     })
   }, [])
 
-  const hidden = rows.length - maxLines
-  const capped = hidden > 0 && !expanded
-  // Same split arithmetic as TerminalBlock (and the TUI transcript's collapsed
-  // tool card), so a long result's head and tail slices agree across surfaces.
-  const headLines = Math.ceil(maxLines / 2)
-  const tailLines = maxLines - headLines
+  const { hidden, capped, headLines, tailLines } = headTailCap(rows.length, maxLines, expanded)
   const head = capped ? rows.slice(0, headLines) : rows
   const naturalTail = capped ? rows.slice(rows.length - tailLines) : []
   // When the tail slice begins inside a file's matches, its own header sits
