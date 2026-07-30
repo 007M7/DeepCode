@@ -177,7 +177,7 @@ describe('deriveTrajectoryLayout', () => {
   })
 
   it('bounds a long Markdown-like thinking preview while retaining its full detail', () => {
-    const thinking = `# Investigation\n\n**finding** ${'- repeated detail '.repeat(1_000)}`
+    const thinking = `# Investigation\n\n**NAVIGATION_OK file_path** ${'- repeated detail '.repeat(1_000)}`
     const nodes = [{
       kind: 'assistant', seq: 1, time: 5_000, turn: 1, step: 0,
       blocks: [{ kind: 'reasoning', text: thinking }],
@@ -189,7 +189,7 @@ describe('deriveTrajectoryLayout', () => {
     const message = turns[0]?.groups.flatMap(group => group.cells)
       .find(cell => cell.kind === 'message')
 
-    expect(message?.text.startsWith('Investigation finding')).toBe(true)
+    expect(message?.text.startsWith('Investigation NAVIGATION_OK file_path')).toBe(true)
     expect(message?.text.endsWith('…')).toBe(true)
     expect(message?.text.length).toBeLessThanOrEqual(513)
     expect(message?.thinkingDetail).toBe(thinking)

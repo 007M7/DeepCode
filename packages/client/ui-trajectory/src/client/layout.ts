@@ -12,6 +12,7 @@ import type {
   RequestView,
   ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import { extractMarkdownPlainText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   TrajectoryCellProps,
   TrajectorySourceBlock,
@@ -925,13 +926,7 @@ function summarizeText(text: string): string {
  */
 export function trajectoryPreviewText(text: string): string {
   const source = text.slice(0, PREVIEW_SOURCE_CHARACTERS)
-  const compact = source
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/(^|\s)(?:#{1,6}|[-+*>])\s+/g, '$1')
-    .replace(/[*_~`]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const compact = extractMarkdownPlainText(source).replace(/\s+/g, ' ').trim()
   const preview = compact.slice(0, PREVIEW_OUTPUT_CHARACTERS).trimEnd()
   return source.length < text.length || preview.length < compact.length
     ? `${preview}…`
