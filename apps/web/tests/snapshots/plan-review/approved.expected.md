@@ -12,6 +12,10 @@
   - img
 - button "编辑":
   - img
+- button "上下文注入":
+  - img
+  - img
+  - text: 上下文注入
 - 'button "Think The user wants me to plan a small change to add a `--greeting` flag to a CLI. They explicitly told me not to read or write any files, and to call exit_plan_mode with a short plan. Let me do that directly."':
   - img
   - img
