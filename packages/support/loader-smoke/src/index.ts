@@ -141,6 +141,13 @@ export interface LoaderSmokeOptions {
   readonly prepare?: (cwd: string) => Promise<void> | void
   /** Optional world-state assertion run in the isolated cwd before cleanup. */
   readonly inspect?: (cwd: string) => Promise<void> | void
+  /**
+   * Exact process exit code this smoke expects; defaults to `0`. Scenarios
+   * pinning a designed failure surface (a one-shot turn ending in an error
+   * result) declare its nonzero exit here, and a run that exits any other
+   * way — including succeeding — still fails the smoke.
+   */
+  readonly expectedExitCode?: number
 }
 
 /** Captured output from a Loader smoke that exited successfully. */
@@ -187,8 +194,9 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
     if (result.timedOut) {
       throw new Error(`${options.label} did not exit within ${processTimeoutMs / 1_000}s. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
     }
-    if (result.failed) {
-      throw new Error(`${options.label} exited ${String(result.exitCode)}. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
+    const expectedExitCode = options.expectedExitCode ?? 0
+    if (result.exitCode !== expectedExitCode) {
+      throw new Error(`${options.label} exited ${String(result.exitCode)} (expected ${expectedExitCode}). stdout:\n${result.stdout}\nstderr:\n${result.stderr}`)
     }
     await options.inspect?.(cwd)
     return { stdout: result.stdout, stderr: result.stderr }

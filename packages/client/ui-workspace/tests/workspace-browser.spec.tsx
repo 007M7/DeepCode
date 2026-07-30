@@ -56,6 +56,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     startSession: vi.fn(),
     open: vi.fn(),
     renameSession: vi.fn(async () => {}),
+    forkSession: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
@@ -124,7 +125,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('alpha-s')).toBeNull()
   })
 
-  it('unfolds a session subtree through the row twist', () => {
+  it('renders a fork child as a top-level row without a session twist', () => {
     const parent = summary('parent-s', 2)
     const child = { ...summary('child-s', 1), parentId: parent.id }
     mount({
@@ -132,11 +133,9 @@ describe('WorkspaceBrowser', () => {
       useWorkspaces: hook(workspaceState([workspace('alpha', ['parent-s', 'child-s'])])),
     })
     fireEvent.click(screen.getByText('alpha'))
-    expect(screen.queryByText('child-s')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand' }))
     expect(screen.getByText('child-s')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse' }))
-    expect(screen.queryByText('child-s')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Expand|Collapse/ })).toBeNull()
+    expect(screen.getByText('child-s').closest('[role="treeitem"]')?.getAttribute('draggable')).toBe('true')
   })
 
   it('auto-expands the selected session group and starts a session from the group ＋', () => {

@@ -78,6 +78,7 @@ Both methods return a **`card`-tagged render intent** — pick the card kind tha
   - `generic` supplies an optional title and content.
   - `terminal` supplies raw output and optional exit metadata; each UI renders its capable or fallback view.
   - `diff` supplies applied hunks, often derived by `output.presentationMeta` and carried in persisted `result.meta` so replay reproduces them. Mutation tools keep a diff result because the completed view replaces the pending card.
+  - `web` supplies a completed web retrieval, discriminated by `kind: 'search' | 'fetch'` (the structured search sources or the fetch summary), derived from `result.meta`; it carries no body copy, so a UI without the `web` capability falls back to the raw result content. (tool-web `web_search`/`web_fetch`.)
 
 Hard rules (they bite if broken):
 

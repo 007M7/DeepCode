@@ -4,8 +4,9 @@
 // view groups them into tool rows through its keyed toolview slot (figma
 // step-summary flow). Shared by finalized nodes and the streaming partial;
 // the turn-level loading dots live in the chat view's tail, not here.
-// Finalized content (text) nodes append IconActions once streaming ends;
-// Think / tool-head-only nodes stay chrome-free.
+// Finalized turn-tail content (text) nodes append IconActions once streaming
+// ends (`time` is omitted for mid-turn narration); Think / tool-head-only
+// nodes stay chrome-free.
 
 import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -21,8 +22,13 @@ export interface AssistantMarkdownProps {
   streaming: boolean
   /** Frozen partial of an aborted turn: rendered with a 已停止 marker. */
   interrupted?: boolean | undefined
-  /** Unix epoch ms for the finalized IconActions clock; omitted while streaming. */
+  /** Unix epoch ms for the IconActions clock; omitted while streaming or when
+   *  the parent withholds chrome (mid-turn content assistants). */
   time?: number | undefined
+  /** Event sequence used as the fork boundary; omitted while streaming. */
+  seq?: number | undefined
+  /** Fork the session through the turn containing this finalized message. */
+  onFork?: ((seq: number) => void) | undefined
 }
 
 function firstLine(text: string): string {
@@ -60,7 +66,7 @@ function ThinkRow({ text, running }: { text: string; running: boolean }) {
 }
 
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, time,
+  blocks, streaming, interrupted, time, seq, onFork,
 }: AssistantMarkdownProps) {
   const last = blocks.length - 1
   // Tool-call heads render as tool rows in the chat view's grouping pass, so
@@ -91,6 +97,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           text={copyText(blocks)}
           time={time}
           clock="end"
+          onBranch={onFork === undefined || seq === undefined ? undefined : () => { onFork(seq) }}
           className={css.actions}
         />
       )}

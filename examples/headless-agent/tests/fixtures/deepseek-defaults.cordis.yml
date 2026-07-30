@@ -10,7 +10,7 @@
           thinking: disabled
       - id: cli-agent
         config:
-          provider: deepseek
+          provider: deepseek-official
           model: deepseek-v4-flash
           persistenceRoot: './.sessions'
           workspaceContext: false

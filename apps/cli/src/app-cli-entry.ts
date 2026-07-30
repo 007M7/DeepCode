@@ -1,10 +1,12 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
  * for the Web/headless surface.
- * Everything here is what must exist before the Loader runs: layered env,
- * the patch composition over the shipped base and surface overlay (profile json + CLI
- * flags + the resolved frontend dist), and the fail-loud triple after the
- * tree settles.
+ * Everything here is what must exist before the Loader runs: the patch
+ * composition over the shipped base and surface overlay (profile json + CLI
+ * flags + the resolved frontend dist), and the fail-loud triple after the tree
+ * settles. The environment is what the bin already loaded (ambient plus the
+ * invoking directory's `.env`); `$DSH_HOME/.env` belongs to the credential
+ * provider and is never hoisted here.
  */
 
 import { readFileSync } from 'node:fs'
@@ -14,8 +16,7 @@ import { join, resolve } from 'node:path'
 import { Context } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { boot, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { boot, installFailLoud, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
@@ -144,12 +145,11 @@ export class AppCLIEntry {
   constructor(private readonly options: AppCLIEntryOptions) {}
 
   /**
-   * Run the boot chain: layered env → patch composition → Loader include
-   * boot (dev row before await) → fail-loud triple.
+   * Run the boot chain: patch composition → Loader include boot (dev row
+   * before await) → fail-loud triple.
    * @returns the settled root context and the listening port.
    */
   async run(): Promise<{ ctx: Context; port: number }> {
-    this.loadEnvLayers()
     this.composePatches()
     await this.bootTree()
     this.assertBoot()
@@ -157,11 +157,6 @@ export class AppCLIEntry {
     /* v8 ignore next -- the sweep above guarantees an ACTIVE webserver row */
     if (port === undefined) throw new Error('dsh: httpServer service missing after settled boot')
     return { ctx: this.ctx, port }
-  }
-
-  /** Layered .env: ambient > cwd (bin already loaded) > $DSH_HOME (loadEnvFile never overrides). */
-  private loadEnvLayers(): void {
-    loadEnv('dsh', resolveDshHome())
   }
 
   /**

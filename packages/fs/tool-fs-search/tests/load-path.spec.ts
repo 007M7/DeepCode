@@ -82,7 +82,7 @@ describe('dsh-tool-fs-search real-load-path guard', () => {
     const loader = Object.create(Loader.prototype) as Loader
     const unwrapped = loader.unwrapExports(toolFsSearch) as Parameters<Context['plugin']>[0]
     // A collapsed export shape (dropped inject) would throw "without inject" here.
-    const fiber = await ctx.plugin(unwrapped)
+    const fiber = await ctx.plugin(unwrapped, { sampleOverCapGlobResults: true })
     expect(ctx.tools.schemas().map(s => s.name)).toEqual(expect.arrayContaining(['glob', 'grep']))
     await fiber.dispose()
   })

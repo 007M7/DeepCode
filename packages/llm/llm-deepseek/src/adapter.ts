@@ -1,21 +1,24 @@
 /**
  * `DeepSeekAdapter`: fetch + SSE against a DeepSeek (OpenAI-compatible)
- * chat-completions endpoint, emitting harness StreamChunks.
+ * chat-completions endpoint, emitting harness StreamChunks. The adapter is
+ * transport-only: connection facts arrive through a thunk resolved once per
+ * operation and the bearer token through a per-request resolver, so the
+ * registering plugin owns validation, layering, and credential policy.
  *
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   GenerateOptions,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
   ResolvedRetryPolicy,
-  RetryPolicyConfig,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import { idleWatchdog, MAX_TIMER_DELAY_MS, timeoutOf } from '@deepseek-ai/dsh-timeout'
+import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
 import { parseSse } from './sse.ts'
@@ -34,24 +37,48 @@ export interface DeepSeekCatalogModel {
   contextWindow?: number
 }
 
-/** Constructor options for {@link DeepSeekAdapter}; the plugin's `apply` resolves them from Config + environment. */
-export interface DeepSeekAdapterOptions {
-  /** Bearer token sent in the `authorization` header on every request. */
-  apiKey: string
+/**
+ * Validated connection facts for one operation. The plugin's
+ * `resolveAdapterOptions` is the one explicit resolve step producing this
+ * shape; the adapter trusts it and re-reads it per operation, which is what
+ * makes a configuration change reach the next request without re-registration.
+ */
+export interface DeepSeekConnectionOptions {
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
+  /**
+   * Literal API key of this same resolution, when the configuration carried
+   * one. Travelling with the endpoint is the point: a request can never pair
+   * one generation's URL with another generation's secret.
+   */
+  apiKey?: string
+  /** Credential reference of this same resolution, resolved per request when no literal key exists. */
+  apiKeyEnv: CredentialRef
   /** Request defaults applied to every call (thinking mode, effort). */
-  defaults?: RequestDefaults
+  defaults: RequestDefaults
   /** Default per-request output cap; explicit request values win. */
-  maxTokens?: number
+  maxTokens: number
   /** Positive context capacity used when the selected model has no exact value. */
-  defaultContextWindow?: number
+  defaultContextWindow: number
   /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
-  models?: readonly DeepSeekCatalogModel[]
+  models: readonly DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding. */
-  streamIdleTimeoutMs?: number
-  /** Provider-owned model-request retry policy; omission uses normal defaults. */
-  retryPolicy?: RetryPolicyConfig
+  streamIdleTimeoutMs: number
+  /** Provider-owned model-request retry policy, already resolved. */
+  retryPolicy: ResolvedRetryPolicy
+}
+
+/** Constructor options for {@link DeepSeekAdapter}: the two resolution seams the plugin owns. */
+export interface DeepSeekAdapterOptions {
+  /** Current validated connection facts; called once per operation. */
+  options: () => DeepSeekConnectionOptions
+  /**
+   * Resolve the bearer token for the connection facts of one request. The
+   * snapshot is passed in — never re-read — so the key can only ever come
+   * from the same resolution as the endpoint it is sent to. Throws `LlmError`
+   * `MISSING_CREDENTIAL` when no key is available anywhere.
+   */
+  resolveApiKey: (connection: DeepSeekConnectionOptions) => Promise<string>
 }
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -124,35 +151,8 @@ export function httpErrorCode(status: number, error?: WireError['error']): strin
  * map to `ABORTED`; the configured per-read idle watchdog maps to `TIMEOUT`.
  */
 export class DeepSeekAdapter extends LlmAdapter {
-  private readonly streamIdleTimeoutMs: number
-  private readonly retryPolicy: ResolvedRetryPolicy
-  private readonly defaultContextWindow: number
-  private readonly maxTokens: number
-
-  constructor(private readonly options: DeepSeekAdapterOptions) {
+  constructor(private readonly config: DeepSeekAdapterOptions) {
     super()
-    if (options.defaults?.thinking === 'disabled'
-      && options.defaults.reasoningEffort !== undefined
-      && options.defaults.reasoningEffort !== 'off') {
-      throw new Error('llm-deepseek: only reasoningEffort "off" can be configured when thinking is disabled')
-    }
-    this.defaultContextWindow = options.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW
-    if (!Number.isInteger(this.defaultContextWindow) || this.defaultContextWindow <= 0) {
-      throw new Error('llm-deepseek: defaultContextWindow must be a positive integer')
-    }
-    this.maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS
-    if (!Number.isSafeInteger(this.maxTokens) || this.maxTokens <= 0) {
-      throw new Error('llm-deepseek: maxTokens must be a positive safe integer')
-    }
-    this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
-    if (!Number.isFinite(this.streamIdleTimeoutMs)
-      || this.streamIdleTimeoutMs <= 0
-      || this.streamIdleTimeoutMs > MAX_TIMER_DELAY_MS) {
-      throw new Error(
-        `llm-deepseek: streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
-      )
-    }
-    this.retryPolicy = resolveRetryPolicy(options.retryPolicy, 'llm-deepseek: retryPolicy')
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
@@ -160,11 +160,11 @@ export class DeepSeekAdapter extends LlmAdapter {
   }
 
   override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
-    return this.retryPolicy
+    return this.config.options().retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve((this.options.models ?? []).map(model => modelInfo(provider, model)))
+    return Promise.resolve(this.config.options().models.map(model => modelInfo(provider, model)))
   }
 
   override resolveModel(
@@ -172,16 +172,17 @@ export class DeepSeekAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    const configured = this.options.models?.find(entry => entry.id === model)
+    const connection = this.config.options()
+    const configured = connection.models.find(entry => entry.id === model)
     const contextWindow = configured?.contextWindow
-      ?? this.defaultContextWindow
+      ?? connection.defaultContextWindow
     return Promise.resolve({
       ...configured === undefined
         ? { provider, id: model, name: model }
         : modelInfo(provider, configured),
       context: { contextWindow },
-      defaultMaxTokens: this.maxTokens,
-      ...this.options.defaults?.thinking === 'disabled'
+      defaultMaxTokens: connection.maxTokens,
+      ...connection.defaults.thinking === 'disabled'
         ? {
           reasoning: {
             efforts: OFF_ONLY_REASONING_EFFORTS,
@@ -191,9 +192,9 @@ export class DeepSeekAdapter extends LlmAdapter {
         : {
           reasoning: {
             efforts: REASONING_EFFORTS,
-            defaultEffort: this.options.defaults?.reasoningEffort === 'off'
+            defaultEffort: connection.defaults.reasoningEffort === 'off'
               ? OFF_REASONING_EFFORT
-              : this.options.defaults?.reasoningEffort === 'max'
+              : connection.defaults.reasoningEffort === 'max'
                 ? MAX_REASONING_EFFORT
                 : HIGH_REASONING_EFFORT,
           },
@@ -202,12 +203,19 @@ export class DeepSeekAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    // One resolution per stream call: connection facts and the credential
+    // freeze here and hold for this whole request, so an in-flight stream
+    // never observes a configuration change and the next call re-resolves.
+    // The key resolves *from this snapshot*, so an endpoint and the secret
+    // sent to it can never come from different configuration generations.
+    const connection = this.config.options()
+    const apiKey = await this.config.resolveApiKey(connection)
     const consumer = new AbortController()
     const upstream = options.signal === undefined
       ? consumer.signal
       : AbortSignal.any([options.signal, consumer.signal])
-    using watchdog = idleWatchdog(upstream, this.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE)
-    const iterator = this.request(options, watchdog.signal)[Symbol.asyncIterator]()
+    using watchdog = idleWatchdog(upstream, connection.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE)
+    const iterator = this.request(options, watchdog.signal, connection, apiKey)[Symbol.asyncIterator]()
     let exhausted = false
     try {
       while (true) {
@@ -221,7 +229,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     } catch (error: unknown) {
       if (timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE) !== undefined) {
         throw new LlmError(
-          `DeepSeek stream idle timeout after ${this.streamIdleTimeoutMs}ms`,
+          `DeepSeek stream idle timeout after ${connection.streamIdleTimeoutMs}ms`,
           'TIMEOUT',
           { cause: error },
         )
@@ -230,7 +238,7 @@ export class DeepSeekAdapter extends LlmAdapter {
         throw new LlmError('DeepSeek request aborted by caller', 'ABORTED', { cause: error })
       }
       if (error instanceof LlmError) throw error
-      throw new LlmError(`DeepSeek API stream from ${this.options.baseURL} failed`, 'TRANSPORT', { cause: error })
+      throw new LlmError(`DeepSeek API stream from ${connection.baseURL} failed`, 'TRANSPORT', { cause: error })
     } finally {
       consumer.abort('DeepSeek stream consumer stopped')
       if (!exhausted && iterator.return !== undefined) {
@@ -243,13 +251,18 @@ export class DeepSeekAdapter extends LlmAdapter {
     }
   }
 
-  private async * request(options: GenerateOptions, signal: AbortSignal): AsyncIterable<StreamChunk> {
-    const body = serializeRequest(options, this.options.defaults)
+  private async * request(
+    options: GenerateOptions,
+    signal: AbortSignal,
+    connection: DeepSeekConnectionOptions,
+    apiKey: string,
+  ): AsyncIterable<StreamChunk> {
+    const body = serializeRequest(options, connection.defaults)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
     // transport boundary, never a serialization failure.
     const payload = JSON.stringify(body)
     const headers = {
-      'authorization': `Bearer ${this.options.apiKey}`,
+      'authorization': `Bearer ${apiKey}`,
       'content-type': 'application/json',
       'accept': 'text/event-stream',
       ...attributionHeaders(),
@@ -265,7 +278,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     // outweighs its additional runtime dependencies.
     let response: Response
     try {
-      response = await fetch(`${this.options.baseURL}/chat/completions`, {
+      response = await fetch(`${connection.baseURL}/chat/completions`, {
         method: 'POST',
         headers,
         body: payload,
@@ -279,7 +292,7 @@ export class DeepSeekAdapter extends LlmAdapter {
       // lives on `cause`. Wrapping with the endpoint and chaining the cause
       // lets `errorChain` render the full diagnosis at every reporting seam.
       throw new LlmError(
-        `DeepSeek API request to ${this.options.baseURL} failed`,
+        `DeepSeek API request to ${connection.baseURL} failed`,
         'TRANSPORT',
         { cause: error },
       )

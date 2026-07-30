@@ -18,11 +18,12 @@ const SEAT_CONTENT: Record<string, string> = {
 
 function mount({
   wide = true,
+  onboardingActive = true,
   rows = [
     { id: 'general', order: 0, label: 'General' },
     { id: 'models', order: 10, label: 'Models' },
   ],
-}: { wide?: boolean; rows?: Row[] } = {}) {
+}: { wide?: boolean; onboardingActive?: boolean; rows?: Row[] } = {}) {
   // Mutable row source standing in for the bound useSections hook; bump()
   // plays a ledger change through the same observable contract.
   let current = rows
@@ -33,10 +34,16 @@ function mount({
       return SEAT_CONTENT[key]
     }) as SettingsRootComponentProps['renderSlot'],
   )
-  // Global standard kit stubs: the shell consumes neither hook.
+  const useSessions = ((select: (state: unknown) => unknown) => select(onboardingActive
+    ? { phase: 'ready', current: undefined, byId: {} }
+    : {
+      phase: 'ready',
+      current: 'active-session',
+      byId: { 'active-session': { blank: false } },
+    })) as never
   const unusedHook = (() => { throw new Error('unused by SettingsRoot') }) as never
   const props: SettingsRootComponentProps = {
-    useSessions: unusedHook,
+    useSessions,
     useWorkspaces: unusedHook,
     wide,
     useSections: (select) => {
@@ -155,6 +162,22 @@ describe('SettingsPanel navigation', () => {
     expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBe('true')
     expect(screen.getByTestId('section-models')).toBeTruthy()
     expect(screen.queryByTestId('section-general')).toBeNull()
+  })
+
+  it('hands Hero readiness and a direct section opener to onboarding registrants', () => {
+    const { renderSlot } = mount()
+    const onboardingCall = renderSlot.mock.calls.find(call => call[0] === 'settings.onboarding')
+    expect(onboardingCall?.[1]).toMatchObject({ active: true })
+    act(() => {
+      (onboardingCall?.[1] as { openSection: (id: string) => void }).openSection('models')
+    })
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByTestId('section-models')).toBeTruthy()
+
+    cleanup()
+    const active = mount({ onboardingActive: false }).renderSlot.mock.calls
+      .find(call => call[0] === 'settings.onboarding')
+    expect(active?.[1]).toMatchObject({ active: false })
   })
 
   it('falls back to the first row when the active entry unregisters', () => {

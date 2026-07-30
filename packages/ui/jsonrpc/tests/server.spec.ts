@@ -121,7 +121,7 @@ describe('HarnessSdkServer', () => {
 
       const init = await server.handleRequest('initialize', {
         cwd: storageDir,
-        provider: 'deepseek',
+        provider: 'deepseek-official',
         model: 'dsagent-model',
         maxTokens: 321,
       }) as { serverInfo: { name: string } }
@@ -154,7 +154,7 @@ describe('HarnessSdkServer', () => {
       const orphanHandle = await ctx.agents.create({
         sessionId: SessionId('orphan-session'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'dsagent-model' },
+        agentOptions: { provider: 'deepseek-official', model: 'dsagent-model' },
       })
       orphanHandle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'outside the sdk session map' }], source: { kind: 'user' } }))
       await orphanHandle.agent.whenIdle()
@@ -352,7 +352,7 @@ describe('HarnessSdkServer', () => {
     try {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
 
-      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'plain-model' })
+      await server.initialize({ cwd: storageDir, provider: 'deepseek-official', model: 'plain-model' })
       await server.prompt({
         sessionId: 'plain',
         contentBlocks: [{ type: 'text', text: 'hello' }],
@@ -376,20 +376,20 @@ describe('HarnessSdkServer', () => {
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('main'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       // A custom in-process provider may own its child at the provider/root
       // scope while preserving durable parent lineage.
       const handle = await ctx.agents.create({
         sessionId: SessionId('child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('main') },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       expect(ctx.agents.roots()).toContain(handle.agent)
       const parentlessHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('parentless-child-session'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       await settleSubagent(ctx, parentHandle.agent, {
         provider: 'spawn',
@@ -446,12 +446,12 @@ describe('HarnessSdkServer', () => {
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('collision-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const collidingChild = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('remote-run-id'),
         meta: { cwd: storageDir, parentSession: SessionId('collision-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
 
       await settleSubagent(ctx, parentHandle.agent, {
@@ -485,12 +485,12 @@ describe('HarnessSdkServer', () => {
       const parentHandle = await ctx.agents.create({
         sessionId: SessionId('continuation-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const childHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('continuation-child'),
         meta: { cwd: storageDir, parentSession: SessionId('continuation-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
 
       await settleSubagent(ctx, parentHandle.agent, {
@@ -530,12 +530,12 @@ describe('HarnessSdkServer', () => {
       const oldParent = await ctx.agents.create({
         sessionId: SessionId('old-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const oldChild = await oldParent.agent.ctx.agents.create({
         sessionId: SessionId('reused-child'),
         meta: { cwd: storageDir, parentSession: SessionId('old-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const first = Promise.withResolvers<SubagentResult>()
       const sameLifetime = Promise.withResolvers<SubagentResult>()
@@ -571,12 +571,12 @@ describe('HarnessSdkServer', () => {
       const newParent = await ctx.agents.create({
         sessionId: SessionId('new-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const newChild = await newParent.agent.ctx.agents.create({
         sessionId: SessionId('reused-child'),
         meta: { cwd: storageDir, parentSession: SessionId('new-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       currentLocalAgent = newChild.agent
       const secondRun = await ctx.subagents.start('reused', {
@@ -629,12 +629,12 @@ describe('HarnessSdkServer', () => {
       const parent = await ctx.agents.create({
         sessionId: SessionId('provider-reuse-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const child = await parent.agent.ctx.agents.create({
         sessionId: SessionId('provider-reuse-child'),
         meta: { cwd: storageDir, parentSession: SessionId('provider-reuse-parent') },
-        agentOptions: { model: 'deepseek' },
+        agentOptions: { model: 'deepseek-official' },
       })
       const localResult = Promise.withResolvers<SubagentResult>()
       const remoteResult = Promise.withResolvers<SubagentResult>()
@@ -722,18 +722,18 @@ describe('HarnessSdkServer', () => {
       parentHandle = await ctx.agents.create({
         sessionId: SessionId('fallback-parent'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       handle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('fallback-child-session'),
         meta: { cwd: storageDir, parentSession: SessionId('fallback-parent') },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       const fallbackChild = handle.agent
       failedHandle = await parentHandle.agent.ctx.agents.create({
         sessionId: SessionId('failed-child-session'),
         meta: { cwd: storageDir },
-        agentOptions: { provider: 'deepseek', model: 'deepseek' },
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-official' },
       })
       const missedStartResult = Promise.withResolvers<SubagentResult>()
       const disposeMissedStartProvider = ctx.subagents.registerProvider({
@@ -831,11 +831,11 @@ describe('HarnessSdkServer', () => {
       const server = new HarnessSdkServer(ctx, new FakeTransport())
       const inspect = server as unknown as { hasAdapterFor(provider: string): boolean }
 
-      expect(inspect.hasAdapterFor('deepseek')).toBe(true)
+      expect(inspect.hasAdapterFor('deepseek-official')).toBe(true)
       expect(inspect.hasAdapterFor('missing-provider')).toBe(false)
-      await server.initialize({ cwd: storageDir, provider: 'deepseek', model: 'preinstalled-model' })
+      await server.initialize({ cwd: storageDir, provider: 'deepseek-official', model: 'preinstalled-model' })
 
-      expect(ctx.get('llm')?.listProviders().filter(provider => provider.id === 'deepseek')).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+      expect(ctx.get('llm')?.listProviders().filter(provider => provider.id === 'deepseek-official')).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -854,7 +854,7 @@ describe('HarnessSdkServer', () => {
       await expect(server.initialize({ cwd: storageDir, provider: 'private', model: 'new-model' }))
         .rejects.toThrow('no adapter registered for provider "private"')
 
-      expect(ctx.get('llm')?.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+      expect(ctx.get('llm')?.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
       await server.shutdown()
     } finally {
       await ctx.fiber.dispose()
@@ -871,7 +871,7 @@ describe('HarnessSdkServer', () => {
         const server = new HarnessSdkServer(ctx, new FakeTransport())
         await expect(server.initialize({
           cwd: storageDir,
-          provider: 'deepseek',
+          provider: 'deepseek-official',
           model: 'model',
           maxTokens,
         })).rejects.toThrow('initialize maxTokens must be a positive safe integer')
