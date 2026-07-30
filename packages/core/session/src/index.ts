@@ -23,7 +23,7 @@ export * from './types.ts'
 export type { AssistantMessage, ToolResultMessage, UserMessage } from '@deepseek-ai/dsh-llm'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
-export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
+export { interruptedTurnClosers, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
 export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
@@ -382,14 +382,25 @@ export class Session {
 
   /**
    * The first seq appended IN THIS PROCESS: the length of the constructor
-   * seed (0 without one). Events below it entered through construction —
-   * replay, fork, or resume — and were never published on the `session/event`
-   * firehose (constructor seeds do not emit), so consumers that replay the
-   * log as a publication substitute (telemetry adoption) start here. Distinct
-   * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
-   * session's constructor seed is its full stored log, while its header keeps
-   * the original fork value — this field is the in-process construction fact
-   * and is deliberately not persisted.
+   * seed (0 without one). Events with smaller seq values entered through
+   * construction — replay, fork, or resume — and were never published on the
+   * `session/event` firehose (constructor seeds do not emit), so consumers
+   * that replay the log as a publication substitute (telemetry adoption)
+   * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
+   * boundary: a resumed session's constructor seed is its full stored log,
+   * while its header keeps the original fork value — this field is the
+   * in-process construction fact.
+   *
+   * Not persisted itself: a seeded session projects it into the log as the
+   * `session/end-seed` event, which is what a consumer reading STORED history
+   * reads. Locate the LAST such event, not necessarily one at this seq — a
+   * seed already ending in one is not re-marked, so reopening an untouched
+   * session leaves that event at a smaller seq than `firstLiveSeq`. Prefer
+   * this field in-process: it is exact before the marker reaches storage.
+   *
+   * When this lifecycle appends the marker, it occupies this seq before the
+   * store attaches and therefore does not publish either. Otherwise this seq
+   * holds an ordinary published write.
    */
   readonly firstLiveSeq: number
 
@@ -427,6 +438,13 @@ export class Session {
     }
     this.firstLiveSeq = this.log.length
     this.header = snapshotSessionHeader(id, header)
+    // Appended here so the marker is already in `events` when a backend
+    // captures the creation seed: no load-time write. Re-marking is skipped
+    // because a cold session is resumed on first touch, so repeatedly opening
+    // one must not grow its log per open.
+    if (this.firstLiveSeq > 0 && this.log.at(-1)?.type !== 'session/end-seed') {
+      this.append('session/end-seed', {})
+    }
   }
 
   /** Cached immutable public snapshot of the private append-only log. */
