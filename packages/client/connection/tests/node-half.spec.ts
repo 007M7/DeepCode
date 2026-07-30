@@ -107,7 +107,7 @@ describe('connection node half', () => {
     // passed), but each privileged method stays loopback-only and 403s.
     for (const method of [
       'host.pickDirectory', 'host.openPath',
-      'settings.describe', 'settings.update', 'settings.replace',
+      'settings.describe', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
     ]) {
       const denied = fakeResponse()
@@ -191,7 +191,7 @@ describe('connection node half over a real HTTP server', () => {
       // Reads are as privileged as writes: describe returns the exposed
       // configuration, and credentials.describe probes arbitrary env-var names.
       for (const method of [
-        'settings.describe', 'settings.update', 'settings.replace',
+        'settings.describe', 'settings.update', 'settings.replace', 'settings.mutate',
         'credentials.describe', 'credentials.set', 'credentials.unset',
         'host.pickDirectory', 'host.openPath',
       ]) {

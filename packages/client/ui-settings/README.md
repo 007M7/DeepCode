@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-Settings shell plugin: a pure composition face. It occupies `sidebar.settings` with the trigger chrome and modal settings panel, and declares the slots registrants fill: `settings.trigger` / `settings.header` / `settings.close` (chrome content), `settings.section` (one page per feature), and `settings.onboarding` (feature-owned overlays on the empty Hero). The shell ships no copy and reads no locale state — all text arrives from registrants (ui-settings-general owns chrome and General; features own their sections, rows, and onboarding overlays).
+Settings shell plugin: a pure composition face. It occupies `sidebar.settings` with the trigger chrome and modal settings panel, and declares the slots registrants fill: `settings.trigger` / `settings.header` / `settings.close` (chrome content), `settings.section` (one page per feature), and `settings.onboarding` (ordered feature-owned steps on the empty Hero). The shell ships no copy and reads no locale state — all text arrives from registrants (ui-settings-general owns chrome, General, and the product welcome step; features own their sections, rows, and conditional onboarding steps).
 
-The shell supplies onboarding registrants only two navigation facts: whether the session surface is the empty Hero and an `openSection(id)` callback that opens the panel on a registered section. Registrants own capability readiness, dismissal, copy, and mutations; the shell therefore does not become a second configuration fact source.
+The shell projects the onboarding ledger into ascending order and mounts exactly one step at a time. The active registrant receives its id, `complete()`, and an `openSection(id)` callback; completing or skipping transfers ownership to the next entry. Registrants own durable completion, capability readiness, copy, and mutations, so two independently registered dialogs cannot stack and the shell does not become a second configuration fact source.
 
 ## Model Experience
 

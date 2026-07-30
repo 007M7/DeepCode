@@ -222,7 +222,7 @@ describe('settings domain', () => {
     expect(JSON.stringify(value)).not.toContain('user-secret')
   })
 
-  it('serves only namespaces a registered model provider addresses', async () => {
+  it('keeps arbitrary plugin namespaces outside the explicit Web allowlist', async () => {
     // The settings seam is general: any plugin may register a namespace for
     // its own configuration. The Web configuration plane is not — it is the
     // model-provider surface, and a namespace nothing in the provider
@@ -246,6 +246,21 @@ describe('settings domain', () => {
     }
     // The write never reached the seam.
     expect(ctx.settings.describe().find(d => String(d.ns) === 'some-other-plugin')?.value).toEqual({})
+  })
+
+  it('serves the product onboarding namespace without invalidating the model catalog', async () => {
+    const ctx = await harness()
+    ctx.settings.register(settingsNamespace('ui-onboarding'), z.object({ welcomeNoticeVersion: z.string() }))
+    const api = createApiProxy(ctx, DEFAULTS)
+    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
+      .toEqual(['ui-onboarding'])
+    const frames = await collectHost(api, ['host/settings-changed'], 1, async () => {
+      expectOk(await api.settings.mutate(request({
+        ns: 'ui-onboarding',
+        ops: [{ op: 'set', path: ['welcomeNoticeVersion'], value: 'v1' }],
+      })))
+    })
+    expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'ui-onboarding' }])
   })
 
   it('refuses even a model-provider namespace once its directory entry is gone', async () => {

@@ -92,9 +92,11 @@ function harness(options: {
   }
   const controller = new ModelsSettingsStore(face as never)
   const openSection = vi.fn()
+  const complete = vi.fn()
   const unusedHook = (() => { throw new Error('unused standard hook') }) as never
   const props: DeepSeekOnboardingDialogProps = {
-    active: true,
+    stepId: 'deepseek-official',
+    complete,
     openSection,
     useSessions: unusedHook,
     useWorkspaces: unusedHook,
@@ -102,7 +104,7 @@ function harness(options: {
     useSnapshot: bindSnapshotSelector(controller.store),
     t: key => en[key],
   }
-  return { controller, openSection, props, configure: () => { fileConfigured = true } }
+  return { controller, complete, openSection, props, configure: () => { fileConfigured = true } }
 }
 
 describe('DeepSeekOnboardingDialog', () => {
@@ -122,8 +124,8 @@ describe('DeepSeekOnboardingDialog', () => {
     render(<DeepSeekOnboardingDialog {...h.props} />)
     await screen.findByRole('dialog')
     fireEvent.click(screen.getByRole('button', { name: en.onboardingGoToSettings }))
+    expect(h.complete).toHaveBeenCalledOnce()
     expect(h.openSection).toHaveBeenCalledWith('models')
-    expect(screen.queryByRole('dialog', { name: en.onboardingTitle })).toBeNull()
   })
 
   it('allows configure-later dismissal without opening settings', async () => {
@@ -131,7 +133,7 @@ describe('DeepSeekOnboardingDialog', () => {
     render(<DeepSeekOnboardingDialog {...h.props} />)
     await screen.findByRole('dialog')
     fireEvent.click(screen.getByRole('button', { name: en.onboardingLater }))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.complete).toHaveBeenCalledOnce()
     expect(h.openSection).not.toHaveBeenCalled()
   })
 
@@ -187,6 +189,7 @@ describe('DeepSeekOnboardingDialog', () => {
       const view = render(<DeepSeekOnboardingDialog {...h.props} />)
       await act(async () => { await h.controller.load() })
       expect(screen.queryByRole('dialog')).toBeNull()
+      await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
       view.unmount()
     }
   })
@@ -198,14 +201,6 @@ describe('DeepSeekOnboardingDialog', () => {
     h.configure()
     await act(async () => { await h.controller.load() })
     await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
-  })
-
-  it('stays hidden while the onboarding owner is inactive', async () => {
-    const h = harness()
-    const view = render(<DeepSeekOnboardingDialog {...h.props} active={false} />)
-    await act(async () => { await h.controller.load() })
-    expect(screen.queryByRole('dialog')).toBeNull()
-    view.rerender(<DeepSeekOnboardingDialog {...h.props} active />)
-    expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+    expect(h.complete).toHaveBeenCalledOnce()
   })
 })

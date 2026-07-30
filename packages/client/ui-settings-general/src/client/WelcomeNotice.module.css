@@ -1,0 +1,70 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 80px;
+  box-sizing: border-box;
+}
+
+/* Mask */
+.mask {
+  position: absolute;
+  left: 0px;
+  right: 0px;
+  top: 80px;
+  bottom: 0px;
+  background: rgba(0, 0, 0, 0.24);
+  /* Mask-blur */
+  backdrop-filter: blur(2px);
+}
+
+.dialog {
+  position: relative;
+  z-index: 1;
+  width: min(640px, calc(100vw - 48px));
+  max-height: calc(100vh - 128px);
+  padding: 32px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  border-radius: 24px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv3);
+  color: var(--dsw-alias-label-primary);
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 30px;
+  font-weight: 600;
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.copy p,
+.error {
+  margin: 0;
+}
+
+.error {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.primary {
+  width: 100%;
+  margin-top: 24px;
+}

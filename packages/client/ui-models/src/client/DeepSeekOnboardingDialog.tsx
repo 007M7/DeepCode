@@ -4,7 +4,7 @@
  * routes the user to that page's single credential editor.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -64,25 +64,22 @@ function unavailableDiagnostic(
  * @returns the controlled modal or null when onboarding needs no intervention.
  */
 export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): ReactNode {
-  const { active, openSection, controller, useSnapshot, t } = props
+  const { complete, openSection, controller, useSnapshot, t } = props
   const state = useSnapshot(snapshot => snapshot)
   const readiness = deepSeekReadiness(state)
-  const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
-    if (active && !dismissed && state.status === 'idle') void controller.load()
-  }, [active, controller, dismissed, state.status])
+    if (state.status === 'idle') void controller.load()
+  }, [controller, state.status])
 
-  const close = (): void => {
-    setDismissed(true)
-  }
+  useEffect(() => {
+    if (readiness.kind === 'adapter-absent' || readiness.kind === 'configured') complete()
+  }, [complete, readiness.kind])
 
   const openModels = (): void => {
-    close()
+    complete()
     openSection('models')
   }
-
-  if (!active || dismissed) return null
 
   let unavailableReason: UnavailableReason | undefined
   switch (readiness.kind) {
@@ -108,7 +105,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   return (
     <Modal
       open
-      onClose={close}
+      onClose={complete}
       title={unavailable ? t('onboardingUnavailableTitle') : t('onboardingTitle')}
       closeLabel={t('onboardingLater')}
       {...(unavailable ? {} : { description: t('onboardingDescription') })}

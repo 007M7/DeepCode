@@ -9,12 +9,15 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SettingsRootInjected, SettingsSectionRow } from './contract/slots.ts'
+import type {
+  SettingsOnboardingStep, SettingsRootInjected, SettingsSectionRow,
+} from './contract/slots.ts'
 import { SettingsRoot } from './SettingsRoot.tsx'
 
 export type {
   SettingsHeaderOwnerProps, SettingsRootComponentProps, SettingsRootInjected,
-  SettingsOnboardingOwnerProps, SettingsSectionOwnerProps, SettingsSectionRow, SettingsTriggerOwnerProps,
+  SettingsOnboardingOwnerProps, SettingsOnboardingStep, SettingsSectionOwnerProps,
+  SettingsSectionRow, SettingsTriggerOwnerProps,
 } from './contract/slots.ts'
 
 /**
@@ -35,6 +38,8 @@ export function apply(ctx: ClientContext): void {
   // getSnapshot returns the cached rows until the ledger version moves).
   let rowsVersion = -1
   let rows: readonly SettingsSectionRow[] = []
+  let onboardingVersion = -1
+  let onboardingSteps: readonly SettingsOnboardingStep[] = []
   const injected = (): SettingsRootInjected => ({
     hooks: {
       sections: {
@@ -54,6 +59,23 @@ export function apply(ctx: ClientContext): void {
           return rows
         },
         subscribe: listener => ctx.slots.subscribe('settings.section', listener),
+      },
+      onboardingSteps: {
+        getSnapshot: () => {
+          const version = ctx.slots.getVersion('settings.onboarding')
+          if (version !== onboardingVersion) {
+            onboardingVersion = version
+            onboardingSteps = ctx.slots.entries('settings.onboarding')
+              .map(e => ({
+                /* v8 ignore next -- list-slot registration requires id */
+                id: e.options.id ?? '',
+                order: e.options.order ?? 0,
+              }))
+              .sort((a, b) => a.order - b.order)
+          }
+          return onboardingSteps
+        },
+        subscribe: listener => ctx.slots.subscribe('settings.onboarding', listener),
       },
     },
   })

@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-设置外壳插件：一个纯组合表层。它以触发控件和模态设置面板占用 `sidebar.settings`，并声明由注册方填充的 slot：`settings.trigger`／`settings.header`／`settings.close`（界面框架内容）、`settings.section`（每项功能一页）和 `settings.onboarding`（由各功能持有、覆盖在空白 Hero 之上的浮层）。外壳不自带文案，也不读取 locale 状态：所有文本都来自注册方（ui-settings-general 拥有界面框架和「通用」分区；各功能拥有各自的分区、行和首次使用浮层）。
+设置外壳插件：一个纯组合表层。它以触发控件和模态设置面板占用 `sidebar.settings`，并声明由注册方填充的 slot：`settings.trigger`／`settings.header`／`settings.close`（界面框架内容）、`settings.section`（每项功能一页）和 `settings.onboarding`（由各功能持有、显示在空白 Hero 上的有序步骤）。外壳不自带文案，也不读取 locale 状态：所有文本都来自注册方（ui-settings-general 拥有界面框架、「通用」分区和产品欢迎步骤；各功能拥有各自的分区、行和条件式首次使用引导步骤）。
 
-外壳只向首次使用注册方提供两个导航事实：当前会话界面是否为空白 Hero，以及一个 `openSection(id)` 回调；后者会打开设置面板并切换到已注册的指定分区。能力就绪状态、浮层关闭、文案和变更操作均由注册方持有，因此外壳不会成为第二个配置事实来源。
+外壳将首次使用引导记录按升序投影，并且每次只挂载一个步骤。当前注册方会收到该条目的 id、`complete()` 和 `openSection(id)` 回调；完成或跳过当前步骤后，所有权转交给下一项。持久化完成状态、能力就绪状态、文案和变更操作均由注册方持有，因此两个独立注册的对话框无法堆叠，外壳也不会成为第二个配置事实来源。
 
 ## 模型体验
 

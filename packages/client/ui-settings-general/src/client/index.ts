@@ -8,13 +8,19 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 // Type-only: pulls the shell's SlotMap merges (trigger/header/section/item).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ChromeInjected } from './chrome.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
 import type { GeneralSectionInjected } from './GeneralSection.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
+import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
+import { WelcomeNotice } from './WelcomeNotice.tsx'
+import { refreshWelcomeIfLoaded, WelcomeNoticeStore } from './welcome-store.ts'
 import { en, zh } from './locales.ts'
+import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
 
 export type {
   ChromeInjected, CloseLabelProps, HeaderContentProps, TriggerContentProps,
@@ -22,6 +28,8 @@ export type {
 export type {
   GeneralSectionComponentProps, GeneralSectionInjected,
 } from './GeneralSection.tsx'
+export type { WelcomeNoticeInjected, WelcomeNoticeProps } from './WelcomeNotice.tsx'
+export type { WelcomeNoticeState } from './welcome-store.ts'
 
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
 const NS = 'settings'
@@ -31,7 +39,7 @@ const NS = 'settings'
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registration goes through declaration-aware deferral.
  */
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'connection']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -48,8 +56,28 @@ export function apply(ctx: ClientContext): void {
   }, 'ui-settings-general: dictionaries')
 
   const t = ctx.locale.bind(NS)
+  const connection = ctx.get('connection') as ConnectionHandle
+  const welcomeController = new WelcomeNoticeStore(connection.api)
+  const useWelcomeSnapshot = bindSnapshotSelector(welcomeController.store)
   const chromeInjected = (): ChromeInjected => ({ t })
   const generalInjected = (): GeneralSectionInjected => ({ t })
+  const welcomeInjected = (): WelcomeNoticeInjected => ({
+    controller: welcomeController,
+    useSnapshot: useWelcomeSnapshot,
+    t,
+  })
+
+  ctx.effect(() => {
+    const refresh = (ns?: string): void => {
+      if (ns !== undefined && ns !== WELCOME_NOTICE_SETTINGS_NAMESPACE) return
+      refreshWelcomeIfLoaded(welcomeController)
+    }
+    const disposers = [
+      ctx.on('settings/changed', refresh),
+      ctx.on('connection/reset', () => { refresh() }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-settings-general: welcome invalidations')
 
   // All four seats refresh on locale change: re-registration bumps each
   // slot's ledger version, which re-renders the outlets through their own
@@ -70,11 +98,19 @@ export function apply(ctx: ClientContext): void {
         children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
         inject: generalInjected,
       }, GeneralSection))
+    const welcome = deferRegistration(ctx.slots, 'settings.onboarding', WelcomeNotice, () =>
+      ctx.slots.register({
+        name: 'settings.onboarding',
+        id: 'welcome-notice',
+        order: -100,
+        inject: welcomeInjected,
+      }, WelcomeNotice))
     const offLocale = ctx.on('locale/change', () => {
       trigger.refresh()
       header.refresh()
       close.refresh()
       general.refresh()
+      welcome.refresh()
     })
     return () => {
       offLocale()
@@ -82,6 +118,7 @@ export function apply(ctx: ClientContext): void {
       header.dispose()
       close.dispose()
       general.dispose()
+      welcome.dispose()
     }
-  }, 'ui-settings-general: chrome and section registrations')
+  }, 'ui-settings-general: chrome, section, and onboarding registrations')
 }
