@@ -11,29 +11,23 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]} cache hit 98% · 7,946 tokens · 1 turns · 1 steps"
+- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]}"
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]
   - text: 1 / 1
-  - button "上一题" [disabled]:
+  - button "Previous question" [disabled]:
     - img
-  - button "下一题" [disabled]:
+  - button "Next question" [disabled]:
     - img
-  - button "放弃整组问题":
+  - button "Dismiss all questions":
     - img
   - radiogroup:
     - radio "Yes":
@@ -42,9 +36,9 @@
     - radio "No":
       - text: 2 No
       - img
-    - button "其他，请填写自定义答案":
+    - button "Other — enter a custom answer":
       - img
-      - text: 其他，请填写自定义答案
+      - text: Other — enter a custom answer
   - status
-  - button "跳过本题"
-  - button "提交" [disabled]
+  - button "Skip this question"
+  - button "Submit" [disabled]
