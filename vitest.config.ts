@@ -37,9 +37,9 @@ const testIncludes = [
   'scripts/**/*.spec.ts',
 ]
 
-// These suites exercise process-global state, process APIs, or timing-sensitive process I/O
-// that worker threads cannot isolate reliably under aggregate gate contention.
-// Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
+// These suites exercise process-global state, process APIs, or timing-sensitive process I/O.
+// Keep them in a separate project so Windows, whose main pool uses threads,
+// still contains them in forks; POSIX uses forks for both projects.
 const processBoundTests = [
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
@@ -55,8 +55,9 @@ export default defineConfig({
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
-    // One coverage invocation aggregates both projects. Most suites use threads
-    // for lower startup/IPC overhead; only explicit process-bound suites fork.
+    // One coverage invocation aggregates both projects. POSIX uses forks to
+    // contain the Node CJS-lexer abort; Windows keeps threads for the main
+    // inventory and forks only the explicit process-bound project.
     projects: [
       {
         plugins: [pathsPlugin()],
@@ -156,11 +157,13 @@ export default defineConfig({
         'packages/client/ui-sidebar/src/client/index.ts',
         'packages/client/ui-skill/src/client/index.ts',
         'packages/client/ui-workspace/src/client/index.ts',
-        // Typert generator: correctness is pinned by its fixture suites and
-        // the byte-for-byte catalog reproduction test; per-file coverage
-        // would put whole-workspace compiler analysis under v8
-        // instrumentation — the coverage lane's longest tail.
-        'packages/typert/generator/src/*.ts',
+        // These three whole-workspace Typert passes are pinned by fixture and
+        // byte-for-byte catalog tests; v8 instrumentation makes them the
+        // coverage lane's longest tail. The generator's lighter modules and
+        // future source files retain the 100% per-file threshold.
+        'packages/typert/generator/src/analyzer.ts',
+        'packages/typert/generator/src/renderer.ts',
+        'packages/typert/generator/src/cordis-catalog.ts',
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
         'packages/host/apiproxy/src/api-proxy.ts',
