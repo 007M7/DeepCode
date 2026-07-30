@@ -282,8 +282,9 @@ describe('lsp-local end to end over a fake server', () => {
       readonly instances: ReadonlyMap<string, { readonly dead: boolean }>
     }).instances
     const instance = [...instances.values()][0]
-    if (instance === undefined) throw new Error('expected one pooled LSP instance')
-    await waitFor(async () => instance.dead)
+    // The query's finally may already have observed the exit and evicted the dead slot. When the
+    // slot remains, synchronize with its close before proving the next query replaces it.
+    if (instance !== undefined) await waitFor(async () => instance.dead)
     expect(await ctx.lsp.query(query('goToDefinition'))).toMatchObject({ kind: 'locations' })
     await ctx.fiber.dispose()
   })
