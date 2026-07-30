@@ -21,7 +21,7 @@ const workspace = (id: string, sessionIds: string[]): WorkspaceView => ({
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
 const view = (expandedProjects: readonly string[] = [], query = '') => ({
-  expandedProjects, expandedSessions: [] as string[], query,
+  expandedProjects, query,
 })
 
 describe('deriveGroups', () => {
@@ -74,7 +74,7 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessionCount).toBe(1)
   })
 
-  it('builds, sorts, expands, and cycle-guards an ungrouped session tree', () => {
+  it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
     const parent = summary('parent', 1)
     const oldChild = { ...summary('old-child', 10), parentId: parent.id }
     const newChild = { ...summary('new-child', 20), parentId: parent.id }
@@ -87,15 +87,13 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(
       list(parent, oldChild, newChild, tieB, tieA, self, orphan, cycleA, cycleB),
       [],
-      { expandedProjects: [UNGROUPED_KEY], expandedSessions: [parent.id, cycleA.id, cycleB.id], query: '' },
+      { expandedProjects: [UNGROUPED_KEY], query: '' },
     )
 
     expect(groups).toHaveLength(1)
     expect(groups[0]!.sessions.map(node => node.id)).toEqual([
-      sid('orphan'), sid('self'), parent.id, sid('cycle-a'),
-    ])
-    expect(groups[0]!.sessions[2]!.children.map(node => node.id)).toEqual([
       newChild.id, tieA.id, tieB.id, oldChild.id,
+      cycleB.id, cycleA.id, orphan.id, self.id, parent.id,
     ])
 
     // Equal timestamps use ids as a deterministic tiebreak in either input order.
@@ -113,7 +111,7 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessions.map(node => node.id)).toEqual([sid('present')])
   })
 
-  it('searches descendants with ancestors and handles cycles, self parents, and label-only hits', () => {
+  it('searches rows independently of lineage and keeps label-only hits', () => {
     const root = { ...summary('root', 1), displayTitle: 'Ancestor' }
     const match = { ...summary('match', 2), displayTitle: 'Needle child', parentId: root.id }
     const sibling = { ...summary('sibling', 3), displayTitle: 'Other child', parentId: root.id }
@@ -124,8 +122,8 @@ describe('deriveGroups', () => {
     const sessions = list(root, match, sibling, self, orphan, cycleA, cycleB)
     const groups = deriveGroups(sessions, [workspace('project', sessions.ids)], view([], 'needle'))
 
-    expect(groups[0]!.sessions.flatMap(node => [node.id, ...node.children.map(child => child.id)])).toEqual([
-      root.id, match.id, self.id, orphan.id, cycleA.id, cycleB.id,
+    expect(groups[0]!.sessions.map(node => node.id)).toEqual([
+      match.id, self.id, orphan.id, cycleA.id, cycleB.id,
     ])
 
     const labelOnly = deriveGroups(
@@ -157,8 +155,6 @@ describe('deriveFlat', () => {
     const tieA = summary('tie-a', 20)
     const rows = deriveFlat(list(parent, child, tieB, tieA), { query: '' })
     expect(rows.map(row => row.id)).toEqual([sid('child'), sid('tie-a'), sid('tie-b'), sid('parent')])
-    // Rows are branch-free: no children, no expansion.
-    expect(rows.every(row => row.children.length === 0 && !row.hasChildren && !row.expanded)).toBe(true)
   })
 
   it('search filters by case-insensitive display-title substring', () => {

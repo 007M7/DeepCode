@@ -169,7 +169,7 @@ export class TestSessions implements ISessions {
   private readonly channel: SessionProvideChannel
 
   /** Calls observed on the service-level face (open/clear), newest last. */
-  readonly calls: { method: 'open' | 'clear'; args: unknown[] }[] = []
+  readonly calls: { method: 'open' | 'clear' | 'fork'; args: unknown[] }[] = []
 
   /**
    * @param stabilize - the owning runtime's act wrapper.
@@ -390,6 +390,17 @@ export class TestSessions implements ISessions {
   clear(): void {
     this.calls.push({ method: 'clear', args: [] })
     this.list.update((draft) => { draft.current = undefined })
+  }
+
+  /**
+   * Recorded fork stub: no child materializes (benches asserting the full
+   * fork flow drive the production service; this face only proves the call).
+   * @param opts - source session id, optional cut anchor, and client title policy.
+   * @returns the source id (no child record is created).
+   */
+  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
+    this.calls.push({ method: 'fork', args: [opts] })
+    return Promise.resolve(opts.sessionId)
   }
 
   /**
