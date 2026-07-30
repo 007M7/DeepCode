@@ -12,12 +12,11 @@
 import type { Context } from 'cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
-import { ItemRetainer } from '@deepseek-ai/dsh-retention'
 import type { RetainedItems } from '@deepseek-ai/dsh-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { retainGlobPaths, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { globSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { singleQuote } from './shell-quote.ts'
 import { acceptedSurfaceValue } from './surface.ts'
@@ -44,6 +43,8 @@ export const GLOB_VCS_EXCLUDES: readonly string[] = ['.git', '.svn', '.hg', '.bz
 export interface GlobToolCaps {
   /** Max paths retained inline; later paths go to the formatted spill file. */
   maxResults: number
+  /** Max bytes of serialized `presentationMeta`; trailing paths drop past it. */
+  maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
   /** Cooperative tool-call budget (ms) attached as `ToolDefinition.timeoutMs`. */
@@ -118,12 +119,10 @@ export function formatGlobOutput(retained: RetainedItems<string>, spillRef: Spil
   return `${body}\n\n(Showing ${retained.kept} of ${retained.seen} paths. ${recovery})`
 }
 
-/** Retain and format one canonical path list for the Native surface. */
-function renderGlobPaths(paths: string[], maxResults: number, spillRef?: SpillRef): string {
-  if (paths.length === 0) return 'No files found'
-  const retainer = new ItemRetainer<string>({ kind: 'head', maxItems: maxResults })
-  for (const path of paths) retainer.push(path)
-  return formatGlobOutput(retainer.finish(), spillRef)
+/** Format one already-retained path list for the Native surface. */
+function formatRetainedGlob(retained: RetainedItems<string>, spillRef?: SpillRef): string {
+  if (retained.seen === 0) return 'No files found'
+  return formatGlobOutput(retained, spillRef)
 }
 
 /**
@@ -139,10 +138,10 @@ export function presentGlobCall(args: { pattern: string; path?: string }): Gener
 
 /**
  * Completed-call presentation: the search card projected from the result's
- * `presentationMeta` (the discovered path list, with the truncation signal), with
- * the model-facing result text attached as `content` for a UI without a search
- * card. Malformed or absent metadata (an obsolete or hand-edited replayed log)
- * falls back to the generic card.
+ * `presentationMeta` (the discovered path list, with the truncation signal). A UI
+ * without a search card falls back to the raw `tool/result` content, so the view
+ * carries no result text of its own. Malformed or absent metadata (an obsolete or
+ * hand-edited replayed log) falls back to the generic card.
  *
  * @param _args - the raw tool arguments; unused, the view derives from the result.
  * @param result - the final model-facing tool result carrying the projected metadata.
@@ -151,8 +150,8 @@ export function presentGlobCall(args: { pattern: string; path?: string }): Gener
 export function presentGlobResult(_args: { pattern: string; path?: string }, result: ToolResult): SearchResultView | undefined {
   if (result.isError) return undefined
   const view = searchViewFromMeta(result.meta)
-  if (view === undefined || view.kind !== 'paths') return undefined
-  return { ...view, content: result.content }
+  if (view === undefined || view.shape !== 'paths') return undefined
+  return view
 }
 
 /**
@@ -187,8 +186,8 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
           paths: { type: 'array', required: true, items: { type: 'string' } },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps.maxResults) }],
-      presentationMeta: (_args, value) => globSearchMeta(value.paths, caps.maxResults),
+      render: (_args, value) => [{ type: 'text', text: formatRetainedGlob(retainGlobPaths(value.paths, caps.maxResults)) }],
+      presentationMeta: (_args, value) => globSearchMeta(retainGlobPaths(value.paths, caps.maxResults), caps.maxMetaBytes),
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
@@ -217,7 +216,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
     const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
     return {
       kind: 'accept',
-      content: [{ type: 'text', text: renderGlobPaths(paths, caps.maxResults, spillRef) }],
+      content: [{ type: 'text', text: formatRetainedGlob(retainGlobPaths(paths, caps.maxResults), spillRef) }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }
   })

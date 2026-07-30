@@ -817,7 +817,7 @@ describe('presentation', () => {
     if (result.isError) throw new Error('expected grep success')
     // The presentationMeta projection rides the result meta (a surface call).
     expect(result.meta).toEqual({
-      kind: 'matches',
+      shape: 'matches',
       files: [{ path: 'a.ts', matches: [{ lineNumber: 1, line: 'one' }, { lineNumber: 2, line: 'two' }] }],
       truncated: true,
       total: 3,
@@ -825,11 +825,10 @@ describe('presentation', () => {
     const view = presentGrepResult({ pattern: 'e' }, result)
     expect(view).toEqual({
       card: 'search',
-      kind: 'matches',
+      shape: 'matches',
       files: [{ path: 'a.ts', matches: [{ lineNumber: 1, line: 'one' }, { lineNumber: 2, line: 'two' }] }],
       truncated: true,
       total: 3,
-      content: result.content,
     })
   })
 
@@ -838,9 +837,9 @@ describe('presentation', () => {
     bash.handler = () => runResult('a.ts\nb.ts\nc.ts\n')
     const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
     if (result.isError) throw new Error('expected glob success')
-    expect(result.meta).toEqual({ kind: 'paths', paths: ['a.ts', 'b.ts'], truncated: true, total: 3 })
+    expect(result.meta).toEqual({ shape: 'paths', paths: ['a.ts', 'b.ts'], truncated: true, total: 3 })
     const view = presentGlobResult({ pattern: '*.ts' }, result)
-    expect(view).toEqual({ card: 'search', kind: 'paths', paths: ['a.ts', 'b.ts'], truncated: true, total: 3, content: result.content })
+    expect(view).toEqual({ card: 'search', shape: 'paths', paths: ['a.ts', 'b.ts'], truncated: true, total: 3 })
   })
 
   it('nested Code dispatch computes no meta, so presentResult falls back to the generic card', async () => {
@@ -860,15 +859,15 @@ describe('presentation', () => {
     expect(presentGrepResult({ pattern: 'x' }, errorResult)).toBeUndefined()
     expect(presentGlobResult({ pattern: '*' }, errorResult)).toBeUndefined()
     // A grep result carrying a paths-shaped meta (and vice versa) is not this
-    // tool's shape: each presenter narrows to its own kind and otherwise falls back.
-    const pathsResult = { content: [], isError: false, meta: { kind: 'paths', paths: ['a.ts'], truncated: false, total: 1 } }
-    const matchesResult = { content: [], isError: false, meta: { kind: 'matches', files: [], truncated: false, total: 0 } }
+    // tool's shape: each presenter narrows to its own shape and otherwise falls back.
+    const pathsResult = { content: [], isError: false, meta: { shape: 'paths', paths: ['a.ts'], truncated: false, total: 1 } }
+    const matchesResult = { content: [], isError: false, meta: { shape: 'matches', files: [], truncated: false, total: 0 } }
     expect(presentGrepResult({ pattern: 'x' }, pathsResult)).toBeUndefined()
     expect(presentGlobResult({ pattern: '*' }, matchesResult)).toBeUndefined()
   })
 
   it('presentResult falls back to the generic card on malformed replayed meta', () => {
-    const malformed = { content: [], isError: false, meta: { kind: 'matches', files: 'nope', truncated: false, total: 0 } }
+    const malformed = { content: [], isError: false, meta: { shape: 'matches', files: 'nope', truncated: false, total: 0 } }
     expect(presentGrepResult({ pattern: 'x' }, malformed)).toBeUndefined()
     expect(presentGlobResult({ pattern: '*' }, { content: [], isError: false, meta: 42 })).toBeUndefined()
   })

@@ -78,6 +78,7 @@ Both methods return a **`card`-tagged render intent** — pick the card kind tha
   - `generic` supplies an optional title and content.
   - `terminal` supplies raw output and optional exit metadata; each UI renders its capable or fallback view.
   - `diff` supplies applied hunks, often derived by `output.presentationMeta` and carried in persisted `result.meta` so replay reproduces them. Mutation tools keep a diff result because the completed view replaces the pending card.
+  - `search` supplies a discovery result reconstructed from persisted `result.meta`: grouped-by-file matches (`shape: 'matches'`, grep) or a flat path list (`shape: 'paths'`, glob), plus `truncated`/`total` so a UI never presents a capped result as complete. The view carries no result text (a UI without a search card falls back to the raw result content), and there is no `search` call view — a discovery call's pending state stays a generic card, since matches exist only after `execute`. (tool-fs-search `grep`/`glob`.)
 
 Hard rules (they bite if broken):
 

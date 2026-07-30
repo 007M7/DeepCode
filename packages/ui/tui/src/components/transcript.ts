@@ -389,7 +389,15 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    const genericContent = view.card === 'generic' ? view.content ?? this.result?.content : undefined
+    // A search card (grep/glob results) carries no dedicated TUI rendering and no
+    // result text of its own: it falls back to the same dim Markdown body as a
+    // generic card, reading the model-facing text from the raw result content.
+    // Its structured shape is consumed by capable UIs; the TUI stays
+    // byte-identical to the pre-search-card generic fallback. Terminal and diff
+    // cards keep their own body branches.
+    const genericContent = view.card === 'generic'
+      ? view.content ?? this.result?.content
+      : view.card === 'search' ? this.result?.content : undefined
     const unknownXml = this.definition === undefined && genericContent !== undefined
       ? renderUnknownXml(
         displayText(contentText(genericContent)),
@@ -502,7 +510,10 @@ export class ToolCardComponent implements Component {
       // rather than under the dim result-output color.
       return { prelude: [...hunks, footer], lines: [] }
     }
-    const content = view.content ?? this.result?.content
+    // A search card carries no result text of its own; only a generic view
+    // supplies `content`. Both fall back to the raw result content below.
+    const viewContent = view.card === 'generic' ? view.content : undefined
+    const content = viewContent ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
     // The presenter title headlines the body now that the header is a fixed

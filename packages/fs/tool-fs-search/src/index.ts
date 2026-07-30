@@ -31,7 +31,7 @@ import type { Context } from 'cordis'
 import z from 'schemastery'
 import { GLOB_MAX_RESULTS, applyGlobTool } from './glob.ts'
 import { GREP_MAX_LINE_BYTES, GREP_MAX_MATCHES, applyGrepTool } from './grep.ts'
-import { RAW_OUTPUT_MAX_BYTES, SEARCH_TIMEOUT_MS } from './search-core.ts'
+import { RAW_OUTPUT_MAX_BYTES, SEARCH_META_MAX_BYTES, SEARCH_TIMEOUT_MS } from './search-core.ts'
 
 export { GLOB_MAX_RESULTS, GLOB_VCS_EXCLUDES, applyGlobTool, buildGlobCommand, formatGlobOutput, parseGlobArgs, presentGlobCall, presentGlobResult } from './glob.ts'
 export type { GlobInput, GlobToolCaps } from './glob.ts'
@@ -46,13 +46,19 @@ export {
   parseGrepMatches,
   presentGrepCall,
   presentGrepResult,
-  previewLine,
 } from './grep.ts'
-export type { GrepInput, GrepMatch, GrepToolCaps } from './grep.ts'
-export { globSearchMeta, grepSearchMeta, groupMatchesByFile, searchViewFromMeta } from './presentation.ts'
-export type { SearchMeta } from './presentation.ts'
-export { RAW_OUTPUT_MAX_BYTES, SEARCH_TIMEOUT_MS, SearchError, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
-export type { RipgrepRun, SearchErrorCode } from './search-core.ts'
+export type { GrepInput, GrepToolCaps } from './grep.ts'
+export {
+  RAW_OUTPUT_MAX_BYTES,
+  SEARCH_META_MAX_BYTES,
+  SEARCH_TIMEOUT_MS,
+  SearchError,
+  previewLine,
+  runRipgrep,
+  toWorkdirRelative,
+  trySaveFormattedResult,
+} from './search-core.ts'
+export type { GrepMatch, RipgrepRun, SearchErrorCode } from './search-core.ts'
 export { singleQuote } from './shell-quote.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -69,6 +75,8 @@ export interface Config {
   grepMaxMatches?: number
   /** Max bytes retained for one matched-line preview (the cut preserves UTF-8 boundaries). */
   grepMaxLineBytes?: number
+  /** Max bytes of one search's serialized `presentationMeta`; trailing groups/paths drop past it so the persisted card stays bounded. */
+  searchMetaMaxBytes?: number
   /** Max complete raw `rg` stdout bytes a search will parse; larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. */
   rawOutputMaxBytes?: number
   /** Cooperative tool-call timeout budget (ms) on both tools, enforced by `@deepseek-ai/dsh-timeout-policy` through `exec.signal`. */
@@ -79,6 +87,7 @@ export const Config: z<Config> = z.object({
   globMaxResults: z.number().default(GLOB_MAX_RESULTS),
   grepMaxMatches: z.number().default(GREP_MAX_MATCHES),
   grepMaxLineBytes: z.number().default(GREP_MAX_LINE_BYTES),
+  searchMetaMaxBytes: z.number().default(SEARCH_META_MAX_BYTES),
   rawOutputMaxBytes: z.number().default(RAW_OUTPUT_MAX_BYTES),
   timeoutMs: z.number().default(SEARCH_TIMEOUT_MS),
 })
@@ -133,6 +142,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   assertPositiveInteger('globMaxResults', resolved.globMaxResults)
   assertPositiveInteger('grepMaxMatches', resolved.grepMaxMatches)
   assertPositiveInteger('grepMaxLineBytes', resolved.grepMaxLineBytes)
+  assertPositiveInteger('searchMetaMaxBytes', resolved.searchMetaMaxBytes)
   assertPositiveInteger('rawOutputMaxBytes', resolved.rawOutputMaxBytes)
   assertPositiveInteger('timeoutMs', resolved.timeoutMs)
   if (!await ripgrepAvailable(ctx)) {
@@ -141,12 +151,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   applyGlobTool(ctx, {
     maxResults: resolved.globMaxResults,
+    maxMetaBytes: resolved.searchMetaMaxBytes,
     rawOutputMaxBytes: resolved.rawOutputMaxBytes,
     timeoutMs: resolved.timeoutMs,
   })
   applyGrepTool(ctx, {
     maxMatches: resolved.grepMaxMatches,
     maxLineBytes: resolved.grepMaxLineBytes,
+    maxMetaBytes: resolved.searchMetaMaxBytes,
     rawOutputMaxBytes: resolved.rawOutputMaxBytes,
     timeoutMs: resolved.timeoutMs,
   })

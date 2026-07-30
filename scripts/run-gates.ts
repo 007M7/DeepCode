@@ -195,7 +195,7 @@ export function gatesForMode(selected: Mode): Gate[] {
     case 'ci-linux-primary':
       return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
     case 'ci-static':
-      return ciStaticGates()
+      return ciStaticGates({ ownsBuild: false })
     case 'ci-lint':
       return [
         lintGate(),
@@ -295,16 +295,21 @@ function nodeCompatSmokeGates(): Gate[] {
   ]
 }
 
-function ciStaticGates(): Gate[] {
+function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    pnpmScript('build', 'build'),
+    ...options.ownsBuild ? [pnpmScript('build', 'build')] : [],
     ...docSyncLeafGates({
-      docTypecheckNeeds: ['build'],
-      docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+      includeDocTypecheck: options.ownsBuild,
+      ...options.ownsBuild
+        ? {
+          docTypecheckNeeds: ['build'],
+          docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+        }
+        : {},
       docsBuildScript: 'docs:build:mpa',
     }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
@@ -326,23 +331,28 @@ function ciArtifactGates(): Gate[] {
 }
 
 function ciConsumerGates(): Gate[] {
-  const publicArtifacts = ['publint']
-  const restoredBuild = ['built-package-invariants']
+  const builtTree = ['build']
+  const validatedBuild = ['built-package-invariants']
   return [
+    pnpmScript('build', 'build'),
+    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
+    pnpmScript('publint', 'publint', { needs: builtTree }),
+    builtPackageInvariantsGate(['publint']),
     pnpmScript('lint-and-duplication', 'check:ci:lint', {
       label: 'lint and duplication',
-      needs: restoredBuild,
+      needs: validatedBuild,
     }),
-    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
-    snapshotGate(restoredBuild),
-    webSnapshotGate(restoredBuild),
-    pnpmScript('publint', 'publint'),
+    snapshotGate(validatedBuild),
+    webSnapshotGate(validatedBuild),
+    pnpmScript('doc-typecheck', 'doc-typecheck', {
+      needs: validatedBuild,
+      env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+    }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
-      needs: restoredBuild,
+      needs: validatedBuild,
     }),
-    builtPackageInvariantsGate(publicArtifacts),
-    builtBinSmokeGate(restoredBuild),
+    builtBinSmokeGate(validatedBuild),
   ]
 }
 
@@ -377,7 +387,7 @@ function ciWindowsCompleteGates(): Gate[] {
 
 function ciWindowsObservationalGates(): Gate[] {
   return [
-    ...ciStaticGates(),
+    ...ciStaticGates({ ownsBuild: true }),
     // Linux owns required lint, coverage, and snapshots; Windows omits those duplicates.
     pnpmScript('duplication', 'duplication'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
@@ -410,7 +420,7 @@ function coverageGate(): Gate {
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
 // plugins via real exports); repository-script snapshots execute their real source entry path.
-// Build-owning modes wait on `build`; a restored-artifact mode passes its validation dependency.
+// Callers wait either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
@@ -458,6 +468,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
 }
 
 function docSyncLeafGates(options: {
+  includeDocTypecheck?: boolean
   docTypecheckNeeds?: string[]
   docTypecheckEnv?: Record<string, string | undefined>
   docsBuildScript?: 'docs:build' | 'docs:build:mpa'
@@ -466,7 +477,9 @@ function docSyncLeafGates(options: {
   if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
   if (options.docTypecheckEnv !== undefined) docTypecheckOptions.env = options.docTypecheckEnv
   return [
-    pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
+    ...options.includeDocTypecheck === false
+      ? []
+      : [pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions)],
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
