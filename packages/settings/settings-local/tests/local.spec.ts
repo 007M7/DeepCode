@@ -204,6 +204,102 @@ describe('persist', () => {
     expect(written).toContain('theme: light')
   })
 
+  it('keeps comments inside the section when a sibling key changes', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await writeFile(path, [
+      'ui-theme:',
+      '  # chosen during onboarding',
+      '  theme: light',
+      '  fontSize: 12',
+      '',
+    ].join('\n'))
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await scope.update({ fontSize: 18 })
+    const written = await readFile(path, 'utf8')
+    expect(written).toContain('# chosen during onboarding')
+    expect(written).toContain('theme: light')
+    expect(written).toContain('fontSize: 18')
+  })
+
+  it('keeps a changed key\'s own-line comment while replacing its value', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await writeFile(path, [
+      'ui-theme:',
+      '  # chosen during onboarding',
+      '  theme: light',
+      '',
+    ].join('\n'))
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await scope.update({ theme: 'dark' })
+    const written = await readFile(path, 'utf8')
+    expect(written).toContain('# chosen during onboarding')
+    expect(written).toContain('theme: dark')
+  })
+
+  it('deletes only the removed key on replace, keeping sibling comments', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    await writeFile(path, [
+      'ui-theme:',
+      '  # chosen during onboarding',
+      '  theme: light',
+      '  fontSize: 12',
+      '',
+    ].join('\n'))
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await scope.replace({ theme: 'light' })
+    const written = await readFile(path, 'utf8')
+    expect(written).toContain('# chosen during onboarding')
+    expect(written).toContain('theme: light')
+    expect(written).not.toContain('fontSize')
+  })
+
+  it('keeps an unchanged array\'s comments and replaces a changed array wholesale', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    const TagsSchema: z<{ tags: string[]; label: string }> = z.object({
+      tags: z.array(z.string()).default([]),
+      label: z.string().default(''),
+    })
+    await writeFile(path, [
+      'workspace:',
+      '  tags:',
+      '    # pinned by hand',
+      '    - alpha',
+      '  label: draft',
+      '',
+    ].join('\n'))
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('workspace'), TagsSchema)
+    await scope.update({ label: 'final' })
+    const untouched = await readFile(path, 'utf8')
+    expect(untouched).toContain('# pinned by hand')
+    expect(untouched).toContain('label: final')
+    // A changed array replaces wholesale; comments inside it go with it.
+    await scope.update({ tags: ['beta'] })
+    const replaced = await readFile(path, 'utf8')
+    expect(replaced).not.toContain('# pinned by hand')
+    expect(replaced).toContain('- beta')
+  })
+
+  it('keeps a comment-only document\'s comment when the first section lands', async () => {
+    const dir = await tempDir()
+    const path = join(dir, 'settings.yaml')
+    // Parses to a null root: the document exists but holds no sections yet.
+    await writeFile(path, '# reserved for future settings\n')
+    const ctx = await boot({ path, watch: false })
+    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
+    await scope.update({ theme: 'light' })
+    const written = await readFile(path, 'utf8')
+    expect(written).toContain('# reserved for future settings')
+    expect(written).toContain('theme: light')
+  })
+
   it('creates a json document from scratch', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.json')

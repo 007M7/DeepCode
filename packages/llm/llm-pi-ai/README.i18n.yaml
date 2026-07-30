@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/llm/llm-pi-ai/README.md
 README.md: f2d030087c9cd704724ce4adf38f3f8111e87063
-README.zh.md: b3725ffe61727d80ecabb39945d34100cf71e2b4
+README.zh.md: bcecd3394693a95e1fe2127b44e6f60030518cca

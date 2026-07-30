@@ -48,6 +48,9 @@
       "path": "../../session-projection/session-projection-cache"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../skill/skill"
     },
     {
@@ -63,7 +66,13 @@
       "path": "../../workspace/workspace"
     },
     {
+      "path": "../directory-picker"
+    },
+    {
       "path": "../../support/invariants"
+    },
+    {
+      "path": "../../util/native-command"
     }
   ]
 }

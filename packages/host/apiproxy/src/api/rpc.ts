@@ -9,6 +9,7 @@ import type { z as zCore } from 'zod'
 type ZodIssue = zCore.core.$ZodIssue
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 
 /**
  * Message correlation id: the initiator mints it on a request; a response
@@ -39,7 +40,12 @@ export interface RpcErrorDetailsMap {
   'workspace-invalid-path': { path: string }
   'workspace-name-conflict': { name: string }
   'workspace-move-invalid': { workspaceId: string; sessionId: SessionId; beforeSessionId?: SessionId }
+  'directory-unreadable': { path: string }
+  'directory-exists': { path: string }
+  'directory-create-failed': { path: string }
+  'directory-picker-unavailable': { capability: string }
   'agent-busy': { reason: string }
+  'queue-item-not-found': { itemId: InboxItemId }
   /** A known slash command reported a usage/state error; the message is the command's own text. */
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
@@ -51,6 +57,7 @@ export interface RpcErrorDetailsMap {
   'settings-rejected': { ns: string }
   /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
   'credential-rejected': { ref: string }
+  'title-invalid': { sessionId: SessionId }
   'internal': {}
 }
 

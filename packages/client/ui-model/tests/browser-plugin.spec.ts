@@ -12,6 +12,7 @@ import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import { createScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandContribution, SelectOption } from '@deepseek-ai/dsh-client-ui-command/client'
 import type { ModelSelectInjected } from '../src/client/slots.ts'
@@ -79,14 +80,18 @@ async function bench() {
       return () => { contribution = undefined }
     },
   })
-  const seats = new Map<string, { inject: ((sessionId: SessionId) => ModelSelectInjected) | undefined }>()
+  const seats = new Map<string, {
+    inject: ((sessionId: SessionId) => ModelSelectInjected) | undefined
+    locale: string | undefined
+  }>()
   ctx.provide('slots', {
-    register(options: { name: string; inject?: (sessionId: SessionId) => ModelSelectInjected }) {
-      seats.set(options.name, { inject: options.inject })
+    register(options: { name: string; locale?: string; inject?: (sessionId: SessionId) => ModelSelectInjected }) {
+      seats.set(options.name, { inject: options.inject, locale: options.locale })
       return () => { seats.delete(options.name) }
     },
   })
   ctx.provide('conversation', {})
+  ctx.provide('locale', new LocaleService(ctx))
   const scopes = new Map<SessionId, Context>()
   ctx.provide('sessions', { scope: (id: SessionId) => scopes.get(id) })
   const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -114,6 +119,8 @@ describe('ui-model dual entry', () => {
     expect(b.contribution().name).toBe('model')
     expect(b.contribution().ui.kind).toBe('popupSelect')
     expect(b.seat().inject).toBeTypeOf('function')
+    // Copy rides the standard locale seat.
+    expect(b.seat().locale).toBe('model')
   })
 
   it('popup options mark the host current active with the provider group in the detail', async () => {

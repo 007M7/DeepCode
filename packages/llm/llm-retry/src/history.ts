@@ -24,7 +24,7 @@ export function providerForClosedStep(
   if (stepEndIndex < 0) return undefined
   for (let index = stepEndIndex; index >= 0; index -= 1) {
     // The loop bounds prove this indexed read exists.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     const event = events[index]!
     if (event.type === 'request/header') return event.data.header.config.provider
   }

@@ -1,7 +1,7 @@
 /**
  * Pure concession-chain column solver for the three-column AppFrame.
  * Chain order is fixed by contract: keep center >= CENTER_MIN by shrinking
- * details, then auto-closing it (derived zero width — persisted width
+ * details, then auto-closing it (derived zero width — preferred width
  * preferences are never rewritten, so widening the window restores them).
  * The sidebar never concedes: its rendered width is always the drag
  * preference (or the collapsed rail), and center absorbs any remaining
@@ -45,8 +45,8 @@ export function clampWidth(px: number, min: number, max: number): number {
 /**
  * Solve the three column widths for one viewport frame. Pure: no hysteresis —
  * the output is a function of (viewport, preferences) only, so recovery on
- * re-widening is automatic. Preferences re-clamp here because they cross a
- * durable boundary (localStorage rehydration may carry stale ranges).
+ * re-widening is automatic. Preferences re-clamp here because they cross the
+ * store boundary and callers may still supply stale ranges.
  * @param viewport - available frame width in px.
  * @param sidebar - sidebar width preference in px (0 = closed).
  * @param details - details width preference in px (0 = closed).

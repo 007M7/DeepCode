@@ -217,11 +217,12 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('loads a local skill via /skill: and delivers its body to the model as a user turn', async () => {
-    // The whole manual-invocation path in one keyless boot: `ctx.get('skills')`
+    // The whole user-only invocation path in one keyless boot: `ctx.get('skills')`
     // resolves in the shipped tree, the client-side `/skill:` command parses,
-    // the local provider loads `scripted-skill` from the agents home, and the
-    // rendered `<skill name="…">` block reaches the model — proven by the
-    // scripted adapter echoing the fixture's body marker only when it arrives.
+    // and the local provider admits a model-disabled skill by the omitted
+    // `user-invocable` default. The rendered `<skill name="…">` block reaches
+    // the model — proven by the scripted adapter echoing the fixture's body
+    // marker only when it arrives.
     const output = await smoke({
       label: 'tui-agent skill',
       tempDirPrefix: 'tui-agent-skill-',
@@ -232,6 +233,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
             '---',
             'name: scripted-skill',
             'description: Keyless PTY proof that the skill command loads a local skill into the conversation.',
+            'disable-model-invocation: true',
             '---',
             '',
             'SCRIPTED SKILL BODY MARKER',
@@ -247,6 +249,36 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     })
     expect(output).not.toContain('[instructions]')
     expect(output).toContain('Scripted skill body received.')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('adds a watched local skill to live /skill: autocomplete without restarting', async () => {
+    const skill = [
+      '---',
+      'name: hot-added-skill',
+      'description: HOT_ADDED_COMPLETION_MARKER',
+      '---',
+      '',
+      'Hot-added body.',
+      '',
+    ].join('\n')
+    const output = await smoke({
+      label: 'tui-agent hot-added skill autocomplete',
+      tempDirPrefix: 'tui-agent-hot-skill-',
+      configPath: scriptedConfigPath,
+      actions: [
+        {
+          waitFor: 'scripted TUI ready.',
+          writeFile: {
+            path: '.agents/skills/hot-added-skill/SKILL.md',
+            content: skill,
+          },
+          send: '/skill:hot',
+        },
+        { waitFor: 'HOT_ADDED_COMPLETION_MARKER', send: '\x03/exit\r' },
+      ],
+    })
+    expect(output).toContain('HOT_ADDED_COMPLETION_MARKER')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

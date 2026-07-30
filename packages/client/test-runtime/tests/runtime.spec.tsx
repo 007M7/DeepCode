@@ -322,6 +322,32 @@ describe('workspaces', () => {
     expect(stub).toHaveBeenCalledOnce()
     await runtime.dispose()
   })
+
+  it('records the browse calls: listDirectory serves an empty home, createDirectory joins, stubs override', async () => {
+    const runtime = await runtimeWithFrame()
+    // Defaults: an empty home level and parent/name joining.
+    await expect(runtime.workspaces.listDirectory()).resolves.toMatchObject({ path: '/home/test', entries: [] })
+    await expect(runtime.workspaces.listDirectory('/home/test')).resolves.toMatchObject({ path: '/home/test' })
+    await expect(runtime.workspaces.createDirectory('/home/test', 'fresh')).resolves.toBe('/home/test/fresh')
+    // The recorded signal seat mirrors the production face (undefined here;
+    // cancellation tests pass and observe a real one).
+    expect(runtime.workspaces.calls).toEqual([
+      { method: 'listDirectory', args: [undefined, undefined] },
+      { method: 'listDirectory', args: ['/home/test', undefined] },
+      { method: 'createDirectory', args: ['/home/test', 'fresh'] },
+    ])
+    // Stubs replace the defaults like every sibling method.
+    const listing = { path: '/x', home: '/x', crumbs: [], entries: [] }
+    const listStub = vi.fn(() => Promise.resolve(listing as never))
+    runtime.workspaces.stub('listDirectory', listStub)
+    runtime.workspaces.stub('createDirectory', vi.fn(() => Promise.resolve('/x/made' as never)))
+    const scan = new AbortController()
+    await expect(runtime.workspaces.listDirectory('/x', scan.signal)).resolves.toBe(listing)
+    // The stub receives the signal too, like the production face gives the wire.
+    expect(listStub).toHaveBeenLastCalledWith('/x', scan.signal)
+    await expect(runtime.workspaces.createDirectory('/x', 'made')).resolves.toBe('/x/made')
+    await runtime.dispose()
+  })
 })
 
 describe('feature mount and disposal', () => {
@@ -441,8 +467,11 @@ describe('fixture session face', () => {
     await runtime.sessions.add({ id: 's1' })
     const bare = runtime.sessions.behavior('s1')
     expect(() => bare.prompt()).toThrow(/prompt is not stubbed/)
+    expect(() => bare.updateQueue()).toThrow(/updateQueue is not stubbed/)
     expect(() => bare.cancel()).toThrow(/cancel is not stubbed/)
+    expect(() => bare.command()).toThrow(/command is not stubbed/)
     expect(() => bare.loadOlder()).toThrow(/loadOlder is not stubbed/)
+    expect(() => bare.rename()).toThrow(/rename is not stubbed/)
     await runtime.dispose()
   })
 

@@ -8,7 +8,9 @@
  * dispatch) stay on the class, invisible out here.
  */
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { RpcResult, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  InboxItemId, QueueAction, RpcResult, SessionId,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -37,15 +39,36 @@ export interface ISession {
    */
   prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>>
   /**
+   * Apply one mutation to a still-pending queue occurrence.
+   * @param itemId - agent-owned inbox occurrence identity.
+   * @param action - edit or remove operation.
+   * @returns acceptance, or a business/transport error.
+   */
+  updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
+  /**
    * Cancel the running turn.
    * @returns acceptance, or the business error.
    */
   cancel(): Promise<RpcResult<{ accepted: true }>>
   /**
+   * Rename this session (explicit user title; pins it against automatic
+   * regeneration).
+   * @param title - raw title text (the host normalizes acceptance).
+   * @returns the normalized accepted title and its event seq, or the business error.
+   */
+  rename(title: string): Promise<RpcResult<{ title: string; seq: number }>>
+  /**
    * Extend the history window backwards (older messages pagination).
    * @returns completion; failures land in snapshot.openState/loadingOlder.
    */
   loadOlder(): Promise<void>
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  command(line: string): Promise<RpcResult<{ matched: boolean }>>
 }
 
 /**

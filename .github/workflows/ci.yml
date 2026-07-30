@@ -180,10 +180,9 @@ jobs:
           || 'dsh-enterprise-ubuntu-latest-32core-test' }}
     name: node 24 / snapshots and artifacts
     env:
-      DSH_ESLINT_CACHE: '1'
-      DSH_ESLINT_CONCURRENCY: '8'
       DSH_GATE_CONCURRENCY: '8'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
+      DSH_OXLINT_THREADS: '8'
       DSH_PUBLINT_CONCURRENCY: '8'
       # Failover halves snapshot concurrency for the shared 64-core VM.
       DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
@@ -199,13 +198,6 @@ jobs:
 
       - name: Restore built tree
         run: tar -xzf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
 
       - uses: pnpm/action-setup@v4
         with:
@@ -443,7 +435,7 @@ jobs:
           store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
           echo "path=$store_path" >> "$GITHUB_OUTPUT"
 
-      # Master refreshes the caches that pull requests restore without saving.
+      # Master refreshes the pnpm store cache that pull requests restore without saving.
       # The store cache stays a hand-rolled actions/cache step rather than
       # setup-node's `cache: pnpm`: the enterprise pull-request jobs above
       # restore exactly this key and path, and setup-node's built-in cache
@@ -456,13 +448,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
-      - uses: actions/cache@v4
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
-
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
@@ -474,8 +459,8 @@ jobs:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
-          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
+          DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
@@ -528,8 +513,8 @@ jobs:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
-          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
+          DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
@@ -582,15 +567,6 @@ jobs:
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
 
-      # Master refreshes the small cache that pull requests restore without
-      # putting package-store extraction back on the Windows critical path.
-      - uses: actions/cache@v4
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
-
       - name: Install (immutable)
         shell: pwsh
         run: pnpm install --frozen-lockfile
@@ -600,8 +576,8 @@ jobs:
         env:
           DSH_COVERAGE_MAX_WORKERS: '1'
           DSH_E2E_MAX_WORKERS: '1'
-          DSH_ESLINT_CACHE: '1'
           DSH_GATE_CONCURRENCY: '1'
+          DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
@@ -776,14 +752,6 @@ jobs:
           console.log(JSON.stringify({ arch: process.arch, cpus: os.cpus().length,
           memoryGiB: Math.round(os.totalmem() / 2 ** 30) }))"
 
-      - uses: actions/cache@v4
-        if: matrix.platform == 'linux'
-        with:
-          path: .cache/eslint
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.base.client.json', 'tsconfig.host.json', 'tsconfig.client.json', 'packages/*/*/tsconfig.json', 'examples/*/tsconfig.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-eslint-full-
-
       - name: Install and prepare Linux
         if: matrix.platform == 'linux'
         run: |
@@ -807,9 +775,8 @@ jobs:
         if: matrix.platform == 'linux'
         env:
           DSH_COVERAGE_MAX_WORKERS: ${{ matrix.workers }}
-          DSH_ESLINT_CACHE: '1'
-          DSH_ESLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
+          DSH_OXLINT_THREADS: ${{ matrix.workers }}
           DSH_PUBLINT_CONCURRENCY: ${{ matrix.workers }}
           DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.workers }}
         run: pnpm run check:ci

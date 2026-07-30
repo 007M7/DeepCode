@@ -3,8 +3,22 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModelTarget } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ComponentProps } from 'react'
 import type { ModelDirectoryState } from '../src/client/directory.ts'
 import { ModelSelect } from '../src/client/ModelSelect.tsx'
+import { zh } from '../src/client/locales.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+
+// The seat's key domain is model ∪ common; the stub mirrors the real lookup
+// chain: package dictionary, then common vocabulary, then the key.
+const t: ComponentProps<typeof ModelSelect>['t'] = (key, params) => {
+  const template = (zh as Record<string, string>)[key]
+    ?? (commonZh as Record<string, string>)[key]
+    ?? key
+  return params === undefined
+    ? template
+    : template.replace(/\{(\w+)\}/g, (match, name: string) => name in params ? String(params[name]) : match)
+}
 
 const reasoning = {
   efforts: [
@@ -44,13 +58,14 @@ describe('ModelSelect reasoning effort', () => {
       directory={directory}
       load={vi.fn()}
       select={select}
+      t={t}
     />)
 
     const trigger = screen.getByRole('button', {
       name: '选择模型，当前 DeepSeek-V4-Flash，推理等级 High',
     })
     fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('menuitem', { name: /Effort/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
       .toEqual(['Off', 'High', 'MaxLargest budget'])
 
@@ -83,13 +98,14 @@ describe('ModelSelect reasoning effort', () => {
       directory={directory}
       load={vi.fn()}
       select={vi.fn().mockResolvedValue(true)}
+      t={t}
     />)
 
     fireEvent.click(screen.getByRole('button', {
-      name: '选择模型，当前 Model，推理等级 Provider default',
+      name: '选择模型，当前 Model，推理等级 服务商默认',
     }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /Effort/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
-      .toEqual(['Provider default', 'Standard'])
+      .toEqual(['服务商默认', 'Standard'])
   })
 })

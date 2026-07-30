@@ -87,8 +87,8 @@ describe('ACP prompt lifecycle', () => {
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     let inserted = false
-    harness.ctx.on('agent/inbox/enqueue', (subject, message) => {
-      if (subject !== agent || message.source.kind !== 'user' || inserted) return
+    harness.ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject !== agent || item.message.source.kind !== 'user' || inserted) return
       inserted = true
       const source = { kind: 'plugin', plugin: 'test' } as const
       agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source } })

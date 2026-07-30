@@ -48,20 +48,24 @@ interface SettingsScope<T> {
   /**
    * Observe committed changes to this namespace's resolved value. Invocations
    * of one callback run asynchronously, one at a time, in commit order; a
-   * rejection is contained and logged like a sync throw.
+   * rejection is contained and logged like a sync throw. After the disposer
+   * returns, no further invocation starts — one already queued is skipped;
+   * one already started still settles, and service disposal waits for it.
    * @param callback - invoked after each commit with the next and previous values.
    * @returns the disposer removing this observer.
    */
   watch(callback: (next: T, prev: T) => void | Promise<void>): () => void
   /**
    * Merge a partial patch into this namespace's user layer and persist it.
-   * @param patch - plain-object patch over the user section.
+   * @param patch - plain-object patch over the user section; JSON-shaped data
+   * only (non-JSON values reject with their path before anything persists).
    */
   update(patch: object): Promise<void>
   /**
    * Replace this namespace's user section wholesale; absent keys re-inherit
    * the composition `base` and schema defaults (`replace({})` resets all).
-   * @param section - the complete next user section.
+   * @param section - the complete next user section; JSON-shaped data only,
+   * as for {@link update}.
    */
   replace(section: object): Promise<void>
 }
