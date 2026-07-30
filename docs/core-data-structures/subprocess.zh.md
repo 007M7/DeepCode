@@ -2,13 +2,13 @@
 
 [English](subprocess.md) | 中文
 
-进程管理器 seam 分为接口（[dsh-subprocess](../../packages/subprocess/subprocess)，`ctx.subprocess`）与实现（[dsh-subprocess-local](../../packages/subprocess/subprocess-local)）；它的消费方是其他能力 seam 与进程外后端：[bash 执行器家族](bash.md)使用收集模式的批量输出，LSP 与 Code Runtime 主机使用原始协议管道，PTY 后端使用终端原语，ACP（Agent Client Protocol）subagent 后端则使用管道化 ndjson 加 inherit 的 stderr。该 seam 拥有受管的 `DSH_*` 环境命名空间、共享的凭据清除（`scrubbedParentEnv`）与 `CollectedOutput` 形状；[dsh-bash](../../packages/bash/bash) 重导出这套词汇，使 bash 消费方保持单一导入入口。
+进程管理器 seam 分为接口（[dsh-subprocess](../../packages/subprocess/subprocess)，`ctx.subprocess`）与实现（[dsh-subprocess-local](../../packages/subprocess/subprocess-local)）；它的消费方是其他能力 seam 与进程外后端：[bash 执行器家族](bash.md)使用收集模式的批量输出，LSP 使用原始协议管道，PTY 后端使用终端原语，ACP（Agent Client Protocol）subagent 后端则使用管道化 ndjson 加 inherit 的 stderr。该 seam 拥有受管的 `DSH_*` 环境命名空间、共享的凭据清除（`scrubbedParentEnv`）与 `CollectedOutput` 形状；[dsh-bash](../../packages/bash/bash) 重导出这套词汇，使 bash 消费方保持单一导入入口。
 
 源码：[`packages/subprocess/subprocess/src/types.ts`](../../packages/subprocess/subprocess/src/types.ts) 与 [`packages/subprocess/subprocess/src/index.ts`](../../packages/subprocess/subprocess/src/index.ts)
 
-## 执行世界坐标
+## 可执行文件查找
 
-一个提供方的 `cwd`、可执行文件路径、普通进程与终端会话，和挂载的文件系统提供方处于同一路径与进程命名空间。`resolveExecutable(command, env?, signal?)` 验证绝对可执行文件路径，或通过提供方清理后的 `PATH` 加有意覆盖来解析裸名称。
+一个提供方的 spawn 工作目录、可执行文件路径、普通进程与终端会话，和挂载的文件系统提供方处于同一路径与进程命名空间。`resolveExecutable(command, env?, signal?)` 验证绝对可执行文件路径，或通过提供方清理后的 `PATH` 加有意覆盖来解析裸名称。
 
 ## 受管环境命名空间与捕获的输出
 

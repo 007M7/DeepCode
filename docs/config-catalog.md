@@ -284,30 +284,6 @@ export interface Config {
 
 Source: [`packages/client/hmr/src/index.ts:29`](../packages/client/hmr/src/index.ts)
 
-## `@deepseek-ai/dsh-code-runtime-subprocess`
-
-Requires: `subprocess`
-
-```ts config-catalog
-/** Runtime configuration; every execution and bridge bound is deployment-tunable. */
-export interface Config {
-  /** Worker measured event-loop busy-time budget. */
-  computeMs?: number
-  /** Host-observed wall-clock ceiling. */
-  maxWallMs?: number
-  /** Combined serialized outer logs/value/diagnostic cap. */
-  maxOutputBytes?: number
-  /** Worker old-generation heap cap in MiB. */
-  maxOldGenerationSizeMb?: number
-  /** Largest decoded bridge frame, including binding traffic. */
-  maxFrameBytes?: number
-  /** Process-tree TERM-to-KILL grace. */
-  killGraceMs?: number
-}
-```
-
-Source: [`packages/code-runtime/code-runtime-subprocess/src/index.ts:27`](../packages/code-runtime/code-runtime-subprocess/src/index.ts)
-
 ## `@deepseek-ai/dsh-code-runtime-worker`
 
 ```ts config-catalog
@@ -341,7 +317,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:30`](../packages/code-runtime/code-runtime-worker/src/index.ts)
+Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:25`](../packages/code-runtime/code-runtime-worker/src/index.ts)
 
 ## `@deepseek-ai/dsh-compact-basic`
 

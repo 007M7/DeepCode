@@ -33,7 +33,6 @@ import { LocalTerminalHandle } from './terminal.ts'
  * SIGTERM→grace→SIGKILL escalation.
  */
 export class LocalSubprocessService extends SubprocessService {
-  readonly cwd = process.cwd()
   /** Live handles retained only so disposal can terminate and join them. */
   private live = new Set<SubprocessHandle>()
   /** Live terminal sessions retained through whole-session quiescence. */
@@ -103,7 +102,7 @@ export class LocalSubprocessService extends SubprocessService {
       ? (environmentValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD').split(';')
       : ['']
     return path.split(delimiter).flatMap(directory =>
-      extensions.map(extension => resolve(this.cwd, directory, command + extension)))
+      extensions.map(extension => resolve(process.cwd(), directory, command + extension)))
   }
 
   spawn(spec: SubprocessSpawnSpec): SubprocessHandle {

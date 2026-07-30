@@ -169,7 +169,6 @@
     { "path": "./packages/pty/tool-pty" },
     { "path": "./packages/code-runtime/code-runtime" },
     { "path": "./packages/code-runtime/code-runtime-worker" },
-    { "path": "./packages/code-runtime/code-runtime-subprocess" },
     { "path": "./packages/llm/llm-deepseek" },
     { "path": "./packages/llm/llm-pi-ai" },
     { "path": "./packages/bash/bash-local" },

@@ -286,23 +286,6 @@ describe('makeNamespaces', () => {
     expect(nextId.value).toBe(1)
   })
 
-  it('rejects an oversized transport frame before posting or allocating a call id', async () => {
-    const port = new FakePort()
-    const pending = new Map<number, PendingCall>()
-    const nextId = { value: 1 }
-    const data = { namespaces: [toolNamespace(['x'])] }
-    const [tools] = makeNamespaces(
-      data, port, pending, nextId, makeBindingErrorClasses(data), 64,
-    ) as [Record<string, (args: unknown) => Promise<unknown>>]
-
-    await expect(tools.x?.({ text: 'x'.repeat(64) })).rejects.toMatchObject({
-      name: 'ToolCallError', toolName: 'x', message: 'binding arguments exceed maxFrameBytes',
-    })
-    expect(port.sent).toEqual([])
-    expect(pending.size).toBe(0)
-    expect(nextId.value).toBe(1)
-  })
-
   it('uses ordinary Error for non-tools namespace failures', async () => {
     const deniedPort = new FakePort()
     deniedPort.respond = message => message.type === 'call'
@@ -358,16 +341,6 @@ describe('runWorkerMain', () => {
       type: 'done',
       error: { kind: 'output-limit', message: 'outer output exceeded 4 bytes' },
     })
-  })
-
-  it('reports output-limit before posting a completion that expands past the transport cap', async () => {
-    const port = new FakePort()
-    await runWorkerMain(port, {
-      maxOutputBytes: 1_000,
-      code: 'return Array.from({ length: 100 }, () => [])',
-      namespaces: [],
-    }, fakeStreams(), 100)
-    expect(port.sent.at(-1)).toEqual({ type: 'output-limit' })
   })
 
   it('reports a thrown program error on the done message', async () => {

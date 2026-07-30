@@ -31,9 +31,6 @@ describe('LocalSubprocessService', () => {
     expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), {
       PATH: relative(process.cwd(), dirname(process.execPath)) || '.',
     })).toBe(process.execPath)
-    Reflect.set(ctx.subprocess, 'cwd', dirname(process.execPath))
-    expect(await ctx.subprocess.resolveExecutable(basename(process.execPath), { PATH: '' }))
-      .toBe(process.execPath)
     await expect(ctx.subprocess.resolveExecutable('')).rejects.toThrow('must be non-empty')
     await expect(ctx.subprocess.resolveExecutable('dsh-command-that-does-not-exist', { PATH: '' }))
       .rejects.toThrow('was not found on PATH')

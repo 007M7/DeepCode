@@ -1,6 +1,6 @@
 /**
- * The subprocess seam (`ctx.subprocess`): execution-world process coordinates,
- * executable lookup, fully specified managed process trees with raw or
+ * The subprocess seam (`ctx.subprocess`): execution-world executable lookup,
+ * fully specified managed process trees with raw or
  * collected stdio, and one terminal-process primitive. Command defaulting,
  * shell semantics, deadlines, protocol framing, terminal readiness, and
  * presentation belong to consumers. The local implementation lives in
@@ -78,8 +78,8 @@ declare module 'cordis' {
  * duplicate-service behavior).
  *
  * Implementations must honor these semantics:
- * - {@link cwd} and executable paths belong to one execution world shared
- *   with the mounted filesystem provider.
+ * - Executable paths belong to one execution world shared with the mounted
+ *   filesystem provider.
  * - {@link spawn} returns immediately with a live handle; `done` resolves at
  *   process close with exit facts and rejects only for spawn-level failures.
  * - Collect-mode readers are offset-based and non-consuming, so independent
@@ -103,9 +103,6 @@ export abstract class SubprocessService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'subprocess')
   }
-
-  /** Canonical default cwd in this provider's execution world. */
-  abstract readonly cwd: string
 
   /**
    * Resolve one configured executable in this provider's execution world.
