@@ -9,10 +9,6 @@
 .row {
   position: relative; /* sweep-glare overlay anchor */
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  height: 24px;
-  min-width: 0;
 }
 
 /* Running sweep (deepsuite ShimmerText pattern): a fixed-width glare band —
@@ -41,31 +37,8 @@
   90%, 100% { left: 100%; }
 }
 
-/* Clickable rows keep only the cursor affordance — no hover fill. */
-.row[data-clickable] {
-  cursor: pointer;
-  border-radius: 6px;
-}
-
 .leading {
-  position: relative; /* .chevronHover overlay anchor */
-  flex: none;
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 6px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/* The others-variant sparkle glyph is one gray step darker than the icon
-   family in the source design. */
-.root[data-variant='others'] .leading {
-  color: var(--dsw-alias-label-secondary);
+  flex-shrink: 0;
 }
 
 /* Cordis lifecycle tools retain their generic row mechanics while carrying a
@@ -83,44 +56,8 @@
   background: var(--dsw-alias-state-business-primary);
 }
 
-button.leading {
-  cursor: pointer;
-}
-
-.chevron {
-  color: var(--dsw-alias-label-secondary);
-}
-
-/* Hover preview on expandable rows: the idle tool icon crossfades (100ms)
-   into a down chevron before the row is opened. The chevron overlays the
-   icon cell absolutely so both can stay mounted for the opacity transition. */
-.iconIdle {
-  display: inline-flex;
-  opacity: 1;
-  transition: opacity 100ms ease;
-}
-
-.chevronHover {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.row:hover .iconIdle {
-  opacity: 0;
-}
-
-.row:hover .chevronHover {
-  opacity: 1;
-}
-
 .title {
-  flex: none;
-  font-size: 14px;
-  line-height: 24px;
-  color: var(--dsw-alias-label-secondary);
+  font-weight: 400;
 }
 
 .sep {
@@ -143,6 +80,29 @@ button.leading {
   color: var(--dsw-alias-label-tertiary);
 }
 
+/* File-tool path: same geometry as .summary; hover underline + pointer. */
+.fileLink {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.fileLink:hover {
+  text-decoration: underline;
+}
+
 /* Expanded body: pad-left 22 indented gray text, no border, no fill. */
 .body {
   padding: 4px 0 4px 22px;
@@ -153,9 +113,23 @@ button.leading {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The code variant's expanded body is the run_code program, rendered through
-   the shared CodeBlock (shiki-highlighted TypeScript); only indentation is
-   this row's concern. */
-.codeBody {
+/* The two block-shaped expanded bodies: the code variant's run_code program
+   through CodeBlock (shiki-highlighted TypeScript) and a terminal card's
+   command output through TerminalBlock. Both are drawn by the shared
+   primitive, so only the row's indentation is this file's concern — the margin
+   also replaces each primitive's own standalone vertical spacing with the
+   flow's row rhythm. */
+.codeBody,
+.terminalBody {
   margin: 4px 0 4px 22px;
+}
+
+/* Indented to the body's own column so the description reads as the card's
+   heading rather than as another summary row, and sits tight against the card
+   below it. Its own rule: grouping it with a body would put description
+   typography on a `CodeBlock` wrapper and change that body's spacing. */
+.terminalDescription {
+  margin: 4px 0 0 22px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
 }

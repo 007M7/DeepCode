@@ -1,3 +1,4 @@
+import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -20,7 +21,9 @@ function eventLog(text = 'hello'): SessionEvent[] {
     type: 'user/message',
     seq: 0,
     time: 10,
-    data: { content: [{ type: 'text', text }], source: { kind: 'user' } },
+    data: createUserMessage({
+      content: [{ type: 'text', text }], source: { kind: 'user' },
+    }),
     surfaceOp: 'append',
   }]
 }
@@ -93,6 +96,11 @@ class TestPersistence extends SessionPersistence {
     return Promise.resolve(result)
   }
 
+  async readFrom(id: SessionIdType, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const whole = await this.inspect(id, signal)
+    return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
+  }
+
   list(signal?: AbortSignal): Promise<SessionHeader[]> {
     TestPersistence.listCalls += 1
     TestPersistence.listSignals.push(signal)
@@ -126,7 +134,7 @@ function expectCode(code: SessionQueryErrorCode): Error {
 function rejectUnknown<T>(reason: unknown): Promise<T> {
   return new Promise<T>((_resolve, reject) => {
     // Exercise containment for an implementation that violates the Error rejection convention.
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     reject(reason)
   })
 }
@@ -855,7 +863,9 @@ describe('session-query exact reads', () => {
     const live = ctx.sessions.create(SessionId('live-filter'), { meta: { createdAt: 2 } })
     live.append(
       'user/message',
-      { content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'live' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     const persistence = await ctx.plugin(TestPersistence)
@@ -887,7 +897,9 @@ describe('session-query exact reads', () => {
     session.append('step/start', { turn: 1, step: 1 })
     const first = session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'first' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'first' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     session.append('assistant/chunk', {
@@ -897,7 +909,17 @@ describe('session-query exact reads', () => {
     })
     session.append(
       'assistant/message',
-      { provenance: { provider: 'mock', model: 'mock' }, turn: 1, step: 1, content: [{ type: 'text', text: 'replacement' }] },
+      {
+        turn: 1, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'replacement' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      },
       { surfaceOp: { op: 'replace', start: first.seq, end: first.seq }, sourceEventSeqs: [first.seq] },
     )
 
@@ -910,7 +932,9 @@ describe('session-query exact reads', () => {
     const session = ctx.sessions.create(SessionId('surface-snapshot'), { meta: { cwd: '/work' } })
     const first = session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'old' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'old' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     session.append('assistant/chunk', {
@@ -920,22 +944,38 @@ describe('session-query exact reads', () => {
     })
     session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'plugin', plugin: 'compact' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'checkpoint' }], source: { kind: 'plugin', plugin: 'compact' },
+      }),
       { surfaceOp: { op: 'replace', start: first.seq, end: first.seq }, sourceEventSeqs: [first.seq] },
     )
     const retained = session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'retained tail' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'retained tail' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'latest checkpoint' }], source: { kind: 'plugin', plugin: 'compact' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'latest checkpoint' }], source: { kind: 'plugin', plugin: 'compact' },
+      }),
       { surfaceOp: { op: 'replace', start: 2, end: retained.seq }, sourceEventSeqs: [2, retained.seq] },
     )
     session.append(
       'assistant/message',
-      { provenance: { provider: 'mock', model: 'mock' }, turn: 2, step: 1, content: [{ type: 'text', text: 'latest answer' }] },
+      {
+        turn: 2, step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'text', text: 'latest answer' }],
+          source: {
+            kind: 'model',
+            ...{ provider: 'mock', model: 'mock' },
+          },
+        }),
+      },
       { surfaceOp: 'append' },
     )
 
@@ -947,7 +987,9 @@ describe('session-query exact reads', () => {
       [5, 'assistant/message'],
     ])
     if (snapshot.events[0]?.type !== 'user/message') throw new Error('expected current user message')
-    snapshot.events[0].data.content = []
+    expect(() => {
+      (snapshot.events[0]!.data as { content: unknown[] }).content = []
+    }).toThrow()
     Object.assign(snapshot.session, { cwd: '/mutated' })
 
     expect(session.events[4]?.type === 'user/message' && session.events[4].data.content).toHaveLength(1)
@@ -970,7 +1012,9 @@ describe('session-query exact reads', () => {
     for (const text of ['one', 'two', 'three']) {
       session.append(
         'user/message',
-        { content: [{ type: 'text', text }], source: { kind: 'user' } },
+        createUserMessage({
+          content: [{ type: 'text', text }], source: { kind: 'user' },
+        }),
         { surfaceOp: 'append' },
       )
     }
@@ -980,7 +1024,9 @@ describe('session-query exact reads', () => {
     expect(result.session).toEqual(session.header)
     Object.assign(result.session, { createdAt: -1 })
     if (result.events[0]?.type !== 'user/message') throw new Error('expected user message')
-    result.events[0].data.content = []
+    expect(() => {
+      (result.events[0]!.data as { content: unknown[] }).content = []
+    }).toThrow()
     expect(session.header.createdAt).not.toBe(-1)
     expect(session.events[1]?.type === 'user/message' && session.events[1].data.content).toHaveLength(1)
 
@@ -1007,7 +1053,9 @@ describe('session-query exact reads', () => {
     live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append(
       'user/message',
-      { content: [{ type: 'text', text: 'live' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'live' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     const persistence = await ctx.plugin(TestPersistence)
@@ -1045,7 +1093,9 @@ describe('session-query exact reads', () => {
     live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
     live.append(
       'user/message',
-      { content: [{ type: 'text', text: 'available' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'available' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
     await ctx.plugin(TestPersistence)
@@ -1097,7 +1147,9 @@ describe('session-query exact reads', () => {
         type: 'user/message',
         seq: 0,
         time: 1,
-        data: { content: [{ type: 'text', text: 'hidden' }], source: { kind: 'user' } },
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'hidden' }], source: { kind: 'user' },
+        }),
       }],
     }])
     const persistence = await ctx.plugin(TestPersistence)

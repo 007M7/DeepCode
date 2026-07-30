@@ -23,8 +23,8 @@ const MATRIX_CELLS: readonly (readonly [number, number])[] = [
  */
 export function StateDot({ state, size = 10, className }: {
   state: StateDotState
-  size?: number
-  className?: string
+  size?: number | undefined
+  className?: string | undefined
 }) {
   if (state === 'ongoing') {
     return (

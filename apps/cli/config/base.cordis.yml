@@ -1,0 +1,230 @@
+# The shared `dsh` core: every row both the TUI (`tui.cordis.yml`) and the web
+# surface (`web.cordis.yml`) mount identically. Neither surface includes the
+# other — each is a patch list applied over THIS file at one include level, so a
+# surface overlay, a `--config` overlay, and the personal `~/.dsh/config.yaml`
+# all address these rows by id. Patch lists stack in that order, last write
+# winning per row.
+#
+# A patch replaces the targeted row's whole `config` rather than merging into
+# it, so a row whose value differs per surface does NOT live here: it belongs to
+# each overlay, keeping any single row down to one overlay layer plus the user's.
+# Rows with surface-specific values appear below only with shared plugin identity
+# and neutral defaults; each overlay restates the complete surface configuration.
+#
+# Row order carries no load semantics (activation is service-availability
+# driven); the grouping is for readers.
+
+- id: timer
+  name: '@cordisjs/plugin-timer'
+
+- id: hmr
+  name: '@cordisjs/plugin-hmr'
+  config:
+    root: ['.']
+
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+
+- id: session
+  name: '@deepseek-ai/dsh-session'
+
+- id: session-title
+  name: '@deepseek-ai/dsh-session-title'
+  config:
+    fallbackMaxWords: 5
+    fallbackMaxBytes: 40
+    maxTitleBytes: 80
+
+- id: session-title-llm
+  name: '@deepseek-ai/dsh-session-title-first-message-llm'
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 64
+    timeoutMs: 60000
+
+- id: user-interaction
+  name: '@deepseek-ai/dsh-user-interaction'
+
+- id: agent
+  name: '@deepseek-ai/dsh-agent'
+
+- id: tasks
+  name: '@deepseek-ai/dsh-tasks-local'
+
+- id: llm-retry
+  name: '@deepseek-ai/dsh-llm-retry'
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      - provider: openai
+        apiKey: !!js process.env.OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+      - provider: anthropic
+        apiKey: !!js process.env.ANTHROPIC_API_KEY
+        baseURL: !!js process.env.ANTHROPIC_BASE_URL
+
+- id: session-persistence-jsonl
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js >-
+      (() => { const path = process.getBuiltinModule('node:path'); const home = process.getBuiltinModule('node:os').homedir(); const configured = process.env.DSH_HOME; const selected = configured !== undefined && configured.trim().length > 0 ? configured : path.join(home, '.dsh'); const expanded = selected === '~' ? home : selected.startsWith('~/') || selected.startsWith('~\\') ? path.join(home, selected.slice(2)) : selected; return path.join(path.resolve(expanded), 'sessions') })()
+
+# TUI consumes this shared session capability. Its launcher supplies a unique
+# process-local path; non-TUI surfaces disable the row in their overlay.
+- id: session-query-sqlite
+  name: '@deepseek-ai/dsh-session-query-sqlite'
+  config:
+    path: !!js launcherSessionQueryPath ?? './.sessions/session-query.db'
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash-local
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+
+- id: tool-tasks
+  name: '@deepseek-ai/dsh-tool-tasks'
+
+- id: fs-policy
+  name: '@deepseek-ai/dsh-fs-policy'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+
+- id: workspace-context
+  name: '@deepseek-ai/dsh-workspace-context'
+  config:
+    maxBytes: 65536
+
+- id: skill
+  name: '@deepseek-ai/dsh-skill'
+
+- id: skill-local
+  name: '@deepseek-ai/dsh-skill-local'
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+
+- id: commands
+  name: '@deepseek-ai/dsh-commands'
+
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+
+- id: goal-session
+  name: '@deepseek-ai/dsh-goal-session'
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
+  config:
+    section: |
+          You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+
+          Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
+
+          The tool catalog stays the same across modes for request-cache stability. These plan-mode rules override any later tool description or guidance that suggests using mutation tools; those tools remain listed only to keep the request shape stable. Do not use todo_write to track this planning phase: it tracks implementation after an approved plan, while the plan itself belongs in exit_plan_mode.
+
+          Resolve discoverable facts by inspection. Use ask_user_question only for user-owned choices or material ambiguity that inspection cannot answer. Do not ask the user where code lives or how current behavior works when you can find out.
+
+          Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
+
+          When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compact-basic
+  name: '@deepseek-ai/dsh-compact-basic'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn
+  name: '@deepseek-ai/dsh-subagent-spawn'
+  config:
+    providerName: spawn
+
+- id: subagent-fork
+  name: '@deepseek-ai/dsh-subagent-fork'
+  config:
+    providerName: fork
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork
+
+- id: workflow-workerthread
+  name: '@deepseek-ai/dsh-workflow-workerthread'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
+
+- id: timeout-policy
+  name: '@deepseek-ai/dsh-timeout-policy'
+
+- id: spill-local
+  name: '@deepseek-ai/dsh-spill-local'
+
+- id: spill-policy
+  name: '@deepseek-ai/dsh-spill-policy'
+  config:
+    maxInlineBytes: 50000
+
+# ── rows every surface mounts, whose values each overlay states ──────────────
+
+# The tool registry. Presentation mode is a surface choice, so each overlay
+# states it; omitting it here keeps the schema default (native).
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+# The deployment persona is a surface choice; plan-mode and tool plugins own
+# their own prompt sections.
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    persona: ''
+
+# Agents created at startup. The TUI pre-creates `main`; the web surface creates
+# sessions on client request, so its overlay keeps this empty.
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
+  config:
+    agents: []
+
+# The filesystem provider. `cwd` defaults to the package's `process.cwd()`; the
+# TUI states it explicitly because that value is also the session workspace.
+- id: fs-local
+  name: '@deepseek-ai/dsh-fs-local'
+
+# The native DeepSeek adapter; reads the key/base-url the boot's layered .env
+# loading left in the environment. Thinking defaults are a surface choice.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    apiKey: !!js process.env.DEEPSEEK_API_KEY
+    baseURL: !!js process.env.DEEPSEEK_BASE_URL

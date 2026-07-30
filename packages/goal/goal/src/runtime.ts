@@ -1,7 +1,8 @@
 /** Runtime constructors and protocol constants for the goal domain. */
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { GoalErrorCode, GoalId as GoalIdType } from './types.ts'
+import type { GoalId as GoalIdType } from './types.ts'
+import type { GoalErrorCode } from './domain.ts'
 
 /** Version of the goal change embedded in a round-zero message source. */
 export const GOAL_CHANGE_VERSION = 1
@@ -22,7 +23,7 @@ export class GoalError extends HarnessError {
    * @param code - stable machine-routable classification.
    */
   // Keep the constructor to narrow HarnessError's string code at this boundary.
-  // eslint-disable-next-line @typescript-eslint/no-useless-constructor -- type-only narrowing
+  // oxlint-disable-next-line typescript/no-useless-constructor -- type-only narrowing
   constructor(message: string, code: GoalErrorCode) {
     super(message, code)
   }

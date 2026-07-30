@@ -1,3 +1,4 @@
+- button "New session"
 - button "Collapse sidebar":
   - img
 - button "New session":
@@ -16,9 +17,9 @@
     - img
     - text: workspace 1 session
   - treeitem "New Session now" [selected]
-- button "设置":
+- button "Settings":
   - img
-  - text: 设置
+  - text: Settings
 - text: Let's start building
 - button "Choose workspace":
   - img
@@ -27,11 +28,10 @@
 - textbox "Describe what you want to build"
 - button "Add attachment":
   - img
-- combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
-- button "选择模型，当前 deepseek-v4-flash":
-  - text: deepseek-v4-flash
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- button "Plan mode off, press to turn on": Plan off
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
 - text: 详情

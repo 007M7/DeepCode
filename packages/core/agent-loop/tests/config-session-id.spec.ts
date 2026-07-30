@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -10,7 +11,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import SessionPersistenceJsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import AgentLoop, { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
@@ -35,6 +36,26 @@ async function makeCoreContext(): Promise<Context> {
 }
 
 describe('config-driven session id', () => {
+  it('applies launcher identities by configured id without changing unmatched entries', async () => {
+    const ctx = await makeCoreContext()
+    ctx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, {
+      fresh: { id: SessionId('launcher-fresh'), resume: false },
+      resumed: { id: SessionId('launcher-resumed'), resume: true },
+    })
+    await ctx.plugin(AgentLoop, {
+      agents: [
+        { id: 'fresh', sessionId: SessionId('config-fresh'), model: 'mock' },
+        { id: 'resumed', sessionId: SessionId('config-resumed'), model: 'mock' },
+        { id: 'unchanged', sessionId: SessionId('config-unchanged'), model: 'mock' },
+      ],
+    })
+    expect(ctx.agents.get(SessionId('launcher-fresh'))?.session.id).toBe('launcher-fresh')
+    expect(ctx.agents.get(SessionId('launcher-resumed'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('config-resumed'))).toBeUndefined()
+    expect(ctx.agents.get(SessionId('config-unchanged'))?.session.id).toBe('config-unchanged')
+    await ctx.fiber.dispose()
+  })
+
   it('rejects an empty exact id before publishing an agent', async () => {
     const ctx = await makeCoreContext()
     await expect(ctx.plugin(AgentLoop, {
@@ -98,7 +119,7 @@ describe('config-driven session id', () => {
       first = ctx.agents.get(SessionId('config-exact-reload'))
     }
     expect(first).toBeDefined()
-    first!.followup({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } })
+    first!.followup(createUserMessage({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, first!)
     await firstLoop.dispose()
 
@@ -110,7 +131,7 @@ describe('config-driven session id', () => {
     }
     expect(second).toBeDefined()
     expect(JSON.stringify(second!.session.deriveMessages())).toContain('remember me')
-    second!.followup({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } })
+    second!.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, second!)
     await ctx.sessions.flush(second!.session)
     const loaded = await ctx.sessionPersistence.load(SessionId('config-exact-reload'))
@@ -137,7 +158,7 @@ describe('config-driven session id', () => {
       cleanupStarted.resolve(undefined)
       await cleanupGate.promise
     })
-    first.inject({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'plugin', plugin: 'test' } })
+    first.inject(createUserMessage({ content: [{ type: 'text', text: 'persist before replacement' }], source: { kind: 'plugin', plugin: 'test' } }))
     await ctx.sessions.flush(first.session)
     expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
       .toContain('persist before replacement')
@@ -181,7 +202,7 @@ describe('config-driven session id', () => {
       cleanupStarted.resolve(undefined)
       await cleanupGate.promise
     })
-    first.inject({ content: [{ type: 'text', text: 'persist before cancellation' }], source: { kind: 'plugin', plugin: 'test' } })
+    first.inject(createUserMessage({ content: [{ type: 'text', text: 'persist before cancellation' }], source: { kind: 'plugin', plugin: 'test' } }))
     await ctx.sessions.flush(first.session)
     expect(JSON.stringify((await ctx.sessionPersistence.inspect(sessionId)).events))
       .toContain('persist before cancellation')
@@ -248,7 +269,7 @@ describe('config-driven session id', () => {
     const failures: unknown[] = []
     ctx.on('agent-loop/config-start-failed', () => { throw unrenderable })
     // Deliberately violate the normal Error-only rejection rule to exercise the unknown boundary.
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     ctx.on('agent-loop/config-start-failed', () => Promise.reject(unrenderable) as never)
     ctx.on('agent-loop/config-start-failed', (_sessionId, error) => { failures.push(error) })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(unrenderable)
@@ -345,7 +366,7 @@ describe('config-driven session id', () => {
     expect(a1.id).toBe(a1.session.id)
     expect(a1.session.id).toMatch(idPattern)
     expect(ctx1.agents.get(SessionId('cfg'))).toBeUndefined()
-    a1.followup({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 
@@ -364,7 +385,7 @@ describe('config-driven session id', () => {
     expect(a2.id).toBe(a2.session.id)
     expect(a2.session.id).toMatch(idPattern)
     expect(a2.session.id).not.toBe(a1.session.id)
-    a2.followup({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } })
+    a2.followup(createUserMessage({ content: [{ type: 'text', text: 'q2' }], source: { kind: 'user' } }))
     await waitForIdle(ctx2, a2)
     await ctx2.fiber.dispose()
   })
@@ -385,7 +406,7 @@ describe('config-driven session id', () => {
     await ctx1.plugin(SessionPersistenceJsonl, { root })
     ctx1.llm.registerAdapter(['mock'], new MockAdapter([textResponse('first')]))
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('sticky-1') })).agent
-    a1.followup({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } })
+    a1.followup(createUserMessage({ content: [{ type: 'text', text: 'remember me' }], source: { kind: 'user' } }))
     await waitForIdle(ctx1, a1)
     await ctx1.fiber.dispose()
 

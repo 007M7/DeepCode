@@ -9,7 +9,7 @@ This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verifie
 
 The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely. The event-dispatch methods themselves are generated in the [Cordis core Events API](core/events.md).
 
-Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`), **bail** (synchronous in-order dispatch until one listener returns a bail value; the scoped input-mutation events use it for an applied/not-applied answer).
+Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).
 
 ## `agent/*`
 
@@ -32,7 +32,7 @@ Effective broad cancellation was requested, before queued/outbox work is cleared
 
 Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:308`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -54,7 +54,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:247`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -74,7 +74,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:256`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -96,7 +96,7 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:423`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:433`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -108,39 +108,39 @@ The driver claimed one item out of the inbox: a queued item at a turn boundary, 
  * boundary, or steering drained between steps. Fires after the item leaves
  * its FIFO and before it becomes a durable message.
  * @param agent - the agent whose inbox item was claimed.
- * @param message - the claimed message (matching the `id` from its `agent/inbox/enqueue`).
+ * @param item - the exact claimed occurrence.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage): void
+'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [AgentMessage](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:286`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:297`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discard` — emit
 
-Pending inbox items were dropped without delivering them, so every enqueued id receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal, emits this after `agent/cancel-requested` when applicable and before aborting the active work. Fires once per drop with every dropped item.
+Pending inbox items were dropped without delivering them, so every enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal, emits this after `agent/cancel-requested` when applicable and before aborting the active work. Fires once per drop with every dropped item.
 
 ```ts cordis-catalog
 /**
  * Pending inbox items were dropped without delivering them, so every
- * enqueued id receives exactly one terminal `agent/inbox/dequeue` OR
+ * enqueue occurrence receives exactly one terminal `agent/inbox/dequeue` OR
  * `agent/inbox/discard`. `cancel()` without `keepInbox`, including disposal,
  * emits this after `agent/cancel-requested` when applicable and before
  * aborting the active work. Fires once per drop with every dropped item.
  * @param agent - the agent whose inbox items were dropped.
- * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
+ * @param items - the discarded occurrences in FIFO order (queued then steering); never empty.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: AgentMessage[]): void
+'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, items: InboxItem[]): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [AgentMessage](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:298`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:309`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/enqueue` — emit
 
@@ -152,17 +152,36 @@ An item entered the queued or steering inbox. `placement` is the acceptance-time
  * acceptance-time routing result; listeners must not reconstruct it from
  * later agent or session state.
  * @param agent - the owning agent.
- * @param message - accepted content, source, and correlation identity.
- * @param placement - resolved queued or steering placement.
+ * @param item - accepted occurrence, message, and resolved placement.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: AgentMessage, placement: InboxPlacement): void
+'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [AgentMessage](../core-data-structures/core.md) · [InboxPlacement](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:276`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:278`](../../packages/core/agent/src/types.ts)
+
+### `agent/inbox/update` — emit
+
+A still-pending queued item changed content. The item id, placement, and position remain stable while the event carries the replacement message.
+
+```ts cordis-catalog
+/**
+ * A still-pending queued item changed content. The item id, placement, and
+ * position remain stable while the event carries the replacement message.
+ * @param agent - the owning agent.
+ * @param item - the complete post-update occurrence.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/update'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+
+Source: [`packages/core/agent/src/types.ts:287`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -175,18 +194,17 @@ Allow, rewrite, or block one claimed prompt before it becomes a user message or 
  * signal controls only this admission attempt; listeners may cooperate with
  * it but must not retain it for a later attempt or turn.
  * @param agent - the agent whose turn claimed the message.
- * @param content - the claimed message's blocks, as queued.
- * @param source - the message's resolved source.
+ * @param message - the frozen claimed message, including identity and source.
  * @param signal - the current turn's explicit abort signal.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, content: ContentBlock[], source: MessageSource, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, message: UserMessage, signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [MessageSource](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+Types: [Agent](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:336`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -210,7 +228,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:362`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:372`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -240,7 +258,7 @@ Handle a model-request failure after its failed step has closed but before the f
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:381`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:391`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -262,7 +280,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:321`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
 
 ### `agent/settled` — emit
 
@@ -287,7 +305,7 @@ One drain chain reached its terminal turn: that turn's `turn/end` is already com
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:410`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:420`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -307,7 +325,7 @@ Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` s
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:265`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:268`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step` — serial
 
@@ -331,7 +349,7 @@ Awaited serial checkpoint before EVERY request of a turn is built (the first as 
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:349`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -357,7 +375,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:396`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:406`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
@@ -380,7 +398,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:140`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:157`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 
@@ -419,7 +437,7 @@ A command was registered or unregistered. This is an unfiltered registry notific
 'commands/change'(): void
 ```
 
-Source: [`packages/ui/commands/src/index.ts:103`](../../packages/ui/commands/src/index.ts)
+Source: [`packages/ui/commands/src/index.ts:154`](../../packages/ui/commands/src/index.ts)
 
 ## `domain/*`
 
@@ -523,7 +541,7 @@ Goal mutation accepted by one live agent. The matching context event is already 
 
 Types: [Agent](../core-data-structures/core.md) · [GoalChanged](../core-data-structures/goal.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/goal/goal/src/types.ts:169`](../../packages/goal/goal/src/types.ts)
+Source: [`packages/goal/goal/src/domain.ts:135`](../../packages/goal/goal/src/domain.ts)
 
 ## `llm/*`
 
@@ -540,7 +558,8 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
  *   process-local {@link markAgentLoopRequest} identity and arrives deep-frozen
  *   (mutation throws): its content is a pure function of the session log (the
  *   reconstructability Agent Note), so listeners read it, never rewrite it.
- *   Hand-built calls own their mutability policy and do not carry that marker.
+ *   Hand-built calls do not carry that marker; their messages already obey
+ *   the immutable creation contract.
  * @mode waterfall
  */
 'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
@@ -548,7 +567,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:56`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:58`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -573,7 +592,7 @@ Creation announcement during session publication. A synchronous throw vetoes and
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:70`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:71`](../../packages/core/session/src/index.ts)
 
 ### `session/disposed` — emit
 
@@ -594,7 +613,7 @@ Emitted once when an announced session leaves the store, including publication r
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:80`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:81`](../../packages/core/session/src/index.ts)
 
 ### `session/event` — emit
 
@@ -617,7 +636,7 @@ Post-commit, fire-and-forget append feed. The listener snapshot resolves before 
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md) · [SessionEvent](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:92`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:93`](../../packages/core/session/src/index.ts)
 
 ### `session/flush` — parallel
 
@@ -638,76 +657,26 @@ Awaited parallel durability checkpoint: every listener runs and the caller await
 
 Types: [Scoped](../core-data-structures/scope.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/core/session/src/index.ts:102`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/src/index.ts)
 
-## `slash/*`
+## `skills/*`
 
-### `slash/input-begin-command` — bail
+### `skills/change` — emit
 
-Applies one command claim to the scoped Input. Dispatched with the session's scope carrier; the owning session's input listener returns `true` only after the phase and span CAS checks pass and the machine actually mutated — producers treat anything else as "not applied".
-
-```ts cordis-catalog
-/**
- * Applies one command claim to the scoped Input. Dispatched with the
- * session's scope carrier; the owning session's input listener returns
- * `true` only after the phase and span CAS checks pass and the machine
- * actually mutated — producers treat anything else as "not applied".
- * @param request - Claim and menu-time span CAS.
- * @mode bail
- */
-'slash/input-begin-command'(request: BeginCommandRequest): true | undefined
-```
-
-Source: [`packages/client/ui-slash/src/types.ts:230`](../../packages/client/ui-slash/src/types.ts)
-
-### `slash/input-consume-token` — bail
-
-Consumes one command token after business success (popup settle / menu-pick execute). Same carrier routing and applied-truth contract.
+A skill provider, runtime contribution, or provider-backed catalog may have changed. This is an unfiltered invalidation notification; consumers refetch the catalog for their own lookup options. Listener failures are contained and cannot veto the registry mutation.
 
 ```ts cordis-catalog
 /**
- * Consumes one command token after business success (popup settle /
- * menu-pick execute). Same carrier routing and applied-truth contract.
- * @param request - Exact span or bare-token guard.
- * @mode bail
+ * A skill provider, runtime contribution, or provider-backed catalog may
+ * have changed. This is an unfiltered invalidation notification; consumers
+ * refetch the catalog for their own lookup options. Listener failures are
+ * contained and cannot veto the registry mutation.
+ * @mode emit
  */
-'slash/input-consume-token'(request: ConsumeTokenRequest): true | undefined
+'skills/change'(): void
 ```
 
-Source: [`packages/client/ui-slash/src/types.ts:244`](../../packages/client/ui-slash/src/types.ts)
-
-### `slash/input-insert-reference` — bail
-
-Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).
-
-```ts cordis-catalog
-/**
- * Inserts one reference into the scoped Input (same carrier routing and
- * applied-truth contract as begin-command).
- * @param request - Reference and menu-time span CAS.
- * @mode bail
- */
-'slash/input-insert-reference'(request: InsertReferenceRequest): true | undefined
-```
-
-Source: [`packages/client/ui-slash/src/types.ts:237`](../../packages/client/ui-slash/src/types.ts)
-
-### `slash/input-insert-text` — bail
-
-Replaces the trigger token span with literal text — the plain-text reference path (decision 21). Same carrier routing and applied-truth contract; the draft gains ordinary characters, no occurrence entry.
-
-```ts cordis-catalog
-/**
- * Replaces the trigger token span with literal text — the plain-text
- * reference path (decision 21). Same carrier routing and applied-truth
- * contract; the draft gains ordinary characters, no occurrence entry.
- * @param request - Replacement text and menu-time span CAS.
- * @mode bail
- */
-'slash/input-insert-text'(request: InsertTextRequest): true | undefined
-```
-
-Source: [`packages/client/ui-slash/src/types.ts:252`](../../packages/client/ui-slash/src/types.ts)
+Source: [`packages/skill/skill/src/index.ts:188`](../../packages/skill/skill/src/index.ts)
 
 ## `subagent/*`
 

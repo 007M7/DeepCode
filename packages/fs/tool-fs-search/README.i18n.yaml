@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/fs/tool-fs-search/README.md
 README.md: 51b3fa5385330cdaba0b36dd71a6efe4fd3d0db5
-README.zh.md: 855db224652b818d5f3dadffd275581b5b760007
+README.zh.md: de9e50c90724cbc40f6de5880e7000ae0552b52d

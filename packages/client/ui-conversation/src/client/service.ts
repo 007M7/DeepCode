@@ -12,24 +12,58 @@ import type { Context } from 'cordis'
 // Type-only imports: a plugin-to-plugin value import is a bundle purity
 // error, so scope resolution goes through the sessions service (scopeOf
 // method) instead of the standalone helper.
-import type { Session, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
-import { InputHub } from './input/hub.ts'
+import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { QueueAction, QueueItemId } from './contract/queue.ts'
+import type { InputService } from './input/contract.ts'
+
+/**
+ * The outward conversation face (`ctx.conversation`): the scope-addressed
+ * verbs and the input registry other plugins may reach — and exactly what a
+ * test fake must supply.
+ */
+export interface IConversation {
+  /** The per-session input machine registry (InputService face). */
+  readonly input: InputService
+  /**
+   * Send a prompt into the caller scope's session.
+   * @param text - prompt text, sent verbatim as one text block.
+   * @param mode - queue after the current turn, or steer into it.
+   * @returns completion; business failures reject (and land in promptError).
+   */
+  send(text: string, mode: 'queue' | 'steer'): Promise<void>
+  /**
+   * Apply one operation to a pending queue occurrence.
+   * @param itemId - agent-owned inbox occurrence identity.
+   * @param action - edit or remove operation.
+   * @returns completion; business failures reject.
+   */
+  updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void>
+  /**
+   * Cancel the scoped session's in-flight turn.
+   * @returns completion; failures reject as in send.
+   */
+  cancel(): Promise<void>
+  /**
+   * Pull one older history page for the scoped session.
+   * @returns completion of the page pull.
+   */
+  loadOlder(): Promise<void>
+}
 
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
-export class ConversationService extends Service {
+export class ConversationService extends Service implements IConversation {
   /** The per-session input machine registry (InputService face, design §5.2). */
-  readonly input: InputHub
+  readonly input: InputService
 
   /**
    * @param ctx - owning root context (the plugin apply context; the service
    * registers itself and follows that fiber's lifetime).
-   * @param config - the shared InputHub constructed by the plugin apply
-   * (shared with the slot inject factories); absent = own instance
-   * (object-layer tests that never touch slots).
+   * @param config - carries the InputService instance constructed by the
+   * plugin apply (the same InputHub the slot inject factories close over).
    */
-  constructor(ctx: Context, config?: { input?: InputHub }) {
+  constructor(ctx: Context, config: { input: InputService }) {
     super(ctx, 'conversation')
-    this.input = config?.input ?? new InputHub(ctx)
+    this.input = config.input
   }
 
   /**
@@ -45,6 +79,15 @@ export class ConversationService extends Service {
     if (!result.ok) throw new Error(`conversation.send failed: ${result.error.code}: ${result.error.message}`)
   }
 
+  /** Apply one operation to a pending queue occurrence. */
+  async updateQueue(itemId: QueueItemId, action: QueueAction): Promise<void> {
+    const session = this.scopedSession('updateQueue')
+    const result = await session.updateQueue(itemId, action)
+    if (!result.ok) {
+      throw new Error(`conversation.updateQueue failed: ${result.error.code}: ${result.error.message}`)
+    }
+  }
+
   /** Cancel the scoped session's in-flight turn (failures land in promptError and reject, as in send). */
   async cancel(): Promise<void> {
     const session = this.scopedSession('cancel')
@@ -57,8 +100,8 @@ export class ConversationService extends Service {
     await this.scopedSession('loadOlder').loadOlder()
   }
 
-  /** Resolve the caller scope's Session or throw on root contexts. */
-  private scopedSession(op: string): Session {
+  /** Resolve the caller scope's session face or throw on root contexts. */
+  private scopedSession(op: string): SessionFace {
     const id = this.scopeId(op)
     const binding = this.requireSessions().binding(id)
     if (binding === undefined) throw new Error(`conversation.${op}: session "${id}" resolved no binding`)
@@ -74,10 +117,9 @@ export class ConversationService extends Service {
     return id
   }
 
-  private requireSessions(): SessionsService {
-    // ctx.get instead of ctx.sessions: the typed Context merge is suspended
-    // while the client/host `sessions` declaration collision awaits
-    // arbitration (see the runtime package's Context merge note).
+  private requireSessions(): ISessions {
+    // Strict ctx.get, not the injection proxy: the scope-addressed pattern
+    // reads the service off whatever context the tracker rebound.
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('conversation: sessions service unavailable')
     return sessions

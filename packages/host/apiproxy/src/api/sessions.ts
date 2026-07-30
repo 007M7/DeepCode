@@ -5,7 +5,11 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, SessionId, TodoItem } from '@deepseek-ai/dsh-session/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+// The pure-type outlet: api/ is browser-importable, and the package root's
+// cordis Context merge (via dsh-agent) must not enter client aggregates.
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { RpcId, RpcRequest, RpcResponse } from './rpc.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
@@ -30,6 +34,23 @@ declare module '@deepseek-ai/dsh-llm' {
 export interface HistoryEntry {
   event: SessionEvent
   view?: ToolEventView
+}
+
+/**
+ * The projection baseline riding the history tail page: one synchronous cut
+ * over every registered projection unit, read from the registry's watermark
+ * cache. `asOfSeq` is the seq of the last committed event every value
+ * reflects — the window tail event seq (`-1` for an empty log, mirroring
+ * `session/subscribed.lastSeq`), directly comparable with
+ * `session/projection` frame seqs under the client's higher-seq-wins rule. A
+ * key absent from `values` means the capability is absent (its domain plugin
+ * is unmounted).
+ */
+export interface SessionProjectionsBlock {
+  /** Seq of the last event the values reflect; -1 for an empty log. */
+  asOfSeq: number
+  /** Whole current value per registered projection key. */
+  values: Partial<SessionProjectionMap>
 }
 
 /** Complete model target selected for one session. */
@@ -104,25 +125,48 @@ export interface SessionModels {
   failures: ModelCatalogFailure[]
 }
 
+/** A client-requested mutation of one still-pending queue item. */
+export type QueueAction =
+  | { kind: 'edit'; content: ContentBlock[] }
+  | { kind: 'remove' }
+
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
-  /** Persisted file mtime. */
+  /**
+   * Last activity. Attached: the last non-`session/end-seed` event, since a
+   * pickup is not activity. Cold: the log's mtime, or `createdAt` for a backend
+   * with no per-session file (README Known Limitations covers the skew).
+   */
   updatedAt: number
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean
   /**
-   * Derived emptiness bit: true while the session log holds zero events (no
-   * user message yet). Clients hide blank sessions from lists and reuse them
-   * for New Session on the same workspace. Always false for cold sessions —
-   * lazy persistence keeps a never-appended session out of the store, so a
-   * listed cold session necessarily has events.
+   * Derived conversation-not-started bit: true while no turn has run (no
+   * prompt was accepted yet). Standalone plugin events — command lifecycle
+   * records, plan/mode, titles, goals — do not open a turn and therefore do
+   * not clear it. Clients hide blank sessions from lists and reuse them for
+   * New Session on the same workspace. Always false for cold sessions —
+   * lazy persistence keeps a never-appended session out of the store, and a
+   * listed cold session's log holds its turns.
    */
   blank: boolean
   /** fork/spawn lineage (session.header.parentSession passthrough); absent for root sessions. */
   parentSessionId?: SessionId
   /** Session working directory (header.cwd passthrough); absent when unrecorded. */
   cwd?: string
+  /**
+   * Projection baseline for this row, with zero log loads: attached sessions
+   * read the registry's live watermark cut; cold sessions read the persisted
+   * projection cache's stored rows — as stale as that session's last durable
+   * checkpoint (`asOfSeq` says exactly how stale), never wrong, and directly
+   * seedable into the client's per-session value store under its
+   * higher-seq-wins rule (a list baseline can never overwrite a newer push
+   * frame). Absent when no value is available (no registry, no cache row for
+   * a cold session, or a fail-soft cache read miss); a listing client treats
+   * absence as "no title yet", exactly like a blank session.
+   */
+  projections?: SessionProjectionsBlock
 }
 
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
@@ -149,13 +193,14 @@ export interface SessionsApi {
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
    * rebuilds the surface from the events with the shared fold.
-   * The tail page (beforeSeq absent) also carries `todos` — the session's current todo
-   * projection (latest `todo/write` over the FULL log, independent of the page window) —
-   * so a paged client restores the plan without walking history; absent when the session
-   * never wrote one. Older pages omit it (the projection is session-level, not per-page).
+   * The tail page — and only the tail page — additionally carries `projections`
+   * when the deployment mounts the session-projection registry: every moment
+   * the client needs a fresh baseline already pulls the tail page, and
+   * loadOlder (the only beforeSeq path) is the only path that never needs one.
+   * A deployment without the registry serves histories without the block.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; todos?: TodoItem[] }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
 
   /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>
@@ -173,10 +218,34 @@ export interface SessionsApi {
   }>):
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
-  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
+  /**
+   * Renames a session: appends a `session/title` event with the `user`
+   * source, which pins the title against automatic regeneration. The
+   * normalized accepted title and the title event's seq return so the caller
+   * can settle its projection cell without waiting for the push frame. A
+   * title that normalizes to empty fails with `title-invalid`.
+   */
+  rename(request: RpcRequest<{ sessionId: SessionId; title: string }>):
+  Promise<RpcResponse<{ title: string; seq: number }>>
+
+  /**
+   * Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer.
+   * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
+   * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
+   * successful command returns ok with the command slot (its success text, when the command produced
+   * one — carried for future rendering; the state change is the feedback). A usage/state error is an
+   * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
+   */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
+  Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
+
+  /**
+   * Edits or removes one pending queued occurrence.
+   */
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
+
 }

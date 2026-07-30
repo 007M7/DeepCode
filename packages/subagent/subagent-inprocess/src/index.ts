@@ -11,9 +11,14 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
 import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
+// Type-only: make `ctx.get('sandboxPolicy')` / `ctx.get('approval')` resolve
+// to the policy services when composed — the driver consumes both
+// opportunistically (the documented `ctx.get` pattern), never as a hard dep.
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-user-approval'
 import {
   attachStructuredRuntime,
   type StructuredAttachment,
@@ -88,15 +93,29 @@ export async function startInProcessRun(
   const parentHeader = parent.session.header
   const parentProvider = parent.options.provider
   const parentModel = parent.options.model
+  const parentMaxTokens = parent.options.maxTokens
   const agentOptions: AgentOptions = {
     ...parentProvider !== undefined ? { provider: parentProvider } : {},
     ...parentModel !== undefined ? { model: parentModel } : {},
+    ...parentMaxTokens !== undefined ? { maxTokens: parentMaxTokens } : {},
     ...request.agentOptions,
     subagentDepth: childDepth,
   }
 
+  // Capture before the first await: a later parent switch belongs to the
+  // parent's future.
+  const inheritedMode = parent.ctx.get('sandboxPolicy')?.overrideOf(parent.session)
+  const inheritedPolicy = parent.ctx.get('approval')?.overrideOf(parent.session)
+
   let structured: StructuredAttachment | undefined
   const setup = (childCtx: Context): void => {
+    const childSession = (childCtx.agent as Agent).session
+    if (inheritedMode !== undefined) {
+      childSession.append('sandbox/mode', { mode: inheritedMode, source: 'delegation' })
+    }
+    if (inheritedPolicy !== undefined) {
+      childSession.append('approval/policy', { policy: inheritedPolicy, source: 'delegation' })
+    }
     if (request.persona !== undefined) {
       childCtx.systemPrompt.section({ name: 'deployment:persona', order: 0, text: request.persona })
     }
@@ -116,7 +135,7 @@ export async function startInProcessRun(
       delegationDepth: childDepth,
       ...seedLength > 0 ? { seedLength } : {},
     },
-    ...options.seed !== undefined ? { seed: options.seed } : {},
+    ...options.seed === undefined ? {} : { seed: options.seed },
     agentOptions,
     signal: request.signal,
     setup,
@@ -126,7 +145,7 @@ export async function startInProcessRun(
   // Close the narrow handoff race before installing the live-run listener.
   // Static analysis does not model the abort that may land between the
   // factory's listener detachment and this continuation.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   if (request.signal.aborted) {
     flags.cancelled = true
     await handle.dispose()
@@ -141,7 +160,7 @@ export async function startInProcessRun(
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      child.followup({ content: request.prompt, source: { kind: 'user' } })
+      child.followup(createUserMessage({ content: request.prompt, source: { kind: 'user' } }))
       await child.whenIdle()
       return readResult(
         child,
@@ -176,7 +195,7 @@ function readResult(
   const own = child.session.events.slice(seedLength)
   const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
   const lastEnd = findLastMessageTurnEnd(own)
-  const output: ContentBlock[] = lastMessage?.data.content ?? []
+  const output: ContentBlock[] = lastMessage?.data.message.content ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
   // Disposal can tear the owner down before the loop records its ordinary
   // `aborted` end, yielding `disposed` instead. A requested cancellation owns

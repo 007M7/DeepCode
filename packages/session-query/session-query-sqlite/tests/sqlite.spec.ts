@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context, type Fiber } from 'cordis'
 import { DatabaseSync } from 'node:sqlite'
@@ -44,7 +45,9 @@ function messageEvents(text: string, time = 1): SessionEvent[] {
     type: 'user/message',
     seq: 0,
     time,
-    data: { content: [{ type: 'text', text }], source: { kind: 'user' } },
+    data: createUserMessage({
+      content: [{ type: 'text', text }], source: { kind: 'user' },
+    }),
     surfaceOp: 'append',
   }]
 }
@@ -146,6 +149,11 @@ class TestPersistence extends SessionPersistence {
     return structuredClone(entry)
   }
 
+  async readFrom(id: SessionIdType, fromSeq: number, signal?: AbortSignal): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const whole = await this.inspect(id, signal)
+    return { meta: whole.meta, events: whole.events.filter(event => event.seq >= fromSeq) }
+  }
+
   async list(): Promise<SessionHeader[]> {
     TestPersistence.listStarted?.()
     await TestPersistence.listGate
@@ -207,7 +215,9 @@ describe('SQLite session search', () => {
     })
     session.append(
       'user/message',
-      { content: [{ type: 'text', text: 'An AI helper' }], source: { kind: 'user' } },
+      createUserMessage({
+        content: [{ type: 'text', text: 'An AI helper' }], source: { kind: 'user' },
+      }),
       { surfaceOp: 'append' },
     )
 
@@ -224,9 +234,13 @@ describe('SQLite session search', () => {
     const ctx = await liveContext({ path: ':memory:', defaultLimit: 10, maxLimit: 20 })
     const parent = SessionId('parent')
     const events: SessionEvent[] = [
-      { type: 'user/message', seq: 0, time: 10, data: { content: [{ type: 'text', text: 'needle original' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+      { type: 'user/message', seq: 0, time: 10, data: createUserMessage({
+        content: [{ type: 'text', text: 'needle original' }], source: { kind: 'user' },
+      }), surfaceOp: 'append' },
       { type: 'assistant/chunk', seq: 1, time: 11, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'needle raw' } } },
-      { type: 'user/message', seq: 2, time: 12, data: { content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' } }, surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
+      { type: 'user/message', seq: 2, time: 12, data: createUserMessage({
+        content: [{ type: 'text', text: 'needle summary' }], source: { kind: 'plugin', plugin: 'test' },
+      }), surfaceOp: { op: 'replace', start: 0, end: 0 }, sourceEventSeqs: [0] },
       { type: 'turn/end', seq: 3, time: 13, data: { turn: 1, reason: { kind: 'error', step: 1, message: 'needle failure' } } },
     ]
     ctx.sessions.create(SessionId('a'), { seed: events, meta: { cwd: '/a', parentSession: parent, createdAt: 20 } })
@@ -445,7 +459,9 @@ describe('SQLite session search', () => {
       cursor: eventPage.nextCursor,
     })).rejects.toThrow(expectCode('SESSION_QUERY_INVALID_CURSOR'))
 
-    target.append('user/message', { content: [{ type: 'text', text: 'needle four' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    target.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'needle four' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     await expect(ctx.sessionQuery.searchEvents({
       sessionId: target.id,
       query: 'needle',
@@ -620,7 +636,9 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await expect(ctx.sessionQuery.searchSessions({ query: 'durable' }))
       .resolves.toMatchObject({ items: [{ header: durable, live: false, persisted: true }] })
     const live = ctx.sessions.prepare(shared.id, { meta: { createdAt: 10, cwd: '/work' } })
-    live.append('user/message', { content: [{ type: 'text', text: 'live needle' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    live.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'live needle' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     const detach = ctx.sessions.enter(live)
     ctx.sessions.announce(live)
 
@@ -1053,12 +1071,15 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'base' })
     const db = (ctx.sessionQuery as unknown as { _db: DatabaseSync })._db
     db.exec('PRAGMA query_only = ON')
-    live.append('user/message', { content: [{ type: 'text', text: 'retry needle' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+    live.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'retry needle' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
     await expect(ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     db.exec('PRAGMA query_only = OFF')
+    // seq 2: one-event seed, end-seed, then the live message.
     await expect(ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'needle' }))
-      .resolves.toMatchObject({ items: [{ seq: 1 }] })
+      .resolves.toMatchObject({ items: [{ seq: 2 }] })
   })
 })
 

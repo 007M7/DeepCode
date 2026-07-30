@@ -1,12 +1,32 @@
 /**
  * Crash-recovery repair for an interrupted session log. It preserves a fully
  * written final turn and supplies the missing tool, step, and turn boundaries
- * needed to resume with a provider-valid transcript.
+ * needed to resume with a provider-valid transcript, plus the activity-time
+ * read that must skip the end-seed boundary — which this module does
+ * not write (`Session`'s constructor does) but whose synthetic closers can
+ * inherit that boundary's timestamp, the one real coupling between the two.
  * @module @deepseek-ai/dsh-session/repair
  */
 
-import type { CallId } from '@deepseek-ai/dsh-llm'
+import { MessageId, freezeMessage, type CallId } from '@deepseek-ai/dsh-llm'
+import type { ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from './types.ts'
+
+/**
+ * The `time` of the log's last event representing actual work, skipping the
+ * `session/end-seed` boundary — picking a session up is not activity, so
+ * activity ordering must exclude it.
+ *
+ * Excluded by type, so a pickup time still leaks when a boundary is the last
+ * event of an open turn: {@link interruptedTurnClosers} copies it onto the
+ * synthetic `turn/end`, which this counts as work. Reachable only by seeding an
+ * unbalanced log directly — `load()` balances first.
+ * @param events - the log to scan, in seq order.
+ * @returns the latest non-boundary event's `time`, or undefined when there is none.
+ */
+export function lastActivityTime(events: readonly SessionEvent[]): number | undefined {
+  return events.findLast(event => event.type !== 'session/end-seed')?.time
+}
 
 /** Recovery code for an assistant tool request that never reached a recorded call start. */
 export const TOOL_NOT_STARTED = 'TOOL_NOT_STARTED'
@@ -51,7 +71,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
       case 'assistant/message':
         // The assistant message carries the tool-call blocks; each is pending
         // until a tool/result event with the same callId is logged.
-        for (const block of event.data.content) {
+        for (const block of event.data.message.content) {
           if (block.type === 'tool-call') pendingCalls.set(block.id, { step: event.data.step })
         }
         break
@@ -65,7 +85,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
         }
         break
       case 'tool/result':
-        pendingCalls.delete(event.data.callId)
+        pendingCalls.delete(event.data.message.source.callId)
         break
       // Other event types do not move the turn/step boundary cursor.
       default:
@@ -89,6 +109,22 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
   // and Map insertion order preserves their transcript order.
   for (const [callId, { step, callSeq }] of pendingCalls) {
     const started = callSeq !== undefined
+    const message: ToolResultMessage = freezeMessage({
+      id: MessageId(`interrupted-tool-result-${callId}-${seq}`),
+      role: 'user',
+      source: { kind: 'tool', callId },
+      content: [{
+        type: 'tool-result',
+        toolCallId: callId,
+        isError: true,
+        content: [{
+          type: 'text',
+          text: started
+            ? 'The tool call was interrupted after it was recorded, but no result was durably recorded. Its outcome is unknown. Decide whether to retry from the tool semantics: retry only if the operation is read-only or idempotent; if it may have side effects, first verify external state or ask the user. Do not retry blindly.'
+            : 'The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.',
+        }],
+      }],
+    })
     closers.push({
       type: 'tool/result',
       seq: seq++,
@@ -96,14 +132,7 @@ export function interruptedTurnClosers(events: readonly SessionEvent[]): Session
       data: {
         turn: openTurn,
         step,
-        callId,
-        content: [{
-          type: 'text',
-          text: started
-            ? 'The tool call was interrupted after it was recorded, but no result was durably recorded. Its outcome is unknown. Decide whether to retry from the tool semantics: retry only if the operation is read-only or idempotent; if it may have side effects, first verify external state or ask the user. Do not retry blindly.'
-            : 'The tool call was interrupted before the Harness recorded it as started. Retry it if it is still needed.',
-        }],
-        isError: true,
+        message,
         error: started
           ? { name: 'ToolOutcomeUnknownError', code: TOOL_OUTCOME_UNKNOWN }
           : { name: 'ToolNotStartedError', code: TOOL_NOT_STARTED },

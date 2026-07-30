@@ -9,7 +9,12 @@ import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { mergeOrderedBaseline } from '../ordered-baseline.ts'
 import type { SessionListEntry, TitledSessionSummary } from './lineage.ts'
 import { flattenLineage } from './lineage.ts'
+// Type-only merge edge: the title domain's client-namespace outlet declares
+// the 'title' projection key this manager projects into list rows (and any
+// useProjection('title') consumer reads). Zero value imports by construction.
+import type {} from '@deepseek-ai/dsh-session-title/client'
 import { Notifier } from './notifier.ts'
+import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
 
 /**
@@ -43,12 +48,6 @@ type SessionListMutation =
 /** Per-session cap for pre-instantiation approval/question buffering (low-frequency frames; a few dozen covers any real backlog). */
 const PENDING_BUFFER_CAP = 32
 
-/** Latest title control snapshot retained independently of list/instance arrival. */
-interface SessionTitleSnapshot {
-  title: string
-  eventSeq: number
-  updatedAt: number
-}
 
 /** Instance cluster + frame entry + the session list (see the web client architecture RFC). */
 export class SessionManager {
@@ -58,7 +57,16 @@ export class SessionManager {
    *  drop-and-backfill path; replayed and cleared on instantiation. Bounded per session (these
    *  frames are low-frequency; overflow drops oldest) and dropped on session-removed (audit S7). */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
-  private readonly titleSnapshots = new Map<SessionId, SessionTitleSnapshot>()
+  /** Outstanding approval questions per session, keyed by approvalId (idempotent under mux-open
+   *  replays of the same requested frame). Manager-owned rather than read off Session instances
+   *  because the sidebar must light up for sessions never instantiated. Cleared per connection
+   *  generation — the reopen replay re-adds still-pending questions — and on session-removed. */
+  private readonly waitingApprovals = new Map<SessionId, Set<string>>()
+  /** Per-session projection value stores, retained independently of instance arrival (the
+   *  title-snapshot precedent, generalized): push frames land here whether or not the Session
+   *  is instantiated (list rows read the 'title' key), and an instantiated Session adopts the
+   *  same store so history-baseline seeding and frames converge on one row set. */
+  private readonly projectionStores = new Map<SessionId, ProjectionValueStore>()
   private summaries: SessionSummary[] = []
   private listState: 'idle' | 'loading' | 'error' = 'idle'
   /** Arrival phase; the pending → ready edge fires on the first successful pull (see SessionListPhase). */
@@ -163,7 +171,21 @@ export class SessionManager {
       onEngaged: (engaged) => {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
+      projections: this.projectionStore(sessionId),
     })
+  }
+
+  /** Resident per-session projection store (create-on-demand; outlives instantiation). */
+  private projectionStore(sessionId: SessionId): ProjectionValueStore {
+    let store = this.projectionStores.get(sessionId)
+    if (store === undefined) {
+      store = new ProjectionValueStore()
+      // List rows project off store keys (title); any-key changes re-enter
+      // the manager's own batched rebuild channel.
+      store.subscribeAny(() => { this.notifier.markDirty() })
+      this.projectionStores.set(sessionId, store)
+    }
+    return store
   }
 
   // ---- List surface ----
@@ -194,6 +216,19 @@ export class SessionManager {
             if (session === undefined) continue
             session.handleBlank(s.blank)
             session.handleRunning(s.running)
+          }
+          // Seed each row's projection baseline into the per-session value
+          // store (cold titles surface without opening the session). Per-key
+          // apply, not seed(): the list block is a partial baseline — the
+          // cold cache serves only version-matching keys — so an absent key
+          // must not clear; higher-seq-wins still keeps a stale list block
+          // from overwriting a newer push frame or tail baseline.
+          for (const s of result.value.items) {
+            const block = s.projections
+            if (block === undefined) continue
+            const store = this.projectionStore(s.sessionId)
+            const values = block.values as Record<string, unknown>
+            for (const key of Object.keys(values)) store.apply(key, values[key], block.asOfSeq)
           }
         } else {
           this.listState = 'error'
@@ -302,40 +337,53 @@ export class SessionManager {
   handleMuxEnvelope(envelope: RpcRequest<MuxFrame>): void {
     const frame = envelope.payload
     if (frame.type === 'stream/error') return // Controller already treats this as stream failure
-    if (frame.type === 'session/title') {
-      const current = this.titleSnapshots.get(frame.sessionId)
-      if (current !== undefined && current.eventSeq >= frame.eventSeq) return
-      this.titleSnapshots.set(frame.sessionId, {
-        title: frame.title,
-        eventSeq: frame.eventSeq,
-        updatedAt: frame.updatedAt,
-      })
+    if (frame.type === 'session/projection') {
+      // Finished host-computed value: land it in the resident store whether or
+      // not the Session is instantiated (list rows read the 'title' key). The
+      // synchronous markDirty keeps the list snapshot same-tick fresh (the
+      // store's own any-key channel is microtask-batched).
+      this.projectionStore(frame.sessionId).apply(frame.key, frame.value, frame.seq)
       this.notifier.markDirty()
       return
     }
     if (frame.type === 'session/subscribed') {
-      const current = this.titleSnapshots.get(frame.sessionId)
-      if (current !== undefined && current.eventSeq > frame.lastSeq) {
-        this.titleSnapshots.delete(frame.sessionId)
-        this.notifier.markDirty()
-      }
-      // New mux-generation baseline: buffered session/queued frames belong to
+      // Rows past the host's durable baseline rode state a restart lost; drop
+      // them so last-wins cannot pin a phantom value over recomputed truth.
+      this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
+      this.notifier.markDirty()
+      // New mux-generation baseline: buffered session/queue frames belong to
       // the previous generation and the host is about to resend the live
       // snapshot — drop them, or every reconnect appends a duplicate batch
       // (and enough reconnects push real approval/question frames past the
       // cap). Same re-baseline signal Session uses for its own mirror.
       const buffered = this.pendingBuffers.get(frame.sessionId)
       if (buffered !== undefined) {
-        const kept = buffered.filter(item => item.payload.type !== 'session/queued')
+        const kept = buffered.filter(item => item.payload.type !== 'session/queue')
         if (kept.length !== buffered.length) {
           if (kept.length === 0) this.pendingBuffers.delete(frame.sessionId)
           else this.pendingBuffers.set(frame.sessionId, kept)
         }
       }
     }
+    // List-level waiting-approval bit (the sidebar amber dot): tracked here for
+    // every session, instantiated or not; approvalId keys make replays idempotent.
+    if (frame.type === 'approval/requested') {
+      let ids = this.waitingApprovals.get(frame.sessionId)
+      if (ids === undefined) this.waitingApprovals.set(frame.sessionId, ids = new Set())
+      if (!ids.has(frame.approvalId)) {
+        ids.add(frame.approvalId)
+        this.notifier.markDirty()
+      }
+    } else if (frame.type === 'approval/resolved') {
+      const ids = this.waitingApprovals.get(frame.sessionId)
+      if (ids !== undefined && ids.delete(frame.approvalId)) {
+        if (ids.size === 0) this.waitingApprovals.delete(frame.sessionId)
+        this.notifier.markDirty()
+      }
+    }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
-      // Approval/question/queued frames never hit history: buffer for replay on
+      // Approval/question/queue frames never hit history: buffer for replay on
       // instantiation; everything else drops (not instantiated — history fully
       // backfills on open).
       switch (frame.type) {
@@ -343,8 +391,12 @@ export class SessionManager {
         case 'approval/resolved':
         case 'question/requested':
         case 'question/resolved':
-        case 'session/queued': {
+        case 'session/queue': {
           const buffer = this.pendingBuffers.get(frame.sessionId) ?? []
+          const prior = frame.type === 'session/queue'
+            ? buffer.findIndex(item => item.payload.type === 'session/queue')
+            : -1
+          if (prior !== -1) buffer.splice(prior, 1)
           buffer.push(envelope)
           if (buffer.length > PENDING_BUFFER_CAP) buffer.splice(0, buffer.length - PENDING_BUFFER_CAP)
           this.pendingBuffers.set(frame.sessionId, buffer)
@@ -377,7 +429,8 @@ export class SessionManager {
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
-        this.titleSnapshots.delete(frame.sessionId)
+        this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
+        this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
         return
       }
       case 'host/session-status': {
@@ -394,6 +447,30 @@ export class SessionManager {
     }
   }
 
+  /**
+   * The moment a connection generation dies (before any next-generation frame
+   * can arrive — onConnected waits for the readiness handshake while replayed
+   * frames flow from stream open, so clearing there would race the replay):
+   * drop generation-scoped live state. Approvals resolved while disconnected
+   * send no frame, so the stale bits and the buffered answerable frames must
+   * not survive into the next generation — the mux-open replay re-adds every
+   * still-pending question with its live rpcId.
+   */
+  handleDisconnected(): void {
+    if (this.waitingApprovals.size > 0) {
+      this.waitingApprovals.clear()
+      this.notifier.markDirty()
+    }
+    for (const [sessionId, buffer] of [...this.pendingBuffers]) {
+      const kept = buffer.filter(item =>
+        item.payload.type !== 'approval/requested' && item.payload.type !== 'approval/resolved'
+        && item.payload.type !== 'question/requested' && item.payload.type !== 'question/resolved')
+      if (kept.length === buffer.length) continue
+      if (kept.length === 0) this.pendingBuffers.delete(sessionId)
+      else this.pendingBuffers.set(sessionId, kept)
+    }
+  }
+
   /** After each connection generation: refresh the session baseline and rebuild opened windows. */
   handleConnected(): void {
     void this.refreshList()
@@ -402,12 +479,14 @@ export class SessionManager {
 
   private buildListSnapshot(): SessionListSnapshot {
     const merged: TitledSessionSummary[] = this.summaries.map((summary) => {
-      const title = this.titleSnapshots.get(summary.sessionId)
-      return title === undefined
-        ? summary
-        : { ...summary, title: title.title, updatedAt: Math.max(summary.updatedAt, title.updatedAt) }
+      // List rows read the generic 'title' projection key (host-computed unit
+      // value; the bespoke session/title frame is retired).
+      const title = this.projectionStores.get(summary.sessionId)?.get('title')
+      return typeof title === 'string' && title !== ''
+        ? { ...summary, title }
+        : summary
     })
-    const fresh = flattenLineage(merged)
+    const fresh = flattenLineage(merged, new Set(this.waitingApprovals.keys()))
     const items = fresh.map((entry) => {
       const prev = this.entryCache.get(entry.sessionId)
       if (
@@ -415,6 +494,7 @@ export class SessionManager {
         && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
         && prev.title === entry.title && prev.depth === entry.depth
+        && prev.waitingApproval === entry.waitingApproval
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
       return entry

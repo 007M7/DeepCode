@@ -4,17 +4,24 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, visibleWidth, type Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { agentEvents, AgentMessageId, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
-import {
+import AgentRegistry, {
+  agentEvents, assembleContextFor, InboxItemId, type Agent, type InboxItem,
+  type InboxPlacement,
+} from '@deepseek-ai/dsh-agent'
+import { createUserMessage,
+  createToolResultMessage,
   ReasoningEffortId,
   type LlmCallConfig,
   type LlmModelReasoningInfo,
+  MessageId,
+  createMessage,
+  freezeMessage,
 } from '@deepseek-ai/dsh-llm'
 import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
-import SkillService, { type SkillDefinition, type SkillSummary } from '@deepseek-ai/dsh-skill'
+import SkillService, { type SkillCatalogSnapshot, type SkillDefinition, type SkillProvider, type SkillSummary } from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -22,6 +29,7 @@ import SessionReferenceService, { formatSessionReferenceMention } from '@deepsee
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
+  disposeRootAndExit,
   FILE_REFERENCE_PROMPT,
   mountTui,
   renderSkillInvocation,
@@ -32,6 +40,7 @@ import {
   type TuiRuntime,
 } from '../src/index.ts'
 import { WorkspaceFileSearch } from '../src/chat/file-autocomplete.ts'
+import { ATTRIBUTE_ROLES, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
 import {
   appendAssistant,
   appendUser,
@@ -44,6 +53,13 @@ import { TestSessionQueryService } from './session-query.ts'
 const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
   schema: { type: 'null' },
   render: () => [],
+}
+
+let nextInboxItem = 0
+
+/** Wrap one test message in the production inbox occurrence envelope. */
+function inboxItem(message: InboxItem['message'], placement: InboxPlacement): InboxItem {
+  return { id: InboxItemId(`tui-item-${nextInboxItem++}`), message, placement }
 }
 
 class FakeTerminal implements Terminal {
@@ -176,7 +192,7 @@ describe('TUI config', () => {
         color: true,
         truecolor: false,
         leftPrompt: '${cwd}${git/worktree}${model}${token_meter/cache_hit_rate}${context}',
-        rightPrompt: '${timing}',
+        rightPrompt: '${queued}',
         inputPrompt: '${symbol} ${indicator}',
         inputPlaceholder: 'press enter to steer and esc to cancel',
       },
@@ -216,7 +232,7 @@ describe('TUI config', () => {
         color: false,
         truecolor: true,
         leftPrompt: '${cwd}${git/worktree}${model}${token_meter/cache_hit_rate}${context}',
-        rightPrompt: '${timing}',
+        rightPrompt: '${queued}',
         inputPrompt: '${symbol} ${indicator}',
         inputPlaceholder: 'press enter to steer and esc to cancel',
       },
@@ -225,8 +241,7 @@ describe('TUI config', () => {
   })
 })
 
-describe('resume command and /resume', () => {
-  const RESUME = 'dsh --resume {session}'
+describe('goodbye message and /resume', () => {
   const header = (id: string, createdAt: number, cwd: string): SessionHeader =>
     ({ version: 0, id: SessionId(id), createdAt, cwd })
   const resumeEvents = (
@@ -236,20 +251,31 @@ describe('resume command and /resume', () => {
     reason: TurnEndReason = { kind: 'completed' },
   ): SessionEvent[] => [
     { type: 'turn/start', seq: 0, time, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
-    { type: 'user/message', seq: 1, time: time + 1, data: { content: [{ type: 'text', text: 'resume me' }], source: { kind: 'user' } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 1, time: time + 1, data: createUserMessage({
+      content: [{ type: 'text', text: 'resume me' }], source: { kind: 'user' },
+    }), surfaceOp: 'append' },
     { type: 'step/start', seq: 2, time: time + 2, data: { turn: 1, step: 1 } },
     { type: 'request/header', seq: 3, time: time + 3, data: { header: { config: { provider, model: 'model-1' } }, reason: 'initial' } },
-    { type: 'assistant/message', seq: 4, time: time + 4, data: { turn: 1, step: 1, content: [{ type: 'text', text: 'done' }], provenance: { provider, model: 'model-1' } }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 4, time: time + 4, data: {
+      turn: 1, step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'done' }],
+        source: {
+          kind: 'model',
+          ...{ provider, model: 'model-1' },
+        },
+      }),
+    }, surfaceOp: 'append' },
     { type: 'step/end', seq: 5, time: time + 5, data: { turn: 1, step: 1 } },
     { type: 'turn/end', seq: 6, time: time + 6, data: { turn: 1, reason } },
     { type: 'session/title', seq: 7, time: time + 7, data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
   ]
 
-  it('prints the resume command on exit once the session is persisted', async () => {
+  it('prints the host goodbye message on exit', async () => {
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: { list: async () => [header('main-session', 1000, '/workspace')] },
+      goodbyeMessage: 'To resume this session: dsh --resume main-session',
     })
     result.terminal.send('/exit')
     result.terminal.send('\r')
@@ -259,8 +285,8 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('omits the exit hint when the session is not yet persisted', async () => {
-    const result = await setup({ cwd: '/workspace', config: { resumeCommand: RESUME } })
+  it('prints nothing on exit when the host supplies no goodbye message', async () => {
+    const result = await setup({ cwd: '/workspace' })
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
@@ -269,17 +295,16 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('omits the exit hint when the session listing fails', async () => {
+  it('escapes terminal controls in the host goodbye message', async () => {
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: { list: () => Promise.reject(new Error('disk gone')) },
+      goodbyeMessage: 'resume \u001b]2;hijacked\u0007now',
     })
     result.terminal.send('/exit')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output).not.toContain('To resume this session')
-    expect(result.exit).toHaveBeenCalledWith(0)
+    expect(result.terminal.output).toContain('resume \\x1b]2;hijacked\\x07now')
+    expect(result.terminal.output).not.toContain('\u001b]2;hijacked')
     await dispose(result)
   })
 
@@ -289,7 +314,6 @@ describe('resume command and /resume', () => {
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
       handoffResume: handoff,
       sessionPersistence: {
         list: async () => [older, newer, header('foreign-session', 3000, '/elsewhere')],
@@ -307,7 +331,10 @@ describe('resume command and /resume', () => {
     expect(output).toContain('Older investigation')
     expect(output).toContain('current · live')
     expect(output.indexOf('Newer product work')).toBeLessThan(output.indexOf('Older investigation'))
+    // Default scope is the current workspace; one of the four records (three
+    // listed plus the live current session) belongs to another.
     expect(output).not.toContain('foreign-session')
+    expect(output).toContain('all workspaces (4)')
     result.terminal.send('Older')
     await tick()
     expect(result.terminal.output).toContain('⌕ Older')
@@ -335,7 +362,9 @@ describe('resume command and /resume', () => {
     await tick(); await tick()
     result.terminal.send('\x1b[B')
     result.terminal.send('\x1b[A')
-    result.terminal.send('\t')
+    // A key the search editor swallows without changing its value (backspace on
+    // an empty box) keeps the selection and error untouched.
+    result.terminal.send('\x7f')
     result.terminal.send('zz')
     result.terminal.send('\r')
     await tick()
@@ -474,6 +503,41 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
+  it('allows a transient session-query state but rejects a terminal state', async () => {
+    let queryCtx: Context | undefined
+    let listCalls = 0
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        await ctx.plugin({
+          apply(child: Context) {
+            queryCtx = child
+            child.provide('sessionQuery', {
+              listSessions: async () => { listCalls++; return [] },
+            } as never)
+          },
+        })
+      },
+    })
+    if (queryCtx === undefined) throw new Error('query provider did not mount')
+    const activeState = queryCtx.fiber.state
+    queryCtx.fiber.state = 0
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(listCalls).toBe(1)
+    result.terminal.send('\u001B')
+    await tick()
+    queryCtx.fiber.state = 5
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session query is not mounted')
+    expect(listCalls).toBe(1)
+    queryCtx.fiber.state = activeState
+    await dispose(result)
+  })
+
   it('keeps persisted query records readable without a persistence service', async () => {
     const target = header('query-only-persisted', 10, '/workspace')
     const result = await setup({
@@ -586,7 +650,6 @@ describe('resume command and /resume', () => {
     const corrupt = header('corrupt', 30, '/workspace')
     const result = await setup({
       cwd: '/workspace',
-      config: { resumeCommand: RESUME },
       sessionPersistence: {
         list: async () => [missing, corrupt],
         load: async (id) => {
@@ -667,7 +730,7 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('flushes, releases the terminal, and invokes one host handoff for the same SessionId', async () => {
+  it('flushes, releases the terminal, and invokes one host handoff for the same SessionId and workspace', async () => {
     const target = header('target-session', 10, '/workspace')
     const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(() => Promise.reject(new Error('test host retained process')))
     const result = await setup({
@@ -685,7 +748,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('\r')
     await tick(); await tick()
     expect(handoff).toHaveBeenCalledTimes(1)
-    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(handoff).toHaveBeenCalledWith(target.id, '/workspace')
     expect(result.terminal.stopped).toBeGreaterThan(0)
     expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
     await dispose(result)
@@ -801,7 +864,7 @@ describe('resume command and /resume', () => {
     result.terminal.send('Query without persistence')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(handoff).toHaveBeenCalledWith(target.id)
+    expect(handoff).toHaveBeenCalledWith(target.id, '/workspace')
     expect(result.terminal.output).toContain('Resume handoff failed: test host retained process')
     await dispose(result)
   })
@@ -886,16 +949,23 @@ describe('resume command and /resume', () => {
     expect(result.terminal.output).not.toContain('host rejected after disposal')
   })
 
-  it('rejects a candidate whose cwd changes between listing and preflight', async () => {
+  // A cwd that changes between listing and preflight is no longer a rejection:
+  // resume targets whatever workspace the record names at preflight, so the
+  // handoff must carry the RE-READ cwd rather than the one the row displayed.
+  it('hands off with the cwd re-read at preflight, not the one listed', async () => {
     const target = header('moving-workspace', 10, '/workspace')
+    const moved = header('moving-workspace', 10, '/elsewhere')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(
+      () => Promise.reject(new Error('test host retained process')),
+    )
     let listings = 0
     const result = await setup({
       cwd: '/workspace',
-      handoffResume: vi.fn(),
+      handoffResume: handoff,
       sessionPersistence: {
-        list: async () => [++listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere')],
+        list: async () => [++listings <= 2 ? target : moved],
         load: async () => ({
-          meta: listings <= 2 ? target : header('moving-workspace', 10, '/elsewhere'),
+          meta: listings <= 2 ? target : moved,
           events: resumeEvents('Moving workspace'),
         }),
       },
@@ -906,7 +976,101 @@ describe('resume command and /resume', () => {
     result.terminal.send('Moving workspace')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('different workspace')
+    expect(handoff).toHaveBeenCalledWith(target.id, '/elsewhere')
+    await dispose(result)
+  })
+
+  it('keeps a session with no recorded workspace visible but disabled', async () => {
+    // The key is omitted, not set to undefined: an explicit undefined is not
+    // losslessly JSON-serializable and the header validator rejects it.
+    const { cwd: _cwd, ...rootless } = header('no-workspace', 10, '/workspace')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>()
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [rootless],
+        load: async () => ({ meta: rootless, events: resumeEvents('Rootless session') }),
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    // A cwd-less session lists under all workspaces, never the current one.
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('Rootless session')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session has no recorded workspace')
+    expect(handoff).not.toHaveBeenCalled()
+    await dispose(result)
+  })
+
+  it('lists other workspaces only in the all-workspaces scope and resumes into their cwd', async () => {
+    const local = header('local-session', 2000, '/workspace')
+    const foreign = header('foreign-session', 3000, '/elsewhere')
+    const handoff = vi.fn<NonNullable<TuiRuntime['handoffResume']>>(
+      () => Promise.reject(new Error('test host retained process')),
+    )
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: handoff,
+      sessionPersistence: {
+        list: async () => [local, foreign],
+        load: async id => id === local.id
+          ? { meta: local, events: resumeEvents('Local product work') }
+          : { meta: foreign, events: resumeEvents('Foreign investigation') },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    // Three records: the two listed plus the live current session.
+    expect(result.terminal.output).toContain('Local product work')
+    expect(result.terminal.output).not.toContain('Foreign investigation')
+    expect(result.terminal.output).toContain('all workspaces (3)')
+    result.terminal.send('\t')
+    await tick()
+    const scoped = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(scoped).toContain('Foreign investigation')
+    expect(scoped).toContain('workspace /elsewhere')
+    expect(scoped).toContain('this workspace (2)')
+    // Searching the workspace label reaches a row the title would not match.
+    result.terminal.send('elsewhere')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(handoff).toHaveBeenCalledWith(foreign.id, '/elsewhere')
+    await dispose(result)
+  })
+
+  it('returns to the current workspace when Tab toggles back and clears the search', async () => {
+    const local = header('scope-local', 2000, '/workspace')
+    const foreign = header('scope-foreign', 3000, '/elsewhere')
+    const result = await setup({
+      cwd: '/workspace',
+      handoffResume: vi.fn(),
+      sessionPersistence: {
+        list: async () => [local, foreign],
+        load: async id => id === local.id
+          ? { meta: local, events: resumeEvents('Scope local') }
+          : { meta: foreign, events: resumeEvents('Scope foreign') },
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    result.terminal.send('\t')
+    await tick()
+    result.terminal.send('Scope foreign')
+    await tick()
+    expect(result.terminal.output).toContain('⌕ Scope foreign')
+    result.terminal.send('\t')
+    await tick()
+    const back = result.terminal.output.slice(result.terminal.output.lastIndexOf('Resume session'))
+    expect(back).not.toContain('⌕ Scope foreign')
+    expect(back).toContain('Scope local')
+    expect(back).not.toContain('Scope foreign')
     await dispose(result)
   })
 
@@ -1002,30 +1166,7 @@ describe('resume command and /resume', () => {
     await dispose(result)
   })
 
-  it('keeps resumeCommand as a displayed fallback when the host cannot hand off', async () => {
-    const target = header('fallback-session', 10, '/workspace')
-    const result = await setup({
-      cwd: '/workspace',
-      config: { resumeCommand: RESUME },
-      sessionPersistence: {
-        list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents('Fallback target') }),
-      },
-    })
-    result.terminal.send('/resume')
-    result.terminal.send('\r')
-    await tick(); await tick()
-    result.terminal.send('Fallback target')
-    result.terminal.send('\r')
-    await vi.waitFor(() => {
-      expect(result.terminal.output).toContain('This host cannot hand off in place. Exit and run:')
-    })
-    expect(result.terminal.output).toContain('dsh --resume fallback-session')
-    expect(result.terminal.stopped).toBe(0)
-    await dispose(result)
-  })
-
-  it('keeps the selector independent from an absent command fallback', async () => {
+  it('warns without releasing the terminal when the host cannot hand off', async () => {
     const target = header('no-fallback-session', 10, '/workspace')
     const result = await setup({
       cwd: '/workspace',
@@ -1042,6 +1183,7 @@ describe('resume command and /resume', () => {
     await vi.waitFor(() => {
       expect(result.terminal.output).toContain('Session is resumable, but this host cannot hand it off in place')
     })
+    expect(result.terminal.stopped).toBe(0)
     await dispose(result)
   })
 
@@ -1094,7 +1236,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }
     const result = await setup({
       beforeMount(session) {
-        session.append('user/message', {
+        session.append('user/message', createUserMessage({
           content: renderGoalChange(change),
           source: {
             kind: 'goal',
@@ -1103,7 +1245,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
             round: 0,
             change,
           },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
       },
     })
     expect(result.terminal.output).toContain('Goal restored (active) with automatic continuation disarmed')
@@ -1198,22 +1340,42 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.agent.status = 'running'
     agentEvents(result.ctx, result.agent).emit('agent/status', 'running')
     now = 8_000
-    result.session.append('user/message', { content: [{ type: 'text', text: '   ' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: 'steering note' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('steering/message', { turn: 2, content: [{ type: 'text', text: '' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('user/message', { content: [{ type: 'text', text: 'user context' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '   ' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    result.session.append('steering/message', {
+      turn: 2,
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'steering note' }],
+        source: { kind: 'user' },
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('steering/message', {
+      turn: 2,
+      message: createUserMessage({
+        content: [{ type: 'text', text: '' }],
+        source: { kind: 'user' },
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'user context' }], source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '<system-reminder>\nAdditional instructions from: nested/AGENTS.md\n\nRender XML context clearly.\n</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-context' },
-    }, { surfaceOp: 'append' })
-    result.session.append('user/message', {
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '<system-reminder>&#155;</system-reminder>' }],
       source: { kind: 'plugin', plugin: 'workspace-control-context' },
-    }, { surfaceOp: 'append' })
-    result.session.append('user/message', { content: [{ type: 'text', text: '' }], source: { kind: 'plugin', plugin: 'ctx' } }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '' }], source: { kind: 'plugin', plugin: 'ctx' },
+    }), { surfaceOp: 'append' })
     // A non-plugin injected source (goal) has no `plugin` field, so its context
     // card label falls back to the source kind.
-    result.session.append('user/message', { content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0 } as never }, { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0 } as never,
+    }), { surfaceOp: 'append' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
     result.session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
@@ -1294,10 +1456,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Steering')
     expect(result.terminal.output).toContain('user context')
     expect(result.terminal.output).toContain('Context · workspace-context')
-    expect(result.terminal.output).toContain('system-reminder')
+    // The redundant `system-reminder` frame element is dropped: the source label
+    // already names the context, so the card body starts at the instruction text.
     expect(result.terminal.output).toContain('Additional instructions from: nested/AGENTS.md')
-    expect(result.terminal.output).not.toContain('<system-reminder>')
-    expect(result.terminal.output).toContain('\\x9b')
+    expect(result.terminal.output).toContain('Render XML context clearly.')
+    // A one-line frame has no open/close line pair to strip, so its text renders as
+    // the prose it is. The card no longer parses context, so a character reference
+    // stays literal instead of expanding to the control character it names — which
+    // is why the expanded-C1 escaping the parser needed is no longer reachable here.
+    expect(result.terminal.output).toContain('&#155;')
+    expect(result.terminal.output).not.toContain('\u009b')
     expect(result.terminal.output).toContain('Context · goal') // goal-sourced injected context labels by kind
     expect(result.terminal.output).toContain('Turn cancelled')
     expect(result.terminal.progress).toContain(true)
@@ -1309,6 +1477,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
     result.terminal.send('/clear')
     result.terminal.send('\r')
+    await tick() // the executor logs command/run durably before the handler clears
     appendAssistant(result.session, [{ type: 'text', text: 'answer after clear' }], undefined, { turn: 3, step: 1 })
     await tick()
     expect(result.terminal.output).toContain('answer after clear')
@@ -1322,6 +1491,104 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
     expect(result.terminal.stopped).toBe(1)
     expect(result.terminal.drainInput).toHaveBeenCalledWith(100, 20)
+  })
+
+  it('folds an injected-context card by default and expands it with Ctrl+O', async () => {
+    const result = await setup()
+    // A reminder body past the default 6-line budget so the collapsed card shows
+    // the expand marker and hides a middle line until Ctrl+O.
+    const instructions = Array.from({ length: 10 }, (_, index) => `instruction line ${index}`).join('\n')
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: `<system-reminder>\n${instructions}\n</system-reminder>` }],
+      source: { kind: 'plugin', plugin: 'workspace-context' },
+    }), { surfaceOp: 'append' })
+    await tick()
+
+    // The redundant `system-reminder` frame element is dropped; the card is
+    // collapsed by default with the shared Ctrl+O expand marker.
+    expect(result.terminal.output).toContain('Context · workspace-context')
+    expect(result.terminal.output).not.toContain('system-reminder')
+    expect(result.terminal.output).toContain('lines (Ctrl+O to expand)')
+    expect(result.terminal.output).toContain('instruction line 0')
+    expect(result.terminal.output).not.toContain('instruction line 5')
+
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+    expect(result.terminal.output).toContain('instruction line 5')
+
+    // Third state: tool cards hide; a context card is injected instructions,
+    // not tool traffic, so it stays visible at its collapsed preview.
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+    // A repaint proves the context card SURVIVES the hidden phase: injected
+    // instructions are not tool traffic, so they stay at the collapsed preview.
+    result.terminal.send('\x0c')
+    await tick()
+    const hidden = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(hidden).toContain('Context · workspace-context')
+    // Fourth press returns to the collapsed default, closing the cycle.
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards collapsed.')
+
+    // Context with no frame renders as muted prose under the header; a frame
+    // wrapping nothing renders header-only.
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'plain reminder text, no tags' }],
+      source: { kind: 'plugin', plugin: 'plain-context' },
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<system-reminder>\n</system-reminder>' }],
+      source: { kind: 'plugin', plugin: 'empty-context' },
+    }), { surfaceOp: 'append' })
+    // Only a matched open/close pair is a frame: an unpaired tag line is prose and
+    // survives, so a body is never silently truncated by a tag-like first line.
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<available_skills>\nkept prose line\n</other-tag>' }],
+      source: { kind: 'plugin', plugin: 'unpaired-context' },
+    }), { surfaceOp: 'append' })
+    await tick()
+    expect(result.terminal.output).toContain('Context · plain-context')
+    expect(result.terminal.output).toContain('plain reminder text, no tags')
+    expect(result.terminal.output).toContain('Context · empty-context')
+    expect(result.terminal.output).toContain('<available_skills>')
+    expect(result.terminal.output).toContain('kept prose line')
+    // Ctrl+L invalidates the mounted tree, exercising the card's invalidate hook.
+    result.terminal.send('\x0c')
+    await tick()
+    await dispose(result)
+  })
+
+  it('renders XML-hostile instruction prose verbatim, framed and folded', async () => {
+    const result = await setup()
+    // Real AGENTS.md prose carries a raw `&` (a badge URL's `&logo=`) and
+    // angle-bracket placeholders that name nothing (`packages/<group>/<pkg>/`).
+    // Both are prose the model must read literally, and neither may affect whether
+    // the frame is stripped or the body folds.
+    const lines = Array.from({ length: 10 }, (_, index) => `prose line ${index}`).join('\n')
+    result.session.append('user/message', createUserMessage({
+      content: [{
+        type: 'text',
+        text: `<system-reminder>\nbadge: https://img.shields.io/badge/x?style=flat&logo=deepseek\npath: packages/<group>/<pkg>/\n${lines}\n</system-reminder>`,
+      }],
+      source: { kind: 'plugin', plugin: 'prose-context' },
+    }), { surfaceOp: 'append' })
+    await tick()
+
+    expect(result.terminal.output).toContain('Context · prose-context')
+    expect(result.terminal.output).not.toContain('<system-reminder>')
+    expect(result.terminal.output).toContain('lines (Ctrl+O to expand)')
+    expect(result.terminal.output).not.toContain('prose line 5')
+
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('prose line 5')
+    // Characters that break a strict XML parse survive unescaped and unexpanded.
+    expect(result.terminal.output).toContain('&logo=deepseek')
+    expect(result.terminal.output).toContain('packages/<group>/<pkg>/')
+    await dispose(result)
   })
 
   it('counts failed and recovered request usage once per step', async () => {
@@ -1408,10 +1675,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it('badges queued steering on the prompt context timing and clears it as each drains', async () => {
+  it('badges queued steering on the prompt context and clears it as each drains', async () => {
     // Pin a cwd free of the substring under test; the prompt context renders the path.
     const result = await setup({ status: 'running', cwd: '/workspace' })
-    // Running with nothing queued: timing appears once in the prompt context and the editor keeps its hint.
+    // Running with nothing queued: the badge is absent and the editor keeps its hint.
     expect(result.terminal.output).toContain('Assistant')
     expect(result.terminal.output).toContain('Model wait 0.0s')
     expect(result.terminal.output).toContain('press enter to steer and esc to cancel')
@@ -1433,19 +1700,31 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const drainSteering = (text: string): void => {
       const id = result.agent.steeredIds.shift()
       if (id !== undefined) {
-        result.ctx.emit('agent/inbox/dequeue', result.agent, {
+        result.ctx.emit('agent/inbox/dequeue', result.agent, inboxItem(freezeMessage({
           id,
+          role: 'user',
           content: [{ type: 'text', text }],
           source: { kind: 'user' },
-        })
+        }), 'steering'))
       }
-      result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+      result.session.append('steering/message', {
+        turn: 1,
+        message: createUserMessage({
+          content: [{ type: 'text', text }],
+          source: { kind: 'user' },
+        }),
+      }, { surfaceOp: 'append' })
     }
 
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'elsewhere' }], source: { kind: 'user' } }, 'queued')
+    result.ctx.emit('agent/inbox/enqueue', other, inboxItem(freezeMessage({
+      id: MessageId('stub'),
+      role: 'user',
+      content: [{ type: 'text', text: 'elsewhere' }],
+      source: { kind: 'user' },
+    }), 'queued'))
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -1483,8 +1762,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.output = ''
     result.session.append('steering/message', {
       turn: 1,
-      content: [{ type: 'text', text: 'continue: goal not reached' }],
-      source: { kind: 'plugin', plugin: 'hooks' },
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'continue: goal not reached' }],
+        source: { kind: 'plugin', plugin: 'hooks' },
+      }),
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('1 queued')
@@ -1508,23 +1789,34 @@ describe('pi-tui chat lifecycle and transcript', () => {
     submitSteering('fourth')
     await tick()
     expect(result.terminal.output).toContain('2 queued')
-    const discarded = result.agent.steeredIds.splice(0).map(id => ({
-      id, content: [{ type: 'text' as const, text: 'discarded' }], source: { kind: 'user' as const },
+    const discarded = result.agent.steeredIds.splice(0).map(id => freezeMessage({
+      id,
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: 'discarded' }],
+      source: { kind: 'user' as const },
     }))
     // Another agent's dequeue/discard, and ones naming no pending id, leave
     // the badge alone.
-    result.ctx.emit('agent/inbox/dequeue', other, discarded[0]!)
-    result.ctx.emit('agent/inbox/dequeue', result.agent, {
-      id: AgentMessageId('never-queued'), content: [{ type: 'text', text: 'x' }], source: { kind: 'user' },
-    })
-    result.ctx.emit('agent/inbox/discard', other, discarded)
+    result.ctx.emit('agent/inbox/dequeue', other, inboxItem(discarded[0]!, 'steering'))
+    result.ctx.emit('agent/inbox/dequeue', result.agent, inboxItem(freezeMessage({
+      id: MessageId('never-queued'),
+      role: 'user',
+      content: [{ type: 'text', text: 'x' }],
+      source: { kind: 'user' },
+    }), 'steering'))
+    result.ctx.emit('agent/inbox/discard', other, discarded.map(message => inboxItem(message, 'steering')))
     result.ctx.emit('agent/inbox/discard', result.agent, [
-      { id: AgentMessageId('never-queued'), content: [{ type: 'text', text: 'x' }], source: { kind: 'user' } },
+      inboxItem(freezeMessage({
+        id: MessageId('never-queued'),
+        role: 'user',
+        content: [{ type: 'text', text: 'x' }],
+        source: { kind: 'user' },
+      }), 'steering'),
     ])
     await tick()
     expect(result.terminal.output).toContain('2 queued')
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/discard', result.agent, discarded)
+    result.ctx.emit('agent/inbox/discard', result.agent, discarded.map(message => inboxItem(message, 'steering')))
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -1792,13 +2084,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }
 
     // Without truecolor there is no per-frame gray: below the fade midpoint the
-    // glyph slot is blank; past it the glyph shows in the palette muted role
-    // (ANSI 90), never the accent (SGR 94).
+    // glyph slot is blank; past it the glyph shows in the palette dim role,
+    // never the accent (ANSI 95).
     const early = await frameAt(60)
     expect(early).not.toMatch(/dsh(?:\x1b\[[0-9;]*m| )*●/u)
     const shown = await frameAt(300)
-    expect(shown).toMatch(/\x1b\[90m●/u)
-    expect(shown).not.toMatch(/\x1b\[94m●/u)
+    expect(shown).toMatch(/\x1b\[2;39m●/u)
+    expect(shown).not.toMatch(/\x1b\[95m●/u)
 
     await dispose(result)
   })
@@ -1840,8 +2132,19 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('tracks steering drains without a running status line', async () => {
     const result = await setup()
     const source = { kind: 'user' as const }
-    result.ctx.emit('agent/inbox/enqueue', result.agent, { id: AgentMessageId('stub'), content: [{ type: 'text', text: 'early' }], source }, 'steering')
-    result.session.append('steering/message', { turn: 1, content: [{ type: 'text', text: 'early' }], source }, { surfaceOp: 'append' })
+    result.ctx.emit('agent/inbox/enqueue', result.agent, inboxItem(freezeMessage({
+      id: MessageId('stub'),
+      role: 'user',
+      content: [{ type: 'text', text: 'early' }],
+      source,
+    }), 'steering'))
+    result.session.append('steering/message', {
+      turn: 1,
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'early' }],
+        source,
+      }),
+    }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).not.toContain('queued')
     await dispose(result)
@@ -1896,7 +2199,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     ])
     result.session.append('tool/call', { turn: 1, step: 1, callId: 'c1' as never, name: 'bash', arguments: '{}' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c1' as never, content: [{ type: 'text', text: 'command output' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c1' as never,
+        content: [{ type: 'text', text: 'command output' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.terminal.output = ''
     result.session.append('step/end', { turn: 1, step: 1 })
@@ -1933,7 +2241,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       cwd: '/workspace',
       config: { theme: { color: true } },
       beforeMount(session) {
-        session.append('user/message', {
+        session.append('user/message', createUserMessage({
           content: [
             { type: 'text', text: '# Heading\n\n[link](https://example.com) `code`\n\n```ts\nconst x = 1\n```\n\n> quote\n\n---\n\n- item\n\n**bold** *italic* ~~strike~~' },
             { type: 'tool-call', id: 'nested' as never, name: 'nested_tool', arguments: '{}' },
@@ -1942,7 +2250,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
             {} as never,
           ],
           source: { kind: 'user' },
-        }, { surfaceOp: 'append' })
+        }), { surfaceOp: 'append' })
         appendAssistant(session, [
           { type: 'reasoning', text: 'styled reasoning' },
           { type: 'text', text: 'styled answer\n\n```ts\nconst answer = 42\n```' },
@@ -1987,8 +2295,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     })
 
     expect(result.terminal.output).not.toContain('stale partial response')
-    result.terminal.send('/reasoning')
-    result.terminal.send('\r')
+    result.terminal.send('\x12')
     result.terminal.send('\x1b[A')
     result.terminal.send('\x1b[A')
     result.terminal.send('\x1b[A')
@@ -2139,7 +2446,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('/workspace/status')
     expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (effort default; reasoning blocks')
     expect(result.terminal.output).toContain('hidden)')
-    expect(result.terminal.output).toContain('running · 6 events · 1 turn · 1 step · 2 tool calls')
+    // 6 domain events + the /status invocation's own command/run (open turn: joined directly).
+    expect(result.terminal.output).toContain('running · 7 events · 1 turn · 1 step · 2 tool calls')
     expect(result.terminal.output).toContain('1,250 input + 340 output')
     expect(result.terminal.output).toContain('[███████████░░░░░] 67% hit (3,000 read + 250 write)')
     expect(result.terminal.output).toContain('[█████░░░░░░░░░░░] 33% used (42,000 / 128,000)')
@@ -2152,8 +2460,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).not.toContain('\u001B]2;unsafe\u0007')
 
     result.terminal.resize(56)
-    result.terminal.send('/redraw')
-    result.terminal.send('\r')
+    result.terminal.send('\x0c')
     await tick()
 
     await dispose(result)
@@ -2180,7 +2487,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('untitled')
     expect(result.terminal.output).toContain('unset (effort unset; reasoning blocks shown)')
-    expect(result.terminal.output).toContain('idle · 0 events · 0 turns · 0 steps · 0 tool calls')
+    // The /status invocation's command/run lands directly on the empty log — no turn wraps it.
+    expect(result.terminal.output).toContain('idle · 1 event · 0 turns · 0 steps · 0 tool calls')
     expect(result.terminal.output).toContain('n/a (0 read + 0 write)')
     expect(result.terminal.output).toContain('7 used · capacity unknown')
     expect(result.terminal.output).toContain('2026-07-22 10:11:12 UTC')
@@ -2224,7 +2532,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
 
     result.agent.status = 'idle'
-    for (const command of ['/help', '/reasoning', '/tools', '/redraw', '/reload']) {
+    for (const command of ['/help', '/palette', '/reload']) {
       result.terminal.send(command)
       result.terminal.send('\r')
       await tick()
@@ -2232,8 +2540,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
     for (const command of ['/clear', '/wat']) {
       result.terminal.send(command)
       result.terminal.send('\r')
+      await tick() // /clear's handler runs after the durable command/run append; keep it from wiping the next notice
     }
-    await tick()
     result.terminal.send('draft')
     result.terminal.send('\x03')
     result.terminal.send('\x04')
@@ -2241,7 +2549,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('Keyboard shortcuts')
     expect(result.terminal.output).toContain('Reasoning blocks')
-    expect(result.terminal.output).toContain('Tool cards')
+    expect(result.terminal.output).toContain('Tool and context cards')
     expect(result.terminal.output).toContain('Unknown command')
     // /reload without a Loader in the context degrades to a warning.
     expect(result.terminal.output).toContain('/reload needs the cordis Loader')
@@ -2288,7 +2596,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
         type: 'user/message',
         seq: 0,
         time: 1,
-        data: { content: [{ type: 'text', text: 'source background' }], source: { kind: 'user' } },
+        data: createUserMessage({
+          content: [{ type: 'text', text: 'source background' }],
+          source: { kind: 'user' },
+        }),
         surfaceOp: 'append',
       },
       {
@@ -2335,7 +2646,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // the allow decision), not a separate pre-admission inject.
     expect(result.agent.injected).toHaveLength(0)
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(decision.kind).toBe('allow')
@@ -2345,7 +2656,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // The one-shot wrapper detached itself at admission: replaying the
     // waterfall attaches nothing a second time.
     const replay = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
@@ -2392,7 +2703,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.steered).toHaveLength(0)
     expect(result.agent.injected).toHaveLength(0)
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
@@ -2422,13 +2733,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await send()
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
 
-    // Each wrapper releases on its own allowed admission — matched by the
-    // message content it carries, not the returned id, which real send()
-    // assigns as a random UUID only after followup() returns. Running each
-    // prompt's admission waterfall detaches its wrapper.
-    for (const sent of result.agent.sent) {
+    // Each wrapper releases on its own identified message's allowed admission.
+    // Running each prompt's admission waterfall detaches its wrapper.
+    for (const sent of result.agent.sentMessages) {
       await agentEvents(result.ctx, result.agent).waterfall(
-        'agent/prompt-submit', sent, { kind: 'user' },
+        'agent/prompt-submit', sent,
         new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
       )
     }
@@ -2436,19 +2745,20 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // no armed listener, and an unrelated admission is untouched. The leak
     // regression: a listener installed after its cleanup already ran would
     // survive every future cleanup.
-    result.ctx.emit('agent/inbox/discard', result.agent, [{
-      id: AgentMessageId('stub'), content: result.agent.sent[0]!, source: { kind: 'user' },
-    }])
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages[0]!, 'queued')])
     const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', [{ type: 'text', text: 'unrelated' }], { kind: 'user' },
+      'agent/prompt-submit', createUserMessage({
+        content: [{ type: 'text', text: 'unrelated' }],
+        source: { kind: 'user' },
+      }),
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
     // Replaying either sent prompt attaches nothing: the one-shot wrappers
     // are gone, not merely spent.
-    for (const sent of result.agent.sent) {
+    for (const sent of result.agent.sentMessages) {
       const replay = await agentEvents(result.ctx, result.agent).waterfall(
-        'agent/prompt-submit', sent, { kind: 'user' },
+        'agent/prompt-submit', sent,
         new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
       )
       expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
@@ -2466,20 +2776,22 @@ describe('pi-tui chat lifecycle and transcript', () => {
         appendUser(source, 'source background')
       },
     })
-    // Real send() publishes its snapshotted message, then an enqueue listener
-    // may synchronously cancel and discard it before followup() returns the
-    // already-assigned id. This stub reproduces that ordering.
+    // Real send() publishes its already identified snapshot, then an enqueue
+    // listener may synchronously cancel and discard it before followup()
+    // returns that id. This stub reproduces that ordering.
     const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
     result.agent.followup = (input) => {
       result.agent.sent.push(input.content)
-      const message = {
-        id: AgentMessageId('stub'),
+      result.agent.sentMessages.push(input)
+      const message = freezeMessage({
+        id: input.id,
+        role: 'user' as const,
         content: structuredClone(input.content),
         source: structuredClone(input.source),
-      }
-      result.ctx.emit('agent/inbox/enqueue', foreign, message, 'queued')
-      result.ctx.emit('agent/inbox/enqueue', result.agent, message, 'queued')
-      result.ctx.emit('agent/inbox/discard', result.agent, [message])
+      })
+      result.ctx.emit('agent/inbox/enqueue', foreign, inboxItem(message, 'queued'))
+      result.ctx.emit('agent/inbox/enqueue', result.agent, inboxItem(message, 'queued'))
+      result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(message, 'queued')])
       return message.id
     }
 
@@ -2490,11 +2802,11 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
 
-    // The synchronous discard released the listeners even though followup()
-    // had not returned the id yet: replaying the prompt's admission attaches
-    // no stranded snapshot, and nothing leaks for the TUI lifetime.
+    // The synchronous discard released the listeners before followup()
+    // returned the existing id: replaying the prompt's admission attaches no
+    // stranded snapshot, and nothing leaks for the TUI lifetime.
     const replay = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(replay.kind === 'allow' && replay.additionalContexts).toBeUndefined()
@@ -2514,7 +2826,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A downstream admission hook blocks the prompt: the attached snapshot
     // must be discarded with it, not stranded for the next prompt.
     let blockPrompts = true
-    result.ctx.on('agent/prompt-submit', async (_agent, _content, _source, _signal, next) =>
+    result.ctx.on('agent/prompt-submit', async (_agent, _message, _signal, next) =>
       blockPrompts ? { kind: 'block' as const, reason: 'policy' } : next())
 
     result.terminal.send('@blocked-source')
@@ -2525,7 +2837,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(1) })
 
     const blocked = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(blocked.kind).toBe('block')
@@ -2534,7 +2846,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.agent.injected).toHaveLength(0)
     blockPrompts = false
     const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', [{ type: 'text', text: 'unrelated' }], { kind: 'user' },
+      'agent/prompt-submit', createUserMessage({
+        content: [{ type: 'text', text: 'unrelated' }],
+        source: { kind: 'user' },
+      }),
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(unrelated.kind === 'allow' && unrelated.additionalContexts).toBeUndefined()
@@ -2549,31 +2864,27 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await vi.waitFor(() => { expect(result.agent.sent).toHaveLength(2) })
     // A different prompt passing the still-armed wrapper delegates untouched.
     const passthrough = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', [{ type: 'text', text: 'different prompt' }], { kind: 'user' },
+      'agent/prompt-submit', createUserMessage({
+        content: [{ type: 'text', text: 'different prompt' }],
+        source: { kind: 'user' },
+      }),
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(passthrough.kind === 'allow' && passthrough.additionalContexts).toBeUndefined()
     // A foreign agent's discard leaves the wrapper armed.
     const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
-    result.ctx.emit('agent/inbox/discard', foreign, [{
-      id: AgentMessageId('stub'),
-      content: result.agent.sent.at(-1)!,
+    result.ctx.emit('agent/inbox/discard', foreign, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
+    // An unrelated discard for this agent also leaves the wrapper armed.
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(createUserMessage({
+      content: [{ type: 'text', text: 'unrelated discard' }],
       source: { kind: 'user' },
-    }])
-    result.ctx.emit('agent/inbox/discard', result.agent, [{
-      id: AgentMessageId('stub'),
-      content: result.agent.sent.at(-1)!,
-      source: { kind: 'user' },
-    }])
+    }), 'queued')])
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
     await tick()
     // Idempotent: a repeat discard after cleanup is a no-op.
-    result.ctx.emit('agent/inbox/discard', result.agent, [{
-      id: AgentMessageId('stub'),
-      content: result.agent.sent.at(-1)!,
-      source: { kind: 'user' },
-    }])
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
     const afterDiscard = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent.at(-1)!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages.at(-1)!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(afterDiscard.kind === 'allow' && afterDiscard.additionalContexts).toBeUndefined()
@@ -2728,7 +3039,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       { type: 'text', text: '@evil\\x1b\\x07\\x9b\\x0as' },
     ]])
     const decision = await agentEvents(result.ctx, result.agent).waterfall(
-      'agent/prompt-submit', result.agent.sent[0]!, { kind: 'user' },
+      'agent/prompt-submit', result.agent.sentMessages[0]!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
     )
     expect(decision.kind === 'allow' && decision.additionalContexts?.[0]?.source)
@@ -2817,47 +3128,49 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('Session reference failed')
     expect(result.terminal.output).toContain('keep @[')
 
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hidden snapshot payload' }],
       source: {
         kind: 'session-reference',
         references: [{ sessionId: 'prefixed', label: 'Prefixed source' }],
       } as never,
-    }, { surfaceOp: 'append' })
-    result.session.append('user/message', {
+    }), { surfaceOp: 'append' })
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'visible referenced question' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('visible referenced question')
     expect(result.terminal.output).toContain('Referenced sessions · Prefixed source (prefixed)')
     expect(result.terminal.output).not.toContain('hidden snapshot payload')
 
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hidden steering context' }],
       source: {
         kind: 'session-reference',
         references: [{ sessionId: 'steering-source', label: 'Steering source' }],
       } as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     result.session.append('steering/message', {
       turn: 1,
-      content: [{ type: 'text', text: 'visible steering prompt' }],
-      source: { kind: 'user' },
+      message: createUserMessage({
+        content: [{ type: 'text', text: 'visible steering prompt' }],
+        source: { kind: 'user' },
+      }),
     }, { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('visible steering prompt')
     expect(result.terminal.output).toContain('Referenced sessions · Steering source (steering-source)')
     expect(result.terminal.output).not.toContain('hidden steering context')
 
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'secret full snapshot payload' }],
       source: {
         kind: 'session-reference',
         version: 1,
         references: [{ sessionId: 'source', label: 'Source', capturedThroughSeq: 2 }],
       } as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('Referenced sessions · Source (source)')
     expect(result.terminal.output).not.toContain('secret full snapshot payload')
@@ -2869,15 +3182,15 @@ describe('pi-tui chat lifecycle and transcript', () => {
       [{ kind: 'session-reference', references: [{}] }, 'invalid-fields'],
     ]
     for (const [source, text] of invalidCards) {
-      result.session.append('user/message', {
+      result.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text }],
         source: source as never,
-      }, { surfaceOp: 'append' })
+      }), { surfaceOp: 'append' })
     }
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'same-label snapshot' }],
       source: { kind: 'session-reference', references: [{ sessionId: 'same', label: 'same' }] } as never,
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await tick()
     expect(result.terminal.output).toContain('Referenced sessions · same')
     await dispose(result)
@@ -3048,21 +3361,38 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await vi.waitFor(() => {
       expect(result.terminal.output.slice(firstSelectorOutput)).toContain('Select model')
     })
+    const filterOpenOutput = result.terminal.output.length
+    result.terminal.send('beta')
+    await tick()
+    expect(result.terminal.output.slice(filterOpenOutput)).toContain('> beta')
+    expect(result.terminal.output.slice(filterOpenOutput)).toContain('beta/b1')
+    expect(result.terminal.output.slice(filterOpenOutput)).not.toContain('alpha/a1')
+    const noMatchOutput = result.terminal.output.length
+    result.terminal.send('zzz')
+    await tick()
+    expect(result.terminal.output.slice(noMatchOutput)).toContain('No models match the filter')
+    result.terminal.send('\x1b[D')
+    await tick()
+    expect(result.terminal.output.slice(noMatchOutput)).toContain('No models match the filter')
     result.terminal.send('\x1b')
     await tick()
+    const filterClearedOutput = result.terminal.output.length
+    result.terminal.send('\x1b')
+    await tick()
+    expect(result.terminal.output.slice(filterClearedOutput)).not.toContain('Select model')
 
     const providerDefaultOutput = result.terminal.output.length
     result.terminal.send('/model alpha/shared')
     result.terminal.send('\r')
     await vi.waitFor(() => {
-      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: provider default.')
+      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: Default.')
     })
     result.terminal.send('/model')
     result.terminal.send('\r')
     await vi.waitFor(() => {
       expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Select model')
     })
-    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — provider default')
+    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — Default')
     result.terminal.send('\x1b[Z')
     await tick()
     expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — Standard')
@@ -3081,10 +3411,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Ultra — current')
     result.terminal.send('\x1b[Z')
     await tick()
-    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — provider default')
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Default')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Reasoning effort: provider default.')
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Reasoning effort: Default.')
     const explicitResetSeed: LlmCallConfig = {
       provider: 'beta',
       model: 'b1',
@@ -3544,10 +3874,30 @@ describe('skill slash command', () => {
     if (skills === undefined) throw new Error('skills service not mounted')
     skills.register({ name: 'demo-skill', description: 'Demo skill for tests', source: 'runtime', provider: 'runtime', content: 'Demo instructions body.' })
     skills.register({ name: 'project-skill', description: 'Project skill for tests', source: 'project-dsh', provider: 'runtime', content: 'Project instructions body.' })
-    skills.register({ name: 'hidden-skill', description: 'Model-hidden skill', source: 'runtime', provider: 'runtime', content: 'Hidden instructions body.', disableModelInvocation: true })
+    skills.register({
+      name: 'user-only-skill',
+      description: 'User-only skill',
+      invocation: { modelInvocable: false, userInvocable: true },
+      source: 'runtime',
+      content: 'User-only instructions body.',
+    })
+    skills.register({
+      name: 'model-only-skill',
+      description: 'Model-only skill',
+      invocation: { modelInvocable: true, userInvocable: false },
+      source: 'runtime',
+      content: 'Model-only instructions body.',
+    })
+    skills.register({
+      name: 'trusted-only-skill',
+      description: 'Trusted-only skill',
+      invocation: { modelInvocable: false, userInvocable: false },
+      source: 'runtime',
+      content: 'Trusted-only instructions body.',
+    })
   }
 
-  it('labels slash completions by scope and hides model-disabled skills', async () => {
+  it('labels slash completions by scope and applies user invocation policy', async () => {
     const result = await setup({ configureContext: withSkills })
     result.terminal.send('/skill')
     await tick()
@@ -3555,8 +3905,139 @@ describe('skill slash command', () => {
     expect(result.terminal.output).toContain('(user)')
     expect(result.terminal.output).toContain('project-skill')
     expect(result.terminal.output).toContain('(project)')
+    expect(result.terminal.output).toContain('user-only-skill')
     expect(result.terminal.output).not.toContain('[instructions]')
-    expect(result.terminal.output).not.toContain('hidden-skill')
+    expect(result.terminal.output).not.toContain('model-only-skill')
+    expect(result.terminal.output).not.toContain('trusted-only-skill')
+    await dispose(result)
+  })
+
+  it('refreshes slash completions after runtime skill additions and complete removals', async () => {
+    let skills: SkillService | undefined
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        await ctx.plugin(SkillService)
+        skills = ctx.get('skills')
+      },
+    })
+    if (skills === undefined) throw new Error('skills service not mounted')
+
+    result.terminal.send('/skill:dynamic')
+    await tick()
+    result.terminal.output = ''
+    const disposeSkill = skills.register({
+      name: 'dynamic-skill',
+      description: 'DYNAMIC_COMPLETION_MARKER',
+      source: 'runtime',
+      content: 'Dynamic body.',
+    })
+    await tick()
+    expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+
+    result.terminal.send('\x03')
+    disposeSkill()
+    await tick()
+    result.terminal.output = ''
+    result.terminal.send('/skill:dynamic')
+    await tick()
+    expect(result.terminal.output).not.toContain('DYNAMIC_COMPLETION_MARKER')
+    await dispose(result)
+  })
+
+  it('retains last-good slash completions across incomplete snapshots', async () => {
+    let skills: SkillService | undefined
+    let provider: SkillProvider | undefined
+    let invalidate = (): void => {}
+    let fail = false
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        await ctx.plugin(SkillService)
+        skills = ctx.get('skills')
+        provider = {
+          name: 'flaky-completion',
+          async list() {
+            if (fail) throw new Error('transient completion failure')
+            return [{
+              name: 'stable-skill',
+              description: 'STABLE_COMPLETION_MARKER',
+              invocation: { modelInvocable: true, userInvocable: true },
+              source: 'test',
+              provider: 'flaky-completion',
+              rank: 1,
+              locator: 'stable',
+            }]
+          },
+          async get() {
+            return undefined
+          },
+        }
+        skills?.registerProvider((control) => {
+          invalidate = control.invalidate
+          return provider as SkillProvider
+        })
+      },
+    })
+    if (skills === undefined || provider === undefined) throw new Error('skills provider not mounted')
+
+    fail = true
+    invalidate()
+    await tick()
+    result.terminal.output = ''
+    result.terminal.send('/skill:stable')
+    await tick()
+    expect(result.terminal.output).toContain('STABLE_COMPLETION_MARKER')
+    await dispose(result)
+  })
+
+  it('keeps the latest slash catalog when asynchronous refreshes settle out of order', async () => {
+    const pendingSnapshots: Array<PromiseWithResolvers<SkillCatalogSnapshot>> = []
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        ctx.provide('skills', {
+          snapshot: () => {
+            const pending = Promise.withResolvers<SkillCatalogSnapshot>()
+            pendingSnapshots.push(pending)
+            return pending.promise
+          },
+          get: () => Promise.resolve(undefined),
+        } as never)
+      },
+    })
+    expect(pendingSnapshots).toHaveLength(1)
+
+    result.ctx.emit('skills/change')
+    result.ctx.emit('skills/change')
+    expect(pendingSnapshots).toHaveLength(3)
+    pendingSnapshots[2]?.resolve({
+      skills: [{
+        name: 'latest-skill',
+        description: 'LATEST_COMPLETION_MARKER',
+        invocation: { modelInvocable: true, userInvocable: true },
+        source: 'runtime',
+        provider: 'runtime',
+      }],
+      complete: true,
+    })
+    await tick()
+    pendingSnapshots[0]?.resolve({
+      skills: [{ name: 'stale-first', description: 'STALE_FIRST', invocation: { modelInvocable: true, userInvocable: true }, source: 'runtime', provider: 'runtime' }],
+      complete: true,
+    })
+    pendingSnapshots[1]?.resolve({
+      skills: [{ name: 'stale-second', description: 'STALE_SECOND', invocation: { modelInvocable: true, userInvocable: true }, source: 'runtime', provider: 'runtime' }],
+      complete: true,
+    })
+    await tick()
+
+    result.terminal.output = ''
+    result.terminal.send('/skill:latest')
+    await tick()
+    expect(result.terminal.output).toContain('LATEST_COMPLETION_MARKER')
+    expect(result.terminal.output).not.toContain('STALE_FIRST')
+    expect(result.terminal.output).not.toContain('STALE_SECOND')
     await dispose(result)
   })
 
@@ -3575,12 +4056,79 @@ describe('skill slash command', () => {
     await dispose(result)
   })
 
-  it('invokes a model-disabled skill by its exact name', async () => {
+  it('invokes a user-only skill by its exact name', async () => {
     const result = await setup({ configureContext: withSkills })
-    result.terminal.send('/skill:hidden-skill')
+    result.terminal.send('/skill:user-only-skill')
     result.terminal.send('\r')
     await tick()
-    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="hidden-skill">\nHidden instructions body.\n</skill>' }]])
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="user-only-skill">\nUser-only instructions body.\n</skill>' }]])
+    await dispose(result)
+  })
+
+  it('checks user policy before loading and rechecks the loaded definition', async () => {
+    const summaries: SkillSummary[] = [
+      {
+        name: 'model-only-skill',
+        description: 'Model-only skill',
+        invocation: { modelInvocable: true, userInvocable: false },
+        source: 'runtime',
+        provider: 'runtime',
+      },
+      {
+        name: 'policy-race-skill',
+        description: 'Policy race skill',
+        invocation: { modelInvocable: true, userInvocable: true },
+        source: 'runtime',
+        provider: 'runtime',
+      },
+    ]
+    const get = vi.fn((name: string) => Promise.resolve<SkillDefinition | undefined>({
+      name,
+      description: 'Policy race skill',
+      invocation: { modelInvocable: true, userInvocable: false },
+      source: 'runtime',
+      provider: 'runtime',
+      content: 'Instructions must not be delivered.',
+    }))
+    const result = await setup({
+      configureContext: async (ctx) => {
+        ctx.provide('tools', { get() { return undefined } } as never)
+        ctx.provide('skills', {
+          snapshot: () => Promise.resolve({ skills: summaries, complete: true }),
+          list: () => Promise.resolve(summaries),
+          get,
+        } as never)
+      },
+    })
+    result.terminal.send('/skill:model-only-skill')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:policy-race-skill')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.agent.sent).toEqual([])
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledWith('policy-race-skill', expect.objectContaining({ cwd: '/workspace' }))
+    expect(result.terminal.output).toContain('Skill "model-only-skill" is not available for user invocation.')
+    expect(result.terminal.output).toContain('Skill "policy-race-skill" is not available for user invocation.')
+    expect(result.terminal.output).not.toContain('Instructions must not be delivered.')
+    await dispose(result)
+  })
+
+  it('auto-invokes a launcher-seeded initial skill as the first turn', async () => {
+    const result = await setup({ config: { initialSkill: 'demo-skill' }, configureContext: withSkills })
+    // The seed rides the same path as a typed `/skill:demo-skill`, delivered
+    // once the chat is live; no user input is required.
+    await tick()
+    expect(result.agent.sent).toEqual([[{ type: 'text', text: '<skill name="demo-skill">\nDemo instructions body.\n</skill>' }]])
+    await dispose(result)
+  })
+
+  it('reports an unknown initial skill as a notice without sending', async () => {
+    const result = await setup({ config: { initialSkill: 'nope' }, configureContext: withSkills })
+    await tick()
+    expect(result.terminal.output).toContain('Unknown skill: nope')
+    expect(result.agent.sent).toEqual([])
     await dispose(result)
   })
 
@@ -3618,6 +4166,7 @@ describe('skill slash command', () => {
       configureContext: async (ctx) => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
+          snapshot: () => Promise.reject(new Error('list boom')),
           list: () => Promise.reject(new Error('list boom')),
           get: () => Promise.reject(new Error('get boom')),
         } as never)
@@ -3627,23 +4176,43 @@ describe('skill slash command', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('failed to load')
-    expect(result.terminal.output).toContain('get boom')
+    expect(result.terminal.output).toContain('list boom')
     await dispose(result)
   })
 
   it('drops skill list and lookup results that settle after disposal', async () => {
-    const pendingList: Array<(value: SkillSummary[]) => void> = []
+    let listCalls = 0
+    let resolvePendingList: ((value: SkillSummary[]) => void) | undefined
+    const pendingSnapshots: Array<(value: SkillCatalogSnapshot) => void> = []
     const pendingGet: Array<{ resolve: (value: SkillDefinition | undefined) => void; reject: (error: unknown) => void }> = []
     const result = await setup({
       configureContext: async (ctx) => {
         ctx.provide('tools', { get() { return undefined } } as never)
         ctx.provide('skills', {
-          list: () => new Promise<SkillSummary[]>((resolve) => { pendingList.push(resolve) }),
+          snapshot: () => new Promise<SkillCatalogSnapshot>((resolve) => { pendingSnapshots.push(resolve) }),
+          list: () => {
+            listCalls += 1
+            if (listCalls === 1 || listCalls === 2) {
+              const name = listCalls === 1 ? 'demo-skill' : 'error-skill'
+              return Promise.resolve<SkillSummary[]>([{
+                name,
+                description: 'demo',
+                invocation: { modelInvocable: true, userInvocable: true },
+                source: 'runtime',
+                provider: 'runtime',
+              }])
+            }
+            return new Promise<SkillSummary[]>((resolve) => { resolvePendingList = resolve })
+          },
           get: () => new Promise<SkillDefinition | undefined>((resolve, reject) => { pendingGet.push({ resolve, reject }) }),
         } as never)
       },
     })
+    await tick()
     result.terminal.send('/skill:demo-skill')
+    result.terminal.send('\r')
+    await tick()
+    result.terminal.send('/skill:error-skill')
     result.terminal.send('\r')
     await tick()
     result.terminal.send('/skill:other-skill')
@@ -3651,13 +4220,40 @@ describe('skill slash command', () => {
     await tick()
     await dispose(result)
 
-    for (const resolve of pendingList) resolve([{ name: 'late', description: 'late', source: 'runtime', provider: 'runtime' }])
-    pendingGet[0]?.resolve({ name: 'demo-skill', description: 'late', source: 'runtime', provider: 'runtime', content: 'late body' })
+    result.ctx.emit('skills/change')
+    expect(pendingSnapshots).toHaveLength(1)
+    for (const resolve of pendingSnapshots) {
+      resolve({
+        skills: [{
+          name: 'late',
+          description: 'late',
+          invocation: { modelInvocable: true, userInvocable: true },
+          source: 'runtime',
+          provider: 'runtime',
+        }],
+        complete: true,
+      })
+    }
+    resolvePendingList?.([{
+      name: 'other-skill',
+      description: 'late',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'runtime',
+      provider: 'runtime',
+    }])
+    pendingGet[0]?.resolve({
+      name: 'demo-skill',
+      description: 'late',
+      invocation: { modelInvocable: true, userInvocable: true },
+      source: 'runtime',
+      provider: 'runtime',
+      content: 'late body',
+    })
     pendingGet[1]?.reject(new Error('late failure'))
     await tick()
     expect(result.agent.sent).toEqual([])
-    expect(result.terminal.output).not.toContain('late failure')
     expect(result.terminal.output).not.toContain('late body')
+    expect(result.terminal.output).not.toContain('late failure')
   })
 })
 
@@ -3665,6 +4261,7 @@ describe('renderSkillInvocation', () => {
   const skill: SkillDefinition = {
     name: 'demo-skill',
     description: 'Demo skill',
+    invocation: { modelInvocable: true, userInvocable: true },
     source: 'runtime',
     provider: 'runtime',
     content: 'Body text.',
@@ -3810,53 +4407,95 @@ describe('tool cards and surface replay', () => {
     }
     await tick()
     expect(result.terminal.output).toContain('$ raw command')
-    result.terminal.send('/reasoning')
-    result.terminal.send('\r')
+    result.terminal.send('\x12')
     await tick()
     expect(result.terminal.output).toContain('call presenter boom')
     expect(result.terminal.output).toContain('Symbol(input)')
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c1' as never, content: [{ type: 'text', text: 'raw bash' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c1' as never,
+        content: [{ type: 'text', text: 'raw bash' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c2' as never, content: [{ type: 'text', text: 'stopped' }], isError: true,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c2' as never,
+        content: [{ type: 'text', text: 'stopped' }],
+        isError: true,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c3' as never, content: [{ type: 'text', text: 'done' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c3' as never,
+        content: [{ type: 'text', text: 'done' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c4' as never, content: [{ type: 'text', text: 'raw generic' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c4' as never,
+        content: [{ type: 'text', text: 'raw generic' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c5' as never, content: [{ type: 'text', text: 'raw throwing' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c5' as never,
+        content: [{ type: 'text', text: 'raw throwing' }],
+        isError: false,
+      }),
       meta: { value: 1 },
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c7' as never,
-      content: [
-        { type: 'tool-call', id: 'inner' as never, name: 'inner', arguments: '{}' },
-        { type: 'tool-result', toolCallId: 'inner' as never, content: [{ type: 'text', text: 'nested output' }] },
-        { type: 'future-result' } as never,
-      ],
-      isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c7' as never,
+        content: [
+          { type: 'tool-call', id: 'inner' as never, name: 'inner', arguments: '{}' },
+          { type: 'tool-result', toolCallId: 'inner' as never, content: [{ type: 'text', text: 'nested output' }] },
+          { type: 'future-result' } as never,
+        ],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c8' as never, content: [{ type: 'text', text: '\nundefined presenter output\n\nkept tail\n' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c8' as never,
+        content: [{ type: 'text', text: '\nundefined presenter output\n\nkept tail\n' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c11' as never, content: [{ type: 'text', text: '\nconverted terminal\n\nfinished\n' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c11' as never,
+        content: [{ type: 'text', text: '\nconverted terminal\n\nfinished\n' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'c13' as never,
-      content: [{ type: 'text', text: '<known><value>literal</value></known>' }],
-      isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c13' as never,
+        content: [{ type: 'text', text: '<known><value>literal</value></known>' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
       turn: 1,
       step: 1,
-      callId: 'orphan' as never,
-      content: [{ type: 'text', text: '<result><path>/tmp/a.txt</path><content><line number="1">hello</line><line number="2">world</line></content></result>' }],
-      isError: true,
+      message: createToolResultMessage({
+        callId: 'orphan' as never,
+        content: [{ type: 'text', text: '<result><path>/tmp/a.txt</path><content><line number="1">hello</line><line number="2">world</line></content></result>' }],
+        isError: true,
+      }),
       error: { name: 'InterruptedError', code: 'interrupted' },
     }, { surfaceOp: 'append' })
     await tick()
@@ -3902,8 +4541,7 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('line (number="1"): hello')
     expect(output).not.toContain('<result>')
 
-    result.terminal.send('/redraw')
-    result.terminal.send('\r')
+    result.terminal.send('\x0c')
     await tick()
     const collapsed = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
     expect(collapsed).toContain('Run command')
@@ -3913,7 +4551,7 @@ describe('tool cards and surface replay', () => {
     result.terminal.send('\x0f')
     await tick()
     expect(result.terminal.output).toContain('world')
-    expect(result.terminal.output).toContain('Tool cards expanded.')
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
     expect(result.terminal.output).not.toContain('tools:expanded')
     expect(result.terminal.output).toContain('+ created')
     expect(result.terminal.output).toContain('console')
@@ -3921,6 +4559,42 @@ describe('tool cards and surface replay', () => {
     // expanded (`+ after` is b.txt's new text; the footer counts both files).
     expect(result.terminal.output).toContain('+ after')
     expect(result.terminal.output).toContain('· 2 files')
+
+    // Third Ctrl+O phase hides every tool card: after a redraw the repainted
+    // frame carries no tool header at all, only the conversation.
+    result.terminal.send('\x0f')
+    await tick()
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+    // A result for an untracked call mints a fallback card mid-hidden: it must
+    // adopt the current visibility instead of rendering collapsed.
+    result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'untracked' as never,
+        content: [{ type: 'text', text: 'fallback result body' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    await tick()
+    result.terminal.send('\x0c')
+    await tick()
+    const hiddenFrame = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(hiddenFrame).not.toContain('Tool / bash')
+    expect(hiddenFrame).not.toContain('Run command')
+    expect(hiddenFrame).not.toContain('fallback result body')
+    // The dozen hidden cards leave no per-card blank rows behind: each card owns
+    // its leading gap, so the trimmed frame has no long blank run where the
+    // cards used to be.
+    const frameRows = hiddenFrame.split('\n').map(row => row.replaceAll(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim())
+    const first = frameRows.findIndex(row => row.includes('Calling tools'))
+    expect(first).toBeGreaterThan(-1)
+    let blankRun = 0
+    let longestRun = 0
+    for (const row of frameRows.slice(first)) {
+      blankRun = row === '' ? blankRun + 1 : 0
+      longestRun = Math.max(longestRun, blankRun)
+    }
+    expect(longestRun).toBeLessThanOrEqual(2)
     await dispose(result)
   })
 
@@ -3947,26 +4621,77 @@ describe('tool cards and surface replay', () => {
     await dispose(result)
   })
 
+  it('drops blank rows from a terminal card result that the dim styling wraps', async () => {
+    const blankRowTools: Record<string, ToolDefinition> = {
+      trailing: {
+        name: 'trailing', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+        presentCall: () => ({ card: 'terminal', title: 'printf out', description: 'Run it', cwd: '/tmp' }),
+        // Real command output ends in a newline, so the split yields a trailing blank row.
+        presentResult: () => ({ card: 'terminal', output: 'first\n\nlast\n', exitCode: 0 }),
+      },
+    }
+    // Color on: the dim wrapper is what makes a blank row non-empty, so the
+    // guard against wrapping one is only observable with ANSI enabled.
+    const result = await setup({ tools: blankRowTools, config: { theme: { color: true } } })
+    appendUser(result.session, 'run it')
+    appendAssistant(result.session, [
+      { type: 'tool-call', id: 'blank' as never, name: 'trailing', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1, step: 1, callId: 'blank' as never, name: 'trailing', arguments: '{}',
+    })
+    result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'blank' as never, content: [{ type: 'text', text: 'ignored' }], isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    await tick()
+    // Each output row is dim-wrapped, and the result's blank rows are dropped
+    // rather than kept as dim-wrapped empty strings: `last` is the row right
+    // after `first`, and no empty dim pair reaches the terminal.
+    expect(result.terminal.output).toContain('\x1b[2;39mfirst\x1b[22;39m')
+    expect(result.terminal.output).toContain('\x1b[2;39mlast\x1b[22;39m')
+    expect(result.terminal.output).not.toContain('\x1b[2;39m\x1b[22;39m')
+    const rows = result.terminal.output.split('\n')
+    const firstRow = rows.findIndex(row => row.includes('first'))
+    expect(firstRow).toBeGreaterThan(-1)
+    expect(rows[firstRow + 1]).toContain('last')
+    expect(rows[firstRow + 2]).toContain('[exit 0]')
+    await dispose(result)
+  })
+
   it('rebuilds after a surface replacement and hides shadowed tool calls', async () => {
     const result = await setup({ tools })
     appendUser(result.session, 'old prompt')
     const assistant = result.session.append('assistant/message', {
       turn: 1,
       step: 1,
-      provenance: { provider: 'mock', model: 'deepseek-v4-flash' },
-      content: [{ type: 'tool-call', id: 'old-call' as never, name: 'bash', arguments: '{}' }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: 'old-call' as never, name: 'bash', arguments: '{}' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+        },
+      }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/call', {
       turn: 1, step: 1, callId: 'old-call' as never, name: 'bash', arguments: '{}',
     })
     const toolResult = result.session.append('tool/result', {
-      turn: 1, step: 1, callId: 'old-call' as never, content: [{ type: 'text', text: 'old output' }], isError: false,
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'old-call' as never,
+        content: [{ type: 'text', text: 'old output' }],
+        isError: false,
+      }),
     }, { surfaceOp: 'append' })
     const start = result.session.surface.nodes[0] as number
-    result.session.append('user/message', {
+    result.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'summary replacement' }],
       source: { kind: 'plugin', plugin: 'compact' },
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start, end: toolResult.seq },
       sourceEventSeqs: [start, assistant.seq, toolResult.seq],
     })
@@ -4172,7 +4897,6 @@ describe('TUI extension service', () => {
                 host.theme.accent(`${label} plugin overlay`),
                 [
                   host.theme.text('text'),
-                  host.theme.muted('muted'),
                   host.theme.dim('dim'),
                   host.theme.success('success'),
                   host.theme.warning('warning'),
@@ -4274,6 +4998,59 @@ describe('TUI extension service', () => {
   })
 })
 
+describe('application exit', () => {
+  it('disposes the root fiber rather than only the TUI child before exiting', async () => {
+    const rootDispose = vi.fn(() => Promise.resolve())
+    const childDispose = vi.fn(() => Promise.resolve())
+    const ctx = {
+      root: { fiber: { dispose: rootDispose } },
+      fiber: { dispose: childDispose },
+    } as unknown as Context
+    const exit = vi.fn()
+    disposeRootAndExit(ctx, 7, exit)
+    await Promise.resolve()
+    expect(rootDispose).toHaveBeenCalledOnce()
+    expect(childDispose).not.toHaveBeenCalled()
+    expect(exit).toHaveBeenCalledOnce()
+    expect(exit).toHaveBeenCalledWith(7)
+  })
+
+  it('forces exit when root disposal does not settle', async () => {
+    vi.useFakeTimers()
+    try {
+      let settle!: () => void
+      const disposal = new Promise<void>((resolve) => { settle = resolve })
+      const ctx = {
+        root: { fiber: { dispose: () => disposal } },
+      } as unknown as Context
+      const exit = vi.fn()
+      disposeRootAndExit(ctx, 9, exit)
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(exit).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(exit).toHaveBeenCalledOnce()
+      expect(exit).toHaveBeenCalledWith(9)
+      settle()
+      await disposal
+      await Promise.resolve()
+      expect(exit).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('exits after a rejected root disposal without an unhandled rejection', async () => {
+    const ctx = {
+      root: { fiber: { dispose: () => Promise.reject(new Error('cleanup failed')) } },
+    } as unknown as Context
+    const exit = vi.fn()
+    disposeRootAndExit(ctx, 5, exit)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(exit).toHaveBeenCalledWith(5)
+  })
+})
+
 describe('terminal mounting', () => {
   it('starts immediately when the configured agent already exists', async () => {
     const ctx = new Context()
@@ -4287,7 +5064,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { theme: { color: false } }, { terminal, exit: vi.fn() })
@@ -4312,7 +5089,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -4347,14 +5124,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -4385,7 +5162,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -4429,7 +5206,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', acceptsNextStep: true, ctx,
-      followup: () => AgentMessageId('stub'), steer: () => AgentMessageId('stub'), inject: () => AgentMessageId('stub'), send: () => AgentMessageId('stub'), cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }
@@ -4466,10 +5243,42 @@ describe('terminal mounting', () => {
     await ctx.fiber.dispose()
   })
 
-  it('detects a light terminal color scheme and switches from dark- to light-optimised ANSI codes', async () => {
+  it('prints every palette role through /palette, each painted by the code it reports', async () => {
     const result = await setup({ config: { theme: { color: true } } })
-    // Initial render uses dark-optimised palette: SGR 2 (dim) for dim text.
-    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+    const before = result.terminal.output.length
+    result.terminal.send('/palette')
+    result.terminal.send('\r')
+    await tick()
+    const printed = result.terminal.output.slice(before)
+
+    // Every declared role appears with its purpose, so a role added to the spec
+    // without a listing entry (or the reverse) fails here rather than silently
+    // going unlisted.
+    const spec = paletteSpec('dark')
+    for (const name of COLOR_ROLES) {
+      expect(printed).toContain(name)
+      expect(printed).toContain(spec.colors[name].purpose)
+    }
+    for (const name of ATTRIBUTE_ROLES) {
+      expect(printed).toContain(name)
+      expect(printed).toContain(spec.attributes[name].purpose)
+    }
+
+    // Each row is painted by the role it names, so the listing cannot report one
+    // code while rendering another: the sample carries the spec's own open code.
+    expect(printed).toContain(`\x1b[${spec.colors.accent.open}m`)
+    expect(printed).toContain(`\x1b[${spec.colors.dim.open}m`)
+    expect(printed).toContain(`\x1b[${spec.attributes.selected.open}m`)
+    // `text` is the terminal default, emitted as no escape at all.
+    expect(printed).toContain('no escape')
+    await dispose(result)
+  })
+
+  it('detects a light terminal color scheme and switches the scheme-dependent code role', async () => {
+    const result = await setup({ config: { theme: { color: true } } })
+    // `dim` is scheme-independent (SGR 2 over the default foreground), so the
+    // startup render carries it on both schemes; `code` is the role that varies.
+    expect(result.terminal.output).toContain('\x1b[2;39mdeepseek-v4-flash')
 
     // A report matching the current scheme is a no-op: no palette rebuild or
     // re-render (ESC [?997;1n = dark, the startup default).
@@ -4483,20 +5292,14 @@ describe('terminal mounting', () => {
     result.terminal.send('\x1b[?997;2n')
     await tick()
     await tick()
+    // The rebuild re-renders under the light palette, where `code` is ANSI 34
+    // (blue) rather than the dark scheme's ANSI 36 (cyan); `dim` is unchanged.
+    expect(result.terminal.output).toContain('\x1b[2;39mdeepseek-v4-flash')
 
-    // After switching to light-optimised palette: palette.dim uses ANSI 90
-    // (gray) instead of SGR 2. The header now uses \x1b[90m for the detail
-    // line. The cumulative output still contains the initial SGR 2 render,
-    // so we assert that a LATER write (appended after the scheme switch)
-    // uses ANSI 90 for the same header text.
-    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
-
-    // Switch back to dark scheme.
     result.terminal.send('\x1b[?997;1n')
     await tick()
     await tick()
-    // After switching back, a new write uses SGR 2 for the header detail.
-    expect(result.terminal.output).toContain('\x1b[90mdeepseek-v4-flash')
+    expect(result.terminal.output).toContain('\x1b[2;39mdeepseek-v4-flash')
     await dispose(result)
   })
 
@@ -4517,8 +5320,8 @@ describe('terminal mounting', () => {
       cwd: join(homedir(), 'projects', 'dsh-tui'),
     })
     await tick()
-    expect(terminal.output).toContain('\x1b[94m~/')
-    expect(terminal.output).toContain('\x1b[90m (tui-staging)')
+    expect(terminal.output).toContain('\x1b[95m~/')
+    expect(terminal.output).toContain('\x1b[2;39m (tui-staging)')
     await disposeTuiTestHarness(result)
   })
   it('runs /reload against every file-backed loader subtree, reports completion, and rejects re-entry while in flight', async () => {

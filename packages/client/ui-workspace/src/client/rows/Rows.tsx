@@ -2,8 +2,8 @@
  * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only. Row ... menus are visual-only
- * except workspace Rename; the session hover card is suppressed while a menu
- * is open. Workspace Rename/Delete are wired; session actions remain visual-only.
+ * except workspace Rename/Delete and session Rename; the session and workspace
+ * hover cards are suppressed while a menu is open.
  */
 import { useState } from 'react'
 import clsx from 'clsx'
@@ -30,10 +30,26 @@ const WORKSPACE_MENU_ITEMS = [
   { id: 'delete', label: 'Delete workspace', icon: <IconTrashOutline16 />, danger: true },
 ]
 
+/** Hover-card body: workspace title, full directory path, absolute creation time. */
+function WorkspaceHoverContent({ label, cwd, createdAt }: {
+  label: string
+  cwd: string | undefined
+  createdAt: number
+}) {
+  return (
+    <div className={css.hoverContent}>
+      <div className={css.hoverTitle}>{label}</div>
+      <div className={css.hoverPath}>{cwd}</div>
+      <div className={css.hoverTime}>{`Created ${new Date(createdAt).toLocaleString()}`}</div>
+    </div>
+  )
+}
+
 /**
  * Project (workspace) header row: 54px, folder + title + session count;
- * hover reveals the chevron and create button. `containsCurrent` arrives on
- * the node (derivation fact, no renderer scan).
+ * hover reveals the chevron and create button, and dwelling on a real
+ * Workspace shows its hover card (the ungrouped bucket has none).
+ * `containsCurrent` arrives on the node (derivation fact, no renderer scan).
  * @param props.group - derived group node.
  * @param props.onToggle - expand/collapse the group.
  * @param props.onCreate - start a frontend Session inside this Workspace.
@@ -50,7 +66,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
   const active = group.expanded && group.containsCurrent
   const count = `${row.sessionCount} ${row.sessionCount === 1 ? 'session' : 'sessions'}`
   const [menuOpen, setMenuOpen] = useState(false)
-  return (
+  const ownRow = (
     <div
       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
       role="treeitem"
@@ -107,6 +123,15 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
       </span>
     </div>
   )
+  // The ungrouped bucket has no backing Workspace: no card to show.
+  if (row.createdAt === undefined) return ownRow
+  return (
+    <HoverCard
+      anchor={ownRow}
+      content={<WorkspaceHoverContent label={row.label} cwd={row.cwd} createdAt={row.createdAt} />}
+      disabled={menuOpen}
+    />
+  )
 }
 
 /**
@@ -159,12 +184,14 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-export function SessionNodeItem({ node, depth, currentId, now, onOpen, onToggle, drag, flat = false }: {
+export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename, onToggle, drag, flat = false }: {
   node: SessionNode
   depth: number
   currentId: string | undefined
   now: number
   onOpen: (id: SessionNode['id']) => void
+  /** Open the browser-owned session rename dialog (row menu action). */
+  onRename: (id: SessionNode['id'], currentTitle: string) => void
   onToggle: (id: SessionNode['id']) => void
   /** Present only on draggable rows (workspace-group roots outside search). */
   drag?: RowDragProps | undefined
@@ -232,7 +259,10 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onToggle,
           open={menuOpen}
           onClose={() => { setMenuOpen(false) }}
           items={SESSION_MENU_ITEMS}
-          onSelect={() => { setMenuOpen(false) }} // Visual-only for now.
+          onSelect={(id) => {
+            setMenuOpen(false)
+            if (id === 'rename') onRename(node.id, row.title) // fork/delete stay visual-only.
+          }}
           portal
           closeOnPointerLeave
           anchor={(
@@ -264,6 +294,7 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onToggle,
           currentId={currentId}
           now={now}
           onOpen={onOpen}
+          onRename={onRename}
           onToggle={onToggle}
         />
       ))}

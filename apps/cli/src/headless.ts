@@ -1,6 +1,6 @@
 /**
  * `dsh -p "task"` — headless over the one shared composition: AppCLIEntry
- * boots the same cordis.yml as `dsh web` (port 0, so parallel runs never
+ * boots the same base plus Web overlay as `dsh web` (port 0, so parallel runs never
  * collide), then in-process isomorphic injection (InProcessApiClient over
  * toFetchHandler(ctx.apiProxy), so the full carrier chain — wire
  * serialization, zod, SSE framing — really runs). The printed URL opens the
@@ -53,7 +53,7 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
         continue
       }
       if (event.type === 'assistant/message' && event.data.turn === targetTurn) {
-        const joined = event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
+        const joined = event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('')
         if (joined !== '') text = joined
       }
       if (event.type === 'turn/end' && event.data.turn === targetTurn) {
@@ -75,7 +75,8 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
 export async function runHeadless(task: string): Promise<void> {
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
   const entry = new AppCLIEntry({
-    configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
+    configPath: fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url)),
+    overlayPath: fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url)),
     dev: false,
     port: 0,
   })

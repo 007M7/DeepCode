@@ -15,6 +15,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { Agent, AgentOptions } from './types.ts'
 
 export * from './types.ts'
+export * from './brand.ts'
 export * from './llm-target.ts'
 export { agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from './dispatch.ts'
 export type { AgentEventDispatch, AgentSubjectEvent } from './dispatch.ts'
@@ -63,16 +64,11 @@ export interface CreateAgentOptions {
     readonly delegationDepth?: number
   }
   /**
-   * Seed events to reconstruct the child session's log from (the fork lineage
-   * primitive). When present, the factory creates the session with this event
-   * prefix so `deriveMessages()`/`lastTurnNumber` continue from it — used by the
-   * in-process FORK subagent backend to seed a child with a balanced
-   * completed-turn prefix of the parent's log. The prefix MUST be contiguous
-   * from seq 0, carry only lossless-JSON data, and be balanced (no open
-   * turn/step, no dangling tool-call), or the session constructor (and the
-   * dev-mode invariants replay) reject it. The factory passes the raw seed to
-   * the session's durable validator/snapshot boundary. Absent for a fresh
-   * (spawn) child.
+   * Initial replay/fork history. A fork supplies a balanced completed-turn
+   * prefix of the parent's log. The complete seed must be contiguous from seq
+   * 0, carry only lossless-JSON data, and contain no open turn/step or dangling
+   * tool call. The factory passes it to the session's durable
+   * validator/snapshot boundary before publication.
    */
   readonly seed?: readonly SessionEvent[]
   /** Per-agent options (model, …). */
@@ -333,7 +329,7 @@ export class AgentRegistry extends Service {
     // caller's composite effect can yield it for in-order teardown; the
     // loop's constructor effect returns it directly, identity-nesting the
     // registration under that effect.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
@@ -360,7 +356,7 @@ export class AgentRegistry extends Service {
     // capability and need no Cordis tracker magic.
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
+    // oxlint-disable-next-line typescript/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
     return Reflect.apply(target.createAgent, receiver, [ownerCtx, options])
   }
 
@@ -375,7 +371,7 @@ export class AgentRegistry extends Service {
     const ownerCtx = this.ctx
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
+    // oxlint-disable-next-line typescript/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
     return Reflect.apply(target.resume, receiver, [ownerCtx, options])
   }
 
@@ -402,7 +398,7 @@ export class AgentRegistry extends Service {
       yield this.enter(agent, this.ctx.agent)
       this.announce(agent)
     }.bind(this), 'agents.register()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 

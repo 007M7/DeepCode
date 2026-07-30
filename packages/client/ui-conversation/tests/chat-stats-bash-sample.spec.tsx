@@ -1,18 +1,18 @@
 // @vitest-environment jsdom
-// StatsLine (rendered inside the chat view body): totals derivation + the RFC
+// StatsLine (composer.dock entry): totals derivation + the RFC
 // hard acceptance — zero renders during streaming. Bash sample row: the
 // canonical sub-agent differential decided INSIDE the component off the
 // standard useSessions kit (no registry predicates — tool ring dissolved).
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ConversationSnapshot, SessionId, SessionListState, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { StatsLine, deriveStats, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { StatsLine, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 
 afterEach(cleanup)
@@ -27,7 +27,7 @@ const assistant = (seq: number, turn: number, usage?: unknown): AssistantMessage
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
@@ -51,7 +51,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 }
 
 describe('deriveStats', () => {
-  it('folds turns/steps/tokens and cache hit percentage', () => {
+  it('folds turns/steps/token split and cache hit percentage', () => {
     const stats = deriveStats([
       assistant(1, 1, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 900 }),
       assistant(2, 1, { inputTokens: 100, outputTokens: 50 }),
@@ -59,18 +59,52 @@ describe('deriveStats', () => {
     ])
     expect(stats.turns).toBe(2)
     expect(stats.steps).toBe(3)
-    expect(stats.tokens).toBe(1200)
+    expect(stats.inputTokens).toBe(1100)
+    expect(stats.outputTokens).toBe(100)
     expect(stats.cacheHitPct).toBe(82)
   })
 
-  it('cache hit stays null with no cache accounting; non-assistant nodes ignored', () => {
+  it('cache hit stays null with no cache accounting; out-of-window tool results ignored', () => {
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
       isError: false, callView: null, resultView: null,
     }
     const stats = deriveStats([tool, assistant(1, 1)])
     expect(stats.steps).toBe(1)
+    expect(stats.toolMs).toBe(0)
     expect(stats.cacheHitPct).toBeNull()
+  })
+
+  it('sums LLM wall time from assistant timing and tool wall time from call/result pairs', () => {
+    const timed: AssistantMessageNode = {
+      ...assistant(1, 1),
+      timing: { stepStartTime: 1_000, firstTokenTime: 1_200, completedTime: 3_500 },
+    }
+    const untimed: AssistantMessageNode = {
+      ...assistant(2, 1),
+      timing: { stepStartTime: null, firstTokenTime: null, completedTime: 9_000 },
+    }
+    const tool: ToolResultNode = {
+      kind: 'tool-result', seq: 5, time: 7_000, callId: 'c', call: null, callTime: 4_000, content: [],
+      isError: false, callView: null, resultView: null,
+    }
+    const stats = deriveStats([timed, untimed, tool])
+    expect(stats.llmMs).toBe(2_500)
+    expect(stats.toolMs).toBe(3_000)
+  })
+})
+
+describe('formatters', () => {
+  it('formats token counts compactly', () => {
+    expect(formatTokens(517)).toBe('517')
+    expect(formatTokens(12_240)).toBe('12.2K')
+    expect(formatTokens(517_000)).toBe('517K')
+    expect(formatTokens(1_230_000)).toBe('1.2M')
+  })
+
+  it('formats durations under and over a minute', () => {
+    expect(formatDuration(45_230)).toBe('45.2s')
+    expect(formatDuration(162_000)).toBe('2m42s')
   })
 })
 
@@ -79,12 +113,13 @@ describe('StatsLine', () => {
     return { useSession: bindSnapshotSelector(source) }
   }
 
-  it('renders the joined stats row and hides with zero steps', () => {
+  it('renders the grouped stats row and hides with zero steps', () => {
     const { source } = makeSource({
       nodes: [assistant(1, 1, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90 })],
     })
     const view = render(<StatsLine {...props(source)} />)
-    expect(view.getByText('cache hit 90% · 105 tokens · 1 turns · 1 steps')).toBeTruthy()
+    // No timing on the fixture: the duration group drops out whole.
+    expect(view.container.textContent).toBe('1 turns · 1 steps|Cache hit 90%|Input 100 tok · Output 5 tok')
     const empty = makeSource()
     const emptyView = render(<StatsLine {...props(empty.source)} />)
     expect(emptyView.container.textContent).toBe('')
@@ -123,8 +158,8 @@ describe('bash sample row', () => {
     return createSnapshotStore<SessionListState>({
       ids: [ROOT, CHILD],
       byId: {
-        [ROOT]: { id: ROOT, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 },
-        [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, blank: false, updatedAt: 0 },
+        [ROOT]: { id: ROOT, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 },
+        [CHILD]: { id: CHILD, title: 'c', displayTitle: 'c', parentId: ROOT, running: false, waitingApproval: false, blank: false, updatedAt: 0 },
       },
       current: undefined,
       phase: 'ready',
@@ -133,10 +168,9 @@ describe('bash sample row', () => {
 
   const rowProps = (sessionId: SessionId, over?: {
     store?: ReturnType<typeof listStore>
-    openDetails?: () => void
   }): ToolRowProps => ({
     callId: 'c1', toolName: 'bash', block: result('c1'),
-    openDetails: over?.openDetails ?? vi.fn(),
+    openFile: vi.fn(),
     sessionId,
     useSessions: bindSnapshotSelector(over?.store ?? listStore()),
   } as unknown as ToolRowProps)
@@ -159,7 +193,7 @@ describe('bash sample row', () => {
     const orphan = 'late-child' as SessionId
     store.update((d) => {
       d.ids.push(orphan)
-      d.byId[orphan] = { id: orphan, title: 'l', displayTitle: 'l', running: false, blank: false, updatedAt: 0 }
+      d.byId[orphan] = { id: orphan, title: 'l', displayTitle: 'l', running: false, waitingApproval: false, blank: false, updatedAt: 0 }
     })
     const view = render(<BashRow {...rowProps(orphan, { store })} />)
     expect(view.container.querySelector('[data-sample="bash-global"]')).not.toBeNull()
@@ -169,21 +203,17 @@ describe('bash sample row', () => {
     expect(view.container.querySelector('[data-sample="bash-scoped"]')).not.toBeNull()
   })
 
-  it('summarizes as Bash · description and hands clicks to openDetails on both arms', () => {
-    const openGlobal = vi.fn()
-    const global = render(<BashRow {...rowProps(ROOT, { openDetails: openGlobal })} />)
+  it('summarizes as Bash · description on both arms without row click targets', () => {
+    const global = render(<BashRow {...rowProps(ROOT)} />)
     // Two renders share document.body: query inside each container.
     const globalRow = global.container.querySelector('[data-sample="bash-global"]')!
     expect(globalRow.textContent).toContain('Bash')
     expect(globalRow.textContent).toContain('Build')
-    fireEvent.click(globalRow)
-    expect(openGlobal).toHaveBeenCalledTimes(1)
-    const openScoped = vi.fn()
-    const scoped = render(<BashRow {...rowProps(CHILD, { openDetails: openScoped })} />)
+    expect(globalRow.getAttribute('data-clickable')).toBeNull()
+    const scoped = render(<BashRow {...rowProps(CHILD)} />)
     const scopedRow = scoped.container.querySelector('[data-sample="bash-scoped"]')!
     expect(scopedRow.textContent).toContain('Bash')
     expect(scopedRow.textContent).toContain('Build')
-    fireEvent.click(scopedRow)
-    expect(openScoped).toHaveBeenCalledTimes(1)
+    expect(scopedRow.getAttribute('data-clickable')).toBeNull()
   })
 })

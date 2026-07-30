@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk , createMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -68,27 +68,33 @@ describe('TUI session-reference snapshot', () => {
     const adapter = new SnapshotAdapter()
     ctx.llm.registerAdapter(['mock'], adapter)
     const source = ctx.sessions.create(SessionId('source-session'), { meta: { cwd: '/workspace/project', createdAt: 1 } })
-    const oldUser = source.append('user/message', {
+    const oldUser = source.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'SHADOWED OLD USER' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     const oldAssistant = source.append('assistant/message', {
       turn: 1,
       step: 1,
-      provenance: { provider: 'mock', model: 'mock' },
-      content: [{ type: 'text', text: 'SHADOWED OLD ASSISTANT' }],
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'SHADOWED OLD ASSISTANT' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'mock' },
+        },
+      }),
     }, { surfaceOp: 'append' })
-    source.append('user/message', {
+    source.append('user/message', createUserMessage({
       content: [{ type: 'text', text: '<compacted-summary>Retained checkpoint.</compacted-summary>' }],
       source: { kind: 'plugin', plugin: 'compact' },
-    }, {
+    }), {
       surfaceOp: { op: 'replace', start: oldUser.seq, end: oldAssistant.seq },
       sourceEventSeqs: [oldUser.seq, oldAssistant.seq],
     })
-    source.append('user/message', {
+    source.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'Recent retained question.' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
 
     const target = ctx.agentLoop.create(
       SessionId('target-session'),

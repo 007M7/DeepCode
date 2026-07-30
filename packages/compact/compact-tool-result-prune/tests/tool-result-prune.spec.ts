@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, {
+  Session,
+  SessionId,
+} from '@deepseek-ai/dsh-session'
 import type { SurfaceEvent } from '@deepseek-ai/dsh-session'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -41,16 +44,20 @@ function appendToolStep(
   session.append('assistant/message', {
     turn,
     step: 1,
-    content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
-    provenance: { provider: MODEL, model: MODEL },
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+      source: {
+        kind: 'model',
+        ...{ provider: MODEL, model: MODEL },
+      },
+    }),
   }, { surfaceOp: 'append' })
   session.append('tool/call', { turn, step: 1, callId, name: 'bash', arguments: '{}' })
   const result = session.append('tool/result', {
     turn,
     step: 1,
-    callId,
-    content,
-    isError: false,
+    message: createToolResultMessage({ callId, content, isError: false }),
     ...extra,
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn, step: 1 })
@@ -172,15 +179,24 @@ describe('ToolResultPruneService session transaction', () => {
     const replacement = session.events[entry.replacementSeq]! as SurfaceEvent
     expect(original).toMatchObject({
       type: 'tool/result',
-      data: { content: [{ type: 'text', text: 'x'.repeat(100) }] },
+      data: {
+        message: {
+          content: [{
+            type: 'tool-result',
+            content: [{ type: 'text', text: 'x'.repeat(100) }],
+          }],
+        },
+      },
     })
     expect(replacement).toMatchObject({
       type: 'tool/result',
       data: {
         turn: 1,
         step: 1,
-        callId: CallId('one'),
         isError: true,
+        message: {
+          source: { kind: 'tool', callId: CallId('one') },
+        },
         error: { name: 'ExitError', code: 'EXIT_1' },
         meta: { diff: ['a', 'b'] },
         futureField: { nested: true },

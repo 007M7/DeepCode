@@ -9,6 +9,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { QuestionComposer } from '../src/client/QuestionComposer.tsx'
 import { apply, inject } from '../src/client/index.ts'
 
@@ -24,12 +25,13 @@ async function bench() {
   // 'conversation' inject is an ordering edge (the declaring plugin provides
   // it after declaring the chain); the bench declares the chain itself.
   ctx.provide('conversation', {})
+  ctx.provide('locale', new LocaleService(ctx))
   return { ctx, slots }
 }
 
 describe('apply', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'conversation'])
+    expect(inject).toEqual(['slots', 'conversation', 'locale'])
   })
 
   it('fails loud when no live entry has declared the composer slot', async () => {
@@ -38,6 +40,7 @@ describe('apply', () => {
     // Satisfy the ordering inject without declaring the chain: apply must
     // then hit the undeclared-slot throw, not sit waiting on the service.
     ctx.provide('conversation', {})
+    ctx.provide('locale', new LocaleService(ctx))
     await expect(ctx.plugin({ inject: [...inject], apply }))
       .rejects.toThrow(/slot "conversation.composer" is not declared/)
   })
@@ -47,8 +50,10 @@ describe('apply', () => {
     await ctx.plugin({ inject: [...inject], apply }).await()
     const entry = slots.entries('conversation.composer')[0]!
     expect(entry.component).toBe(QuestionComposer)
-    // The whole behavior surface rides the matched carrier: no business face.
+    // The whole behavior surface rides the matched carrier: no business face;
+    // copy rides the standard locale seat.
     expect(entry.inject).toBeUndefined()
+    expect(entry.locale).toBe('question')
     // The selector narrows the chain currency: question wait in → that wait; none → null.
     const select = entry.select as (owner: { interactions: readonly { kind: string }[] }) => unknown
     const question = { kind: 'question' }

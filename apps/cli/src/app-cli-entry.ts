@@ -1,22 +1,20 @@
 /**
  * AppCLIEntry — the pre-cordis boot glue the config-tree dsh surfaces share
- * (`dsh web` and `dsh -p` boot the one composition; TUI migrates later).
+ * for the Web/headless surface.
  * Everything here is what must exist before the Loader runs: layered env,
- * the patch composition over the shipped cordis.yml (profile json + CLI
+ * the patch composition over the shipped base and surface overlay (profile json + CLI
  * flags + the resolved frontend dist), and the fail-loud triple after the
  * tree settles.
  */
 
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { networkInterfaces } from 'node:os'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { Context } from 'cordis'
-import type { FiberState } from 'cordis'
-import Loader from '@cordisjs/plugin-loader'
-import Include, { type PatchOptions } from '@cordisjs/plugin-include'
+import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
-import { assertEntriesLoaded, installFailLoud, loadEnv } from '@deepseek-ai/dsh-app-boot'
+import { boot, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -24,6 +22,41 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 /** Profile file under the invoking directory (read-only this round; never created — see the design's profile ruling). */
 const PROFILE_DIR = '.dsh-tmp-profile'
 const PROFILE_FILE = 'config.json'
+
+/** The webserver schema's all-interfaces bind literal: gates LAN-authority derivation here and the printed LAN URL in web.ts. */
+const ALL_INTERFACES_HOST = '0.0.0.0'
+
+/**
+ * Non-internal IPv4 interface addresses of this machine — the IP-literal
+ * authorities an all-interfaces bind is reachable by on the LAN.
+ * @returns the addresses in interface order (possibly empty).
+ */
+function lanIPv4Addresses(): string[] {
+  return Object.values(networkInterfaces()).flat()
+    .filter((iface): iface is NonNullable<typeof iface> => iface !== undefined && iface.family === 'IPv4' && !iface.internal)
+    .map(iface => iface.address)
+}
+
+/**
+ * One LAN-trust resolution for one invocation, sampled exactly once: the
+ * machine's LAN IP literals when the effective bind is all-interfaces, and
+ * the `trustedHosts` value built from them plus the explicit extras. The
+ * single sample is deliberate — display must advertise only addresses the
+ * fence was configured with, so both read this snapshot. Derived entries are
+ * port-less IP literals: DNS rebinding needs an attacker-controlled name, so
+ * an IP-literal Host is safe on any port, and the bound port may be
+ * OS-assigned, unknowable pre-boot.
+ * @param bindHost - the effective webserver bind host (CLI flag, else the yml default).
+ * @param extra - `--trusted-host` values, in argv order.
+ * @returns the sampled LAN addresses and the connection row's `trustedHosts` value (each possibly empty).
+ */
+export function resolveLanTrust(
+  bindHost: string | undefined,
+  extra: readonly string[],
+): { lanAddresses: string[]; trustedHosts: string[] } {
+  const lanAddresses = bindHost === ALL_INTERFACES_HOST ? lanIPv4Addresses() : []
+  return { lanAddresses, trustedHosts: [...lanAddresses, ...extra] }
+}
 
 /** One profile-json key mapped onto a yml row's config field. */
 interface ProfileMapping {
@@ -54,18 +87,23 @@ const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
 })
 const includeYamlSchema = yaml.JSON_SCHEMA.extend(jsExprType)
 
-/**
- * Value mirror of cordis's `FiberState` const enum members the sweep needs
- * (a const enum has no runtime object to import; same rationale as the
- * client-side mirror in dsh-client-web).
- */
-const FIBER_ACTIVE = 2 as FiberState.ACTIVE
-const FIBER_PENDING = 0 as FiberState.PENDING
-
 /** Constructor facts for one dsh invocation over the shared composition (argv already parsed by the surface bin). */
 export interface AppCLIEntryOptions {
-  /** Absolute path of the shipped cordis.yml. */
+  /** Absolute path of the shared base config the Loader includes. */
   configPath: string
+  /**
+   * Absolute path of this surface's overlay: a patch list applied over
+   * {@link configPath} before this entry's own profile/flag patches. Its rows
+   * are also merge inputs, so a flag override preserves the overlay's other
+   * fields on the same row.
+   */
+  overlayPath: string
+  /**
+   * Optional explicit overlay applied after {@link overlayPath} and before
+   * this entry's own profile/flag patches. When absent, the personal
+   * `$DSH_HOME/config.yaml` overlay is applied instead.
+   */
+  extraOverlayPath?: string
   /** Whether to append the HMR row (the whole prod/dev difference; web surface only). */
   dev: boolean
   /** --host when explicitly passed; undefined keeps the yml engineering default. */
@@ -79,6 +117,8 @@ export interface AppCLIEntryOptions {
   port?: number
   /** Parent directory for name-created Workspaces; undefined uses the gateway's cwd fallback. */
   workspaceRoot?: string
+  /** Extra authorities for the /api browser-trust fence (`host` or `host:port`), appended to the derived LAN IP literals. */
+  trustedHosts?: string[]
 }
 
 /**
@@ -90,6 +130,14 @@ export interface AppCLIEntryOptions {
 export class AppCLIEntry {
   /** The root context, set by {@link run}. */
   ctx!: Context
+
+  /**
+   * LAN IPv4 addresses sampled once at patch composition — the exact snapshot
+   * the /api trust fence was configured with. Display reads this instead of
+   * re-sampling, so the advertised LAN URL can never name an address the
+   * fence rejects. Empty unless the effective bind is all-interfaces.
+   */
+  lanAddresses: readonly string[] = []
 
   private patches: PatchOptions[] = []
 
@@ -117,10 +165,8 @@ export class AppCLIEntry {
   }
 
   /**
-   * Compose the patch set from the non-yml config sources: computed
-   * engineering defaults (the global session root), profile json (user
-   * config, overriding those defaults), CLI flags, and the resolved frontend
-   * dist. Patches replace a row's config wholesale, so each patched row's yml
+   * Compose the patch set from profile json, CLI flags, and the resolved
+   * frontend dist. Patches replace a row's config wholesale, so each patched row's yml
    * static values are re-read here (bypass parse) and merged under the overrides.
    */
   private composePatches(): void {
@@ -131,12 +177,6 @@ export class AppCLIEntry {
       bag[key] = value
       overrides.set(entryId, bag)
     }
-
-    // Source 0: computed engineering defaults. The session store defaults to
-    // a global dir under the Harness home ($DSH_HOME, else ~/.dsh) so history
-    // is shared across every cwd, not a project-local ./.sessions. The profile
-    // (Source 1) overwrites this same field via last-write-wins in put().
-    put('session-persistence-jsonl', 'root', join(resolveDshHome(), 'sessions'))
 
     // Source 1: profile json (missing file = empty; unmapped key = loud).
     for (const [key, value] of Object.entries(this.readProfile())) {
@@ -152,6 +192,13 @@ export class AppCLIEntry {
     if (this.options.port !== undefined) put('webserver', 'port', this.options.port)
     if (this.options.workspaceRoot !== undefined) put('api-gateway', 'workspaceRoot', this.options.workspaceRoot)
 
+    // Source 2b: authorities for the /api browser-trust fence (rationale on
+    // resolveLanTrust).
+    const ymlHost = (rows.get('webserver')?.config as { host?: string } | undefined)?.host
+    const { lanAddresses, trustedHosts } = resolveLanTrust(this.options.host ?? ymlHost, this.options.trustedHosts ?? [])
+    this.lanAddresses = lanAddresses
+    if (trustedHosts.length > 0) put('connection', 'trustedHosts', trustedHosts)
+
     // Source 3: the frontend dist — an assembly fact of this app, never yml
     // user config. Workspace knowledge stays here.
     put('webserver', 'distIndex', this.resolveDistIndex())
@@ -163,60 +210,60 @@ export class AppCLIEntry {
     })
   }
 
-  /** Loader include boot; the dev HMR row mounts before await so the fail-loud triple covers it. */
+  /** Shared Loader boot; the dev HMR row mounts before await so the fail-loud sweep covers it. */
   private async bootTree(): Promise<void> {
-    const ctx = new Context()
-    ctx.baseUrl = pathToFileURL(join(resolve(this.options.configPath), '..')).href + '/'
-    await ctx.plugin(Loader)
-    ctx.loader.builtins.include = Include
-    await ctx.loader.create({
-      name: 'cordis:include',
-      config: {
-        path: pathToFileURL(resolve(this.options.configPath)).href,
-        ...this.patches.length > 0 ? { patches: this.patches } : {},
-      },
+    // One include of the shared base with every overlay as a sibling patch
+    // list: patches never cross an include boundary, so nesting them would
+    // silently stop reaching base rows. The surface overlay applies first, then
+    // this entry's profile-json and CLI-flag patches, which therefore win.
+    const patches = [
+      ...loadOverlayPatches('dsh', this.options.overlayPath),
+      ...this.options.extraOverlayPath === undefined
+        ? loadPersonalPatches('dsh') ?? []
+        : loadOverlayPatches('dsh', this.options.extraOverlayPath),
+      ...this.patches,
+    ]
+    this.ctx = await boot('dsh', resolve(this.options.configPath), patches, async (ctx) => {
+      if (this.options.dev) await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
     })
-    if (this.options.dev) {
-      await ctx.loader.create({ name: '@deepseek-ai/dsh-client-hmr' })
-    }
-    this.ctx = ctx
-    await ctx.loader.await()
+  }
+
+  /** Install the diagnostic for plugin rejections that happen after settled boot. */
+  private assertBoot(): void {
+    installFailLoud('dsh')
   }
 
   /**
-   * Fail-loud triple: assertEntriesLoaded catches import failures,
-   * installFailLoud catches late apply rejections, and the all-ACTIVE sweep
-   * below catches PENDING fibers (cordis inject waiting has no timeout).
+   * Bypass parse of the base and this surface's overlay (id → row) for
+   * patch-merge inputs; the Loader still reads both files itself. The overlay
+   * wins per row, matching the order its patches are applied in, and its
+   * `insert` rows are indexed too because a flag may target one of them.
    */
-  private assertBoot(): void {
-    installFailLoud('dsh')
-    assertEntriesLoaded(this.ctx, 'dsh')
-    const failures: string[] = []
-    for (const entry of this.ctx.loader.entries()) {
-      if (entry.fiber === undefined || entry.disabled) continue
-      const state = entry.fiber.state
-      if (state === FIBER_ACTIVE) continue
-      if (state === FIBER_PENDING) {
-        const missing = Object.keys(entry.fiber.inject).filter(service => this.ctx.get(service) === undefined)
-        failures.push(`${entry.options.name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
-      } else {
-        failures.push(`${entry.options.name}: fiber state ${String(state)}`)
+  private parseYmlRows(): Map<string, { config?: unknown }> {
+    const rows = new Map<string, { config?: unknown }>()
+    const files = [this.options.configPath, this.options.overlayPath]
+    if (this.options.extraOverlayPath !== undefined) files.push(this.options.extraOverlayPath)
+    for (const file of files) {
+      for (const row of this.parseRowList(file)) {
+        if (typeof row.id === 'string') rows.set(row.id, row)
+        for (const inserted of row.insert ?? []) {
+          if (typeof inserted.id === 'string') rows.set(inserted.id, inserted)
+        }
       }
     }
-    if (failures.length > 0) {
-      throw new Error(`dsh: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
-    }
+    return rows
   }
 
-  /** Bypass parse of the shipped yml (id → row) for patch-merge inputs; Loader still reads the file itself. */
-  private parseYmlRows(): Map<string, { config?: unknown }> {
-    const doc = yaml.load(readFileSync(this.options.configPath, 'utf8'), { schema: includeYamlSchema })
-    if (!Array.isArray(doc)) throw new Error(`dsh: ${this.options.configPath} is not a top-level entry list`)
-    const rows = new Map<string, { config?: unknown }>()
-    for (const row of doc as { id?: string; config?: unknown }[]) {
-      if (typeof row.id === 'string') rows.set(row.id, row)
-    }
-    return rows
+  /**
+   * Parse one entry or patch list, rejecting anything that is not a top-level
+   * array so a malformed file fails here rather than at row lookup.
+   * @param file - absolute path of the config or overlay file.
+   * @returns the parsed top-level entries.
+   */
+  private parseRowList(file: string): { id?: string; config?: unknown; insert?: { id?: string; config?: unknown }[] }[] {
+    const doc = yaml.load(readFileSync(file, 'utf8'), { schema: includeYamlSchema })
+    if (!Array.isArray(doc)) throw new Error(`dsh: ${file} is not a top-level entry list`)
+    return doc as { id?: string; config?: unknown; insert?: { id?: string; config?: unknown }[] }[]
   }
 
   /** Profile json under cwd; read-only — never created here, absent = no user config. */

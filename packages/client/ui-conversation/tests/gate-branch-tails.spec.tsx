@@ -19,7 +19,7 @@ const SID = 's1' as SessionId
 function snapshotBase(): ConversationSnapshot {
   return {
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
-    pending: [], queue: [], todos: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
+    pending: [], queue: [], running: false, composerPhase: 'active', removed: false, openState: 'open', openError: null,
     hasMore: false, loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   }
 }
@@ -49,7 +49,7 @@ describe('render branch tails', () => {
     const view = render(
       <StatsLine useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
     )
-    expect(view.getByText('cache hit 0% · 15 tokens · 2 turns · 3 steps')).toBeTruthy()
+    expect(view.container.textContent).toBe('2 turns · 3 steps|Cache hit 0%|Input 9 tok · Output 6 tok')
   })
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {
@@ -76,6 +76,7 @@ describe('render branch tails', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{ setDraft: () => {}, submit: () => {} }}
         useStore={bindSnapshotSelector(chat)}
@@ -111,6 +112,7 @@ describe('render branch tails', () => {
         useSession={bindSnapshotSelector({ getSnapshot: () => snap, subscribe: () => () => {} })}
         useSessions={bindSnapshotSelector(emptyList)}
         useWorkspaces={bindSnapshotSelector(emptyWorkspaces)}
+        useProjection={(() => undefined)}
         useInput={(() => { throw new Error('unused') })}
         inputActions={{ setDraft: () => {}, submit: () => {} }}
         useStore={bindSnapshotSelector(chat)}

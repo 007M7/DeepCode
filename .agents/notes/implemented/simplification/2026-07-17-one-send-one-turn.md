@@ -16,7 +16,7 @@ This grouping changes behavior, not just the number of model calls. One ordinary
 
 The rule is simple: each successful `send()` creates one independent FIFO queue item. If that item runs, it is the only ordinary message in its turn. An item can be dropped before it starts, so the precise guarantee is at most one turn rather than exactly one; two sends are never silently combined.
 
-Before enqueueing an item, `send()` checks the agent state and makes a detached, deeply frozen snapshot of the content and resolved source. After enqueueing it, `send()` publishes `agent/queued`.
+Before enqueueing an item, `send()` checks the agent state and accepts an already identified, deeply frozen message. It mints an occurrence-local `InboxItemId` and publishes `agent/inbox/enqueue`; the pending occurrence remains addressable under the [addressable queue operations](../feature/2026-07-29-addressable-queue-operations.md) decision until the driver claims or discards it.
 
 If messages A and B are both processed, B's turn starts only after A records `turn/end` and A's durability checkpoint settles. B's request therefore sees whatever closed result A left in the same session log. A checkpoint error is reported, but settlement only releases this ordering barrier; it does not make a failed write durable. Broad `cancel()`, disposal, or a failure before `turn/start` can instead discard an unstarted item without opening an empty turn.
 
@@ -40,6 +40,6 @@ The no-batching rule applies only to ordinary `send()`. Running `steer()` puts i
 
 ## Consequences
 
-Ordinary turn boundaries are predictable: messages A and B stay separate, and B runs only after A has closed and reached its checkpoint. Callers still do not receive a per-send completion or cancellation handle; broad cancellation can discard the entire unstarted tail, while status and quiescence remain agent-wide observations.
+Ordinary turn boundaries are predictable: messages A and B stay separate, and B runs only after A has closed and reached its checkpoint. Callers still do not receive a per-send completion handle; a pending occurrence can be removed through its live `InboxItemId`, broad cancellation can discard the entire unstarted tail, and status and quiescence remain agent-wide observations.
 
 The trade-off is more model requests and more checkpoints. A busy queue can take longer to drain and can grow under sustained producers. Ordinary-send batching returns only through an explicit, measured contract.

@@ -11,6 +11,7 @@ import {
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compact'
 import type { CompactionResult } from '@deepseek-ai/dsh-compact'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Message } from '@deepseek-ai/dsh-llm'
 import type { TokenMeasurement, TokenMeterService } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -48,7 +49,7 @@ export function selectCompactableRange(
   let accumulated = 0
   let keepFromIdx = pricedNodes.length
   for (let index = pricedNodes.length - 1; index >= 0; index -= 1) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     accumulated += pricedNodes[index]!.tokens
     keepFromIdx = index
     if (accumulated >= retainTokens) break
@@ -56,15 +57,15 @@ export function selectCompactableRange(
   if (keepFromIdx === 0) return null
 
   while (keepFromIdx > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     if (toolPairingBalancedBefore(session, surfaceNodes[keepFromIdx]!)) break
     keepFromIdx -= 1
   }
   if (keepFromIdx === 0) return null
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const first = surfaceNodes[0]!
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const cutoff = surfaceNodes[keepFromIdx - 1]!
   return { start: first, end: cutoff }
 }
@@ -97,11 +98,11 @@ export async function compactSurfaceRegion(
       `compactRegion: start seq ${start} (position ${startIdx}) is after end seq ${end} (position ${endIdx}) on the surface`,
     )
   }
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   if (!toolPairingBalancedBefore(session, nodes[startIdx]!)) {
     throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)
   }
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   if (!toolPairingBalancedAfter(session, nodes[endIdx]!)) {
     throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
   }
@@ -125,17 +126,20 @@ export async function compactSurfaceRegion(
     }
     const shadowedTokenCount = selected.reduce((total, node) => total + node.tokens, 0)
     const summarizationInput = buildSummarizationInput(session, shadowedSeqs)
-    const { summary, provider, model, maxTokens } = await dependencies.summarize(summarizationInput, agent, signal)
+    const {
+      summary, rawOutput, provider, model, maxTokens, usage,
+    } = await dependencies.summarize(summarizationInput, agent, signal)
 
     const currentMeasurement = dependencies.meter.measure(session)
     if (!isDeepStrictEqual(currentMeasurement.nodes, lockedMeasurement.nodes)) {
       throw new Error('compaction: session surface changed during summarization')
     }
     const framedSummary = frameSummary(summary)
-    const framedSummaryTokenCount = dependencies.meter.estimateMessage({
-      role: 'user',
+    const checkpointMessage = createUserMessage({
       content: framedSummary,
+      source: COMPACT_CHECKPOINT_SOURCE,
     })
+    const framedSummaryTokenCount = dependencies.meter.estimateMessage(checkpointMessage)
     if (framedSummaryTokenCount >= shadowedTokenCount) {
       throw new Error(
         `summary is not smaller than the shadowed content (${framedSummaryTokenCount} estimated framed tokens >= ${shadowedTokenCount})`,
@@ -144,17 +148,16 @@ export async function compactSurfaceRegion(
 
     const summaryEvent = session.append('compact/summary', {
       summary,
+      ...rawOutput === undefined ? {} : { rawOutput },
       shadowedRange: { start, end },
       shadowedSeqs,
       shadowedTokenCount,
       provider,
       model,
       ...maxTokens === undefined ? {} : { maxTokens },
+      ...usage === undefined ? {} : { usage },
     })
-    session.append('user/message', {
-      content: framedSummary,
-      source: COMPACT_CHECKPOINT_SOURCE,
-    }, {
+    session.append('user/message', checkpointMessage, {
       surfaceOp: { op: 'replace', start, end },
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...shadowedSeqs],
     })
@@ -193,7 +196,7 @@ function buildSummarizationInput(
   const events = session.events
   const regionMessages = shadowedSeqs
     // shadowedSeqs are current surface seqs, so each is a valid log index.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     .map(seq => session.deriveEventMessage(events[seq]!))
     .filter((message): message is Message => message !== null)
   return {
@@ -210,7 +213,7 @@ function inspectTurnTail(
   let compactionInProgress = false
   let compactionStateKnown = false
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     const event = events[index]!
     if (!compactionStateKnown) {
       if (event.type === 'compact/start') {

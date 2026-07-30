@@ -2,15 +2,15 @@
 
 import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { SessionEvent, TodoItem } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, ToolEventView,
+  HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
+  RpcId, RpcResult, SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { ObservableSnapshot } from '../contract/store.ts'
+import type { SessionFace } from '../contract/session.ts'
 import type {
   CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
   PromptError, QueuedMessage, RunningToolCall,
@@ -20,6 +20,8 @@ import { PendingWait } from './pending.ts'
 import { FoldAdapter } from './fold-adapter.ts'
 import { Notifier } from './notifier.ts'
 import { PartialAccumulator } from './partial.ts'
+import { ProjectionValueStore } from './projection-store.ts'
+import type { ProjectionsBaseline } from './projection-store.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
@@ -35,18 +37,16 @@ export interface SessionOptions {
    * (hidden, still reusable by connectWorkspace).
    */
   onEngaged?(session: Session): void
+  /**
+   * Manager-owned projection value store to adopt (frames route through the
+   * manager and values outlive instantiation); omitted, the Session owns a
+   * private store (bare object-layer construction).
+   */
+  projections?: ProjectionValueStore
 }
 
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
 const QUEUE_PREVIEW_CHARS = 200
-
-/** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
-interface QueuedEntry {
-  row: QueuedMessage
-  steering: boolean
-  /** JSON-serialized MessageSource (steering retirement matches by source, the host-mirror precedent). */
-  sourceJson: string
-}
 
 /** Single-line queue-row preview: text blocks flattened, non-text as tags, capped by code point. */
 function queuePreviewOf(content: readonly ContentBlock[]): string {
@@ -57,11 +57,19 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
   return chars.length > QUEUE_PREVIEW_CHARS ? `${chars.slice(0, QUEUE_PREVIEW_CHARS).join('')}…` : flat
 }
 
+/** Recover complete composer text only when editing cannot discard non-text blocks. */
+function queueTextOf(content: readonly ContentBlock[]): string | null {
+  if (!content.every(block => block.type === 'text')) return null
+  return content.map(block => block.text).join('')
+}
+
 /**
  * Owns a session's event window, derived conversation state, and observable
- * snapshot. React bindings remain outside this data layer.
+ * snapshot. React bindings remain outside this data layer. Features see only
+ * the {@link SessionFace} slice (ISession verbs + the snapshot source); the
+ * remaining public members are manager/runtime entry points.
  */
-export class Session implements ObservableSnapshot<ConversationSnapshot> {
+export class Session implements SessionFace {
   // ---- Window and derived state (all private; the snapshot is the only read surface) ----
   private events: SessionEvent[] = []
   /** Wire views aligned with `events` by index (envelope-level annotations; undefined = no view).
@@ -92,16 +100,12 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
-  /** Inbox mirror (session/queued frames + mux-open baseline). Queue frames never hit history,
-   *  so this is stream-only state: reconnect clears it and the fresh baseline re-populates. */
-  private queued: QueuedEntry[] = []
+  /** Authoritative stream-only inbox snapshot; pending work never hits history. */
+  private queued: QueuedMessage[] = []
   private queueRev = 0
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
-  /** Current whole-list todo/write projection: each tail history response replaces it (an omitted
-   *  field is the authoritative empty list) and every live write overwrites it. */
-  private todos: readonly TodoItem[] = []
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
@@ -126,6 +130,19 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** subscribed.lastSeq baseline (gap detection; null when no subscribed frame arrived — degrade to the liveBuffer dedup path). */
   private subscribedLastSeq: number | null = null
 
+  /**
+   * Per-session projection value store (session-projection RFC, push model):
+   * finished whole values computed on the host, seeded by the tail page's
+   * projections block and updated by `session/projection` frames under the
+   * one higher-seq-wins rule. Keys are read via `projections.faceOf(key)`
+   * (the useProjection resolution face); the conversation snapshot never
+   * carries projection values, and no client-side domain folding exists.
+   * Manager-owned when constructed through SessionManager (frames route and
+   * the store outlives instantiation, the title-snapshot precedent); a bare
+   * construction gets a private store.
+   */
+  readonly projections: ProjectionValueStore
+
   private snapshotCache: ConversationSnapshot
   private readonly notifier = new Notifier(() => {
     this.snapshotCache = this.buildSnapshot()
@@ -149,6 +166,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
     private readonly api: IApiClient,
     private readonly options: SessionOptions = {},
   ) {
+    this.projections = options.projections ?? new ProjectionValueStore()
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -197,18 +215,29 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
       return result
     }
-    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt has logged
-    // its user/message on the host (events.length > 0 is fact, not
-    // optimism), while a rejected first prompt must keep the session blank
-    // — the client-side blank mirror only ever lowers, so flipping early on
-    // a failure would surface the session forever and strip its
-    // connectWorkspace reuse eligibility against the host's authority.
+    // Blank flips on ACCEPTANCE, not attempt: an accepted prompt starts the
+    // conversation's first turn on the host (the host criterion — a logged
+    // turn/start — is fact, not optimism; standalone command and projection
+    // events never flip it), while a rejected first prompt must keep the
+    // session blank — the client-side blank mirror only ever lowers, so
+    // flipping early on a failure would surface the session forever and
+    // strip its connectWorkspace reuse eligibility against the host's
+    // authority.
     if (this.blankBit) {
       this.blankBit = false
       this.options.onEngaged?.(this)
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /** Apply one operation to a still-pending queue occurrence. */
+  async updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
+    try {
+      return (await this.api.sessions.updateQueue({ sessionId: this.sessionId, itemId, action })).result
+    } catch (error) {
+      return transportError(error)
+    }
   }
 
   /**
@@ -227,6 +256,40 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /**
+   * Rename: contract session.rename 1:1. On success settle the 'title'
+   * projection cell from the response's `{title, seq}` under the store's
+   * higher-seq-wins rule (the push frame arriving later is a no-op replay),
+   * so the list row and any useProjection('title') reader update without
+   * waiting for the mux frame.
+   * @param title - raw title text (the host normalizes acceptance).
+   * @returns the rename result (normalized accepted title + title event seq).
+   */
+  async rename(title: string): Promise<RpcResult<{ title: string; seq: number }>> {
+    try {
+      const { result } = await this.api.sessions.rename({ sessionId: this.sessionId, title })
+      if (result.ok) this.projections.apply('title', result.value.title, result.value.seq)
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
+   * Execute one slash-command line against this session's agent — pure
+   * admission semantics (the host executor durably logs the lifecycle;
+   * outcomes render as flow nodes, never as a response echo).
+   * @param line - the full command line, leading slash included.
+   * @returns the admission result, or the error branch on transport failure.
+   */
+  async command(line: string): Promise<RpcResult<{ matched: boolean }>> {
+    try {
+      return (await this.api.commands.execute({ sessionId: this.sessionId, line })).result
+    } catch (error) {
+      return transportError(error)
+    }
   }
 
   /** First open: pull the tail page (idempotent — in-flight/already-open returns the existing promise). */
@@ -336,19 +399,15 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
     switch (frame.type) {
       case 'session/event': {
-        this.retireQueued(frame.event)
         this.acceptLiveEvent(frame.event, frame.view)
         return
       }
-      case 'session/queued': {
-        // Row key: the enqueueing prompt's rpcId when it rode this wire (the
-        // provisional-echo reconciliation key); otherwise the frame envelope id.
-        const key = 'rpcId' in frame.source ? String(frame.source.rpcId) : `f:${rpcId}`
-        this.queued.push({
-          row: { key, preview: queuePreviewOf(frame.content) },
-          steering: frame.steering,
-          sourceJson: JSON.stringify(frame.source),
-        })
+      case 'session/queue': {
+        this.queued = frame.items.map(item => ({
+          id: item.id,
+          preview: queuePreviewOf(item.message.content),
+          text: queueTextOf(item.message.content),
+        }))
         this.queueRev++
         this.notifier.markDirty()
         return
@@ -401,15 +460,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
    * @param running - the new running state.
    */
   handleRunning(running: boolean): void {
-    // Leave-running sweep (host queuedMirror precedent): discard paths (cancel,
-    // terminal steering drop) have no per-entry frame, so ANY not-running signal
-    // with a nonempty mirror clears it — checked before the equality return so a
-    // stale replay on an already-idle session still sweeps.
-    if (!running && this.queued.length > 0) {
-      this.queued = []
-      this.queueRev++
-      this.notifier.markDirty()
-    }
     // Turn-start conversion: a blank session never runs, so the first
     // running:true proves another端's first message landed (设计稿 2.2).
     if (running && this.blankBit) {
@@ -482,13 +532,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         this.openError = result.error
         return
       }
-      this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+      this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
       this.openState = 'open'
     } catch (error) {
@@ -505,22 +555,18 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
   /** Install the history window + stitch the liveBuffer (seq is the sole dedup key).
    *  Stitching MUST NOT route through acceptLiveEvent: openState is still 'loading' here
    *  (doOpen flips it after install), so recursing would push every buffered event straight
-   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1). */
-  private installWindow(entries: HistoryEntry[], hasMore: boolean, todos: readonly TodoItem[] | undefined): void {
+   *  back into liveBuffer where nothing ever drains it — a silent drop loop (audit S1).
+   *  A carried projections block seeds the value store (higher seq wins, so a stale
+   *  baseline cannot overwrite a newer push frame); the window events themselves are
+   *  never folded — the host is the only computation site. */
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
     this.hasMore = hasMore
-    // Session-level projection from the tail page (full-log latest todo/write,
-    // independent of the window); an in-window write below re-derives the same
-    // value, and later live events keep overwriting it. Every caller here is a
-    // tail request (no beforeSeq), which the host answers with the projection
-    // or omits it only when the full log holds no todo/write — so an absent
-    // field is the authoritative empty list, not a missing carrier. Assigning
-    // it clears a plan the log never kept (a write lost to a host crash).
-    this.todos = todos ?? []
     this.foldAdapter.reset(this.events, this.baseSeq, this.views)
     this.rebuildDerivedFromWindow()
+    if (projections !== undefined) this.projections.seed(projections)
     const buffered = this.liveBuffer
     this.liveBuffer = []
     for (const item of buffered) this.appendLive(item.event, item.view)
@@ -569,34 +615,13 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(result.value.events, result.value.hasMore, result.value.todos)
+        this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
     } finally {
       this.stitching = false
     }
-  }
-
-  /** Consumption-event retirement, mirroring the host queuedMirror rules: a message-triggered
-   *  turn/start claims the oldest non-steering entry; a steering/message drains the oldest
-   *  steering entry with the same source (loop-authored steering matches nothing and drops none). */
-  private retireQueued(event: SessionEvent): void {
-    if (this.queued.length === 0) return
-    let index = -1
-    if (event.type === 'turn/start') {
-      if (event.data.trigger.kind !== 'message') return
-      index = this.queued.findIndex(entry => !entry.steering)
-    } else if (event.type === 'steering/message') {
-      const source = JSON.stringify(event.data.source)
-      index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
-    } else {
-      return
-    }
-    if (index < 0) return
-    this.queued.splice(index, 1)
-    this.queueRev++
-    this.notifier.markDirty()
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
@@ -686,11 +711,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
         return
       }
       case 'tool/result': {
-        if (this.openCalls.delete(String(event.data.callId))) this.callsRev++
-        return
-      }
-      case 'todo/write': {
-        this.todos = event.data.todos
+        if (this.openCalls.delete(String(event.data.message.source.callId))) this.callsRev++
         return
       }
       case 'turn/end': {
@@ -737,10 +758,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
 
   /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
    *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
-   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text).
-   *  todos is deliberately NOT reset: it is session-level (seeded by the tail page's full-log
-   *  projection, not derivable from an arbitrary window). The window always extends to the log
-   *  tail, so an in-window todo/write can only overwrite it with the same latest value. */
+   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text). */
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
@@ -785,7 +803,7 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
     }
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
-      this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
+      this.queueCache = { rev: this.queueRev, value: this.queued }
     }
     const partial = this.partial?.toPartial() ?? null
     return {
@@ -799,7 +817,10 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       queue: this.queueCache.value,
       running: this.running,
       composerPhase: derivePhase(
-        nodes.length > 0 || partial !== null || this.running || this.pendingCache.value.length > 0,
+        // Command lifecycle nodes are not conversation: running /permission
+        // or /plan on a fresh session keeps the hero (the client mirror of
+        // the host's no-turn sessionBlank predicate).
+        nodes.some(node => node.kind !== 'command') || partial !== null || this.running || this.pendingCache.value.length > 0,
         this.promptAttempted,
       ),
       removed: this.removed,
@@ -810,7 +831,6 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
-      todos: this.todos,
     }
   }
 }
@@ -821,7 +841,9 @@ export class Session implements ObservableSnapshot<ConversationSnapshot> {
  * object: `hasContent` only grows within a window and `promptAttempted` is
  * sticky, so blank → engaging → active never steps back; a failed first
  * prompt stays engaging (retry semantics — see ComposerPhase).
- * @param hasContent - any conversation material exists (nodes, partial, running turn, pending waits).
+ * @param hasContent - any conversation material exists (non-command nodes,
+ *   partial, running turn, pending waits; command lifecycle rows alone keep
+ *   the session blank).
  * @param promptAttempted - a prompt was initiated on this session object.
  * @returns the derived phase.
  */

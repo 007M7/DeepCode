@@ -11,8 +11,13 @@ import {
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
   sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
+  sessionUpdateQueueRequestSchema, sessionUpdateQueueValueSchema,
 } from '../src/api/sessions.schema.ts'
-import { hostDescribeRequestSchema, hostDescribeValueSchema } from '../src/api/host.schema.ts'
+import {
+  hostCreateDirectoryRequestSchema, hostCreateDirectoryValueSchema,
+  hostDescribeRequestSchema, hostDescribeValueSchema,
+  hostListDirectoryRequestSchema, hostListDirectoryValueSchema,
+} from '../src/api/host.schema.ts'
 import {
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
@@ -28,6 +33,7 @@ import { skillEntrySchema, skillListRequestSchema, skillListValueSchema } from '
 import { hostFrameSchema, muxFrameSchema, askUserQuestionItemSchema } from '../src/api/events.schema.ts'
 import { approvalRequestIdSchema, approvalResponsePayloadSchema } from '../src/api/approvals.schema.ts'
 import { askUserQuestionAnswerSchema, questionResponsePayloadSchema } from '../src/api/questions.schema.ts'
+import { goalEditRequestSchema } from '../src/api/goals.schema.ts'
 
 describe('RpcId', () => {
   it('brands a raw string at zero runtime cost', () => {
@@ -63,11 +69,17 @@ describe('rpcErrorSchema', () => {
       details: { provider: 'p', model: 'm' },
     }).code).toBe('model-unavailable')
     expect(rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: { reason: 'r' } }).code).toBe('agent-busy')
+    expect(rpcErrorSchema.parse({ code: 'queue-item-not-found', message: 'm', details: { itemId: 'i' } }).code).toBe('queue-item-not-found')
+    expect(rpcErrorSchema.parse({ code: 'command-error', message: 'm', details: {} }).code).toBe('command-error')
+    expect(rpcErrorSchema.parse({ code: 'unknown-command', message: 'm', details: {} }).code).toBe('unknown-command')
+    expect(rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: { sessionId: 's' } }).code).toBe('title-invalid')
     expect(rpcErrorSchema.parse({ code: 'internal', message: 'm', details: {} }).code).toBe('internal')
   })
 
   it('rejects a known code with missing details', () => {
     expect(() => rpcErrorSchema.parse({ code: 'agent-busy', message: 'm', details: {} })).toThrow()
+    expect(() => rpcErrorSchema.parse({ code: 'title-invalid', message: 'm', details: {} })).toThrow()
+    expect(() => rpcErrorSchema.parse({ code: 'command-error', message: 'm' })).toThrow()
     expect(() => rpcErrorSchema.parse({ code: 'nope', message: 'm', details: {} })).toThrow()
   })
 })
@@ -119,9 +131,19 @@ describe('sessions domain schemas', () => {
     expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: true, blank: false, parentSessionId: 'p', cwd: '/x' }).cwd).toBe('/x')
     // blank is mandatory: a summary without it fails the parse.
     expect(() => sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false })).toThrow()
-    const event = sessionEventSchema.parse({ type: 'user/message', seq: 0, time: 1, data: { any: true } })
+    const event = sessionEventSchema.parse({
+      type: 'user/message',
+      seq: 0,
+      time: 1,
+      data: { any: true },
+    })
     expect(event).toMatchObject({ type: 'user/message' })
-    expect(() => sessionEventSchema.parse({ type: 'user/message', seq: -1, time: 1, data: {} })).toThrow()
+    expect(() => sessionEventSchema.parse({
+      type: 'user/message',
+      seq: -1,
+      time: 1,
+      data: {},
+    })).toThrow()
   })
 
   it('validates the per-method request/value pairs', () => {
@@ -195,8 +217,25 @@ describe('sessions domain schemas', () => {
     expect(prompt.mode).toBe('queue')
     expect(() => sessionPromptRequestSchema.parse({ sessionId: 's1', mode: 'inject', content: [] })).toThrow()
     expect(sessionPromptValueSchema.parse({ accepted: true }).accepted).toBe(true)
+    // The command slot appears only when the prompt dispatched a slash command.
+    const dispatched = sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success', text: 'Goal set' } })
+    expect(dispatched.command?.text).toBe('Goal set')
+    expect(sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success' } }).command).toEqual({ kind: 'success' })
+    expect(() => sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'failure' } })).toThrow()
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(sessionUpdateQueueRequestSchema.parse({
+      sessionId: 's1',
+      itemId: 'i1',
+      action: { kind: 'edit', content: [{ type: 'text', text: 'next' }] },
+    }).action.kind).toBe('edit')
+    expect(sessionUpdateQueueRequestSchema.parse({
+      sessionId: 's1', itemId: 'i1', action: { kind: 'remove' },
+    }).action.kind).toBe('remove')
+    expect(() => sessionUpdateQueueRequestSchema.parse({
+      sessionId: 's1', itemId: 'i1', action: { kind: 'promote' },
+    })).toThrow()
     expect(sessionCancelValueSchema.parse({ accepted: true }).accepted).toBe(true)
+    expect(sessionUpdateQueueValueSchema.parse({ accepted: true }).accepted).toBe(true)
     expect(contentBlockSchema.parse({ type: 'text', text: 'x', extra: 1 })).toMatchObject({ extra: 1 })
   })
 })
@@ -207,6 +246,26 @@ describe('host domain schemas', () => {
     const value = hostDescribeValueSchema.parse({ version: '1', cwd: '/x', provider: 'p', model: 'm', attachedSessions: 2 })
     expect(value.attachedSessions).toBe(2)
     expect(hostDescribeValueSchema.parse({ version: '1', cwd: '/x', attachedSessions: 0 }).provider).toBeUndefined()
+  })
+
+  it('validates the browse listing/creation payloads', () => {
+    expect(hostListDirectoryRequestSchema.parse({})).toEqual({})
+    expect(hostListDirectoryRequestSchema.parse({ path: '/x' })).toEqual({ path: '/x' })
+    const listing = hostListDirectoryValueSchema.parse({
+      path: '/home/u/p',
+      home: '/home/u',
+      crumbs: [{ name: '/', path: '/', hidden: false }, { name: 'p', path: '/home/u/p', hidden: false }],
+      entries: [{ name: '.dot', path: '/home/u/p/.dot', hidden: true }],
+      truncated: false,
+    })
+    expect(listing.entries[0]?.hidden).toBe(true)
+    // The flag is part of the wire value, not an optional decoration.
+    expect(() => hostListDirectoryValueSchema.parse({ path: '/x', home: '/x', crumbs: [], entries: [] })).toThrow()
+    expect(hostCreateDirectoryRequestSchema.parse({ path: '/x', name: 'new' })).toEqual({ path: '/x', name: 'new' })
+    for (const name of ['', ' ', '.', '..', 'a/b', 'a\\b']) {
+      expect(() => hostCreateDirectoryRequestSchema.parse({ path: '/x', name })).toThrow()
+    }
+    expect(hostCreateDirectoryValueSchema.parse({ path: '/x/new' })).toEqual({ path: '/x/new' })
   })
 })
 
@@ -276,10 +335,13 @@ describe('commands domain schemas', () => {
     expect(() => commandExecuteRequestSchema.parse({ line: '/compact' })).toThrow()
     expect(() => commandExecuteRequestSchema.parse({ sessionId: 's1' })).toThrow()
     expect(commandExecuteValueSchema.parse({ matched: false })).toEqual({ matched: false })
-    const matched = commandExecuteValueSchema.parse({ matched: true, result: { kind: 'success', text: 'done' } })
-    expect(matched.result?.kind).toBe('success')
-    expect(commandExecuteValueSchema.parse({ matched: true, result: { kind: 'error', text: 'bad' } }).result?.kind).toBe('error')
-    expect(() => commandExecuteValueSchema.parse({ matched: true, result: { kind: 'other' } })).toThrow()
+    // Pure admission: matched plus the optional lifecycle pairing id
+    // (outcomes ride the logged lifecycle events, never this response).
+    expect(commandExecuteValueSchema.parse({ matched: true, commandId: 'cmd-1' }))
+      .toEqual({ matched: true, commandId: 'cmd-1' })
+    expect(commandExecuteValueSchema.parse({ matched: true })).toEqual({ matched: true })
+    expect(() => commandExecuteValueSchema.parse({ matched: true, commandId: '' })).toThrow()
+    expect(() => commandExecuteValueSchema.parse({})).toThrow()
   })
 })
 
@@ -299,28 +361,36 @@ describe('skills domain schemas', () => {
   })
 })
 
+describe('goals domain schemas', () => {
+  it('requires at least one replacement field for goal.edit', () => {
+    const ref = { id: 'g1', revision: 1 }
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, objective: 'updated' }).objective).toBe('updated')
+    expect(goalEditRequestSchema.parse({ sessionId: 's1', ref, maxGoalRounds: 3 }).maxGoalRounds).toBe(3)
+    expect(() => goalEditRequestSchema.parse({ sessionId: 's1', ref })).toThrow()
+  })
+})
+
 describe('events frame schemas', () => {
   it('accepts every mux frame branch', () => {
     const frames = [
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
-      { type: 'session/title', sessionId: 's', title: 'Durable title', eventSeq: 2, updatedAt: 3 },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
       { type: 'question/resolved', sessionId: 's', questionRpcId: 'r', outcome: 'answered' },
-      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' }, steering: false },
-      { type: 'session/queued', sessionId: 's', content: [{ type: 'text', text: 'steer' }], source: { kind: 'user' }, steering: true },
+      { type: 'session/queue', sessionId: 's', items: [
+        { id: 'i1', message: { id: 'm1', role: 'user', content: [{ type: 'text', text: 'queued prompt' }], source: { kind: 'user', rpcId: 'r9' } } },
+      ] },
+      { type: 'session/projection', sessionId: 's', key: 'todos', value: [{ content: 'x', status: 'pending' }], seq: 7 },
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
     for (const invalid of [
-      { type: 'session/title', sessionId: 's', title: '', eventSeq: 0, updatedAt: 1 },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: -1, updatedAt: 1 },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0.5, updatedAt: 1 },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: 'now' },
-      { type: 'session/title', sessionId: 's', title: 'x', eventSeq: 0, updatedAt: Number.NaN },
+      { type: 'session/projection', sessionId: 's', key: '', value: null, seq: 0 },
+      { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: -1 },
+      { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: 0.5 },
     ]) expect(() => muxFrameSchema.parse(invalid)).toThrow()
     expect(askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?' }).id).toBe('q')
   })
@@ -329,10 +399,10 @@ describe('events frame schemas', () => {
     expect(() => muxFrameSchema.parse({ type: 'question/requested', sessionId: 's', questions: [] })).toThrow()
   })
 
-  it('rejects a queued frame missing its members', () => {
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: 'x', source: { kind: 'user' } })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: { kind: 'user' } })).toThrow()
-    expect(() => muxFrameSchema.parse({ type: 'session/queued', sessionId: 's', content: [], source: {}, steering: false })).toThrow()
+  it('rejects a queue snapshot with malformed items', () => {
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: 'x' })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', message: {} }] })).toThrow()
+    expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: 'i', message: { id: 'm', role: 'user', content: [], source: {} } }] })).toThrow()
   })
 
   it('accepts every host frame branch', () => {

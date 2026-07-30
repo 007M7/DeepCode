@@ -7,7 +7,7 @@
  */
 import { Service } from 'cordis'
 import type { Context } from 'cordis'
-import type { ClientContext, SessionId, SessionsService } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashSource } from '../types.ts'
 import { SlashController } from './controller.ts'
 import type { SlashServiceContract } from './contract.ts'
@@ -87,7 +87,7 @@ export class SlashService extends Service implements SlashServiceContract {
       actx,
       sessionId: id,
       roster: {
-        sources: trigger => live.sources.filter(s => s.trigger === trigger),
+        sources: trigger => live.sources.filter(s => s.trigger === trigger).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
         all: () => live.sources,
       },
     })
@@ -99,7 +99,7 @@ export class SlashService extends Service implements SlashServiceContract {
     return controller
   }
 
-  private sessions(): SessionsService {
+  private sessions(): ISessions {
     const sessions = this.ctx.get('sessions')
     if (sessions === undefined) throw new Error('ui-slash: sessions service unavailable')
     return sessions

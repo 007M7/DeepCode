@@ -12,7 +12,7 @@ import {
   captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const FIXTURE = fileURLToPath(new URL('./snapshots/cordis-tool-round/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/cordis-tool-round/ui.expected.md', import.meta.url))
@@ -42,10 +42,10 @@ function assertCompleteCordisLifecycle(events: readonly SessionEvent[]): void {
   const callIds = new Set(calls.map(event => String(event.data.callId)))
   const results = events.filter(
     (event): event is Extract<SessionEvent, { type: 'tool/result' }> =>
-      event.type === 'tool/result' && callIds.has(String(event.data.callId)),
+      event.type === 'tool/result' && callIds.has(String(event.data.message.source.callId)),
   )
   expect(results).toHaveLength(CORDIS_TOOLS.length)
-  expect(results.every(event => !event.data.isError)).toBe(true)
+  expect(results.every(event => !event.data.message.content[0].isError)).toBe(true)
 }
 
 describe('web e2e: Cordis tools use the generic row variants', () => {
@@ -62,7 +62,7 @@ describe('web e2e: Cordis tools use the generic row variants', () => {
     })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })

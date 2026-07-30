@@ -1,11 +1,16 @@
 // ChatView: the default conversation view — message flow with user bubbles,
 // assistant narration, tool summary rows grouped into step runs, pending
-// cards, paging, bottom-follow, and the session stats line under the flow
-// (chrome dissolved into the view: the footer is part of what a chat view
-// IS, not registration metadata). Pure component registered directly; its
-// registration declares the keyed 'conversation.chat.toolview' hole, so tool
-// rows render through the props renderSlot share (entryKey = tool name,
-// GenericToolCard as the render-site fallback).
+// cards, paging, and bottom-follow. Session stats live on
+// 'conversation.composer.dock' (sticky with the composer). Pure component
+// registered directly; its registration declares the keyed
+// 'conversation.chat.toolview' hole, so tool rows render through the props
+// renderSlot share (entryKey = tool name, GenericToolCard as the render-site
+// fallback).
+//
+// Scroll: when nested under `[data-conversation-scroll]` (active conversation
+// column), that host is the scrollport and this view is flow content; when
+// mounted alone (unit tests), `.scroll` owns overflow. Bottom-follow and
+// prepend anchoring always target the resolved scrollport.
 //
 // Render economics (architecture RFC performance model): the list parent
 // subscribes to snapshot segments that do NOT change per streaming chunk
@@ -17,26 +22,29 @@
 // memoized rows never churns them.
 
 import {
-  memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
+  memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 import type {
-  CodeSubCall, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
+  CodeSubCall, CommandNode, ConversationNode, ConversationSnapshot, RunningToolCall, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import type { SelectionTarget } from '../contract/views.ts'
 import { deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
+import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
 import { MessageItem } from './MessageItem.tsx'
-import { PendingCard } from './PendingCard.tsx'
-import { StatsLine } from './StatsLine.tsx'
 import css from './ChatView.module.css'
 
 const FOLLOW_THRESHOLD = 24
 
-type OpenDetails = (target: SelectionTarget) => void
+/** Active column host when present; otherwise the view-local scroller. */
+function scrollerOf(from: HTMLElement): HTMLElement {
+  return (from.closest('[data-conversation-scroll]')) ?? from
+}
+
+type OpenFile = (path: string) => void
 
 /** The declared toolview hole's render share (stable framework binding, passed through memoized rows). */
 type RenderToolRow = ChatViewSlotProps['renderSlot']
@@ -49,20 +57,18 @@ type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
  *  top-level call (same registrations, same fallback), nested by the parent.
  *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
  *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, selected, cwd }: {
+const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd }: {
   renderSlot: RenderToolRow
   node: CodeSubCall
-  onOpenDetails: OpenDetails
+  openFile: OpenFile
   selected: boolean
   cwd: string | undefined
 }) {
   const settled = 'kind' in node
   const toolName = settled ? node.call?.name ?? '' : node.name
-  const seq = settled ? node.seq : node.time
   const owner = useMemo(() => ({
-    callId: node.callId, toolName, block: node, cwd,
-    openDetails: () => { onOpenDetails({ turnSeq: seq, callId: node.callId, toolName }) },
-  }), [node, toolName, seq, cwd, onOpenDetails])
+    callId: node.callId, toolName, block: node, openFile, cwd,
+  }), [node, toolName, openFile, cwd])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -79,15 +85,13 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, onOpenDetails, s
  *  renders its logged sub-dispatches as always-visible indented rows —
  *  each one the same keyed-slot dispatch as a native top-level call. */
 const CallRow = memo(function CallRow({
-  renderSlot, callId, toolName, block, seq, onOpenDetails, selected, subCalls, selectedCallId, cwd,
+  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd,
 }: {
   renderSlot: RenderToolRow
   callId: string
   toolName: string
   block: ToolResultNode | RunningToolCall
-  /** Surface seq for finalized results; the call's turn for running calls. */
-  seq: number
-  onOpenDetails: OpenDetails
+  openFile: OpenFile
   selected: boolean
   /** `run_code` sub-dispatches in dispatch order (reference-stable per
    *  parent; running entries settle in place); undefined for ordinary calls. */
@@ -98,9 +102,8 @@ const CallRow = memo(function CallRow({
   cwd: string | undefined
 }) {
   const owner = useMemo(() => ({
-    callId, toolName, block, cwd,
-    openDetails: () => { onOpenDetails({ turnSeq: seq, callId, toolName }) },
-  }), [callId, toolName, block, seq, cwd, onOpenDetails])
+    callId, toolName, block, openFile, cwd,
+  }), [callId, toolName, block, openFile, cwd])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -114,7 +117,7 @@ const CallRow = memo(function CallRow({
               key={node.callId}
               renderSlot={renderSlot}
               node={node}
-              onOpenDetails={onOpenDetails}
+              openFile={openFile}
               selected={node.callId === selectedCallId}
               cwd={cwd}
             />
@@ -126,10 +129,10 @@ const CallRow = memo(function CallRow({
 })
 
 /** Consecutive tool results as one step-run group (uniform 16px rhythm). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, selectedCallId, codeDispatches, cwd }: {
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd }: {
   renderSlot: RenderToolRow
   results: readonly ToolResultNode[]
-  onOpenDetails: OpenDetails
+  openFile: OpenFile
   /** Only set when the selected call lives in THIS group, top-level or nested (memo economy). */
   selectedCallId: string | undefined
   /** Sub-dispatch index off the snapshot (map reference is chunk-storm stable). */
@@ -146,14 +149,31 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, onOpenDetails, 
           callId={node.callId}
           toolName={node.call?.name ?? ''}
           block={node}
-          seq={node.seq}
-          onOpenDetails={onOpenDetails}
+          openFile={openFile}
           selected={node.callId === selectedCallId}
           subCalls={codeDispatches.get(node.callId)}
           selectedCallId={selectedCallId}
           cwd={cwd}
         />
       ))}
+    </div>
+  )
+})
+
+/** One command lifecycle row: keyed dispatch on the command name with the
+ *  generic card as the render-site fallback (zero registration required). A
+ *  run-less cross-window node has no name and always lands on the fallback. */
+const CommandRow = memo(function CommandRow({ renderSlot, node }: {
+  renderSlot: RenderToolRow
+  node: CommandNode
+}) {
+  const owner = useMemo(() => ({ node }), [node])
+  return (
+    <div className={css.callRow}>
+      {renderSlot('conversation.chat.commandview', owner, {
+        entryKey: node.name ?? '',
+        fallback: <GenericCommandCard {...owner} />,
+      })}
     </div>
   )
 })
@@ -210,14 +230,13 @@ function StreamingTail({ useSession, onGrow }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openDetails, loadOlder }: ChatViewSlotProps) {
+export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
-  const pending = useSession(s => s.pending)
   const openState = useSession(s => s.openState)
   const openErrorMessage = useSession(s => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
   const hasMore = useSession(s => s.hasMore)
@@ -234,26 +253,34 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
   const firstSeqRef = useRef<number | null>(null)
   const openedRef = useRef(false)
   const lastKeyRef = useRef<string | null>(null)
+  /** Flow tip signature — follow-scroll only when this moves, never on a
+   *  scroll-driven at-bottom chrome re-render (that was snapping inertial
+   *  scrolls the rest of the way to the floor). */
+  const followSigRef = useRef<string | null>(null)
 
   const firstSeq = nodes[0]?.seq ?? null
   const lastItem = items[items.length - 1]
+  const lastKey = lastItem?.key ?? null
+  const followSig = `${openState}:${firstSeq}:${lastKey}:${nodes.length}:${running ? 1 : 0}:${runningCalls.length}`
 
-  const toBottom = (el: HTMLDivElement): void => {
+  const toBottom = (el: HTMLElement): void => {
     el.scrollTop = el.scrollHeight
     atBottomRef.current = true
     setAtBottom(true)
   }
 
   useLayoutEffect(() => {
-    const el = listRef.current
+    const local = listRef.current
     /* v8 ignore next -- ref-null guard: React attaches the ref before layout effects run. */
-    if (el === null) return
+    if (local === null) return
+    const el = scrollerOf(local)
     // Open completed: jump to the bottom once.
     if (openState === 'open' && !openedRef.current) {
       openedRef.current = true
       toBottom(el)
       firstSeqRef.current = firstSeq
-      lastKeyRef.current = lastItem?.key ?? null
+      lastKeyRef.current = lastKey
+      followSigRef.current = followSig
       return
     }
     // Prepend (head seq decreased): compensate by the height delta.
@@ -262,42 +289,65 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
       anchorRef.current = null
       firstSeqRef.current = firstSeq
       /* v8 ignore next -- ?? arm: a prepend adds nodes, so the flow list here is never empty. */
-      lastKeyRef.current = lastItem?.key ?? null
+      lastKeyRef.current = lastKey
+      followSigRef.current = followSig
       return
     }
     firstSeqRef.current = firstSeq
     // Own words must be visible: a new trailing user node force-scrolls
     // (send lives in the composer, so arrival is detected here, not armed there).
-    const lastKey = lastItem?.key ?? null
     const appendedUser = lastKey !== lastKeyRef.current
       && lastItem !== undefined && lastItem.kind === 'node' && lastItem.node.kind === 'user'
+    const tipMoved = followSigRef.current !== followSig
     lastKeyRef.current = lastKey
-    if (appendedUser || atBottomRef.current) toBottom(el)
+    followSigRef.current = followSig
+    // Follow new flow content while pinned; do NOT re-pin on every render
+    // merely because atBottomRef is true (scroll threshold → setState → snap).
+    if (appendedUser || (tipMoved && atBottomRef.current)) toBottom(el)
   })
 
-  const onScroll = (): void => {
-    const el = listRef.current
-    /* v8 ignore next -- ref-null guard: the handler only fires on the mounted element. */
-    if (el === null) return
+  const onScrollRef = useRef(() => {})
+  onScrollRef.current = () => {
+    const local = listRef.current
+    /* v8 ignore next -- ref-null guard: the handler only fires while mounted. */
+    if (local === null) return
+    const el = scrollerOf(local)
     const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
     atBottomRef.current = isAtBottom
     setAtBottom(isAtBottom)
   }
+
+  // Bind scroll to the resolved scrollport (host or local) once per mount.
+  useEffect(() => {
+    const local = listRef.current
+    /* v8 ignore next -- ref-null guard: effect runs after the list node commits. */
+    if (local === null) return
+    const el = scrollerOf(local)
+    const onScroll = (): void => { onScrollRef.current() }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => { el.removeEventListener('scroll', onScroll) }
+  }, [])
 
   // Follow streaming growth the parent never re-renders for (stable ref).
   // The ref starts null and is assigned every render, so the placeholder
   // initializer a function initial value would need never exists.
   const followRef = useRef<(() => void) | null>(null)
   followRef.current = () => {
-    const el = listRef.current
-    if (el !== null && atBottomRef.current) el.scrollTop = el.scrollHeight
+    const local = listRef.current
+    if (local !== null && atBottomRef.current) {
+      const el = scrollerOf(local)
+      el.scrollTop = el.scrollHeight
+    }
   }
   const onGrow = useRef(() => followRef.current?.()).current
 
   const loadOlderAnchored = (): void => {
-    const el = listRef.current
+    const local = listRef.current
     /* v8 ignore next -- ref-null guard: the paging button renders inside the list tree. */
-    if (el !== null) anchorRef.current = { h: el.scrollHeight, t: el.scrollTop }
+    if (local !== null) {
+      const el = scrollerOf(local)
+      anchorRef.current = { h: el.scrollHeight, t: el.scrollTop }
+    }
     loadOlder()
   }
 
@@ -311,7 +361,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           key={item.key}
           renderSlot={renderSlot}
           results={item.results}
-          onOpenDetails={openDetails}
+          openFile={openFile}
           selectedCallId={inGroup ? selectedCallId : undefined}
           codeDispatches={codeDispatches}
           cwd={cwd}
@@ -320,7 +370,18 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     }
     const node: ConversationNode = item.node
     if (node.kind === 'assistant') {
-      return <AssistantMarkdown key={item.key} blocks={node.blocks} streaming={false} interrupted={node.interrupted} />
+      return (
+        <AssistantMarkdown
+          key={item.key}
+          blocks={node.blocks}
+          streaming={false}
+          interrupted={node.interrupted}
+          time={node.time}
+        />
+      )
+    }
+    if (node.kind === 'command') {
+      return <CommandRow key={item.key} renderSlot={renderSlot} node={node} />
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
@@ -329,7 +390,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
 
   return (
     <div className={css.root}>
-      <div ref={listRef} className={css.scroll} onScroll={onScroll}>
+      <div ref={listRef} className={css.scroll}>
         <div className={css.column}>
           {openState === 'loading' && <div className={css.hint}>载入历史…</div>}
           {openState === 'error' && <div className={css.openError}>历史加载失败：{openErrorMessage}</div>}
@@ -351,8 +412,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
                   callId={call.callId}
                   toolName={call.name}
                   block={call}
-                  seq={call.turn}
-                  onOpenDetails={openDetails}
+                  openFile={openFile}
                   selected={call.callId === selectedCallId}
                   subCalls={codeDispatches.get(call.callId)}
                   selectedCallId={selectedCallId}
@@ -361,27 +421,30 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
               ))}
             </div>
           )}
-          {pending.map(item => <PendingCard key={item.key} item={item} />)}
+          {/* No pending placeholders: questions (ui-question) and approvals
+              (ApprovalPanel) both take over the composer, so a flow card would
+              double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
           {running && <TurnDots />}
         </div>
+        {!atBottom && (
+          <div className={css.toBottomSlot}>
+            <button
+              type="button"
+              className={css.toBottom}
+              aria-label="回到底部"
+              onClick={() => {
+                const local = listRef.current
+                /* v8 ignore next -- ref-null guard: the button only renders alongside the mounted list. */
+                if (local !== null) toBottom(scrollerOf(local))
+              }}
+            >
+              <IconChevronDownOutline14 />
+            </button>
+          </div>
+        )}
       </div>
-      <StatsLine useSession={useSession} />
-      {!atBottom && (
-        <button
-          type="button"
-          className={css.toBottom}
-          aria-label="回到底部"
-          onClick={() => {
-            const el = listRef.current
-            /* v8 ignore next -- ref-null guard: the button only renders alongside the mounted list. */
-            if (el !== null) toBottom(el)
-          }}
-        >
-          <IconChevronDownOutline14 />
-        </button>
-      )}
     </div>
   )
 }

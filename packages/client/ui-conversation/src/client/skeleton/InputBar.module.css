@@ -20,10 +20,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* figma Input_Bottom: pad L32/R32/B12; the bottom gradient mask is owned by
-     the chat scroller. Top 6 is the gap under the dock todo strip (12px todo
-     margin + 6px here); error/status strips still carry their own margin. */
-  padding: 6px 32px 12px;
+  /* figma Input_Bottom: pad L32/R32/B8; the bottom gradient mask is owned by
+     the chat scroller. No top pad: the composer stack's gap owns the space
+     above; error/status strips still carry their own margin. */
+  padding: 0 32px 8px;
 }
 
 .hero {
@@ -87,6 +87,13 @@
   box-shadow: var(--dsw-shadow-lv2);
   font-size: 16px;
   line-height: 24px;
+  /* Elevated surface in dark, same as the menus: the textarea inside scrolls
+     once the composer hits its height cap, so the thumb takes the l2 pair.
+     Declared on the card because the elevation belongs to the surface, and the
+     custom properties inherit down to the textarea that actually scrolls (see
+     ui-theme styles/scrollbar.css for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .accessory {
@@ -118,20 +125,18 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  color: transparent;
+  color: var(--dsw-alias-label-primary);
   pointer-events: none;
 }
 
 .hlToken {
-  border-radius: 4px;
-  /* GOAL 稿 amber token emphasis (state warn pair; glyphs stay the textarea's). */
-  background: var(--dsw-alias-state-warn-tertiary);
-  color: transparent;
+  background-color: transparent;
+  color: var(--dsw-alias-state-warn-label);
 }
 
 .hlSegment {
   border-radius: 4px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  background-color: transparent;
   color: transparent;
 }
 
@@ -163,7 +168,7 @@
   border: none;
   outline: none;
   background: transparent;
-  color: var(--dsw-alias-label-primary);
+  color: transparent;
   /* Business blue, not brand-primary: that token resolves to ink in this sheet. */
   caret-color: var(--dsw-alias-state-business-primary);
 }
@@ -204,10 +209,14 @@
 .mirror {
   visibility: hidden;
   pointer-events: none;
-  /* figma min-h 52 (= ~2 × 24 line + 4pt); 14-line cap (336px). */
-  min-height: 52px;
   max-height: 336px;
   overflow: hidden;
+}
+
+/* Hero (centered empty-state) keeps the 2-line floor (figma min-h 52 = ~2 × 24
+   line + 4pt); the docked composer collapses to the content height. */
+.hero .mirror {
+  min-height: 52px;
 }
 
 /* Toolbar: attach + Plan + Read-only on the left; model + send on the right
@@ -341,25 +350,13 @@
    draft's own glyphs — advance untouched, so the two layers cannot drift.
    Chip family colors; clone keeps rounded ends on soft-wrap fragments. */
 .textRef {
-  color: transparent;
   background-color: transparent;
+  color: var(--dsw-alias-state-business-primary);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  position: relative;
 }
 .textRef:after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-
-  width: 100%;
-  height: 100%;
-
-  border-radius: 6px;
-  background: rgba(97, 135, 216, 0.22);
-  transform: translate(-2px, -1px);
-  padding: 2px 4px;
+  display: none;
 }
 
 /* Reference chip: rendered in the backdrop at the placeholder offset. Hard

@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Context, type Fiber } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -42,10 +43,10 @@ function startSession(ctx: Context, id: string): ReturnType<Context['sessions'][
 }
 
 function appendPrompt(session: ReturnType<Context['sessions']['create']>, text: string) {
-  return session.append('user/message', {
+  return session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
-  }, { surfaceOp: 'append' })
+  }), { surfaceOp: 'append' })
 }
 
 describe('SessionTitleService configuration and refresh boundaries', () => {
@@ -184,6 +185,8 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
       'turn/start',
       'user/message',
       'turn/end',
+      // The seeded constructor's end-seed marker.
+      'session/end-seed',
       'session/title',
     ])
     expect(ctx.sessionTitle.get(session)?.messageSeqs).toEqual([source.seq])

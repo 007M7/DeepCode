@@ -12,12 +12,14 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { join } from 'node:path'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/seeded-history', import.meta.url))
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
@@ -49,7 +51,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       await seedSession(scaffold, raw, SEED_ID)
     }
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -71,6 +73,35 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await recordFixture(scaffold, sessionId, SEED)
   }, 200_000)
 
+  it.skipIf(MODE === 'record')('serves the projections baseline on the real composition tail page', async () => {
+    // Composition regression tripwire: the projection registry must be a row
+    // in the SHIPPED cordis.yml — with it absent every domain unit's optional
+    // injection stays silent and this block disappears (no titles/todos on
+    // the web), while fixture-level suites stay green. Assert through the
+    // real HTTP wire against the booted real host.
+    const response = await fetch(`${scaffold.baseUrl}/api/session.history`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'client-request', rpcId: 'seeded-projections', method: 'session.history',
+        payload: { sessionId: SEED_ID },
+      }),
+    })
+    expect(response.ok).toBe(true)
+    const body = await response.json() as {
+      result: { ok: boolean; value?: { projections?: { asOfSeq: number; values: Record<string, unknown> } } }
+    }
+    expect(body.result.ok).toBe(true)
+    const projections = body.result.value?.projections
+    expect(projections).toBeDefined()
+    expect(projections?.asOfSeq).toBeGreaterThanOrEqual(0)
+    // The seed carries a session/title event: the title unit must serve it.
+    expect(typeof projections?.values.title).toBe('string')
+    // tool-todo is composed but the seed has no todo/write: whole-value null,
+    // key PRESENT (absence would mean the unit never registered).
+    expect(projections?.values).toHaveProperty('todos', null)
+  })
+
   it.skipIf(MODE === 'record')('lists the seeded session cold and renders its history from the log', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-history'))
     // The sidebar tree collapses workspace groups by default: click the group
@@ -88,6 +119,30 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const toolRows = page.locator('[data-variant], [data-sample]')
     await expect.poll(() => toolRows.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.getByText('a.txt', { exact: false }).count()).toBeGreaterThan(0)
+
+    const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
+    if (agent === undefined) throw new Error('seeded session did not attach an agent')
+    agent.inject(createUserMessage({
+      content: [{
+        type: 'text',
+        text: '<system-reminder>\n'
+          + 'The following workspace instructions may be relevant to your work. '
+          + 'Use them as guidance when applicable.\n\n'
+          + Array.from({ length: 24 }, (_, index) => `Instruction ${index + 1}: preserve the logged context contract.`).join('\n')
+          + '\n</system-reminder>',
+      }],
+      source: {
+        kind: 'workspace-instructions',
+        baseline: true,
+        changes: [{
+          action: 'set',
+          scope: '.\u0000AGENTS.md',
+          path: 'AGENTS.md',
+          digest: 'context-injection-browser-snapshot',
+        }],
+      },
+    }))
+    await page.getByRole('button', { name: '上下文注入' }).waitFor({ timeout: 10_000 })
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
@@ -96,28 +151,78 @@ describe('web e2e: seeded history renders through cold resume', () => {
       // This scenario deliberately leaves the LLM seam open to prove zero
       // model calls. History still restores the selected id, but no catalog
       // adapter exists to provide its presentation name.
-      name: '选择模型，当前 deepseek-v4-flash',
+      name: 'Select model, current deepseek-v4-flash',
     }).waitFor({ timeout: 10_000 })
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })
 
-  it.skipIf(MODE === 'record')('expands and collapses a tool row rebuilt from the cold log', async () => {
+  it.skipIf(MODE === 'record')('matches the Figma context disclosure geometry', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-context-injection'))
+    const disclosure = page.getByRole('button', { name: '上下文注入' })
+    expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
+    const collapsedIcon = disclosure.locator('svg').first()
+    const collapsedIconBox = await collapsedIcon.boundingBox()
+    expect(collapsedIconBox?.width).toBe(14)
+    expect(collapsedIconBox?.height).toBe(14)
+
+    await disclosure.click()
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
+    const body = page.locator('[data-context-injection-body]')
+    await body.waitFor({ timeout: 5_000 })
+    const headerBox = await disclosure.boundingBox()
+    const bodyBox = await body.boundingBox()
+    if (headerBox === null || bodyBox === null) throw new Error('context disclosure geometry is not measurable')
+    expect(headerBox.height).toBe(24)
+    expect(bodyBox.x - headerBox.x).toBe(22)
+    expect(bodyBox.y - headerBox.y - headerBox.height).toBe(4)
+    expect(bodyBox.height).toBe(141)
+
+    const style = await body.evaluate((element) => {
+      const computed = getComputedStyle(element)
+      return {
+        backgroundColor: computed.backgroundColor,
+        borderRadius: computed.borderRadius,
+        color: computed.color,
+        fontSize: computed.fontSize,
+        lineHeight: computed.lineHeight,
+        padding: [
+          computed.paddingTop,
+          computed.paddingRight,
+          computed.paddingBottom,
+          computed.paddingLeft,
+        ],
+        scrolls: element.scrollHeight > element.clientHeight,
+      }
+    })
+    expect(style).toEqual({
+      backgroundColor: 'rgb(249, 250, 251)',
+      borderRadius: '8px',
+      color: 'rgb(129, 133, 140)',
+      fontSize: '11px',
+      lineHeight: '16px',
+      padding: ['10px', '16px', '12px', '12px'],
+      scrolls: true,
+    })
+
+    await disclosure.click()
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it.skipIf(MODE === 'record')('file-path tool rows rebuilt from the cold log stay details-inert', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-toolrow'))
-    // Interaction over cold-resumed history: read rows are expand-in-place
-    // rows (rowExpands routes the click to toggleExpand, not openDetails), so
-    // the gesture under test is the inline fold over log-rebuilt content.
-    // Runs after the golden capture; still zero model calls.
-    const row = page.locator('[data-variant] [data-clickable][role="button"]').first()
-    await row.waitFor({ timeout: 10_000 })
-    expect(await row.getAttribute('aria-expanded')).toBe('false')
-    await row.click()
-    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
-    // The expanded body renders the recorded tool result (a.txt's contents).
-    await expect.poll(() => page.getByText('alpha', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
-    await row.click()
-    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
+    // Interaction over cold-resumed history: read summaries are host-open
+    // file links (not expand-in-place / not details). Runs after the golden
+    // capture; still zero model calls.
+    const fileLink = page.locator('[data-variant="read"] button').first()
+    await fileLink.waitFor({ timeout: 10_000 })
+    const frame = page.locator('[style*="grid-template-columns"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
+    await fileLink.click()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
+    // Path label survives from the recorded args (a.txt).
+    await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {

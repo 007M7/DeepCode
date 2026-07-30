@@ -1,3 +1,4 @@
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Keyless real-Loader-path smoke for the combined SQLite session-query service.
  *
@@ -48,7 +49,9 @@ describe('dsh-session-query-sqlite real Loader path', () => {
       type: 'user/message',
       seq: 0,
       time: 10,
-      data: { content: [{ type: 'text', text: 'real Loader needle' }], source: { kind: 'user' } },
+      data: createUserMessage({
+        content: [{ type: 'text', text: 'real Loader needle' }], source: { kind: 'user' },
+      }),
       surfaceOp: 'append',
     }])
 

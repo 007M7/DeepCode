@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks'
 /** A named aggregate exposed by the gate runner. */
 export type Mode =
   | 'ci-primary'
+  | 'ci-linux-primary'
   | 'ci-static'
   | 'ci-lint'
   | 'ci-coverage'
@@ -97,6 +98,7 @@ async function main(args: string[]): Promise<number> {
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
+    case 'ci-linux-primary':
     case 'ci-static':
     case 'ci-lint':
     case 'ci-coverage':
@@ -112,7 +114,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -181,10 +183,6 @@ function pnpmInvocation(args: string[]): Pick<Gate, 'command' | 'args'> {
   return { command: process.execPath, args: [entrypoint, ...args] }
 }
 
-function nodeOptions(...options: string[]): string {
-  return [process.env.NODE_OPTIONS, ...options].filter(option => option !== undefined && option !== '').join(' ')
-}
-
 /**
  * Construct the complete gate list for a named aggregate.
  * @param selected - aggregate mode to construct.
@@ -194,6 +192,8 @@ export function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
+    case 'ci-linux-primary':
+      return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
     case 'ci-static':
       return ciStaticGates()
     case 'ci-lint':
@@ -287,6 +287,11 @@ function nodeCompatSmokeGates(): Gate[] {
       'run',
       'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
+    pnpmExec('dsh-source-launch-smoke', [
+      'vitest',
+      'run',
+      'apps/cli/tests/source-launch.compat.spec.ts',
+    ], { label: 'dsh source-launch smoke' }),
   ]
 }
 
@@ -330,6 +335,7 @@ function ciConsumerGates(): Gate[] {
     }),
     pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
     snapshotGate(restoredBuild),
+    webSnapshotGate(restoredBuild),
     pnpmScript('publint', 'publint'),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -338,6 +344,15 @@ function ciConsumerGates(): Gate[] {
     builtPackageInvariantsGate(publicArtifacts),
     builtBinSmokeGate(restoredBuild),
   ]
+}
+
+function webSnapshotGate(needs: string[]): Gate {
+  return pnpmScript('web-snapshot', 'test:web:built', {
+    label: 'web browser snapshot',
+    displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+    env: { DSH_SNAPSHOT: 'replay' },
+    needs,
+  })
 }
 
 function ciWindowsBlockingGates(): Gate[] {
@@ -375,43 +390,11 @@ function ciWindowsObservationalGates(): Gate[] {
   ]
 }
 
-function lintGate(eslintTargets: readonly string[] = ['.']): Gate {
-  const concurrencyArgs = eslintConcurrencyArgs()
-  if (process.env.DSH_ESLINT_CACHE === '1') {
-    return pnpmExec('lint', [
-      'eslint',
-      ...eslintTargets,
-      ...concurrencyArgs,
-      '--cache',
-      '--cache-location',
-      '.cache/eslint/',
-      '--cache-strategy',
-      'content',
-    ], {
-      label: 'lint',
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    })
-  }
-  if (concurrencyArgs.length > 0) {
-    return pnpmExec('lint', ['eslint', ...eslintTargets, ...concurrencyArgs], {
-      label: 'lint',
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    })
-  }
-  return pnpmScript('lint', 'lint', {
-    env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-  })
-}
-
-function eslintConcurrencyArgs(): string[] {
-  const raw = process.env.DSH_ESLINT_CONCURRENCY
-  if (raw === undefined || raw === '') return []
-  if (raw === 'auto') return ['--concurrency=auto']
-  const parsed = Number.parseInt(raw, 10)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
-    throw new Error(`run-gates: DSH_ESLINT_CONCURRENCY must be a positive integer or auto, got ${JSON.stringify(raw)}.`)
-  }
-  return [`--concurrency=${raw}`]
+function lintGate(): Gate {
+  const raw = process.env.DSH_OXLINT_THREADS
+  return pnpmScript('lint', 'lint', raw === undefined || raw === ''
+    ? {}
+    : { displayCommand: `DSH_OXLINT_THREADS=${raw} pnpm run lint` })
 }
 
 function coverageGate(): Gate {
@@ -485,7 +468,6 @@ function docSyncLeafGates(options: {
   return [
     pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
-    pnpmScript('cordis-api', 'verify-cordis-api', { label: 'cordis api' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),
@@ -521,7 +503,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     '--config',
     'vitest.e2e.config.ts',
     'examples/headless-agent/tests/keyless-smoke.e2e.ts',
-    'examples/tui-agent/tests/tui-keyless-smoke.e2e.ts',
+    'apps/cli/tests/tui-keyless-smoke.e2e.ts',
     'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',

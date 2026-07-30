@@ -1,3 +1,4 @@
+import { createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 /**
  * Coordinator semantics against a bare fake backend — the RFC's named unit
  * tier for the seam: adoption (fresh, seeded, re-adoption via the handoff
@@ -70,7 +71,9 @@ function liveSession(ctx: Context, id = `s-${Math.random().toString(36).slice(2)
 
 function appendTurn(session: Session): void {
   session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-  session.append('user/message', { content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' } }, { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
 }
 
 describe('TelemetryCoordinator capture', () => {
@@ -106,8 +109,22 @@ describe('TelemetryCoordinator capture', () => {
     const { ctx, backend } = await setup()
     const session = liveSession(ctx)
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    session.append('tool/result', { turn: 1, step: 1, callId: 'c1' as never, content: [], isError: true }, { surfaceOp: 'append' })
-    session.append('tool/result', { turn: 1, step: 1, callId: 'c2' as never, content: [], isError: false }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c1' as never,
+        content: [],
+        isError: true,
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c2' as never,
+        content: [],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
     session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
@@ -151,31 +168,30 @@ describe('TelemetryCoordinator capture', () => {
 })
 
 describe('TelemetryCoordinator adoption', () => {
-  it('starts export at the construction boundary: seeded history never re-exports', async () => {
+  it('exports an unpublished suffix without re-exporting constructor history', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const parent = liveSession(ctx, 'seed-parent')
     appendTurn(parent)
-    const child = ctx.sessions.create(SessionId('seeded'), { seed: [...parent.events], meta: {} })
     await ctx.plugin({
       name: 'fake-telemetry',
       inject: ['sessions'],
       apply: (inner: Context) => void new TelemetryCoordinator(inner, backend),
     })
-    // The live parent (no constructor seed) replays in full; the child's
-    // inherited prefix already left the process under another identity (the
-    // parent's id here; the same id in a previous process for a resume) and
-    // must not be re-exported — only its live suffix ships.
+    const child = ctx.sessions.prepare(SessionId('seeded'), { seed: [...parent.events], meta: {} })
+    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    ctx.sessions.enter(child)
+    ctx.sessions.announce(child)
+
     const seqs = backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']])
     expect(seqs).toEqual(expect.arrayContaining([['seed-parent', 0], ['seed-parent', 1]]))
-    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([])
-    child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    expect(backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']]))
-      .toEqual(expect.arrayContaining([['seeded', 2]]))
+    // 2 end-seed, 3 turn/end: both this lifecycle's own writes, while
+    // inherited 0-1 stay with the parent stream.
+    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2], ['seeded', 3]])
   })
 
-  it('resume shape: a full-log seed exports nothing yet still rebuilds the chunk projection', async () => {
+  it('resume shape: a full-log seed exports only its own end-seed and rebuilds the chunk projection', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -191,14 +207,16 @@ describe('TelemetryCoordinator adoption', () => {
     const ofResumed = () => backend.ledger()
       .filter(r => r.attributes['session.id'] === 'resumed')
       .map(r => r.attributes['event.seq'])
-    expect(ofResumed()).toEqual([])
+    // Nothing inherited is re-exported; seq 2 is this session's own first
+    // write — the end-seed event its constructor appended after the seed.
+    expect(ofResumed()).toEqual([2])
     // The seed fed the projection: the (turn 1, step 1) first chunk already
     // shipped from the original process, so its continuation is re-dropped…
     resumed.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'continuation' } })
-    expect(ofResumed()).toEqual([])
+    expect(ofResumed()).toEqual([2])
     // …while a new step's first chunk exports normally.
     resumed.append('assistant/chunk', { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'next step' } })
-    expect(ofResumed()).toEqual([3])
+    expect(ofResumed()).toEqual([2, 4])
   })
 
   it('stamps session.seed_length from the header so receivers can stitch fork streams', async () => {
