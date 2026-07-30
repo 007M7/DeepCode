@@ -236,6 +236,51 @@ describe('global test invariant host', () => {
     )
   })
 
+  it('holds a child registered externally on a pending target context', async () => {
+    const delayedStarted = deferred()
+    const releaseDelayed = deferred()
+
+    await withFakeCompanions(
+      (_path, index) => async () => ({
+        name: `test-invariant-${index}`,
+        inject: ['invariants'],
+        async apply() {
+          if (index === 0) {
+            delayedStarted.resolve()
+            await releaseDelayed.promise
+          }
+          return () => {}
+        },
+      }),
+      async () => {
+        const ctx = new Context()
+        const targetApply = vi.fn(function targetApply() {})
+        const childApply = vi.fn(function childApply() {})
+
+        const targetFiber = ctx.plugin(targetApply)
+        const childFiber = targetFiber.ctx.plugin(childApply)
+
+        await delayedStarted.promise
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(targetFiber.state).toBe(FiberState.PENDING)
+        expect(childFiber.state).toBe(FiberState.PENDING)
+        expect(targetApply).not.toHaveBeenCalled()
+        expect(childApply).not.toHaveBeenCalled()
+        expect(childFiber.inject).toEqual({
+          [TEST_INVARIANT_READY_SERVICE]: null,
+        })
+
+        releaseDelayed.resolve()
+        await Promise.all([targetFiber, childFiber])
+        expect(targetFiber.state).toBe(FiberState.ACTIVE)
+        expect(childFiber.state).toBe(FiberState.ACTIVE)
+        expect(targetApply).toHaveBeenCalledOnce()
+        expect(childApply).toHaveBeenCalledOnce()
+      },
+    )
+  })
+
   it.each(['load', 'startup'] as const)(
     'rejects a target when a lazy companion fails during %s without starting the target',
     async (phase) => {

@@ -171,7 +171,12 @@ function startInvariantHost(root: Context): InvariantHost {
 function hasBarrierOwner(host: InvariantHost, ctx: Context): boolean {
   let fiber = ctx.fiber
   while (true) {
-    if (host.barrierOwners.has(fiber)) return true
+    if (
+      host.barrierOwners.has(fiber)
+      && (fiber.state === FiberState.LOADING || fiber.state === FiberState.ACTIVE)
+    ) {
+      return true
+    }
     const parent = fiber.parent.fiber
     if (parent === fiber) return false
     fiber = parent
