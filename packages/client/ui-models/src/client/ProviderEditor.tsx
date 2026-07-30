@@ -141,10 +141,17 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   useEffect(() => {
     let stale = false
     setKeyState(undefined)
-    void api.credentials.describe({ refs: [keyRef] }).then((response) => {
-      if (stale || !response.result.ok) return
-      setKeyState(response.result.value.credentials[keyRef])
-    })
+    // The key state is a placeholder hint, not a precondition for editing:
+    // neither a business rejection nor a transport failure may reach the
+    // browser as an unhandled rejection, so the card simply renders without
+    // the "already configured" hint.
+    void api.credentials.describe({ refs: [keyRef] }).then(
+      (response) => {
+        if (stale || !response.result.ok) return
+        setKeyState(response.result.value.credentials[keyRef])
+      },
+      () => undefined,
+    )
     return () => { stale = true }
   }, [api.credentials, keyRef])
 

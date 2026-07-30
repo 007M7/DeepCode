@@ -371,6 +371,31 @@ describe('ModelsSection', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
+  it('renders the card without the stored-key hint when the credential probe rejects', async () => {
+    // The probe is a placeholder hint, not a precondition: an escaping
+    // rejection would surface in the browser as an unhandled rejection.
+    const { face } = scriptedFace()
+    face.credentials.describe = vi.fn(() => Promise.reject(new Error('connection lost')))
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const controller = new ModelsSettingsStore(face as unknown as WireFace)
+      await controller.load()
+      render(<ModelsSection
+        controller={controller}
+        useSnapshot={bindSnapshotSelector(controller.store)}
+        api={face as never}
+        t={t}
+      />)
+      const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+      expect(key.placeholder).toBe(en.keyPlaceholder)
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
   it('tells the user to reopen when another writer moved the namespace first', async () => {
     // The stale-draft overwrite: two tabs open the same card, the other saves,
     // and this one must be refused rather than replay its opening snapshot.
