@@ -1,72 +1,83 @@
 import type { Context } from 'cordis'
-import { appendFileSync } from 'node:fs'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'subagent-durability-failure'
 export const inject = ['sessionPersistence', 'subagents']
 
+/**
+ * The authored parent transcript names the background child by a stable
+ * placeholder id, but the live continuable child is minted with a fresh random
+ * session id at run time. This snapshot-only overlay bridges that gap and forces
+ * a deterministic ordering plus a failing final child durability checkpoint:
+ *
+ *  - `PLACEHOLDER_CHILD_ID` in a scripted `send_message` is remapped to the real
+ *    child so both follow-ups queue onto the same live inbox in FIFO order.
+ *  - The unknown-id `send_message` (`UNKNOWN_CHILD_ID`) resolves through a
+ *    persistence load fenced behind both accepted follow-ups, so the transcript
+ *    records the same order on every runner.
+ *  - The child's final continuation turn fails its durability checkpoint with a
+ *    fixed message, so the scenario proves child-first disposal survives a failed
+ *    last flush.
+ */
+const PLACEHOLDER_CHILD_ID = '33333333-3333-4333-8333-333333333333'
 const UNKNOWN_CHILD_ID = '22222222-2222-4222-8222-222222222222'
+/** The child continuation turn whose durability checkpoint is forced to fail. */
+const FAILED_CHECKPOINT_TURN = 4
 
 /** Fail the child checkpoint and stabilize the authored follow-up failure ordering. */
 export function apply(ctx: Context): void {
-  const log = (...a: unknown[]): void => {
-    try { appendFileSync('/tmp/probe.log', '[PROBE] ' + a.map(String).join(' ') + '\n') } catch { /* ignore */ }
-  }
   const followupsAccepted = Promise.withResolvers<undefined>()
   const persistence = ctx.sessionPersistence
   const load = persistence.load.bind(persistence)
 
+  // The unavailable-child lookup is real asynchronous I/O. Fence it behind both
+  // authored follow-ups so runner speed cannot reorder the exact log.
   persistence.load = async (id) => {
-    log('load', id)
-    if (id === UNKNOWN_CHILD_ID) { log('gating unknown-id load'); await followupsAccepted.promise; log('unknown-id load released') }
+    if (id === UNKNOWN_CHILD_ID) await followupsAccepted.promise
     return load.call(persistence, id)
   }
-
-  // Patch followup to log routing.
-  const subagents = ctx.subagents as unknown as { followup: (...a: unknown[]) => Promise<unknown> }
-  const origFollowup = subagents.followup.bind(subagents)
-  subagents.followup = async (...args: unknown[]) => {
-    log('followup childId=', args[1])
-    return origFollowup(...args)
-  }
-
   ctx.effect(() => () => {
     persistence.load = load
     followupsAccepted.resolve(undefined)
   }, 'subagent snapshot ordering')
 
+  // Remap the placeholder child id in a follow-up to the live child. The child
+  // id the model "knows" is authored into the transcript, while the running
+  // child is minted with a random id, so without this the follow-ups would
+  // never reach the live inbox.
+  let realChildId: string | undefined
+  const subagents = ctx.subagents as unknown as {
+    followup: (authority: unknown, childId: SessionId, content: unknown, options: unknown) => Promise<unknown>
+  }
+  const deliver = subagents.followup.bind(subagents)
+  subagents.followup = (authority, childId, content, options) => {
+    const mapped = childId === PLACEHOLDER_CHILD_ID && realChildId !== undefined
+      ? SessionId(realChildId)
+      : childId
+    return deliver(authority, mapped, content, options)
+  }
+
+  // Both authored follow-ups reach the child inbox before the unknown-id lookup
+  // runs, so the queued FIFO order is what the transcript records. The first
+  // child enqueue is the initial delegation, which also pins the real child id.
   let accepted = 0
   ctx.on('agent/inbox/enqueue', (agent) => {
     if (agent.session.header.parentSession === undefined) return
+    if (realChildId === undefined) realChildId = agent.session.header.id
     accepted += 1
-    log('child enqueue #', accepted, 'child=', agent.session.header.id)
     if (accepted >= 3) followupsAccepted.resolve(undefined)
   })
 
-  ctx.on('subagent/start', (info: unknown) => {
-    log('subagent/start id=', (info as { id?: unknown }).id)
-  })
-
+  // The child's ordinary per-turn flushes succeed; only the final continuation
+  // turn's durability checkpoint fails, turning that turn/end into a durable
+  // error the parent never sees.
+  const childTurn = new WeakMap<object, number>()
   ctx.on('session/event', (session, event) => {
-    if (session.header.parentSession === undefined) return
-    if (event.type === 'turn/start') log('child turn/start turn=', event.data.turn, 'child=', session.header.id)
-    if (event.type === 'user/message') {
-      const c = event.data.content?.[0]
-      log('child user/message text=', c && c.type === 'text' ? c.text : '?', 'child=', session.header.id)
-    }
+    if (session.header.parentSession === undefined || event.type !== 'turn/start') return
+    childTurn.set(session, event.data.turn)
   })
-
-  const flushes = new WeakMap<object, number>()
-  const flushedTurnEnds = new WeakSet<object>()
   ctx.on('session/flush', (session) => {
     if (session.header.parentSession === undefined) return
-    const count = (flushes.get(session) ?? 0) + 1
-    flushes.set(session, count)
-    log('child flush #', count, 'child=', session.header.id)
-    if (session.events.at(-1)?.type !== 'turn/end') return
-    if (flushedTurnEnds.has(session)) {
-      log('THROW snapshot disk full')
-      throw new Error('snapshot disk full')
-    }
-    flushedTurnEnds.add(session)
+    if (childTurn.get(session) === FAILED_CHECKPOINT_TURN) throw new Error('snapshot disk full')
   })
 }
