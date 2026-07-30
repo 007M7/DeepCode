@@ -13,6 +13,7 @@ export const name = 'compact-invariant'
 export const inject = ['invariants']
 
 interface CompactionTrace {
+  startSeq: number
   turn: number | null
   summarized: boolean
 }
@@ -23,10 +24,58 @@ interface SessionTrace {
 }
 
 type CompactionTransition =
-  | { kind: 'start'; turn: number | null }
-  | { kind: 'summary'; turn: number | null }
+  | { kind: 'start'; startSeq: number; turn: number | null }
+  | { kind: 'summary'; startSeq: number; turn: number | null }
   | { kind: 'end' }
   | { kind: 'end-seed' }
+
+/** Compaction starts still unmatched when a later seed boundary made them stale. */
+function inheritedOrphanStartSeqs(
+  events: readonly SessionEvent[],
+): ReadonlySet<number> {
+  const stale = new Set<number>()
+  let openStartSeq: number | undefined
+  for (const event of events) {
+    if (event.type === 'compact/start') {
+      openStartSeq = event.seq
+    } else if (event.type === 'compact/end') {
+      openStartSeq = undefined
+    } else if (event.type === 'session/end-seed') {
+      if (openStartSeq !== undefined) stale.add(openStartSeq)
+      openStartSeq = undefined
+    }
+  }
+  return stale
+}
+
+/** Keep every live compaction bracket on one side of each turn boundary. */
+function validateTurnBoundary(
+  trace: SessionTrace,
+  event: SessionEvent,
+  fail: InvariantFailure,
+): void {
+  if (
+    (event.type !== 'turn/start' && event.type !== 'turn/end')
+    || trace.compaction === undefined
+  ) return
+  const owner = trace.compaction.turn === null
+    ? 'standalone compaction'
+    : `compaction for turn ${trace.compaction.turn}`
+  fail(`${event.type} cannot cross an open ${owner}`)
+}
+
+/** Advance the committed turn cursor after its boundary has been accepted. */
+function applyTurnBoundary(trace: SessionTrace, event: SessionEvent): boolean {
+  if (event.type === 'turn/start') {
+    trace.openTurn = event.data.turn
+    return true
+  }
+  if (event.type === 'turn/end') {
+    trace.openTurn = null
+    return true
+  }
+  return false
+}
 
 /** Require a numbered bracket inside its exact turn, or a standalone bracket between turns. */
 function validateOwner(
@@ -40,12 +89,7 @@ function validateOwner(
     return
   }
   if (openTurn === null) fail(`${eventType} for turn ${owner} appended outside any open turn`)
-  if (owner !== openTurn) {
-    if (eventType === 'compact/summary') {
-      fail(`compact/summary belongs to turn ${owner} but open turn is ${openTurn}`)
-    }
-    fail(`${eventType} names turn ${owner} but open turn is ${openTurn}`)
-  }
+  if (owner !== openTurn) fail(`${eventType} names turn ${owner} but open turn is ${openTurn}`)
 }
 
 /** Validate one compaction event without advancing committed trace state. */
@@ -65,7 +109,7 @@ function validateCompactionEvent(
       fail(`compact/start while ${owner} is still compacting`)
     }
     validateOwner(event.data.turn, trace.openTurn, event.type, fail)
-    return { kind: 'start', turn: event.data.turn }
+    return { kind: 'start', startSeq: event.seq, turn: event.data.turn }
   }
   if (event.type === 'compact/summary') {
     if (open === undefined) fail('compact/summary has no matching compact/start')
@@ -79,7 +123,7 @@ function validateCompactionEvent(
     if (!Number.isSafeInteger(event.data.shadowedTokenCount) || event.data.shadowedTokenCount < 0) {
       fail('compact/summary shadowedTokenCount must be a non-negative safe integer')
     }
-    return { kind: 'summary', turn: open.turn }
+    return { kind: 'summary', startSeq: open.startSeq, turn: open.turn }
   }
   if (open === undefined) fail('compact/end has no matching compact/start')
   if (event.data.turn !== open.turn) {
@@ -96,8 +140,20 @@ function validateCompactionEvent(
 function applyCompactionTransition(
   transition: CompactionTransition,
 ): CompactionTrace | undefined {
-  if (transition.kind === 'start') return { turn: transition.turn, summarized: false }
-  if (transition.kind === 'summary') return { turn: transition.turn, summarized: true }
+  if (transition.kind === 'start') {
+    return {
+      startSeq: transition.startSeq,
+      turn: transition.turn,
+      summarized: false,
+    }
+  }
+  if (transition.kind === 'summary') {
+    return {
+      startSeq: transition.startSeq,
+      turn: transition.turn,
+      summarized: true,
+    }
+  }
   return undefined
 }
 
@@ -110,11 +166,20 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   const seed = (session: Session): SessionTrace => {
     const trace: SessionTrace = { openTurn: null, compaction: undefined }
     traces.set(session, trace)
+    const staleOrphanStartSeqs = inheritedOrphanStartSeqs(session.events)
     for (const event of session.events) {
-      if (event.type === 'turn/start') trace.openTurn = event.data.turn
-      else if (event.type === 'turn/end') trace.openTurn = null
+      // Constructor-seed repair boundaries can precede the end-seed marker
+      // that proves an inherited orphan stale. Replay that inherited prefix
+      // without letting the soon-to-be-cleared bracket veto its repair.
+      if (
+        trace.compaction === undefined
+        || !staleOrphanStartSeqs.has(trace.compaction.startSeq)
+      ) {
+        validateTurnBoundary(trace, event, fail)
+      }
       const transition = validateCompactionEvent(trace, event, fail)
       if (transition !== undefined) trace.compaction = applyCompactionTransition(transition)
+      applyTurnBoundary(trace, event)
     }
     return trace
   }
@@ -124,14 +189,8 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   ctx.on('session/created', (session) => { seed(session) }, { global: true })
   ctx.on('session/event', (session, event) => {
     const trace = traceFor(session)
-    if (event.type === 'turn/start') {
-      trace.openTurn = event.data.turn
-      return
-    }
-    if (event.type === 'turn/end') {
-      trace.openTurn = null
-      return
-    }
+    validateTurnBoundary(trace, event, fail)
+    if (applyTurnBoundary(trace, event)) return
     if (event.type !== 'session/end-seed'
       && event.type !== 'compact/start'
       && event.type !== 'compact/summary'
@@ -145,7 +204,9 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName !== 'session/event') return
     const [session, event] = args as [Session, SessionEvent]
-    const transition = validateCompactionEvent(traceFor(session), event, fail)
+    const trace = traceFor(session)
+    validateTurnBoundary(trace, event, fail)
+    const transition = validateCompactionEvent(trace, event, fail)
     if (transition !== undefined) staged.set(event, { session, transition })
   }, { global: true })
 }, { inject: ['sessions'] })

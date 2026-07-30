@@ -24,9 +24,9 @@ export interface TrajectoryGroupModel {
   cells: readonly TrajectoryCellProps[]
 }
 
-/** One sticky-turn section. */
+/** One sticky turn, or a standalone compaction section between turns. */
 export interface TrajectoryTurnModel {
-  turn: number
+  turn: number | null
   groups: readonly TrajectoryGroupModel[]
 }
 
@@ -66,6 +66,9 @@ interface TurnBucket {
   groups: LaidGroup[]
 }
 
+type AssistantRequestView = Extract<RequestView, { purpose: 'assistant' }>
+type CompactionRequestView = Extract<RequestView, { purpose: 'compaction' }>
+
 type InputNode = Extract<
   ConversationSnapshot['nodes'][number],
   { kind: 'user' | 'steering' | 'context' }
@@ -81,18 +84,18 @@ type OrderedLayoutEntry =
   | {
     kind: 'compaction'
     seq: number
-    request: RequestView
+    request: CompactionRequestView
   }
   | {
     kind: 'system'
     seq: number
-    request: RequestView
+    request: AssistantRequestView
     change: RequestPromptChange
   }
   | {
     kind: 'request'
     seq: number
-    request: RequestView
+    request: AssistantRequestView
   }
 
 function layoutEntryOrder(entry: OrderedLayoutEntry): number {
@@ -136,6 +139,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     if (startedAt !== null) callStartById.set(call.callId, startedAt)
   }
   const turns = new Map<number, TurnBucket>()
+  const standaloneCompactions: TurnBucket[] = []
   let index = 0
   let prevAbsTime: number | null = null
   let lastAssistantTurn: number | null = null
@@ -191,13 +195,16 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       nodeIndex,
     })),
     ...requests
-      .filter(request => request.purpose === 'compaction')
+      .filter((request): request is CompactionRequestView =>
+        request.purpose === 'compaction')
       .map(request => ({
         kind: 'compaction' as const,
         seq: request.startSeq,
         request,
       })),
-    ...requests.flatMap(request => request.promptChange === undefined || request.prompt === undefined
+    ...requests.flatMap(request => request.purpose !== 'assistant'
+      || request.promptChange === undefined
+      || request.prompt === undefined
       ? []
       : [{
         kind: 'system' as const,
@@ -206,7 +213,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         change: request.promptChange,
       }]),
     ...requests
-      .filter(request => request.purpose === 'assistant')
+      .filter((request): request is AssistantRequestView =>
+        request.purpose === 'assistant')
       .filter(request =>
         !representedRequests.has(`${request.turn}\u0000${request.step}`),
       )
@@ -297,13 +305,17 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
         startedAt: finiteTime(request.startedAt),
       }
       attachUsage(cell, request.usage as UsageLike | undefined)
-      bucket(request.turn).groups.push({
-        title: `Compaction ${request.startSeq}`,
-        laid: [{
-          absTime: finiteTime(request.startedAt),
-          cell,
+      const compaction: TurnBucket = {
+        groups: [{
+          title: `Compaction ${request.startSeq}`,
+          laid: [{
+            absTime: finiteTime(request.startedAt),
+            cell,
+          }],
         }],
-      })
+      }
+      if (request.turn === null) standaloneCompactions.push(compaction)
+      else bucket(request.turn).groups.push(...compaction.groups)
       prevAbsTime = finiteTime(request.completedAt) ?? finiteTime(request.startedAt) ?? prevAbsTime
       continue
     }
@@ -446,15 +458,16 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     turns.set(1, first)
   }
 
-  for (const entry of turns.values()) {
+  for (const entry of [...turns.values(), ...standaloneCompactions]) {
     for (const group of entry.groups) {
       for (const laid of group.laid) attachToolSchema(laid, callSchemas)
     }
   }
 
-  return [...turns.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([turn, entry]) => toTurnModel(turn, entry))
+  return [
+    ...[...turns.entries()].map(([turn, entry]) => toTurnModel(turn, entry)),
+    ...standaloneCompactions.map(entry => toTurnModel(null, entry)),
+  ].sort((left, right) => firstCellIndex(left) - firstCellIndex(right))
 }
 
 function attachToolSchema(
@@ -468,7 +481,7 @@ function attachToolSchema(
 }
 
 function toTurnModel(
-  turn: number,
+  turn: number | null,
   entry: TurnBucket,
 ): TrajectoryTurnModel {
   const groups = entry.groups.map(({ title, laid }): TrajectoryGroupModel => {
@@ -480,6 +493,14 @@ function toTurnModel(
     }
   })
   return { turn, groups }
+}
+
+/** Chronological section position from the fold's monotonically assigned cell indexes. */
+function firstCellIndex(turn: TrajectoryTurnModel): number {
+  return Math.min(
+    ...turn.groups.flatMap(group => group.cells.map(cell => cell.index)),
+    Number.POSITIVE_INFINITY,
+  )
 }
 
 /** Wall-span duration + tool histogram, e.g. `1.5 s bash×6`. */

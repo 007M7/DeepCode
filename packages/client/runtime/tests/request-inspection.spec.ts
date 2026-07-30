@@ -85,6 +85,37 @@ describe('inspectRequests', () => {
     expect(snapshot.callSchemas.get('call-1')?.name).toBe('read')
   })
 
+  it('preserves a standalone compaction owner without widening assistant turns', () => {
+    const snapshot = inspectRequests(entriesOf([
+      at(0, 'compact/start', { turn: null }),
+      at(1, 'compact/summary', {
+        summary: [{ type: 'text', text: 'standalone summary' }],
+        provider: 'fake',
+        model: 'compact-model',
+      }),
+      at(2, 'compact/end', { turn: null }),
+      at(3, 'step/start', { turn: 2, step: 1 }),
+    ]))
+
+    const [compaction, assistant] = snapshot.requests
+    expect(compaction).toMatchObject({
+      purpose: 'compaction',
+      turn: null,
+      step: 0,
+      status: 'complete',
+    })
+    expect(assistant).toMatchObject({
+      purpose: 'assistant',
+      turn: 2,
+      step: 1,
+      status: 'running',
+    })
+    if (assistant?.purpose === 'assistant') {
+      const turn: number = assistant.turn
+      expect(turn).toBe(2)
+    }
+  })
+
   it('captures schemas for nested tool dispatches from the active request header', () => {
     const snapshot = inspectRequests(entriesOf([
       at(0, 'request/header', {
@@ -179,6 +210,7 @@ describe('inspectRequests', () => {
     ]))
 
     expect(snapshot.callSchemas).toEqual(new Map())
-    expect(snapshot.requests[0]?.prompt?.tools).toEqual([])
+    const [request] = snapshot.requests
+    expect(request?.purpose === 'assistant' ? request.prompt?.tools : undefined).toEqual([])
   })
 })

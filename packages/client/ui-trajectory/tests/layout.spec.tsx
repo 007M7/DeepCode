@@ -5,7 +5,9 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  ConversationSnapshot, RequestView,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import { TrajectoryGroupHeader } from '../src/client/TrajectoryGroupHeader.tsx'
 import { TrajectoryTurn } from '../src/client/TrajectoryTurn.tsx'
 import { TrajectoryTurnHeader } from '../src/client/TrajectoryTurnHeader.tsx'
@@ -159,6 +161,49 @@ describe('deriveTrajectoryLayout', () => {
     expect(turns.map(t => t.turn)).toEqual([1, 2])
     expect(turns[0]?.groups.flatMap(g => g.cells.map(c => c.text))).toEqual(['first', 'ok1'])
     expect(turns[1]?.groups.flatMap(g => g.cells.map(c => c.text))).toEqual(['second', 'ok2'])
+  })
+
+  it('places standalone compaction chronologically in its own between-turn section', () => {
+    const nodes = [
+      { kind: 'user', seq: 1, time: 1_000, content: [{ type: 'text', text: 'first' }], source: null },
+      {
+        kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1,
+        blocks: [{ kind: 'text', text: 'before compaction' }],
+      },
+      { kind: 'user', seq: 5, time: 5_000, content: [{ type: 'text', text: 'second' }], source: null },
+      {
+        kind: 'assistant', seq: 6, time: 6_000, turn: 2, step: 1,
+        blocks: [{ kind: 'text', text: 'after compaction' }],
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+    const compaction: RequestView = {
+      purpose: 'compaction',
+      startSeq: 3,
+      turn: null,
+      step: 0,
+      startedAt: 3_000,
+      completedAt: 4_000,
+      status: 'complete',
+      summary: [{ type: 'text', text: 'standalone summary' }],
+    }
+
+    const turns = deriveTrajectoryLayout({
+      codeDispatches: new Map(),
+      nodes,
+      partial: null,
+      runningCalls: [],
+      requests: [compaction],
+    })
+
+    expect(turns.map(turn => turn.turn)).toEqual([1, null, 2])
+    expect(turns[1]?.groups).toMatchObject([{
+      title: 'Compaction 3',
+      cells: [{
+        kind: 'compacted',
+        sourceSeq: 3,
+        text: 'standalone summary',
+      }],
+    }])
   })
 
   it('keeps usage and a meaningful summary when assistant has no text block', () => {

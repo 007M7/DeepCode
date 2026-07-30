@@ -73,6 +73,71 @@ describe('compaction invariants', () => {
     }).not.toThrow()
   })
 
+  it('allows repair turn boundaries after end-seed clears a seeded numbered orphan', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const source = new Session(SessionId('stale-numbered-compaction-source'))
+    startTurn(source)
+    source.append('compact/start', { turn: 1 })
+    const replayed = ctx.sessions.create(SessionId('stale-numbered-compaction-replay'), {
+      seed: source.events,
+    })
+    expect(replayed.events.map(event => event.type))
+      .toEqual(['turn/start', 'compact/start', 'session/end-seed'])
+
+    await ctx.plugin(InvariantService)
+    await ctx.plugin(CompactInvariant)
+
+    expect(() => replayed.append(
+      'turn/end',
+      { turn: 1, reason: { kind: 'interrupted' } },
+    )).not.toThrow()
+  })
+
+  it('accepts inherited repair boundaries before the end-seed that clears a standalone orphan', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const source = new Session(SessionId('stale-repaired-compaction-source'))
+    source.append('compact/start', { turn: null })
+    startTurn(source)
+    source.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+    const replayed = ctx.sessions.create(SessionId('stale-repaired-compaction-replay'), {
+      seed: source.events,
+    })
+    expect(replayed.events.map(event => event.type)).toEqual([
+      'compact/start',
+      'turn/start',
+      'turn/end',
+      'session/end-seed',
+    ])
+
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(CompactInvariant).then(() => undefined)).resolves.toBeUndefined()
+
+    expect(() => {
+      startTurn(replayed, 2)
+      replayed.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    }).not.toThrow()
+  })
+
+  it('rejects a closed standalone bracket that contains a turn before end-seed', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const source = new Session(SessionId('closed-nested-compaction-source'))
+    source.append('compact/start', { turn: null })
+    startTurn(source)
+    source.append('turn/end', { turn: 1, reason: { kind: 'interrupted' } })
+    source.append('compact/end', { turn: null, error: 'failed after crossing turn' })
+    const replayed = ctx.sessions.create(SessionId('closed-nested-compaction-replay'), {
+      seed: source.events,
+    })
+    expect(replayed.events.at(-1)?.type).toBe('session/end-seed')
+
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(CompactInvariant).then(() => undefined))
+      .rejects.toThrow(/turn\/start cannot cross an open standalone compaction/)
+  })
+
   it('rebuilds an open trace when the companion loads after the session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -141,23 +206,30 @@ describe('compaction invariants', () => {
     await expect(ctx.plugin(CompactInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
   })
 
-  it('rejects an open compaction that crosses into another turn', async () => {
+  it('rejects turn boundaries that cross live standalone or numbered compaction brackets', async () => {
     const ctx = await setup()
-    const summarySession = ctx.sessions.create()
-    startTurn(summarySession)
-    summarySession.append('compact/start', { turn: 1 })
-    summarySession.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    startTurn(summarySession, 2)
-    expect(() => summarySession.append('compact/summary', summary()))
-      .toThrow(/belongs to turn 1 but open turn is 2/)
+    const standalone = ctx.sessions.create()
+    standalone.append('compact/start', { turn: null })
+    expect(() => { startTurn(standalone) })
+      .toThrow(/turn\/start cannot cross an open standalone compaction/)
+    standalone.append('compact/end', { turn: null, error: 'cancelled' })
+    expect(() => {
+      startTurn(standalone)
+      standalone.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    }).not.toThrow()
 
-    const endSession = ctx.sessions.create()
-    startTurn(endSession)
-    endSession.append('compact/start', { turn: 1 })
-    endSession.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    startTurn(endSession, 2)
-    expect(() => endSession.append('compact/end', { turn: 1, error: 'late' }))
-      .toThrow(/names turn 1 but open turn is 2/)
+    const numbered = ctx.sessions.create()
+    startTurn(numbered)
+    numbered.append('compact/start', { turn: 1 })
+    expect(() => numbered.append(
+      'turn/end',
+      { turn: 1, reason: { kind: 'completed' } },
+    )).toThrow(/turn\/end cannot cross an open compaction for turn 1/)
+    numbered.append('compact/end', { turn: 1, error: 'cancelled' })
+    expect(() => numbered.append(
+      'turn/end',
+      { turn: 1, reason: { kind: 'completed' } },
+    )).not.toThrow()
   })
 
   it.each([
