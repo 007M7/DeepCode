@@ -43,6 +43,16 @@ export const name = 'acp'
 /** The bridge creates and owns agents; every other concern is carried by the agent composition. */
 export const inject = ['agents']
 
+/**
+ * The single continuable-subagent teardown the bridge needs. Declared
+ * structurally so this package does not depend on the subagent seam for one
+ * shutdown hook; an absent service means nothing continuable was materialized.
+ */
+interface ContinuableDrain {
+  /** Close continuable admission, then dispose every live Activation child-first. */
+  drainContinuable(): Promise<void>
+}
+
 /** Preserve invalid-parameter detail in the SDK wire error message. */
 function invalidParams(detail: string): RequestError {
   return RequestError.invalidParams(undefined, detail)
@@ -331,7 +341,9 @@ export function apply(ctx: Context, config: AcpConfig): void {
       // Activations own descendant teardown. Drain that forest child-first
       // BEFORE disposing the top-level agents, so no descendant is left holding
       // a runtime its owner already released.
-      const subagents = ctx.get('subagents')
+      // Read the one teardown method structurally: the bridge needs no other
+      // part of the subagent seam, so it does not depend on that package.
+      const subagents = ctx.get('subagents') as ContinuableDrain | undefined
       if (subagents !== undefined) {
         try {
           await subagents.drainContinuable()

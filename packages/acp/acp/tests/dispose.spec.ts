@@ -25,6 +25,44 @@ describe('ACP connection ownership', () => {
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
   })
 
+  it('drains continuable subagents before disposing its own sessions', async () => {
+    harness = await makeBridgeHarness()
+    const order: string[] = []
+    // A continuable Activation outlives the turn that started it, so the bridge
+    // must release that forest before the agents whose runtime it depends on.
+    harness.ctx.provide('subagents', {
+      drainContinuable: () => {
+        order.push('drained')
+        return Promise.resolve()
+      },
+    } as never, true)
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    harness.ctx.on('agent/disposed', () => { order.push('agent disposed') })
+
+    await harness.acpFiber.dispose()
+
+    expect(order).toEqual(['drained', 'agent disposed'])
+    expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
+  })
+
+  it('reports a failed continuable drain and still disposes its sessions', async () => {
+    harness = await makeBridgeHarness()
+    const warnings: string[] = []
+    harness.ctx.logger.warn = (message: string) => { warnings.push(message) }
+    harness.ctx.provide('subagents', {
+      drainContinuable: () => Promise.reject(new Error('activation teardown failed')),
+    } as never, true)
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+
+    await harness.acpFiber.dispose()
+
+    // A stuck descendant must not strand the bridge's own teardown.
+    expect(warnings.some(warning => warning.includes('continuable subagent teardown failed'))).toBe(true)
+    expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
+  })
+
   it('an ACP-only reload rejects new sessions before creating an orphan', async () => {
     harness = await makeBridgeHarness()
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
