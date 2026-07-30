@@ -353,34 +353,40 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('applies the personal overlay: config.yaml patches the tree and .env feeds its !!js', async () => {
-    // The whole personal-config chain in one boot: the personal .env supplies
-    // the variable, config.yaml patches the `tui` row — a row the SURFACE
-    // OVERLAY inserted, not one the base declares — with a `!!js` reference to
-    // it, and the banner renders the patched welcome verbatim. That proves a
-    // later patch list reaches a row an earlier one inserted.
+  it('applies the personal overlay: config.yaml patches an overlay-inserted row, the invoking directory\'s .env feeds its !!js, and the home .env stays out of the environment', async () => {
+    // The whole personal-config chain in one boot, plus the environment layer
+    // it deliberately excludes. config.yaml patches the `tui` row — a row the
+    // SURFACE OVERLAY inserted, not one the base declares — proving a later
+    // patch list reaches a row an earlier one inserted. The single `!!js`
+    // expression prefers the PERSONAL variable, so the welcome can only render
+    // the project value while the harness home's .env — the credential store
+    // of `dsh-credentials-local` — is NOT hoisted into `process.env`; hoisting
+    // it would make every stored key read as a read-only launch override on
+    // the next run and hand it to every subprocess the agent starts.
     const output = await smoke({
       label: 'dsh personal overlay',
       tempDirPrefix: 'dsh-personal-overlay-',
       binScript: dshBinScript,
       configArgs: [],
       prepare: seedWorkspace({
+        workspace: { '.env': 'DSH_PROJECT_WELCOME=PROJECT OVERLAY READY.\n' },
         personal: {
-          '.env': 'DSH_PERSONAL_WELCOME=PERSONAL OVERLAY READY.\n',
+          '.env': 'DSH_PERSONAL_WELCOME=HOME ENV LEAKED.\n',
           'config.yaml': [
             '- id: workspace-context',
             '  disabled: true',
             '- id: tui',
             '  config:',
             "    sessionId: !!js configuredAgentIdentities?.main?.id ?? 'main'",
-            '    welcome: !!js process.env.DSH_PERSONAL_WELCOME',
+            '    welcome: !!js process.env.DSH_PERSONAL_WELCOME ?? process.env.DSH_PROJECT_WELCOME',
             '',
           ].join('\n'),
         },
       }),
-      actions: [{ waitFor: 'PERSONAL OVERLAY READY.', send: '/exit\r' }],
+      actions: [{ waitFor: 'PROJECT OVERLAY READY.', send: '/exit\r' }],
     })
-    expect(output).toContain('PERSONAL OVERLAY READY.')
+    expect(output).toContain('PROJECT OVERLAY READY.')
+    expect(output).not.toContain('HOME ENV LEAKED.')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

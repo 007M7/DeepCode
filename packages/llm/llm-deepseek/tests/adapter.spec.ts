@@ -1,5 +1,3 @@
-import { createServer } from 'node:http'
-import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage,
@@ -14,95 +12,32 @@ import LlmService, { createUserMessage,
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
-import { DeepSeekAdapter } from '@deepseek-ai/dsh-llm-deepseek'
+import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek'
 import { httpErrorCode } from '../src/adapter.ts'
 import { assemble } from './assemble.ts'
-
-/** One scripted behavior for the next request the mock server receives. */
-type Behavior =
-  | { kind: 'sse'; events: string[]; delayMs?: number }
-  | { kind: 'http-error'; status: number; body: string; contentType?: string; headers?: Record<string, string> }
-  | { kind: 'close-early'; events: string[] }
-
-interface MockServer {
-  url: string
-  /** Bodies of received requests, in order. */
-  requests: unknown[]
-  /** Header bags of received requests, in order (parallel to `requests`). */
-  headers: IncomingMessage['headers'][]
-  script: Behavior[]
-  close(): Promise<void>
-}
-
-const servers: Server[] = []
+import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
+import type { Behavior } from './mock-server.ts'
 
 afterEach(async () => {
-  await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
+  await closeMockServers()
   vi.unstubAllEnvs()
   vi.useRealTimers()
 })
-
-/** Local chat-completions stand-in: replays scripted behaviors per request. */
-async function mockServer(script: Behavior[]): Promise<MockServer> {
-  const requests: unknown[] = []
-  const headers: IncomingMessage['headers'][] = []
-  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-    let body = ''
-    request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
-    request.on('end', () => {
-      requests.push(JSON.parse(body))
-      headers.push(request.headers)
-      const behavior = script.shift()
-      if (!behavior) {
-        response.writeHead(500).end('mock script exhausted')
-        return
-      }
-      if (behavior.kind === 'http-error') {
-        response.writeHead(behavior.status, {
-          'content-type': behavior.contentType ?? 'application/json',
-          ...behavior.headers,
-        })
-        response.end(behavior.body)
-        return
-      }
-      response.writeHead(200, { 'content-type': 'text/event-stream' })
-      const write = (index: number): void => {
-        if (index >= behavior.events.length) {
-          if (behavior.kind === 'sse') response.end()
-          else response.destroy() // close-early: drop the socket mid-stream
-          return
-        }
-        response.write(`data: ${behavior.events[index]}\n\n`)
-        setTimeout(() => { write(index + 1) }, behavior.kind === 'sse' ? behavior.delayMs ?? 0 : 5)
-      }
-      write(0)
-    })
-  })
-  servers.push(server)
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  const address = server.address()
-  if (address === null || typeof address === 'string') throw new Error('no port')
-  return {
-    url: `http://127.0.0.1:${address.port}`,
-    requests,
-    headers,
-    script,
-    close: () => new Promise(resolve => server.close(() => { resolve() })),
-  }
-}
-
-const textEvents = [
-  '{"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
-  '{"choices":[{"delta":{"content":"hello"}}]}',
-  '{"choices":[{"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
-  '[DONE]',
-]
 
 async function harness(baseURL: string, config: object = {}) {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmDeepSeek, { apiKey: 'test-key', baseURL, ...config })
   return ctx
+}
+
+/** Direct adapter over the plugin's real resolve step, with a static key. */
+function adapterOf(config: Partial<LlmDeepSeek.Config> & { apiKey?: string } = {}): DeepSeekAdapter {
+  const { apiKey, ...rest } = config
+  return new DeepSeekAdapter({
+    options: () => resolveAdapterOptions(rest),
+    resolveApiKey: () => Promise.resolve(apiKey ?? 'k'),
+  })
 }
 
 describe('DeepSeekAdapter against a mock server', () => {
@@ -275,11 +210,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     'rejects direct adapter effort %s before I/O when thinking is disabled',
     async (effort) => {
       const server = await mockServer([])
-      const adapter = new DeepSeekAdapter({
-        apiKey: 'test-key',
-        baseURL: server.url,
-        defaults: { thinking: 'disabled' },
-      })
+      const adapter = adapterOf({ apiKey: 'test-key', baseURL: server.url, thinking: 'disabled' })
 
       const stream = adapter.stream({
         provider: 'deepseek',
@@ -483,7 +414,7 @@ describe('DeepSeekAdapter against a mock server', () => {
   })
 
   it('throws EMPTY_RESPONSE when the response has no body', async () => {
-    const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    const adapter = adapterOf({ baseURL: 'http://127.0.0.1:1' })
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(null, { status: 200 }),
     )
@@ -538,7 +469,7 @@ describe('DeepSeekAdapter against a mock server', () => {
   it('maps connection failures to TRANSPORT without losing the cause', async () => {
     const cause = new TypeError('connection refused')
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(cause)
-    const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'https://example.invalid' })
+    const adapter = adapterOf({ baseURL: 'https://example.invalid' })
     try {
       const drain = async (): Promise<void> => {
         for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
@@ -555,7 +486,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       failed.reject('offline')
       return failed.promise
     })
-    const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'https://example.invalid' })
+    const adapter = adapterOf({ baseURL: 'https://example.invalid' })
     try {
       const drain = async (): Promise<void> => {
         for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
@@ -585,11 +516,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       })
       return Promise.resolve(new Response(body, { status: 200 }))
     })
-    const adapter = new DeepSeekAdapter({
-      apiKey: 'k',
-      baseURL: 'https://example.invalid',
-      streamIdleTimeoutMs: 100,
-    })
+    const adapter = adapterOf({ baseURL: 'https://example.invalid', streamIdleTimeoutMs: 100 })
     try {
       const drain = (async () => {
         for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
@@ -733,22 +660,15 @@ describe('plugin registration and config', () => {
   )
 
   it.each(['high', 'max'] as const)(
-    'rejects disabled-thinking effort %s at the direct constructor boundary',
+    'rejects disabled-thinking effort %s at the resolver boundary',
     (reasoningEffort) => {
-      expect(() => new DeepSeekAdapter({
-        apiKey: 'k',
-        baseURL: 'http://127.0.0.1:1',
-        defaults: { thinking: 'disabled', reasoningEffort },
-      })).toThrow(/only reasoningEffort "off"/)
+      expect(() => resolveAdapterOptions({ thinking: 'disabled', reasoningEffort }))
+        .toThrow(/only reasoningEffort "off"/)
     },
   )
 
-  it('accepts disabled thinking with off at the direct constructor boundary', async () => {
-    const adapter = new DeepSeekAdapter({
-      apiKey: 'k',
-      baseURL: 'http://127.0.0.1:1',
-      defaults: { thinking: 'disabled', reasoningEffort: 'off' },
-    })
+  it('accepts disabled thinking with off at the resolver boundary', async () => {
+    const adapter = adapterOf({ thinking: 'disabled', reasoningEffort: 'off' })
     await expect(adapter.resolveModel('deepseek', 'pass-through')).resolves.toMatchObject({
       reasoning: {
         efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
@@ -863,11 +783,8 @@ describe('plugin registration and config', () => {
   it.each([0, 1.5])(
     'rejects invalid adapter-wide default context capacity %s',
     async (defaultContextWindow) => {
-      expect(() => new DeepSeekAdapter({
-        apiKey: 'k',
-        baseURL: 'http://127.0.0.1:1',
-        defaultContextWindow,
-      })).toThrow(/defaultContextWindow must be a positive integer/)
+      expect(() => resolveAdapterOptions({ defaultContextWindow }))
+        .toThrow(/defaultContextWindow must be a positive integer/)
 
       const ctx = new Context()
       await ctx.plugin(LlmService)
@@ -889,13 +806,42 @@ describe('plugin registration and config', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
   })
 
-  it('throws a clear error when no API key is available', async () => {
+  it('loads keyless, keeps the catalog browsable, and fails the request actionably', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await expect(ctx.plugin(LlmDeepSeek, {}))
-      .rejects.toThrow(/an API key is required/)
-    expect(ctx.llm.listProviders()).toEqual([])
+    await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
+    // First-boot onboarding: the route registers so models stay discoverable;
+    // only the request itself needs a key.
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    // The guidance leads with the credential store — the path that keeps the
+    // secret out of configuration files — and mentions a literal key last.
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toThrow(/store DEEPSEEK_API_KEY through the credentials service.*as a last resort.*"apiKey"/s)
+  })
+
+  it('reads the ambient variable when no credentials seam is mounted', async () => {
+    // The plain cordis.yml composition: no credential provider, the key in
+    // the launching environment.
+    vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, { baseURL: server.url })
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
+  })
+
+  it('treats an empty ambient variable as no key when no credentials seam is mounted', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
   })
 
   it('prefers explicit config over env for key and base URL', async () => {
@@ -927,23 +873,32 @@ describe('plugin registration and config', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
   })
 
-  it('adapter is constructible directly for embedding', async () => {
-    const adapter = new DeepSeekAdapter({ apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+  it('adapter is constructible directly for embedding over the shared resolver', async () => {
+    const adapter = adapterOf()
     expect(adapter).toBeInstanceOf(DeepSeekAdapter)
-    await expect(adapter.listModels('deepseek')).resolves.toEqual([])
+    // Direct embedding shares the plugin's one resolve step, so it advertises
+    // the same default catalog instead of a divergent empty one.
+    await expect(adapter.listModels('deepseek')).resolves.toHaveLength(2)
+  })
+
+  it('resolves connection facts and the credential exactly once per stream call', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const options = vi.fn(() => resolveAdapterOptions({ baseURL: server.url }))
+    const resolveApiKey = vi.fn(() => Promise.resolve('per-request-key'))
+    const adapter = new DeepSeekAdapter({ options, resolveApiKey })
+
+    for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+
+    expect(options).toHaveBeenCalledTimes(1)
+    expect(resolveApiKey).toHaveBeenCalledTimes(1)
+    expect(server.headers[0]?.authorization).toBe('Bearer per-request-key')
   })
 
   it('rejects invalid idle watchdog bounds for direct and plugin composition', async () => {
-    expect(() => new DeepSeekAdapter({
-      apiKey: 'k',
-      baseURL: 'http://127.0.0.1:1',
-      streamIdleTimeoutMs: Number.POSITIVE_INFINITY,
-    })).toThrow(/streamIdleTimeoutMs.*positive finite/)
-    expect(() => new DeepSeekAdapter({
-      apiKey: 'k',
-      baseURL: 'http://127.0.0.1:1',
-      streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1,
-    })).toThrow(/streamIdleTimeoutMs.*no greater/)
+    expect(() => resolveAdapterOptions({ streamIdleTimeoutMs: Number.POSITIVE_INFINITY }))
+      .toThrow(/streamIdleTimeoutMs.*positive finite/)
+    expect(() => resolveAdapterOptions({ streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1 }))
+      .toThrow(/streamIdleTimeoutMs.*no greater/)
 
     const ctx = new Context()
     await ctx.plugin(LlmService)

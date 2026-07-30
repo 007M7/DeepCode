@@ -1,5 +1,3 @@
-import { createServer } from 'node:http'
-import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
@@ -16,84 +14,12 @@ import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { resolveProfiles } from '../src/config.ts'
 import { assemble } from './assemble.ts'
-
-interface MockServer {
-  url: string
-  paths: string[]
-  requests: unknown[]
-  headers: IncomingMessage['headers'][]
-  readonly closedResponses: number
-  responseClosed: Promise<void>
-}
-
-const servers: Server[] = []
+import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 afterEach(async () => {
   vi.unstubAllEnvs()
-  await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
+  await closeMockServers()
 })
-
-async function mockServer(script: {
-  status?: number
-  events?: string[]
-  body?: string
-  delayMs?: number
-  headers?: Record<string, string>
-}[]): Promise<MockServer> {
-  const paths: string[] = []
-  const requests: unknown[] = []
-  const headers: IncomingMessage['headers'][] = []
-  let closedResponses = 0
-  const responseClosed = Promise.withResolvers<undefined>()
-  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
-    response.on('close', () => {
-      closedResponses += 1
-      responseClosed.resolve(undefined)
-    })
-    let body = ''
-    request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
-    request.on('end', () => {
-      paths.push(request.url ?? '')
-      requests.push(body.length === 0 ? undefined : JSON.parse(body))
-      headers.push(request.headers)
-      const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
-      if (behavior.status !== undefined && behavior.status !== 200) {
-        response.writeHead(behavior.status, { 'content-type': 'application/json', ...behavior.headers })
-        response.end(behavior.body ?? '{}')
-        return
-      }
-      response.writeHead(200, { 'content-type': 'text/event-stream' })
-      let index = 0
-      const writeNext = (): void => {
-        const event = behavior.events?.[index++]
-        if (event === undefined) { response.end(); return }
-        response.write(`data: ${event}\n\n`)
-        if (behavior.delayMs === undefined) writeNext()
-        else setTimeout(writeNext, behavior.delayMs)
-      }
-      writeNext()
-    })
-  })
-  servers.push(server)
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-  const address = server.address()
-  if (address === null || typeof address === 'string') throw new Error('no port')
-  return {
-    url: `http://127.0.0.1:${address.port}`,
-    paths,
-    requests,
-    headers,
-    responseClosed: responseClosed.promise,
-    get closedResponses() { return closedResponses },
-  }
-}
-
-const textEvents = [
-  '{"choices":[{"delta":{"role":"assistant","content":""},"index":0,"finish_reason":null}]}',
-  '{"choices":[{"delta":{"content":"hello"},"index":0,"finish_reason":null}]}',
-  '{"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
-  '[DONE]',
-]
 
 const IMAGE_REF: ImageAttachmentRef = {
   attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
@@ -107,9 +33,17 @@ async function harness(baseURL: string, overrides: Record<string, unknown> = {})
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(LlmPiAi, {
-    providers: [{ provider: 'deepseek', apiKey: 'test-key', baseURL, ...overrides }],
+    providers: { deepseek: { apiKey: 'test-key', baseURL, ...overrides } },
   })
   return ctx
+}
+
+/** Direct adapter over the real profile resolver, with literal-key resolution. */
+function adapterOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>): PiAiAdapter {
+  return new PiAiAdapter({
+    profiles: () => resolveProfiles(providers),
+    resolveApiKey: (_provider, profile) => Promise.resolve(profile.apiKey),
+  })
 }
 
 describe('PiAiAdapter provider routing', () => {
@@ -197,8 +131,8 @@ describe('PiAiAdapter provider routing', () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    ctx.llm.registerAdapter(['deepseek'], new PiAiAdapter({
-      profiles: [{ provider: 'deepseek', apiKey: 'test-key', baseURL: server.url }],
+    ctx.llm.registerAdapter(['deepseek'], adapterOf({
+      deepseek: { apiKey: 'test-key', baseURL: server.url },
     }))
 
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
@@ -227,7 +161,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: [{ provider: 'openai', apiKey: 'test-key', baseURL: `${server.url}/v1` }],
+      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
     })
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
     expect(result.finish.kind).toBe('error')
@@ -272,7 +206,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: [{ provider: 'openai', apiKey: 'test-key', baseURL: `${server.url}/v1` }],
+      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
     })
     await ctx.plugin(LateAttachmentStore)
 
@@ -303,7 +237,7 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: [{ provider: 'openai', apiKey: 'test-key', baseURL: `${server.url}/v1` }],
+      providers: { openai: { apiKey: 'test-key', baseURL: `${server.url}/v1` } },
     })
 
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
@@ -317,12 +251,13 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: [{
-        provider: 'openai',
-        apiKey: 'test-key',
-        baseURL: `${server.url}/api/projects/openai/openai/v1`,
-        headers: { 'api-key': 'test-key', Authorization: '' },
-      }],
+      providers: {
+        openai: {
+          apiKey: 'test-key',
+          baseURL: `${server.url}/api/projects/openai/openai/v1`,
+          headers: { 'api-key': 'test-key', Authorization: '' },
+        },
+      },
     })
     const result = await assemble(ctx, { provider: 'openai', model: 'gpt-5.5', messages: [] })
     expect(result.finish.kind).toBe('error')
@@ -404,16 +339,15 @@ describe('provider profile lifecycle', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     const fiber = await ctx.plugin(LlmPiAi, {
-      providers: [
-        {
-          provider: 'openai',
+      providers: {
+        openai: {
           retryPolicy: {
             mode: 'always',
             backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 },
           },
         },
-        { provider: 'anthropic' },
-      ],
+        anthropic: {},
+      },
     })
     expect(ctx.llm.listProviders()).toEqual([
       { id: 'openai', name: 'openai' },
@@ -436,7 +370,7 @@ describe('provider profile lifecycle', () => {
   it('exposes the installed pi-ai model catalog through provider-neutral metadata', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
-    await ctx.plugin(LlmPiAi, { providers: [{ provider: 'openai' }] })
+    await ctx.plugin(LlmPiAi, { providers: { openai: {} } })
     const models = await ctx.llm.listModels('openai')
     expect(models.find(model => model.id === 'gpt-4.1')).toEqual({
       provider: 'openai', id: 'gpt-4.1', name: 'GPT-4.1',
@@ -451,7 +385,7 @@ describe('provider profile lifecycle', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmPiAi, {
-      providers: [{ provider: 'deepseek' }, { provider: 'openai' }],
+      providers: { deepseek: {}, openai: {} },
     })
 
     await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
@@ -485,7 +419,7 @@ describe('provider profile lifecycle', () => {
     const supported = new Context()
     await supported.plugin(LlmService)
     await supported.plugin(LlmPiAi, {
-      providers: [{ provider: 'deepseek', reasoning: 'max' }],
+      providers: { deepseek: { reasoning: 'max' } },
     })
     await expect(supported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
       .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('max') } })
@@ -493,7 +427,7 @@ describe('provider profile lifecycle', () => {
     const unsupported = new Context()
     await unsupported.plugin(LlmService)
     await unsupported.plugin(LlmPiAi, {
-      providers: [{ provider: 'deepseek', reasoning: 'medium' }],
+      providers: { deepseek: { reasoning: 'medium' } },
     })
     await expect(unsupported.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_REASONING_EFFORT' })
@@ -501,7 +435,7 @@ describe('provider profile lifecycle', () => {
     const disabled = new Context()
     await disabled.plugin(LlmService)
     await disabled.plugin(LlmPiAi, {
-      providers: [{ provider: 'deepseek', reasoning: 'off' }],
+      providers: { deepseek: { reasoning: 'off' } },
     })
     await expect(disabled.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
       .resolves.toMatchObject({ reasoning: { defaultEffort: ReasoningEffortId('off') } })
@@ -515,24 +449,53 @@ describe('provider profile lifecycle', () => {
     expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
   })
 
-  it('validates empty, duplicate, unknown, and explicitly blank profiles', () => {
-    expect(() => resolveProfiles([])).toThrow(/at least one/)
-    expect(() => resolveProfiles([{ provider: '' }])).toThrow(/non-empty/)
-    expect(() => resolveProfiles([{ provider: 'not-real' }])).toThrow(/unknown/)
-    expect(() => resolveProfiles([{ provider: 'openai' }, { provider: 'openai' }])).toThrow(/duplicate/)
-    expect(() => resolveProfiles([{ provider: 'openai', apiKey: '' }])).toThrow(/empty apiKey/)
-    expect(() => resolveProfiles([{ provider: 'openai', apiKey: '  ' }])).toThrow(/empty apiKey/)
-    expect(() => resolveProfiles([{ provider: 'openai', baseURL: '' }])).toThrow(/empty baseURL/)
+  it('falls back to the ambient environment for apiKeyEnv without the credentials seam', async () => {
+    vi.stubEnv('PI_CUSTOM_REF_KEY', 'custom-ref-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(server.headers[0]?.authorization).toBe('Bearer custom-ref-key')
+  })
+
+  it('fails a named-but-missing apiKeyEnv instead of using another ambient key', async () => {
+    // The exact confusion this guards: the named reference is empty while an
+    // unrelated provider key sits in the environment. Deferring to pi-ai's own
+    // discovery here would authenticate as another tenant.
+    vi.stubEnv('PI_CUSTOM_REF_KEY', '')
+    vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url, { apiKey: undefined, apiKeyEnv: 'PI_CUSTOM_REF_KEY' })
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toThrow(/provider route "deepseek".*PI_CUSTOM_REF_KEY/s)
+    expect(server.requests).toHaveLength(0)
+  })
+
+  it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
+    // Empty and omitted dicts are the dormant zero-route posture, not errors.
+    expect(resolveProfiles({}).size).toBe(0)
+    expect(resolveProfiles(undefined).size).toBe(0)
+    expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
+    expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/unknown/)
+    // The pre-release array shape and its per-profile provider field fail
+    // loud with migration directions instead of half-working.
+    expect(() => resolveProfiles([{ provider: 'openai' }] as never)).toThrow(/dict keyed by provider/)
+    expect(() => resolveProfiles({ openai: { provider: 'openai' } as never })).toThrow(/moved to the providers dict key/)
+    expect(() => resolveProfiles({ openai: { apiKey: '' } })).toThrow(/empty apiKey/)
+    expect(() => resolveProfiles({ openai: { apiKey: '  ' } })).toThrow(/empty apiKey/)
+    expect(() => resolveProfiles({ openai: { baseURL: '' } })).toThrow(/empty baseURL/)
+    expect(() => resolveProfiles({ openai: { apiKeyEnv: 'not-a-var!' } })).toThrow(/must match/)
   })
 
   it.each(['maxRetries', 'maxRetryDelayMs'] as const)(
     'rejects removed profile field %s instead of silently restoring hidden SDK retries',
     async (field) => {
-      const legacy = { provider: 'openai', [field]: 2 }
-      expect(() => resolveProfiles([legacy as never])).toThrow(/removed.*agent recovery/i)
+      const legacy = { [field]: 2 }
+      expect(() => resolveProfiles({ openai: legacy })).toThrow(/removed.*agent recovery/i)
       const ctx = new Context()
       await ctx.plugin(LlmService)
-      await expect(ctx.plugin(LlmPiAi, { providers: [legacy as never] }))
+      await expect(ctx.plugin(LlmPiAi, { providers: { openai: legacy } }))
         .rejects.toThrow(/removed.*agent recovery/i)
     },
   )
@@ -548,30 +511,26 @@ describe('provider profile lifecycle', () => {
     for (const entry of invalid) {
       const ctx = new Context()
       await ctx.plugin(LlmService)
-      await expect(ctx.plugin(LlmPiAi, { providers: [{ provider: 'openai', ...entry }] }))
+      await expect(ctx.plugin(LlmPiAi, { providers: { openai: { ...entry } } }))
         .rejects.toThrow()
     }
   })
 
   it('rejects invalid nested retryPolicy at the provider-profile boundary', async () => {
-    expect(() => resolveProfiles([{
-      provider: 'openai',
-      retryPolicy: { mode: 'always', backoff: { jitterRatio: -1 } },
-    }])).toThrow(/retryPolicy\.backoff\.jitterRatio/)
+    expect(() => resolveProfiles({
+      openai: { retryPolicy: { mode: 'always', backoff: { jitterRatio: -1 } } },
+    })).toThrow(/retryPolicy\.backoff\.jitterRatio/)
 
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await expect(ctx.plugin(LlmPiAi, {
-      providers: [{
-        provider: 'openai',
-        retryPolicy: { mode: 'normal', maxRetries: -1 },
-      }],
+      providers: { openai: { retryPolicy: { mode: 'normal', maxRetries: -1 } } },
     })).rejects.toThrow(/retryPolicy/)
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
   it('constructs the adapter directly and rejects routes it does not own', async () => {
-    const adapter = new PiAiAdapter({ profiles: [{ provider: 'openai' }] })
+    const adapter = adapterOf({ openai: {} })
     await expect(adapter.listModels('anthropic')).rejects.toMatchObject({ code: 'NO_ADAPTER' })
     await expect(adapter.resolveModel('anthropic', 'claude-sonnet-4'))
       .rejects.toMatchObject({ code: 'NO_ADAPTER' })
@@ -584,9 +543,7 @@ describe('provider profile lifecycle', () => {
   })
 
   it('rejects unsupported or unresolved image input before provider I/O', async () => {
-    const adapter = new PiAiAdapter({
-      profiles: [{ provider: 'openai' }, { provider: 'deepseek' }],
-    })
+    const adapter = adapterOf({ openai: {}, deepseek: {} })
     const drain = async (options: Parameters<PiAiAdapter['stream']>[0]): Promise<void> => {
       for await (const _chunk of adapter.stream(options)) { /* drain */ }
     }
@@ -625,12 +582,12 @@ describe('provider profile lifecycle', () => {
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
   })
 
-  it('validates direct-constructor profiles at the embedding boundary', () => {
-    expect(() => new PiAiAdapter({
-      profiles: [{ provider: 'openai', streamIdleTimeoutMs: 0 }],
+  it('validates profiles at the shared resolver boundary', () => {
+    expect(() => resolveProfiles({
+      openai: { streamIdleTimeoutMs: 0 },
     })).toThrow(/streamIdleTimeoutMs.*positive finite/)
-    expect(() => new PiAiAdapter({
-      profiles: [{ provider: 'openai', streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1 }],
+    expect(() => resolveProfiles({
+      openai: { streamIdleTimeoutMs: MAX_TIMER_DELAY_MS + 1 },
     })).toThrow(/streamIdleTimeoutMs.*no greater/)
   })
 })
@@ -641,7 +598,7 @@ describe('abort wiring', () => {
     const message = Object.defineProperty({}, 'content', {
       get() { throw original },
     })
-    const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key' }] })
+    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek',
@@ -662,7 +619,7 @@ describe('abort wiring', () => {
         throw original
       },
     })
-    const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key' }] })
+    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'deepseek',
@@ -676,7 +633,7 @@ describe('abort wiring', () => {
   })
 
   it('resolves catalog endpoints without an override before honoring pre-abort', async () => {
-    const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key' }] })
+    const adapter = adapterOf({ deepseek: { apiKey: 'test-key' } })
     const controller = new AbortController()
     controller.abort('already stopped')
     const chunks = []
