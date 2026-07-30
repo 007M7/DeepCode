@@ -174,8 +174,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // row gets an absolute temp root (removed with the workspace at close).
     { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
     // Skill discovery is model-visible input. Pin every host-level root inside
-    // the owned temp world so ambient catalogs cannot change replay requests
-    // or conversation goldens; project roots still use the empty workspace.
+    // the owned temp world so ~/.dsh, ~/.agents, and a bundled-root env setting
+    // cannot change replay requests or conversation goldens. Project roots stay
+    // enabled against the same empty temp workspace, preserving the real seam.
     {
       id: 'skill-local',
       config: {
