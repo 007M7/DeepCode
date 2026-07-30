@@ -78,6 +78,42 @@ describe('sessions.list cold merge', () => {
   })
 })
 
+describe('attached updatedAt excludes end-seed', () => {
+  it('reports the last real work, not the pickup, so a resumed-untouched session does not float', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(UserInteractionService)
+    await ctx.plugin(AgentRegistry)
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+
+    // Old work, resumed just now: the log tail would report the pickup.
+    const worked = 1_000_000
+    const resumed = ctx.sessions.create(sid('resumed-untouched'), {
+      seed: [
+        { type: 'turn/start', seq: 0, time: worked, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+        { type: 'turn/end', seq: 1, time: worked, data: { turn: 1, reason: { kind: 'completed' } } },
+      ],
+      meta: { cwd: '/proj', createdAt: 500 },
+    })
+    ctx.agents.register({ id: resumed.id, session: resumed, status: 'idle', ctx } as Agent)
+    const boundary = resumed.events.at(-1)
+    expect(boundary?.type).toBe('session/end-seed')
+    expect(boundary?.time).toBeGreaterThan(worked)
+
+    const listed = await api.sessions.list(request({}))
+    if (!listed.result.ok) throw new Error('list failed')
+    const summary = listed.result.value.items.find(item => item.sessionId === 'resumed-untouched')
+    expect(summary?.updatedAt).toBe(worked)
+
+    // Real work appended after end-seed does move it.
+    resumed.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const after = await api.sessions.list(request({}))
+    if (!after.result.ok) throw new Error('list failed')
+    const moved = after.result.value.items.find(item => item.sessionId === 'resumed-untouched')
+    expect(moved?.updatedAt).toBeGreaterThan(worked)
+  })
+})
+
 describe('degenerate composition (no persistence, no factory)', () => {
   it('list skips the cold merge and resume maps a non-not-found failure to internal', async () => {
     const ctx = new Context()
