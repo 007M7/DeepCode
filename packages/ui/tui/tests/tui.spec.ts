@@ -503,8 +503,9 @@ describe('goodbye message and /resume', () => {
     await dispose(result)
   })
 
-  it('treats a terminal-state session-query provider as unavailable', async () => {
+  it('allows a transient session-query state but rejects a terminal state', async () => {
     let queryCtx: Context | undefined
+    let listCalls = 0
     const result = await setup({
       cwd: '/workspace',
       async configureContext(ctx) {
@@ -512,7 +513,7 @@ describe('goodbye message and /resume', () => {
           apply(child: Context) {
             queryCtx = child
             child.provide('sessionQuery', {
-              listSessions: () => Promise.reject(new Error('closed database must not be called')),
+              listSessions: async () => { listCalls++; return [] },
             } as never)
           },
         })
@@ -520,12 +521,19 @@ describe('goodbye message and /resume', () => {
     })
     if (queryCtx === undefined) throw new Error('query provider did not mount')
     const activeState = queryCtx.fiber.state
+    queryCtx.fiber.state = 0
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(listCalls).toBe(1)
+    result.terminal.send('\u001B')
+    await tick()
     queryCtx.fiber.state = 5
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('session query is not mounted')
-    expect(result.terminal.output).not.toContain('closed database')
+    expect(listCalls).toBe(1)
     queryCtx.fiber.state = activeState
     await dispose(result)
   })
