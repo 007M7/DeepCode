@@ -2554,10 +2554,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
       return from
     }
 
-    await open()
-    expect(result.terminal.output).toContain('Tool cards · collapsed')
-    expect(result.terminal.output).toContain('head/tail preview — current')
-    expect(result.terminal.output).toContain('show reasoning blocks — current')
+    const opened = await open()
+    expect(result.terminal.output.slice(opened)).toContain('Tool cards')
+    expect(result.terminal.output.slice(opened)).toContain('Reasoning')
 
     // A second /details while the selector is open replaces the overlay
     // instead of stacking a second one behind it.
@@ -2570,22 +2569,37 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await tick()
     expect(result.terminal.output.slice(cancelOutput)).not.toContain('Tool and context cards')
 
-    // Enter on the next visibility row applies it and closes.
-    await open()
-    result.terminal.send('\x1b[B')
+    // Tab cycles the highlighted entry's pending value; Enter applies it.
+    const cycled = await open()
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output.slice(cycled)).toContain('collapsed → expanded')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('Tool and context cards expanded.')
 
-    // The reopened selector preselects the current phase and marks it.
+    // Both entries apply in one confirm: cycle tool cards through the
+    // wraparound back to collapsed and toggle reasoning off.
     const reopened = await open()
-    expect(result.terminal.output.slice(reopened)).toContain('full bodies — current')
+    result.terminal.send('\t')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output.slice(reopened)).toContain('expanded → collapsed')
     result.terminal.send('\x1b[B')
-    result.terminal.send('\x1b[B')
-    result.terminal.send('\x1b[B')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output.slice(reopened)).toContain('shown → hidden')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('Reasoning blocks hidden.')
+    expect(result.terminal.output).toContain('Tool and context cards collapsed.')
+
+    // Enter with no pending change closes without a notice.
+    const unchanged = await open()
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output.slice(unchanged)).not.toContain('Tool and context cards')
+    expect(result.terminal.output.slice(unchanged)).not.toContain('Reasoning blocks')
 
     // Ctrl+C also cancels.
     const ctrlCOutput = result.terminal.output.length

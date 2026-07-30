@@ -433,40 +433,70 @@ export class ModelDialog implements Component {
   }
 }
 
-/** One transcript-detail state the details selector applies on confirm. */
-export type DetailsSelection =
-  | { readonly kind: 'tools'; readonly visibility: ToolCardVisibility }
-  | { readonly kind: 'reasoning'; readonly show: boolean }
+/** Both transcript-detail dimensions the details selector applies on confirm. */
+export interface DetailsSelection {
+  readonly visibility: ToolCardVisibility
+  readonly showReasoning: boolean
+}
+
+const TOOL_CARD_PHASES: readonly ToolCardVisibility[] = ['collapsed', 'expanded', 'hidden']
 
 /**
- * Keyboard selector over the transcript detail states: the three tool-card
- * visibility phases and reasoning-block display. Enter applies the highlighted
- * state and closes; Esc or Ctrl+C closes without changing anything.
+ * Keyboard selector over the two transcript-detail entries — tool-card
+ * visibility and reasoning display. Tab cycles the highlighted entry's pending
+ * value, Enter applies both pending values and closes, Esc or Ctrl+C closes
+ * without changing anything. A pending value renders as `current → pending`.
  */
 export class DetailsDialog implements Component {
   private readonly list: SelectList
+  private readonly toolsItem: SelectItem
+  private readonly reasoningItem: SelectItem
+  private pendingVisibility: ToolCardVisibility
+  private pendingReasoning: boolean
 
   constructor(
-    visibility: ToolCardVisibility,
-    showReasoning: boolean,
+    private readonly visibility: ToolCardVisibility,
+    private readonly showReasoning: boolean,
     private readonly palette: Palette,
     done: (selection: DetailsSelection) => void,
     private readonly cancel: () => void,
   ) {
-    const current = (isCurrent: boolean): string => isCurrent ? ' — current' : ''
-    const items: SelectItem[] = [
-      { value: 'collapsed', label: 'Tool cards · collapsed', description: `head/tail preview${current(visibility === 'collapsed')}` },
-      { value: 'expanded', label: 'Tool cards · expanded', description: `full bodies${current(visibility === 'expanded')}` },
-      { value: 'hidden', label: 'Tool cards · hidden', description: `conversation only${current(visibility === 'hidden')}` },
-      { value: 'reasoning-shown', label: 'Reasoning · shown', description: `show reasoning blocks${current(showReasoning)}` },
-      { value: 'reasoning-hidden', label: 'Reasoning · hidden', description: `omit reasoning blocks${current(!showReasoning)}` },
-    ]
-    this.list = new SelectList(items, items.length, dialogSelectTheme(palette))
-    this.list.setSelectedIndex(items.findIndex(item => item.value === visibility))
-    this.list.onSelect = (item) => {
-      done(item.value === 'reasoning-shown' || item.value === 'reasoning-hidden'
-        ? { kind: 'reasoning', show: item.value === 'reasoning-shown' }
-        : { kind: 'tools', visibility: item.value as ToolCardVisibility })
+    this.pendingVisibility = visibility
+    this.pendingReasoning = showReasoning
+    this.toolsItem = { value: 'tools', label: 'Tool cards', description: this.describeTools() }
+    this.reasoningItem = { value: 'reasoning', label: 'Reasoning', description: this.describeReasoning() }
+    this.list = new SelectList([this.toolsItem, this.reasoningItem], 2, dialogSelectTheme(palette))
+    this.list.onSelect = () => {
+      done({ visibility: this.pendingVisibility, showReasoning: this.pendingReasoning })
+    }
+  }
+
+  /** `current → pending` when Tab moved the value, otherwise the current value. */
+  private static pendingLabel(current: string, pending: string): string {
+    return pending === current ? current : `${current} → ${pending}`
+  }
+
+  private describeTools(): string {
+    return DetailsDialog.pendingLabel(this.visibility, this.pendingVisibility)
+  }
+
+  private describeReasoning(): string {
+    const label = (show: boolean): string => show ? 'shown' : 'hidden'
+    return DetailsDialog.pendingLabel(label(this.showReasoning), label(this.pendingReasoning))
+  }
+
+  /** Cycle the highlighted entry's pending value one step. */
+  private cyclePending(): void {
+    const selected = this.list.getSelectedItem()
+    /* v8 ignore next -- the two-entry list always has a selection. */
+    if (selected === null) return
+    if (selected.value === 'tools') {
+      const index = TOOL_CARD_PHASES.indexOf(this.pendingVisibility)
+      this.pendingVisibility = TOOL_CARD_PHASES[(index + 1) % TOOL_CARD_PHASES.length] as ToolCardVisibility
+      this.toolsItem.description = this.describeTools()
+    } else {
+      this.pendingReasoning = !this.pendingReasoning
+      this.reasoningItem.description = this.describeReasoning()
     }
   }
 
@@ -476,6 +506,7 @@ export class DetailsDialog implements Component {
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) this.cancel()
+    else if (matchesKey(data, Key.tab)) this.cyclePending()
     else this.list.handleInput(data)
     this.invalidate()
   }
@@ -485,7 +516,7 @@ export class DetailsDialog implements Component {
     return renderDialog('Transcript details', [
       ...this.list.render(innerWidth),
       '',
-      this.palette.dim('↑/↓ move • Enter apply • Esc cancel'),
+      this.palette.dim('↑/↓ move • Tab cycle • Enter apply • Esc cancel'),
     ], width, this.palette)
   }
 }

@@ -10,7 +10,7 @@ TUI 的 transcript（文本记录）细节状态——工具卡片可见性（`c
 
 ## Decision
 
-`dsh-tui` 在其他 agent 作用域命令旁注册 `/details`。裸 `/details` 打开 `DetailsDialog`：一个居中的键盘选择器，列出五个细节状态——三个工具卡片阶段与 reasoning 显示/隐藏——预选当前阶段并标记两个当前值，Enter 应用高亮状态并关闭，Esc 或 Ctrl+C 取消；其宽度由配置键 `detailsDialogWidth` 决定，选择器打开时再次执行 `/details` 会替换它，与 `/model` 浮层一致。参数直接命名目标状态：`collapsed|expanded|hidden` 让工具卡片跳到该阶段，`reasoning on|off` 设置 reasoning 显示，裸 `reasoning` 切换它，且指令可在一次调用中组合。未知 token 返回携带用法行的命令错误。每个入口改动的都是与快捷键相同的闭包状态，重构后循环与切换成为 `setToolsVisibility`/`setReasoning` 之上的薄封装；快捷键及其通知保持不变。
+`dsh-tui` 在其他 agent 作用域命令旁注册 `/details`。裸 `/details` 打开 `DetailsDialog`：一个居中的键盘选择器，每个维度一个条目——`Tool cards` 与 `Reasoning`——以当前值为初始：Tab 循环高亮条目的待定值（渲染为 `current → pending`），Enter 一次确认应用所有已改变的维度并关闭，Esc 或 Ctrl+C 取消；其宽度由配置键 `detailsDialogWidth` 决定，选择器打开时再次执行 `/details` 会替换它，与 `/model` 浮层一致。参数直接命名目标状态：`collapsed|expanded|hidden` 让工具卡片跳到该阶段，`reasoning on|off` 设置 reasoning 显示，裸 `reasoning` 切换它，且指令可在一次调用中组合。未知 token 返回携带用法行的命令错误。每个入口改动的都是与快捷键相同的闭包状态，重构后循环与切换成为 `setToolsVisibility`/`setReasoning` 之上的薄封装；快捷键及其通知保持不变。
 
 组合调用先应用 reasoning 再应用可见性，因为 `setReasoning` 会从会话事件重建 transcript，而重建会丢弃非持久的通知组件；若最后才应用它，会抹掉刚追加的可见性通知。
 
@@ -30,5 +30,5 @@ reasoning 重建暴露了一个重放缺陷，本变更在 `renderEvent` 中修�
 
 - 用户可以跳到任意细节模式、一次设置两个维度，并在选择器中看到当前状态——包括在拦截 Ctrl+O/Ctrl+R 的终端上。
 - 解析器接受无序 token，因此 `/details reasoning expanded` 会切换 reasoning 并展开卡片；每个维度以最后一个指令为准。这一宽松是刻意的，并记录在 README 中。
-- 选择器每次确认只应用一个维度；组合变更仍需参数形式。在已是当前值的行上按 Enter 会幂等地重新应用并重复其通知。
-- 当一个步骤携带多条 `assistant/message` 事件时，transcript 重建不再丢失 assistant 消息；`details-command` 快照固定参数表面与修复后的重放，`details-selector` 固定带当前值标记的打开选择器。
+- 选择器确认时只应用已改变的维度，因此未按 Tab 直接 Enter 会静默关闭；两个维度的变更是一次打开-Tab-Enter 交互。
+- 当一个步骤携带多条 `assistant/message` 事件时，transcript 重建不再丢失 assistant 消息；`details-command` 快照固定参数表面与修复后的重放，`details-selector` 固定经 Tab 循环出 `hidden → collapsed` 待定值的打开选择器。

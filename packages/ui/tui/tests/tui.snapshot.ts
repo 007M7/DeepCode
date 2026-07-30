@@ -663,11 +663,13 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('\r')
     })
     await checkpoint('details-command', harness.terminal, { includeScrollback: true })
-    // Bare /details opens the selector, preselecting and marking the current
-    // hidden/reasoning-off state.
+    // Bare /details opens the two-entry selector seeded with the current
+    // hidden/reasoning-off state; one Tab renders the tool-card entry's
+    // pending cycle as `hidden → collapsed`.
     await renderAfter(harness, () => {
       harness.terminal.send('/details')
       harness.terminal.send('\r')
+      harness.terminal.send('\t')
     })
     await checkpoint('details-selector', harness.terminal, { includeScrollback: true })
     nowSpy.mockRestore()

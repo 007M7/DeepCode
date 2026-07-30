@@ -1051,8 +1051,9 @@ export function createTuiChat(
         palette,
         (selection: DetailsSelection) => {
           void session.close()
-          if (selection.kind === 'reasoning') setReasoning(selection.show)
-          else setToolsVisibility(selection.visibility)
+          // Reasoning first: its transcript rebuild would drop the card notice.
+          if (selection.showReasoning !== showReasoning) setReasoning(selection.showReasoning)
+          if (selection.visibility !== toolsVisibility) setToolsVisibility(selection.visibility)
         },
         () => { void session.close() },
       ),

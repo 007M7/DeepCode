@@ -28,39 +28,33 @@ buffer
 13| <blank>
 14| "Tool cards hidden.                                                                                  "
   style 0-17 dim
-15| "              ╭ Transcript details ──────────────────────────────────────────────────╮              "
-  style 14-85 fg=bright-magenta
-16| "/workspace/pro│   Tool cards · collapsed          head/tail preview                  │              "
-  style 0-13 fg=bright-magenta bold
-  style 14-14 fg=bright-magenta
-  style 40-66 dim
-  style 85-85 fg=bright-magenta
-17| " dsh >        │   Tool cards · expanded           full bodies                        │              "
+15| <blank>
+16| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
+  style 0-17 fg=bright-magenta bold
+  style 18-31 dim
+  style 34-50 dim
+  style 53-57 dim
+  style 60-69 dim
+17| " dsh >        ╭ Transcript details ──────────────────────────────────────────────────╮              "
   style 1-3 fg=bright-magenta bold
   style 5-6 dim
   style 7-7 inverse
-  style 14-14 fg=bright-magenta
-  style 39-60 dim
-  style 85-85 fg=bright-magenta
-18| "              │ → Tool cards · hidden             conversation only — current        │              "
-  style 14-14 fg=bright-magenta
-  style 16-76 fg=bright-magenta inverse
-  style 85-85 fg=bright-magenta
-19| "              │   Reasoning · shown               show reasoning blocks              │              "
-  style 14-14 fg=bright-magenta
-  style 35-70 dim
-  style 85-85 fg=bright-magenta
-20| "              │   Reasoning · hidden              omit reasoning blocks — current    │              "
-  style 14-14 fg=bright-magenta
-  style 36-80 dim
-  style 85-85 fg=bright-magenta
-21| "              │                                                                      │              "
-  style 14-14 fg=bright-magenta
-  style 85-85 fg=bright-magenta
-22| "              │ ↑/↓ move • Enter apply • Esc cancel                                  │              "
-  style 14-14 fg=bright-magenta
-  style 16-50 dim
-  style 85-85 fg=bright-magenta
-23| "              ╰──────────────────────────────────────────────────────────────────────╯              "
   style 14-85 fg=bright-magenta
-24-39| <blank>
+18| "              │ → Tool cards                      hidden → collapsed                 │              "
+  style 14-14 fg=bright-magenta
+  style 16-67 fg=bright-magenta inverse
+  style 85-85 fg=bright-magenta
+19| "              │   Reasoning                       hidden                             │              "
+  style 14-14 fg=bright-magenta
+  style 27-55 dim
+  style 85-85 fg=bright-magenta
+20| "              │                                                                      │              "
+  style 14-14 fg=bright-magenta
+  style 85-85 fg=bright-magenta
+21| "              │ ↑/↓ move • Tab cycle • Enter apply • Esc cancel                      │              "
+  style 14-14 fg=bright-magenta
+  style 16-62 dim
+  style 85-85 fg=bright-magenta
+22| "              ╰──────────────────────────────────────────────────────────────────────╯              "
+  style 14-85 fg=bright-magenta
+23-39| <blank>
