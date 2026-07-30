@@ -2,7 +2,7 @@ import { freezeMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Events } from 'cordis'
-import { type Agent } from '@deepseek-ai/dsh-agent'
+import { InboxItemId, type Agent } from '@deepseek-ai/dsh-agent'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import * as ScopeInvariant from '@deepseek-ai/dsh-scope/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -44,12 +44,14 @@ describe('scoped-dispatch invariants', () => {
       content: [],
       source: { kind: 'user' },
     })
+    const item = { id: InboxItemId('i'), message, placement: 'queued' as const }
     const agentRows = {
       'agent/created': [agent],
       'agent/disposed': [agent],
       'agent/status': [agent, 'idle'],
-      'agent/inbox/enqueue': [agent, message, 'queued'],
-      'agent/inbox/dequeue': [agent, message, 'queued'],
+      'agent/inbox/enqueue': [agent, item],
+      'agent/inbox/update': [agent, item],
+      'agent/inbox/dequeue': [agent, item],
       'agent/inbox/discard': [agent, []],
       'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],

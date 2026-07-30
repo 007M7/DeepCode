@@ -49,6 +49,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
     send: () => {},
+    updateInbox: () => 'not-found',
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

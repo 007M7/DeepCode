@@ -351,14 +351,14 @@ export class SessionManager {
       // them so last-wins cannot pin a phantom value over recomputed truth.
       this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
       this.notifier.markDirty()
-      // New mux-generation baseline: buffered session/queued frames belong to
+      // New mux-generation baseline: buffered session/queue frames belong to
       // the previous generation and the host is about to resend the live
       // snapshot — drop them, or every reconnect appends a duplicate batch
       // (and enough reconnects push real approval/question frames past the
       // cap). Same re-baseline signal Session uses for its own mirror.
       const buffered = this.pendingBuffers.get(frame.sessionId)
       if (buffered !== undefined) {
-        const kept = buffered.filter(item => item.payload.type !== 'session/queued')
+        const kept = buffered.filter(item => item.payload.type !== 'session/queue')
         if (kept.length !== buffered.length) {
           if (kept.length === 0) this.pendingBuffers.delete(frame.sessionId)
           else this.pendingBuffers.set(frame.sessionId, kept)
@@ -383,7 +383,7 @@ export class SessionManager {
     }
     const session = this.sessions.get(frame.sessionId)
     if (session === undefined) {
-      // Approval/question/queued frames never hit history: buffer for replay on
+      // Approval/question/queue frames never hit history: buffer for replay on
       // instantiation; everything else drops (not instantiated — history fully
       // backfills on open).
       switch (frame.type) {
@@ -391,8 +391,12 @@ export class SessionManager {
         case 'approval/resolved':
         case 'question/requested':
         case 'question/resolved':
-        case 'session/queued': {
+        case 'session/queue': {
           const buffer = this.pendingBuffers.get(frame.sessionId) ?? []
+          const prior = frame.type === 'session/queue'
+            ? buffer.findIndex(item => item.payload.type === 'session/queue')
+            : -1
+          if (prior !== -1) buffer.splice(prior, 1)
           buffer.push(envelope)
           if (buffer.length > PENDING_BUFFER_CAP) buffer.splice(0, buffer.length - PENDING_BUFFER_CAP)
           this.pendingBuffers.set(frame.sessionId, buffer)
