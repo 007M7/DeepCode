@@ -120,18 +120,20 @@ describe('global test invariant host', () => {
     const releaseDelayed = deferred()
     const order: string[] = []
     let delayedCompanion: TestInvariantCompanion | undefined
+    const companionNestedApply = vi.fn(function companionNestedApply() {})
 
     await withFakeCompanions(
       (path, index) => async () => {
         const companion: TestInvariantCompanion = {
           name: `test-invariant-${index}`,
           inject: ['invariants'],
-          async apply() {
+          async apply(companionCtx) {
             order.push(`companion-start:${path}`)
             if (index === 0) {
               delayedStarted.resolve()
               await releaseDelayed.promise
             }
+            if (index === 1) await companionCtx.plugin(companionNestedApply)
             order.push(`companion-active:${path}`)
             return () => {}
           },
@@ -173,6 +175,7 @@ describe('global test invariant host', () => {
         expect(targetFiber.state).toBe(FiberState.ACTIVE)
         expect(targetApply).toHaveBeenCalledOnce()
         expect(nestedApply).toHaveBeenCalledOnce()
+        expect(companionNestedApply).toHaveBeenCalledOnce()
         const targetIndex = order.indexOf('target')
         expect(targetIndex).toBeGreaterThan(-1)
         expect(order.slice(0, targetIndex)).toHaveLength(Object.keys(testInvariantCompanions).length * 2)
@@ -183,6 +186,52 @@ describe('global test invariant host', () => {
         await ctx.plugin(delayedCompanion)
         expect(ctx.registry.get(InvariantService)?.fibers).toHaveLength(1)
         expect(ctx.registry.get(delayedCompanion)?.fibers).toHaveLength(1)
+      },
+    )
+  })
+
+  it('holds plugins registered on a root-derived context until companion readiness', async () => {
+    const delayedStarted = deferred()
+    const releaseDelayed = deferred()
+
+    await withFakeCompanions(
+      (_path, index) => async () => ({
+        name: `test-invariant-${index}`,
+        inject: ['invariants'],
+        async apply() {
+          if (index === 0) {
+            delayedStarted.resolve()
+            await releaseDelayed.promise
+          }
+          return () => {}
+        },
+      }),
+      async () => {
+        const ctx = new Context()
+        const rootApply = vi.fn(function rootApply() {})
+        const derivedApply = vi.fn(function derivedApply() {})
+        const derived = ctx.extend()
+          .isolate('testInvariantDerived')
+          .intercept('testInvariantDerived', {})
+
+        const rootFiber = ctx.plugin(rootApply)
+        const derivedFiber = derived.plugin(derivedApply)
+
+        await delayedStarted.promise
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(rootApply).not.toHaveBeenCalled()
+        expect(derivedApply).not.toHaveBeenCalled()
+        expect(derivedFiber.inject).toEqual({
+          [TEST_INVARIANT_READY_SERVICE]: null,
+        })
+
+        releaseDelayed.resolve()
+        await Promise.all([rootFiber, derivedFiber])
+        expect(rootFiber.state).toBe(FiberState.ACTIVE)
+        expect(derivedFiber.state).toBe(FiberState.ACTIVE)
+        expect(rootApply).toHaveBeenCalledOnce()
+        expect(derivedApply).toHaveBeenCalledOnce()
       },
     )
   })

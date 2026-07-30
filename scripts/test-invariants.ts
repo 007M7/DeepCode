@@ -46,6 +46,7 @@ const MANUAL_INVARIANT_TEST_EXCEPTIONS = [
 
 interface InvariantHost {
   readonly byCallback: ReadonlyMap<unknown, PluginFiber>
+  readonly barrierOwners: WeakSet<Context['fiber']>
   readonly ready: Promise<void>
 }
 
@@ -65,13 +66,15 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
   const callback = this.resolve(plugin)
   const existing = callback === undefined ? undefined : host.byCallback.get(callback)
   if (existing !== undefined) {
-    return this.ctx === root ? joinInvariantStartup(existing, host.ready) : existing
+    return hasBarrierOwner(host, this.ctx) ? existing : joinInvariantStartup(existing, host.ready)
   }
 
-  // Nested plugins run inside a target that already crossed the root barrier.
-  // Adding the same root-owned dependency there would make child lifecycle
-  // depend on an unrelated isolation scope and can deadlock companion startup.
-  if (this.ctx !== root) return originalPlugin.call(this, plugin, config, getOuterStack)
+  // Causal descendants of a gated target have already crossed the barrier.
+  // Host service and companion descendants also bypass it so their own startup
+  // cannot depend on the readiness they are responsible for providing.
+  if (hasBarrierOwner(host, this.ctx)) {
+    return originalPlugin.call(this, plugin, config, getOuterStack)
+  }
   if (callback === undefined) return originalPlugin.call(this, plugin, config, getOuterStack)
 
   const fiber = originalPlugin.call(
@@ -80,6 +83,7 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
     config,
     getOuterStack,
   )
+  host.barrierOwners.add(fiber.ctx.fiber)
   return joinInvariantStartup(fiber, host.ready)
 }
 
@@ -120,11 +124,13 @@ export function testInvariantCompanionPaths(testPath: string): string[] {
 
 function startInvariantHost(root: Context): InvariantHost {
   const byCallback = new Map<unknown, PluginFiber>()
+  const barrierOwners = new WeakSet<Context['fiber']>()
   const mount = (plugin: Plugin, config?: unknown): PluginFiber => {
     const fiber = originalPlugin.call(root.registry, plugin, config)
     const callback = root.registry.resolve(plugin)
     if (callback === undefined) throw new Error('test invariants: companion is not a valid Cordis plugin')
     byCallback.set(callback, fiber)
+    barrierOwners.add(fiber.ctx.fiber)
     return fiber
   }
 
@@ -157,9 +163,19 @@ function startInvariantHost(root: Context): InvariantHost {
     await Promise.all(companionFibers.map(({ fiber, path }) => requireActive(fiber, path)))
     root.provide(TEST_INVARIANT_READY_SERVICE, true)
   })
-  const host = { byCallback, ready }
+  const host = { byCallback, barrierOwners, ready }
   hosts.set(root, host)
   return host
+}
+
+function hasBarrierOwner(host: InvariantHost, ctx: Context): boolean {
+  let fiber = ctx.fiber
+  while (true) {
+    if (host.barrierOwners.has(fiber)) return true
+    const parent = fiber.parent.fiber
+    if (parent === fiber) return false
+    fiber = parent
+  }
 }
 
 async function requireActive(fiber: PluginFiber, label: string): Promise<void> {
