@@ -1,5 +1,6 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
+import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
 // has no include, which vite-tsconfig-paths treats as match-all, so its paths
@@ -37,6 +38,12 @@ const testIncludes = [
   'scripts/**/*.spec.ts',
 ]
 
+// The instrumented coverage gate sets this env; the exempt heavy suites then
+// run beside it uninstrumented (membership contract in scripts/coverage-exempt.ts).
+const coverageExemptExcludes = process.env[COVERAGE_EXEMPT_ENV] === '1'
+  ? coverageExemptHeavySuites.map(suite => suite.exclude)
+  : []
+
 // These suites exercise process-global state, process APIs, or timing-sensitive process I/O
 // that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
@@ -73,6 +80,7 @@ export default defineConfig({
           exclude: [
             ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
             ...processBoundTests,
+            ...coverageExemptExcludes,
           ],
         },
       },
@@ -83,7 +91,10 @@ export default defineConfig({
           pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
-          exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+          exclude: [
+            ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+            ...coverageExemptExcludes,
+          ],
         },
       },
     ],

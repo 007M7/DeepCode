@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
+import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './coverage-exempt.ts'
 
 /** A named aggregate exposed by the gate runner. */
 export type Mode =
@@ -202,7 +203,7 @@ export function gatesForMode(selected: Mode): Gate[] {
         pnpmScript('duplication', 'duplication'),
       ]
     case 'ci-coverage':
-      return [coverageGate()]
+      return coverageGates()
     case 'ci-snapshot':
       return [pnpmScript('build', 'build'), snapshotGate()]
     case 'ci-artifacts':
@@ -248,7 +249,7 @@ function ciPrimaryGates(): Gate[] {
     pnpmScript('typecheck', 'typecheck'),
     lintGate(),
     pnpmScript('duplication', 'duplication'),
-    coverageGate(),
+    ...coverageGates(),
     ...nodeCompatSmokeGates(),
     snapshotGate(),
     ...docSyncLeafGates(),
@@ -407,15 +408,30 @@ function lintGate(): Gate {
     : { displayCommand: `DSH_OXLINT_THREADS=${raw} pnpm run lint` })
 }
 
-function coverageGate(): Gate {
-  return pnpmExec('coverage', [
-    'vitest',
-    'run',
-    '--coverage',
-    ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
-  ], {
-    label: 'test:coverage',
-  })
+// The heavy suites run uninstrumented beside the thresholded gate: their
+// compiler- and subprocess-bound fixtures pay a multiple of their runtime
+// under v8 instrumentation while contributing nothing the thresholds need
+// (membership contract in scripts/coverage-exempt.ts).
+function coverageGates(): Gate[] {
+  return [
+    pnpmExec('coverage', [
+      'vitest',
+      'run',
+      '--coverage',
+      ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
+    ], {
+      label: 'test:coverage',
+      env: { [COVERAGE_EXEMPT_ENV]: '1' },
+    }),
+    pnpmExec('coverage-exempt-heavy', [
+      'vitest',
+      'run',
+      ...coverageExemptHeavySuites.map(suite => suite.filter),
+      ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
+    ], {
+      label: 'test:coverage-exempt-heavy',
+    }),
+  ]
 }
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
