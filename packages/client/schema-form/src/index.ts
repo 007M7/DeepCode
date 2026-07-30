@@ -1,16 +1,12 @@
 /**
- * Schema-driven React form renderer for settings sections. `SchemaForm`
- * rehydrates the wire's serialized schemastery envelope and edits a draft
- * user section against it; the model helpers expose the same introspection
- * and immutable path editing for page-level composition.
+ * Schema/draft model layer for settings editors: rehydrate the wire's
+ * serialized schemastery envelope, resolve nodes by settings path, validate
+ * drafts, and edit them immutably by path. Editors render their own controls
+ * (the Models page hand-writes its layout) on top of these helpers.
  * @module @deepseek-ai/dsh-client-schema-form
  */
 
-export { SchemaForm } from './SchemaForm.tsx'
-export type {
-  SchemaFieldContext, SchemaFormLabels, SchemaFormProps, SchemaFormSecret,
-} from './SchemaForm.tsx'
 export {
-  deletePath, getPath, hasPath, nodeAtPath, nodeKind, rehydrateSchema, setPath, unionChoices, validateDraft,
+  deletePath, getPath, hasPath, nodeAtPath, rehydrateSchema, setPath, validateDraft,
 } from './model.ts'
-export type { NodeKind, SchemaNode } from './model.ts'
+export type { SchemaNode } from './model.ts'

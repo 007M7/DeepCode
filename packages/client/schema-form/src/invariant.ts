@@ -15,10 +15,10 @@ export const name = 'client-schema-form-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: a pure React rendering library — it emits no cordis
- * events and owns no cross-plugin mutable relation; draft immutability,
- * schema rehydration, and control/edit round trips are asserted directly by
- * this package's component and model specs.
+ * No runtime invariant: a pure schema/draft helper library — it emits no
+ * cordis events and owns no cross-plugin mutable relation; draft
+ * immutability, schema rehydration, and path-edit round trips are asserted
+ * directly by this package's model specs.
  */
 const install: InvariantInstaller = () => {}
 

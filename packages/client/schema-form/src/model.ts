@@ -1,8 +1,8 @@
 /**
- * Schema introspection and draft-editing helpers behind the form renderer.
+ * Schema introspection and draft-editing helpers behind settings editors.
  * The serialized schemastery envelope (`schema.toJSON()`) rehydrates into a
- * live validator whose node relations (`dict`/`inner`/`list`) the renderer
- * walks; drafts are edited immutably by path.
+ * live validator whose node relations (`dict`/`inner`) editors probe for
+ * field presence and roles; drafts are edited immutably by path.
  * @module @deepseek-ai/dsh-client-schema-form/model
  */
 
@@ -33,49 +33,6 @@ export function validateDraft(schema: SchemaNode, draft: unknown): string | unde
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
-}
-
-/** The renderable classification of one schema node. */
-export type NodeKind =
-  | 'object'
-  | 'dict'
-  | 'array'
-  | 'string'
-  | 'number'
-  | 'boolean'
-  | 'union-const'
-  | 'unsupported'
-
-/**
- * Classify one node into the renderer's vocabulary. A union renders as a
- * select only when every branch is a literal; everything else the renderer
- * cannot faithfully edit is `unsupported` and falls back to a read-only view
- * (never silently dropped).
- * @param node - live schema node.
- * @returns the control family for this node.
- */
-export function nodeKind(node: SchemaNode): NodeKind {
-  switch (node.type) {
-    case 'object': return 'object'
-    case 'dict': return 'dict'
-    case 'array': return 'array'
-    case 'string': return 'string'
-    case 'number': return 'number'
-    case 'boolean': return 'boolean'
-    case 'union':
-      return (node.list ?? []).every(branch => branch.type === 'const') ? 'union-const' : 'unsupported'
-    default:
-      return 'unsupported'
-  }
-}
-
-/**
- * Literal choices of a `union-const` node, in declaration order.
- * @param node - a node classified `union-const`.
- * @returns each branch's literal value.
- */
-export function unionChoices(node: SchemaNode): unknown[] {
-  return (node.list ?? []).map(branch => (branch as { value?: unknown }).value)
 }
 
 /**

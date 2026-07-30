@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import Schema from 'schemastery'
 import {
-  deletePath, getPath, hasPath, nodeAtPath, nodeKind, rehydrateSchema, setPath, unionChoices, validateDraft,
+  deletePath, getPath, hasPath, nodeAtPath, rehydrateSchema, setPath, validateDraft,
 } from '../src/model.ts'
 
 const Wire = (schema: Schema): unknown => JSON.parse(JSON.stringify(schema.toJSON()))
@@ -18,33 +18,6 @@ describe('rehydration and validation', () => {
       throw 'plain-string failure'
     }) as unknown as Parameters<typeof validateDraft>[0]
     expect(validateDraft(hostile, {})).toBe('plain-string failure')
-  })
-})
-
-describe('nodeKind', () => {
-  it.each([
-    [Schema.object({}), 'object'],
-    [Schema.dict(Schema.string()), 'dict'],
-    [Schema.array(Schema.string()), 'array'],
-    [Schema.string(), 'string'],
-    [Schema.number(), 'number'],
-    [Schema.natural(), 'number'],
-    [Schema.boolean(), 'boolean'],
-    [Schema.union(['a', 'b']), 'union-const'],
-    [Schema.union([Schema.string(), Schema.number()]), 'unsupported'],
-    [Schema.transform(Schema.string(), value => value), 'unsupported'],
-  ])('classifies %#', (schema, expected) => {
-    expect(nodeKind(rehydrateSchema(Wire(schema as Schema)))).toBe(expected)
-  })
-
-  it('lists union choices in declaration order', () => {
-    const node = rehydrateSchema(Wire(Schema.union(['off', 'high', 'max'])))
-    expect(unionChoices(node)).toEqual(['off', 'high', 'max'])
-  })
-
-  it('tolerates structural union nodes missing their branch list', () => {
-    expect(nodeKind({ type: 'union', meta: {} } as never)).toBe('union-const')
-    expect(unionChoices({ type: 'union', meta: {} } as never)).toEqual([])
   })
 })
 

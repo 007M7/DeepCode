@@ -2,21 +2,15 @@
 
 [English](README.md) | 中文
 
-面向 settings 分节的 schema 驱动 React 表单渲染器。wire 侧的 `settings.describe` 携带每个 namespace 的序列化 schemastery schema（`schema.toJSON()` 的 ref 信封）；`SchemaForm` 用 `new Schema(json)` 将其还原（rehydrate），并把每个已声明的字段渲染为可编辑控件——在宿主上校验分节的那份 schema 对象，就是在浏览器里校验并驱动表单的那份对象，因此不存在第二份会漂移的表单定义。
+面向 settings 编辑器的 schema／草稿模型层。wire 侧的 `settings.describe` 携带每个 namespace 的序列化 schemastery schema（`schema.toJSON()` 的 ref 信封）；`rehydrateSchema` 用 `new Schema(json)` 将其还原（rehydrate）为活的校验器——在宿主上校验分节的那份 schema 对象，就是在浏览器里校验草稿的那份对象，因此客户端校验绝不会偏离 seam 侧的校验。编辑器各自渲染自己的控件（Models 页围绕它在此探测到的字段手写自己的卡片）；该包（package）不含任何 React，也不做任何渲染。
 
 ## 契约
 
-`SchemaForm` 是围绕**用户分节草稿**的受控组件：`draft` 是正在编辑的对象（绝不被原地修改；每次编辑都以新的根对象调用 `onChange`），`fallback` 则是用于展示继承值的解析值（schema 默认值 → 组合 base → 用户层）。字段只要出现在草稿中就被标记为**已覆盖**，并显示一个删除该键、回退到继承层的逐字段 Reset——判定采用存在性语义而非值比较，与 settings seam 的分层方式严格对应。
-
-控件按 schema 节点分派：`object` → 带标签的字段组（渲染 JSDoc `description`，`required` 字段加星标）；`string`/`number`/`boolean` → 以继承值为占位符的输入框；字面量 `union` → 下拉框，空选项表示「继承」；`array` → 按位置排列、可增删的行（数组在写入时整体替换）；`dict` → 按键排列的行，其中联合类型的 `sKey` 成为「新增」下拉框的词汇。`role('secret')` 渲染为**只写**的密码输入框：已存储的值永远不会送达（wire 会剥除它），占位状态由 `secrets` 槽位列表（`{path, set}`）提供。渲染器无法忠实编辑的节点（非字面量联合、转换（transform）节点）渲染为带提示的只读 JSON 视图，而不是直接消失——schema 字段绝不会被静默丢弃。
-
-`renderField(context)` 是感知角色的覆盖钩子：返回一个节点，即可替换单个叶子字段的默认控件。Models 设置页用它挂载与 `credentials.*` 通信的凭据引用控件（`role('credential-ref')`）——该包（package）自身始终不接触 wire，也没有副作用。
-
-`validateDraft(schema, draft)` 运行还原出的校验器并返回其失败消息，页面因此可以先校验再写入；路径辅助函数（`getPath`/`hasPath`/`setPath`/`deletePath`）对外暴露的不可变草稿编辑，与控件内部使用的是同一套。
+编辑的单元是**用户分节草稿**：一个以不可变方式编辑的普通对象（`setPath` 会物化中间对象，`deletePath` 即逐字段重置——去掉该键，解析值便回退到组合 base 与 schema 默认值）。字段只要出现在草稿中就被标记为**已覆盖**（`hasPath`）——判定采用存在性语义而非值比较，与 settings seam 的分层方式严格对应。`nodeAtPath` 解析可配置提供方目录 `settingsPath` 所寻址的 schema 节点（object 属性按名称解析，dict 条目经由 `inner`），编辑器因此可以在决定渲染什么之前，先探测某提供方的 profile 携带哪些字段（及其 `meta.role`）；无法解析的路径返回 `undefined`，调用方因此会大声降级，而不是渲染出错误的子树。`validateDraft(schema, draft)` 运行还原出的校验器并返回其失败消息，页面因此可以在写入前拒绝无效草稿。
 
 ## Model Experience
 
-无。该包渲染的是浏览器配置表单；这里没有任何内容进入模型请求。
+无。该包支撑的是浏览器配置编辑器；这里没有任何内容进入模型请求。
 
 #### KV Cache effect
 
@@ -24,7 +18,5 @@
 
 ## Known Limitations and Deferred Work
 
-- **校验是表单级的，而非逐字段**——`validateDraft` 报告 schemastery 的第一条失败消息（其中会点名 `$.path`）；逐字段的内联报错展示延后到出现需要它的第二个消费方再做。
-- **字符串内置为英文**——`labels` prop 可以覆盖每一条用户可见字符串，但包内没有接入语言环境词典的接线；本地化归嵌入它的页面所有。
-- **非字面量联合与转换节点只读渲染**——忠实编辑这些形状需要逐形状的控件；目前它们回退为带提示的 JSON 视图。
-- **数组编辑整体替换**——settings seam 同样不存在元素级合并；表单如实呈现该契约，而不是把它藏起来。
+- **校验是草稿级的，而非逐字段**——`validateDraft` 报告 schemastery 的第一条失败消息（其中会点名 `$.path`）；逐字段的报错映射延后到出现需要它的消费方再做。
+- **没有通用渲染器**——一个 schema 驱动的表单组件曾被构建出来，随后被手写的 Models 编辑器取代（[Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）；若未来有页面需要编辑任意分节，起点是这些辅助函数，而不是复活后的通用渲染器——除非该 note 的权衡发生变化。
