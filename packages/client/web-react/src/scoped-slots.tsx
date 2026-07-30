@@ -5,8 +5,9 @@
 import { Component, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
   SlotOwnershipError, StaleAuthorizationError,
-  type ChainRenderOpts, type HostObservable, type RenderOpts, type SessionMaybeProvideInfo,
-  type SessionProvideInfo, type SlotRenderer, type SlotRendererHost, type SlotScope, type StoredEntry,
+  type ChainRenderOpts, type HostObservable, type LocaleFace, type RenderOpts,
+  type SessionMaybeProvideInfo, type SessionProvideInfo, type SlotRenderer, type SlotRendererHost,
+  type SlotScope, type StoredEntry, type Translate,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   HostContext, SessionMaybeProvider, SessionProvider, SlotAssemblyError, maybeObservableHook,
@@ -160,6 +161,74 @@ function cachedSessionMaybeInject(
 }
 
 /**
+ * Locale `t` seat bindings, cached per (face, namespace, revision). The
+ * revision is part of the cache key ON PURPOSE: a locale switch mints a NEW
+ * function reference per namespace, so `React.memo` components taking `t`
+ * re-render through ordinary shallow comparison — freshness rides identity,
+ * no extra invalidation channel. Within one revision the reference is stable
+ * (memoized children do not churn on unrelated re-renders).
+ */
+const localeSeatCache = new WeakMap<LocaleFace, Map<string, { revision: number; t: Translate }>>()
+
+function localeSeat(face: LocaleFace, ns: string): Translate {
+  let perNs = localeSeatCache.get(face)
+  if (!perNs) {
+    perNs = new Map()
+    localeSeatCache.set(face, perNs)
+  }
+  const revision = face.getSnapshot().revision
+  const cached = perNs.get(ns)
+  if (cached && cached.revision === revision) return cached.t
+  const bound = face.bind(ns)
+  // Fresh wrapper per revision: bind() itself may return a stable reference.
+  const t: Translate = (key, params) => bound(key, params)
+  perNs.set(ns, { revision, t })
+  return t
+}
+
+const noopSubscribe = (): (() => void) => () => {}
+const zeroRevision = (): number => 0
+
+/**
+ * Per-face subscribe/getSnapshot closure pair. Cached by face identity: the
+ * face is one global source shared by every outlet, and uSES resubscribes
+ * whenever the subscribe reference changes — fresh closures per render would
+ * churn one unsubscribe/resubscribe pair per outlet per render.
+ */
+const localeSubscriptionCache = new WeakMap<LocaleFace, {
+  subscribe: (fn: () => void) => () => void
+  getRevision: () => number
+}>()
+
+function localeSubscription(face: LocaleFace): { subscribe: (fn: () => void) => () => void; getRevision: () => number } {
+  let cached = localeSubscriptionCache.get(face)
+  if (!cached) {
+    cached = {
+      subscribe: fn => face.subscribe(fn),
+      getRevision: () => face.getSnapshot().revision,
+    }
+    localeSubscriptionCache.set(face, cached)
+  }
+  return cached
+}
+
+/**
+ * Subscribe an outlet to the installed locale face's revision (0 while none
+ * is installed — exactly one uSES call either way, keeping hook order
+ * stable). Every outlet re-renders on a locale switch; entry bodies then
+ * re-derive their `t` seat at the new revision. The face must be installed
+ * before the first render that needs it — a face appearing later has no
+ * notification channel to already-mounted outlets.
+ */
+function useLocaleRevision(face: LocaleFace | undefined): number {
+  const subscription = face !== undefined ? localeSubscription(face) : undefined
+  return useSyncExternalStore(
+    subscription?.subscribe ?? noopSubscribe,
+    subscription?.getRevision ?? zeroRevision,
+  )
+}
+
+/**
  * Entry-identity React keys for chain boundaries. A chain outlet renders ONE
  * elected entry through an error boundary; without a key, a boundary that
  * failed on entry A would survive a re-election and keep a healthy entry B
@@ -241,6 +310,16 @@ function standardKit(
     // The useProjection seat (fifth framework hook): key-addressed cell
     // reader, bound per provide bundle (cached by info identity).
     kit['useProjection'] = projectionHook(info)
+  }
+  if (entry.locale !== undefined) {
+    const face = host.locale
+    // Loud assembly failure: locale is immediately-tier infrastructure; a
+    // declared namespace with no installed face is a miswired composition.
+    if (face === undefined) {
+      throw new SlotAssemblyError(
+        `entry declares locale namespace '${entry.locale}' but no locale face is installed (locale plugin missing from the composition?)`)
+    }
+    kit['t'] = localeSeat(face, entry.locale)
   }
   const store = scope === 'session-maybe' && info?.sessionId === undefined
     ? undefined
@@ -329,6 +408,9 @@ function SlotOutlet({ slotKey, ownerProps, opts }: {
     fn => host.subscribe(slotKey, fn),
     () => host.getVersion(slotKey),
   )
+  // Locale revision tick: a locale switch re-renders every outlet, and entry
+  // bodies re-derive their `t` seat at the new revision (fresh identity).
+  useLocaleRevision(host.locale)
   const sessionInfo = useSessionMaybeProvideInfo()
   const spec = host.specOf(slotKey)
   // Undeclared (or no-longer-declared) keys render empty: a declaring entry's
@@ -435,6 +517,7 @@ function RootOutlet({ ownerProps }: { ownerProps: object }) {
     fn => host.subscribe('root', fn),
     () => host.getVersion('root'),
   )
+  useLocaleRevision(host.locale)
   const entry = host.entriesOf('root')[0]
   if (!entry) throw new SlotAssemblyError("renderSlot('root') before any 'root' registration (boot order)")
   return (
