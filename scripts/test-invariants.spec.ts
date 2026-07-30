@@ -39,6 +39,18 @@ function requiredConfig() {
   })
 }
 
+function queuedReadinessConfig(
+  ctx: Context,
+  onPublished: (dispose: () => void) => void,
+) {
+  return z.transform(z.any(), () => {
+    queueMicrotask(() => {
+      onPublished(ctx.provide(TEST_INVARIANT_READY_SERVICE, true))
+    })
+    return {}
+  }, true)
+}
+
 function invalidConfigApply(): never {
   throw new Error('invalid plugin apply executed')
 }
@@ -186,12 +198,9 @@ describe('global test invariant host', () => {
         const plugin = {
           apply,
           Config: z.intersect([
-            z.transform(z.any(), () => {
-              queueMicrotask(() => {
-                disposeQueuedReadiness = ctx.provide(TEST_INVARIANT_READY_SERVICE, true)
-              })
-              return {}
-            }, true),
+            queuedReadinessConfig(ctx, (dispose) => {
+              disposeQueuedReadiness = dispose
+            }),
             requiredConfig(),
           ]),
         }
@@ -212,6 +221,52 @@ describe('global test invariant host', () => {
         expect(secondError).toBe(firstError)
         expect(fiber.state).toBe(FiberState.DISPOSED)
         expect(apply).not.toHaveBeenCalled()
+      },
+    )
+  })
+
+  it('retains a valid plugin failure when readiness wins the initial-probe race', async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
+        const ctx = new Context()
+        const failure = new Error('valid plugin apply failed')
+        const applied = deferred()
+        const apply = vi.fn(function validConfigApply() {
+          applied.resolve()
+          throw failure
+        })
+        let disposeQueuedReadiness: (() => void) | undefined
+        const plugin = {
+          apply,
+          Config: queuedReadinessConfig(ctx, (dispose) => {
+            disposeQueuedReadiness = dispose
+          }),
+        }
+
+        const fiber = ctx.plugin(plugin, {})
+        const returnedError = rejectionOf(fiber)
+        try {
+          await Promise.all([started, applied.promise])
+          expect(fiber.state).toBe(FiberState.FAILED)
+          expect(apply).toHaveBeenCalledOnce()
+          expect(ctx.registry.has(plugin)).toBe(true)
+          expect(ctx.registry.get(plugin)?.fibers).toHaveLength(1)
+
+          if (disposeQueuedReadiness === undefined) throw new Error('queued readiness was not published')
+          Reflect.deleteProperty(fiber.inject, TEST_INVARIANT_READY_SERVICE)
+          disposeQueuedReadiness()
+          release()
+
+          expect(await returnedError).toBe(failure)
+          expect(fiber.state).toBe(FiberState.FAILED)
+          expect(apply).toHaveBeenCalledOnce()
+          expect(ctx.registry.has(plugin)).toBe(true)
+          expect(ctx.registry.get(plugin)?.fibers).toHaveLength(1)
+        } finally {
+          Reflect.deleteProperty(fiber.inject, TEST_INVARIANT_READY_SERVICE)
+          disposeQueuedReadiness?.()
+          release()
+        }
       },
     )
   })

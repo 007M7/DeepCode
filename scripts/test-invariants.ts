@@ -85,7 +85,7 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
     config,
     getOuterStack,
   )
-  const initiallyPending = fiber.state === FiberState.PENDING
+  const initiallyPending = fiber.ctx.fiber.state === FiberState.PENDING
   host.barrierOwners.add(fiber.ctx.fiber)
   return joinInvariantStartup(fiber, host.ready, initiallyPending)
 }
@@ -212,16 +212,20 @@ function joinInvariantStartup(
   invariantReady: Promise<void>,
   disposeInitialFailure = false,
 ): PluginFiber {
+  // RegistryService returns a thenable wrapper whose context still points to
+  // the raw Fiber. Calling inherited await() on the wrapper would return and
+  // assimilate that thenable, accidentally following later plugin startup.
+  const rawFiber = fiber.ctx.fiber
   const initialized = disposeInitialFailure
-    ? fiber.await().catch(async (error: unknown) => {
+    ? rawFiber.await().catch(async (error: unknown) => {
       // Config validation is the only failure recorded while a gated fiber
       // is initially PENDING. Dispose it even if queued readiness publication
       // changes its state before this rejection handler runs.
-      await fiber.dispose()
+      await rawFiber.dispose()
       throw error
     })
     : Promise.resolve()
-  const readiness = initialized.then(() => invariantReady).then(() => fiber.await())
+  const readiness = initialized.then(() => invariantReady).then(() => rawFiber.await())
   const joined = Object.create(fiber) as PluginFiber
   joined.then = readiness.then.bind(readiness)
   return joined
