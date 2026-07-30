@@ -57,7 +57,10 @@ function ApprovalFlow({ pending, command }: { pending: PendingApproval; command?
     <div className={css.root} data-approval-key={pending.key}>
       <div className={css.card}>
         <div className={css.strip}><span className={css.dot} />等待审批</div>
-        <div className={css.body} data-approval-scroll="">
+        {/* Tab stop: the region scrolls once the command passes the cap and
+            holds nothing focusable of its own, so without one a keyboard-only
+            user cannot reach the command's tail before answering. */}
+        <div className={css.body} data-approval-scroll="" tabIndex={0} role="group" aria-label="审批详情">
           <div className={css.headline}>{pending.reason ?? `工具 ${pending.toolName} 请求越权执行`}</div>
           {command !== undefined && <div className={css.command}>{command}</div>}
         </div>

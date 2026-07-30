@@ -81,13 +81,15 @@
   word-break: break-all;
 }
 
-/* Card-level row, not body content: it carries the body's former bottom pad so
-   the resting card keeps the draft's metrics while the scroll cap applies. */
+/* Card-level row, not body content. Its padding reproduces the metrics the row
+   had inside the body: 14px above (the flex gap of 6 plus the row's 8px top
+   margin, neither of which reaches it out here) and the body's former 14px
+   bottom pad below, so the resting card is unchanged. */
 .actionRow {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding: 8px 16px 14px;
+  padding: 14px 16px 14px;
 }
 
 .allow,
