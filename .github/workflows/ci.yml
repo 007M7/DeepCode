@@ -122,6 +122,7 @@ jobs:
       # 8 × 6 instances = 48 workers worst case on 64 cores.
       DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '12' }}
       DSH_GATE_CONCURRENCY: '4'
+      NODE_OPTIONS: '--max-old-space-size=8192'
     steps:
       - uses: actions/checkout@v6
         with:
