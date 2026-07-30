@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-30-credential-boundaries-and-atomic-registration.md) | 中文
 
-> 范围：对[请求级 LLM（大语言模型）配置 seam](2026-07-29-request-level-llm-config-credentials.md)的第三轮评审——存下来的凭据落在哪里、谁能读到它，一次请求的事实如何保持为同一代，以及一组路由如何在不留空窗的前提下更换。本 note 与 [settings 写路径 note](2026-07-30-settings-write-path-integrity.md) 配套：本轮把那篇 note 的提供方修复套用到 `credentials-local`，并把其中的写锁提升进 `dsh-atomic-write`。
+> 范围：对[请求级 LLM（大语言模型）配置 seam](2026-07-29-request-level-llm-config-credentials.md)的存储与请求边界修正。后续的[只读凭据与静态路由](../simplification/2026-07-31-read-only-credentials-and-static-llm-routes.md)决策移除了凭据写入、共享原子写入器与可变注册；本 note 负责保留至今的机密边界与整次请求同代规则。
 
 ## 问题
 
@@ -24,17 +24,17 @@ Status: implemented
 
 **一次请求，一代设置。**DeepSeek 解析出的快照在端点旁一并携带凭据事实（字面密钥与引用），`resolveApiKey` 接收这份快照，而不再重新读取配置。被拒绝的那一代如今完全不再贡献任何东西。只有当一个 profile 完全没有点名凭据时，pi-ai 才交给提供方原生的发现流程；配置了引用却解析不到，就以 `MISSING_CREDENTIAL` 失败，并点名该路由与该引用。启动时的凭据探测被删除：它可能在凭据服务挂载之前就运行，并把每一种失败都报成密钥缺失，而第一次请求本就会给出准确的错误。
 
-**路由替换是注册表的操作，不是调用方的一串步骤。**`registerAdapter` 返回一个携带 `replace(providers)` 的句柄：候选集合先被完整校验（冲突、名称、提供方元数据），再在一个同步区段内完成替换。被拒绝的替换会让先前的路由保持注册并继续服务，而调用方的事实缓存只有在注册表确实持有新集合之后才会推进，因此改回可用配置时会重新生效。pi-ai 的注册事实按提供方排序，因此仅仅调换键顺序的设置文档不再算作路由变更。
+**提供方路由归组合所有。**`registerAdapter` 把一组非空路由绑定到调用方 fiber，并返回释放器。settings 无法创建或移除路由，也无法更改注册时捕获的重试策略，因此注册表无需替换生命周期，错误的 settings 快照也不会影响组合注册。
 
-**已提交的凭据写入采用收容式发布。**`Credentials.notifyUpdated` 逐个监听器扇出 `credentials/updated`；同步抛错与异步 rejection 都只记日志，不改变已提交操作的结果，而带 `INVARIANT` 代码的失败会在每个监听器都运行完之后重抛——与 settings seam 处理 `settings/updated` 的形状相同。`installSettingsSection` 的清理现在会区分它的两个触发来源：提供方脱离时仍回退到组合的 entry 配置并重新推导，而消费方自身卸载时立即返回，不再在拆卸过程中重新注册路由。
+**凭据解析没有发布生命周期。**该 seam 只读，消费方每个操作都会解析，因此外部变更无需缓存失效或事件。`installSettingsSection` 只在存活 scope 与组合配置项之间切换消费方的来源 thunk；已提交值直接通过该 thunk 读取。
 
 ## 曾考虑的替代方案
 
 - **用沙箱点名拒读 `$DSH_HOME/.env`**——已按 `readDenyPaths` 策略字段实现过（末尾一条 SBPL `deny file-read* file-write*`、一条 `/dev/null` 的 bwrap bind），又被它自己的证据推翻。bwrap 必须在自己 profile 已经置为只读的目录树内部创建该 bind 的挂载点，因此只要父目录不存在，它就会拒绝整次约束——那是每一台还没有存过凭据的主机，包括全新安装；Landlock 无法从它自己对 `/` 的读取授权中减去任何东西，于是每一次受限调用都会为一个它其实从未藏起的文件报 `partial`。一项在生效之处破坏约束、在不生效之处误报的保护，比一条写明的「没有保护」更糟。至于拒掉整个 harness home，早先另有理由被否：它同时覆盖 `sessions/`，而 `DSH_SESSION_JSONL` 是一项成文的、模型可见的能力。
 - **把 `DSH_HOME` 从模型的 bash 环境中移除**——作为纵深防御考虑过，最终按「有真实代价的表演」不予采纳：默认 home 是 agent（智能体）能自行重建的成文约定，而这个变量正是正当工具链定位 harness 状态的途径。这里并不存在一条需要它来补强的边界，藏起指针只会让这份缺席更难被看见。
 - **本轮就交付 OS 钥匙串提供方**——只有这个设计能让模型的进程真正读不到机密，而它是一个带三种平台后端的兄弟包（package）。把它与本轮评审的其余工作放在一起评估体量，会拖慢其他每一项修复；它被记录为那个延后的答案，而不是一个「也许」。
-- **做成 `replaceRegistration(previous, next)` 服务方法**——这是评审给出的形状，但它要求调用方自行携带上一个句柄，也允许它传入一个不匹配的句柄。把 `replace` 挂在注册句柄上，让归属关系变成结构性的：只有持有路由的那一项注册才能替换它们。
+- **可变的适配器注册句柄**：它可以使替换所有权成为结构关系，但当前提供方路由在组合时便已知，并且没有已交付的消费方需要变更能力。静态注册直接移除了这项生命周期。
 
 ## 后果
 
-`update()` 邻近的行为多了成文的失败模式：凭据写入现在可能因锁截止时间到期、或磁盘文档无法解析而失败，`describe()` 对它不会改写的多行条目报告 `writable: false`。`LlmAdapter` 的注册方无需改动即可继续工作（句柄本身仍可当作释放器调用），`DeepSeekConnectionOptions` 则新增了凭据字段，因此以编程方式构造该适配器必须提供 `apiKeyEnv`。延后事项：OS 钥匙串凭据提供方，以及针对两个写方编辑同一引用的逐值修订号检查（后写胜出仍是成文的解决方式）。
+本地提供方每次解析都会依次直接读取环境与 dotenv；修改、描述、写入锁和变更事件均不存在。`LlmAdapter` 注册方收到普通释放器；`DeepSeekConnectionOptions` 将凭据事实与端点一同携带，因此一代被拒绝的 settings 不可能只贡献密钥。OS 钥匙串提供方仍是将机密与同一用户身份下的模型工具隔离的实现路径。

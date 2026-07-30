@@ -6,8 +6,7 @@
  * key through the optional credential seam (`ctx.credentials`), so a changed
  * base URL, catalog, or key reaches the very next request without restarting
  * anything, while an in-flight stream keeps the facts it started with. The
- * one registration-captured fact — the retry policy — re-registers the route
- * in place when it changes.
+ * registration-captured facts stay composition-fixed.
  * @module @deepseek-ai/dsh-llm-deepseek
  */
 
@@ -16,7 +15,7 @@ import z from 'schemastery'
 import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
@@ -167,12 +166,13 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
 }
 
 export function apply(ctx: Context, config: Config): void {
+  const compositionOptions = resolveAdapterOptions(config)
   let current: () => Config = () => config
-  let lastRaw: Config | undefined
-  let lastGood: ResolvedDeepSeekOptions | undefined
+  let lastRaw: Config = config
+  let lastGood = compositionOptions
   const options = (): ResolvedDeepSeekOptions => {
     const raw = current()
-    if (raw === lastRaw && lastGood !== undefined) return lastGood
+    if (raw === lastRaw) return lastGood
     try {
       const next = resolveAdapterOptions(raw)
       lastRaw = raw
@@ -182,14 +182,12 @@ export function apply(ctx: Context, config: Config): void {
       // Static composition resolves before anything registers, so this branch
       // only sees a live settings snapshot failing a beyond-schema bound:
       // keep serving the last good facts and say so once per bad snapshot.
-      if (lastGood === undefined) throw error
       lastRaw = raw
       ctx.logger.error('llm-deepseek: keeping the last good configuration after an invalid settings section')
       ctx.logger.error(error)
       return lastGood
     }
   }
-  options()
 
   const resolveApiKey = async (connection: ResolvedDeepSeekOptions): Promise<string> => {
     // Every credential fact comes from the caller's snapshot, so a rejected
@@ -199,7 +197,7 @@ export function apply(ctx: Context, config: Config): void {
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
-      if (hit !== undefined) return hit.value
+      if (hit !== undefined) return hit
     } else {
       // Without the seam, keep the historical ambient fallback so a plain
       // cordis.yml composition works from the environment alone.
@@ -207,33 +205,18 @@ export function apply(ctx: Context, config: Config): void {
       if (ambient !== undefined && ambient.length > 0) return ambient
     }
     throw new LlmError(
-      `llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials`
-      + ` service (the web Models page writes it), export ${ref} in the launching environment, or — as a`
-      + ' last resort — set a literal "apiKey" in the llm-deepseek settings section',
+      `llm-deepseek: no API key for provider route "${PROVIDER}"; provide ${ref} through the credential`
+      + ' provider or launching environment, or set a literal "apiKey" in the llm-deepseek settings section',
       'MISSING_CREDENTIAL',
     )
   }
 
   const adapter = new DeepSeekAdapter({ options, resolveApiKey })
-  // Route effects bind to this apply fiber via the stable `ctx` reference,
-  // even when a swap runs inside the scoped settings callback below.
-  let disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
-  let registeredPolicy = options().retryPolicy
-  const ensureRegistrationFacts = (): void => {
-    const policy = options().retryPolicy
-    if (deepEqualJson(policy, registeredPolicy)) return
-    // The registry captures the retry policy at registration, so it is the one
-    // fact per-request resolution cannot refresh: swap the registration in one
-    // synchronous section (same adapter instance, no NO_ADAPTER window).
-    disposeRoute()
-    disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
-    registeredPolicy = policy
-  }
+  ctx.llm.registerAdapter([PROVIDER], adapter)
 
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source) => {
       current = source
     },
-    onChange: ensureRegistrationFacts,
   })
 }

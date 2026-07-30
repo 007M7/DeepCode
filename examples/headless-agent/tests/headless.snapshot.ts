@@ -191,12 +191,11 @@ describe('headless stream-json snapshots', () => {
       prepare: (cwd) => { runCwd = cwd },
     })
 
-    // The guidance leads with the credential store — the path that keeps the
-    // secret out of configuration files — and offers a literal key last.
+    // The guidance names the external credential sources and the literal
+    // configuration escape hatch without promising an unshipped writer UI.
     expect(result.stderr).toBe(
       'dsh-cli-demo: turn 1 failed at step 1: llm-deepseek: no API key for provider route "deepseek";'
-      + ' store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),'
-      + ' export DEEPSEEK_API_KEY in the launching environment, or — as a last resort — set a literal'
+      + ' provide DEEPSEEK_API_KEY through the credential provider or launching environment, or set a literal'
       + ' "apiKey" in the llm-deepseek settings section\n',
     )
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)

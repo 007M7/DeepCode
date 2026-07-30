@@ -3,10 +3,9 @@
  * provider routes; requests select a profile by provider and resolve the
  * model dynamically from pi-ai's installed catalog. Profile facts resolve per
  * request over the optional `llm-pi-ai` user-settings section and the
- * optional credential seam, so a changed key, endpoint, or knob reaches the
- * next request without a restart; a changed *route set* (or a route's
- * registration-captured retry policy) re-registers the same adapter instance
- * in place.
+ * optional credential seam, so a changed key, endpoint, or request knob
+ * reaches the next request without a restart. Provider routes and retry
+ * policies stay composition-fixed.
  *
  * ```yaml
  * - id: llm
@@ -30,7 +29,6 @@
 
 import type { Context } from 'cordis'
 import { LlmError } from '@deepseek-ai/dsh-llm'
-import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
 import { Config, resolveProfiles } from './config.ts'
@@ -59,14 +57,19 @@ function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderPro
 
 /** Register one generic pi-ai adapter for all configured provider routes. */
 export function apply(ctx: Context, config: Config): void {
+  const compositionProfiles = resolveProfiles(config.providers)
+  const compositionFacts = registrationFacts(compositionProfiles)
   let current: () => Config = () => config
-  let lastRaw: Config | undefined
-  let lastGood: ReadonlyMap<string, ResolvedPiAiProviderProfile> | undefined
+  let lastRaw: Config = config
+  let lastGood: ReadonlyMap<string, ResolvedPiAiProviderProfile> = compositionProfiles
   const profiles = (): ReadonlyMap<string, ResolvedPiAiProviderProfile> => {
     const raw = current()
-    if (raw === lastRaw && lastGood !== undefined) return lastGood
+    if (raw === lastRaw) return lastGood
     try {
       const next = resolveProfiles(raw.providers)
+      if (!deepEqualJson(registrationFacts(next), compositionFacts)) {
+        throw new Error('llm-pi-ai: provider routes and retry policies are composition-fixed')
+      }
       lastRaw = raw
       lastGood = next
       return next
@@ -74,14 +77,12 @@ export function apply(ctx: Context, config: Config): void {
       // Static composition resolves before anything registers, so this branch
       // only sees a live settings snapshot failing catalog or bound checks:
       // keep serving the last good profiles and say so once per bad snapshot.
-      if (lastGood === undefined) throw error
       lastRaw = raw
       ctx.logger.error('llm-pi-ai: keeping the last good profiles after an invalid settings section')
       ctx.logger.error(error)
       return lastGood
     }
   }
-  profiles()
 
   const resolveApiKey = async (
     provider: string,
@@ -97,55 +98,25 @@ export function apply(ctx: Context, config: Config): void {
     if (ref === undefined) return undefined
     const credentials = ctx.get('credentials')
     const hit = credentials !== undefined
-      ? (await credentials.resolve(ref))?.value
+      ? await credentials.resolve(ref)
       // Without the seam, read exactly the named variable so a plain
       // cordis.yml composition works from the environment alone.
       : process.env[ref]
     if (hit !== undefined && hit.length > 0) return hit
     throw new LlmError(
       `llm-pi-ai: no credential for provider route "${provider}"; its profile resolves ${ref}, which is not`
-      + ` set — store ${ref} through the credentials service (the web Models page writes it) or export it,`
+      + ` set — provide ${ref} through the credential provider or launching environment,`
       + ' and remove apiKeyEnv only if this provider should authenticate from pi-ai\'s own environment discovery',
       'MISSING_CREDENTIAL',
     )
   }
 
   const adapter = new PiAiAdapter({ profiles, resolveApiKey })
-  // Route effects bind to this apply fiber via the stable `ctx` reference,
-  // even when a swap runs inside the scoped settings callback below. A bare
-  // mount (zero routes) is the dormant posture: nothing registers until a
-  // settings section supplies profiles, and routes drop when it empties.
-  let registration: AdapterRegistrationHandle | undefined
-  let registeredFacts: unknown
-  const ensureRegistrationFacts = (): void => {
-    const facts = registrationFacts(profiles())
-    if (deepEqualJson(facts, registeredFacts)) return
-    // The registry captures the route set and each route's retry policy at
-    // registration, so a change to either must re-register. The swap is
-    // atomic (same adapter instance, validated before anything moves): a
-    // conflicting route leaves the previous routes serving requests, and
-    // `registeredFacts` only advances once the registry actually holds the
-    // new set — so returning to a working configuration always re-applies.
-    const routes = [...profiles().keys()]
-    if (registration === undefined) {
-      // Dormant bare mount: nothing is registered until a section supplies
-      // profiles, and an empty section keeps it that way.
-      if (routes.length === 0) {
-        registeredFacts = facts
-        return
-      }
-      registration = ctx.llm.registerAdapter(routes, adapter)
-    } else {
-      registration.replace(routes)
-    }
-    registeredFacts = facts
-  }
-  ensureRegistrationFacts()
+  ctx.llm.registerAdapter([...compositionProfiles.keys()], adapter)
 
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source) => {
       current = source
     },
-    onChange: ensureRegistrationFacts,
   })
 }

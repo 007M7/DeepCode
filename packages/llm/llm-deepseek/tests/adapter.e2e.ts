@@ -69,7 +69,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
       const ctx = new Context()
       contexts.push(ctx)
       await ctx.plugin(LlmService)
-      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env') })
       await ctx.plugin(LlmDeepSeek, {})
 
       const result = await assemble(ctx, {

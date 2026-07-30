@@ -3,8 +3,7 @@ import { Context } from 'cordis'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import LlmService, { LlmAdapter } from '@deepseek-ai/dsh-llm'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import LlmService from '@deepseek-ai/dsh-llm'
 import { CredentialsLocal } from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SettingsLocal } from '@deepseek-ai/dsh-settings-local'
@@ -13,15 +12,6 @@ import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const NS = settingsNamespace('llm-pi-ai')
-
-/** Minimal foreign adapter: only needs to own a route the pi-ai plugin then wants. */
-class StubAdapter extends LlmAdapter {
-
-  override async * stream(): AsyncIterable<never> {
-    throw new Error('stub adapter must never stream')
-  }
-}
-
 const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
@@ -36,96 +26,69 @@ async function home(): Promise<string> {
   return dir
 }
 
-/** Real dynamic composition mirroring the deepseek twin's harness. */
+/** Real dynamic composition mirroring the DeepSeek twin's harness. */
 async function boot(dir: string, config: LlmPiAi.Config): Promise<Context> {
   const ctx = new Context()
-  cleanups.push(async () => {
-    await ctx.fiber.dispose()
-  })
+  cleanups.push(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(LlmService)
   await ctx.plugin(SettingsLocal, { path: join(dir, 'settings.yaml'), watch: false })
-  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env') })
   await ctx.plugin(LlmPiAi, config)
   return ctx
 }
 
 describe('request-level dynamic profiles', () => {
-  it('mounts bare and dormant, then registers routes the moment settings supply providers', async () => {
-    vi.stubEnv('PI_DYNAMIC_KEY', '')
-    const dir = await home()
-    await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-from-settings\n')
-    const server = await mockServer([{ events: textEvents }])
-    // The exact product posture: `- id: llm-pi-ai` with no config at all.
-    const ctx = await boot(dir, {})
-
-    expect(ctx.llm.listProviders()).toEqual([])
-    await ctx.settings.update(NS, {
-      providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },
-    })
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek'])
-    await expect(ctx.llm.listModels('deepseek')).resolves.not.toHaveLength(0)
-
-    const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
-    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
-    expect(server.headers[0]?.authorization).toBe('Bearer pk-from-settings')
-
-    // Emptying the user layer returns the adapter to its dormant state.
-    await ctx.settings.replace(NS, {})
-    expect(ctx.llm.listProviders()).toEqual([])
-  })
-
-  it('adds a provider route from settings and drops it when the user layer resets', async () => {
-    const dir = await home()
-    const server = await mockServer([{ events: textEvents }])
-    const ctx = await boot(dir, {
-      providers: { openai: { apiKey: 'k', baseURL: 'http://127.0.0.1:1/v1' } },
-    })
-
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
-    await ctx.settings.update(NS, {
-      providers: { deepseek: { apiKey: 'live-key', baseURL: server.url } },
-    })
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai', 'deepseek'])
-
-    const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
-    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
-    expect(server.headers[0]?.authorization).toBe('Bearer live-key')
-
-    // Reset the user layer: the settings-born route unregisters, the
-    // composition route stays.
-    await ctx.settings.replace(NS, {})
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
-    await expect(assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toMatchObject({ code: 'NO_ADAPTER' })
-  })
-
-  it('rotates the per-request credential referenced by apiKeyEnv', async () => {
+  it('uses the next endpoint and credential while keeping the route fixed', async () => {
     vi.stubEnv('PI_DYNAMIC_KEY', '')
     const dir = await home()
     await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-one\n')
-    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const serverA = await mockServer([{ events: textEvents }])
+    const serverB = await mockServer([{ events: textEvents }])
     const ctx = await boot(dir, {
-      providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },
+      providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: serverA.url } },
     })
 
     await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
-    expect(server.headers[0]?.authorization).toBe('Bearer pk-one')
+    expect(serverA.headers[0]?.authorization).toBe('Bearer pk-one')
 
-    await ctx.credentials.set(credentialRef('PI_DYNAMIC_KEY'), 'pk-two')
+    await ctx.settings.update(NS, { providers: { deepseek: { baseURL: serverB.url } } })
+    await writeFile(join(dir, '.env'), 'PI_DYNAMIC_KEY=pk-two\n')
     await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
-    expect(server.headers[1]?.authorization).toBe('Bearer pk-two')
+    expect(serverA.requests).toHaveLength(1)
+    expect(serverB.headers[0]?.authorization).toBe('Bearer pk-two')
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek'])
   })
 
-  it('re-registers routes in place when a captured retry policy changes', async () => {
+  it('rejects settings-born routes and keeps the composition profile serving', async () => {
     const dir = await home()
-    const ctx = await boot(dir, { providers: { openai: {} } })
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await boot(dir, {
+      providers: { openai: { apiKey: 'pk', baseURL: `${server.url}/v1` } },
+    })
 
     await ctx.settings.update(NS, {
+      providers: { anthropic: { apiKey: 'other' } },
+    })
+    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
+    await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
+    expect(server.paths).toEqual(['/v1/responses'])
+  })
+
+  it('keeps the registration retry policy composition-fixed', async () => {
+    const dir = await home()
+    const ctx = await boot(dir, {
       providers: {
         openai: {
-          retryPolicy: { mode: 'always', backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 } },
+          retryPolicy: {
+            mode: 'always',
+            backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 },
+          },
         },
       },
+    })
+
+    await ctx.settings.update(NS, {
+      providers: { openai: { retryPolicy: { mode: 'normal', maxRetries: 0 } } },
     })
     expect(ctx.llm.providerRetryPolicy('openai')).toEqual({
       mode: 'always',
@@ -133,57 +96,5 @@ describe('request-level dynamic profiles', () => {
       maxDelayMs: 100,
       jitterRatio: 0.2,
     })
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
-  })
-
-  it('keeps the last good profiles when a settings snapshot names an unknown provider', async () => {
-    const dir = await home()
-    const ctx = await boot(dir, { providers: { openai: {} } })
-
-    // Schema-valid but catalog-invalid: the resolver rejects it and the
-    // last good route set keeps serving.
-    await ctx.settings.update(NS, { providers: { 'not-a-real-provider': {} } })
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai'])
-  })
-
-  it('keeps serving its routes when a settings-born route collides with another adapter', async () => {
-    const dir = await home()
-    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-    const ctx = await boot(dir, { providers: { openai: { apiKey: 'pk', baseURL: `${server.url}/v1` } } })
-    // Another adapter owns `anthropic`; the registry must refuse to hand it over.
-    ctx.llm.registerAdapter(['anthropic'], new StubAdapter())
-
-    await ctx.settings.update(NS, {
-      providers: {
-        openai: { apiKey: 'pk', baseURL: `${server.url}/v1` },
-        anthropic: { apiKey: 'other' },
-      },
-    })
-
-    // The conflicting swap was refused whole: the previous route set still
-    // owns openai (an eager dispose would have dropped it), and anthropic
-    // still belongs to its original adapter.
-    expect(ctx.llm.listProviders().map(provider => provider.id).sort()).toEqual(['anthropic', 'openai'])
-    const result = await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
-    expect(result.finish.kind).toBe('error')
-    expect(server.paths).toEqual(['/v1/responses'])
-
-    // Reverting to the working configuration re-applies, even though its
-    // facts equal the ones the registry already holds.
-    await ctx.settings.replace(NS, {})
-    expect(ctx.llm.listProviders().map(provider => provider.id).sort()).toEqual(['anthropic', 'openai'])
-    await assemble(ctx, { provider: 'openai', model: 'gpt-4.1', messages: [] })
-    expect(server.paths).toEqual(['/v1/responses', '/v1/responses'])
-  })
-
-  it('ignores a settings document that merely reorders its provider keys', async () => {
-    const dir = await home()
-    const ctx = await boot(dir, { providers: { openai: {}, anthropic: {} } })
-    const before = ctx.llm.listProviders().map(provider => provider.id)
-
-    // Same routes, different YAML key order: nothing about the registration
-    // changed, so no swap should happen at all.
-    await ctx.settings.update(NS, { providers: { anthropic: {}, openai: {} } })
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(before)
   })
 })

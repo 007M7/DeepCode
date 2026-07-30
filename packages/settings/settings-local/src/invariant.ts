@@ -16,7 +16,7 @@ export const inject = ['invariants']
 
 /**
  * No runtime invariant: this provider's contracts are file round-trip,
- * watcher timing, and atomic-write behavior — IO effects proven by package
+ * watcher timing, and atomic replacement behavior — IO effects proven by package
  * tests; the in-process commit relation is owned by `@deepseek-ai/dsh-settings`.
  */
 const install: InvariantInstaller = () => {}

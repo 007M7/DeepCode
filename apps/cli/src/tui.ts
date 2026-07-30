@@ -123,9 +123,9 @@ export async function runTui(
   }
   installFailLoud(NAME)
   // The bin already loaded the invoking directory's .env, and that is the
-  // whole environment: $DSH_HOME/.env is credentials-local's writable store,
-  // and hoisting it would make every stored key read as a read-only ambient
-  // override on the next run — unrotatable from the TUI or the web page.
+  // whole environment: credentials-local reads $DSH_HOME/.env on demand, and
+  // hoisting it would make every stored key an ambient override whose later
+  // file rotations cannot take effect.
   // The environment is settled, so switching the workspace here cannot alter
   // its precedence. The cwd IS the workspace seam: the shipped config
   // resolves the session cwd and the HMR watch root from it, so one chdir moves

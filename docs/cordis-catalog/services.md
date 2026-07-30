@@ -490,49 +490,21 @@ Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/comp
 
 ## `ctx.credentials` — `Credentials` (abstract seam)
 
-Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.
+Abstract read-only credential service.
 
 ```ts cordis-catalog
 /**
- * Resolve one reference to its current value. Resolution is per call:
- * consumers re-resolve at each operation and must not cache across
- * operations — that per-operation read is what makes a changed credential
- * reach the next operation without a restart.
+ * Resolve one reference to its current non-empty value. Consumers call once
+ * per operation and do not cache across operations.
  * @param ref - the reference to resolve.
- * @returns the value and its source, or `undefined` while unconfigured.
+ * @returns the current value, or `undefined` while unconfigured.
  */
-abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>
-
-/**
- * Describe one reference for configuration surfaces without exposing the
- * value.
- * @param ref - the reference to describe.
- * @returns configured state, supplying source, and writability.
- */
-abstract describe(ref: CredentialRef): Promise<CredentialInfo>
-
-/**
- * Durably store one value in the provider-managed writable source. Rejects
- * while a read-only source shadows the reference — the write would appear
- * to succeed while resolution keeps returning the shadowing value — and
- * rejects an empty value (use {@link unset}).
- * @param ref - the reference to store.
- * @param value - the non-empty secret value.
- */
-abstract set(ref: CredentialRef, value: string): Promise<void>
-
-/**
- * Remove one reference from the provider-managed writable source; removing
- * an absent reference is a no-op. Rejects while a read-only source shadows
- * the reference, like {@link set}.
- * @param ref - the reference to remove.
- */
-abstract unset(ref: CredentialRef): Promise<void>
+abstract resolve(ref: CredentialRef): Promise<string | undefined>
 ```
 
-Types: [CredentialInfo](../core-data-structures/credentials.md) · [CredentialRef](../core-data-structures/credentials.md) · [ResolvedCredential](../core-data-structures/credentials.md)
+Types: [CredentialRef](../core-data-structures/credentials.md)
 
-Source: [`packages/credentials/credentials/src/index.ts:77`](../../packages/credentials/credentials/src/index.ts)
+Source: [`packages/credentials/credentials/src/index.ts:34`](../../packages/credentials/credentials/src/index.ts)
 
 ## `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
 
@@ -790,9 +762,9 @@ The abstract `llm` service: an adapter registry plus a streaming model-call surf
  * Disposed with the fiber.
  * @param providers - every provider route this adapter should serve.
  * @param adapter - the adapter that streams calls for those providers.
- * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.
+ * @returns the disposer that unregisters all routes.
  */
-registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle
+registerAdapter(providers: string[], adapter: LlmAdapter): () => void
 
 /**
  * Describe provider routes with a registered adapter.
@@ -864,9 +836,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:215`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:191`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

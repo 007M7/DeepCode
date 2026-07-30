@@ -10,7 +10,7 @@
 
 ### 公开 API
 
-- `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle` 为给定提供方路由注册一个适配器实例。注册要么全部成功，要么全部不生效，并且会随调用 fiber 一起 dispose（资源释放）。返回的释放器还携带 `replace(providers)`：候选路由集合会在任何东西变动之前完整校验，因此与另一适配器冲突时，当前路由保持注册且继续服务，而替换本身是一个同步区段，不存在可观察的空档。`replace([])` 合法——一个持有零条路由的注册——这与空的初始注册不同。
+- `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): () => void` 为一组非空且由组合拥有的路由注册一个适配器实例。注册要么全部成功，要么全部不生效，会随调用 fiber 一起 dispose（资源释放），并返回显式释放器。
 - `ctx.llm.listProviders(): LlmProviderInfo[]` 按注册顺序描述已注册提供方路由。
 - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方重试策略，并解析 normal 默认值。
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` 发现某个已注册提供方当前公布的模型。
@@ -19,7 +19,7 @@
 - `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 解析配置并将其当前适配器注册捕获为一次可取消、一次性调用。
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` 将一次模型调用流式输出为原始分片（token 级增量）。消费方使用 `BlockAssembler` 将分片组装为块／消息。
 
-`LlmService` 保留来自最终适配器选择、同步 dispatch、iterator 构造与迭代的错误，并将其溯源绑定到该次模型调用返回的精确流句柄。`isLlmAdapterFailure(stream, value)` 只报告该调用最终适配器边界的错误；`llmFailureOf(stream, value)` 返回关联的不可变 `LlmFailure`；`llmRetryPolicyOf(stream)` 返回在该边界选中的确切注册所对应的不可变策略，即使之后释放或替换路由也不变。未到达最终适配器的调用没有服务策略。嵌套模型调用、`llm/stream` middleware 和下游消费方失败对外层调用仍未分类。分类绝不替换或更改适配器原有的带代码 `Error`。
+`LlmService` 保留来自最终适配器选择、同步 dispatch、iterator 构造与迭代的错误，并将其溯源绑定到该次模型调用返回的精确流句柄。`isLlmAdapterFailure(stream, value)` 只报告该调用最终适配器边界的错误；`llmFailureOf(stream, value)` 返回关联的不可变 `LlmFailure`；`llmRetryPolicyOf(stream)` 返回在该边界选中的确切注册所对应的不可变策略，即使路由后来更换所有者也不变。未到达最终适配器的调用没有服务策略。嵌套模型调用、`llm/stream` middleware 和下游消费方失败对外层调用仍未分类。分类绝不替换或更改适配器原有的带代码 `Error`。
 
 提供方与模型元数据是发现接口，不是路由白名单。`registerAdapter()` 仍拥有提供方排他性，并为每条路由捕获适配器的重试策略；适配器则可以接受 `listModels()` 中不存在的模型 id，消费方禁止因模型未列出而拒绝请求。返回的 selector 元数据与输入脱离，无效或重复适配器配置项会以 `INVALID_ADAPTER` 或 `INVALID_CATALOG` 失败。
 

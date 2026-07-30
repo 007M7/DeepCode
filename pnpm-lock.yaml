@@ -273,9 +273,6 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../packages/llm/llm-deepseek
-      '@deepseek-ai/dsh-llm-pi-ai':
-        specifier: workspace:^
-        version: link:../../packages/llm/llm-pi-ai
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:^
         version: link:../../packages/llm/llm-retry
@@ -2318,9 +2315,6 @@ importers:
 
   packages/credentials/credentials-local:
     dependencies:
-      chokidar:
-        specifier: ^4.0.3
-        version: 4.0.3
       dotenv:
         specifier: ^17.2.0
         version: 17.4.2
@@ -2328,9 +2322,6 @@ importers:
         specifier: ^3.18.0
         version: 3.18.0
     devDependencies:
-      '@deepseek-ai/dsh-atomic-write':
-        specifier: workspace:^
-        version: link:../../util/atomic-write
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../credentials
@@ -4334,9 +4325,6 @@ importers:
         specifier: ^2.9.0
         version: 2.9.0
     devDependencies:
-      '@deepseek-ai/dsh-atomic-write':
-        specifier: workspace:^
-        version: link:../../util/atomic-write
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -5501,15 +5489,6 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:^
         version: link:../../llm/llm
-      cordis:
-        specifier: ^4.0.0-rc.7
-        version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
-
-  packages/util/atomic-write:
-    devDependencies:
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../support/invariants
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)

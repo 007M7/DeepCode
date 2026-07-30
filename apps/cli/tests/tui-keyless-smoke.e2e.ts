@@ -359,10 +359,10 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     // SURFACE OVERLAY inserted, not one the base declares — proving a later
     // patch list reaches a row an earlier one inserted. The single `!!js`
     // expression prefers the PERSONAL variable, so the welcome can only render
-    // the project value while the harness home's .env — the credential store
-    // of `dsh-credentials-local` — is NOT hoisted into `process.env`; hoisting
-    // it would make every stored key read as a read-only launch override on
-    // the next run and hand it to every subprocess the agent starts.
+    // the project value while the harness home's .env — the document read by
+    // `dsh-credentials-local` — is NOT hoisted into `process.env`; hoisting it
+    // would make every stored key a launch override and hand it to every
+    // subprocess the agent starts.
     const output = await smoke({
       label: 'dsh personal overlay',
       tempDirPrefix: 'dsh-personal-overlay-',

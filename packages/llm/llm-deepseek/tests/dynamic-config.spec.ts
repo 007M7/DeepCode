@@ -4,7 +4,6 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
-import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SettingsLocal } from '@deepseek-ai/dsh-settings-local'
@@ -13,7 +12,6 @@ import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const NS = settingsNamespace('llm-deepseek')
-const KEY_REF = credentialRef('DEEPSEEK_API_KEY')
 
 const cleanups: Array<() => Promise<void>> = []
 
@@ -36,9 +34,8 @@ interface Harness {
 
 /**
  * Real dynamic composition: llm + settings-local + credentials-local +
- * llm-deepseek over one temp harness home. `watch: false` keeps every change
- * flowing through the in-process write path, which is deterministic; external
- * file watching is the providers' own covered concern.
+ * llm-deepseek over one temp harness home. Settings updates use their owning
+ * write path; credentials are edited externally and read on demand.
  */
 async function boot(dir: string, config: object): Promise<Harness> {
   const ctx = new Context()
@@ -48,7 +45,7 @@ async function boot(dir: string, config: object): Promise<Harness> {
   await ctx.plugin(LlmService)
   const settingsFiber = ctx.plugin(SettingsLocal, { path: join(dir, 'settings.yaml'), watch: false })
   await settingsFiber
-  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env') })
   await ctx.plugin(LlmDeepSeek, config)
   return { ctx, settingsFiber }
 }
@@ -70,7 +67,7 @@ describe('request-level dynamic configuration', () => {
     expect(serverA.headers[0]?.authorization).toBe('Bearer first-key')
 
     await ctx.settings.update(NS, { baseURL: serverB.url })
-    await ctx.credentials.set(KEY_REF, 'second-key')
+    await writeFile(join(dir, '.env'), 'DEEPSEEK_API_KEY=second-key\n')
 
     await prompt(ctx)
     // No restart, no re-registration: the next request resolved both facts.
@@ -97,7 +94,7 @@ describe('request-level dynamic configuration', () => {
     const { ctx } = await boot(dir, { baseURL: server.url })
 
     await expect(prompt(ctx)).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
-    await ctx.credentials.set(KEY_REF, 'sk-arrived')
+    await writeFile(join(dir, '.env'), 'DEEPSEEK_API_KEY=sk-arrived\n')
     await prompt(ctx)
     expect(server.headers[0]?.authorization).toBe('Bearer sk-arrived')
   })
@@ -113,12 +110,19 @@ describe('request-level dynamic configuration', () => {
     ])
   })
 
-  it('re-registers the route in place when the captured retry policy changes', async () => {
+  it('keeps the registration retry policy composition-fixed', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+    const { ctx } = await boot(dir, {
+      apiKey: 'k',
+      baseURL: 'http://127.0.0.1:1',
+      retryPolicy: {
+        mode: 'always',
+        backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 },
+      },
+    })
 
     await ctx.settings.update(NS, {
-      retryPolicy: { mode: 'always', backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 } },
+      retryPolicy: { mode: 'normal', maxRetries: 0 },
     })
     expect(ctx.llm.providerRetryPolicy('deepseek')).toEqual({
       mode: 'always',
