@@ -246,7 +246,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       timeout: 5_000,
     }).toBe(1)
     expect(await page.getByText('The exact summary remains available.', { exact: false }).count()).toBeGreaterThan(0)
-    // Collapse again so the aria golden captured after this case is unaffected.
+    // Restore the shared page state for any later case.
     await marker.click()
     await expect.poll(() => marker.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
   })

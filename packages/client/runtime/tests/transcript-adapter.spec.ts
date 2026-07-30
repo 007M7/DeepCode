@@ -316,15 +316,7 @@ describe('TranscriptAdapter', () => {
     expect(adapter.nodes()[0]).toMatchObject({ kind: 'tool-result', isError: true, error: { code: 'boom' } })
   })
 
-  it('exposes the in-window call index for runningCalls material', () => {
-    const adapter = new TranscriptAdapter()
-    adapter.reset([ev.toolCall(0, 1, 'c9', 'slow', '{}')])
-    expect(adapter.callIndex.get('c9')).toMatchObject({ name: 'slow', turn: 1 })
-    adapter.append(ev.toolCall(1, 1, 'c10', 'fast', '{}'))
-    expect(adapter.callIndex.size).toBe(2)
-  })
-
-  it('attaches wire views: callView into the call index, resultView onto the node by seq', () => {
+  it('attaches wire views to the materialized result node', () => {
     const adapter = new TranscriptAdapter()
     const callView = { for: 'call' as const, view: { card: 'terminal' as const, command: 'ls' } }
     const resultView = { for: 'result' as const, view: { card: 'generic' as const, title: '完成' } }
@@ -332,7 +324,6 @@ describe('TranscriptAdapter', () => {
       ev.toolCall(0, 1, 'c1', 'bash', '{"cmd":"ls"}'),
       ev.toolResult(1, 1, 'c1', 'listing'),
     ], [callView, resultView] as never)
-    expect(adapter.callIndex.get('c1')).toMatchObject({ callView: { card: 'terminal' } })
     expect(adapter.nodes().find(n => n.kind === 'tool-result')).toMatchObject({
       callView: { card: 'terminal' }, resultView: { card: 'generic', title: '完成' },
     })
@@ -343,7 +334,6 @@ describe('TranscriptAdapter', () => {
     adapter.reset(plainTurn(0, 0, 'a', 'b')) // no views argument
     adapter.append(ev.toolCall(6, 1, 'c2', 'echo', '{}'), { for: 'call', view: { card: 'generic', title: '回声' } } as never)
     adapter.append(ev.toolResult(7, 1, 'c2', 'ok')) // no view on the result
-    expect(adapter.callIndex.get('c2')).toMatchObject({ callView: { title: '回声' } })
     expect(adapter.nodes().find(n => n.kind === 'tool-result')).toMatchObject({
       callView: { title: '回声' }, resultView: null,
     })
