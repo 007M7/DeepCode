@@ -46,10 +46,14 @@
   white-space: pre;
 }
 
-/* A file header: the path in the primary tone, set apart by weight. */
+/* A file header: the path in the primary tone, set apart by weight. The copy
+   button floats over this first row's top-right corner, so reserve space at the
+   line's end for it — a long path scrolls under the button otherwise, and the
+   button's hit area would eat clicks on the path's tail. */
 .path {
   color: var(--dsw-alias-label-primary);
   font-weight: 600;
+  padding-right: 56px;
 }
 
 /* A same-file second hunk's separator (a scattered edit), in the dim tone. */

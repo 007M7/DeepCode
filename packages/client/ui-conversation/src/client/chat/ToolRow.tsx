@@ -83,9 +83,10 @@ export function ToolRow({
   // A row that names a single file keeps one interaction (open that path);
   // args expand is off whether or not the open callback is wired yet. A card
   // body (terminal or diff) still expands: only the file variants carry a
-  // path. A write/edit row carries both a file path and a diff card, so its
-  // path link and its expandable card coexist — the card expands, the summary
-  // stays a link.
+  // path. A write/edit row carries both a file path and a diff card, so both
+  // the path link and the expandable card are offered — the collapsed row shows
+  // the path link, and expanding swaps it for the card body (DisclosureRow
+  // renders collapsedContent only while closed).
   const singleFile = filePath !== undefined
   const fileLink = singleFile && onOpenFile !== undefined
   const cardBody = terminalBody !== null || diffBody !== null
@@ -138,9 +139,9 @@ export function ToolRow({
           <div className={css.terminalDescription}>{terminalBody.description}</div>
         )}
         {terminalBody !== null
-          ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
+          ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.cardBody} />
           : diffBody !== null
-            ? <DiffBlock {...diffBody.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.terminalBody} />
+            ? <DiffBlock {...diffBody.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.cardBody} />
             : variant === 'code'
               ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
               : <div className={css.body}>{text}</div>}

@@ -108,6 +108,17 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
     expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
   }, { timeout: 10_000 })
 
+  // The write/edit turns render a real diff card through the assembled graph
+  // (the keyed FileMutationRow + DiffBlock), not just the fixture's raw text.
+  // The write turn's `hello fixture\n` proves the terminator rule end to end: a
+  // trailing newline terminates its line, so the footer reads `+1` (not a
+  // phantom `+2`) and one distinct file.
+  const diffCards = document.querySelectorAll('[data-diff]')
+  expect(diffCards.length).toBeGreaterThan(0)
+  const footers = [...document.querySelectorAll('[data-diff]')]
+    .map(card => card.textContent ?? '')
+  expect(footers.some(text => text.includes('+ hello fixture') && text.includes('+1 -0 · 1 file'))).toBe(true)
+
   // Every bundle injected its plugin-owned style tag (the loader's CSS path).
   const styleOwners = [...document.head.querySelectorAll('style[data-plugin]')]
     .map(style => style.getAttribute('data-plugin'))

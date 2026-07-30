@@ -4317,6 +4317,21 @@ describe('tool cards and surface replay', () => {
         diffs: [{ path: 'src/only.ts', oldText: 'old', newText: 'new' }],
       }),
     },
+    scatteredDiff: {
+      name: 'scatteredDiff', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      // Two hunks in ONE file, each side ending in the terminator newline real
+      // write/edit content carries. The footer must read `+2 -0 · 1 file`: the
+      // trailing newline terminates its line rather than adding a phantom empty
+      // one, and the two hunks count as the single distinct path they touch.
+      presentCall: () => ({
+        card: 'diff',
+        title: 'Edit src/scatter.ts',
+        diffs: [
+          { path: 'src/scatter.ts', oldText: null, newText: 'first\n' },
+          { path: 'src/scatter.ts', oldText: null, newText: 'second\n' },
+        ],
+      }),
+    },
     generic: {
       name: 'generic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Inspect value', rawInput: { alpha: 1 } }),
@@ -4618,6 +4633,29 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('- old')
     expect(output).toContain('+ new')
     expect(output).toContain('· 1 file')
+    await dispose(result)
+  })
+
+  it('counts a same-file diff once and terminates its trailing newline', async () => {
+    const result = await setup({ tools })
+    appendUser(result.session, 'scatter edits in one file')
+    appendAssistant(result.session, [
+      { type: 'text', text: 'Editing' },
+      { type: 'tool-call', id: 'scatter' as never, name: 'scatteredDiff', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1, step: 1, callId: 'scatter' as never, name: 'scatteredDiff', arguments: '{}',
+    })
+    await tick()
+    const output = result.terminal.output
+    // Two hunks, one path: distinct-path count, same as the Web DiffBlock.
+    expect(output).toContain('· 1 file')
+    expect(output).not.toContain('· 2 files')
+    // The `first\n`/`second\n` sides each contribute exactly one added line —
+    // the trailing newline terminates rather than adding a phantom empty `+ `.
+    expect(output).toContain('+ first')
+    expect(output).toContain('+ second')
+    expect(output).toContain('+2 -0')
     await dispose(result)
   })
 

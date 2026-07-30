@@ -4,9 +4,10 @@
 // color), with a dim `└ +A -R · N file(s)` footer. The +/- block form mirrors
 // the TUI transcript's diff card (packages/ui/tui: diffLines) so a diff reads
 // the same across front ends: the removed side is the old text in full, the
-// added side the new text in full. Output never soft-wraps — an aligned source
-// line keeps its indentation and scrolls horizontally instead of folding.
-// Colors resolve through --dsw-* tokens; geometry mirrors CodeBlock.
+// added side the new text in full, both split on the same terminator rule, and
+// the footer counts distinct paths on both ends. Output never soft-wraps — an
+// aligned source line keeps its indentation and scrolls horizontally instead of
+// folding. Colors resolve through --dsw-* tokens; geometry mirrors CodeBlock.
 
 import { useCallback, useMemo, useState } from 'react'
 import clsx from 'clsx'
@@ -68,9 +69,8 @@ const ROW_CLASS: Record<DiffRow['kind'], string | undefined> = {
  * opens each new file; a same-file second hunk (a scattered edit) opens with a
  * `⋯` gap instead of repeating the path. Every old-side line counts toward
  * `removed` and every new-side line toward `added`. The file count is of
- * DISTINCT paths, which is the one deliberate divergence from the TUI diff card:
- * the TUI footer uses `diffs.length`, so two hunks in one file read there as
- * `2 files`, whereas this counts the one file they belong to.
+ * DISTINCT paths, matching the TUI diff card's footer, so two hunks in one file
+ * read as `1 file` on both front ends.
  * @param diffs - the hunks to render.
  * @returns the body rows, the +/- totals, and the distinct-file count.
  */

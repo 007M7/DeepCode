@@ -146,12 +146,12 @@ function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | u
         {terminal.description !== undefined && (
           <div className={css.terminalDescription}>{terminal.description}</div>
         )}
-        <TerminalBlock {...terminal.card} className={css.terminal} />
+        <TerminalBlock {...terminal.card} className={css.cardBody} />
       </>
     )
   }
   const diff = diffCardModel(material.block)
-  if (diff !== null) return <DiffBlock {...diff.card} className={css.terminal} />
+  if (diff !== null) return <DiffBlock {...diff.card} className={css.cardBody} />
   // A settled call always carries the result node the flattened form needs;
   // the running shape has no result to flatten.
   if (!('kind' in material.block)) return <div className={css.empty}>运行中…</div>

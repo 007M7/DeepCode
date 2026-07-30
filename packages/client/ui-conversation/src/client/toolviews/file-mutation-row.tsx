@@ -17,7 +17,7 @@ import type { Context } from 'cordis'
 import { DiffBlock, IconEditOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowProps } from '../contract/slots.ts'
 import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../contract/diff-card-model.ts'
-import { resolveToolPath, toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
+import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
 import css from './file-mutation-row.module.css'
 
 function leadingFor(state: ToolRowState) {
@@ -63,8 +63,9 @@ function errorText(block: ToolRowProps['block']): string | null {
 /**
  * File-mutation row: icon + {Edit,Write} · {path} in the shared ToolRow chrome,
  * with the applied diff resident below it. The summary is a path link (a file
- * tool's interaction) resolved against the session cwd and opened through the
- * host; the card's copy and expand controls are the row's only other actions.
+ * tool's interaction); the host's `openFile` resolves it against the session
+ * cwd, so this passes the tool's own path verbatim. The card's copy and expand
+ * controls are the row's only other actions.
  */
 export function FileMutationRow({ toolName, block, cwd, openFile }: ToolRowProps) {
   const model = toolRowModel(toolName, block, cwd)
@@ -85,7 +86,7 @@ export function FileMutationRow({ toolName, block, cwd, openFile }: ToolRowProps
           <button
             type="button"
             className={css.fileLink}
-            onClick={() => { openFile(resolveToolPath(cwd, filePath)) }}
+            onClick={() => { openFile(filePath) }}
           >
             {model.summary}
           </button>
