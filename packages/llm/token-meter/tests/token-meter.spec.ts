@@ -417,7 +417,8 @@ describe('replay anchors and surface folds', () => {
     expect(after.surfaceDeltaTokens).toBeLessThan(0)
     expectSurfaceTotal(after)
     expect(before.nodes).toHaveLength(2)
-    expect(before.logRevision).toBe(original.events.length)
+    // The earlier snapshot still reports the log it measured: seed + boundary.
+    expect(before.logRevision).toBe(original.events.length + 1)
     expect(before.surfaceDeltaTokens).toBeGreaterThan(0)
   })
 
@@ -677,13 +678,15 @@ describe('malformed replay and listener lifecycle', () => {
       content: [{ type: 'text', text: 'one' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    expect(revisions).toEqual([2])
-    expect(activeMeter.measure(session).logRevision).toBe(2)
+    // Seed, end-seed, then one live append. Only the last event published:
+    // end-seed predates store attachment, like the seed.
+    expect(revisions).toEqual([3])
+    expect(activeMeter.measure(session).logRevision).toBe(3)
 
     await firstFiber.dispose()
     const secondFiber = await ctx.plugin(TokenMeterService)
     activeMeter = ctx.tokenMeter
-    expect(activeMeter.measure(session).logRevision).toBe(2)
+    expect(activeMeter.measure(session).logRevision).toBe(3)
     await secondFiber.dispose()
   })
 })
