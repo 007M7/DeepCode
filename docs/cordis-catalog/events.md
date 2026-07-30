@@ -549,6 +549,25 @@ Source: [`packages/goal/goal/src/domain.ts:135`](../../packages/goal/goal/src/do
 
 ## `llm/*`
 
+### `llm/adapters-updated` — emit
+
+The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries. This is a payload-free registry notification fired at each commit point (including registration disposal); consumers re-read `listProviders()`, `listModels()`, or `listConfigurableProviders()` for the new state. Observer failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * The provider topology changed: an adapter registered or unregistered
+ * routes, or the configurable-provider directory gained or lost entries.
+ * This is a payload-free registry notification fired at each commit point
+ * (including registration disposal); consumers re-read `listProviders()`,
+ * `listModels()`, or `listConfigurableProviders()` for the new state.
+ * Observer failures are contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'llm/adapters-updated'(): void
+```
+
+Source: [`packages/llm/llm/src/index.ts:70`](../../packages/llm/llm/src/index.ts)
+
 ### `llm/stream` — waterfall
 
 Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmService; call `next()` to reach the resolved adapter's stream, or yield your own chunks to short-circuit.
@@ -571,7 +590,7 @@ Waterfall around every streaming model call (retry, replay, routing). Bound to t
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmService](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:58`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:59`](../../packages/llm/llm/src/index.ts)
 
 ## `session/*`
 
@@ -685,7 +704,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:97`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:121`](../../packages/settings/settings/src/index.ts)
 
 ## `slash/*`
 

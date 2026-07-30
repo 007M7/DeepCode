@@ -69,7 +69,7 @@ interface SettingsScope<T> {
 
 ## Descriptors
 
-`describe()` serializes every registered namespace for configuration surfaces: the schemastery `toJSON()` envelope drives schema-rendered forms, and the resolved value fills them.
+`describe()` serializes every registered namespace for configuration surfaces: the schemastery `toJSON()` envelope drives schema-rendered forms, the resolved value fills them, and the detached `base`/`user` layers let a form mark user-overridden fields by presence. `describe({ redactSecrets: true })` — mandatory on every wire surface — strips `role('secret')` fields from all three layers and enumerates their `{path, set}` slots so a page can render write-only inputs without ever receiving a secret.
 
 ```ts type-equiv
 /** One registered namespace as surfaced to configuration UIs. */
@@ -80,8 +80,29 @@ interface SettingsDescriptor {
   schema: unknown
   /** Current resolved value. */
   value: unknown
+  /** Registrant's composition `base` layer (detached), when one was declared. */
+  base?: unknown
+  /**
+   * Raw user section from the stored document (detached), when one exists and
+   * is well-formed; a field's presence here is what marks it user-overridden.
+   */
+  user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Schema-declared secret positions; present only under `redactSecrets`. */
+  secrets?: RedactedSecret[]
+}
+```
+
+```ts type-equiv
+/** Options for {@link Settings.describe}. */
+interface SettingsDescribeOptions {
+  /**
+   * Strip `role('secret')` fields from `value`/`base`/`user` and enumerate
+   * them in each descriptor's `secrets`. Every wire surface MUST pass this;
+   * the verbatim default exists for same-process configuration UIs only.
+   */
+  redactSecrets?: boolean
 }
 ```
 

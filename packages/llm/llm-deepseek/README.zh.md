@@ -4,7 +4,7 @@
 
 harness LLM seam 的 DeepSeek chat-completions 适配器：直接 `fetch` + SSE（由 `eventsource-parser` 分帧），将官方协议格式（真源：API 文档 guides/thinking_mode、guides/tool_calls、api/create-chat-completion）转换为 `StreamChunk` 协议。
 
-同一 seam 的第二个库支持实现位于 `@deepseek-ai/dsh-llm-pi-ai`。本包始终拥有 `deepseek` 提供方路由；在同一上下文中装载 `provider: deepseek-official` 的 pi-ai profile 会按设计抛出 `LlmError('DUPLICATE_ADAPTER')`。
+同一 seam 的第二个库支持实现位于 `@deepseek-ai/dsh-llm-pi-ai`。本包拥有 `deepseek-official` 提供方路由——刻意区别于 pi-ai 的 catalog 名称 `deepseek`，因此同一组合可以并排挂载两条 DeepSeek 路径；而为 `deepseek-official` 本身注册另一个适配器仍会抛出 `LlmError('DUPLICATE_ADAPTER')`。
 
 包根目录公开 Cordis 插件契约与 `DeepSeekAdapter`；协议序列化、SSE 解析与 chunk 转换 helper 不属于该根契约。
 
@@ -53,6 +53,8 @@ harness LLM seam 的 DeepSeek chat-completions 适配器：直接 `fetch` + SSE�
 - **`ctx.credentials`**——API 密钥按每次 stream 调用解析：非空的字面 `apiKey` 优先，其次经凭据 seam 解析 `apiKeyEnv`（活跃环境之下的 `$DSH_HOME/.env`），最后——仅在未挂载 seam 时——读取原始环境变量。任何地方都没有密钥的请求以 `MISSING_CREDENTIAL` 失败，并点名每个配置入口，同时路由保持注册、catalog 保持可浏览——首次运行的上手流程就是「浏览模型、存入密钥、再次发起提示」，中间无需任何重启。
 
 唯一在注册期捕获的事实是重试策略：其解析值变化时，插件原地重新注册该路由（同一适配器实例、一个同步区段），因此 `ctx.llm.providerRetryPolicy('deepseek-official')` 始终报告当前策略。
+
+该插件还会在可配置提供方目录（`ctx.llm.listConfigurableProviders()`）中声明自己的路由：提供方为 `deepseek-official`，settings namespace 为 `llm-deepseek`，settings path 为空——整个分节就是 profile。配置界面借助该条目，把本适配器与休眠的 pi-ai 提供方一并呈现。
 
 ## 应用归因
 

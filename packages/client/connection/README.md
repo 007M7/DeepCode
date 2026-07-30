@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Wire consumer layer: the client plugin's apply mounts `ctx.connection` (shared api client + single-consumer stream-loop starter); the export face carries the wire contract types, the `AbstractApiClient` seam, and the loop's sink/config types. The platform subclasses (WebApiClient/FixtureApiClient), the ConnectionController loop, and the fixture data source are package-internal — apply selects and drives them; tests reach them via src. Contract: api-contracts v3 §3.
+Wire consumer layer: the client plugin's apply mounts `ctx.connection` (shared api client + single-consumer stream-loop starter); the export face carries the wire contract types, the `AbstractApiClient` seam, and the loop's sink/config types. The node half's `/api` route guards the privileged method set (`host.pickDirectory`, `host.openPath`, `settings.update`, `settings.replace`, `credentials.set`, `credentials.unset`) behind the loopback same-origin check — under `--host 0.0.0.0` reads stay reachable, writes stay browser-local until a real authentication layer exists. The platform subclasses (WebApiClient/FixtureApiClient), the ConnectionController loop, and the fixture data source are package-internal — apply selects and drives them; tests reach them via src. Contract: api-contracts v3 §3.
 
 ## Keyless fixture
 

@@ -69,7 +69,7 @@ interface SettingsScope<T> {
 
 ## 描述符
 
-`describe()` 为配置界面序列化每个已注册 namespace：schemastery 的 `toJSON()` 信封驱动 schema 渲染的表单，解析值填充表单。
+`describe()` 为配置界面序列化每个已注册 namespace：schemastery 的 `toJSON()` 信封驱动 schema 渲染的表单，解析值填充表单，分离出的 `base`/`user` 层让表单按字段是否出现在 user 层标注「用户已覆盖」。`describe({ redactSecrets: true })`——每个 wire 面都必须传入——从三层剥离 `role('secret')` 字段并枚举其 `{path, set}` 槽位，页面因此能渲染只写输入框而永远收不到机密值。
 
 ```ts type-equiv
 /** One registered namespace as surfaced to configuration UIs. */
@@ -80,8 +80,29 @@ interface SettingsDescriptor {
   schema: unknown
   /** Current resolved value. */
   value: unknown
+  /** Registrant's composition `base` layer (detached), when one was declared. */
+  base?: unknown
+  /**
+   * Raw user section from the stored document (detached), when one exists and
+   * is well-formed; a field's presence here is what marks it user-overridden.
+   */
+  user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Schema-declared secret positions; present only under `redactSecrets`. */
+  secrets?: RedactedSecret[]
+}
+```
+
+```ts type-equiv
+/** Options for {@link Settings.describe}. */
+interface SettingsDescribeOptions {
+  /**
+   * Strip `role('secret')` fields from `value`/`base`/`user` and enumerate
+   * them in each descriptor's `secrets`. Every wire surface MUST pass this;
+   * the verbatim default exists for same-process configuration UIs only.
+   */
+  redactSecrets?: boolean
 }
 ```
 

@@ -787,6 +787,22 @@ registerAdapter(providers: string[], adapter: LlmAdapter): () => void
 listProviders(): LlmProviderInfo[]
 
 /**
+ * Declare provider routes an adapter plugin can activate through
+ * configuration. Registration is all-or-nothing: an empty list, invalid
+ * entry, or a provider already declared by any registration throws
+ * `LlmError` without registering the rest. Disposed with the fiber.
+ * @param entries - every configurable provider this plugin owns.
+ * @returns the disposer that withdraws all of them.
+ */
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
+
+/**
+ * List every declared configurable provider, registered or dormant.
+ * @returns detached directory entries in declaration order.
+ */
+listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
  * Resolve the retry policy captured when one provider route was registered.
  * @param provider - registered provider route to inspect.
  * @returns the provider-owned policy, with normal defaults already resolved.
@@ -850,9 +866,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:191`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:203`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1668,10 +1684,13 @@ Abstract settings service. Providers implement raw-document storage (`load`/`per
 register<T>(ns: SettingsNamespace, schema: z<T>, options?: SettingsRegisterOptions<T>): SettingsScope<T>
 
 /**
- * Describe every registered namespace for configuration surfaces.
+ * Describe every registered namespace for configuration surfaces, including
+ * the composition `base` and raw user layers so a form can mark which fields
+ * the user overrode (presence in `user`) and what a reset returns to.
+ * @param options - redaction switch; wire surfaces must redact.
  * @returns one descriptor per registered namespace, in registration order.
  */
-describe(): SettingsDescriptor[]
+describe(options?: SettingsDescribeOptions): SettingsDescriptor[]
 
 /**
  * Read one registered namespace's resolved value.
@@ -1702,9 +1721,9 @@ async update(ns: SettingsNamespace, patch: object): Promise<void>
 async replace(ns: SettingsNamespace, section: object): Promise<void>
 ```
 
-Types: [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:176`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:200`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 单消费方流循环启动器）；导出表层携带协议契约类型、`AbstractApiClient` seam，以及循环的 sink／配置类型。平台子类（WebApiClient/FixtureApiClient）、ConnectionController 循环和 fixture 数据源都属于包内部：apply 负责选择并驱动它们，测试则通过 src 访问。契约：api-contracts v3 §3。
+协议消费层：客户端插件的 apply 会挂载 `ctx.connection`（共享 API 客户端 + 单消费方流循环启动器）；导出表层携带协议契约类型、`AbstractApiClient` seam，以及循环的 sink／配置类型。node 半侧的 `/api` 路由把特权方法集（`host.pickDirectory`、`host.openPath`、`settings.update`、`settings.replace`、`credentials.set`、`credentials.unset`）挡在回环同源检查之后——在 `--host 0.0.0.0` 下读取仍然可达，写入在真正的认证层出现之前仍只限本机浏览器。平台子类（WebApiClient/FixtureApiClient）、ConnectionController 循环和 fixture 数据源都属于包内部：apply 负责选择并驱动它们，测试则通过 src 访问。契约：api-contracts v3 §3。
 
 ## 无密钥 fixture
 

@@ -24,6 +24,8 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 
 `command.*` 与 `skill.*` 领域向客户端暴露宿主命令注册表和技能目录。每个方法都通过 `sessionId` 寻址一个会话的 Agent（被服务的会话必有 Agent；`command.*` 经由与 `session.*` 相同的路径恢复冷会话，而 `skill.list` 从会话头解析项目根目录，不触碰 Agent 注册表）。`command.execute` 在宿主侧运行一条斜杠命令行，语义为纯准入：响应报告该行是否解析到处理器，并在解析到时回带铸造的生命周期 `commandId`（将本次确认与流节点关联）；结局经由持久落账并在 mux 流广播的 `command/run`/`command/done` 生命周期事件对承载；载体的请求信号可取消正在运行的处理器。`host/commands-changed` 是目录失效帧：客户端重新拉取 `command.list` 而不是做差分。
 
+`settings.*`、`credentials.*` 与 `llm.*` 领域是配置页协议。`settings.describe` 为每个已注册 namespace 提供其序列化 schemastery schema，外加脱敏后的分层值（resolved/`base`/`user`——字段出现在 `user` 中即标记其被用户覆盖）与 `secrets` 槽位列表；`settings.update`/`settings.replace` 写入用户层，并以该 namespace 的新脱敏视图作答，把每种 seam 拒绝折叠为 `settings-rejected`。secret 角色的值绝不在任何一层搭乘任何响应；secret 只沿一个方向跨越协议——在 `update` patch 或 `credentials.set` 之内。`credentials.describe` 返回不含值的视图（`configured`/`source`/`writable`），`credentials.set`/`credentials.unset` 则把被遮蔽引用的拒绝映射为 `credential-rejected`。`llm.providers` 把可配置提供方目录与存活路由合并（休眠条目携带 `active: false`；未声明的存活路由追加在后，不带 settings 地址），`llm.models` 则是与会话无关的目录。三个失效帧让每个面无需轮询即保持收敛：`host/settings-changed {ns}`（`settings/updated` 透传——RPC 写入与外部 `settings.yaml` 编辑一视同仁）、`host/credentials-changed {ref}`（只带引用名，绝不带值）与 `host/models-changed`（`llm/adapters-updated` 透传）。浏览器载体将四个写方法（`settings.update`/`settings.replace`/`credentials.set`/`credentials.unset`）限制为仅接受来自回环地址的同源请求——即 `host.pickDirectory` 所在的特权集合。未装 settings 或凭据 provider 的组合会以指名缺失插件、包含解决建议的 `internal` 错误应答这些领域。
+
 ## 载体层（`/client` + 根路径）
 
 `AbstractApiClient` 持有全部协议不变量：签发 rpcId、包装／解包信封、Zod 解析、SSE 帧解码、一元请求超时，以及按微任务批处理的信封观测（`subscribeEnvelopes`）；平台子类只提供 `doFetch` 传输环节。`InProcessApiClient` 以 `toFetchHandler(api)` 为基础，是同构接点：它运行完整的协议序列化与校验路径而不经过网络，供 `dsh -p` headless 模式使用。
@@ -39,6 +41,6 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 ## 已知限制与延期工作
 
 - **`respond` 路由已经发布，但待处理交互状态仍属宿主侧工作**：协议形状（POST `/api/respond`、`RpcReceipt`）已经定型；使延迟或重复回答具有明确语义的待处理表位于 `src/api-proxy.ts`，目前仍很精简（只支持问题，不支持审批）。
-- **预留 seam 不进入 `RpcMethodMap`**：`session.fork`、`prompt.mode: 'inject'`、`task.list`、`host.listModels` 和描述字段 `hostInstanceId` 都是已记录的预留项；未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
+- **预留 seam 不进入 `RpcMethodMap`**：`session.fork`、`prompt.mode: 'inject'`、`task.list` 和描述字段 `hostInstanceId` 都是已记录的预留项（先前预留的 `host.listModels` 已作为 `llm.models` 交付）；未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
 - **没有协议版本字段**：客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
 - **Linux 原生选择器依赖桌面工具**：Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；它不会回退到自定义目录浏览器，也不会要求用户手动输入路径。

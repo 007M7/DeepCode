@@ -403,6 +403,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Describe provider routes with a registered adapter.\n * @returns detached provider metadata in registration order.\n */',
       },
       {
+        signature: 'registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void',
+        jsDoc: '/**\n * Declare provider routes an adapter plugin can activate through\n * configuration. Registration is all-or-nothing: an empty list, invalid\n * entry, or a provider already declared by any registration throws\n * `LlmError` without registering the rest. Disposed with the fiber.\n * @param entries - every configurable provider this plugin owns.\n * @returns the disposer that withdraws all of them.\n */',
+      },
+      {
+        signature: 'listConfigurableProviders(): LlmConfigurableProvider[]',
+        jsDoc: '/**\n * List every declared configurable provider, registered or dormant.\n * @returns detached directory entries in declaration order.\n */',
+      },
+      {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
         jsDoc: '/**\n * Resolve the retry policy captured when one provider route was registered.\n * @param provider - registered provider route to inspect.\n * @returns the provider-owned policy, with normal defaults already resolved.\n */',
       },
@@ -761,8 +769,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Register a namespace schema and receive its owner scope. The registration\n * is an effect on the calling plugin\'s fiber: disposing that fiber removes\n * the namespace and its observers. An invalid stored section fails the\n * registration itself — the earliest point where the schema can judge it.\n * @param ns - unique namespace; duplicate registration fails loud.\n * @param schema - schemastery schema resolving this namespace\'s value.\n * @param options - composition `base` layer and effect timing.\n * @returns the owner scope for reads, observation, and updates.\n */',
       },
       {
-        signature: 'describe(): SettingsDescriptor[]',
-        jsDoc: '/**\n * Describe every registered namespace for configuration surfaces.\n * @returns one descriptor per registered namespace, in registration order.\n */',
+        signature: 'describe(options?: SettingsDescribeOptions): SettingsDescriptor[]',
+        jsDoc: '/**\n * Describe every registered namespace for configuration surfaces, including\n * the composition `base` and raw user layers so a form can mark which fields\n * the user overrode (presence in `user`) and what a reset returns to.\n * @param options - redaction switch; wire surfaces must redact.\n * @returns one descriptor per registered namespace, in registration order.\n */',
       },
       {
         signature: 'get(ns: SettingsNamespace): unknown',
@@ -1271,6 +1279,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
     jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching context event is\n * already appended or queued in that agent\'s active tool-batch FIFO.\n * Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
     summary: 'Goal mutation accepted by one live agent.',
+  },
+  {
+    name: 'llm/adapters-updated',
+    mode: 'emit',
+    signature: '\'llm/adapters-updated\'(): void',
+    jsDoc: '/**\n * The provider topology changed: an adapter registered or unregistered\n * routes, or the configurable-provider directory gained or lost entries.\n * This is a payload-free registry notification fired at each commit point\n * (including registration disposal); consumers re-read `listProviders()`,\n * `listModels()`, or `listConfigurableProviders()` for the new state.\n * Observer failures are contained and cannot veto the registry mutation.\n * @mode emit\n */',
+    summary: 'The provider topology changed: an adapter registered or unregistered routes, or the configurable-provider directory gained or lost entries.',
   },
   {
     name: 'llm/stream',
@@ -1900,6 +1915,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmCallConfig {\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
   },
   {
+    name: 'LlmConfigurableProvider',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n}',
+  },
+  {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n}',
   },
@@ -2086,6 +2105,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReasoningEffortId',
     declaration: 'export type ReasoningEffortId = Branded<\'ReasoningEffortId\'>;',
+  },
+  {
+    name: 'RedactedSecret',
+    declaration: 'export interface RedactedSecret {\n    path: string[];\n    set: boolean;\n}',
   },
   {
     name: 'RequestHeaderReason',
@@ -2364,8 +2387,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SettingsApplies = \'live\' | \'restart\';',
   },
   {
+    name: 'SettingsDescribeOptions',
+    declaration: 'export interface SettingsDescribeOptions {\n    redactSecrets?: boolean;\n}',
+  },
+  {
     name: 'SettingsDescriptor',
-    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    applies: SettingsApplies;\n}',
+    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    base?: unknown;\n    user?: unknown;\n    applies: SettingsApplies;\n    secrets?: RedactedSecret[];\n}',
   },
   {
     name: 'SettingsNamespace',
