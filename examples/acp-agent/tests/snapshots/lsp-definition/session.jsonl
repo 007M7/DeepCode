@@ -1,24 +1,25 @@
 {"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"Use the lsp tool exactly once to find the definition at subject.ts line 1 character 7, then reply with exactly DONE."}],"source":{"kind":"user"},"role":"user","id":"4133e3ae-3f16-4e96-b6dc-5b194fcd9a50"},"surfaceOp":"append"}
+{"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"Use the lsp tool exactly once to find the definition at subject.ts line 1 character 7, then reply with exactly DONE."}],"source":{"kind":"user"},"role":"user","id":"e54315ee-920f-44d1-9878-de256f605545"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":0,"data":{"title":"Use the lsp tool exactly","messageSeqs":[1],"source":{"kind":"fallback"}}}
 {"type":"step/start","seq":3,"time":0,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":4,"time":0,"data":{"header":{"config":{"provider":"deepseek","model":"deepseek-v4-pro"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
-{"type":"assistant/chunk","seq":5,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
-{"type":"assistant/chunk","seq":6,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":0,"id":"call_lsp_definition","name":"lsp","argumentsDelta":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}}}
-{"type":"assistant/chunk","seq":7,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"call_lsp_definition","name":"lsp","arguments":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}}}}
-{"type":"assistant/chunk","seq":8,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}
-{"type":"assistant/chunk","seq":9,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
-{"type":"assistant/message","seq":10,"time":0,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"tool-call","id":"call_lsp_definition","name":"lsp","arguments":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-pro"},"id":"599b84ec-0b31-4df9-8bd5-814355827d3d"},"usage":{"inputTokens":10,"outputTokens":5}},"sourceEventSeqs":[5,6,7,8,9],"surfaceOp":"append"}
-{"type":"tool/call","seq":11,"time":0,"data":{"turn":1,"step":1,"callId":"call_lsp_definition","name":"lsp","arguments":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}}
-{"type":"tool/result","seq":12,"time":0,"data":{"turn":1,"step":1,"message":{"source":{"kind":"tool","callId":"call_lsp_definition"},"content":[{"type":"tool-result","toolCallId":"call_lsp_definition","content":[{"type":"text","text":"subject.ts:1:7\n… 1 more location omitted (limit 1)."}],"isError":false}],"role":"user","id":"a2063a46-0fb4-4bc9-9c91-514a1bf37e61"}},"sourceEventSeqs":[11],"surfaceOp":"append"}
-{"type":"step/end","seq":13,"time":0,"data":{"turn":1,"step":1}}
-{"type":"step/start","seq":14,"time":0,"data":{"turn":1,"step":2}}
-{"type":"assistant/chunk","seq":15,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":16,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":0,"text":"DONE"}}}
-{"type":"assistant/chunk","seq":17,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"DONE"}}}}
-{"type":"assistant/chunk","seq":18,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":2}}}}
-{"type":"assistant/chunk","seq":19,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":20,"time":0,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-pro"},"id":"943ad4e7-de44-4096-a8e1-4e8d7ef8e2e7"},"usage":{"inputTokens":10,"outputTokens":2}},"sourceEventSeqs":[15,16,17,18,19],"surfaceOp":"append"}
-{"type":"step/end","seq":21,"time":0,"data":{"turn":1,"step":2}}
-{"type":"turn/end","seq":22,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"request/context","seq":5,"time":1785406813392,"data":{"provider":"deepseek","model":"deepseek-v4-pro"}}
+{"type":"assistant/chunk","seq":6,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","seq":7,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"tool-call-delta","index":0,"id":"call_lsp_definition","name":"lsp","argumentsDelta":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}}}
+{"type":"assistant/chunk","seq":8,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"call_lsp_definition","name":"lsp","arguments":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}}}}
+{"type":"assistant/chunk","seq":9,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":5}}}}
+{"type":"assistant/chunk","seq":10,"time":1785406813393,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/message","seq":11,"time":1785406813393,"data":{"turn":1,"step":1,"message":{"role":"assistant","content":[{"type":"tool-call","id":"call_lsp_definition","name":"lsp","arguments":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-pro"},"id":"59aec7f9-2a30-49ed-abe0-327a6c903769"},"usage":{"inputTokens":10,"outputTokens":5}},"sourceEventSeqs":[6,7,8,9,10],"surfaceOp":"append"}
+{"type":"tool/call","seq":12,"time":1785406813393,"data":{"turn":1,"step":1,"callId":"call_lsp_definition","name":"lsp","arguments":"{\"operation\":\"goToDefinition\",\"file_path\":\"subject.ts\",\"line\":1,\"character\":7}"}}
+{"type":"tool/result","seq":13,"time":1785406813445,"data":{"turn":1,"step":1,"message":{"source":{"kind":"tool","callId":"call_lsp_definition"},"content":[{"type":"tool-result","toolCallId":"call_lsp_definition","content":[{"type":"text","text":"subject.ts:1:7\n… 1 more location omitted (limit 1)."}],"isError":false}],"role":"user","id":"e2ac0968-3d8a-4081-a418-2be197011d42"}},"sourceEventSeqs":[12],"surfaceOp":"append"}
+{"type":"step/end","seq":14,"time":1785406813445,"data":{"turn":1,"step":1}}
+{"type":"step/start","seq":15,"time":1785406813453,"data":{"turn":1,"step":2}}
+{"type":"assistant/chunk","seq":16,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":17,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":0,"text":"DONE"}}}
+{"type":"assistant/chunk","seq":18,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"DONE"}}}}
+{"type":"assistant/chunk","seq":19,"time":0,"data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":10,"outputTokens":2}}}}
+{"type":"assistant/chunk","seq":20,"time":1785406813454,"data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":21,"time":1785406813454,"data":{"turn":1,"step":2,"message":{"role":"assistant","content":[{"type":"text","text":"DONE"}],"source":{"kind":"model","provider":"deepseek","model":"deepseek-v4-pro"},"id":"137398fc-f5eb-4ac8-b816-be687e56a142"},"usage":{"inputTokens":10,"outputTokens":2}},"sourceEventSeqs":[16,17,18,19,20],"surfaceOp":"append"}
+{"type":"step/end","seq":22,"time":1785406813455,"data":{"turn":1,"step":2}}
+{"type":"turn/end","seq":23,"time":1785406813455,"data":{"turn":1,"reason":{"kind":"completed"}}}
