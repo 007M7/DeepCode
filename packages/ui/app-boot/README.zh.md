@@ -13,7 +13,7 @@
 | `loadPersonalPatches(binName, dir?)` | 解析 Harness home 中可选的 `config.yaml`（默认使用 [`resolveDshHome()`](../../util/paths/README.md)：先取 `$DSH_HOME`，否则取 `~/.dsh`）：其顶层是一个 YAML 数组，内容为 include 的 `PatchOptions`（按 id 定位的配置覆盖、`insert` 列表，允许 `!!js`）；文件不存在时返回 `undefined`，文件不可读、不可解析或内容不是数组时抛出异常 |
 | `boot(binName, absoluteConfigPath, patches?, prepare?)` | 创建根上下文，在插件挂载前执行可选的宿主准备操作（例如 `ctx.provide(RESUME_SESSION_ID_KEY, id)`），再挂载 Loader/include 树并等待其结算，断言所有条目均已加载，最后返回根上下文 |
 | `RESUME_SESSION_ID_KEY` | bin 通过 `boot` 的 `prepare` 钩子设置的上下文键，用于把要恢复的会话 id 交给已启动配置；配置以裸标识符 `resumeSessionId` 在 `!!js` 表达式中读取它，因此恢复操作无需环境变量 |
-| `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）自身源代码 checkout 的磁盘路径；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
+| `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）DSH 实现代码 checkout 的磁盘路径，同时提醒它不得据此推断当前工作目录，而应使用 `pwd`；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 
 这些保护处理两类故障。`loader.await()` 会吞掉初始化 rejection（`Promise.allSettled`）；Node 仍会因随后产生的未处理 rejection 以非零状态退出，而 `installFailLoud` 会把冗长转储替换为一行带标签的消息，并确保执行 `exit(1)`。插件导入失败则只会由 Loader 记录日志（否则，即使配置存在拼写错误，进程也会以代码 0 退出），并留下没有 fiber 的条目；`assertEntriesLoaded` 会将其转换为 `boot()` rejection，并在其中列出每个导入失败插件的名称。
