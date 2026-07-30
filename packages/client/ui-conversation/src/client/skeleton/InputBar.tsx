@@ -7,7 +7,7 @@
  * (running/removed/promptError) are self-selected via useSession. */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import type { ChangeEvent, DragEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
@@ -17,9 +17,13 @@ import type {} from '@deepseek-ai/dsh-plan-mode/client'
 import type {} from '@deepseek-ai/dsh-goal/client'
 import type { ComposerAttachment, ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
+import type { DraftDecorations } from '../input/decorations.ts'
 import { ImageLightbox } from './ImageLightbox.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
+
+/** Decoration product of the no-session state (no machine, empty draft). */
+const INERT_DECORATIONS: DraftDecorations = { token: null, chips: [], textRefs: [], hint: null }
 
 /** Prompt failure surface (derived from promptError). */
 export interface InputBarError {
@@ -32,14 +36,15 @@ export type InputBarProps = ComposerBarProps
 export function InputBar({
   useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
   stop, command, translateHint, renderSlot, useNotices, useLexicon, useProjection,
-  variant, placeholder, accessory, overlay, leftItems, rightItems, footer, onAdd, addLabel = 'Add attachment',
+  sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
+  onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
   const notice = useNotices(s => s)
   const lexicon = useLexicon(s => s)
-  const promptError = useSession(s => s.promptError)
-  const running = useSession(s => s.running)
-  const disabled = useSession(s => s.removed)
+  const promptError = useSession(s => s.promptError) ?? null
+  const running = useSession(s => s.running) ?? false
+  const removed = useSession(s => s.removed) ?? false
   // Plan mode swaps the textarea placeholder (the projection is the folded
   // host value; owner-prop placeholders — hero, session-unavailable — win).
   const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
@@ -51,8 +56,14 @@ export function InputBar({
   const error: InputBarError | null = promptError === null
     ? null
     : { op: promptError.op, message: `${promptError.error.message} (${promptError.error.code})` }
-  const draft = input.draft
-  const attachments = useMemo(() => draftImages(input.imageIds), [draftImages, input.imageIds])
+  // Session-maybe: the machine faces are absent together while no session is
+  // current; the bar renders the same DOM inert instead of a parallel tree.
+  const live = input !== undefined && keyboard !== undefined && inputActions !== undefined
+  const draft = input?.draft ?? ''
+  const attachments = useMemo(
+    () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
+    [draftImages, input?.imageIds],
+  )
   const empty = draft.trim() === '' && attachments.length === 0
   const [preview, setPreview] = useState<ComposerAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -75,17 +86,20 @@ export function InputBar({
   // (undefined = capability absent → the chip renders nothing).
   const permissions = useProjection('permissions')
 
-  // Queue cut 1: running input stays free; locked = session disabled only.
-  // The transient machine locks (adjudicating pending / submitting) render
+  // Queue cut 1: running input stays free; locked = session removed, the
+  // inert no-workspace state, or the machine faces absent (no session). The
+  // transient machine locks (adjudicating pending / submitting) render
   // read-only — the draft stays visible and focused, keystrokes drop.
+  const disabled = removed || inert || !live
   const locked = disabled
-  const machineBusy = input.phase === 'adjudicating' || input.phase === 'submitting'
+  const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
 
   useEffect(() => {
+    if (input === undefined || inputActions === undefined) return
     if (attachments.length !== input.imageIds.length) {
       inputActions.pruneImages(attachments.map(attachment => attachment.id))
     }
-  }, [attachments, input.imageIds, inputActions])
+  }, [attachments, input?.imageIds, inputActions])
 
   useEffect(() => {
     if (preview !== null && !attachments.some(attachment => attachment.id === preview.id)) setPreview(null)
@@ -94,7 +108,7 @@ export function InputBar({
   // Unlock (mount / session switch) returns focus to the box.
   useEffect(() => {
     if (!locked) inputRef.current?.focus()
-  }, [locked])
+  }, [locked, sessionId])
 
   // Active conversation scrollport: chain the wheel. While the textarea (capped
   // at 14 lines with overflow-y:auto) can still move in this direction, keep
@@ -118,6 +132,9 @@ export function InputBar({
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Absent machine (no session): the textarea is disabled so events cannot
+    // fire; the guard narrows the faces for the paths below.
+    if (keyboard === undefined || inputActions === undefined) return
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.
     if (e.key === 'Enter' && e.shiftKey) return
@@ -179,6 +196,7 @@ export function InputBar({
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
+    if (keyboard === undefined) return // absent machine: disabled textarea, no events
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
@@ -204,6 +222,7 @@ export function InputBar({
   /* oxlint-enable typescript/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
+    if (input === undefined || keyboard === undefined) return // absent machine: disabled textarea, no events
     const el = e.currentTarget
     const { start, end } = selectionOf(el)
     if (start === end) return
@@ -227,13 +246,14 @@ export function InputBar({
     void slice
   }
 
-  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>): void => {
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (keyboard === undefined) return // absent machine: disabled textarea, no events
     if (machineBusy || locked) return
     const files = [...e.clipboardData.items]
       .filter(item => item.kind === 'file')
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (files.length > 0) {
+    if (files.length > 0 && addImages !== undefined) {
       setDropError(addImages(files))
     }
     const text = e.clipboardData.getData('text/plain')
@@ -257,14 +277,14 @@ export function InputBar({
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
     // cannot observe DOM selection). Cheap no-op when none is live.
-    if (keyboard.snapshot.paste !== undefined) keyboard.invalidatePaste()
+    if (keyboard !== undefined && keyboard.snapshot.paste !== undefined) keyboard.invalidatePaste()
     void e
   }
 
   const onDragEnter = (event: DragEvent<HTMLDivElement>): void => {
     if (!event.dataTransfer.types.includes('Files')) return
     event.preventDefault()
-    if (locked || machineBusy) return
+    if (locked || machineBusy || addImages === undefined) return
     dragDepthRef.current += 1
     setDropError(null)
     setDragActive(true)
@@ -303,6 +323,7 @@ export function InputBar({
 
   const primaryLabel = running ? 'Stop generating' : 'Send message'
   const onPrimary = (): void => {
+    if (inputActions === undefined || stop === undefined) return // absent machine: the button is disabled
     if (running) {
       stop()
       return
@@ -312,16 +333,17 @@ export function InputBar({
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
-  // while the permissions key is absent — permission-less host or Draft).
-  const accessSelect: ReactNode = (
-    <PermissionSelect value={permissions} locked={locked} command={command} />
-  )
+  // while the permissions key is absent — permission-less host or Draft —
+  // or while the command face is absent with the session).
+  const accessSelect: ReactNode = command === undefined
+    ? null
+    : <PermissionSelect value={permissions} locked={locked} command={command} />
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC
   // placeholder renders as a chip (the textarea's own glyph is invisible, the
   // backdrop chip supplies the visual); the claim hint is ghost text.
-  const deco = deriveDecorations(input, lexicon)
+  const deco = input === undefined ? INERT_DECORATIONS : deriveDecorations(input, lexicon)
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
@@ -383,7 +405,7 @@ export function InputBar({
     pushPlain(draft.length)
     if (deco.hint !== null) {
       // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
-      const commandName = input.claim?.token.slice(1).trim() ?? ''
+      const commandName = input?.claim?.token.slice(1).trim() ?? ''
       const hintKey = commandName === 'goal' && hasGoal ? 'goal.active' : commandName
       const translated = translateHint(hintKey)
       const displayHint = translated !== hintKey ? translated : deco.hint
@@ -433,7 +455,7 @@ export function InputBar({
                   aria-label={`移除图片 ${attachment.file.name || ''}`}
                   onClick={() => {
                     setDropError(null)
-                    removeImage(attachment.id)
+                    removeImage?.(attachment.id)
                   }}
                 >×</button>
               </div>
@@ -451,7 +473,7 @@ export function InputBar({
             value={draft}
             disabled={locked}
             readOnly={machineBusy}
-            data-phase={input.phase}
+            data-phase={input?.phase ?? 'inert'}
             placeholder={placeholder ?? (disabled
               ? 'Session unavailable'
               : planActive ? translateHint('placeholder.plan') : translateHint('placeholder.default'))}
