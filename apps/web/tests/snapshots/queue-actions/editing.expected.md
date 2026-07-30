@@ -25,11 +25,11 @@
       - img
     - button "取消编辑":
       - img
-- textbox "给智能体发消息"
+- textbox "Message the agent"
 - button "Add attachment":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Stop generating"
