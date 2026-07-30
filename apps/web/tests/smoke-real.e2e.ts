@@ -454,7 +454,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click leaves the default details column open', async () => {
+  it('5 bash differential rendering: tool row click leaves the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -466,11 +466,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const toolRow = page.locator('[data-sample="bash-global"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
-    expect(await detailsTrack(page)).toBe(360)
+    expect(await detailsTrack(page)).toBe(0)
     await toolRow.click()
-    // Tool rows no longer drive layout.openDetails; the default column stays open.
-    expect(await detailsTrack(page)).toBe(360)
-    await screen(page, '09-details-open')
+    // Tool rows no longer drive layout.openDetails; the default column stays closed.
+    expect(await detailsTrack(page)).toBe(0)
+    await screen(page, '09-details-closed')
   }, 150_000)
 
   it('6 sidebar drag widens the column and resets across reload', async () => {
