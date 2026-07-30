@@ -377,6 +377,8 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           streaming={false}
           interrupted={node.interrupted}
           time={node.time}
+          seq={node.seq}
+          onFork={forkAt}
         />
       )
     }

@@ -196,6 +196,16 @@ describe('ChatView', () => {
     expect(view.getByText('run a')).toBeTruthy()
   })
 
+  it('forks from both user and finalized assistant message actions at their event seq', () => {
+    const h = makeHarness({ nodes: [user(1, 'question'), assistant(2, 'answer')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(buttons).toHaveLength(2)
+    fireEvent.click(buttons[0]!)
+    fireEvent.click(buttons[1]!)
+    expect(h.forkAt.mock.calls).toEqual([[1], [2]])
+  })
+
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {
     const markdown = '# Rendered\n\n- **one**\n- `two`'
     const h = makeHarness({ nodes: [user(1, markdown), assistant(2, markdown)] })

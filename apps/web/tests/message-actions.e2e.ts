@@ -89,7 +89,9 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
 
   it.skipIf(MODE === 'record')('forks through the settled-message and session-row actions', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-fork'))
-    await page.getByRole('button', { name: '在新对话中分支' }).first().click()
+    // Exercise the assistant action specifically; package coverage pins the
+    // user action separately at its own event seq.
+    await page.getByRole('button', { name: '在新对话中分支' }).last().click()
     await expect.poll(
       () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SEED_ID)),
       { timeout: 15_000 },
@@ -104,7 +106,9 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     ).toBe(1)
     // The row action owns a distinct ui-workspace injection from the message
     // action above, so exercise both through the loaded app before capture.
-    const sourceRow = page.locator('[role="treeitem"][aria-expanded="true"]').last()
+    const sourceRow = page.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+      .last()
     const rowBox = await sourceRow.boundingBox()
     if (rowBox === null) throw new Error('fork source row has no layout box')
     const actionButton = sourceRow.locator('button[aria-label^="Session actions for "]')

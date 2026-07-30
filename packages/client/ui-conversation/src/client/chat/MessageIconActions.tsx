@@ -1,5 +1,5 @@
 // Shared IconActions chrome for user and assistant messages: copy live,
-// branch wired through onBranch (stub without it), date-aware clock,
+// branch wired through onBranch, date-aware clock,
 // optional edit stub.
 
 import { useCallback } from 'react'
@@ -19,7 +19,7 @@ export interface MessageIconActionsProps {
   clock: 'start' | 'end'
   /** When true, append the stub edit control (user bubble). */
   edit?: boolean | undefined
-  /** Fork the session at this message; absent leaves the branch control a stub. */
+  /** Fork the session at this message. */
   onBranch?: (() => void) | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
