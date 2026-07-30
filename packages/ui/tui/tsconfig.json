@@ -57,6 +57,9 @@
       "path": "../../skill/skill"
     },
     {
+      "path": "../../subprocess/subprocess"
+    },
+    {
       "path": "../user-interaction"
     },
     {

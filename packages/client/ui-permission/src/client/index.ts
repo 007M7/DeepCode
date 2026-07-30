@@ -23,13 +23,24 @@ function selectOf(session: SessionFace | undefined): PermissionSelect | undefine
   return session?.projections.faceOf('permissions').getSnapshot() as PermissionSelect | undefined
 }
 
+/**
+ * Display transform twin of the composer chip's (ui-conversation
+ * PermissionSelect): kebab-case machine names render as title-case labels
+ * (`workspace-write` → `Workspace Write`) so both permission surfaces show
+ * the same text; non-kebab host-configured names pass through.
+ */
+function displayName(name: string): string {
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) return name
+  return name.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+}
+
 /** Flatten the projection select into popup rows; `custom` is display state, never a target. */
 function optionsOf(value: PermissionSelect): SelectOption[] {
   return value.options
     .filter(option => option.value !== 'custom')
     .map(option => ({
       id: option.value,
-      label: option.name,
+      label: displayName(option.name),
       ...(option.description !== undefined ? { detail: option.description } : {}),
       ...(option.value === value.currentValue ? { active: true } : {}),
     }))

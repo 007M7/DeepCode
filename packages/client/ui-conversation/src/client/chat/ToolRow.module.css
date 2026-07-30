@@ -175,9 +175,23 @@ button.leading {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The code variant's expanded body is the run_code program, rendered through
-   the shared CodeBlock (shiki-highlighted TypeScript); only indentation is
-   this row's concern. */
-.codeBody {
+/* The two block-shaped expanded bodies: the code variant's run_code program
+   through CodeBlock (shiki-highlighted TypeScript) and a terminal card's
+   command output through TerminalBlock. Both are drawn by the shared
+   primitive, so only the row's indentation is this file's concern — the margin
+   also replaces each primitive's own standalone vertical spacing with the
+   flow's row rhythm. */
+.codeBody,
+.terminalBody {
   margin: 4px 0 4px 22px;
+}
+
+/* Indented to the body's own column so the description reads as the card's
+   heading rather than as another summary row, and sits tight against the card
+   below it. Its own rule: grouping it with a body would put description
+   typography on a `CodeBlock` wrapper and change that body's spacing. */
+.terminalDescription {
+  margin: 4px 0 0 22px;
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
 }
