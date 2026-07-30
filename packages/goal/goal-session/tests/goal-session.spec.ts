@@ -12,13 +12,6 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { TurnEndReason } from '@deepseek-ai/dsh-session'
 import * as goalSession from '../src/index.ts'
 
-declare module '@deepseek-ai/dsh-session' {
-  interface TurnTriggerMap {
-    /** Test-only plugin turn with no message source. */
-    'test-metadata': { kind: 'test-metadata' }
-  }
-}
-
 type ScriptEntry = StreamChunk[] | Error | 'hang' | ((options: GenerateOptions) => StreamChunk[])
 
 /** Small request-recording adapter with controllable failure and cancellation. */
@@ -332,31 +325,6 @@ describe('same-session goal driving', () => {
     expect(requestText(test.adapter.requests[0]!)).toContain('human goes first')
     expect(requestText(test.adapter.requests[0]!)).not.toContain('<goal_round>')
     expect(requestText(test.adapter.requests[1]!)).toContain('<goal_round>')
-  })
-
-  it('ignores plugin-owned turn triggers while a goal round is queued', async () => {
-    const test = await harness([textResponse('goal answer')])
-    const warnings: string[] = []
-    test.ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof test.ctx.logger.warn
-    let inserted = false
-    test.ctx.on('agent/inbox/enqueue', (agent, info) => {
-      if (agent !== test.agent || info.source.kind !== 'goal' || inserted) return
-      inserted = true
-      const lastStart = agent.session.events.findLast(event => event.type === 'turn/start')
-      const turn = (lastStart?.data.turn ?? 0) + 1
-      agent.session.append('turn/start', {
-        turn,
-        trigger: { kind: 'test-metadata' },
-      })
-      agent.session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    })
-    test.ctx.goals.create(test.agent, { objective: 'ignore metadata', maxGoalRounds: 1 })
-
-    await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
-
-    expect(inserted).toBe(true)
-    expect(test.adapter.requests).toHaveLength(1)
-    expect(warnings.some(warning => warning.includes('session/event listener threw'))).toBe(false)
   })
 
   it('makes a reserved round stale when a listener queues human work behind it', async () => {
@@ -908,8 +876,7 @@ describe('same-session goal driving', () => {
     let queued = false
     test.ctx.on('session/event', (session, event) => {
       if (session !== test.agent.session || queued) return
-      if (event.type === 'turn/start' && event.data.trigger.kind === 'message'
-        && event.data.trigger.source.kind === 'goal') {
+      if (event.type === 'user/message' && event.data.source.kind === 'goal') {
         queued = true
         test.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'human interleaved' }], source: { kind: 'user' } }))
       }
@@ -997,7 +964,6 @@ describe('same-session goal driving', () => {
     const orphan = test.ctx.sessions.create(SessionId('goal-session-orphan'))
     orphan.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } },
     })
     orphan.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 

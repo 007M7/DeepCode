@@ -50,7 +50,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 生命周期边有两个重要的本地注意事项。`agent/created` 在作用域 setup 之后、会话与 agent 注册表条目都存在之后运行。Setup 是受信任、仅用于组合的代码；紧随其后且不可 veto 的 `agent/session-start` 通知是第一个受支持的启动注入点。`agent/disposed` 始终表示确切 agent 已离开注册表。AgentLoop 在其驱动器静默后发出该事件，而有序 teardown 此时可能仍在分离会话并撤销作用域；直接注册的自定义 agent 自行拥有任何更强的驱动器顺序契约。
 
-大多数拦截点都是协作式 waterfall。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点，而 `agent/request-error` 是失败模型请求的恢复 waterfall：失败步骤关闭后，它接收确切错误、规范化失败事实和信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`；循环会关闭失败轮次，并打开一个编号重试轮次。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。有效的广义取消会先发出只观测的 `agent/cancel-requested` 及其解析后的类型化原因，再清空队列并中止；通知失败会被收容，不能 veto 停止。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
+大多数拦截点都是协作式 waterfall。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点，而 `agent/request-error` 是失败模型请求的恢复 waterfall：它接收请求坐标、规范化失败事实、可用时的服务注册重试策略以及信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`；循环会关闭失败轮次，并打开一个编号重试轮次。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。有效的广义取消会先发出只观测的 `agent/cancel-requested` 及其解析后的类型化原因，再清空队列并中止；通知失败会被收容，不能 veto 停止。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
 
 `PromptDecision.additionalContexts` 是由带标识且冻结的 `UserMessage` 值组成的数组，因此每个上下文都保留自己的标识和来源。获准的提示词与每个附加上下文都会在轮次运行前成为各自独立、面向模型的 `user/message` 事件。包装下游允许决策的监听器会保留其 `content` 与 `additionalContexts`，除非有意替换任一字段；替换获准内容时仍会保留提示词的标识。
 
@@ -60,11 +60,10 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 每个插件面向的 handle：
 
-- `agent.send(message, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`message` 是已有标识且已冻结的 `UserMessage`；调用方通常会在开始路由前使用 `createUserMessage()` 创建它。`SendOptions` 只持有 `target` 与 `wakeup` 策略。agent 会原样发布或排队完整值，不会生成或替换其标识。该消息的 `agent/inbox/enqueue`/`dequeue`/`discard` 事件会携带完整消息，调用方可据此把排队项与其生命周期关联；入队与出队事件还会携带解析出的 `queued | steering` 路由归类，使重复出现的消息标识能在正确的 FIFO 中完成结算。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
-- `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
+- `agent.followup(input)`：排队一个普通后续轮次并唤醒驱动器。每个获准项都会成为其轮次中唯一的普通提示词；轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
 - `agent.steer(input)`：`next-step`／wakeup 预设：提示词接纳期间或轮次打开时，为下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；该接收窗口之外则委托给会唤醒的后续轮次。接纳失败会保留暂存的 steering，以供重试或之后获准的提示词使用，而取消或 dispose 可能丢弃它。
 - `agent.inject(input)`：`next-step`／不唤醒预设：追加面向模型的上下文而不运行模型；下一次请求会看到一条逐字的 user role 消息，其来源由必填的 `input.source` 携带。提示词接纳期间或轮次打开时，注入会在 outbox 中等待下一个安全边界。该接收窗口之外，它会立即追加而不开启轮次；如果接纳结束却未开启轮次，仅含上下文的接纳批次会采用这一回退，而与 steering 一同暂存的上下文则会随其继续待处理。持久化独立地响应 `session/event`。注入不发出 `agent/inbox/*` 事件。
-- `agent.acceptsNextStep`：当前发送 `next-step` 时，是否会加入提示词接纳或已打开的轮次。当调用方必须在 steering 与新接纳的提示词之间选择时，应使用这一更窄的路由判定；`status === 'running'` 还涵盖接纳收尾与轮次结算阶段。
+- `agent.acceptsNextStep`：steering 当前是否会加入提示词接纳或已打开的轮次。当调用方必须在 steering 与新接纳的提示词之间选择时，应使用这一更窄的路由判定；`status === 'running'` 还涵盖接纳收尾与轮次结算阶段。
 - `agent.cancel(cause, options?)`：取消活动轮次，并在未设置 `options.keepInbox` 时取消全部待处理工作。调用方必须显式选择 `user | parent` 原因；活动持有者会在中止前把其判别字段复制为已分离、冻结的信号原因。有效调用会在清除排队与 steering 工作前，随原因发出 `agent/cancel-requested`；丢弃项在 `agent/inbox/discard` 上报告，观察方可以同步状态，但不能 veto 取消。`keepInbox: true` 会中止轮次，但保留排队与 steering 项（不丢弃，且不删除尚未开始的工作）。同进程类型化 seam 不会为无类型调用方添加运行时校验或兼容回退。重复取消活动轮次时，首个信号生效；空闲取消是安全空操作，不发通知。ACP 映射到 `user`，进程内父传播映射到 `parent`。原因只存在于运行时；持久 `turn/end` 保持粗粒度的 `aborted`。
 - `agent.whenIdle()`：agent 从 `running` 结算后达到静默时解析（idle ⇒ 立即；disposed ⇒ 等待循环退出）。这是非拥有者的静默观测钩子：观察工作结算，但不 teardown agent。Teardown 独立存在；生命周期拥有者通过 `AgentHandle.dispose()` 停止并注销，并直接等待循环退出。
 - `agent.session`、`agent.status`、`agent.options`、`agent.id`

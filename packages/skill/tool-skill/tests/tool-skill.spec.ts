@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import { createUserMessage, CallId, type Message } from '@deepseek-ai/dsh-llm'
-import {} from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
@@ -46,7 +45,6 @@ function agentForCwd(cwd: string): Agent {
     session,
     status: 'idle',
     acceptsNextStep: false,
-    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input) {

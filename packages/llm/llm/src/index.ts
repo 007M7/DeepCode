@@ -22,8 +22,7 @@ import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
 import type { LlmCallConfig } from './call-config.ts'
 import { HarnessError } from './error.ts'
-import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
-import type { AdapterFailureScope } from './adapter-failure.ts'
+import { normalizeLlmFailure } from './adapter-failure.ts'
 
 export * from './attribution.ts'
 export * from './brand.ts'
@@ -35,7 +34,6 @@ export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
 export type { LlmCallConfig } from './call-config.ts'
-export { isLlmAdapterFailure, llmFailureOf, llmRetryPolicyOf } from './adapter-failure.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -113,6 +111,8 @@ export class LlmError extends HarnessError {
 export interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Immutable retry policy captured with the adapter registration. */
+  readonly retryPolicy: ResolvedRetryPolicy
   /**
    * Dispatch this call once through the registration captured during
    * preparation. The request's call-config fields must match {@link config};
@@ -440,9 +440,16 @@ export class LlmService extends Service {
     let dispatched = false
     return Object.freeze({
       config: resolvedConfig,
+      retryPolicy: registration.retryPolicy,
       stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
         if (dispatched) {
           throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')
+        }
+        if (!callConfigEquals(options, resolvedConfig)) {
+          throw new LlmError(
+            'prepared LLM call config changed before adapter dispatch',
+            'INVALID_PREPARED_CALL',
+          )
         }
         dispatched = true
         return this.streamWithRegistration(options, { registration, config: resolvedConfig })
@@ -473,31 +480,20 @@ export class LlmService extends Service {
   }
 
   /**
-   * Final adapter boundary. It tags only failures from adapter selection,
-   * synchronous dispatch, iterator construction, or iteration while preserving
-   * the original Error object. Middleware outside this generator remains
-   * distinguishable as plugin work. An iteration failure skips adapter cleanup
-   * so it cannot suppress the primary provider error. A downstream close awaits
-   * adapter cleanup, whose failures remain ordinary untagged work.
+   * Final adapter boundary. Adapter selection, dispatch, iterator construction,
+   * and iteration failures become one terminal failure chunk. Middleware and
+   * downstream consumer failures remain thrown plugin or consumer errors.
    */
   private async * adapterStream(
     options: GenerateOptions,
-    failures: AdapterFailureScope,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
   ): AsyncGenerator<StreamChunk> {
     let iterator: AsyncIterator<StreamChunk>
     try {
       const registration = prepared?.registration ?? this.registration(options.provider)
-      failures.retryPolicy = registration.retryPolicy
       const resolvedConfig = prepared === undefined
         ? await this.resolveCallConfigFor(registration, options, options.signal)
         : prepared.config
-      if (prepared !== undefined && !callConfigEquals(options, resolvedConfig)) {
-        throw new LlmError(
-          'prepared LLM call config changed before adapter dispatch',
-          'INVALID_PREPARED_CALL',
-        )
-      }
       const resolvedOptions = prepared !== undefined || callConfigEquals(options, resolvedConfig)
         ? options
         : Object.isFrozen(options)
@@ -507,32 +503,31 @@ export class LlmService extends Service {
       const stream = adapter.stream(this.forAdapter(resolvedOptions, adapter))
       iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {
-      throw markLlmAdapterFailure(failures, error)
+      yield adapterFailureChunk(error, options.signal)
+      return
     }
 
     let completed = false
-    let iterationFailed = false
     try {
       while (true) {
-        let value: StreamChunk
+        let item: IteratorResult<StreamChunk>
         try {
-          const item = await iterator.next()
-          if (item.done) {
-            completed = true
-            return
-          }
-          value = item.value
+          item = await iterator.next()
         } catch (error: unknown) {
-          iterationFailed = true
-          throw markLlmAdapterFailure(failures, error)
+          completed = true
+          yield adapterFailureChunk(error, options.signal)
+          return
+        }
+        if (item.done) {
+          completed = true
+          return
         }
         // End the adapter-owned try before yielding: consumer/middleware
-        // failures resumed into this generator must remain untagged.
-        yield value
+        // failures resumed into this generator must remain thrown.
+        yield item.value
       }
     } finally {
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the iteration catch sets its latch before entering finally.
-      if (!completed && !iterationFailed) {
+      if (!completed) {
         const close = iterator.return?.bind(iterator)
         if (close) await close()
       }
@@ -540,15 +535,13 @@ export class LlmService extends Service {
   }
 
   /**
-   * Stream one model call as raw chunks (token-level deltas). Throws
-   * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
-   * `options.provider`. Replay state is retained only when the same adapter
-   * instance owns its historical provider and the target provider. Final
-   * adapter selection remains fixed through asynchronous exact-model resolution
-   * and dispatch. Selection, dispatch, and iteration failures retain their
-   * original Error identity and are tagged in a call-local scope for narrow
-   * agent-loop request recovery; middleware and nested-call failures remain
-   * untagged for the outer call.
+   * Stream one model call as raw chunks (token-level deltas). Replay state is
+   * retained only when the same adapter instance owns its historical provider
+   * and the target provider. Final adapter selection remains fixed through
+   * asynchronous exact-model resolution and dispatch. Adapter selection,
+   * dispatch, and iteration failures become terminal `error` or `aborted`
+   * finish chunks; middleware, nested-call, cleanup, and consumer failures
+   * remain thrown.
    * @param options - the full request; `options.provider` selects the adapter.
    * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
    */
@@ -560,14 +553,23 @@ export class LlmService extends Service {
     options: GenerateOptions,
     prepared?: { registration: AdapterRegistration; config: LlmCallConfig },
   ): AsyncIterable<StreamChunk> {
-    const failures: AdapterFailureScope = { failures: new WeakMap<Error, LlmFailure>() }
-    const stream = this.ctx.waterfall(
+    return this.ctx.waterfall(
       this,
       'llm/stream',
       options,
-      () => this.adapterStream(options, failures, prepared),
+      () => this.adapterStream(options, prepared),
     )
-    return bindAdapterFailureScope(stream, failures)
+  }
+}
+
+/** Convert one adapter throw into the stream protocol's terminal outcome. */
+function adapterFailureChunk(error: unknown, signal?: AbortSignal): StreamChunk {
+  const failure = normalizeLlmFailure(error)
+  return {
+    type: 'finish',
+    reason: signal?.aborted || failure.code === 'ABORTED'
+      ? { kind: 'aborted', failure }
+      : { kind: 'error', failure },
   }
 }
 

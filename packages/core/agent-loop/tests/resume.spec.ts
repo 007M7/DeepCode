@@ -43,7 +43,7 @@ async function persistSession(sessionId: SessionId): Promise<string> {
   // balanced completed turn is the smallest resumable log and avoids running
   // the model merely to construct this lifecycle fixture.
   const seed: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
   const session = ctx.sessions.create(sessionId, { seed })
@@ -86,7 +86,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       createdAt: 1,
     })
     await first.ctx.sessionPersistence.append(sessionId, [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       {
         type: 'user/message',
         seq: 1,
@@ -175,7 +175,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const { ctx } = await persistentHarness(new MockAdapter([textResponse('unused')]))
     const sessionId = SessionId('live-resume-race')
     const first = (await ctx.agents.create({ sessionId })).agent
-    first.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    first.session.append('turn/start', { turn: 1 })
     await ctx.sessions.flush(first.session)
 
     await expect(ctx.agents.resume({ resumeSessionId: sessionId }))
@@ -494,7 +494,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     // in its header) by creating it with a complete-turn seed — the write path
     // materializes the fork (header + seed) on disk.
     const seed: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     const adapter1 = new MockAdapter([textResponse('a')])

@@ -38,7 +38,6 @@ function liveAgent(ctx: Context, session: Session): Agent {
     ctx,
     get status() { return status },
     get acceptsNextStep() { return false },
-    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input: UserMessage) {
@@ -145,7 +144,7 @@ describe('goal projection unit', () => {
 
     // A non-message event (the registry drives EVERY committed event through
     // apply): early same-reference return.
-    const turnStart = { type: 'turn/start', seq: 3, time: 4, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } } as never
+    const turnStart = { type: 'turn/start', seq: 3, time: 4, data: { turn: 1 } } as never
     expect(applyGoalProjection(state, turnStart)).toBe(state)
 
     // A round-zero goal source whose change carries a foreign kind: same posture.

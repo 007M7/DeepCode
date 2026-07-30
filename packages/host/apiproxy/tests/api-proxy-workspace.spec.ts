@@ -50,7 +50,6 @@ function stubAgent(session: Session): Agent {
     followup: () => {},
     steer: () => {},
     inject: () => {},
-    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

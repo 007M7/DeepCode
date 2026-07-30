@@ -51,7 +51,6 @@ describe('scoped-dispatch invariants', () => {
       'agent/inbox/enqueue': [agent, message, 'queued'],
       'agent/inbox/dequeue': [agent, message, 'queued'],
       'agent/inbox/discard': [agent, []],
-      'agent/cancel-requested': [agent, { kind: 'user' }],
       'agent/session-start': [agent, 'startup'],
       'agent/step': [agent, 1, 1, signal],
       'agent/prompt-submit': [agent, message, signal, () => Promise.resolve({ kind: 'allow' })],
@@ -68,7 +67,6 @@ describe('scoped-dispatch invariants', () => {
         () => Promise.resolve(undefined),
       ],
       'agent/turn-stopping': [agent, 1, signal],
-      'agent/settled': [agent, 1, { kind: 'completed' }],
       'agent/error': [agent, 1, 0, new Error('x')],
     } satisfies { [K in AgentEventName]: EventArgs<K> }
     const rows: Array<[string, unknown[]]> = [

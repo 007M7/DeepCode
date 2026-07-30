@@ -45,7 +45,7 @@ describe('foldRequestHeader', () => {
   it('returns the supplied baseline when no snapshot follows', () => {
     const from: EpochHeader = { config: CONFIG, system: 'baseline' }
     const unrelated: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     ]
     expect(foldRequestHeader(unrelated)).toBeUndefined()
     expect(foldRequestHeader(unrelated, from)).toBe(from)
@@ -53,7 +53,7 @@ describe('foldRequestHeader', () => {
 
   it('takes the latest full snapshot and skips unrelated events', () => {
     const session = new Session(SessionId('fold'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('request/header', { header: { config: CONFIG, system: 'first' }, reason: 'initial' })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },

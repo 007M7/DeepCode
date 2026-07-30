@@ -5,20 +5,7 @@
  * @module @deepseek-ai/dsh-tui
  */
 
-import {
-  CombinedAutocompleteProvider,
-  Container,
-  Key,
-  Spacer,
-  Text,
-  TUI,
-  ProcessTerminal,
-  matchesKey,
-  visibleWidth,
-  type EditorTheme,
-  type SlashCommand,
-  type TerminalColorScheme,
-} from '@earendil-works/pi-tui'
+import { CombinedAutocompleteProvider, Container, Key, Spacer, Text, TUI, ProcessTerminal, matchesKey, visibleWidth, type EditorTheme, type SlashCommand, type TerminalColorScheme } from '@earendil-works/pi-tui'
 import { Service, type Context, type Fiber } from 'cordis'
 import {
   assembleContextFor,
@@ -343,6 +330,7 @@ export function createTuiChat(
   const pendingSteering = new Set<MessageId>()
   let disposed = false
   let shuttingDown: Promise<void> | undefined
+  let exitAfterIdle = false
   // Optional: skills mount conditionally, so read the global service store
   // rather than declaring an injection that would make the TUI require them.
   const skills = ctx.get('skills')
@@ -786,9 +774,15 @@ export function createTuiChat(
           case 'completed':
             break
           case 'error': {
-            const key = `${event.data.turn}:${reason.step}`
-            const message = 'failure' in reason ? reason.failure.message : reason.message
-            if (!liveErrors.delete(key)) appendNotice(message, 'error')
+            const prefix = `${event.data.turn}:`
+            let alreadyReported = false
+            for (const key of liveErrors) {
+              if (!key.startsWith(prefix)) continue
+              liveErrors.delete(key)
+              alreadyReported = true
+            }
+            const message = reason.error instanceof Error ? reason.error.message : String(reason.error)
+            if (!alreadyReported) appendNotice(message, 'error')
             break
           }
           case 'aborted':
@@ -796,9 +790,6 @@ export function createTuiChat(
             break
           case 'max-tokens':
             appendNotice('The model reached its output-token limit.', 'warning')
-            break
-          case 'disposed':
-            appendNotice('Turn stopped: the agent was disposed.', 'warning')
             break
           case 'interrupted':
             appendNotice('The previous process ended during this turn.', 'warning')
@@ -892,9 +883,9 @@ export function createTuiChat(
 
   const requestExit = (): void => {
     if (agent.status === 'running') {
+      exitAfterIdle = true
       agent.cancel({ kind: 'user' })
       appendNotice('Cancelling the active turn before exit…', 'warning')
-      void agent.whenIdle().then(() => shutdown(true))
       return
     }
     void shutdown(true)
@@ -1190,67 +1181,14 @@ export function createTuiChat(
       appendNotice(`Agent "${agent.id}" is disposed.`, 'error')
       return
     }
-    if (agent.acceptsNextStep) {
-      // Steering is never subject to prompt admission; an attached snapshot
-      // drains beside it at the same step boundary through the outbox.
-      if (attachedContext !== undefined) {
-        agent.inject(attachedContext)
-      }
-      const message = createUserMessage({ content, source: { kind: 'user' } })
-      agent.steer(message)
-      pendingSteering.add(message.id)
-      refreshStatus()
-      return
-    }
-    if (attachedContext === undefined) {
-      agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
-      return
-    }
-    // Idle: the snapshot rides the prompt's admission transaction so a
-    // blocking hook discards both together.
-    let cleanedUp = false
-    const message: UserMessage = createUserMessage({ content, source: { kind: 'user' } })
-    const acceptedId = message.id
-    const discarded = new Set<MessageId>()
-    const cleanup = (): void => {
-      // Every completion path detaches both listeners. Keep this
-      // idempotent so later cleanup paths cannot double-release them.
-      /* v8 ignore next -- unreachable idempotence guard, see above */
-      if (cleanedUp) return
-      cleanedUp = true
-      detachSubmit()
-      detachDiscard()
-    }
-    // Prepended so this wrapper is outermost: it observes the exact accepted
-    // message identity whether a downstream hook allows or blocks, then detaches.
-    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _signal, next) => {
-      if (subject !== agent || submitted.id !== message.id) return next()
-      cleanup()
-      const decision = await next()
-      if (decision.kind !== 'allow') return decision
-      return { ...decision, additionalContexts: [...decision.additionalContexts ?? [], attachedContext] }
-    }, { prepend: true })
-    // Installed before followup(): an enqueue listener can synchronously
-    // cancel and discard before followup() returns its id.
-    const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
-      if (subject !== agent) return
-      for (const message of messages) discarded.add(message.id)
-      if (discarded.has(acceptedId)) cleanup()
-    })
-    // followup() accepts any typed input and contains listener failures;
-    // this guards a future synchronous throw so the wrapper cannot leak.
-    /* v8 ignore start -- future-proofing guard, see above */
-    try {
-      agent.followup(message)
-      if (discarded.has(acceptedId)) cleanup()
-    } catch (error: unknown) {
-      cleanup()
-      throw error
-    }
-    /* v8 ignore stop */
+    if (attachedContext !== undefined) agent.inject(attachedContext)
+    const message = createUserMessage({ content, source: { kind: 'user' } })
+    agent.steer(message)
+    pendingSteering.add(message.id)
+    refreshStatus()
   }
 
-  /** Deliver a user turn to the agent: steer while running, send while idle, or report a disposed agent. */
+  /** Deliver user input to the nearest step, or report a disposed agent. */
   const deliver = (payload: string): void => {
     dispatchMessage([{ type: 'text', text: payload }])
   }
@@ -1448,14 +1386,11 @@ export function createTuiChat(
   const settlePendingSteering = (id: MessageId): void => {
     if (pendingSteering.delete(id)) refreshStatus()
   }
-  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {
+  const disposeDequeued = ctx.on('agent/inbox/admitted', (subject, message) => {
     if (subject === agent) settlePendingSteering(message.id)
   })
-  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, messages) => {
-    if (subject !== agent) return
-    let changed = false
-    for (const message of messages) changed = pendingSteering.delete(message.id) || changed
-    if (changed) refreshStatus()
+  const disposeDiscarded = ctx.on('agent/inbox/canceled', (subject, message) => {
+    if (subject === agent && pendingSteering.delete(message.id)) refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
@@ -1464,6 +1399,10 @@ export function createTuiChat(
     // the queue without logging drains, cannot strand a stale count).
     if (status !== 'running') pendingSteering.clear()
     setStatus(status)
+    if (status === 'idle' && exitAfterIdle) {
+      exitAfterIdle = false
+      void shutdown(true)
+    }
   })
   const disposeError = ctx.on('agent/error', (subject, turn, step, error) => {
     if (subject !== agent) return

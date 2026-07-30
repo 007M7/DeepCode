@@ -36,4 +36,4 @@ A future plugin cannot abort only the current model/tool step while preserving q
 
 ## Related
 
-This Agent Note only removes the redundant stop verb. Mid-turn steering remains an intentional message path; quiescence observation remains via `whenIdle()`. The resulting public surface is `send()`, `steer()`, `inject()`, `cancel()`, `whenIdle()`, status, options, session, and identity.
+This Agent Note only removes the redundant stop verb. Mid-turn steering remains an intentional message path; quiescence observation remains via `whenIdle()`. The resulting delivery surface is `followup()`, `steer()`, and `inject()`; stopping and observation remain with `cancel()` and `whenIdle()`.

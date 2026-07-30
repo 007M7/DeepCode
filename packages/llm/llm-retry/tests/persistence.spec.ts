@@ -32,7 +32,7 @@ describe.each(['jsonl', 'sqlite'] as const)('%s retry-event persistence', (kind)
     const ctx = await backend(kind)
     try {
       const session = ctx.sessions.create(SessionId(`retry-${kind}`))
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
       session.append('step/start', { turn: 1, step: 1 })
       session.append('request/header', {
         header: { config: { provider: 'mock', model: 'mock' } },

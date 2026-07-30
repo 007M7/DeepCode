@@ -3,8 +3,6 @@ import type {
   AssistantMessage,
   CallId,
   LlmCallConfig,
-  LlmFailure,
-  MessageSource,
   StreamChunk,
   TokenUsage,
   ToolResultMessage,
@@ -87,24 +85,12 @@ export interface CreateSessionOptions {
   }
 }
 
-/**
- * What started a turn.
- * Merge-extensible sum type (same pattern as MessageSourceMap).
- */
-export interface TurnTriggerMap {
-  message: { kind: 'message'; source: MessageSource }
-  /** Recovery turn reopened over the repaired current session log. */
-  retry: { kind: 'retry' }
-  /**
-   * An out-of-band producer explicitly enclosed injected context in a one-shot
-   * turn. `Agent.inject()` appends idle context directly and does not use this
-   * trigger; the source mirrors the producer of the enclosed `user/message`.
-   */
-  injection: { kind: 'injection'; source: MessageSource }
-}
-
-/** The union over {@link TurnTriggerMap} — what started a turn; plugins extend it by merging variants into the map. */
-export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
+/** Why an active agent driver was cancelled. */
+export type AgentCancelCause =
+  | { readonly kind: 'user' }
+  | { readonly kind: 'parent' }
+  | { readonly kind: 'hook'; readonly reason: string }
+  | { readonly kind: 'disposed' }
 
 /**
  * Why a turn ended. Merge-extensible sum type.
@@ -112,20 +98,11 @@ export type TurnTrigger = TurnTriggerMap[keyof TurnTriggerMap]
 export interface TurnEndReasonMap {
   completed: { kind: 'completed' }
   /** A cancellation request interrupted the live turn. */
-  aborted: { kind: 'aborted' }
+  aborted: { kind: 'aborted'; reason: AgentCancelCause }
   /**
-   * The turn failed: a step threw or the model reported a failure. `step` is the
-   * step number the failure occurred on (the operational error's location — the
-   * single durable record of an in-turn failure; live diagnostics also fire via
-   * `agent/error`). Final model-request failures retain their normalized facts
-   * as one `failure`; other thrown values retain their rendered message and a
-   * real `HarnessError` code when present.
+   * The turn failed.
    */
-  error: { kind: 'error'; step: number } & (
-    | { failure: LlmFailure; message?: never; code?: never }
-    | { message: string; code?: string; failure?: never }
-  )
-  disposed: { kind: 'disposed' }
+  error: { kind: 'error'; error: unknown }
   /** At least one step reached its output-token ceiling, even if a plugin continued the turn. */
   'max-tokens': { kind: 'max-tokens' }
   /**
@@ -185,9 +162,11 @@ export type RequestHeaderReason = 'initial' | 'resume' | 'change'
  */
 export interface SessionEventMap {
   /**
-   * Opens turn `turn`. `trigger` records what started the model loop.
+   * Opens turn `turn`. Every turn begins when the loop admits queued input;
+   * the following identified `user/message` event or batch records the
+   * admitted input.
    */
-  'turn/start': { turn: number; trigger: TurnTrigger }
+  'turn/start': { turn: number }
   /**
    * Closes turn `turn` with the {@link TurnEndReason} that ended it. The loop
    * awaits `session/flush` after an ordinary turn ends before claiming the next

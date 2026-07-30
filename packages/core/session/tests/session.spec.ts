@@ -2,7 +2,6 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { createUserMessage, CallId, createMessage, createToolResultMessage, MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import SessionStore, {
-  findLastMessageTurnEnd,
   SESSION_FORMAT_VERSION,
   Session,
   SessionEvent,
@@ -22,7 +21,7 @@ describe('Session', () => {
 
   it('derives message history from the event log', () => {
     const session = new Session(SessionId('s1'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hello' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -62,7 +61,7 @@ describe('Session', () => {
     // The max-tokens TurnEndReason variant carries no extra data, so it must
     // append and persist like any other reason (JSON-serializable, no fields).
     const session = new Session(SessionId('s1'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
 
     const turnEnd = session.events.findLast(e => e.type === 'turn/end')!
@@ -71,45 +70,9 @@ describe('Session', () => {
     expect(structuredClone(turnEnd.data.reason)).toEqual({ kind: 'max-tokens' })
   })
 
-  it('finds the latest message-turn outcome past later non-message turns', () => {
-    const session = new Session(SessionId('message-turn-outcome'))
-    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
-    session.append('turn/start', {
-      turn: 1,
-      trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'before' } },
-    })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'before' }],
-      source: { kind: 'plugin', plugin: 'before' },
-    }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    expect(findLastMessageTurnEnd(session.events)).toBeUndefined()
-
-    session.append('turn/start', {
-      turn: 2,
-      trigger: { kind: 'message', source: { kind: 'user' } },
-    })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'bounded prompt' }],
-      source: { kind: 'user' },
-    }), { surfaceOp: 'append' })
-    const messageEnd = session.append('turn/end', { turn: 2, reason: { kind: 'max-tokens' } })
-    session.append('turn/start', {
-      turn: 3,
-      trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'after' } },
-    })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'after' }],
-      source: { kind: 'plugin', plugin: 'after' },
-    }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
-
-    expect(findLastMessageTurnEnd(session.events)).toBe(messageEnd)
-  })
-
   it('round-trips the coarse aborted turn outcome', () => {
     const session = new Session(SessionId('aborted'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
     const replayed = new Session(SessionId('aborted-replay'), structuredClone(session.events))
     expect(replayed.events).toEqual(session.events)
@@ -121,7 +84,7 @@ describe('Session', () => {
     const legacy = [
       {
         type: 'turn/start', seq: 0, time: 1,
-        data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+        data: { turn: 1 },
       },
       {
         type: 'turn/end', seq: 1, time: 2,
@@ -169,7 +132,7 @@ describe('Session', () => {
 
   it('replays identically from a seeded event log', () => {
     const original = new Session(SessionId('s3'))
-    original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    original.append('turn/start', { turn: 1 })
     original.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'q' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -346,13 +309,13 @@ describe('Session', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     })
     expect(boundary).toEqual({
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     })
 
     const extended = snapshotSessionEvent({
@@ -463,7 +426,7 @@ describe('Session', () => {
 
   it('rejects a surface-eligible append with no surfaceOp marker (runtime guard for the union-widening loophole)', () => {
     const session = new Session(SessionId('s5b'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     // A widened SessionEventType bypasses the overload's conditional requirement,
     // so the runtime guard must still reject the missing surface marker.
     const widenedType = 'user/message' as SessionEventType
@@ -492,7 +455,7 @@ describe('Session', () => {
 
   it('validates seed events: rejects a non-contiguous seq', () => {
     const gapSeed = [
-      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1 } },
       { type: 'turn/end' as const, seq: 5, time: 2, data: { turn: 1, reason: { kind: 'completed' as const } } }, // gap: expected seq 1
     ] as SessionEvent[]
     expect(() => new Session(SessionId('seed-gap'), gapSeed)).toThrow(/contiguous|seq/)
@@ -504,7 +467,7 @@ describe('Session', () => {
     // so a resume/fork would silently lose history. append() forbids this at
     // compile time; a raw seed must be rejected at runtime to match.
     const markerlessSeed = [
-      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1 } },
       { type: 'user/message' as const, seq: 1, time: 2, data: createUserMessage({
         content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const },
       }) },
@@ -515,7 +478,7 @@ describe('Session', () => {
 
   it('accepts a well-formed contiguous serializable seed', () => {
     const goodSeed = [
-      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1 } },
       { type: 'user/message' as const, seq: 1, time: 2, data: createUserMessage({
         content: [{ type: 'text' as const, text: 'hi' }], source: { kind: 'user' as const },
       }), surfaceOp: 'append' as const },
@@ -530,7 +493,7 @@ describe('Session', () => {
       type: 'turn/start' as const,
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } },
+      data: { turn: 1 },
     }
     const drifted = { ...accepted, seq: 99, data: { invalid: 1n } }
     let reads = 0
@@ -606,7 +569,7 @@ describe('Session', () => {
       readonly type = 'turn/start' as const
       readonly seq = 0
       readonly time = 1
-      readonly data = { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } }
+      readonly data = { turn: 1 }
     }
     const seed: SessionEvent[] = [new SeedEvent()]
 
@@ -619,7 +582,7 @@ describe('Session', () => {
       type: 'turn/start' as const,
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } },
+      data: { turn: 1 },
     }) as unknown as SessionEvent
 
     const session = new Session(SessionId('seed-null-prototype'), [event])
@@ -701,7 +664,7 @@ describe('Session', () => {
 
   it('snapshots the seed: mutating the original after construction does not affect session.events', () => {
     const seed = [
-      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message' as const, source: { kind: 'user' as const } } } },
+      { type: 'turn/start' as const, seq: 0, time: 1, data: { turn: 1 } },
       { type: 'user/message' as const, seq: 1, time: 2, data: {
         id: MessageId('seed-input'),
         role: 'user' as const,
@@ -852,14 +815,14 @@ describe('Session', () => {
 
     expect(() => appendRaw(
       'turn/start',
-      { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      { turn: 1 },
       { surfaceOp: 'append' },
     )).toThrow(/not surface-eligible and cannot carry surfaceOp/)
     expect(() => new Session(SessionId('non-surface-metadata-seed'), [{
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
       surfaceOp: 'append',
     } as unknown as SessionEvent])).toThrow(/invalid seed event.*not surface-eligible/)
     expect(session.events).toEqual([])
@@ -870,13 +833,12 @@ describe('Session', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     }])
     const seededEvent = seeded.events[0]!
     if (seededEvent.type !== 'turn/start') throw new Error('test fixture must remain a turn/start')
     expect(Object.isFrozen(seededEvent)).toBe(true)
     expect(Object.isFrozen(seededEvent.data)).toBe(true)
-    expect(Object.isFrozen(seededEvent.data.trigger)).toBe(true)
     expect(() => { seededEvent.data.turn = 99 }).toThrow(TypeError)
 
     const appended = new Session(SessionId('append-frozen'))
@@ -892,7 +854,7 @@ describe('Session', () => {
 
   it('returns cached frozen event-array snapshots that do not grow after append', () => {
     const session = new Session(SessionId('events-snapshot'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const before = session.events
     const beforeEvent = before[0]!
     if (beforeEvent.type !== 'turn/start') throw new Error('test fixture must remain a turn/start')
@@ -989,7 +951,7 @@ describe('Session', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     }
     const cases: unknown[] = [
       { ...base, extra: true },
@@ -1028,7 +990,7 @@ describe('SessionStore', () => {
     // may create an unrelated property with the old implementation's name,
     // but cannot suppress the durable event feed.
     expect(Reflect.set(session, 'onAppend', undefined)).toBe(true)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'x' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -1046,7 +1008,7 @@ describe('SessionStore', () => {
     const a = ctx.sessions.create(SessionId('fixed'))
     expect(() => ctx.sessions.create(SessionId('fixed'))).toThrow('already exists')
 
-    a.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    a.append('turn/start', { turn: 1 })
     a.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'q' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -1295,7 +1257,7 @@ describe('SessionStore', () => {
     ctx.on('session/event', (_session, event) => void events.push(event))
     const session = ctx.sessions.create(SessionId('fixed'))
     expect(ctx.sessions.get(SessionId('fixed'))).toBe(session)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })
@@ -1321,7 +1283,6 @@ describe('SessionStore', () => {
     expect(() => {
       appended = session.append('turn/start', {
         turn: 1,
-        trigger: { kind: 'message', source: { kind: 'user' } },
       })
     }).not.toThrow()
     expect(committedBeforeNotify).toBe(true)
@@ -1360,14 +1321,12 @@ describe('SessionStore', () => {
 
     expect(() => session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })).toThrow('reject first candidate')
     expect(session.events).toEqual([])
     expect(observed).toEqual([])
 
     const appended = session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     expect(validations.map(({ logLength, frozen }) => ({ logLength, frozen }))).toEqual([
       { logLength: 0, frozen: true },
@@ -1383,7 +1342,7 @@ describe('SessionStore', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('surface-dispatch-veto'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'source' }],
@@ -1438,7 +1397,6 @@ describe('SessionStore', () => {
 
     expect(() => session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })).toThrow('dispatch instrumentation rejected the carrier')
     expect(session.events).toEqual([])
     expect(observed).toEqual([])
@@ -1458,7 +1416,6 @@ describe('SessionStore', () => {
 
     const appended = session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     expect(session.events).toEqual([appended])
     expect(heard).toEqual([appended])
@@ -1489,7 +1446,6 @@ describe('SessionStore', () => {
 
     const appended = session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
 
     expect(session.events).toEqual([appended])
@@ -1640,7 +1596,7 @@ describe('todo/write event', () => {
 
   it('round-trips through a seeded replay identically (durable, no surfaceOp needed)', () => {
     const original = new Session(SessionId('t4'))
-    original.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    original.append('turn/start', { turn: 1 })
     original.append('todo/write', { todos: [{ content: 'only', status: 'completed' }] })
     original.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     // Seeding a non-surface event with no surfaceOp must not throw.

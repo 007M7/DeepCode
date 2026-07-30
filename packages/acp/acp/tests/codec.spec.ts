@@ -7,10 +7,9 @@ describe('ACP automation codec', () => {
     const cases: [TurnEndReason, string][] = [
       [{ kind: 'completed' }, 'end_turn'],
       [{ kind: 'max-tokens' }, 'max_tokens'],
-      [{ kind: 'aborted' }, 'cancelled'],
-      [{ kind: 'disposed' }, 'cancelled'],
+      [{ kind: 'aborted', reason: { kind: 'user' } }, 'cancelled'],
       [{ kind: 'interrupted' }, 'cancelled'],
-      [{ kind: 'error', step: 1, message: 'boom' }, 'end_turn'],
+      [{ kind: 'error', error: new Error('boom') }, 'end_turn'],
     ]
     for (const [reason, expected] of cases) expect(turnEndToStopReason(reason)).toBe(expected)
   })

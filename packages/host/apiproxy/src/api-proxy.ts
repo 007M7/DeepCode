@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
@@ -474,38 +474,38 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * inbox event retires one matching occurrence, so repeated sends of the same
    * identified message remain visible until every occurrence is claimed.
    */
-  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean }[]>()
+  const queuedMirror = new Map<SessionId, UserMessage[]>()
   ctx.effect(() => {
-    const retire = (agent: Agent, id: MessageId, placement?: InboxPlacement): void => {
+    const retire = (agent: Agent, id: MessageId): void => {
       const entries = queuedMirror.get(agent.id)
       if (entries === undefined) return
-      const index = entries.findIndex(entry =>
-        entry.message.id === id
-        && (placement === undefined || entry.steering === (placement === 'steering')))
+      const index = entries.findIndex(message => message.id === id)
       if (index !== -1) entries.splice(index, 1)
       if (entries.length === 0) queuedMirror.delete(agent.id)
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
+      ctx.on('session/event', (session: Session, event: SessionEvent) => {
+        if (event.type !== 'agent/inbox/added') return
+        const agent = ctx.agents.get(session.id)
+        if (agent === undefined || agent.session !== session) return
+        const message = event.data
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
           entries = []
           queuedMirror.set(agent.id, entries)
         }
-        const steering = placement === 'steering'
-        entries.push({ message, steering })
+        entries.push(message)
         broadcast({
           type: 'session/queued',
           sessionId: agent.id,
           message,
-          steering,
         })
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage, placement) => {
-        retire(agent, message.id, placement)
+      ctx.on('agent/inbox/admitted', (agent: Agent, message: UserMessage) => {
+        retire(agent, message.id)
       }),
-      ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
-        for (const message of messages) retire(agent, message.id)
+      ctx.on('agent/inbox/canceled', (agent: Agent, message: UserMessage) => {
+        retire(agent, message.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
@@ -1338,12 +1338,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
         for (const [sessionId, entries] of queuedMirror) {
-          for (const entry of entries) {
+          for (const message of entries) {
             queue.push(frame({
               type: 'session/queued',
               sessionId,
-              message: entry.message,
-              steering: entry.steering,
+              message,
             }))
           }
         }

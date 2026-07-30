@@ -255,7 +255,7 @@ describe('HarnessSdkServer', () => {
     await server.shutdown()
   })
 
-  it('reports the message-turn outcome when a later non-message turn settles before idle', async () => {
+  it('reports the final whole-agent outcome after later activity settles', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(AgentRegistry)
@@ -272,13 +272,11 @@ describe('HarnessSdkServer', () => {
       followup(input: UserMessage) {
         session.append('turn/start', {
           turn: 1,
-          trigger: { kind: 'message', source: input.source },
         })
         session.append('user/message', input, { surfaceOp: 'append' })
         session.append('turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
         session.append('turn/start', {
           turn: 2,
-          trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
         })
         session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: 'late metadata' }],
@@ -306,8 +304,8 @@ describe('HarnessSdkServer', () => {
         method: 'session.finished',
         params: {
           sessionId: 'message-outcome',
-          status: 'error',
-          reason: { kind: 'max-tokens' },
+          status: 'ok',
+          reason: { kind: 'completed' },
         },
       })
     await server.shutdown()

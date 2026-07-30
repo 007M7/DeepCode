@@ -6,7 +6,6 @@ import AgentRegistry, {
   type AgentCancelCause,
   type AgentOptions,
   type AgentStatus,
-  type SendOptions,
 } from '@deepseek-ai/dsh-agent'
 import type {
   ContentBlock,
@@ -27,7 +26,6 @@ interface FakeAgent extends Agent {
   status: AgentStatus
   sent: ContentBlock[][]
   sentMessages: UserMessage[]
-  sentOptions: (SendOptions | undefined)[]
   steered: ContentBlock[][]
   steeredIds: MessageId[]
   steeredOptions: UserMessage[]
@@ -178,7 +176,6 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   if (options.omitInitialLifecycle !== true) {
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('step/start', { turn: 1, step: 1 })
   }
@@ -187,7 +184,6 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const sentMessages: UserMessage[] = []
   const steered: ContentBlock[][] = []
   const steeredIds: MessageId[] = []
-  const sentOptions: (SendOptions | undefined)[] = []
   const steeredOptions: UserMessage[] = []
   const injected: ContentBlock[][] = []
   const injectedOptions: UserMessage[] = []
@@ -203,23 +199,15 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     ctx,
     sent,
     sentMessages,
-    sentOptions,
     steered,
     steeredIds,
     steeredOptions,
     injected,
     injectedOptions,
     cancelled,
-    send(input, options) {
-      sent.push(input.content)
-      sentMessages.push(input)
-      sentOptions.push(options)
-      return input.id
-    },
     followup(input) {
       sent.push(input.content)
       sentMessages.push(input)
-      sentOptions.push(undefined)
       return input.id
     },
     steer(input) {

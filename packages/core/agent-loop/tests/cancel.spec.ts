@@ -7,7 +7,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
  * @module dsh-agent-loop/tests/cancel
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import LlmService from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -55,33 +55,6 @@ function userTexts(agent: Agent): string[] {
 }
 
 describe('Agent.cancel()', () => {
-  it('notifies every observer before clearing work and contains listener failures', async () => {
-    const adapter = new MockAdapter([textResponse('must remain unused')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('cancel-event'), { provider: 'mock', model: 'mock' })
-    const warned = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const seen: string[] = []
-    ctx.on('agent/cancel-requested', (subject, cause) => {
-      if (subject !== agent) return
-      seen.push(`first:${cause.kind}`)
-      subject.followup(createUserMessage({ content: [{ type: 'text', text: 'queued by cancel observer' }], source: { kind: 'user' } }))
-      throw new Error('observer failed')
-    })
-    ctx.on('agent/cancel-requested', (subject, cause) => {
-      if (subject === agent) seen.push(`second:${cause.kind}`)
-    })
-
-    send(agent, 'drop me')
-    agent.cancel({ kind: 'user' })
-    await new Promise(resolve => setTimeout(resolve, 30))
-    agent.cancel({ kind: 'parent' })
-
-    expect(seen).toEqual(['first:user', 'second:user'])
-    expect(userTexts(agent)).toEqual([])
-    expect(adapter.requests).toHaveLength(0)
-    expect(warned).toHaveBeenCalledWith(expect.stringContaining('agent/cancel-requested'))
-  })
-
   it('cancel() on an idle agent with nothing queued is a no-op; the next prompt runs (F2 leak guard)', async () => {
     const adapter = new MockAdapter([textResponse('reply')])
     const ctx = await harness(adapter)
@@ -103,54 +76,21 @@ describe('Agent.cancel()', () => {
     const adapter = new MockAdapter([textResponse('reply')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const discards: unknown[] = []
-    ctx.on('agent/inbox/discard', (subject, items) => { if (subject === agent) discards.push(items) })
-    const cancelRequests: unknown[] = []
-    ctx.on('agent/cancel-requested', (subject, cause) => { if (subject === agent) cancelRequests.push(cause) })
+    const canceled: unknown[] = []
+    ctx.on('agent/inbox/canceled', (subject, message) => { if (subject === agent) canceled.push(message) })
 
-    // Queue a turn WITHOUT waking the driver, so it sits in the inbox.
-    agent.send(createUserMessage({ content: [{ type: 'text', text: 'preserved' }], source: { kind: 'user' } }), { target: 'next-turn', wakeup: false })
-    // keepInbox cancel: no active turn, work preserved, no discard event. With
-    // nothing to abort and nothing discarded, the call is a documented no-op,
-    // so it emits no cancel-requested either.
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'preserved' }],
+      source: { kind: 'user' },
+    }))
+    // Abort the collecting activity while preserving its queued item.
     agent.cancel({ kind: 'user' }, { keepInbox: true })
-    expect(discards).toEqual([])
-    expect(cancelRequests).toEqual([])
+    expect(canceled).toEqual([])
 
-    // The preserved item still runs once the driver is woken by a later send.
+    // The preserved item still runs once a later follow-up wakes the driver.
     send(agent, 'wake it')
     await waitForIdle(ctx, agent)
     expect(userTexts(agent)).toEqual(['preserved', 'wake it'])
-  })
-
-  it('a lone quiet (wakeup:false) send leaves the agent parked at idle', async () => {
-    const adapter = new MockAdapter([textResponse('reply')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-
-    // A quiet item alone must NOT wake the driver: no turn runs and whenIdle
-    // resolves (the agent is quiescent), leaving the item queued.
-    agent.send(createUserMessage({ content: [{ type: 'text', text: 'quiet' }], source: { kind: 'user' } }), { target: 'next-turn', wakeup: false })
-    await agent.whenIdle()
-    expect(agent.status).toBe('idle')
-    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
-
-    // A later waking send drives the loop, and the quiet item rides along first.
-    send(agent, 'wake')
-    await waitForIdle(ctx, agent)
-    expect(userTexts(agent)).toEqual(['quiet', 'wake'])
-  })
-
-  it('cancelling a parked quiet item settles a pending whenIdle() without a later send', async () => {
-    const adapter = new MockAdapter([textResponse('reply')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-
-    agent.send(createUserMessage({ content: [{ type: 'text', text: 'quiet' }], source: { kind: 'user' } }), { target: 'next-turn', wakeup: false })
-    const idle = agent.whenIdle()
-    agent.cancel({ kind: 'user' })
-    await idle
-    expect(agent.session.events.some(e => e.type === 'turn/start')).toBe(false)
   })
 
   it('pre-step cancel drops the about-to-start turn (no turn is opened)', async () => {
@@ -158,7 +98,7 @@ describe('Agent.cancel()', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    // send() queues synchronously (status still idle, loop microtask not yet
+    // followup() queues synchronously (status still idle, loop microtask not yet
     // resumed). Cancel in that pre-step window: the queued turn must not run.
     send(agent, 'drop me first')
     send(agent, 'drop me second')

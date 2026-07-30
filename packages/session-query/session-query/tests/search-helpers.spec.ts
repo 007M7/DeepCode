@@ -125,7 +125,7 @@ describe('session-query semantic extraction', () => {
       expect(extractSessionEventText({ type: 'turn/end', seq: 0, time: 1, data: { turn: 1, reason } })).toBe(text)
     }
     const structural: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'step/start', seq: 1, time: 1, data: { turn: 1, step: 1 } },
       { type: 'step/end', seq: 2, time: 1, data: { turn: 1, step: 1 } },
       { type: 'assistant/chunk', seq: 3, time: 1, data: { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'raw' } } },

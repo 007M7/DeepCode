@@ -147,7 +147,7 @@ describe('agent scope lifecycle', () => {
     expect(agent.ctx.agent).toBe(agent)
     // The root accessor default: a plain context answers undefined, not a throw.
     expect(ctx.agent).toBeUndefined()
-    await ctx.agents.get(SessionId('a1'))?.whenIdle()
+    await agent.whenIdle()
   })
 
   it('records agents created through an agent context as non-root runtime children', async () => {

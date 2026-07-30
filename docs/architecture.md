@@ -65,7 +65,7 @@ Waterfalls are around-middleware: listeners delegate with `next()`; returning wi
 
 ## Default Loop Lifecycle
 
-A **session** is append-only. An ordinary **turn** claims one queued `send()` item; injection claims none. A successor awaits its predecessor's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model or plugins stop it; a **step** is one model request plus tools. Quotes in the [sequence below](agent-lifecycle.md) mark durable events.
+A **session** is append-only. An ordinary **turn** claims one queued follow-up; injection claims none. A successor awaits its predecessor's checkpoint but may share its `running` interval ([decision](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)). A turn ends when model or plugins stop it; a **step** is one model request plus tools. Quotes in the [sequence below](agent-lifecycle.md) mark durable events.
 
 Creation without an id mints `<config-id>-session-<uuid>`; `sessionId` resumes or creates, while `resumeSessionId` requires history. Resume restores lineage and delegation depth before publication. Setup failures emit `agent-loop/config-start-failed`; teardown is silent.
 
@@ -122,7 +122,7 @@ Pruning precedes summaries; overflow retries require durable progress. `agent/re
 
 ### Failure Boundaries
 
-Adapter failures close their step before `agent/request-error` receives the exact `Error`, normalized `LlmFailure`, and signal. A handled failure closes its turn and opens a retry turn from durable history without an idle notification; exhaustion leaves terminal `turn/end`. Failed chunks commit neither messages nor tool calls.
+Final-adapter selection, dispatch, and iteration failures become terminal `finish { kind: 'error' | 'aborted', failure }` chunks before the loop handles them. `agent/request-error` receives request coordinates, normalized `LlmFailure`, the prepared registration's retry policy when available, and the signal; middleware and consumer errors remain thrown outside request recovery. Failed chunks commit neither messages nor tool calls.
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels asynchronous model-capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before queue clearing and abort; observers cannot veto; idle calls emit nothing. Durability records user or parent cancellation as `aborted`, teardown as `disposed`; teardown awaits quiescence. The cause affects reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
@@ -130,7 +130,7 @@ Turn and step events are turn-enclosed; idle injected `user/message` events may 
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use full `send()` options or `followup()`, `steer()`, and `inject()` presets; `cancel()` and `whenIdle()` control lifecycle. One awaited disposer coordinates teardown ownership.
+`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins drive agents with `followup()`, `steer()`, and `inject()`; `cancel()` stops work, while the awaited disposer owns teardown.
 
 ### Agent Scope
 

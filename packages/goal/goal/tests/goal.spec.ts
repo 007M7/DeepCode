@@ -47,7 +47,6 @@ function stubAgentForSession(session: Session): StubAgent {
     ctx: new Context(),
     get status() { return status },
     get acceptsNextStep() { return status === 'running' },
-    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input) {
@@ -88,7 +87,7 @@ async function harness(config: { defaultMaxGoalRounds?: number } = {}) {
 function appendRound(session: Session, ref: GoalRef, round: number): void {
   const source = { kind: 'goal', goalId: ref.id, revision: ref.revision, round } as const
   const turn = nextTurn(session)
-  session.append('turn/start', { turn, trigger: { kind: 'message', source } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `round ${round}` }], source,
   }), { surfaceOp: 'append' })
@@ -503,7 +502,7 @@ describe('GoalService mutations', () => {
     }
     const source = { kind: 'goal', goalId: change.goal.id, revision: 1, round: 0, change } as const
     const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: renderGoalChange(change), source,
     }), { surfaceOp: 'append' })
@@ -584,7 +583,7 @@ describe('goal replay validation', () => {
       change,
     }
     const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: overrides.content ?? renderGoalChange(change),
       source,
@@ -640,7 +639,7 @@ describe('goal replay validation', () => {
     expect(foldGoal(session.events)).toEqual({ roundsStarted: 0 })
     const source = { kind: 'plugin', plugin: 'ordinary-user-message' } as const
     const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'message', source } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'ordinary' }], source,
     }), { surfaceOp: 'append' })
@@ -782,7 +781,7 @@ describe('goal replay validation', () => {
     const session = new Session(SessionId('goal-source-without-meta'))
     const source = { kind: 'goal', goalId: GoalId('goal-missing-meta'), revision: 1, round: 0 } as const
     const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'missing' }], source,
     }), { surfaceOp: 'append' })
@@ -850,7 +849,7 @@ describe('goal replay validation', () => {
     }
     const source = { kind: 'goal', goalId: change.goal.id, revision: 2, round: 0, change: clear } as const
     const turn = nextTurn(session)
-    session.append('turn/start', { turn, trigger: { kind: 'injection', source } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: renderGoalChange(clear), source,
     }), { surfaceOp: 'append' })

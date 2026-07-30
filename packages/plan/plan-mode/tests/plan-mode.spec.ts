@@ -75,7 +75,7 @@ async function boundary(ctx: Context, agent: Agent & { session: Session }, type:
 
 /** Open a turn so a selection queues for the boundary flush (the mid-turn shape). */
 function openTurn(session: Session, turn = 0): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
 }
 
 /** Close the open turn (the between-turns shape: selections commit immediately). */

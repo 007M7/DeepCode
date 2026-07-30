@@ -25,7 +25,7 @@ function loopRequest<T extends object>(options: T): Readonly<T> {
 async function requestSetup() {
   const ctx = await setup()
   const session = ctx.sessions.create(SessionId('req-check'))
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
   }), { surfaceOp: 'append' })
@@ -74,7 +74,7 @@ describe('request-reconstruction invariant', () => {
   it('rejects loop requests with no boundary or header', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('req-bare'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const bare = loopRequest({ model: 'm', messages: Object.freeze([]), sessionId: session.id })
     expect(() => { dispatch(ctx, bare) }).toThrow(/no step\/start/)
     session.append('step/start', { turn: 1, step: 1 })
@@ -122,7 +122,7 @@ describe('request-reconstruction invariant', () => {
     await ctx.plugin(InvariantService)
     await ctx.plugin(AgentLoopInvariant)
     const session = ctx.sessions.create(SessionId('prepend-check'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
     }), { surfaceOp: 'append' })

@@ -28,7 +28,6 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     followup: () => {},
     steer: () => {},
     inject: () => {},
-    send: () => {},
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

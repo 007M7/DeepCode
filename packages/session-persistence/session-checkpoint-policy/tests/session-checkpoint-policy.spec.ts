@@ -61,7 +61,7 @@ describe('session-checkpoint-policy request boundary', () => {
   it('awaits the live session checkpoint before constructing the downstream model stream', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('request-checkpoint'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const gate = Promise.withResolvers<undefined>()
     const order: string[] = []
     ctx.on('session/flush', async () => {

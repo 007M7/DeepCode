@@ -803,15 +803,13 @@ async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<Ll
 async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>
 
 /**
- * Stream one model call as raw chunks (token-level deltas). Throws
- * `LlmError` with code `NO_ADAPTER` if no adapter is registered for
- * `options.provider`. Replay state is retained only when the same adapter
- * instance owns its historical provider and the target provider. Final
- * adapter selection remains fixed through asynchronous exact-model resolution
- * and dispatch. Selection, dispatch, and iteration failures retain their
- * original Error identity and are tagged in a call-local scope for narrow
- * agent-loop request recovery; middleware and nested-call failures remain
- * untagged for the outer call.
+ * Stream one model call as raw chunks (token-level deltas). Replay state is
+ * retained only when the same adapter instance owns its historical provider
+ * and the target provider. Final adapter selection remains fixed through
+ * asynchronous exact-model resolution and dispatch. Adapter selection,
+ * dispatch, and iteration failures become terminal `error` or `aborted`
+ * finish chunks; middleware, nested-call, cleanup, and consumer failures
+ * remain thrown.
  * @param options - the full request; `options.provider` selects the adapter.
  * @returns the chunk stream, possibly wrapped by `llm/stream` listeners.
  */
@@ -1582,7 +1580,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:694`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:673`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -2166,7 +2164,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:247`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:234`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.userInteraction` — `UserInteractionService`
 

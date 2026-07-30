@@ -93,7 +93,7 @@ describe('TelemetryOtel wire', () => {
     const { url, captures } = await mockCollector()
     const { ctx, fiber } = await boot(url)
     const session = ctx.sessions.create(SessionId('wire'), { meta: { cwd: '/tmp/w' } })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'boom' } })
     await fiber.dispose()
 
@@ -146,7 +146,7 @@ describe('TelemetryOtel wire', () => {
       processor: { scheduledDelayMillis: 10 },
     })
     const session = ctx.sessions.create(SessionId('drain'), { meta: {} })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     await arrived.promise
 
     const disposal = fiber.dispose()
@@ -171,7 +171,7 @@ describe('TelemetryOtel wire', () => {
       exporter: { url, compression: 'gzip' },
     } as Config)
     const session = ctx.sessions.create(SessionId('gzip'), { meta: {} })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     await fiber.dispose()
 
     expect(captures.length).toBeGreaterThan(0)
@@ -186,7 +186,7 @@ describe('TelemetryOtel wire', () => {
     const { ctx, fiber } = await boot(url)
     ctx.on('telemetry/record', (_record, next) => ({ ...next(), severity: 'warn' }))
     const session = ctx.sessions.create(SessionId('warn'), { meta: {} })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     // No flush(): the coordinator's optional-call forwarding no-ops, and the
     // batch processor owns export cadence end to end (see the backend note).
     expect('flush' in ctx.telemetry && ctx.telemetry.flush !== undefined).toBe(false)

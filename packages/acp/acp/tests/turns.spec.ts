@@ -91,7 +91,7 @@ describe('ACP prompt lifecycle', () => {
       if (subject !== agent || message.source.kind !== 'user' || inserted) return
       inserted = true
       const source = { kind: 'plugin', plugin: 'test' } as const
-      agent.session.append('turn/start', { turn: 1, trigger: { kind: 'message', source } })
+      agent.session.append('turn/start', { turn: 1 })
       agent.session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'autonomous work' }],
         source,

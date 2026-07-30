@@ -197,6 +197,11 @@ export function apply(ctx: Context, config: Config): void {
     return [ours, ...theirs ?? []]
   }
 
+  /** Append hook context to an admitted inbox batch. */
+  function appendPromptContext(theirs: UserMessage[], ours: UserMessage): UserMessage[] {
+    return [...theirs, ours]
+  }
+
   // SessionStart injects context when its detached hook resolves; a slow hook
   // may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
@@ -213,8 +218,9 @@ export function apply(ctx: Context, config: Config): void {
 
   // --- UserPromptSubmit → PromptDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/prompt-submit', async (agent, message, signal, next): Promise<PromptDecision> => {
-    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, message.content), { agent, signal })
+  ctx.on('agent/prompt-submit', async (agent, messages, signal, next): Promise<PromptDecision> => {
+    const content = messages.flatMap(message => message.content)
+    const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, signal })
     if (merged.decision === 'deny') {
       return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
     }
@@ -225,8 +231,7 @@ export function apply(ctx: Context, config: Config): void {
     if (!ours || downstream.kind !== 'allow') return downstream
     return {
       kind: 'allow',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContexts: prependContext(ours, downstream.additionalContexts),
+      messages: appendPromptContext(downstream.messages, ours),
     }
   })
 

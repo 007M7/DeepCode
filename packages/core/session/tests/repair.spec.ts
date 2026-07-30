@@ -13,7 +13,7 @@ import type { SessionEvent, SurfaceEvent } from '../src/index.ts'
  */
 
 const userTurnStart = (turn: number, seq: number): SessionEvent =>
-  ({ type: 'turn/start', seq, time: seq, data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+  ({ type: 'turn/start', seq, time: seq, data: { turn } })
 
 describe('interruptedTurnClosers', () => {
   it('returns nothing for a balanced log (ends on turn/end)', () => {

@@ -107,7 +107,7 @@ describe('scanRows', () => {
     // is no torn fragment to delete. (load() then synthesizes the closers.)
     const withOpenTurn: SessionEvent[] = [
       ...oneTurnLog(),
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
     ]
     const { preserved, tornFrom } = scanRows(rows(withOpenTurn))
@@ -119,7 +119,7 @@ describe('scanRows', () => {
     // A gap after seq 0 (no committed turn/end): seq 0 is the preserved
     // interrupted-turn event; the gap bounds it and marks the torn fragment.
     const gapped: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }, // seq 1 missing
     ]
     const { preserved, tornFrom } = scanRows(rows(gapped))
@@ -133,7 +133,7 @@ describe('scanRows', () => {
 
   it('throws on a seq gap inside the committed region (before the last turn/end)', () => {
     const gapped: SessionEvent[] = [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'step/start', seq: 2, time: 2, data: { turn: 1, step: 1 } }, // seq 1 missing
       { type: 'turn/end', seq: 3, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
@@ -183,7 +183,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     db.prepare('INSERT INTO sessions (id, version, created_at, cwd, parent_session, seed_length, delegation_depth, incarnation, revision) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 1)')
       .run(m.id, m.version, m.createdAt, m.cwd ?? null, 'legacy-header-delta')
     const insert = db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, ?, ?, ?, ?)')
-    insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    insert.run(m.id, 0, 'turn/start', 1, JSON.stringify({ turn: 1 }))
     insert.run(m.id, 1, 'request/header-delta', 2, JSON.stringify({ config: { model: 'legacy' } }))
     insert.run(m.id, 2, 'turn/end', 3, JSON.stringify({ turn: 1, reason: { kind: 'completed' } }))
     db.close()
@@ -228,7 +228,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await ctx1.sessionPersistence.create(m)
     await ctx1.sessionPersistence.append(m.id, oneTurnLog())
     await ctx1.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'step/start', seq: 7, time: 8, data: { turn: 2, step: 1 } },
     ])
     await fiber1.dispose()
@@ -251,7 +251,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // load durably closed the turn, so the next append continues at the balanced
     // length (seq 10) and a reload round-trips identically.
     await ctx2.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 10, time: 9, data: { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 10, time: 9, data: { turn: 3 } },
       { type: 'turn/end', seq: 11, time: 10, data: { turn: 3, reason: { kind: 'completed' } } },
     ])
     const reloaded = await ctx2.sessionPersistence.load(m.id)
@@ -269,7 +269,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     // Hand-write an interrupted turn (turn/start seq 6, no turn/end).
     const db = openDatabase(path, 'wal')
     db.prepare('INSERT INTO events (session_id, seq, type, time, data) VALUES (?, 6, ?, 7, ?)')
-      .run(m.id, 'turn/start', JSON.stringify({ turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+      .run(m.id, 'turn/start', JSON.stringify({ turn: 2 }))
     db.close()
 
     const b2 = await backend(path)
@@ -294,7 +294,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     await b1.ctx.sessionPersistence.create(m)
     // A first turn that NEVER completed: turn/start + user/message, no turn/end.
     await b1.ctx.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'user/message', seq: 1, time: 2, data: createUserMessage({
         content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
       }) },
@@ -477,7 +477,7 @@ describe('SessionPersistenceSqlite: durability and crash semantics', () => {
     expect(loaded.events).toEqual(oneTurnLog()) // torn tail discarded, committed intact (turn 1 already balanced → no closers)
     // load physically deleted the corrupt tail row, so a fresh append continues.
     await b2.ctx.sessionPersistence.append(m.id, [
-      { type: 'turn/start', seq: 6, time: 8, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 8, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 9, data: { turn: 2, reason: { kind: 'completed' } } },
     ])
     const reloaded = await b2.ctx.sessionPersistence.load(m.id)
@@ -703,7 +703,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     const b2 = await backend(path)
     await b2.ctx.sessionPersistence.load(m.id) // cursor 6 in b2
     const turn2: SessionEvent[] = [
-      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 6, time: 7, data: { turn: 2 } },
       { type: 'turn/end', seq: 7, time: 8, data: { turn: 2, reason: { kind: 'completed' } } },
     ]
     // b1 commits seq 6..7 first.
@@ -761,7 +761,7 @@ describe('SessionPersistenceSqlite: edge cases', () => {
     await ctx.plugin(Object.assign((inner: Context) => {
       session = inner.sessions.create(SessionId('hmr-collide'))
     }, { inject: ['sessions'] }))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     await ctx.plugin(SessionPersistenceSqlite, { path })
     await expectFlushError(ctx.sessions.flush(session), /id collision/)
     await ctx.fiber.dispose()
@@ -814,7 +814,7 @@ describe('surface field round-trip', () => {
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
     const session = ctx.sessions.create(SessionId('roundtrip-surface'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' },
@@ -849,7 +849,7 @@ describe('surface field round-trip', () => {
     await ctx.plugin(SessionStore)
     const fiber = await ctx.plugin(SessionPersistenceSqlite, { path: ':memory:' })
     const session = ctx.sessions.create(SessionId('surface-noseq'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('steering/message', {
       turn: 1,
       message: createUserMessage({

@@ -9,7 +9,7 @@ import type { Context } from 'cordis'
 import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage, assertNever } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { classifyGoalRound } from './outcome.ts'
 import type { GoalRoundOutcome } from './outcome.ts'
@@ -33,6 +33,7 @@ interface RoundIdentity {
 
 /** One queued or admitted attempt, retained until its physical turn settles. */
 interface RoundAttempt extends RoundIdentity {
+  readonly messageId: MessageId
   readonly content: ContentBlock[]
   phase: 'queued' | 'admitted'
   turn: number | undefined
@@ -214,10 +215,15 @@ export function apply(ctx: Context): void {
 
     const round = goal.roundsStarted + 1
     const content = renderGoalRoundPrompt(goal, round)
+    const message = createUserMessage({
+      content,
+      source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round },
+    })
     const reservation: RoundAttempt = {
       goalId: goal.id,
       revision: goal.revision,
       round,
+      messageId: message.id,
       content,
       phase: 'queued',
       turn: undefined,
@@ -226,7 +232,7 @@ export function apply(ctx: Context): void {
     }
     state.attempt = reservation
     try {
-      agent.followup(createUserMessage({ content, source: { kind: 'goal', goalId: goal.id, revision: goal.revision, round } }))
+      agent.followup(message)
     } catch (error: unknown) {
       state.attempt = undefined
       ctx.logger.warn(`goal-session: could not queue round ${round} for agent "${agent.id}": ${renderThrown(error)}`)
@@ -277,9 +283,8 @@ export function apply(ctx: Context): void {
     })
   }
 
-  // One composite effect owns every listener and the quiescent close. Cordis
-  // unloads sibling effects concurrently; nesting makes the close run first
-  // and keeps the admission fence installed until its drain settles.
+  // One composite effect keeps the admission fence installed until this
+  // plugin's own scheduling tasks settle.
   ctx.effect(function* () {
     /** Mark a post-turn persistence failure before idle scheduling can run. */
     ctx.on('agent/error', (agent, turn) => {
@@ -304,38 +309,19 @@ export function apply(ctx: Context): void {
       const state = stateFor(agent)
       if (status === 'idle') {
         state.competingQueued = false
+        const attempt = state.attempt
+        const goal = currentGoal(state)
+        if (attempt !== undefined && attempt.turn === undefined && attempt.reason === undefined
+          && goal?.phase === 'active' && goal.activation === 'armed') {
+          state.attempt = undefined
+          try {
+            applyOutcome(state, goal, { kind: 'pause', reason: 'cancelled' })
+          } catch (error: unknown) {
+            ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
+            disarm(state)
+          }
+        }
         requestDrive(state)
-      }
-    })
-    ctx.on('agent/inbox/enqueue', (agent, info) => {
-      const state = stateFor(agent)
-      const attempt = state.attempt
-      if (attempt !== undefined && sameQueued(info.content, info.source, attempt)) return
-      state.competingQueued = true
-      if (attempt?.phase === 'queued') attempt.stale = true
-    })
-    ctx.on('agent/cancel-requested', (agent, cause) => {
-      const state = stateFor(agent)
-      const attempt = state.attempt
-      state.competingQueued = false
-      const goal = currentGoal(state)
-      if (goal?.phase === 'active' && goal.activation === 'armed') {
-        if (attempt === undefined) {
-          disarm(state)
-          return
-        }
-        // An admitted round closes durably as aborted; retain it so the normal
-        // turn outcome path appends pause after cancellation reaches idle.
-        // Pausing here would stage context into the active outbox only for this
-        // same cancel() call to discard it.
-        if (attempt.turn !== undefined || attempt.phase === 'admitted') return
-        state.attempt = undefined
-        try {
-          applyOutcome(state, goal, { kind: 'pause', reason: cause.kind })
-        } catch (error: unknown) {
-          ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
-          disarm(state)
-        }
       }
     })
     ctx.on('goal/changed', (agent) => {
@@ -349,35 +335,22 @@ export function apply(ctx: Context): void {
       if (agent === undefined || agent.session !== session) return
       const state = stateFor(agent)
       switch (event.type) {
-        case 'turn/start':
+        case 'agent/inbox/added': {
+          const attempt = state.attempt
+          const { content, source } = event.data
+          if (attempt !== undefined && sameQueued(content, source, attempt)) return
+          state.competingQueued = true
+          if (attempt?.phase === 'queued') attempt.stale = true
+          return
+        }
+        case 'turn/start': {
           state.openTurn = event.data.turn
-          switch (event.data.trigger.kind) {
-            case 'message':
-              if (state.attempt !== undefined && isGoalRoundSource(event.data.trigger.source)
-              && sameRound(event.data.trigger.source, state.attempt)) {
-                state.attempt.turn = event.data.turn
-              }
-              return
-            case 'retry':
-              // A recovery policy (llm-retry) closed the round's failed turn
-              // and reopened its history: the attempt rides the retry turn,
-              // and the failed turn's provisional reason no longer settles
-              // the round — the retry's own outcome does.
-              if (state.attempt !== undefined && state.attempt.reason !== undefined
-                && state.attempt.reason.kind === 'error') {
-                state.attempt.turn = event.data.turn
-                state.attempt.reason = undefined
-              }
-              return
-            default:
-              // Injection and merge-extensible plugin triggers cannot admit a queued goal message.
-              return
-          }
+          return
+        }
         case 'user/message':
-          if (state.attempt !== undefined && isGoalRoundSource(event.data.source)
-          && sameRound(event.data.source, state.attempt)) {
+          if (state.attempt !== undefined && event.data.id === state.attempt.messageId) {
             state.attempt.phase = 'admitted'
-            /* v8 ignore next -- this driver's admitted message always follows its observed turn/start */
+            /* v8 ignore next -- the loop logs admitted input inside an open turn */
             if (state.openTurn !== undefined) state.attempt.turn = state.openTurn
           }
           return
@@ -407,8 +380,10 @@ export function apply(ctx: Context): void {
       && source.round === goal.roundsStarted + 1
     }
 
-    ctx.on('agent/prompt-submit', async (agent, message, _signal, next): Promise<PromptDecision> => {
-      const { content, source } = message
+    ctx.on('agent/prompt-submit', async (agent, messages, _signal, next): Promise<PromptDecision> => {
+      const submitted = messages.find(message => isGoalRoundSource(message.source))
+      if (submitted === undefined) return next()
+      const { content, source } = submitted
       if (!isGoalRoundSource(source)) return next()
       const state = stateFor(agent)
       let valid = false
@@ -494,7 +469,6 @@ export function apply(ctx: Context): void {
           if (attempt.phase === 'admitted' && state.agent.status === 'running') {
             state.agent.cancel({ kind: 'parent' })
           }
-          waits.push(state.agent.whenIdle())
         }
         if (state.run !== undefined) waits.push(state.run)
       }

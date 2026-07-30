@@ -41,34 +41,6 @@ function validateFailure(value: unknown, fail: InvariantFailure): asserts value 
   }
 }
 
-/** Find the first turn in the structured-failure retry chain containing `turn`. */
-function retryChainStart(history: readonly SessionEvent[], turn: number): number {
-  let startIndex = history.findLastIndex(
-    event => event.type === 'turn/start' && event.data.turn === turn,
-  )
-  while (startIndex >= 0) {
-    const start = history[startIndex]
-    if (start?.type !== 'turn/start' || start.data.trigger.kind !== 'retry') break
-
-    let endIndex = startIndex - 1
-    while (endIndex >= 0 && history[endIndex]?.type !== 'turn/end') endIndex -= 1
-    const end = history[endIndex]
-    if (end?.type !== 'turn/end'
-      || end.data.reason.kind !== 'error'
-      || end.data.reason.failure === undefined) break
-
-    const previousStart = history.findLastIndex(
-      (event, index) =>
-        index < endIndex
-        && event.type === 'turn/start'
-        && event.data.turn === end.data.turn,
-    )
-    if (previousStart < 0) break
-    startIndex = previousStart
-  }
-  return startIndex
-}
-
 /** Validate one retry record against the open turn and most recently closed step. */
 function validateRetry(
   history: readonly SessionEvent[],
@@ -139,7 +111,9 @@ function validateRetry(
     fail(`llm/retry provider ${provider} does not match the failed request provider ${String(routedProvider)}`)
   }
 
-  const chainStart = retryChainStart(history, turn)
+  const chainStart = history.findLastIndex(
+    prior => prior.type === 'turn/start' && prior.data.turn === turn,
+  )
   const chain = history.slice(Math.max(chainStart, 0))
   const lastSuccess = chain.findLastIndex(prior => prior.type === 'assistant/message')
   const chainRetries = chain.slice(lastSuccess + 1)

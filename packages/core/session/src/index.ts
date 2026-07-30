@@ -30,27 +30,6 @@ export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from '
 export { foldSurface, isSurfaceEvent, isSurfaceEligibleType } from './surface.ts'
 export { canonicalHeader, foldRequestHeader, headerEquals } from './request-header.ts'
 
-/**
- * Find the latest closed message-triggered turn, ignoring other triggers and
- * between-turn events.
- * @param events - session events, or an owned suffix, to inspect.
- * @returns the latest matching turn end, or `undefined`.
- */
-export function findLastMessageTurnEnd(
-  events: readonly SessionEvent[],
-): SessionEvent<'turn/end'> | undefined {
-  const messageTurns = new Set<number>()
-  let latest: SessionEvent<'turn/end'> | undefined
-  for (const event of events) {
-    if (event.type === 'turn/start') {
-      if (event.data.trigger.kind === 'message') messageTurns.add(event.data.turn)
-      continue
-    }
-    if (event.type === 'turn/end' && messageTurns.delete(event.data.turn)) latest = event
-  }
-  return latest
-}
-
 declare module 'cordis' {
   interface Context {
     sessions: SessionStore

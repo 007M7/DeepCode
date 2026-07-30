@@ -22,7 +22,7 @@ function appendClosedTurn(
   text = `hello ${turn}`,
   reason: TurnEndReason = { kind: 'completed' },
 ): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source: { kind: 'user' },
@@ -31,7 +31,7 @@ function appendClosedTurn(
 }
 
 function appendOpenTurn(session: Session, turn: number): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `open ${turn}` }],
     source: { kind: 'user' },
@@ -205,23 +205,23 @@ describe('SessionStore.fork', () => {
     const { ctx, sessions } = await setup()
     const cases: [string, (session: Session) => number][] = [
       ['turn/start', (session) => {
-        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        session.append('turn/start', { turn: 1 })
         return lastSeq(session)
       }],
       ['step/start', (session) => {
-        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        session.append('turn/start', { turn: 1 })
         session.append('step/start', { turn: 1, step: 1 })
         return lastSeq(session)
       }],
       ['user/message', (session) => {
-        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        session.append('turn/start', { turn: 1 })
         session.append('user/message', createUserMessage({
           content: [{ type: 'text', text: 'open' }], source: { kind: 'user' },
         }), { surfaceOp: 'append' })
         return lastSeq(session)
       }],
       ['assistant/message', (session) => {
-        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        session.append('turn/start', { turn: 1 })
         session.append('step/start', { turn: 1, step: 1 })
         session.append('assistant/message', {
           turn: 1, step: 1,
@@ -238,7 +238,7 @@ describe('SessionStore.fork', () => {
       }],
       ['tool/call', (session) => {
         const callId = CallId('call-open')
-        session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+        session.append('turn/start', { turn: 1 })
         session.append('step/start', { turn: 1, step: 1 })
         session.append('assistant/message', {
           turn: 1,
@@ -279,7 +279,7 @@ describe('SessionStore.fork', () => {
   it('rejects a duplicate child session id before validating the boundary', async () => {
     const { ctx, sessions } = await setup()
     const source = ctx.sessions.create(SessionId('open-parent'))
-    source.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    source.append('turn/start', { turn: 1 })
     ctx.sessions.create(SessionId('child'))
 
     expect(() => sessions.fork(source, undefined, SessionId('child')))

@@ -22,7 +22,7 @@ The loop fires awaited serial `agent/post-step(agent, turn, step, signal)` after
 
 ### Request recovery is limited to the final model boundary
 
-`RequestError` and the `agent/request-error` waterfall represent failures after the final adapter has been selected. Each returned stream handle owns a private failure set that preserves the original thrown error identity across dispatch, iterator construction, and iteration without leaking nested-call provenance into an outer call. Terminal in-band `error` or `aborted` finishes enter the same path. Prompt assembly, request middleware, request logging, result processing, tools, step listeners, and cleanup remain ordinary failures.
+`agent/request-error` represents terminal failures from the final adapter boundary. Adapter selection, dispatch, iterator construction, and iteration throws become terminal `error` or `aborted` finishes before the agent loop consumes them; adapter-emitted terminal finishes enter the same path. Prompt assembly, request middleware, request logging, result processing, tools, step listeners, and cleanup remain ordinary failures. [Terminal LLM stream failures](2026-07-29-terminal-llm-stream-failures.md) owns this normalization boundary.
 
 The failed step closes before recovery runs. A handling listener repairs durable state, returns `{ kind: 'retry' }`, and stops waterfall delegation. The loop then closes the failed turn and opens one retry turn from the durable log without an intervening idle notification. Retry policy and attempt counts remain plugin-owned; compact-basic clears its per-agent overflow count when the chain reaches terminal `agent/settled`. Both DeepSeek adapters normalize recognized provider context-limit failures to `CONTEXT_WINDOW_EXCEEDED`. The [retry-action decision](../simplification/2026-07-27-request-error-retry-action.md) owns the return boundary.
 
@@ -42,7 +42,7 @@ The default summarizer resolves explicit configuration, then the latest logged r
 
 ## Testing
 
-Unit tests cover final-adapter failure provenance and identity, closed-turn retry numbering and reset, cancellation and disposal, step-boundary ordering, routed-envelope pressure, pressure-gated pruning, pruning-only relief, pruned-input summarization, balanced overflow reduction, durable prune progress before later failure, generation proof, caps, delegation, and auxiliary-call routing. Real-loop tests cover thrown and in-band overflow through pruning or summary compaction to a reconstructed retry request.
+Unit tests cover the final-adapter normalization boundary, closed-turn retry numbering and reset, cancellation and disposal, step-boundary ordering, routed-envelope pressure, pressure-gated pruning, pruning-only relief, pruned-input summarization, balanced overflow reduction, durable prune progress before later failure, generation proof, caps, delegation, and auxiliary-call routing. Real-loop tests cover thrown and in-band overflow through pruning or summary compaction to a reconstructed retry request.
 
 ## Alternatives considered
 

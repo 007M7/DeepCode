@@ -141,7 +141,7 @@ describe('deriveReplayScript', () => {
   it('ignores non-assistant/chunk events', () => {
     let seq = 1
     const events: SessionEvent[] = [
-      { type: 'turn/start', seq: seq++, time: 0, data: { turn: 1, trigger: { kind: 'injection', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: seq++, time: 0, data: { turn: 1 } },
       ...TEXT_CHUNKS.map(c => chunkEvent(seq++, 1, 1, c)),
       { type: 'turn/end', seq: seq++, time: 0, data: { turn: 1, reason: { kind: 'completed' } } },
     ]

@@ -433,8 +433,6 @@ describe('agent loop', () => {
     // split the assistant tool call from the provider's tool-result message.
     const turnStarts = agent.session.events.filter(e => e.type === 'turn/start')
     expect(turnStarts).toHaveLength(1)
-    const ts0 = turnStarts[0]!
-    expect(ts0.type === 'turn/start' && ts0.data.trigger.kind).toBe('message')
     const result = agent.session.events.find(e => e.type === 'tool/result')!
     const contexts = agent.session.events.filter(e => e.type === 'user/message' && e.data.source.kind === 'plugin')
     expect(contexts).toHaveLength(2)
@@ -1031,16 +1029,11 @@ describe('agent loop', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'plugin message' }], source: { kind: 'plugin', plugin: 'test' } }))
     await idle
 
-    const triggers = agent.session.events
-      .filter(event => event.type === 'turn/start')
-      .map(event => event.data.trigger)
+    const turns = agent.session.events.filter(event => event.type === 'turn/start')
     const sources = agent.session.events
       .filter(event => event.type === 'user/message')
       .map(event => event.data.source)
-    expect(triggers).toEqual([
-      { kind: 'message', source: { kind: 'user' } },
-      { kind: 'message', source: { kind: 'plugin', plugin: 'test' } },
-    ])
+    expect(turns).toHaveLength(2)
     expect(sources).toEqual([
       { kind: 'user' },
       { kind: 'plugin', plugin: 'test' },

@@ -163,7 +163,6 @@ describe('dsh-agent-spine-demo bundle', () => {
     const session = ctx.sessions.create(SessionId('configured-title-limits'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'One two three four' }],
@@ -206,8 +205,8 @@ describe('dsh-agent-spine-demo bundle', () => {
   it('mounts package companions and forwards invariant selection config', async () => {
     const nestedTurn = (ctx: Context): void => {
       const session = ctx.sessions.create()
-      session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-      session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+      session.append('turn/start', { turn: 1 })
+      session.append('turn/start', { turn: 2 })
     }
 
     const enabled = await mount({ workspaceContext: false })

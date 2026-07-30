@@ -670,7 +670,7 @@ describe('malformed replay and listener lifecycle', () => {
       type: 'turn/start',
       seq: 0,
       time: 1,
-      data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+      data: { turn: 1 },
     }] })
     activeMeter.measure(session)
     session.append('user/message', createUserMessage({

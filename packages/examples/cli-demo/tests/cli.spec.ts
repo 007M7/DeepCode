@@ -388,14 +388,14 @@ describe('runOneShot and executeCli', () => {
       if (subject !== agent || injected) return
       injected = true
       agent.inject(createUserMessage({ content: [{ type: 'text', text: 'startup injection' }], source: { kind: 'plugin', plugin: 'test' } }))
-      other.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'test' } } })
+      other.append('turn/start', { turn: 1 })
       other.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
     const output = await invoke(ctx, ['--output-format', 'stream-json', 'task'])
     const lines = output.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     const events = lines.slice(0, -1).map(line => line['event'] as SessionEvent)
     expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, turn: 1, result: 'streamed' })
-    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 1, trigger: { kind: 'message' } } })
+    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 1 } })
     expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 1 } })
     expect(lines.slice(0, -1).every(line => line['sessionId'] === agent.session.id)).toBe(true)
     expect(events.some(event => event.type === 'user/message'
@@ -510,11 +510,9 @@ describe('formatTurnFailure', () => {
   it('diagnoses every durable reason and preserves merge-extensible unknowns', () => {
     const cases: [TurnEndReason, string][] = [
       [{ kind: 'completed' }, 'completed'],
-      [{ kind: 'aborted' }, 'was aborted'],
-      [{ kind: 'aborted' }, 'was aborted'],
-      [{ kind: 'error', step: 2, message: 'bad' }, 'failed at step 2: bad'],
-      [{ kind: 'error', step: 3, failure: { message: 'provider bad', code: 'SERVER' } }, 'failed at step 3: provider bad'],
-      [{ kind: 'disposed' }, 'was disposed'],
+      [{ kind: 'aborted', reason: { kind: 'user' } }, 'was aborted'],
+      [{ kind: 'error', error: new Error('bad') }, 'failed: bad'],
+      [{ kind: 'error', error: { message: 'provider bad', code: 'SERVER' } }, 'provider bad'],
       [{ kind: 'max-tokens' }, 'output-token limit'],
       [{ kind: 'interrupted' }, 'persistence recovery'],
     ]

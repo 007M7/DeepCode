@@ -415,45 +415,11 @@ The twelve event variants (`turn/start`, `turn/end`, `step/start`, `step/end`, `
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
 ```ts type-equiv
-/**
- * Which inbox queue a {@link Agent.send} item joins:
- * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
- * - `next-step` — during prompt admission or an open turn, the item stages for
- *   the next safe step boundary; otherwise it is promoted per its `wakeup`
- *   flag.
- */
-type SendTarget = 'next-turn' | 'next-step'
-```
-
-```ts type-equiv
 /** Resolved inbox placement reported when an accepted message is enqueued. */
 type InboxPlacement = 'queued' | 'steering'
 ```
 
-```ts type-equiv
-/**
- * Options for the unified {@link Agent.send} primitive over the
- * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
- * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
- * {@link Agent.inject} (`next-step`/no-wakeup).
- *
- * The object is complete so routing policy is explicit.
- */
-interface SendOptions {
-  /** Queue the item joins. */
-  target: SendTarget
-  /**
-   * Whether this item makes the model run: wake a parked driver (`next-turn`)
-   * or force a continuation step (`next-step` while running). A `false`
-   * `next-turn` item queues without waking; a `false`
-   * `next-step` item attaches durable context without forcing another step
-   * (the injection preset).
-   */
-  wakeup: boolean
-}
-```
-
-The fixed-preset aliases own `target` and `wakeup`; their already identified `UserMessage` carries role, content, and provenance. Its `MessageId` remains stable across that message's `agent/inbox/*` events without being returned by the delivery methods. Injection bypasses the FIFOs and never appears on those events.
+The delivery methods accept an already identified `UserMessage` carrying role, content, and provenance. Its `MessageId` remains stable across that message's `agent/inbox/*` events without being returned by the delivery methods. Injection bypasses the FIFOs and never appears on those events.
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -474,10 +440,10 @@ type AgentCancelCause =
   | { readonly kind: 'parent' }
 ```
 
-`Agent` is an interface over the public live-agent contract. Concrete drivers own the `followup`/`steer`/`inject` aliases and route them through `send`'s (`target` × `wakeup`) matrix.
+`Agent` is an interface over the public live-agent contract. Concrete drivers implement `followup`, `steer`, and `inject`; routing policy remains private to the driver.
 
 ```ts type-equiv
-/** Public live-agent handle with aliases over the unified delivery primitive. */
+/** Public live-agent handle. */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
@@ -497,28 +463,6 @@ interface Agent {
   readonly ctx: Context
 
   /**
-   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
-   * It routes the caller's typed content and source as follows:
-   *
-   * - `next-turn` queues an item that becomes the sole ordinary message of its
-   *   own FIFO-ordered turn; `wakeup:true` wakes a
-   *   parked driver, while `wakeup:false` queues without waking.
-   * - `next-step` with `wakeup:true` stages steering during prompt admission
-   *   or an open turn; outside that window it falls back to a woken
-   *   `next-turn`.
-   * - `next-step` with `wakeup:false` injects durable model-facing context
-   *   without running the model: admission or an open turn stages it for the
-   *   next safe log position, while an injection outside that window appends
-   *   immediately without opening a turn. If admission closes without a turn,
-   *   a context-only boundary appends immediately; context staged beside
-   *   steering remains pending with it.
-   * The agent publishes or queues the identified frozen message as-is.
-   * @param message - identified model-facing content and its producer provenance.
-   * @param options - target queue and wakeup decision.
-   */
-  send(message: UserMessage, options: SendOptions): void
-
-  /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
    * turn. An effective call first emits `agent/cancel-requested` with the
    * resolved typed cause. The first cause wins for the active turn, and
@@ -533,16 +477,14 @@ interface Agent {
   whenIdle(): Promise<void>
 
   /**
-   * Queue an ordinary follow-up turn and wake the driver — the
-   * `next-turn`/wakeup preset of {@link send}. The item becomes the sole
-   * ordinary message of its own turn.
+   * Queue an ordinary follow-up turn and wake the driver. The item becomes the
+   * sole ordinary message of its own turn.
    * @param message - identified prompt content and its producer provenance.
    */
   followup(message: UserMessage): void
 
   /**
-   * Submit steering during prompt admission or an open turn — the
-   * `next-step`/wakeup preset of {@link send}. It stages for the next steering
+   * Submit steering during prompt admission or an open turn. It stages for the next steering
    * checkpoint before a request or stop decision. If the activity fails before
    * that boundary, the remainder stays staged without waking the agent; retry
    * or a later prompt takes it. Outside that window steering falls back to a

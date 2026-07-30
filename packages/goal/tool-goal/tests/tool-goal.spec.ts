@@ -32,7 +32,6 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     get status() { return status },
     get acceptsNextStep() { return status === 'running' },
     ctx: new Context(),
-    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input) {
@@ -49,7 +48,7 @@ function openTurn(stub: StubAgent, source: MessageSource, text = 'prompt'): numb
   const turn = stub.session.events
     .filter(event => event.type === 'turn/start')
     .reduce((max, event) => Math.max(max, event.data.turn), 0) + 1
-  stub.session.append('turn/start', { turn, trigger: { kind: 'message', source } })
+  stub.session.append('turn/start', { turn })
   stub.session.append('user/message', createUserMessage({
     content: [{ type: 'text', text }],
     source,

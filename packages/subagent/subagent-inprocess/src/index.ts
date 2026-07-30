@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
-import { findLastMessageTurnEnd, SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { assertSubagentMaxDepth, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type { SubagentResult, SubagentRun, SubagentStartRequest, SubagentStopReason } from '@deepseek-ai/dsh-subagent'
@@ -47,7 +47,6 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
     case 'aborted':
       return 'aborted'
     case 'error':
-    case 'disposed':
     case 'interrupted':
     default:
       return 'error'
@@ -160,7 +159,8 @@ export async function startInProcessRun(
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      child.followup(createUserMessage({ content: request.prompt, source: { kind: 'user' } }))
+      const message = createUserMessage({ content: request.prompt, source: { kind: 'user' } })
+      child.followup(message)
       await child.whenIdle()
       return readResult(
         child,
@@ -194,12 +194,11 @@ function readResult(
 ): SubagentResult {
   const own = child.session.events.slice(seedLength)
   const lastMessage = own.findLast((event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message')
-  const lastEnd = findLastMessageTurnEnd(own)
+  const lastEnd = own.findLast((event): event is SessionEvent<'turn/end'> => event.type === 'turn/end')
   const output: ContentBlock[] = lastMessage?.data.message.content ?? []
   const recorded = toStopReason(lastEnd?.data.reason)
-  // Disposal can tear the owner down before the loop records its ordinary
-  // `aborted` end, yielding `disposed` instead. A requested cancellation owns
-  // every non-completed in-flight outcome; a turn already completed stays so.
+  // A requested cancellation owns every non-completed in-flight outcome; a
+  // turn already completed stays so.
   const stopReason: SubagentStopReason = cancelled && recorded !== 'completed'
     ? 'aborted'
     : recorded

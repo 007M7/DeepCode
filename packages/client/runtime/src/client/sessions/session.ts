@@ -1,6 +1,7 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { Context } from 'cordis'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -51,9 +52,8 @@ const QUEUE_PREVIEW_CHARS = 200
 /** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
 interface QueuedEntry {
   row: QueuedMessage
-  steering: boolean
-  /** JSON-serialized MessageSource (steering retirement matches by source, the host-mirror precedent). */
-  sourceJson: string
+  /** Stable message identity used when an admitted message retires the row. */
+  messageId: MessageId
 }
 
 /** Single-line queue-row preview: text blocks flattened, non-text as tags, capped by code point. */
@@ -370,8 +370,7 @@ export class Session implements SessionFace {
         const key = 'rpcId' in message.source ? String(message.source.rpcId) : `f:${rpcId}`
         this.queued.push({
           row: { key, preview: queuePreviewOf(message.content) },
-          steering: frame.steering,
-          sourceJson: JSON.stringify(message.source),
+          messageId: message.id,
         })
         this.queueRev++
         this.notifier.markDirty()
@@ -598,21 +597,16 @@ export class Session implements SessionFace {
     }
   }
 
-  /** Consumption-event retirement, mirroring the host queuedMirror rules: a message-triggered
-   *  turn/start claims the oldest non-steering entry; a steering/message drains the oldest
-   *  steering entry with the same source (loop-authored steering matches nothing and drops none). */
+  /** Retire the oldest queued occurrence of an admitted identified message. */
   private retireQueued(event: SessionEvent): void {
     if (this.queued.length === 0) return
-    let index = -1
-    if (event.type === 'turn/start') {
-      if (event.data.trigger.kind !== 'message') return
-      index = this.queued.findIndex(entry => !entry.steering)
-    } else if (event.type === 'steering/message') {
-      const source = JSON.stringify(event.data.message.source)
-      index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
-    } else {
-      return
-    }
+    const id = event.type === 'user/message'
+      ? event.data.id
+      : event.type === 'steering/message'
+        ? event.data.message.id
+        : undefined
+    if (id === undefined) return
+    const index = this.queued.findIndex(entry => entry.messageId === id)
     if (index < 0) return
     this.queued.splice(index, 1)
     this.queueRev++

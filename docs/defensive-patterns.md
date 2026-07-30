@@ -10,7 +10,7 @@ A result can be several things at once — a process can time out AND exit 0 bec
 
 ## Honor cross-seam contracts on BOTH sides
 
-When an interface documents two valid ways to signal something — an adapter may report failure by THROWING from `stream()` or by ending the stream with a `finish {kind:'error'|'aborted'}` chunk — the consumer handles both, not just the one the first implementation used. A library-backed adapter that can't throw mid-stream relies on the in-band path; a loop that only catches throws turns a provider 401 into a normal completed turn. Document the contract where the type is defined; exercise every branch through the real consumer.
+When an implementation boundary receives several representations of one outcome, normalize them before crossing the public seam. `LlmAdapter.stream()` implementations may throw or emit `finish {kind:'error'|'aborted'}`, but `LlmService.stream()` exposes model-request failures only as terminal finish chunks; middleware and consumer defects remain thrown. This keeps consumers from guessing whether a caught exception came from the provider, a wrapper, chunk logging, or their own assembly. Document the normalized contract where the type is defined; exercise every source form through the real consumer.
 
 ## Async state is not synchronous state
 

@@ -63,12 +63,8 @@ describe('agent/request-error', () => {
       retryPolicy: ResolvedRetryPolicy | undefined
     }[] = []
     const statuses: string[] = []
-    const settledTurns: number[] = []
     ctx.on('agent/status', (subject, status) => {
       if (subject === agent) statuses.push(status)
-    })
-    ctx.on('agent/settled', (subject, turn) => {
-      if (subject === agent) settledTurns.push(turn)
     })
     ctx.on('agent/request-error', async (
       subject, turn, step, _error, failure, priorFailures, retryPolicy,
@@ -101,12 +97,7 @@ describe('agent/request-error', () => {
         code: 'SERVICE_UNAVAILABLE',
       },
     ])
-    expect(agent.session.events.filter(event => event.type === 'turn/start').map(event => event.data.trigger))
-      .toEqual([
-        { kind: 'message', source: { kind: 'user' } },
-        { kind: 'retry' },
-        { kind: 'retry' },
-      ])
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(seen.map(item => item.priorFailures.map(failure => failure.code)))
       .toEqual([[], ['RATE_LIMIT']])
     expect(seen.map(item => item.retryPolicy)).toEqual([
@@ -114,7 +105,6 @@ describe('agent/request-error', () => {
       expect.objectContaining({ mode: 'normal' }),
     ])
     expect(statuses).toEqual(['running', 'idle'])
-    expect(settledTurns).toEqual([3])
   })
 
   it('lets cancellation win over a retry action', async () => {

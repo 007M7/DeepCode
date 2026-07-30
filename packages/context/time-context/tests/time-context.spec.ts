@@ -48,14 +48,13 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
-    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
 }
 
 function openMessageTurn(session: Session, turn: number): void {
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: `turn ${turn}` }],
     source: { kind: 'user' },
@@ -159,7 +158,7 @@ describe('durable step context', () => {
   it('reports an unavailable first-step baseline when no model-visible message precedes it', async () => {
     const { ctx } = await mount()
     const session = new Session(SessionId('unavailable'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
 
     await fire(ctx, sessionAgent(session), 1, 1)
 

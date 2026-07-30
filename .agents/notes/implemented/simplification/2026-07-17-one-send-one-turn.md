@@ -6,7 +6,7 @@ English | [中文](2026-07-17-one-send-one-turn.zh.md)
 
 ## Problem
 
-Suppose a caller submits message A and then message B with two `Agent.send()` calls. Implicit batching can put A and B in one turn simply because both are waiting when the driver reads its queue. The caller made two calls, but the loop silently turns them into one unit of work.
+Suppose a caller submits message A and then message B with two `Agent.followup()` calls. Implicit batching can put A and B in one turn simply because both are waiting when the driver reads its queue. The caller made two calls, but the loop silently turns them into one unit of work.
 
 That grouping depends on timing rather than caller intent. Calls from one synchronous stack, neighboring microtasks, event listeners, and model callbacks could be grouped differently even though every caller used the same API.
 
@@ -14,15 +14,15 @@ This grouping changes behavior, not just the number of model calls. One ordinary
 
 ## Decision
 
-The rule is simple: each successful `send()` creates one independent FIFO queue item. If that item runs, it is the only ordinary message in its turn. An item can be dropped before it starts, so the precise guarantee is at most one turn rather than exactly one; two sends are never silently combined.
+The rule is simple: each successful `followup()` creates one independent FIFO queue item. If that item runs, it is the only ordinary message in its turn. An item can be dropped before it starts, so the precise guarantee is at most one turn rather than exactly one; two follow-ups are never silently combined.
 
-Before enqueueing an item, `send()` checks the agent state and makes a detached, deeply frozen snapshot of the content and resolved source. After enqueueing it, `send()` publishes `agent/queued`.
+Before enqueueing an item, `followup()` checks the agent state and makes a detached, deeply frozen snapshot of the content and resolved source. After enqueueing it, the agent publishes `agent/queued`.
 
 If messages A and B are both processed, B's turn starts only after A records `turn/end` and A's durability checkpoint settles. B's request therefore sees whatever closed result A left in the same session log. A checkpoint error is reported, but settlement only releases this ordering barrier; it does not make a failed write durable. Broad `cancel()`, disposal, or a failure before `turn/start` can instead discard an unstarted item without opening an empty turn.
 
 Prompt admission decides one message at a time before a turn opens. An allowed prompt becomes that turn's `user/message`; a blocked prompt is discarded without opening a turn or writing session history. Mixed-batch and all-blocked-batch branches do not exist.
 
-The no-batching rule applies only to ordinary `send()`. Running `steer()` puts input in the outbox. While a turn remains open, the loop records that input at the next step boundary and steering makes another step the default. A failure before that boundary leaves the steering staged without waking the agent; a request-error retry action or a later prompt takes it, while cancellation or disposal can discard it. When the agent is idle, `steer()` delegates to `send()`, so it creates an independent ordinary queue item.
+The no-batching rule applies only to ordinary `followup()`. Running `steer()` puts input in the outbox. While a turn remains open, the loop records that input at the next step boundary and steering makes another step the default. A failure before that boundary leaves the steering staged without waking the agent; a request-error retry action or a later prompt takes it, while cancellation or disposal can discard it. When the agent is idle, `steer()` creates an independent ordinary queue item.
 
 `inject()` continues to add model-facing context without submitting an ordinary message. During a turn it waits in the outbox for a safe step boundary; while idle it appends a `user/message` directly, without opening a turn or running the model. Persistence owns the resulting eager drain. `cancel()` remains a whole-agent operation that can clear all unstarted ordinary and steering input and abort the current step. `status` and `whenIdle()` also describe the whole agent, not one message. Several one-message turns can share one `running` interval, so `running` does not prove that a turn is open.
 

@@ -56,34 +56,27 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.get(run.id)).toBeUndefined()
   })
 
-  it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
-    const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
-    let injected = false
-    ctx.on('session/flush', (session) => {
-      if (injected || session.header.parentSession === undefined) return
-      const lastEnd = session.events.findLast(event => event.type === 'turn/end')
-      if (lastEnd?.type !== 'turn/end' || lastEnd.data.reason.kind !== 'max-tokens') return
-      injected = true
-      const turn = lastEnd.data.turn + 1
-      session.append('turn/start', {
-        turn,
-        trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'late-metadata' } },
-      })
-      session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: 'late metadata' }],
-        source: { kind: 'plugin', plugin: 'late-metadata' },
-      }), { surfaceOp: 'append' })
-      session.append('turn/end', { turn, reason: { kind: 'completed' } })
+  it('reports the final whole-agent outcome after idle replacement work', async () => {
+    const { ctx, parent } = await setup([maxTokensResponse('partial answer'), textResponse('replacement answer')])
+    let replaced = false
+    ctx.on('agent/status', (agent, status) => {
+      if (replaced || status !== 'idle' || agent.session.header.parentSession === undefined) return
+      replaced = true
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'replacement work' }],
+        source: { kind: 'plugin', plugin: 'replacement' },
+      }))
     })
 
     const run = await startInProcessRun(request(parent), {})
     const result = await run.result
     const child = ctx.agents.get(run.id)!
 
-    expect(injected).toBe(true)
+    expect(replaced).toBe(true)
     expect(child.session.events.findLast(event => event.type === 'turn/end'))
       .toMatchObject({ data: { reason: { kind: 'completed' } } })
-    expect(result.stopReason).toBe('max-tokens')
+    expect(result.stopReason).toBe('completed')
+    expect(text(result.output)).toBe('replacement answer')
     await run.dispose()
   })
 

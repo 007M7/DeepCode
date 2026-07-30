@@ -49,7 +49,7 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
       if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
       const event = payload.event
       if (targetTurn === undefined) {
-        if (event.type === 'turn/start' && event.data.trigger.kind === 'message') targetTurn = event.data.turn
+        if (event.type === 'turn/start') targetTurn = event.data.turn
         continue
       }
       if (event.type === 'assistant/message' && event.data.turn === targetTurn) {

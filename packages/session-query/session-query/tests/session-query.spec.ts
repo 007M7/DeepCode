@@ -893,7 +893,7 @@ describe('session-query exact reads', () => {
   it('classifies current, shadowed, and raw-log-only events through foldSurface', async () => {
     const ctx = await liveContext()
     const session = ctx.sessions.create(SessionId('surface'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     const first = session.append(
       'user/message',
@@ -1008,7 +1008,7 @@ describe('session-query exact reads', () => {
   it('returns a bounded detached raw-event window and validates the request', async () => {
     const ctx = await liveContext({ readWindowMax: 1 })
     const session = ctx.sessions.create(SessionId('window'), { meta: { cwd: '/work' } })
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     for (const text of ['one', 'two', 'three']) {
       session.append(
         'user/message',
@@ -1050,7 +1050,7 @@ describe('session-query exact reads', () => {
     ])
     const ctx = await liveContext()
     const live = ctx.sessions.create(shared.id, { meta: { createdAt: 3, cwd: '/same' } })
-    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    live.append('turn/start', { turn: 1 })
     live.append(
       'user/message',
       createUserMessage({
@@ -1090,7 +1090,7 @@ describe('session-query exact reads', () => {
     TestPersistence.reset()
     const ctx = await liveContext()
     const live = ctx.sessions.create(SessionId('live'))
-    live.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    live.append('turn/start', { turn: 1 })
     live.append(
       'user/message',
       createUserMessage({

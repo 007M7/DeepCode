@@ -20,7 +20,7 @@ interface Harness {
 function appendInjection(session: Session, input: UserMessage): void {
   const lastStart = session.events.findLast(event => event.type === 'turn/start')
   const turn = (lastStart?.data.turn ?? 0) + 1
-  session.append('turn/start', { turn, trigger: { kind: 'injection', source: input.source } })
+  session.append('turn/start', { turn })
   session.append('user/message', input, { surfaceOp: 'append' })
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
@@ -37,7 +37,6 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     ctx: new Context(),
     get status() { return status },
     get acceptsNextStep() { return status === 'running' },
-    send: () => {},
     followup: () => {},
     steer: () => {},
     inject(input) { appendInjection(session, input) },

@@ -17,7 +17,7 @@ async function setup(): Promise<Context> {
 
 function closeStep(ctx: Context, id: string, turn = 1, step = 1) {
   const session = ctx.sessions.create(SessionId(id))
-  session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn })
   session.append('step/start', { turn, step })
   session.append('request/header', {
     header: { config: { provider: 'mock', model: 'mock' } },
@@ -28,7 +28,7 @@ function closeStep(ctx: Context, id: string, turn = 1, step = 1) {
 }
 
 function appendRetryTurn(session: Session, turn: number) {
-  session.append('turn/start', { turn, trigger: { kind: 'retry' } })
+  session.append('turn/start', { turn })
   session.append('step/start', { turn, step: 1 })
   session.append('request/header', {
     header: { config: { provider: 'mock', model: 'mock' } },
@@ -73,7 +73,7 @@ describe('llm-retry invariants', () => {
     expect(() => {
       session.append('llm/retry', { turn: 1, step: 1, ...normal })
       session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
-      session.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+      session.append('turn/start', { turn: 2 })
       session.append('step/start', { turn: 2, step: 1 })
       session.append('step/end', { turn: 2, step: 1 })
       session.append('llm/retry', {
@@ -169,14 +169,14 @@ describe('llm-retry invariants', () => {
     }).toThrow(/open turn is 1/)
 
     const openStep = ctx.sessions.create(SessionId('retry-invariant-open-step'))
-    openStep.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    openStep.append('turn/start', { turn: 1 })
     openStep.append('step/start', { turn: 1, step: 1 })
     expect(() => {
       openStep.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/step 1 is still open/)
 
     const noStep = ctx.sessions.create(SessionId('retry-invariant-no-step'))
-    noStep.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    noStep.append('turn/start', { turn: 1 })
     expect(() => {
       noStep.append('llm/retry', { turn: 1, step: 1, ...normal })
     }).toThrow(/latest closed step is undefined/)
@@ -208,7 +208,7 @@ describe('llm-retry invariants', () => {
     const mismatch = closeStep(ctx, 'retry-invariant-numbering')
     mismatch.append('llm/retry', { turn: 1, step: 1, ...normal })
     mismatch.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
-    mismatch.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+    mismatch.append('turn/start', { turn: 2 })
     mismatch.append('step/start', { turn: 2, step: 1 })
     mismatch.append('step/end', { turn: 2, step: 1 })
     expect(() => {
@@ -218,7 +218,7 @@ describe('llm-retry invariants', () => {
     const reset = closeStep(ctx, 'retry-invariant-reset')
     reset.append('llm/retry', { turn: 1, step: 1, ...normal })
     reset.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, failure } })
-    reset.append('turn/start', { turn: 2, trigger: { kind: 'retry' } })
+    reset.append('turn/start', { turn: 2 })
     reset.append('step/start', { turn: 2, step: 1 })
     reset.append('assistant/message', {
       turn: 2,
@@ -234,7 +234,7 @@ describe('llm-retry invariants', () => {
     }, { surfaceOp: 'append' })
     reset.append('step/end', { turn: 2, step: 1 })
     reset.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-    reset.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    reset.append('turn/start', { turn: 3 })
     reset.append('step/start', { turn: 3, step: 1 })
     reset.append('step/end', { turn: 3, step: 1 })
     expect(() => {

@@ -12,7 +12,7 @@ const at = (seq: number, e: Record<string, unknown>): SessionEvent =>
 
 export const ev = {
   turnStart: (seq: number, turn: number): SessionEvent =>
-    at(seq, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } }),
+    at(seq, { type: 'turn/start', data: { turn } }),
   user: (seq: number, body: string): SessionEvent =>
     at(seq, { type: 'user/message', surfaceOp: 'append', data: createUserMessage({
       content: text(body), source: { kind: 'user' },

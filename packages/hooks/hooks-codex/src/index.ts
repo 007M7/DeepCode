@@ -182,6 +182,11 @@ export function apply(ctx: Context, config: Config): void {
     return [ours, ...theirs ?? []]
   }
 
+  /** Append hook context to an admitted inbox batch. */
+  function appendPromptContext(theirs: UserMessage[], ours: UserMessage): UserMessage[] {
+    return [...theirs, ours]
+  }
+
   // SessionStart injects plain stdout when its detached hook resolves; a slow
   // hook may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
@@ -196,11 +201,11 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // UserPromptSubmit → PromptDecision. Codex supports block, not allow or ask.
-  ctx.on('agent/prompt-submit', async (agent, message, signal, next): Promise<PromptDecision> => {
+  ctx.on('agent/prompt-submit', async (agent, messages, signal, next): Promise<PromptDecision> => {
     const payload = {
       ...base(ctx, agent, 'UserPromptSubmit', model),
       turn_id: String(lastTurn(agent) + 1),
-      prompt: blocksToText(message.content),
+      prompt: blocksToText(messages.flatMap(message => message.content)),
     }
     const merged = await runPoint('UserPromptSubmit', '', payload, { agent, plainStdoutAsContext: true, signal })
     /* jscpd:ignore-start */
@@ -212,8 +217,7 @@ export function apply(ctx: Context, config: Config): void {
     if (!ours || downstream.kind !== 'allow') return downstream
     return {
       kind: 'allow',
-      ...downstream.content !== undefined ? { content: downstream.content } : {},
-      additionalContexts: prependContext(ours, downstream.additionalContexts),
+      messages: appendPromptContext(downstream.messages, ours),
     }
   })
 

@@ -183,7 +183,6 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
-    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

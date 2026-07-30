@@ -88,17 +88,7 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "SendTarget",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
       "symbol": "InboxPlacement",
-      "source": "packages/core/agent/src/types.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/core.md",
-      "symbol": "SendOptions",
       "source": "packages/core/agent/src/types.ts"
     },
     {

@@ -18,7 +18,7 @@ This made identity a routing side effect rather than a message invariant. Produc
 
 The helpers live in `dsh-llm` beside the base message vocabulary because their complete contracts depend only on that vocabulary. `createToolResultMessage()` belongs with the other creation helpers: it couples a tool call id to the exact user-role tool-result block and source without depending on session state or events. `dsh-session` consumes complete messages rather than owning their construction.
 
-The `Agent` interface accepts a complete `UserMessage`. `send`, `followup`, `steer`, and `inject` never allocate or return identity; they freeze an imported value whose id the caller already holds. Prompt admission receives that message directly. A content rewrite creates a frozen replacement with the same id, while an additional context is a separately created `UserMessage` with its own id.
+The `Agent` interface accepts a complete `UserMessage` through `followup`, `steer`, and `inject`. These operations never allocate or return identity; they freeze an imported value whose id the caller already holds. Prompt admission receives that message directly. A content rewrite creates a frozen replacement with the same id, while an additional context is a separately created `UserMessage` with its own id.
 
 Durable message-producing events store complete messages. `user/message` stores its `UserMessage` directly; `assistant/message`, `tool/result`, and `steering/message` wrap their role-specialized message beside event-local position, usage, failure, or presentation facts. Session derivation returns those frozen values instead of reconstructing anonymous messages. Assistant assembly creates a model-sourced message when a response completes, and tool execution creates a tool-sourced message when a result is committed.
 
@@ -28,7 +28,7 @@ Any operation that changes only the representation of an existing semantic messa
 
 **Keep ids optional on the base message.** This would minimize fixture migration and allow provider or persistence shapes to remain anonymous. It would also preserve the original ambiguity: every consumer would need to branch on whether identity exists, and no type would prove that admission, logging, or projection retained it.
 
-**Let `Agent.send()` allocate the id.** This keeps identity scoped to inbox correlation but makes the agent call the earliest point at which a producer can name its own message. Prompt construction, UI attachments, and synchronous enqueue/discard coordination then need content matching or an out-of-band token before `send()` returns.
+**Let agent delivery allocate the id.** This keeps identity scoped to inbox correlation but makes the agent call the earliest point at which a producer can name its own message. Prompt construction, UI attachments, and synchronous enqueue/discard coordination then need content matching or an out-of-band token before delivery returns.
 
 **Let each durable event allocate a new id.** This gives persisted messages identities but deliberately breaks correlation with the live input and makes replayed requests appear to contain different messages. Identity belongs to the semantic value, not to each envelope that carries it.
 
@@ -46,5 +46,5 @@ The message and helper unit tests pin immediate identity, detachment, deep immut
 
 ## Related
 
-- [Unify agent delivery on send(target × wakeup) and coalesce injected context into user/message](2026-07-22-unified-send-and-coalesced-user-messages.md) — this note supersedes its input-representation and agent-assigned-id details while retaining its routing decision.
+- [Unified agent delivery routing and coalesced injected context](2026-07-22-unified-send-and-coalesced-user-messages.md) — this note supersedes its input-representation and agent-assigned-id details while retaining its routing decision.
 - [Reconstructable requests](2026-07-05-reconstructable-requests.md) — the session log remains the authority for every model-visible input.

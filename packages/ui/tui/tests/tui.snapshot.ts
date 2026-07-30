@@ -322,7 +322,6 @@ describe('TUI terminal-state snapshots', () => {
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         session.append('turn/start', {
           turn: 2,
-          trigger: { kind: 'message', source: { kind: 'user' } },
         })
         appendUser(session, 'Next question.')
       },
@@ -774,14 +773,14 @@ describe('TUI terminal-state snapshots', () => {
         turn: 1,
         reason: { kind: 'error', step: 1, message: 'provider stream failed after partial output' },
       })
-      harness.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+      harness.session.append('turn/start', { turn: 2 })
       harness.session.append('turn/end', {
         turn: 2,
         reason: { kind: 'interrupted' },
       })
-      harness.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+      harness.session.append('turn/start', { turn: 3 })
       harness.session.append('turn/end', { turn: 3, reason: { kind: 'disposed' } })
-      harness.session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+      harness.session.append('turn/start', { turn: 4 })
       // A merge-extensible turn-end kind unknown to the TUI still surfaces its
       // name so the agent never stops without a visible reason.
       harness.session.append('turn/end', { turn: 4, reason: { kind: 'plugin-policy' } as never })
@@ -822,7 +821,7 @@ describe('TUI terminal-state snapshots', () => {
     const log = (meta: typeof earlier, title: string, day: string): { meta: typeof earlier; events: SessionEvent[] } => ({
       meta,
       events: [
-        { type: 'turn/start', seq: 0, time: Date.parse(`${day}T00:00:01Z`), data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+        { type: 'turn/start', seq: 0, time: Date.parse(`${day}T00:00:01Z`), data: { turn: 1 } },
         { type: 'user/message', seq: 1, time: Date.parse(`${day}T00:00:02Z`), data: createUserMessage({ content: [{ type: 'text', text: 'restore the selector' }], source: { kind: 'user' } }), surfaceOp: 'append' },
         { type: 'step/start', seq: 2, time: Date.parse(`${day}T00:00:03Z`), data: { turn: 1, step: 1 } },
         { type: 'request/header', seq: 3, time: Date.parse(`${day}T00:00:04Z`), data: { header: { config: { provider: 'deepseek', model: 'deepseek-v4-pro' } }, reason: 'initial' } },

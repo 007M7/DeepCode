@@ -65,7 +65,7 @@ waterfall（瀑布式事件）是环绕中间件：监听器通过 `next()` 委�
 
 ## 默认循环生命周期
 
-**会话**采用仅追加方式。普通**轮次**领取一项已排队的 `send()` 输入；注入不领取输入。后续轮次会等待前一轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型或插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。[下文时序](agent-lifecycle.md)中的引号标记持久事件。
+**会话**采用仅追加方式。普通**轮次**领取一条已排队的后续消息；注入不领取输入。后续轮次会等待前一轮次的检查点，但可以与其共用同一个 `running` 区间（[决策](../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)）。模型或插件停止轮次时，该轮次结束；一个**步骤**包含一次模型请求及其工具。[下文时序](agent-lifecycle.md)中的引号标记持久事件。
 
 创建时若未提供 id，流程会生成 `<config-id>-session-<uuid>`；`sessionId` 用于恢复或创建会话，而 `resumeSessionId` 要求已有历史。恢复流程在发布前还原沿袭关系和委托深度。初始化失败会发出 `agent-loop/config-start-failed`；拆卸过程保持静默。
 
@@ -122,7 +122,7 @@ idle inject:
 
 ### 失败边界
 
-适配器故障会先关闭自身步骤，再由 `agent/request-error` 接收准确的 `Error`、标准化的 `LlmFailure` 和信号。已处理的失败会关闭所在轮次，并从持久历史开启重试轮次，不发出空闲通知；重试耗尽则留下终态 `turn/end`。失败分片既不提交消息，也不提交工具调用。
+最终适配器选择、分发与迭代失败会在 loop 处理前成为终止 `finish { kind: 'error' | 'aborted', failure }` chunk。`agent/request-error` 接收请求坐标、标准化 `LlmFailure`、可用时的准备注册重试策略以及信号；middleware 与消费方错误仍在请求恢复之外抛出。失败分片既不提交消息，也不提交工具调用。
 
 其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
@@ -130,7 +130,7 @@ idle inject:
 
 ### Agent 句柄
 
-`ctx.agents` 拥有活跃 agent，并返回 `AgentHandle { agent, dispose() }`。插件使用全部 `send()` 选项，或 `followup()`、`steer()` 和 `inject()` 预设；`cancel()` 与 `whenIdle()` 控制生命周期。一个需等待完成的 disposer 协调拆卸归属。
+`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件用 `followup()`、`steer()` 和 `inject()` 驱动 agent；`cancel()` 停止工作，而拆卸由需等待完成的 disposer 负责。
 
 ### Agent 作用域
 

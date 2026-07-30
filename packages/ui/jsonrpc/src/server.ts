@@ -10,7 +10,7 @@ import { resolve } from 'node:path'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, type Scoped } from '@deepseek-ai/dsh-scope'
-import { findLastMessageTurnEnd, SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type SubagentService from '@deepseek-ai/dsh-subagent'
 import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
@@ -28,7 +28,6 @@ import type {
 
 interface SessionRecord {
   handle: AgentHandle
-  lastTurnEnd: TurnEndReason | undefined
   activePrompt: boolean
 }
 
@@ -72,12 +71,6 @@ export class HarnessSdkServer {
   ) {
     const serverOptions = this.options
     this.disposers.push(ctx.on('session/event', (session, event) => {
-      if (event.type === 'turn/end') {
-        const rec = this.sessions.get(String(session.id))
-        if (rec && findLastMessageTurnEnd(session.events)?.seq === event.seq) {
-          rec.lastTurnEnd = event.data.reason
-        }
-      }
       const payload: SessionEventNotification = { sessionId: String(session.id), event }
       this.transport.notify('session.event', payload)
     }))
@@ -146,13 +139,15 @@ export class HarnessSdkServer {
     }
     rec.activePrompt = true
     try {
-      rec.lastTurnEnd = undefined
-      rec.handle.agent.followup(createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } }))
+      const message = createUserMessage({ content: params.contentBlocks, source: { kind: 'user' } })
+      rec.handle.agent.followup(message)
       await rec.handle.agent.whenIdle()
+      const lastEnd = rec.handle.agent.session.events.findLast(event => event.type === 'turn/end')
+      const reason = lastEnd?.data.reason
       const payload: SessionFinishedNotification = {
         sessionId: params.sessionId,
-        status: this.finishedStatus(rec.lastTurnEnd),
-        reason: rec.lastTurnEnd,
+        status: this.finishedStatus(reason),
+        reason,
       }
       this.transport.notify('session.finished', payload)
       return { accepted: true }
@@ -244,7 +239,7 @@ export class HarnessSdkServer {
         ...this.maxTokens === undefined ? {} : { maxTokens: this.maxTokens },
       },
     })
-    const rec: SessionRecord = { handle, lastTurnEnd: undefined, activePrompt: false }
+    const rec: SessionRecord = { handle, activePrompt: false }
     this.sessions.set(sessionId, rec)
     return rec
   }

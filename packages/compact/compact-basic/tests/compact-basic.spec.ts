@@ -104,7 +104,7 @@ function promptInput(text: string): SummarizationInput {
 function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
   const session = new Session(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `${text} user ${turn}` }],
       source: { kind: 'user' },
@@ -133,7 +133,6 @@ function conversation(turns = 4, text = 'fixture '.repeat(40).trim()): Session {
   }
   session.append('turn/start', {
     turn: turns + 1,
-    trigger: { kind: 'message', source: { kind: 'user' } },
   })
   return session
 }
@@ -142,7 +141,7 @@ function toolConversation(): Session {
   const session = new Session(SessionId('tools'))
   for (let turn = 1; turn <= 3; turn += 1) {
     const callId = CallId(`call-${turn}`)
-    session.append('turn/start', { turn, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: `request ${turn} `.repeat(300) }],
       source: { kind: 'user' },
@@ -182,7 +181,7 @@ function toolConversation(): Session {
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
-  session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 4 })
   return session
 }
 
@@ -190,7 +189,7 @@ function toolConversation(): Session {
 function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Session {
   const session = new Session(SessionId(`oversized-tool-${chars}`))
   const callId = CallId('oversized')
-  session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 1 })
   if (withCompactablePrompt) {
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'older history '.repeat(200) }],
@@ -227,7 +226,7 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-  session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+  session.append('turn/start', { turn: 2 })
   return session
 }
 
@@ -474,7 +473,7 @@ describe('pressure measurement and retention', () => {
   it('skips when no durable routed model exists instead of using AgentOptions fallback', async () => {
     const compact = service(compactConfig)
     const session = new Session(SessionId('headerless'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     await expect(compact.compactIfNeeded(agent(session, MODEL), 'pressure', SIGNAL))
       .resolves.toBeNull()
     expect(compact.calls).toHaveLength(0)
@@ -557,7 +556,7 @@ describe('pressure measurement and retention', () => {
     const compact = service(compactConfig)
     const session = new Session(SessionId('single-tool-pair'))
     const callId = CallId('single-call')
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('request/header', {
       header: { config: { provider: MODEL, model: MODEL } },
@@ -647,7 +646,7 @@ describe('pressure measurement and retention', () => {
   it('declines when envelope pressure is high but the surface has no compactable range', async () => {
     const compact = service(compactConfig)
     const empty = new Session(SessionId('empty'))
-    empty.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    empty.append('turn/start', { turn: 1 })
     empty.append('request/header', {
       header: { config: { provider: MODEL, model: MODEL }, system: 'x'.repeat(100_000) },
       reason: 'initial',
@@ -723,7 +722,7 @@ describe('pressure measurement and retention', () => {
     const ctx = createContext()
     const session = new Session(SessionId('one-tool-pair'))
     const callId = CallId('only')
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
       turn: 1,
@@ -1058,7 +1057,7 @@ describe('compaction region transaction', () => {
   it('lets a model-independent custom summarizer compact without a conversation model', async () => {
     const compact = service()
     const session = new Session(SessionId('model-less-region'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'history '.repeat(100) }],
       source: { kind: 'user' },
@@ -1665,7 +1664,6 @@ describe('automatic listener and loader composition', () => {
     const session = new Session(SessionId('headerless-overflow'))
     session.append('turn/start', {
       turn: 1,
-      trigger: { kind: 'message', source: { kind: 'user' } },
     })
 
     await expect(recover(ctx, agent(session, MODEL), overflow())).resolves.toBe(false)

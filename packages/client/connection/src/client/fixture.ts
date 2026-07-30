@@ -114,7 +114,7 @@ function buildAlphaLog(): SessionEvent[] {
     return seq
   }
   for (let turn = 0; turn < 60; turn++) {
-    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'turn/start', data: { turn } })
     const userSeq = push({
       type: 'user/message', surfaceOp: 'append',
       data: userMessage(text(turn === 59 ? USER_MARKDOWN_LITERAL : `问题 ${turn}：fixture 历史消息，用于翻页与渲染验收。`)),
@@ -158,7 +158,7 @@ function buildAlphaLog(): SessionEvent[] {
   // stays presenter-less as the unknown fallback.
   const toolTurn = (turn: number, name: string, args: string, resultText: string): void => {
     const callId = `fx-call-${turn}`
-    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'turn/start', data: { turn } })
     push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：${name} 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
@@ -186,7 +186,7 @@ function buildAlphaLog(): SessionEvent[] {
       + 'await tools.read({ path: "notes/missing.txt" }).catch(() => "tolerated")\n'
       + 'return { listing, demo }'
     const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
-    push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+    push({ type: 'turn/start', data: { turn } })
     push({ type: 'user/message', surfaceOp: 'append', data: userMessage(text(`问题 ${turn}：run_code 样本。`)) })
     push({ type: 'step/start', data: { turn, step: 0 } })
     push({
@@ -975,7 +975,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const turn = nextTurn.get(id) ?? 0
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
-        append(id, { type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
+        append(id, { type: 'turn/start', data: { turn } })
         // Boundary flush parallel (the host's agent/step seam): an outstanding
         // /plan selection commits as plan/mode inside the opened turn.
         const plan = foldPlan(logOf(id))

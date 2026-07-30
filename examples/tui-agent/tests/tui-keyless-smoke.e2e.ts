@@ -53,7 +53,7 @@ async function seedResumeSession(cwd: string): Promise<void> {
   const id = SessionId('resume-target')
   const meta: SessionHeader = { version: 0, id, createdAt: 1_700_000_000_000, cwd: sessionCwd }
   const events: SessionEvent[] = [
-    { type: 'turn/start', seq: 0, time: 1_700_000_000_001, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time: 1_700_000_000_001, data: { turn: 1 } },
     { type: 'user/message', seq: 1, time: 1_700_000_000_002, data: createUserMessage({
       content: [{ type: 'text', text: 'persisted prompt' }], source: { kind: 'user' },
     }), surfaceOp: 'append' },

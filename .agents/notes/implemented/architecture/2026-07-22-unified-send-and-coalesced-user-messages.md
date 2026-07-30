@@ -1,4 +1,4 @@
-# Agent Note: Unify agent delivery on send(target × wakeup) and coalesce injected context into user/message
+# Agent Note: Unify agent delivery routing and coalesce injected context into user/message
 
 Status: implemented
 
@@ -12,7 +12,7 @@ Separately, `context/message` and `user/message` had converged: the surface proj
 
 ## Decision
 
-**One primitive, three preset aliases.** The `Agent` interface's `send(message, { target, wakeup })` covers the (`target` × `wakeup`) matrix. Its complete `UserMessage` owns identity, role, model-facing `content`, and producer `source`; the complete `SendOptions` owns only routing policy. `followup` (`next-turn`/wakeup), `steer` (`next-step`/wakeup), and `inject` (`next-step`/no-wakeup) each accept that one message and fix the policy. `wakeup` means "make the model run": wake a parked driver for a `next-turn` item, or force a continuation for a running `next-step` item. `next-turn`/no-wakeup (queue without waking) is representable with no alias and no current caller.
+**One private primitive, three public operations.** `ReactLoopAgent` routes `followup` (queued turn), `steer` (nearest step), and `inject` (context without execution) through one private `send` helper. Each public method accepts a complete `UserMessage` that owns identity, role, model-facing `content`, and producer `source`. The plugin-facing `Agent` interface exposes semantic intent rather than the underlying (`target` × `wakeup`) matrix; the [private-routing decision](../simplification/2026-07-30-private-agent-send.md) owns that public-surface boundary.
 
 **inject keeps its mechanism.** The `next-step`/no-wakeup path is exactly the old `inject`: durable model-facing context appended at the current log position, deferred while prompt admission or a turn owns the next safe boundary, and appended directly outside that window. It bypasses the FIFOs entirely, while its required `UserMessage.source` preserves the caller's explicit provenance.
 
@@ -20,7 +20,7 @@ Separately, `context/message` and `user/message` had converged: the surface proj
 
 **Goal replay disambiguates by round, not type.** A goal state change is a round-zero goal-sourced `user/message` whose source carries the complete change; a positive round is an admitted continuation prompt. `decodeGoalEvent` takes a `user/message` and fails loud when goal-state content and its typed source disagree.
 
-**`send` does not return identity.** Callers already own the complete message and its opaque `MessageId`; creation and freezing are owned by the [identified immutable message decision](2026-07-28-identified-immutable-message-values.md), not by routing.
+**Delivery does not return identity.** Callers already own the complete message and its opaque `MessageId`; creation and freezing are owned by the [identified immutable message decision](2026-07-28-identified-immutable-message-values.md), not by routing.
 
 **Three inbox events replace agent/queued.** `agent/inbox/enqueue` (an item entered a FIFO), `agent/inbox/dequeue` (the driver claimed one), and `agent/inbox/discard` (`cancel()` dropped pending items) carry the accepted `UserMessage`. Enqueue and dequeue also carry the resolved `queued | steering` placement captured at acceptance, so observers and reconnect mirrors retire repeated message identities from the correct FIFO without reconstructing routing from later status or session history. Injection never touches a FIFO and emits none of these. Every FIFO entry publishes an enqueue, including steering submitted by an `agent/turn-stopping` listener, so the ledger stays balanced with its later dequeue or discard. The `dsh-agent` invariant companion asserts FIFO conservation: a per-agent outstanding count that dequeue and discard can never drive negative.
 
@@ -41,9 +41,9 @@ Separately, `context/message` and `user/message` had converged: the surface proj
 
 ## Consequences
 
-The delivery surface is now one primitive plus three self-documenting presets, and the (`target` × `wakeup`) matrix makes previously-unreachable combinations explicit. One durable message type serves prompts, injected context, and goal rounds, so the surface projection and every "human prompt?" check simplify to a `source` test. The `Agent` contract remains an interface, so alternate implementations and object-literal test fakes implement the same minimal structural surface. The goal fold's channel split moved from event type to `source.round`, and every consumer that filtered `context/message` now filters `user/message` by source. An idle injection appends `user/message` between turns without opening a turn or running the model.
+The concrete driver keeps one routing primitive while the public interface exposes three self-documenting operations. One durable message type serves prompts, injected context, and goal rounds, so the surface projection and every "human prompt?" check simplify to a `source` test. The `Agent` contract remains an interface, so alternate implementations and object-literal test fakes implement the same minimal structural surface. The goal fold's channel split moved from event type to `source.round`, and every consumer that filtered `context/message` now filters `user/message` by source. An idle injection appends `user/message` between turns without opening a turn or running the model.
 
-`wakeup` is the "should the model run" signal, so the inbox distinguishes waking queued work from anything available to dequeue: a lone `next-turn`/no-wakeup item stays parked at idle and rides along the next waking send, and `whenIdle`/`cancel` settle quiescence off the waking signal. Every FIFO exit publishes exactly one lifecycle event, while domain-specific durable facts travel in typed message sources rather than a parallel metadata channel. The direct pending-item representation keeps public lifecycle events correlated without maintaining a second steering wrapper or allowing its durable data to diverge.
+The private `wakeup` flag records whether delivery requests model execution; public follow-ups and steering wake the driver, while injection does not. Every FIFO exit publishes exactly one lifecycle event, while domain-specific durable facts travel in typed message sources rather than a parallel metadata channel. The direct pending-item representation keeps public lifecycle events correlated without maintaining a second steering wrapper or allowing its durable data to diverge.
 
 ## Related
 
@@ -51,3 +51,4 @@ The delivery surface is now one primitive plus three self-documenting presets, a
 - [remove-agent-steering-mirror](../../archived/simplification/2026-07-04-remove-agent-steering-mirror.md) — the precedent for collapsing a mirrored live event.
 - [explicit-turn-cancellation](2026-07-16-explicit-turn-cancellation.md) — the cancel-cause signal `keepInbox` extends.
 - [identified immutable message values](2026-07-28-identified-immutable-message-values.md) — the message identity and representation contract that now underlies this routing decision.
+- [private agent routing](../simplification/2026-07-30-private-agent-send.md) — the public-surface simplification that keeps the routing matrix inside the concrete driver.

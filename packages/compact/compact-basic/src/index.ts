@@ -155,8 +155,8 @@ export class BasicCompactService extends CompactService {
       }
     })
 
-    ctx.on('agent/settled', (agent) => {
-      this.overflowRetries.delete(agent)
+    ctx.on('agent/status', (agent, status) => {
+      if (status === 'idle') this.overflowRetries.delete(agent)
     })
 
     // A successful response starts a fresh overflow-recovery sequence even
@@ -169,15 +169,11 @@ export class BasicCompactService extends CompactService {
 
     ctx.on('agent/request-error', async (
       agent,
-      _turn,
-      _step,
-      _error,
-      failure,
-      _priorFailures,
-      _retryPolicy,
+      context,
       signal,
       next,
     ) => {
+      const { failure } = context
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
       this.overflowAgents.set(agent.session, agent)
       const target = routedTarget(agent.session)

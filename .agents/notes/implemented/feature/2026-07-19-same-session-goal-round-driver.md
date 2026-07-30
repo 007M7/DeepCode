@@ -8,7 +8,7 @@ English | [中文](2026-07-19-same-session-goal-round-driver.zh.md)
 
 The goal domain can retain an objective and the model-facing tools can mutate its lifecycle, but neither should decide when another model turn begins. A continuation driver must bridge active goal state to the ordinary agent loop without adding goal-specific branches to `dsh-agent-loop`, inventing a second conversation, or treating every human turn as an autonomous iteration.
 
-That bridge has concurrency and durability obligations. Human input, cancellation, a goal edit, persistence failure, session restart, plugin unload, and a downstream prompt policy can all race a pending continuation. A naive `goal/changed -> agent.send()` listener can admit obsolete work, run alongside a human prompt, spend beyond the cap, or restart from replay without new authority.
+That bridge has concurrency and durability obligations. Human input, cancellation, a goal edit, persistence failure, session restart, plugin unload, and a downstream prompt policy can all race a pending continuation. A naive `goal/changed -> agent.followup()` listener can admit obsolete work, run alongside a human prompt, spend beyond the cap, or restart from replay without new authority.
 
 ## Decision
 
@@ -20,7 +20,7 @@ The plugin has no configuration. `maxGoalRounds` is resolved and persisted by `d
 
 ### Reservation and admission
 
-When an agent is idle, has no competing queued work, and its current goal is `active` plus `armed`, the driver checkpoints pending goal mutations and rechecks every predicate after the await. If `roundsStarted` already equals `maxGoalRounds`, it records `blocked` with code `round-limit`. Otherwise it reserves the exact identity `{ goalId, revision, round: roundsStarted + 1 }` and the complete rendered prompt before calling `Agent.send()` with `GoalMessageSource`. The prompt JSON-quotes the objective so multiline or tag-like text remains an unambiguous data value inside the familiar frame.
+When an agent is idle, has no competing queued work, and its current goal is `active` plus `armed`, the driver checkpoints pending goal mutations and rechecks every predicate after the await. If `roundsStarted` already equals `maxGoalRounds`, it records `blocked` with code `round-limit`. Otherwise it reserves the exact identity `{ goalId, revision, round: roundsStarted + 1 }` and the complete rendered prompt before calling `Agent.followup()` with `GoalMessageSource`. The prompt JSON-quotes the objective so multiline or tag-like text remains an unambiguous data value inside the familiar frame.
 
 The `agent/prompt-submit` waterfall is the admission fence. A positive goal source is allowed only when it exactly matches the driver's pending identity and content, the live goal still has that id and revision, activation remains armed, and the round is still the next number. The plugin checks once before delegating and again after downstream hooks return. This second check prevents an async hook from editing or pausing the goal while still admitting the old prompt.
 

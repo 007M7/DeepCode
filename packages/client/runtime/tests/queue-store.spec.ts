@@ -1,6 +1,6 @@
 /**
  * Queue mirror semantics (web input-triggers queue cut 1): session/queued
- * intake, host-rule retirement (message turn/start claims oldest non-steering;
+ * intake, host-rule retirement (identified user/message claims its non-steering row;
  * steering/message drains by source), leave-running sweep, reconnect reset,
  * pre-instantiation buffering, and snapshot reference stability.
  */
@@ -18,7 +18,11 @@ const text = (t: string): ContentBlock[] => [{ type: 'text', text: t }]
 const rid = (id: string): RpcId => id as RpcId
 
 /** session/queued frame with the wire-sourced rpcId key (the host prompt path). */
-function queuedFrame(body: string, rpcId: string, steering = false): MuxFrame {
+function queuedFrame(
+  body: string,
+  rpcId: string,
+  steering = false,
+): Extract<MuxFrame, { type: 'session/queued' }> {
   return {
     type: 'session/queued',
     sessionId: SID,
@@ -74,22 +78,30 @@ describe('queue intake', () => {
 })
 
 describe('queue retirement (host queuedMirror rules)', () => {
-  it('a message-triggered turn/start claims the oldest non-steering row', () => {
+  it('an admitted user/message claims its identified non-steering row', () => {
     const session = makeSession()
-    session.handleMuxEnvelope(rid('e1'), queuedFrame('先', 'p-1'))
+    const first = queuedFrame('先', 'p-1')
+    session.handleMuxEnvelope(rid('e1'), first)
     session.handleMuxEnvelope(rid('e2'), queuedFrame('后', 'p-2'))
-    session.handleMuxEnvelope(rid('e3'), { type: 'session/event', sessionId: SID, event: ev.turnStart(0, 0) })
+    session.handleMuxEnvelope(rid('e3'), {
+      type: 'session/event',
+      sessionId: SID,
+      event: {
+        ...ev.user(0, '先'),
+        data: first.message,
+      },
+    })
     expect(session.getSnapshot().queue.map(r => r.key)).toEqual(['p-2'])
   })
 
-  it('an injection-triggered turn/start claims nothing', () => {
+  it('a turn/start alone claims nothing', () => {
     const session = makeSession()
     session.handleMuxEnvelope(rid('e1'), queuedFrame('留', 'p-1'))
-    const injection = {
-      ...ev.turnStart(0, 0),
-      data: { turn: 0, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'x' } } },
-    } as never
-    session.handleMuxEnvelope(rid('e2'), { type: 'session/event', sessionId: SID, event: injection })
+    session.handleMuxEnvelope(rid('e2'), {
+      type: 'session/event',
+      sessionId: SID,
+      event: ev.turnStart(0, 0),
+    })
     expect(session.getSnapshot().queue).toHaveLength(1)
   })
 

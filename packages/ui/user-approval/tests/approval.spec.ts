@@ -118,7 +118,7 @@ describe('ApprovalService.request', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(ApprovalService)
     const session = ctx.sessions.create(SessionId('asked-observer-throw'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const agent = { session } as unknown as Agent
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.on('session/event', (_session, event) => {
@@ -141,7 +141,7 @@ describe('ApprovalService.request', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(ApprovalService)
     const session = ctx.sessions.create(SessionId('decided-observer-throw'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const agent = { session } as unknown as Agent
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     ctx.on('session/event', (_session, event) => {
@@ -360,7 +360,7 @@ describe('approval policy (the approval/policy fold)', () => {
    */
   function sessionAgent(id: string): { agent: Agent; session: Session; injected: string[] } {
     const session = new Session(SessionId(id))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     const injected: string[] = []
     const agent = {
       id,

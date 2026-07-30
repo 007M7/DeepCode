@@ -28,15 +28,17 @@ export function classifyGoalRound(reason: TurnEndReason, durable: boolean): Goal
     case 'aborted':
       return { kind: 'pause', reason: 'cancelled' }
     case 'error': {
-      const { code, message } = reason.failure ?? reason
+      const error = reason.error
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? error.code
+        : undefined
+      const message = error instanceof Error ? error.message : String(error)
       return code === 'RATE_LIMIT' || code === 'QUOTA'
         ? { kind: 'blocked', code: 'usage-limited', message }
         : { kind: 'blocked', code: 'turn-error', message }
     }
     case 'max-tokens':
       return { kind: 'blocked', code: 'max-tokens', message: 'model output reached max tokens' }
-    case 'disposed':
-      return { kind: 'disarm', reason: 'disposed' }
     case 'interrupted':
       return { kind: 'disarm', reason: 'interrupted' }
     // TurnEndReason is merge-extensible. An unknown producer cannot opt into

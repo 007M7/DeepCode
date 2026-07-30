@@ -46,7 +46,7 @@ describe('goal stream invariants', () => {
   it('accepts canonical goal snapshots and sequential admitted rounds', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('goal-invariant-valid'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: renderGoalChange(change),
       source: changeSource,
@@ -70,7 +70,7 @@ describe('goal stream invariants', () => {
   it('rejects model-visible drift before committing it and keeps the fold reusable', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('goal-invariant-invalid'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
+    session.append('turn/start', { turn: 1 })
     expect(() => {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'counterfeit' }],
@@ -93,7 +93,7 @@ describe('goal stream invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('goal-invariant-late-load'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: renderGoalChange(change),
       source: changeSource,

@@ -225,7 +225,7 @@ describe('session/projection push frame', () => {
 
     seedMessages(session, 1)
     // Same-reference apply: turn/start does not concern the unit — no frame.
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     seedMessages(session, 1)
 
     const frames = await collected

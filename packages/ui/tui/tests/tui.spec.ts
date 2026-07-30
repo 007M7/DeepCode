@@ -239,7 +239,7 @@ describe('goodbye message and /resume', () => {
     time = 100,
     reason: TurnEndReason = { kind: 'completed' },
   ): SessionEvent[] => [
-    { type: 'turn/start', seq: 0, time, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+    { type: 'turn/start', seq: 0, time, data: { turn: 1 } },
     { type: 'user/message', seq: 1, time: time + 1, data: createUserMessage({
       content: [{ type: 'text', text: 'resume me' }], source: { kind: 'user' },
     }), surfaceOp: 'append' },
@@ -1333,9 +1333,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })
     result.session.append('turn/end', { turn: 1, reason: { kind: 'aborted' } })
-    result.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    result.session.append('turn/start', { turn: 2 })
     result.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
-    result.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    result.session.append('turn/start', { turn: 3 })
     result.session.append('step/start', { turn: 3, step: 1 })
     result.session.append('assistant/chunk', {
       turn: 3,
@@ -1872,7 +1872,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       expect(result.terminal.output).not.toContain('│')
       expect(result.terminal.output).not.toContain('Response 1s')
 
-      result.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+      result.session.append('turn/start', { turn: 2 })
       result.session.append('step/start', { turn: 2, step: 1 })
       clock += 1_000
       result.terminal.output = ''
@@ -3760,7 +3760,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const events = await setup()
     const unrelatedSession = events.ctx.sessions.create(SessionId('unrelated-session'))
     const unrelatedAgent = { ...events.agent, id: unrelatedSession.id, session: unrelatedSession }
-    unrelatedSession.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    unrelatedSession.append('turn/start', { turn: 1 })
     unrelatedSession.append('todo/write', { todos: [{ content: 'hidden', status: 'pending' }] })
     agentEvents(events.ctx, unrelatedAgent).emit('agent/status', 'running')
     agentEvents(events.ctx, unrelatedAgent).emit('agent/error', 1, 1, new Error('hidden error'))
@@ -3768,22 +3768,22 @@ describe('pi-tui chat lifecycle and transcript', () => {
     agentEvents(events.ctx, events.agent).emit('agent/error', 1, 1, new Error('live failure'))
     events.session.append('step/end', { turn: 1, step: 1 })
     events.session.append('turn/end', { turn: 1, reason: { kind: 'error', step: 1, message: 'live failure' } })
-    events.session.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/start', { turn: 2 })
     events.session.append('turn/end', { turn: 2, reason: { kind: 'error', step: 1, message: 'durable failure' } })
-    events.session.append('turn/start', { turn: 3, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/start', { turn: 3 })
     events.session.append('turn/end', { turn: 3, reason: { kind: 'aborted' } })
-    events.session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/start', { turn: 4 })
     events.session.append('turn/end', { turn: 4, reason: { kind: 'max-tokens' } })
-    events.session.append('turn/start', { turn: 5, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/start', { turn: 5 })
     events.session.append('turn/end', { turn: 5, reason: { kind: 'interrupted' } })
-    events.session.append('turn/start', { turn: 6, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/start', { turn: 6 })
     events.session.append('turn/end', {
       turn: 6,
       reason: { kind: 'error', step: 1, failure: { message: 'structured provider failure', code: 'SERVER' } },
     })
-    events.session.append('turn/start', { turn: 8, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/start', { turn: 8 })
     events.session.append('turn/end', { turn: 8, reason: { kind: 'disposed' } })
-    events.session.append('turn/start', { turn: 9, trigger: { kind: 'message', source: { kind: 'user' } } })
+    events.session.append('turn/start', { turn: 9 })
     // Merge-extensible reason kind unknown to the TUI still names the stop.
     events.session.append('turn/end', { turn: 9, reason: { kind: 'plugin-policy' } as never })
     agentEvents(events.ctx, events.agent).emit('agent/disposed')
@@ -4715,7 +4715,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { theme: { color: false } }, { terminal, exit: vi.fn() })
@@ -4740,7 +4740,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -4775,14 +4775,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -4813,7 +4813,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -4853,11 +4853,11 @@ describe('terminal mounting', () => {
     await ctx.plugin(TuiPromptService)
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('failed-start-session'))
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', acceptsNextStep: true, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

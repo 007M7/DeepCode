@@ -506,24 +506,6 @@ describe('driver bookkeeping edges', () => {
     expect(agent.session.events).toEqual([])
   })
 
-  it('a whenIdle waiter survives a rejected driver promise', async () => {
-    const adapter = new MockAdapter([textResponse('ok')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('waiter-chain'), { provider: 'mock', model: 'mock' })
-    // A throwing terminal-notification listener rejects the driver promise
-    // (the run's containment covers only session appends); the waiter's
-    // catch arm must treat that rejection as quiescence instead of
-    // propagating it.
-    ctx.on('agent/settled', (subject) => {
-      if (subject === agent) throw new Error('settled listener exploded')
-    })
-
-    send(agent, 'one')
-    // Entered while the run owns the abort slot, the waiter awaits the
-    // driver promise; its rejection must count as quiescence and resolve.
-    await expect(agent.whenIdle()).resolves.toBeUndefined()
-  })
-
   it('a request failure that concludes recovery after step/end closed keeps the boundary balanced', async () => {
     const { LlmError } = await import('@deepseek-ai/dsh-llm')
     // The failure finish-chunk path returns request-failed AFTER step() has

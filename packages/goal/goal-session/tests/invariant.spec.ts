@@ -41,7 +41,7 @@ function view(roundsStarted: number): GoalView {
 }
 
 function appendChange(session: Session): void {
-  session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
+  session.append('turn/start', { turn: 1 })
   session.append('user/message', createUserMessage({
     content: renderGoalChange(change),
     source: changeSource,
@@ -51,7 +51,7 @@ function appendChange(session: Session): void {
 
 function appendRound(session: Session, turn: number, content = renderGoalRoundPrompt(view(turn - 2), turn - 1)): void {
   const source = { kind: 'goal', goalId: change.goal.id, revision: 1, round: turn - 1 } as const
-  session.append('turn/start', { turn, trigger: { kind: 'message', source } })
+  session.append('turn/start', { turn })
   session.append('user/message', createUserMessage({
     content, source,
   }), { surfaceOp: 'append' })
@@ -82,7 +82,7 @@ describe('goal-session prompt invariants', () => {
     ctx.sessions.create(SessionId('goal-session-invariant-dispatch'))
 
     const userSource = { kind: 'user' } as const
-    session.append('turn/start', { turn: 4, trigger: { kind: 'message', source: userSource } })
+    session.append('turn/start', { turn: 4 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'ordinary human message' }],
       source: userSource,
@@ -90,7 +90,7 @@ describe('goal-session prompt invariants', () => {
     session.append('turn/end', { turn: 4, reason: { kind: 'completed' } })
 
     const stateSource = { ...changeSource, round: 0 } as const
-    session.append('turn/start', { turn: 5, trigger: { kind: 'message', source: stateSource } })
+    session.append('turn/start', { turn: 5 })
     expect(() => {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'round zero is not a driver continuation' }],
@@ -114,7 +114,7 @@ describe('goal-session prompt invariants', () => {
   it('rejects a goal round without a reconstructable active goal', async () => {
     const { session } = await mount()
     const source = { kind: 'goal', goalId: change.goal.id, revision: 1, round: 1 } as const
-    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source } })
+    session.append('turn/start', { turn: 1 })
 
     expect(() => {
       session.append('user/message', createUserMessage({
@@ -128,7 +128,7 @@ describe('goal-session prompt invariants', () => {
 
   it('attributes an invalid durable prefix during late loading', async () => {
     const { ctx, session } = await mount(true)
-    session.append('turn/start', { turn: 1, trigger: { kind: 'injection', source: changeSource } })
+    session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'counterfeit goal state' }],
       source: changeSource,

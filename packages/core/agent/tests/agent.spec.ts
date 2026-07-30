@@ -1,6 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context, Service, symbols } from 'cordis'
-import type { Events } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import AgentRegistry, {
   agentEvents,
@@ -21,14 +20,11 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     options: {},
     session: new Session(id),
     status: 'idle',
-    acceptsNextStep: false,
     ctx: new Context(),
-    send: () => {},
     followup: () => {},
     steer: () => {},
     inject: () => {},
     cancel() {},
-    whenIdle() { return Promise.resolve() },
   }
   return Object.assign(agent, overrides)
 }
@@ -188,7 +184,6 @@ describe('agentEvents()', () => {
 describe('explicit cancellation contract', () => {
   it('exposes the closed typed cancellation cause at the Agent seam', () => {
     expectTypeOf<Parameters<Agent['cancel']>[0]>().toEqualTypeOf<AgentCancelCause>()
-    expectTypeOf<Parameters<Events['agent/cancel-requested']>[1]>().toEqualTypeOf<AgentCancelCause>()
   })
 })
 
