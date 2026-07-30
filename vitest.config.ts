@@ -40,7 +40,12 @@ const testIncludes = [
 
 // The instrumented coverage gate sets this env; the exempt heavy suites then
 // run beside it uninstrumented (membership contract in scripts/coverage-exempt.ts).
-const coverageExemptExcludes = process.env[COVERAGE_EXEMPT_ENV] === '1'
+// A set-but-not-'1' value is a misconfiguration, not a silent no-op.
+const coverageExemptRaw = process.env[COVERAGE_EXEMPT_ENV]
+if (coverageExemptRaw !== undefined && coverageExemptRaw !== '' && coverageExemptRaw !== '1') {
+  throw new Error(`vitest config: ${COVERAGE_EXEMPT_ENV} must be '1' or unset, got ${JSON.stringify(coverageExemptRaw)}.`)
+}
+const coverageExemptExcludes = coverageExemptRaw === '1'
   ? coverageExemptHeavySuites.map(suite => suite.exclude)
   : []
 

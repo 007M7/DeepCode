@@ -412,13 +412,34 @@ function lintGate(): Gate {
 // compiler- and subprocess-bound fixtures pay a multiple of their runtime
 // under v8 instrumentation while contributing nothing the thresholds need
 // (membership contract in scripts/coverage-exempt.ts).
+//
+// DSH_COVERAGE_MAX_WORKERS is the lane's worker budget, so the two parallel
+// gates split it instead of each claiming it whole (the failover pool's
+// 8 x 6-instance bound assumes one lane never exceeds its value). The exempt
+// gate's wall clock is dominated by its longest single file, so it takes the
+// small share. A budget of 1 gives each gate 1 worker; lanes that need a
+// strict total of one (the serial reference jobs) also set
+// DSH_GATE_CONCURRENCY=1, which keeps the gates from overlapping at all.
+function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
+  const [flag] = positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers')
+  if (flag === undefined) return { instrumented: [], exempt: [] }
+  const total = Number.parseInt(flag.split('=')[1] ?? '', 10)
+  const exempt = Math.max(1, Math.floor(total / 3))
+  const instrumented = Math.max(1, total - exempt)
+  return {
+    instrumented: [`--maxWorkers=${String(instrumented)}`],
+    exempt: [`--maxWorkers=${String(exempt)}`],
+  }
+}
+
 function coverageGates(): Gate[] {
+  const workers = coverageWorkerArgs()
   return [
     pnpmExec('coverage', [
       'vitest',
       'run',
       '--coverage',
-      ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
+      ...workers.instrumented,
     ], {
       label: 'test:coverage',
       env: { [COVERAGE_EXEMPT_ENV]: '1' },
@@ -427,7 +448,7 @@ function coverageGates(): Gate[] {
       'vitest',
       'run',
       ...coverageExemptHeavySuites.map(suite => suite.filter),
-      ...positiveIntArg('DSH_COVERAGE_MAX_WORKERS', '--maxWorkers'),
+      ...workers.exempt,
     ], {
       label: 'test:coverage-exempt-heavy',
     }),
