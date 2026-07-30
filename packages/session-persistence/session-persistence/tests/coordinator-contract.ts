@@ -218,7 +218,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         live.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         await ctx.sessions.flush(live)
         const loaded = await ctx.sessionPersistence.load(id)
-        expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'turn/end'])
+        // The constructor's end-seed event persisted between the stored
+        // turn/start and the turn/end appended live.
+        expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'session/end-seed', 'turn/end'])
         expect(loaded.events.at(-1)).toMatchObject({
           type: 'turn/end',
           data: { reason: { kind: 'completed' } },
@@ -477,11 +479,14 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const forked = ctx.sessions.create(SessionId('forked'), { seed, meta: { cwd: WORK } })
         await ctx.sessions.flush(forked) // onCreated persisted the seed
         const loaded = await ctx.sessionPersistence.load(SessionId('forked'))
-        expect(loaded.events).toEqual(seed)
+        // Fork is where the marker earns its keep: the inherited prefix may
+        // carry a bracket the still-running parent owns.
+        expect(loaded.events.slice(0, seed.length)).toEqual(seed)
+        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed', seq: seed.length })
         // A flush with no NEW events must not double-write.
         await ctx.sessions.flush(forked)
         const reloaded = await ctx.sessionPersistence.load(SessionId('forked'))
-        expect(reloaded.events).toEqual(seed)
+        expect(reloaded.events).toEqual(loaded.events)
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -510,7 +515,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await second.ctx.sessions.flush(s2)
 
         const reloaded = await second.ctx.sessionPersistence.load(SessionId('resumed'))
-        expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+        // 0-5 the resumed seed, 6 end-seed, 7-8 the new turn.
+        expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+        expect(reloaded.events[6]).toMatchObject({ type: 'session/end-seed' })
       } finally {
         await second.fiber.dispose()
         await fix.cleanup()
@@ -791,7 +798,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const live = ctx.sessions.create(SessionId('lazy-claim'), { seed: oneTurnLog(), meta: { cwd: WORK } })
         await expect(ctx.sessions.flush(live)).resolves.toBeUndefined()
         const loaded = await ctx.sessionPersistence.load(SessionId('lazy-claim'))
-        expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5])
+        // Seeded 0-5 plus the constructor's end-seed event at 6.
+        expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6])
+        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed' })
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -844,7 +853,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         }, { inject: ['sessions'] }))
         await ctx.sessions.flush(cont)
         const loaded = await ctx.sessionPersistence.load(SessionId('claim'))
-        expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+        // 6-7 the claimed suffix; 8 end-seed after the whole seed.
+        expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
+        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed' })
         expect(loaded.meta).toEqual(durableMeta)
         expect(loaded.meta.createdAt).toBe(1000)
 

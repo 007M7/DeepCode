@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
  * node_modules, so no external consumer is assembled; missing-config fail-loud
  * and full-boot coverage for the shared dsh-app-boot glue live in cli-demo's
  * built-bin suite, and interactive TTY behavior is PTY-covered by
- * examples/tui-agent. Skips before the bin is built.
+ * apps/cli/tests. Skips before the bin is built.
  */
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))

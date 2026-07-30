@@ -1,40 +1,63 @@
 /**
  * `dsh` default surface — the interactive TUI coding agent. Boots the shipped
- * tui-agent config (or the `--config` override) with the personal overlay
+ * shared base and TUI overlay, followed by either `--config` or the personal overlay
  * from the Harness home (`~/.dsh`): its `.env` fills environment gaps (precedence:
  * ambient environment, then the invoking directory's `.env`, then the personal one)
  * and its `config.yaml` patches the booted tree. The workspace is the invoking
- * directory: sessions, relative paths, and workspace instructions resolve from
- * the cwd, so `dsh` acts on whatever project it is launched in. After boot, the
- * agent's system prompt is told the path to this harness checkout so it can find
- * its own source.
+ * directory: the session cwd, relative paths, and workspace instructions resolve
+ * from it, so `dsh` acts on whatever project it is launched in. Session storage
+ * is the exception — it lives under the Harness home so `/resume` reaches every
+ * workspace, and an in-place resume enters the selected session's own directory.
+ * `dsh meta`
+ * ({@link runMeta}) is the one exception — it makes this harness checkout the
+ * workspace. `dsh upgrade` ({@link runSkillSession}) is a fresh
+ * session whose first turn auto-invokes a bundled skill. After boot, the
+ * agent's system prompt is told the path to this harness checkout so it can
+ * find its own source.
  * @module @deepseek-ai/dsh/tui
  */
 
-import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
   addHarnessSourceSection,
   boot,
   installFailLoud,
   loadEnv,
+  loadOverlayPatches,
   loadPersonalPatches,
-  RESUME_SESSION_ID_KEY,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
+import { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import type { Context } from 'cordis'
 import {
+  INITIAL_SKILL_KEY,
+  MAIN_SESSION_ID_KEY,
   TUI_GOODBYE_MESSAGE_KEY,
+  type MainSessionIdentity,
   type TuiResumeHost,
 } from '@deepseek-ai/dsh-tui'
 
 const NAME = 'dsh'
 
-// Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
-// one directory under apps/cli, so the shipped default config resolves with
-// the same relative hop from either artifact.
-const DEFAULT_CONFIG = fileURLToPath(new URL('../../../examples/tui-agent/cordis.yml', import.meta.url))
+// The shared core every `dsh` surface mounts, and the TUI's own overlay over
+// it. Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib)
+// sit one directory under apps/cli, so each resolves with the same hop.
+const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
+const TUI_OVERLAY = fileURLToPath(new URL('../config/tui.cordis.yml', import.meta.url))
+
+// The `agents` entry in tui.cordis.yml the TUI drives; the launcher binds its
+// session identity by this config id.
+const MAIN_AGENT_ID = 'main'
+
+/** Per-process filename of the disposable `/resume` index. */
+const SESSION_QUERY_DB = `session-query-${String(process.pid)}-${randomUUID()}.db`
 
 // The harness checkout root: three hops up from apps/cli/{src,lib}, resolved
 // from this bin's location so it holds however `dsh` is launched (a PATH
@@ -42,17 +65,55 @@ const DEFAULT_CONFIG = fileURLToPath(new URL('../../../examples/tui-agent/cordis
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
-   the tui-agent PTY smoke drives this path end to end, personal overlay included */
+   the CLI PTY smoke drives this path end to end, personal overlay included */
+/**
+ * Run the interactive TUI with this harness checkout as the workspace
+ * (`dsh meta`), whatever directory it was launched from.
+ */
+export async function runMeta(): Promise<void> {
+  return runTui(undefined, undefined, SOURCE_ROOT)
+}
+
+/**
+ * Run the interactive TUI as a guided fresh session whose first turn invokes a
+ * bundled skill (`dsh upgrade` → `dsh-upgrade`).
+ * Always mints a fresh session in the invoking directory; the skill is seeded
+ * only on this first launch, so a later `--resume` of the session is an ordinary
+ * TUI session with no re-injection.
+ * @param skill - the bundled skill name to auto-invoke as the first turn.
+ */
+export async function runSkillSession(skill: string): Promise<void> {
+  return runTui(undefined, undefined, undefined, skill)
+}
+
 /**
  * Run the interactive TUI from the invoking directory.
- * @param config - a config path to boot instead of the shipped default, or
- * `undefined` for the default; already parsed from `--config`.
- * @param resumeSessionId - a persisted session id to resume, or `undefined`;
- * already parsed and non-empty-validated from `--resume`. It is provided on the
- * boot context under {@link RESUME_SESSION_ID_KEY}, which the shipped config
- * reads through `!!js` to rehydrate that session.
+ * @param config - an overlay patch list applied over the shared base and the
+ * TUI overlay, REPLACING the personal `~/.dsh/config.yaml` so a named tree never
+ * inherits the user's route, or `undefined` to use the personal overlay;
+ * already parsed from `--config`.
+ * @param resumeSessionId - a persisted session id to resume, or `undefined` to
+ * mint a fresh one; already parsed and non-empty-validated from `--resume`.
+ * Either way the resulting identity reaches the booted app through
+ * {@link CONFIGURED_AGENT_IDENTITIES_KEY}, so no config key selects the session
+ * and an overlay replacing the agent row cannot drop it.
+ * @param workspace - a directory to make the workspace instead of the invoking
+ * one, or `undefined` to keep the cwd. Only `dsh meta` passes it.
+ * @param initialSkill - a bundled skill to auto-invoke as a fresh session's
+ * first turn, or `undefined`. Set only by {@link runSkillSession} and ignored
+ * on a resume, so it never re-fires; reaches the app through
+ * {@link INITIAL_SKILL_KEY}.
+ * @param configReplace - a config path to boot as the ENTIRE tree, bypassing the
+ * shared base, the TUI overlay, and the personal overlay alike, or `undefined`
+ * to compose them; already parsed from `--config-replace`.
  */
-export async function runTui(config: string | undefined, resumeSessionId: string | undefined): Promise<void> {
+export async function runTui(
+  config: string | undefined,
+  resumeSessionId: string | undefined,
+  workspace?: string,
+  initialSkill?: string,
+  configReplace?: string,
+): Promise<void> {
   // Refuse pipes BEFORE booting: a compose-time throw inside the Loader tree
   // is logged per-entry rather than rethrown, so a piped launch would
   // otherwise settle into an idle UI-less process instead of exiting nonzero.
@@ -66,28 +127,52 @@ export async function runTui(config: string | undefined, resumeSessionId: string
   // The bin already loaded the invoking directory's .env; the personal .env
   // only fills what is still unset (process.loadEnvFile never overrides).
   loadEnv(NAME, resolveDshHome())
+  // Both .env layers are loaded, so switching the workspace here cannot alter
+  // environment precedence. The cwd IS the workspace seam: the shipped config
+  // resolves the session cwd and the HMR watch root from it, so one chdir moves
+  // both together. Sessions themselves live under the Harness home so `/resume`
+  // spans every workspace, and are unaffected by this chdir.
+  if (workspace !== undefined) process.chdir(workspace)
   process.env.DSH_BUNDLED_SKILL_DIR = join(SOURCE_ROOT, 'skills')
   // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
-  // flag, so the resumed process rehydrates through this same intake. The host
-  // is offered only when Node exposes `process.execve` and knows its own entry.
+  // flag, so the resumed process rehydrates through this same intake. The
+  // selected session may belong to another workspace, so the handoff also enters
+  // that directory. The host is offered only when Node exposes `process.execve`
+  // and knows its own entry.
+  const resolvedConfig = config === undefined ? undefined : resolve(config)
+  const resolvedConfigReplace = configReplace === undefined ? undefined : resolve(configReplace)
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
-  const resumeCommand = (sessionId: string): string =>
-    `${NAME} --resume=${sessionId}${config === undefined ? '' : ` --config ${config}`}`
+  // Resume always enters the default surface because meta rejects parent
+  // options, including `--resume`. The resumed session already persists its cwd.
+  const resumeArgs = (sessionId: string): string[] => [
+    `--resume=${sessionId}`,
+    // Both config flags must survive the handoff: resuming into a different
+    // tree than the session was created in would silently change the agent.
+    ...resolvedConfig !== undefined ? ['--config', resolvedConfig] : [],
+    ...resolvedConfigReplace !== undefined ? ['--config-replace', resolvedConfigReplace] : [],
+  ]
+  // Mint the fresh id here rather than in the app bundle: the exit line names
+  // the session to resume, so the launcher must know it before the tree boots.
+  const identity: MainSessionIdentity = resumeSessionId === undefined
+    ? { id: SessionId(`main-session-${randomUUID()}`), resume: false }
+    : { id: SessionId(resumeSessionId), resume: true }
+  const goodbye = `To resume this session: ${NAME} ${resumeArgs(identity.id).join(' ')}`
   const resumeHost: TuiResumeHost | undefined = entry === undefined || execve === undefined ? undefined : {
     async handoff(sessionId, cwd): Promise<never> {
       const current = app.current
       if (current === undefined) throw new Error(`${NAME}: app boot has not completed`)
-      // Rebuild argv from the parsed config plus the selected id: TUI mode's
-      // only arguments are `--config <path>` and `--resume <id>`.
       const nextArgv = [
         process.execPath,
         ...process.execArgv,
         entry,
-        `--resume=${sessionId}`,
-        ...config !== undefined ? ['--config', config] : [],
+        ...resumeArgs(sessionId),
       ]
+      // `execve` inherits the cwd, and the target session may belong to another
+      // workspace. Enter it BEFORE teardown commits: an unreachable directory
+      // (deleted, unreadable) must reject while the caller can still restore the
+      // terminal, and a chdir after disposal would have no owner to report to.
       try {
         process.chdir(cwd)
       } catch (error) {
@@ -103,18 +188,55 @@ export async function runTui(config: string | undefined, resumeSessionId: string
       }
     },
   }
+  // One include of the shared base, with every overlay applied as a sibling
+  // patch list: patches never cross an include boundary, so stacking these as
+  // nested includes would silently stop reaching base rows. Later lists win.
+  //
+  // `--config` REPLACES the personal overlay rather than layering under it: an
+  // explicitly named tree must not inherit `~/.dsh/config.yaml`'s route, or a
+  // demo or test config would silently run on the user's provider and model.
+  // `--config-replace` additionally discards the base and the surface overlay.
+  const replaceTree = configReplace !== undefined
+  const patches = replaceTree ? [] : [
+    ...loadOverlayPatches(NAME, TUI_OVERLAY),
+    ...resolvedConfig === undefined
+      ? loadPersonalPatches(NAME) ?? []
+      : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
+  ]
+  const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
-    resolveConfigPath(config ?? DEFAULT_CONFIG, undefined),
-    loadPersonalPatches(NAME),
+    resolvedConfigReplace === undefined ? BASE_CONFIG : resolveConfigPath(resolvedConfigReplace, undefined),
+    patches,
     (hostCtx) => {
-      // Inject the resume id (or undefined) so the shipped config's `!!js`
-      // reads it as a bare identifier; then offer the in-place handoff host.
-      hostCtx.provide(RESUME_SESSION_ID_KEY, resumeSessionId)
-      if (resumeSessionId !== undefined) {
-        hostCtx.provide(TUI_GOODBYE_MESSAGE_KEY, `To resume this session: ${resumeCommand(resumeSessionId)}`)
-      }
+      // The launcher owns session identity and the exit line: a config-mounted
+      // app bundle reads both from these slots, so no cordis.yml key can drop
+      // resume.
+      hostCtx.provide(MAIN_SESSION_ID_KEY, identity)
+      hostCtx.provide(TUI_GOODBYE_MESSAGE_KEY, goodbye)
+      // Shared-store policy is the launcher's: sessions live in one root under
+      // the Harness home across every cwd, so /resume sees every workspace.
+      // The bundle treats the slot as opaque.
+      // The agent-loop row reads this to bind `main`, and the tui row reads the
+      // same id, so a personal overlay repointing the model route cannot drop
+      // the session identity or desynchronise the two.
+      hostCtx.provide(CONFIGURED_AGENT_IDENTITIES_KEY, { [MAIN_AGENT_ID]: identity })
+      // The query database is a disposable derived index with single-process
+      // ownership. Keep it process-local while it indexes the shared logs.
+      hostCtx.provide(SESSION_QUERY_SQLITE_PATH_KEY, queryIndexPath)
+      hostCtx.effect(() => async () => {
+        await Promise.all([
+          rm(queryIndexPath, { force: true }),
+          rm(`${queryIndexPath}-wal`, { force: true }),
+          rm(`${queryIndexPath}-shm`, { force: true }),
+        ])
+      }, `${SESSION_QUERY_SQLITE_PATH_KEY}.cleanup`)
       if (resumeHost !== undefined) hostCtx.provide('tuiResumeHost', resumeHost)
+      // Seed the first turn only for a fresh session, so resuming never
+      // re-invokes the skill.
+      if (initialSkill !== undefined && resumeSessionId === undefined) {
+        hostCtx.provide(INITIAL_SKILL_KEY, initialSkill)
+      }
     },
   )
   app.current = ctx
