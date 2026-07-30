@@ -865,6 +865,19 @@ describe('runScenario', () => {
     expect(result.sessionId).toBeDefined()
   })
 
+  it('waitForFile holds the next input step behind cwd-relative readiness', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({})
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'ready'), '')
+    const result = await runScenario(
+      { steps: [...boot, { op: 'waitForFile', path: 'ready' }, { op: 'cancel' }] },
+      { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
+    )
+    expect(result.sessionId).toBeDefined()
+  })
+
   it.each([
     [{ op: 'prompt', text: 'x' }, /prompt before newSession/],
     [{ op: 'promptAndWaitForAgentMessage', text: 'x', waitForText: 'later' }, /promptAndWaitForAgentMessage before newSession/],

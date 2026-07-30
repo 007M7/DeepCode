@@ -10,6 +10,7 @@
 import type { Context } from 'cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionQueryService, SessionRecord } from '@deepseek-ai/dsh-session-query'
+import type SubagentService from './index.ts'
 import { SubagentError } from './error.ts'
 import { foldSubagentDescriptor } from './descriptor.ts'
 
@@ -67,10 +68,11 @@ export type SubagentListEntry =
 /**
  * Interpret one parent's direct session descendants as session-backed subagents
  * without loading or resuming an Agent.
+ * @see {@link SubagentService.listChildren} for the public cancellation and
+ *   failure contract.
  * @param ctx - context carrying the optional session-query service.
  * @param parentSessionId - parent session whose direct children are listed.
- * @param signal - caller-owned cancellation forwarded where supported and
- *   observed around every query await.
+ * @param signal - caller-owned cancellation.
  * @returns children and per-child diagnostics in stable trace order.
  * @throws {@link SubagentError} when session query is unavailable or
  *   the caller cancels the scan.
@@ -79,7 +81,7 @@ export async function listChildren(
   ctx: Context,
   parentSessionId: SessionId,
   signal?: AbortSignal,
-): Promise<SubagentListEntry[]> {
+): ReturnType<SubagentService['listChildren']> {
   const query = ctx.get('sessionQuery')
   if (query === undefined) {
     throw new SubagentError(

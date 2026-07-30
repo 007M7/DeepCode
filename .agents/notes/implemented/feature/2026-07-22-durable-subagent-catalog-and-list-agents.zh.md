@@ -33,7 +33,7 @@ parent 到 child 的枚举是一项带消费方专用投影的服务功能。`Su
 
 已发布的逻辑记录同时也是活动状态来源：`SessionRecord.live` 表示 `running`，而 `live: false, persisted: true` 表示 `inactive`。活动状态直接来自追踪结果，不会导致额外加载 child 日志。`inactive` 既不表示执行成功，也不表示可恢复：它可能表示已结算的一次性历史，也可能表示 `send_message` 可以为其物化另一次 Activation 的可继续 child。反过来，`running` 只表示会话存活：位于继续执行管理器对应 Activation 之外的存活可继续 Agent 仍会显示为 `running`，但 `send_message` 会将其作为所有权冲突拒绝。child 会话发布前不可见，也不会添加进程内 Activation 条目作为第二个候选来源或活动状态来源。列表查询是一份快照，可能与发布、dispose 或后续消息发生竞态；`send_message` 仍是消息送达时的权威操作。
 
-subagent 服务将 `sessionQuery` 保持为可选依赖，因此没有该服务时仍可执行 start 和 follow-up。其公开的 `listChildren(parentSessionId: SessionId)` 方法只在被调用时才会解析这个可选服务，并动态加载可选的会话查询运行时；因此，普通 subagent 导入、start 和 follow-up 都不会触发该包求值。列表查询直接由 `SubagentService` 负责：它解释查询返回的谱系、事件和存活状态，无需解析基于 Activation 的继续执行管理器，也不会查询 Agent 注册信息、Activation 或提供方；因此，仅包含会话、`subagents` 和 `sessionQuery` 的部署即使缺少 `agents` 也能执行列表查询。如果查询服务缺失，该方法会在加载运行时或执行查询工作前抛出 `SubagentError`，并携带稳定错误码 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`。`@deepseek-ai/dsh-tool-subagent-control` 导出可分别加载的工具插件：`send_message` 适配器只要求 `subagents`，而 `list_agents` 适配器在加载时同时要求 `subagents` 和 `sessionQuery`。因此，部署可以在既不安装也不加载会话查询的情况下使用 `send_message`；列表工具会在插件加载时捕获服务未接入的问题，而其他直接服务消费方会收到同一项明确的调用时契约。
+subagent 服务将 `sessionQuery` 保持为可选依赖，因此没有该服务时仍可执行 start 和 follow-up。其公开的 `listChildren(parentSessionId: SessionId)` 方法只在被调用时才会解析这个可选服务，并动态加载可选的会话查询运行时；因此，普通 subagent 导入、start 和 follow-up 都不会触发该包求值。列表查询直接由 `SubagentService` 负责：它解释查询返回的谱系、事件和存活状态，无需解析基于 Activation 的继续执行管理器，也不会查询 Agent 注册信息、Activation 或提供方；因此，仅包含会话、`subagents` 和 `sessionQuery` 的部署即使缺少 `agents` 也能执行列表查询。如果查询服务缺失，该方法会在加载运行时或执行查询工作前抛出 `SubagentError`，并携带稳定错误码 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE`。`@deepseek-ai/dsh-tool-subagent-control` 导出可分别加载的工具插件：`send_message` 适配器只要求 `subagents`，而 `list_agents` 适配器在加载时同时要求 `subagents` 和 `sessionQuery`。因此，部署可以在既不安装也不加载会话查询的情况下使用 `send_message`；列表工具 fiber 会在必需服务可用前保持未激活状态，而其他直接服务消费方会收到同一项明确的调用时契约。
 
 `listChildren(parentSessionId, signal?)` 会把调用方的取消信号转发给 `traceSession()` 和条件性精确 `readEvent()` 操作。`listEvents()` 不接受取消参数，因此列表查询路径会在等待该操作的前后，以及每个候选处理完成后检查信号。如果取消信号触发后有查询操作以拒绝结算，服务会将结果归一化为 `SubagentError`，并携带稳定错误码 `CANCELLED`；后端中止错误或可映射为 diagnostic 的查询错误均不会逃逸，也不会使调用以成功的部分列表返回。
 
@@ -93,7 +93,7 @@ diagnostic 是瞬时查询结果，不属于会话事件或目录状态。推导
 - `packages/subagent/subagent/tests/service.spec.ts` 固定两种模式下的描述符 v2 解析，并证明无标签的底层启动会在分发给提供方之前解析出一次性描述符。`packages/subagent/subagent-inprocess/tests/subagent-inprocess.spec.ts` 证明本地驱动会在初始轮次内追加该描述符。委派工具测试固定其现有显示说明的传递。
 - `packages/subagent/subagent/tests/list-children.spec.ts` 先固定一个只有会话、`subagents` 和 `sessionQuery` 而没有 `agents` 的纯查询组合，再以无密钥方式驱动完整真实栈（agent loop、JSONL 持久化、spawn/fork 提供方、subagent 服务，以及一个具体的会话查询服务）：来自同一真实追踪的一次性与可继续 child；只存在于持久化存储中（重启形态）的 parent 目标；带有人工构造并列项的按 `createdAt` 再按 id 排序；排除普通 fork 和 fork seed 中祖先描述符且不产生 diagnostic；存活 `running` 与持久化 `inactive` 的对比；重复描述符、载荷格式错误、无效 surface、header 不匹配和读取目标已变化的损坏 diagnostic 均不隐藏健康的 sibling；不受支持版本与逐 child unavailable diagnostic；提供方缺失时不排除 child；压缩与未压缩的孪生 child 列表结果一致；排除孙代会话；追踪阶段失败导致整次调用失败而候选阶段失败只隔离到单个 child；配置／窗口错误和无法识别的失败作为操作失败向上传播；转发 trace／精确读取取消并稳定归一化为 `CANCELLED`；以及 `SUBAGENT_CONTROL_SESSION_QUERY_UNAVAILABLE` 缺服务契约。`packages/subagent/subagent/tests/optional-session-query.spec.ts` 会在导入普通 subagent surface 时拒绝对可选运行时的 eager 求值。
 - `packages/subagent/tool-subagent-control/tests/list-agents.spec.ts` 固定 `list_agents` 的 schema（无参数）、只保留可继续 child 且排除健康的一次性 sibling、同时保留 diagnostic 的投影、child／diagnostic／空结果的固定文本形式、带持久化 label 的已结束 child 端到端列表、无调用 agent 时的拒绝、加载时的 `sessionQuery` 注入，以及 HMR dispose。
-- 无密钥 ACP 快照场景 `subagent-list-agents`（examples/acp-agent）固定模型可见的转写：一次后台委派结束后，`list_agents` 针对 subagent 服务、会话查询和 JSONL 持久化真实执行，渲染 `<id> [complete] — <label>`。
+- 无密钥 ACP 快照场景 `subagent-list-agents`（examples/acp-agent）使用仅限快照的 `subagent/end` 标记为第二个 parent 轮次设置边界，随后针对 subagent 服务、会话查询和 JSONL 持久化真实执行 `list_agents`，渲染 `<id> [complete] — <label>`。
 
 ## 影响
 
@@ -104,5 +104,5 @@ diagnostic 是瞬时查询结果，不属于会话事件或目录状态。推导
 - 服务会返回每个直接且由会话支撑的 subagent 和 diagnostic，不设 cursor 或候选数量上限。稳定排序可使结果确定；模型投影避免了一次性 child 带来的上下文增长，但可继续 child 的数量仍无上限。
 - `running` 和 `inactive` 是进程本地语料快照，而非结果或消息送达承诺。另一个进程可能在当前进程将某个持久化 child 报告为 `inactive` 时激活它；跨进程准确性需要共享租约。
 - 持久化生命周期模式是一次发布前的描述符格式变更：版本 2 会将旧版版本 1 描述符拒绝为不受支持。现在，每次由本地会话支撑的启动都会产生一个小型日志事件，使 UI 和其他服务消费方无需重放模型可见的工具结果即可对一次性历史进行分类。
-- 一次性会话持久化仍为尽力执行。一次性 child 在存活期间可见，dispose 后只有在其会话检查点到达持久化存储时才可继续被发现；目录参与不会像可继续激活那样增加必需的最终 flush，也不会把持久化失败变为 run 失败。
+- 一次性会话持久化仍为尽力执行。一次性 child 在存活期间可见，dispose 后只有在其会话检查点到达持久化存储时才可继续被发现；目录参与不会像可继续激活那样增加必需的最终 flush，也不会把持久化失败变为 run 失败。可继续启动无需提前 flush 描述符，因为描述符会随创建 seed 一同携带，并且每条 Activation dispose 路径都会执行必需的最终检查点，包括提示词准入受阻之后。
 - 远端 ACP 一次性运行仍不在目录中，因为它们不会发布可供 `traceSession()` 发现的本地 child 会话。若要枚举这些运行，需要单独的持久化本地记录，不能假装远端生命周期 id 就是会话 id。

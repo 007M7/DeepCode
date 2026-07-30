@@ -4,7 +4,7 @@
  * separately loadable from the
  * root `send_message` plugin because it additionally requires the session
  * query service — a deployment may use `send_message` without loading session
- * query, and this plugin catches that misconfiguration at load.
+ * query, and this plugin remains inactive until that service is available.
  * @module @deepseek-ai/dsh-tool-subagent-control/list-agents
  */
 

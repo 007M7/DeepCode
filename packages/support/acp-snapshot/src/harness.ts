@@ -66,6 +66,7 @@ export type InputStep =
     text: string
     waitForFile?: { path: string; timeoutMs?: number }
   }
+  | { op: 'waitForFile'; path: string; timeoutMs?: number }
   | { op: 'waitForTurnStart'; minimumTurn?: number; timeoutMs?: number }
   | { op: 'waitForTurnEnd'; timeoutMs?: number }
   | { op: 'waitForTitleAfterTurnEnd'; timeoutMs?: number }
@@ -436,6 +437,9 @@ async function runStep(
       await promptDone
       return
     }
+    case 'waitForFile':
+      await waitForWorkspaceFile(cwd, step.path, step.timeoutMs)
+      return
     case 'waitForTurnEnd': {
       const sessionId = getSessionId()
       if (sessionId === undefined) throw new Error('snapshot-harness: waitForTurnEnd before newSession')

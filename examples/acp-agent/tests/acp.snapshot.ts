@@ -228,9 +228,11 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
-  // Authored durable-catalog transcript: after a background delegation settles,
-  // `list_agents` executes for real against the control service, session query,
-  // and JSONL persistence, and renders the child's durable label as complete.
+  // Authored durable-catalog transcript: the snapshot-only lifecycle marker
+  // fences the second parent turn behind the child's Activation end, so
+  // `list_agents` deterministically reads the persisted child as complete.
+  // The tool itself executes for real against the control service, session
+  // query, and JSONL persistence; the marker is not model-visible.
   { name: 'subagent-list-agents', hasModelTurn: true, recorded: false },
   {
     name: 'subagent-depth-two-rejection',
