@@ -217,9 +217,11 @@ const SCENARIOS: Scenario[] = [
   { name: 'subagent-fork', hasModelTurn: true, recorded: true },
   { name: 'subagent-mixed', hasModelTurn: true, recorded: true },
   // Authored continuable-subagent transcript: a background delegation returns
-  // both the durable subagent id and its task id, a failed final durability
-  // confirmation reaches task_output with its diagnosis, and send_message to
-  // an unknown subagent id starts a follow-up task that settles unavailable.
+  // only the durable subagent id, two send_message calls queue as later FIFO
+  // turns on that same child (the parent is never woken with their output),
+  // send_message to an unknown subagent id fails without delivering, and the
+  // child's retained handle is disposed child-first at teardown despite a
+  // failed final durability confirmation.
   {
     name: 'subagent-continuable',
     hasModelTurn: true,

@@ -1,45 +1,34 @@
 import type { Context } from 'cordis'
 
 export const name = 'subagent-durability-failure'
-export const inject = ['sessionPersistence', 'tasks']
+export const inject = ['sessionPersistence']
 
 const UNKNOWN_CHILD_ID = '22222222-2222-4222-8222-222222222222'
-const FOLLOW_UP_TASK_ID = 'subagent-2'
 
 /** Fail the child checkpoint and stabilize the authored follow-up failure ordering. */
 export function apply(ctx: Context): void {
-  const thirdStepEnded = Promise.withResolvers<undefined>()
-  const followUpSettled = Promise.withResolvers<undefined>()
+  const followupsAccepted = Promise.withResolvers<undefined>()
   const persistence = ctx.sessionPersistence
   const load = persistence.load.bind(persistence)
 
-  // The unavailable-child lookup is real asynchronous I/O. Fence it between
-  // the authored step boundaries so runner speed cannot reorder the exact log.
+  // The unavailable-child lookup is real asynchronous I/O. Fence it behind both
+  // authored follow-ups so runner speed cannot reorder the exact log.
   persistence.load = async (id) => {
-    if (id === UNKNOWN_CHILD_ID) await thirdStepEnded.promise
+    if (id === UNKNOWN_CHILD_ID) await followupsAccepted.promise
     return load.call(persistence, id)
   }
   ctx.effect(() => () => {
     persistence.load = load
-    thirdStepEnded.resolve(undefined)
-    followUpSettled.resolve(undefined)
+    followupsAccepted.resolve(undefined)
   }, 'subagent snapshot ordering')
 
-  ctx.on('session/event', (session, event) => {
-    if (session.header.parentSession === undefined
-      && event.type === 'step/end'
-      && event.data.turn === 1
-      && event.data.step === 3) {
-      thirdStepEnded.resolve(undefined)
-    }
-  })
-  ctx.tasks.onTaskDone((snapshot) => {
-    if (snapshot.id === FOLLOW_UP_TASK_ID) followUpSettled.resolve(undefined)
-  })
-  ctx.on('agent/step', async (agent, turn, step) => {
-    if (agent.session.header.parentSession === undefined && turn === 1 && step === 4) {
-      await followUpSettled.promise
-    }
+  // Both authored follow-ups reach the child inbox before the unknown-id lookup
+  // runs, so the queued FIFO order is what the transcript records.
+  let accepted = 0
+  ctx.on('agent/inbox/enqueue', (agent) => {
+    if (agent.session.header.parentSession === undefined) return
+    accepted += 1
+    if (accepted >= 3) followupsAccepted.resolve(undefined)
   })
 
   const flushedTurnEnds = new WeakSet<object>()

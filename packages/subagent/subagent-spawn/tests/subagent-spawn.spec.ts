@@ -235,19 +235,26 @@ describe('dsh-subagent-spawn', () => {
     expect(result.stopReason).toBe('aborted')
   })
 
-  it('exposes confirmed steer (no run-level resume): a settled child rejects instead of queueing', async () => {
+  it('a one-shot run exposes neither steer nor resume; continuable creation is a provider capability', async () => {
     const { ctx, parent } = await setup([textResponse('x')])
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
-    // A run represents one disposable activation: cold resume is a provider
-    // method, never a run method.
+    // A run is one disposable foreground activation: it has no steering and no
+    // cold resume. Continuable conversations never become a run — the
+    // continuation manager drives them through the provider's
+    // `prepareContinuable` capability instead.
+    expect('steer' in run).toBe(false)
     expect('resume' in run).toBe(false)
-    expect(typeof run.steer).toBe('function')
     await run.result
-    // Confirmed live-only contract: after the child settles, delivery fails loud
-    // rather than falling back to Agent.steer()'s idle queue (which would
-    // start an untracked turn).
-    await expect(run.steer!([{ type: 'text', text: 'late' }], { kind: 'user' }))
-      .rejects.toThrow(/not running; the message was not delivered/)
+    // The spawn provider DOES advertise continuable creation, and — because a
+    // spawned child starts fresh — contributes no seed.
+    const provider = ctx.subagents.getProvider('spawn')!
+    expect(typeof provider.prepareContinuable).toBe('function')
+    const spec = await provider.prepareContinuable!({
+      sessionId: SessionId('continuable-child'),
+      parent,
+      signal: new AbortController().signal,
+    })
+    expect(spec.seed).toBeUndefined()
     await run.dispose()
   })
 
