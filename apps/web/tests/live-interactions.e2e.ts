@@ -175,6 +175,29 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
+  it.skipIf(MODE === 'record')('keeps a terminal request marker inside the trajectory table', async () => {
+    await launch(() => ({
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'invalid api key', code: 'AUTH' } }],
+    }))
+    const { settled } = await sendPrompt()
+    await settled
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const tailRequest = page.locator('tr[data-request-only="true"]').last()
+    await tailRequest.waitFor({ timeout: 10_000 })
+    const requestMarker = tailRequest.getByRole('button', { name: /Request #/ })
+
+    const markerWithinTable = await requestMarker.evaluate((element) => {
+      const marker = element.getBoundingClientRect()
+      const table = element.closest('table')?.getBoundingClientRect()
+      if (table === undefined) throw new Error('request marker has no table')
+      return marker.bottom <= table.bottom
+    })
+
+    expect(markerWithinTable).toBe(true)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 120_000)
+
   it.skipIf(MODE === 'record')('recovers a transient SERVER failure through llm-retry and completes', async () => {
     const derived = deriveReplayScript(parseSessionLog(await readFile(FIXTURE, 'utf8')))
     expect(derived).toHaveLength(1)
