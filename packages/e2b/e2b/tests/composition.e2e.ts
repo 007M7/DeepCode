@@ -57,7 +57,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
       const ptyFiber = await ctx.plugin(PtyService)
       const subprocessFiber = await ctx.plugin(E2BSubprocessService)
       const node = await ctx.subprocess.resolveExecutable('node')
-      const relativeNodePath = posix.relative(ctx.subprocess.cwd, posix.dirname(node)) || '.'
+      const relativeNodePath = posix.relative(ctx.e2b.cwd, posix.dirname(node)) || '.'
       await expect(ctx.subprocess.resolveExecutable('node', { PATH: relativeNodePath })).resolves.toBe(node)
       await expect(sandbox.files.read(profileLeakPath)).rejects.toBeInstanceOf(FileNotFoundError)
       const environmentProbe = ctx.subprocess.spawn({
@@ -117,7 +117,7 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     }
   }, 70_000)
 
-  it('runs FS, Bash, PTY, LSP, and Code Runtime in one sandbox and deletes it', async () => {
+  it('runs FS, Bash, PTY, and LSP in one sandbox and deletes it', async () => {
     const { stdout, stderr } = await runLoaderSmoke({
       label: 'E2B composition',
       tempDirPrefix: 'dsh-e2b-composition-',
@@ -157,9 +157,6 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
         interrupted: { sessionStatus: { kind: 'running' } },
         treeCleanup: true,
       },
-      descendantPipe: { value: true, logs: [] },
-      descendantCleanup: true,
-      lingeringCodeRunners: 0,
     })
     const terminalMotd = (output.terminal as { motd: string }).motd
     expect(terminalMotd.length).toBeGreaterThan(0)
@@ -171,10 +168,6 @@ describe.skipIf(!process.env.E2B_API_KEY)('E2B live Loader composition', () => {
     expect(['stdin_read', 'inferred_idle']).toContain(
       (output.terminal as { interrupted: { waitReason: string } }).interrupted.waitReason,
     )
-    expect(output.code).toEqual({
-      value: { doubled: 42, typed: true },
-      logs: ['remote-log 你好 42'],
-    })
     const apiKey = process.env.E2B_API_KEY
     if (apiKey === undefined) throw new Error('E2B_API_KEY disappeared during the live composition test')
     await expect(Sandbox.getInfo(String(output.sandboxId), { apiKey })).rejects.toBeInstanceOf(SandboxNotFoundError)

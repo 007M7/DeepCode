@@ -775,10 +775,8 @@ describe('E2B subprocess terminal service', () => {
     return { ctx, fiber, fake }
   }
 
-  it('publishes execution-world coordinates and resolves remote executables', async () => {
+  it('resolves remote executables', async () => {
     const { ctx, fake } = await service()
-    expect(ctx.subprocess.cwd).toBe('/workspace')
-    expect(ctx.subprocess.runtimeRoot).toBe('/workspace/.dsh-e2b')
     await expect(ctx.subprocess.resolveExecutable('/bin/bash')).resolves.toBe('/bin/bash')
     await expect(ctx.subprocess.resolveExecutable('node', { PATH: '/custom/bin' }, new AbortController().signal))
       .resolves.toBe('/usr/bin/node')

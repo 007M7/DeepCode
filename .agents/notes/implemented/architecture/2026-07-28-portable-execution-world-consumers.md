@@ -8,7 +8,7 @@ English | [中文](2026-07-28-portable-execution-world-consumers.zh.md)
 
 The filesystem and subprocess seams made file and ordinary process access replaceable, but PTY and LSP still reached host Node APIs directly. A remote execution provider therefore appeared to need separate PTY and LSP packages even though their domain behavior did not change. Those packages would be shallow adapters: each would duplicate an existing consumer merely to replace its file and process operations.
 
-A remote coding world is useful only when file operations, commands, terminals, language servers, and model-written programs share one sandbox identity. Moving the complete harness into that sandbox would also entangle provider experimentation with plugin loading, credentials, model transport, session durability, supervision, and deployment.
+A remote coding world is useful only when file operations, commands, terminals, and language servers share one sandbox identity. Moving the complete harness into that sandbox would also entangle provider experimentation with plugin loading, credentials, model transport, session durability, supervision, and deployment.
 
 Ordinary pipes do not cover one requirement. A persistent terminal needs PTY allocation, foreground-process-group inspection and signalling, and cleanup of the complete terminal session. Pretending those operations can be rebuilt in `dsh-pty-local` from an ordinary `spawn()` handle would either leak provider internals or weaken its lifecycle contract.
 
@@ -30,7 +30,7 @@ Generic consumers use that execution world:
 
 The opt-in E2B realization has exactly three provider-specific packages under `packages/e2b/`: `dsh-e2b` creates one sandbox and deletes it on timeout or disposal, `dsh-fs-e2b` implements `ctx.fs`, and `dsh-subprocess-e2b` implements `ctx.subprocess` over E2B Commands, PTYs, and remote Linux process groups. The two adapters obtain the sole SDK handle from the owner and never create private sandboxes.
 
-E2B owns the mutable filesystem, managed command and Bash processes, terminal allocation and terminal-session groups, language-server processes and source reads, subprocess Code Runtime processes, and adapter-private files under `.dsh-e2b`. The host owns Cordis and plugin objects, the agent loop, agent/session/goal state, session logs and persistence, LLM calls, prompts and tools, authority, skills, subagent orchestration, PTY buffers and readiness, LSP protocol state, Code Runtime program/binding/output policy, and E2B SDK/network buffers. The overlay neither uploads nor synchronizes the host workspace.
+E2B owns the mutable filesystem, managed command and Bash processes, terminal allocation and terminal-session groups, language-server processes and source reads, and adapter-private files under `.dsh-e2b`. The host owns Cordis and plugin objects, the agent loop, agent/session/goal state, session logs and persistence, LLM calls, prompts and tools, authority, skills, subagent orchestration, PTY buffers and readiness, LSP protocol state, the worker-backed Code Runtime and its program/binding/output policy, and E2B SDK/network buffers. The overlay neither uploads nor synchronizes the host workspace.
 
 The adapters retain only substrate mechanics. Filesystem canonicalization crosses the SDK's decoded command transport as strict base64-encoded NUL framing; streamed reads leave byte ceilings with consumers. Subprocess command output and environment snapshots use ASCII/base64 where SDK chunk decoding would otherwise lose bytes, while private control shells isolate profiles and later launches blank discovered credential-shaped names. Process and terminal cleanup uses remote groups and proves quiescence before settlement.
 
@@ -38,7 +38,7 @@ Sandbox state is deliberately ephemeral: timeout and disposal delete the remote 
 
 ## Verification
 
-Focused package suites pin sandbox lifecycle, canonical path framing, filesystem metadata and atomic versions, subprocess publication/rollback, terminal text I/O and session cleanup, output limits, cancellation, disposal, and invariant registration. A credential-gated Loader composition exercises the same three-package provider through source imports and built exports, including FS/Bash visibility, hostile login profiles, byte-split UTF-8 output, process and terminal cleanup, LSP queries, Code Runtime bindings and cleanup, host-workspace isolation, and final sandbox deletion.
+Focused package suites pin sandbox lifecycle, canonical path framing, filesystem metadata and atomic versions, subprocess publication/rollback, terminal text I/O and session cleanup, output limits, cancellation, disposal, and invariant registration. A credential-gated Loader composition exercises the same three-package provider through source imports and built exports, including FS/Bash visibility, hostile login profiles, byte-split UTF-8 output, process and terminal cleanup, LSP queries, host-workspace isolation, and final sandbox deletion.
 
 ## Alternatives considered
 

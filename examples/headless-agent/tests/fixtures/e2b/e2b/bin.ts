@@ -3,7 +3,6 @@ import { resolve } from 'node:path'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-code-runtime-subprocess'
 import type {} from '@deepseek-ai/dsh-fs-e2b'
 import type {} from '@deepseek-ai/dsh-bash-local'
 import type {} from '@deepseek-ai/dsh-lsp-local'
@@ -175,52 +174,6 @@ try {
   const terminalTreeCleanup = stubbornProbe.stdout === 'gone'
   if (!terminalTreeCleanup) throw new Error(`E2B PTY left process ${stubbornPid} alive after close`)
 
-  const code = await ctx.codeRuntime.run({
-    program: `
-      console.log('remote-log 你好', 42)
-      const doubled: number = await bridge.double({ value: 21 })
-      let typed = false
-      try {
-        await bridge.fail({ reason: 'expected' })
-      } catch (error) {
-        typed = error instanceof BridgeError && (error as { member: string }).member === 'fail'
-      }
-      return { doubled, typed }
-    `,
-    bindings: [{
-      global: 'bridge',
-      errorClass: { name: 'BridgeError', memberNameProperty: 'member' },
-      functions: {
-        double: async (args) => {
-          const value = (args as { value: number }).value
-          return value * 2
-        },
-        fail: async () => { throw new Error('binding rejected') },
-      },
-    }],
-  })
-  const descendantPipe = await ctx.codeRuntime.run({
-    program: `
-      const childProcess = await import('node:child_process')
-      const child = childProcess.spawn(
-        process.execPath,
-        ['-e', 'setInterval(() => {}, 1000)', 'dsh-code-runtime-descendant'],
-        { stdio: ['ignore', 'inherit', 'inherit'] },
-      )
-      return child.pid > 0
-    `,
-    bindings: [],
-  })
-  const descendantProcesses = await sandbox.commands.list()
-  const descendantCleanup = !descendantProcesses.some(processInfo =>
-    JSON.stringify([processInfo.cmd, processInfo.args]).includes('dsh-code-runtime-descendant'),
-  )
-  if (!descendantCleanup) throw new Error('E2B Code Runtime left a pipe-holding descendant alive')
-  const remoteProcesses = await (await ctx.e2b.getSandbox()).commands.list()
-  const lingeringCodeRunners = remoteProcesses.filter(processInfo =>
-    JSON.stringify([processInfo.cmd, processInfo.args]).includes('code-runtime-runner.mjs'),
-  )
-
   process.stdout.write(`${JSON.stringify({
     sandboxId: (await ctx.e2b.getSandbox()).sandboxId,
     bashRead: bashRead.stdout.text,
@@ -237,10 +190,6 @@ try {
       treeCleanup: terminalTreeCleanup,
       scrollback: terminalScrollback.text,
     },
-    code,
-    descendantPipe,
-    descendantCleanup,
-    lingeringCodeRunners: lingeringCodeRunners.length,
   })}\n`)
 } finally {
   if (terminalId !== undefined) await ctx.pty.kill(owner, terminalId, 'fixture cleanup').catch(() => false)

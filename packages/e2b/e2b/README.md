@@ -38,7 +38,7 @@ No direct invalidation; this package does not contribute request tokens.
 
 ## Known Limitations and Deferred Work
 
-- **This is not a whole-harness runtime** — Cordis services, agent/session state, session logs, LLM requests, skills, and SDK-side buffers stay in the host process.
+- **This is not a whole-harness runtime** — Cordis services, the worker-backed Code Runtime, agent/session state, session logs, LLM requests, skills, and SDK-side buffers stay in the host process.
 - **Sandbox state is ephemeral** — disposal and timeout delete the sandbox; reconnect, pause/leave retention, templates, volumes, and snapshots are outside this POC.
 - **No deployment platform is configured** — network policy, host-workspace synchronization, and sandbox discovery are outside this POC.
 - **`cwd` is a resolution convention, not containment** — adapters and commands can address other sandbox paths; E2B network access retains the base image's policy.

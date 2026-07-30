@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-E2B implementation of the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) seam. It has no config: load [`@deepseek-ai/dsh-e2b`](../e2b/README.md) first, then this service in place of `dsh-subprocess-local`. Existing Bash, PTY, LSP, and subprocess Code Runtime consumers then execute in the shared remote sandbox without E2B-specific capability packages.
+E2B implementation of the [`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) seam. It has no config: load [`@deepseek-ai/dsh-e2b`](../e2b/README.md) first, then this service in place of `dsh-subprocess-local`. Existing Bash, PTY, and LSP consumers then execute in the shared remote sandbox without E2B-specific capability packages.
 
 ## Behavior
 

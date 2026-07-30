@@ -31,17 +31,9 @@ export class E2BSubprocessService extends SubprocessService {
   private readonly terminalSetups = new Map<Promise<void>, AbortController>()
   private disposing = false
 
-  /** @inheritdoc */
-  readonly cwd: string
-
-  /** @inheritdoc */
-  readonly runtimeRoot: string
-
   /** Create the E2B subprocess service and bind its disposal policy. */
   constructor(ctx: Context) {
     super(ctx)
-    this.cwd = ctx.e2b.cwd
-    this.runtimeRoot = ctx.e2b.runtimeRoot
     ctx.effect(() => async () => {
       this.disposing = true
       for (const controller of this.terminalSetups.values()) {
@@ -89,14 +81,14 @@ export class E2BSubprocessService extends SubprocessService {
     const prefix = path === undefined ? '' : `PATH=${quoteE2BShellArg(path)} `
     const result = await sandbox.commands.run(
       `${prefix}command -v -- ${quoteE2BShellArg(command)}`,
-      { cwd: this.cwd, envs: e2bControlEnvs(), ...signalOpts(signal) },
+      { cwd: this.ctx.e2b.cwd, envs: e2bControlEnvs(), ...signalOpts(signal) },
     )
     signal?.throwIfAborted()
     const executable = result.stdout.trim()
     if (executable.includes('\n') || (!posix.isAbsolute(executable) && !executable.includes('/'))) {
       throw new Error(`subprocess-e2b: executable ${JSON.stringify(command)} did not resolve to one absolute path`)
     }
-    return posix.resolve(this.cwd, executable)
+    return posix.resolve(this.ctx.e2b.cwd, executable)
   }
 
   /** @inheritdoc */
@@ -138,7 +130,7 @@ export class E2BSubprocessService extends SubprocessService {
       }
     }
     spec.signal?.throwIfAborted()
-    const stateDir = posix.join(this.runtimeRoot, 'terminals', randomUUID())
+    const stateDir = posix.join(this.ctx.e2b.runtimeRoot, 'terminals', randomUUID())
     const setup = Promise.withResolvers<void>()
     const setupController = new AbortController()
     const setupSignal = spec.signal === undefined

@@ -52,12 +52,3 @@
           .ts: typescript
         shutdownTimeoutMs: 1000
         killGraceMs: 500
-
-- id: code-runtime-subprocess
-  name: '@deepseek-ai/dsh-code-runtime-subprocess'
-  config:
-    computeMs: 500
-    maxWallMs: 15000
-    maxOutputBytes: 4096
-    maxOldGenerationSizeMb: 128
-    killGraceMs: 500

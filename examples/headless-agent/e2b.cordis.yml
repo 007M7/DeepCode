@@ -1,6 +1,6 @@
 # POC overlay: keep the advanced headless agent and model-facing tools, but
 # place its filesystem and process substrate in one short-lived E2B sandbox;
-# the generic Bash, PTY, LSP, and Code Runtime consumers compose above them.
+# the generic Bash, PTY, and LSP consumers compose above them.
 - id: base
   name: '@cordisjs/plugin-include'
   config:
@@ -12,9 +12,6 @@
       - id: fs-local
         name: '@deepseek-ai/dsh-fs-local'
         disabled: true
-      - id: code-runtime
-        name: '@deepseek-ai/dsh-code-runtime-worker'
-        disabled: true
       - insert:
           - id: e2b
             name: '@deepseek-ai/dsh-e2b'
@@ -25,8 +22,6 @@
             name: '@deepseek-ai/dsh-subprocess-e2b'
           - id: fs-e2b
             name: '@deepseek-ai/dsh-fs-e2b'
-          - id: code-runtime-subprocess
-            name: '@deepseek-ai/dsh-code-runtime-subprocess'
           - id: sandbox-policy
             name: '@deepseek-ai/dsh-sandbox-policy'
             config:

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) seam 的 E2B 实现。它没有配置：先加载 [`@deepseek-ai/dsh-e2b`](../e2b/README.md)，再用本服务取代 `dsh-subprocess-local`。现有的 Bash、PTY、LSP 以及使用 subprocess 的 Code Runtime 消费方随后会在共享远程沙箱中执行，无需 E2B 专用的功能包（package）。
+[`@deepseek-ai/dsh-subprocess`](../../subprocess/subprocess/README.md) seam 的 E2B 实现。它没有配置：先加载 [`@deepseek-ai/dsh-e2b`](../e2b/README.md)，再用本服务取代 `dsh-subprocess-local`。现有的 Bash、PTY 和 LSP 消费方随后会在共享远程沙箱中执行，无需 E2B 专用的功能包（package）。
 
 ## 行为
 
