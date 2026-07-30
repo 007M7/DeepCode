@@ -167,7 +167,7 @@ describe('PopupSelectView', () => {
       onSelect,
     })
     await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
-    expect(screen.queryByLabelText('/theme options')).toBeNull()
+    expect(screen.queryByLabelText('/theme 选项')).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Enable Full access?' })).toBeTruthy()
     const enable = screen.getByRole('button', { name: 'Enable Full access' }) as HTMLButtonElement
     expect(enable.disabled).toBe(true)
@@ -186,7 +186,7 @@ describe('PopupSelectView', () => {
     await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.getByLabelText('/theme options')).toBeTruthy()
+    expect(screen.getByLabelText('/theme 选项')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
     expect(screen.getByRole<HTMLInputElement>('checkbox').checked).toBe(false)
   })
