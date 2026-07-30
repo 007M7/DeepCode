@@ -6,7 +6,7 @@
  */
 
 import { expect } from 'vitest'
-import { RegistryService } from 'cordis'
+import { FiberState, Inject, RegistryService } from 'cordis'
 import type { Context, Plugin } from 'cordis'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 
@@ -24,6 +24,9 @@ export interface TestInvariantCompanion {
   readonly default?: unknown
   apply(ctx: Context): Promise<() => void>
 }
+
+/** Private service dependency that holds ordinary root plugins until invariant startup completes. */
+export const TEST_INVARIANT_READY_SERVICE = 'testInvariantReady'
 
 /**
  * Every package companion as a lazy loader keyed by glob path. Ordinary tests
@@ -47,6 +50,7 @@ interface InvariantHost {
 }
 
 type PluginFiber = ReturnType<RegistryService['plugin']>
+type PluginCallback = Plugin.Function | Plugin.Constructor
 
 const hosts = new WeakMap<Context, InvariantHost>()
 // oxlint-disable-next-line typescript/unbound-method -- every call below supplies its RegistryService receiver explicitly.
@@ -64,10 +68,18 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
     return this.ctx === root ? joinInvariantStartup(existing, host.ready) : existing
   }
 
-  const fiber = originalPlugin.call(this, plugin, config, getOuterStack)
-  // A root-level await is the test's composition boundary. Nested plugin
-  // fibers must not await their own companion parent through the global host.
-  if (this.ctx !== root) return fiber
+  // Nested plugins run inside a target that already crossed the root barrier.
+  // Adding the same root-owned dependency there would make child lifecycle
+  // depend on an unrelated isolation scope and can deadlock companion startup.
+  if (this.ctx !== root) return originalPlugin.call(this, plugin, config, getOuterStack)
+  if (callback === undefined) return originalPlugin.call(this, plugin, config, getOuterStack)
+
+  const fiber = originalPlugin.call(
+    this,
+    withInvariantReadiness(plugin, callback as PluginCallback),
+    config,
+    getOuterStack,
+  )
   return joinInvariantStartup(fiber, host.ready)
 }
 
@@ -126,8 +138,8 @@ function startInvariantHost(root: Context): InvariantHost {
   const serviceFiber = mount(InvariantService, { enabled: true })
   const testPath = expect.getState().testPath ?? ''
   const companionPaths = testInvariantCompanionPaths(testPath)
-  const ready = serviceFiber.await().then(async () => {
-    const companionFibers = await Promise.all(companionPaths.map(async (path) => {
+  const ready = requireActive(serviceFiber, 'invariant service').then(async () => {
+    const companions = await Promise.all(companionPaths.map(async (path) => {
       const load = testInvariantCompanions[path]
       if (load === undefined) {
         throw new Error(`test invariants: selected companion vanished at ${path}`)
@@ -136,20 +148,43 @@ function startInvariantHost(root: Context): InvariantHost {
       if (!companion.inject.includes('invariants')) {
         throw new Error(`test invariants: ${path} must inject the invariant service`)
       }
-      return mount(companion)
+      return { companion, path }
     }))
-    await Promise.all(companionFibers.map(fiber => fiber.await()))
+    const companionFibers = companions.map(({ companion, path }) => ({
+      fiber: mount(companion),
+      path,
+    }))
+    await Promise.all(companionFibers.map(({ fiber, path }) => requireActive(fiber, path)))
+    root.provide(TEST_INVARIANT_READY_SERVICE, true)
   })
   const host = { byCallback, ready }
   hosts.set(root, host)
   return host
 }
 
+async function requireActive(fiber: PluginFiber, label: string): Promise<void> {
+  await fiber.await()
+  if (fiber.state !== FiberState.ACTIVE) {
+    throw new Error(`test invariants: ${label} settled without becoming active`)
+  }
+}
+
+function withInvariantReadiness(plugin: Plugin, callback: PluginCallback): Plugin.Object {
+  return {
+    apply: callback as Plugin.Function,
+    inject: {
+      ...Inject.resolve(plugin.inject),
+      [TEST_INVARIANT_READY_SERVICE]: null,
+    },
+    ...(plugin.name === undefined ? {} : { name: plugin.name }),
+    ...(plugin.Config === undefined ? {} : { Config: plugin.Config }),
+    ...(plugin.provide === undefined ? {} : { provide: plugin.provide }),
+    ...(plugin.intercept === undefined ? {} : { intercept: plugin.intercept }),
+  }
+}
+
 function joinInvariantStartup(fiber: PluginFiber, invariantReady: Promise<void>): PluginFiber {
-  const readiness = fiber.await().then(async (loaded) => {
-    await invariantReady
-    return loaded
-  })
+  const readiness = invariantReady.then(() => fiber.await())
   const joined = Object.create(fiber) as PluginFiber
   joined.then = readiness.then.bind(readiness)
   return joined
