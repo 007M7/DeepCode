@@ -12,24 +12,11 @@
 - button "编辑":
   - img
 - paragraph: partial
-- button "2 条排队消息" [disabled] [expanded]
-- list:
-  - listitem:
-    - text: Queue item to remove
-    - button "编辑排队消息":
-      - img
-    - button "删除排队消息":
-      - img
-  - listitem:
-    - textbox "编辑排队消息": Edited queue item
-    - button "保存排队消息":
-      - img
-    - button "取消编辑":
-      - img
+- button "2 条排队消息"
 - textbox "Message the agent"
 - button "Add attachment":
   - img
-- 'button "Access mode, current: Full access"': Full access
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "Plan mode off, press to turn on": Plan off
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
