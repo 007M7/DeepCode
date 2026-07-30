@@ -20,7 +20,7 @@
   - img
 - text: Code Run bash echo and catch missing file read
 - img
-- text: Bash Echo CODE_ROUND_OK Read
+- text: Bash Echo CODE_ROUND_OK 失败 Read
 - button "missing.txt"
 - button "Think The program ran successfully. Let me now reply DONE as instructed.":
   - img
