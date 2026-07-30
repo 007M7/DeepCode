@@ -269,7 +269,7 @@ interface SurfaceIntent {
 }
 ```
 
-Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived history. Non-surface types reject it at compile time.
+Required for `SurfaceEventType` events — every message-producing event must declare how it joins the surface, the sole source of derived model history. A human-facing transcript is the other projection and reads the log's append-origin events instead, because the surface deliberately shadows the ranges a replacement summarizes (`isAppendSurfaceEvent` in [dsh-session](../../packages/core/session/README.md)). Non-surface types reject it at compile time.
 
 The same provenance distinction applies here: only `assistant/message` may carry a present empty `sourceEventSeqs`; omission does not assert that its source stream was empty.
 
@@ -388,7 +388,8 @@ declare class Session {
    *   the ordered surface; `sourceEventSeqs` records provenance (the seq
    *   numbers of events this one derives from). REQUIRED for
    *   {@link SurfaceEventType} events (every message-producing event must
-   *   declare how it joins the surface, the sole source of derived history) and
+   *   declare how it joins the surface, the sole source of derived model
+   *   history) and
    *   rejected by the compiler for non-surface types like `turn/start` or
    *   `assistant/chunk`.
    * @returns the logged event — its assigned `seq`/`time` plus the SNAPSHOT of
