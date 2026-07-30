@@ -1,18 +1,8 @@
 /** Durable attachment vocabulary. @module @deepseek-ai/dsh-attachment/types */
 
-import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { AttachmentId } from './brand.ts'
 
-/** Opaque content-addressed identifier for one immutable attachment object. */
-export type AttachmentId = Branded<'AttachmentId'>
-
-/**
- * Brand a validated storage identifier.
- * @param value - backend-produced opaque identifier.
- * @returns the branded identifier.
- */
-export function AttachmentId(value: string): AttachmentId {
-  return value as AttachmentId
-}
+export type { AttachmentId } from './brand.ts'
 
 /** Raster image formats accepted by the version-one attachment path. */
 export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
@@ -55,21 +45,4 @@ export interface SaveImageAttachment {
 export interface StoredImageAttachment {
   ref: ImageAttachmentRef
   data: Uint8Array
-}
-
-/** Stable failures suitable for host RPC error mapping. */
-export class AttachmentError extends Error {
-  /** Stable machine-routing failure code. */
-  readonly code: string
-
-  /**
-   * @param message - human-readable failure description without raw bytes or host paths.
-   * @param code - stable machine-routing code.
-   * @param options - optional chained cause.
-   */
-  constructor(message: string, code: string, options?: ErrorOptions) {
-    super(message, options)
-    this.name = 'AttachmentError'
-    this.code = code
-  }
 }

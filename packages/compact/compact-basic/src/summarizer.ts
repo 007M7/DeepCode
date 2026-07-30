@@ -5,7 +5,7 @@
  */
 
 import type { Context } from 'cordis'
-import { createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
@@ -205,14 +205,8 @@ function finishError(finish: FinishReason): Error | undefined {
 function summaryText(
   blocks: readonly ContentBlock[],
 ): Array<Extract<ContentBlock, { type: 'text' }>> {
-  if (containsImage(blocks)) {
+  if (contentHasImage(blocks)) {
     throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
   }
   return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
-}
-
-/** Detect images recursively so no structured result can hide a silent visual drop. */
-function containsImage(blocks: readonly ContentBlock[]): boolean {
-  return blocks.some(block => block.type === 'image'
-    || (block.type === 'tool-result' && containsImage(block.content)))
 }

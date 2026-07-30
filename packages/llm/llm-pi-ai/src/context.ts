@@ -4,7 +4,7 @@
  * @module dsh-llm-pi-ai/context
  */
 
-import { CallId, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId, contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
@@ -18,15 +18,6 @@ function flattenText(message: Message): string {
     .join('')
 }
 
-/**
- * Return whether content contains an image, including nested tool results.
- * @param blocks - content to inspect recursively.
- * @returns whether any nested block is an image.
- */
-export function contentHasImage(blocks: readonly ContentBlock[]): boolean {
-  return blocks.some(block => block.type === 'image'
-    || (block.type === 'tool-result' && contentHasImage(block.content)))
-}
 
 /** Flatten text recursively inside one tool result. */
 function toolResultText(blocks: readonly ContentBlock[]): string {

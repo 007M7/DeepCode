@@ -339,6 +339,26 @@ describe('machine pending lock', () => {
     expect(textarea.readOnly).toBe(true)
     expect(view.container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.disabled).toBe(true)
   })
+
+  it('addImages reports refusal in busy phases so callers keep draft ownership', () => {
+    const { shell } = bench()
+    act(() => {
+      shell.setDraft('/goal ')
+      shell.beginCommand(
+        {
+          token: '/goal ',
+          submit: () => new Promise<never>(() => {}), // never settles: stays submitting
+        },
+        { start: 0, end: 6, draftRev: shell.snapshot.draftRev },
+      )
+      shell.submit('queue')
+    })
+    expect(shell.snapshot.phase).toBe('submitting')
+    // A refused batch must be observable (the workspace-switch transfer keeps
+    // the source shell's drafts alive instead of leaking their object URLs).
+    expect(shell.addImages(['busy-1' as never])).toBe(false)
+    expect(shell.snapshot.imageIds).toEqual([])
+  })
 })
 
 describe('decorations', () => {

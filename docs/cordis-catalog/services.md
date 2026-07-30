@@ -285,7 +285,7 @@ abstract readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment>
 
 Types: [ImageAttachmentRef](../core-data-structures/attachment.md) · [SaveImageAttachment](../core-data-structures/attachment.md) · [StoredImageAttachment](../core-data-structures/attachment.md)
 
-Source: [`packages/attachment/attachment/src/index.ts:28`](../../packages/attachment/attachment/src/index.ts)
+Source: [`packages/attachment/attachment/src/index.ts:29`](../../packages/attachment/attachment/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -852,7 +852,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:192`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:193`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 

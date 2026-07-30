@@ -22,5 +22,6 @@ node 半侧在桥接前守卫 `/api` 下的每个请求（`src/api-request-trust
 
 ## 已知限制与暂缓事项
 
+- **`attachments` 是硬性注入依赖**：路由插件（以及 `host-apiproxy`）在附件后端提供 `ctx.attachments` 之前不会挂载；缺少后端的组合会以 cordis 注入缺口的形式静默停滞，而非响亮失败；因此纯文本部署也会经由 `attachment-local` 携带原生 `sharp` 依赖。降级为拒绝图片的挂载方式是有意延期的工作。
 - **history 的隐式恢复存在争议**：在未附加的会话上打开 history，会在主机侧拉起 agent；纯持久化读取的替代方案记录在 rt-core 协调账本中，P-I 不作改变。该包的消费方会在首次打开时感受到这段延迟。
 - **计划移除 `ToolEventView`／`ToolCallView`／`ToolResultView` 的重新导出**：当 toolview 迁移删除主机 `viewFor` 行时，它们会一并移除（呈现属于客户端）；在此之前，fixture 保留一份局部 `viewFor` 镜像。

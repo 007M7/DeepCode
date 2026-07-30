@@ -387,6 +387,70 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('gates selection on a steering image from enqueue until its event publishes', async () => {
+    const { ctx, sessionId, agent } = await harness()
+    registerTextOnly(ctx)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const steering = {
+      id: 's-1', role: 'user', source: { kind: 'user' },
+      content: [{ type: 'image', attachment: { attachmentId: 'att-s', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }],
+    } as never
+    const steeringItem = { id: 'i-s-1', message: steering, placement: 'steering' } as never
+    // A steering carrier never enters the queued mirror, yet the outbox hop
+    // between steer() and its append must not open a text-only switch window.
+    ctx.emit('agent/inbox/enqueue', agent, steeringItem)
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+
+    ctx.emit('agent/inbox/dequeue', agent, steeringItem)
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+
+    // Publication hands the gate over to the durable surface.
+    agent.session.append('steering/message', { turn: 1, message: steering }, { surfaceOp: 'append' })
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('re-opens selection when an admission ends idle without publication', async () => {
+    const { ctx, sessionId, agent } = await harness()
+    registerTextOnly(ctx)
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const rejected = {
+      id: 'r-1', role: 'user', source: { kind: 'user' },
+      content: [{ type: 'image', attachment: { attachmentId: 'att-r', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }],
+    } as never
+    const rejectedItem = { id: 'i-r-1', message: rejected, placement: 'queued' } as never
+    ctx.emit('agent/inbox/enqueue', agent, rejectedItem)
+    ctx.emit('agent/inbox/dequeue', agent, rejectedItem)
+    expect((await api.sessions.selectModel(request({ sessionId, provider: 'text-only', model: 'plain' }))).result.ok).toBe(false)
+
+    // Idle proves the admission ended without publication; nothing durable
+    // requires an image route, so the text-only switch must be accepted again.
+    ctx.emit('agent/status', agent, 'idle')
+    expect(expectValue(await api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).selected).toEqual({ provider: 'text-only', model: 'plain' })
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a queue edit that injects unadmitted image content', async () => {
+    const { ctx, sessionId, agent } = await harness()
+    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    Object.assign(agent, { updateInbox: () => 'applied' })
+    const denied = await api.sessions.updateQueue(request({
+      sessionId,
+      itemId: 'i-x' as never,
+      action: {
+        kind: 'edit' as const,
+        content: [{ type: 'image', attachment: { attachmentId: 'att-x', mediaType: 'image/png', bytes: 8, width: 1, height: 1 } }] as never,
+      },
+    }))
+    expect(denied.result).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'QUEUE_EDIT_NON_TEXT' } },
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('serializes an image save with a concurrent model selection', async () => {
     const { ctx, sessionId, agent } = await harness()
     registerTextOnly(ctx)

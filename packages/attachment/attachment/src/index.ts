@@ -8,7 +8,8 @@ import type {
   StoredImageAttachment,
 } from './types.ts'
 
-export { AttachmentError, AttachmentId } from './types.ts'
+export { AttachmentId } from './brand.ts'
+export { AttachmentError } from './error.ts'
 export type {
   AttachmentId as AttachmentIdType,
   ImageAttachmentLimits,

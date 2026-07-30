@@ -12,7 +12,7 @@ Image prompt admission and `session.selectModel` each read session modality stat
 
 Each live Web agent has one private promise chain shared by image-bearing prompt admission and model selection. A failed operation settles its caller normally and leaves the chain usable. Text-only prompts bypass the chain because they cannot change the modality constraint.
 
-The pending-inbox mirror marks a prompt as claimed at dequeue and retains it until the matching `user/message` or `steering/message` event publishes. If admission ends without publishing, the next dequeue or the transition to idle retires the claimed entry; inbox discard retires the listed work, and session disposal retires every remaining entry. Model selection checks that mirror plus `Session.deriveMessages()`, which is the current model-visible history after compaction.
+The pending-publication set records a queued occurrence at dequeue and a steering occurrence already at enqueue (steering items never enter the queued UI mirror), and retains each until its matching `user/message` or `steering/message` event publishes. If admission ends without publishing, the transition to idle retires the entries; inbox discard retires the listed work, and session disposal retires every remaining entry. Model selection checks that set, the queued UI mirror, and `Session.deriveMessages()`, which is the current model-visible history after compaction.
 
 Provider adapters remain the final enforcement boundary. The host ordering only prevents its mutable route and pending image state from contradicting each other before request assembly.
 

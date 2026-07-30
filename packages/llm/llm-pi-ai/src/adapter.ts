@@ -33,7 +33,8 @@ import type {
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { resolveProfiles } from './config.ts'
 import type { PiAiProviderProfile, ResolvedPiAiProviderProfile } from './config.ts'
-import { contentHasImage, toPiContext } from './context.ts'
+import { contentHasImage } from '@deepseek-ai/dsh-llm'
+import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 
 /** Constructor options for {@link PiAiAdapter}. */
@@ -189,11 +190,7 @@ export class PiAiAdapter extends LlmAdapter {
     using watchdog = idleWatchdog(upstream, streamIdleTimeoutMs, 'LLM_STREAM_IDLE_TIMEOUT')
 
     try {
-      const containsImage = options.messages.some((message) => {
-        // The discriminant is part of same-process message validity and is read before content.
-        void message.role
-        return contentHasImage(message.content)
-      })
+      const containsImage = options.messages.some(message => contentHasImage(message.content))
       if (containsImage && !model.input.includes('image')) {
         throw new LlmError(`pi-ai model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
       }

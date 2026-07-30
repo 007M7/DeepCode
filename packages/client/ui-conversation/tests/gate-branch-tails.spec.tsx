@@ -80,7 +80,7 @@ describe('render branch tails', () => {
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
           setDraft: () => {},
-          addImages: () => {},
+          addImages: () => true,
           removeImage: () => {},
           pruneImages: () => {},
           submit: () => {},
@@ -122,7 +122,7 @@ describe('render branch tails', () => {
         useInput={(() => { throw new Error('unused') })}
         inputActions={{
           setDraft: () => {},
-          addImages: () => {},
+          addImages: () => true,
           removeImage: () => {},
           pruneImages: () => {},
           submit: () => {},

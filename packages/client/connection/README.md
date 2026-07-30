@@ -22,5 +22,6 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+- **`attachments` is a hard inject** — the route plugin (and `host-apiproxy`) will not mount until an attachment backend provides `ctx.attachments`, and a composition missing one stalls silently as a cordis inject gap rather than failing loud; text-only deployments therefore still carry the native `sharp` dependency through `attachment-local`. A capability-degraded (image-refusing) mount is deliberate deferred work.
 - **history's implicit resume is arguable** — opening history on an unattached session pulls an agent up host-side; the pure-persistence-read alternative is recorded in the rt-core reconciliation ledger, unchanged in P-I. This package's consumers see it as latency on first open.
 - **`ToolEventView`/`ToolCallView`/`ToolResultView` re-exports are scheduled for removal** — they fall when the toolview migration deletes the host `viewFor` line (presentation belongs to the client); the fixture keeps a local `viewFor` mirror until then.

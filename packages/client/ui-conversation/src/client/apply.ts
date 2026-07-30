@@ -147,8 +147,10 @@ export function apply(ctx: Context): void {
             next.setDraft(draft)
             from.setDraft('')
           }
-          if (imageIds.length > 0) {
-            next.addImages(imageIds)
+          // Transfer only on acceptance: a destination shell mid-submission
+          // refuses, and the drafts must stay owned (and releasable) by the
+          // source shell instead of silently leaking their object URLs.
+          if (imageIds.length > 0 && next.addImages(imageIds)) {
             for (const id of imageIds) from.removeImage(id)
           }
         }
@@ -199,7 +201,12 @@ export function apply(ctx: Context): void {
         addImages: (files) => {
           try {
             const images = conversation.createDraftImages(files)
-            shell.addImages(images.map(image => image.id))
+            if (!shell.addImages(images.map(image => image.id))) {
+              // Refused intake (machineBusy raced a submission): release the
+              // just-created previews instead of stranding their object URLs.
+              conversation.releaseDraftImages(images)
+              return null
+            }
             return null
           } catch (error: unknown) {
             return error instanceof Error ? error.message : String(error)

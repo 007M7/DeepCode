@@ -13,7 +13,7 @@ import type {
 } from '@deepseek-ai/dsh-agent'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
@@ -65,11 +65,11 @@ const DEFAULT_MAX_MESSAGES = 50
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
 
 function decodeBase64(data: string): Uint8Array {
-  if (data.length === 0 || data.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) {
-    throw new AttachmentError('Image upload is not canonical base64.', 'INVALID_IMAGE_BASE64')
-  }
   const decoded = Buffer.from(data, 'base64')
-  if (decoded.toString('base64') !== data) {
+  // One canonical-form check: any non-canonical input (whitespace, url-safe
+  // alphabet, bad padding, truncated groups) fails the exact round-trip, so a
+  // pre-filter regex over the multi-MiB upload string would be pure overhead.
+  if (data.length === 0 || decoded.toString('base64') !== data) {
     throw new AttachmentError('Image upload is not canonical base64.', 'INVALID_IMAGE_BASE64')
   }
   return new Uint8Array(decoded)
@@ -145,12 +145,6 @@ function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => b
     return imageBlockIn([data.chunk.block], match)
   }
   return undefined
-}
-
-/** True when typed model content contains an image, including nested tool results. */
-function contentHasImage(content: readonly ContentBlock[]): boolean {
-  return content.some(block => block.type === 'image'
-    || (block.type === 'tool-result' && contentHasImage(block.content)))
 }
 
 /** True when the current model-visible surface contains an image. */
@@ -627,11 +621,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    */
   const queuedMirror = new Map<SessionId, InboxItem[]>()
   /**
-   * Claimed-but-unpublished queued occurrences: dequeue is not publication —
-   * the `user/message` append follows it asynchronously — so an image carrier
-   * stays a model-selection gate until its durable event lands, its discard
-   * arrives, or the admission's turn settles idle. Kept apart from the mirror
-   * so the mux-open snapshot never replays a claimed occurrence as queued.
+   * Unpublished occurrences that must still gate model selection: a queued
+   * item from dequeue (claim is not publication — the `user/message` append
+   * follows asynchronously) and a steering item from enqueue (it never enters
+   * the queued mirror, and its `steering/message` append is a separate outbox
+   * hop). Entries retire on their durable event, discard, or idle. Kept apart
+   * from the mirror so the mux-open snapshot never replays them as queued.
    */
   const pendingPublication = new Map<SessionId, InboxItem[]>()
   type UnseenQueueEvent =
@@ -692,7 +687,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
     const disposers = [
       ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
-        if (item.placement !== 'queued') return
+        if (item.placement === 'steering') {
+          // A steering carrier never enters the queued mirror, yet its image
+          // must gate model selection from enqueue until its steering/message
+          // event publishes (or the admission ends): the outbox hop between
+          // steer() and the append is asynchronous, and a text-only switch
+          // accepted inside it would strand every later turn.
+          const pending = pendingPublication.get(agent.id) ?? []
+          pending.push(item)
+          pendingPublication.set(agent.id, pending)
+          return
+        }
         const unseen = takeUnseen(agent.id, item.id)
         if (unseen?.kind === 'terminal') return
         let entries = queuedMirror.get(agent.id)
@@ -726,10 +731,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if (retire(agent, item)) publishQueue(agent.id)
       }),
       ctx.on('session/event', (session: Session, event: SessionEvent) => {
-        if (event.type !== 'user/message') return
+        const id = event.type === 'user/message'
+          ? event.data.id
+          : event.type === 'steering/message'
+            ? (event.data as { message: UserMessage }).message.id
+            : undefined
+        if (id === undefined) return
         const pending = pendingPublication.get(session.id)
         if (pending === undefined) return
-        const index = pending.findIndex(entry => entry.message.id === (event.data).id)
+        const placement = event.type === 'user/message' ? 'queued' : 'steering'
+        const index = pending.findIndex(entry => entry.message.id === id && entry.placement === placement)
         if (index === -1) return
         pending.splice(index, 1)
         if (pending.length === 0) pendingPublication.delete(session.id)
@@ -1385,6 +1396,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       updateQueue(request) {
         const { sessionId, itemId, action } = request.payload
+        // Queue edits bypass durablePromptContent (no admission, no durable
+        // reference, no model-capability recheck), so only text blocks may be
+        // written through this boundary; image intake is prompt-only.
+        if (action.kind === 'edit' && action.content.some(block => block.type !== 'text')) {
+          return Promise.resolve(err(request, {
+            code: 'attachment-error',
+            message: 'queue edits accept text content only',
+            details: { reason: 'QUEUE_EDIT_NON_TEXT' },
+          }))
+        }
         const agent = ctx.agents.get(sessionId)
         if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
           return Promise.resolve(err(request, {

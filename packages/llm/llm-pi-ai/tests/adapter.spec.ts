@@ -638,7 +638,7 @@ describe('provider profile lifecycle', () => {
 describe('abort wiring', () => {
   it('preserves an unknown pre-dispatch adapter Error exactly', async () => {
     const original = new Error('SDK context conversion exploded')
-    const message = Object.defineProperty({}, 'role', {
+    const message = Object.defineProperty({}, 'content', {
       get() { throw original },
     })
     const adapter = new PiAiAdapter({ profiles: [{ provider: 'deepseek', apiKey: 'test-key' }] })
@@ -656,7 +656,7 @@ describe('abort wiring', () => {
   it('lets a concurrent caller abort classify a pre-dispatch adapter failure', async () => {
     const controller = new AbortController()
     const original = new Error('conversion lost its caller')
-    const message = Object.defineProperty({}, 'role', {
+    const message = Object.defineProperty({}, 'content', {
       get() {
         controller.abort('caller cancelled during conversion')
         throw original

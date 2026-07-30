@@ -32,8 +32,12 @@ export interface InputTarget {
 export interface SessionInput extends InputTarget {
   /** Single write path for draft text (all mutation rides machine events). */
   setDraft(text: string): void
-  /** Append ordered browser-owned draft attachment ids. */
-  addImages(ids: readonly DraftAttachmentId[]): void
+  /**
+   * Append ordered browser-owned draft attachment ids.
+   * @returns whether the ids were appended; busy admission phases refuse, and
+   * the caller keeps ownership of refused ids (release or retry them).
+   */
+  addImages(ids: readonly DraftAttachmentId[]): boolean
   /** Remove one browser-owned draft attachment id. */
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser objects no longer exist. */
@@ -69,8 +73,11 @@ export interface InputService {
 export interface InputActions {
   /** Single public draft write path (full next draft; occurrence math via diff scan). */
   setDraft(text: string): void
-  /** Append ordered browser-owned draft attachment ids. */
-  addImages(ids: readonly DraftAttachmentId[]): void
+  /**
+   * Append ordered browser-owned draft attachment ids.
+   * @returns whether the ids were appended (busy admission phases refuse).
+   */
+  addImages(ids: readonly DraftAttachmentId[]): boolean
   /** Remove one browser-owned draft attachment id. */
   removeImage(id: DraftAttachmentId): void
   /** Drop ids whose browser objects no longer exist. */

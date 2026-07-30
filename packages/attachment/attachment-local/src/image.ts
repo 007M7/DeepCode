@@ -1,6 +1,6 @@
-/** Raster decoding used before bytes enter durable storage. */
+/** Raster inspection: full decode at admission, header-only probe on verified reads. */
 
-import sharp from 'sharp'
+import sharp, { type Sharp } from 'sharp'
 import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 
@@ -18,26 +18,47 @@ const MEDIA_TYPES: Readonly<Record<string, ImageMediaType>> = {
   gif: 'image/gif',
 }
 
+async function imageMetadata(image: Sharp): Promise<DetectedImage> {
+  const metadata = await image.metadata()
+  const mediaType = MEDIA_TYPES[metadata.format as string]
+  if (mediaType === undefined) {
+    throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE')
+  }
+  return { mediaType, width: metadata.width, height: metadata.height }
+}
+
 /**
- * Decode a supported raster and return its intrinsic metadata.
+ * Parse a supported raster's header and return its intrinsic metadata without
+ * decoding pixels. Digest-verified reads use this: admission already proved
+ * that these exact bytes decode completely, so the read path only re-derives
+ * the reference fields instead of paying the full-raster decode again.
  * @param data - complete encoded image bytes.
- * @param maxPixels - optional write-time decoded-pixel limit; reads omit it.
+ * @returns verified format and dimensions.
+ */
+export async function probeImage(data: Uint8Array): Promise<DetectedImage> {
+  try {
+    return await imageMetadata(sharp(data, { failOn: 'error', limitInputPixels: false }))
+  } catch (error) {
+    if (error instanceof AttachmentError) throw error
+    throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE', { cause: error })
+  }
+}
+
+/**
+ * Fully decode a supported raster and return its intrinsic metadata.
+ * @param data - complete encoded image bytes.
+ * @param maxPixels - decoded-pixel admission limit.
  * @returns verified format and dimensions.
  */
 export async function detectImage(data: Uint8Array, maxPixels?: number): Promise<DetectedImage> {
   try {
     const image = sharp(data, { failOn: 'error', limitInputPixels: false })
-    const metadata = await image.metadata()
-    const mediaType = MEDIA_TYPES[metadata.format as string]
-    if (mediaType === undefined) {
-      throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE')
-    }
-    const { width, height } = metadata
-    if (maxPixels !== undefined && width * height > maxPixels) {
+    const detected = await imageMetadata(image)
+    if (maxPixels !== undefined && detected.width * detected.height > maxPixels) {
       throw new AttachmentError('Image exceeds the configured decoded-pixel limit.', 'IMAGE_TOO_MANY_PIXELS')
     }
     await image.raw().toBuffer()
-    return { mediaType, width, height }
+    return detected
   } catch (error) {
     if (error instanceof AttachmentError) throw error
     throw new AttachmentError('Unsupported or malformed image data.', 'INVALID_IMAGE', { cause: error })

@@ -68,7 +68,7 @@ export class SessionInputShell implements SessionInput {
   /** The public provide-channel action face (one stable identity per session — decision 20). */
   readonly actions: InputActions = {
     setDraft: (text) => { this.setDraft(text) },
-    addImages: (ids) => { this.addImages(ids) },
+    addImages: ids => this.addImages(ids),
     removeImage: (id) => { this.removeImage(id) },
     pruneImages: (ids) => { this.pruneImages(ids) },
     submit: (mode) => { this.submit(mode) },
@@ -101,11 +101,16 @@ export class SessionInputShell implements SessionInput {
     this.run(this.core.dispatch({ type: 'draft-changed', draft: text, ...(editRange !== undefined ? { editRange } : {}) }))
   }
 
-  /** Append ordered browser-owned draft attachment ids. */
-  addImages(ids: readonly DraftAttachmentId[]): void {
-    if (ids.length === 0 || this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return
+  /**
+   * Append ordered browser-owned draft attachment ids.
+   * @returns whether the ids were appended (busy admission phases refuse).
+   */
+  addImages(ids: readonly DraftAttachmentId[]): boolean {
+    if (this.snapshot.phase === 'adjudicating' || this.snapshot.phase === 'submitting') return false
+    if (ids.length === 0) return true
     this.imageIds = [...this.imageIds, ...ids]
     this.publish()
+    return true
   }
 
   /** Remove one browser-owned draft attachment id. */
