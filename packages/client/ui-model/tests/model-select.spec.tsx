@@ -48,9 +48,9 @@ afterEach(cleanup)
 
 describe('ModelSelect reasoning effort', () => {
   it('renders adapter metadata and submits the effort as part of the session target', async () => {
-    const directory = createSnapshotStore(state())
+    const directory = createSnapshotStore<ModelDirectoryState>(state())
     const select = vi.fn(async (target: ModelTarget) => {
-      directory.update((snapshot) => { snapshot.current = target })
+      directory.set(state({ current: target }))
       return true
     })
     render(<ModelSelect
@@ -102,10 +102,10 @@ describe('ModelSelect reasoning effort', () => {
     />)
 
     fireEvent.click(screen.getByRole('button', {
-      name: '选择模型，当前 Model，推理等级 服务商默认',
+      name: '选择模型，当前 Model，推理等级 Default',
     }))
     fireEvent.click(screen.getByRole('menuitem', { name: /推理等级/ }))
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
-      .toEqual(['服务商默认', 'Standard'])
+      .toEqual(['Default', 'Standard'])
   })
 })
