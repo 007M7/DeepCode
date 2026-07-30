@@ -796,6 +796,37 @@ describe('mutate (path-addressed writes)', () => {
     expect(ctx.settings.describe().find(d => d.ns === NESTED)!.user).toEqual({ retry: { attempts: 5 } })
   })
 
+  it('edits one leaf of an existing nested object without replacing its siblings', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc: { workspace: { retry: { attempts: 5, delayMs: 250 } } } })
+    ctx.settings.register(NESTED, NestedSchema)
+    await ctx.settings.mutate(NESTED, [{ op: 'set', path: ['retry', 'delayMs'], value: 900 }])
+    expect(ctx.settings.describe().find(d => d.ns === NESTED)!.user)
+      .toEqual({ retry: { attempts: 5, delayMs: 900 } })
+  })
+
+  it('addresses the section itself through the empty path', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored', baseURL: 'https://user' } })
+    await ctx.settings.mutate(KEYED, [{ op: 'set', path: [], value: { reasoning: 'low' } }])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ reasoning: 'low' })
+    await ctx.settings.mutate(KEYED, [{ op: 'unset', path: [] }])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({})
+  })
+
+  it('refuses a non-object at the section root, leaving the stored section alone', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'set', path: [], value: 'a whole section' }]))
+      .rejects.toThrow(/setting the section root requires a plain object/)
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ apiKey: 'sk-stored' })
+  })
+
+  it('rejects ops that are not an array at all', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    await expect(ctx.settings.mutate(KEYED, { op: 'unset', path: ['apiKey'] } as never))
+      .rejects.toThrow(/must be an array of path ops/)
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ apiKey: 'sk-stored' })
+  })
+
   it('rejects a malformed op before anything is queued', async () => {
     const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
     await expect(ctx.settings.mutate(KEYED, [{ op: 'delete' } as never]))
@@ -893,5 +924,57 @@ describe('revision and conflict detection', () => {
     expect(documents).toEqual([['rev', 1]])
     // An editor that opened before the external edit is now refused.
     await expect(ctx.settings.update(REV, { b: 'stale' }, 0)).rejects.toThrow(SettingsConflictError)
+  })
+
+  it('moves the revision past a stored section that was not an object', async () => {
+    // A hand-edited file can leave a namespace holding a scalar. The resolved
+    // value keeps its last good reading, and the repair that follows still has
+    // to announce itself — an open editor is reading a document it cannot see.
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const settings = ctx.settings as unknown as { publish(doc: Record<string, unknown>): void }
+    settings.publish({ rev: 'not a section' })
+    const documents: Array<[string, number]> = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    settings.publish({ rev: { b: 'repaired by hand' } })
+    expect(documents).toEqual([['rev', 1]])
+  })
+
+  it('contains a throwing document listener and keeps the rest of the fan-out running', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const seen: number[] = []
+    ctx.on('settings/document-updated', () => { throw new Error('document listener boom') })
+    ctx.on('settings/document-updated', (_ns, revision) => { seen.push(revision) })
+    await ctx.settings.update(REV, { b: 'one' })
+    await ctx.settings.update(REV, { b: 'two' })
+    expect(seen).toEqual([1, 2])
+  })
+
+  it('contains an async document listener rejection', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    // Same shape as the `settings/updated` case above: the unknown return type
+    // keeps an async listener legal at this file's typed surface while the
+    // runtime value stays the rejected promise the containment guard handles.
+    const boom = (): unknown => Promise.reject(new Error('async document boom'))
+    ctx.on('settings/document-updated', boom)
+    await ctx.settings.update(REV, { b: 'one' })
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.revision).toBe(1)
+    // Give the rejected listener promise a microtask turn; containment means
+    // vitest observes no unhandled rejection out of this test.
+    await new Promise(resolve => setTimeout(resolve, 10))
+  })
+
+  it('propagates an invariant-coded document listener failure instead of containing it', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    ctx.on('settings/document-updated', () => {
+      throw Object.assign(new Error('forged revision'), { code: 'INVARIANT' })
+    })
+    expect(() => {
+      (ctx.settings as unknown as { publish(doc: Record<string, unknown>): void })
+        .publish({ rev: { b: 'edited on disk' } })
+    }).toThrow(/forged revision/)
   })
 })
