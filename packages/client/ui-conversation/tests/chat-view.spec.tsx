@@ -16,7 +16,9 @@ import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ChatViewSlotProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
-import { assistantActionsSeqs, deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
+import {
+  assistantActionsSeqs, deriveChatFlow, flowKeys, withholdActionsTurn,
+} from '../src/client/chat/chat-flow.ts'
 
 afterEach(cleanup)
 // Keyless create() persists under the bare declared key; clear between cases
@@ -155,12 +157,12 @@ describe('chat-flow derivation', () => {
     expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), assistant(4, 'found'), toolResult(5, 'b')]))).toBe('g3|n4|g5')
   })
 
-  it('assistantActionsSeqs keeps only the last content assistant per turn', () => {
+  it('assistantActionsSeqs keeps only the last content assistant per settled turn', () => {
     const thinkOnly: AssistantMessageNode = {
       kind: 'assistant', seq: 3, time: 3_000, turn: 1, step: 2,
       blocks: [{ kind: 'reasoning', text: 'planning' }],
     }
-    const seqs = assistantActionsSeqs([
+    const nodes: ConversationNode[] = [
       user(1, 'hi'),
       assistant(2, 'looking', 1),
       thinkOnly,
@@ -168,8 +170,18 @@ describe('chat-flow derivation', () => {
       assistant(5, 'done', 1),
       user(6, 'again'),
       assistant(7, 'second turn', 2),
-    ])
-    expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
+    ]
+    expect([...assistantActionsSeqs(nodes)].sort((a, b) => a - b)).toEqual([5, 7])
+    // While turn 1 is still running, its tip content must not own the seat.
+    expect([...assistantActionsSeqs(nodes, 1)].sort((a, b) => a - b)).toEqual([7])
+  })
+
+  it('withholdActionsTurn follows partial, then runningCalls, and ignores a bare running bit', () => {
+    expect(withholdActionsTurn(false, { turn: 2 }, [{ turn: 2 }])).toBeNull()
+    expect(withholdActionsTurn(true, { turn: 3 }, [{ turn: 2 }])).toBe(3)
+    expect(withholdActionsTurn(true, null, [{ turn: 2 }])).toBe(2)
+    // Turn accepted but no step output yet: do not strip a prior settled seat.
+    expect(withholdActionsTurn(true, null, [])).toBeNull()
   })
 })
 
@@ -211,7 +223,7 @@ describe('ChatView', () => {
     expect(view.getByText('run a')).toBeTruthy()
   })
 
-  it('shows assistant IconActions only on the last content message of each turn', () => {
+  it('shows assistant IconActions only on the last content message of each settled turn', () => {
     const h = makeHarness({
       nodes: [
         user(1, 'hi'),
@@ -226,6 +238,24 @@ describe('ChatView', () => {
     // 2 user + 2 turn-tail assistants; mid-turn text at seq 2 stays chrome-free.
     expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
     expect(view.getAllByRole('button', { name: '在新对话中分支' })).toHaveLength(4)
+  })
+
+  it('withholds IconActions for a running turn while tools are in flight', () => {
+    const h = makeHarness({
+      running: true,
+      runningCalls: [{ ...runningCall('a'), turn: 2 }],
+      nodes: [
+        user(1, 'first'),
+        assistant(2, 'previous answer', 1),
+        user(3, 'second'),
+        assistant(4, 'mid-turn text', 2),
+      ],
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // 2 user + 1 settled turn-tail; running turn's mid-turn text stays chrome-free.
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(3)
+    expect(view.getByText('mid-turn text')).toBeTruthy()
+    expect(view.getByText('previous answer')).toBeTruthy()
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {

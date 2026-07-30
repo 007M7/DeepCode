@@ -30,7 +30,9 @@ import type {
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { assistantActionsSeqs, deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
+import {
+  assistantActionsSeqs, deriveChatFlow, withholdActionsTurn, type ChatFlowItem,
+} from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
@@ -236,6 +238,9 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
   const running = useSession(s => s.running)
   const runningCalls = useSession(s => s.runningCalls)
+  // Primitive turn (or null): stable across chunk storms so this parent does
+  // not re-render per token the way a partial.blocks subscribe would.
+  const withholdTurn = useSession(s => withholdActionsTurn(s.running, s.partial, s.runningCalls))
   const codeDispatches = useSession(s => s.codeDispatches)
   const openState = useSession(s => s.openState)
   const openErrorMessage = useSession(s => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
@@ -244,9 +249,12 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
   const selectedCallId = useStore(s => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
-  // Only the last content assistant of each turn owns IconActions; mid-turn
-  // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
-  const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
+  // Settled turn-tail content only; a running turn withholds its whole seat so
+  // mid-turn narration does not flash copy/branch/clock while tools run.
+  const actionSeqs = useMemo(
+    () => assistantActionsSeqs(nodes, withholdTurn),
+    [nodes, withholdTurn],
+  )
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)

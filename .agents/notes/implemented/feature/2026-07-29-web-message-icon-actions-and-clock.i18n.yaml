@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-29-web-message-icon-actions-and-clock.md
-2026-07-29-web-message-icon-actions-and-clock.md: f3a5a0caf75627f5f6b37f0e9b9e5e4b5c6ac6c3
-2026-07-29-web-message-icon-actions-and-clock.zh.md: 9c51ec931a2e45a2d19122b7dddd31d1bb9d1299
+2026-07-29-web-message-icon-actions-and-clock.md: b408a3c6d6bf3e0c11764c73c0ea7a859ce0adec
+2026-07-29-web-message-icon-actions-and-clock.zh.md: 4440d6cacd3d2f75d758fa00315a653507c16928

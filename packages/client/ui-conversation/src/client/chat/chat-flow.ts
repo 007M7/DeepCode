@@ -32,15 +32,42 @@ function rendersNothing(node: ConversationNode): boolean {
 }
 
 /**
+ * Turn whose content assistants must stay chrome-free while the turn is still
+ * running. Prefers the streaming partial, else the first in-flight tool call;
+ * returns null when `running` is false or neither signal exists yet (a brand-new
+ * turn before the first step must not strip a prior settled answer's seat).
+ * @param running - snapshot `running` bit.
+ * @param partial - in-flight assistant partial, or null.
+ * @param runningCalls - in-flight tool rows (same turn while tools execute).
+ * @returns Turn to withhold, or null.
+ */
+export function withholdActionsTurn(
+  running: boolean,
+  partial: { turn: number } | null,
+  runningCalls: readonly { turn: number }[],
+): number | null {
+  if (!running) return null
+  if (partial !== null) return partial.turn
+  return runningCalls[0]?.turn ?? null
+}
+
+/**
  * Seq set of assistants that own IconActions: the last content-text assistant
- * in each turn. Mid-turn narration (text before tools) stays chrome-free.
+ * in each *settled* turn. Mid-turn narration and every content assistant of a
+ * still-running turn stay chrome-free (no flash while tools run or the next
+ * step streams).
  * @param nodes - snapshot nodes (surface order).
+ * @param withholdTurn - active turn from {@link withholdActionsTurn}, or null.
  * @returns Seq values ChatView may pass as `time` into AssistantMarkdown.
  */
-export function assistantActionsSeqs(nodes: readonly ConversationNode[]): ReadonlySet<number> {
+export function assistantActionsSeqs(
+  nodes: readonly ConversationNode[],
+  withholdTurn: number | null = null,
+): ReadonlySet<number> {
   const lastByTurn = new Map<number, number>()
   for (const node of nodes) {
     if (node.kind !== 'assistant' || !hasContentText(node.blocks)) continue
+    if (withholdTurn !== null && node.turn === withholdTurn) continue
     lastByTurn.set(node.turn, node.seq)
   }
   return new Set(lastByTurn.values())

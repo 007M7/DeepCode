@@ -1,7 +1,8 @@
-// Web e2e scenario: message IconActions + clocks. Cold-seeds the seeded-history
-// fixture (zero model calls) and pins the settled conversation aria after the
-// user/assistant footers are focus-revealed — the surface package jsdom tests
-// cannot substitute for (docs/testing.md snapshot rule).
+// Web e2e scenario: message IconActions + clocks. Cold-seeds a closed turn that
+// includes mid-turn narration text (so the turn-tail chrome gate is exercised)
+// and pins the settled conversation aria after the user/assistant footers are
+// focus-revealed — the surface package jsdom tests cannot substitute for
+// (docs/testing.md snapshot rule).
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,9 +16,7 @@ import {
 import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/message-actions', import.meta.url))
-// Borrowed read-only: this scenario needs any settled user+assistant pair, not
-// a new recording (workspace-management / sidebar-scrollbar pattern).
-const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
+const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'message-actions-web-e2e'
@@ -37,7 +36,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await writeFile(join(sessionCwd, 'a.txt'), 'alpha\n')
     await writeFile(join(sessionCwd, 'b.txt'), 'beta\n')
     const raw = await readFile(SEED, 'utf8')
-    expect(fixtureUserPrompts(raw), 'borrowed seed must carry the drive prompt').toEqual([PROMPT])
+    expect(fixtureUserPrompts(raw), 'seed must carry the drive prompt').toEqual([PROMPT])
     await seedSession(scaffold, raw, SEED_ID)
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -51,7 +50,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await scaffold?.close()
   })
 
-  it.skipIf(MODE === 'record')('lists the seeded session and reveals user/assistant IconActions', async () => {
+  it.skipIf(MODE === 'record')('lists the seeded session and reveals turn-tail IconActions only', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-actions'))
     const groupRow = page.locator('[role="treeitem"]').first()
     await groupRow.waitFor({ timeout: 15_000 })
@@ -60,15 +59,16 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await sessionRow.waitFor({ timeout: 10_000 })
     await sessionRow.click()
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => page.getByText("I'll read both files.").count(), { timeout: 10_000 }).toBe(1)
 
     // Focus-reveal the footers (hover:hover keeps them opacity-hidden until
-    // hover/focus-within). User has three actions; each turn's last content
-    // assistant has copy + branch.
+    // hover/focus-within). Exactly one user row + one settled turn-tail
+    // assistant: mid-turn narration must not add a third copy control.
     const copyButtons = page.getByRole('button', { name: '复制' })
-    await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
+    await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(2)
     await copyButtons.first().focus()
     await expect.poll(() => page.getByRole('button', { name: '在新对话中分支' }).count(), { timeout: 5_000 })
-      .toBeGreaterThanOrEqual(2)
+      .toBe(2)
     await expect.poll(() => page.getByRole('button', { name: '编辑' }).count(), { timeout: 5_000 }).toBe(1)
   }, 60_000)
 
@@ -88,6 +88,6 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
   it.skipIf(MODE === 'record')('issued zero model calls and kept a closed inventory', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['seed.jsonl', 'ui.expected.md'])
   })
 })
