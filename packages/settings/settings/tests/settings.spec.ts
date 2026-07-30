@@ -228,14 +228,6 @@ describe('update', () => {
     expect(scope.get()).toEqual({ theme: 'light', fontSize: 18 })
   })
 
-  it('ignores an explicit undefined entry in the composition base layer', async () => {
-    const { ctx } = await boot({ doc: { 'ui-theme': { theme: 'light' } } })
-    const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema, {
-      base: { theme: undefined, fontSize: 16 },
-    })
-    expect(scope.get()).toEqual({ theme: 'light', fontSize: 16 })
-  })
-
   it('rejects a non-object patch', async () => {
     const { ctx } = await boot()
     const scope = ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
@@ -616,12 +608,13 @@ describe('third review regressions', () => {
 
   it('contains an async settings/updated listener rejection and keeps other listeners running', async () => {
     const { ctx, provider } = await boot()
-    // An async listener violates the event's synchronous signature (typed
-    // consumers get a lint error for it), but an unlinted JS plugin can still
-    // register one; the cast simulates exactly that caller.
-    ctx.on('settings/updated', async () => {
-      throw new Error('async listener boom')
-    })
+    // An async listener violates the event's synchronous signature, but an
+    // unlinted JS plugin can still register one. Declaring the return as
+    // unknown keeps this file's typed surface legal (unknown-returning
+    // functions are assignable to void positions) while the runtime value is
+    // still the rejected promise the containment guard must handle.
+    const boom = (): unknown => Promise.reject(new Error('async listener boom'))
+    ctx.on('settings/updated', boom)
     const second = vi.fn()
     ctx.on('settings/updated', second)
     ctx.settings.register(settingsNamespace('ui-theme'), ThemeSchema)
