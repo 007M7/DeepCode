@@ -541,6 +541,42 @@ describe('placeholder chrome and control seats', () => {
     expect((view.getByRole('button', { name: 'Enable Full access' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('revokes an open Full access confirmation when the task locks', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view, session } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^Access mode/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('checkbox'))
+    act(() => { session.set(snapshotOf({ removed: true })) })
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(command).not.toHaveBeenCalled()
+  })
+
+  it('resets an open Full access confirmation when switching tasks', () => {
+    const command = vi.fn(() => Promise.resolve(true))
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view, props } = bench({ permissions, command })
+    fireEvent.click(view.getByLabelText(/^Access mode/))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
+    fireEvent.click(view.getByRole('checkbox'))
+    view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />)
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(command).not.toHaveBeenCalled()
+  })
+
   it('a registered entry fills its seat and receives the locked owner prop', () => {
     const { view, slotCalls } = bench({
       disabled: true,

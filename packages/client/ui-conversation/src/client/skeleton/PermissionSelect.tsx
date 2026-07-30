@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PermissionSelect as PermissionSelectValue } from '@deepseek-ai/dsh-permission/client'
-import { Button, IconWarningOutline16, Menu, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './PermissionSelect.module.css'
 
@@ -9,8 +9,9 @@ const FULL_ACCESS = 'danger-full-access'
 /**
  * Display transform: kebab-case machine names render as title-case labels
  * (`workspace-write` → `Workspace Write`); non-kebab host-configured names
- * pass through. Twin of the /permission popup's (client ui-permission) — the
- * two permission surfaces must show the same text.
+ * pass through. Full access intentionally overrides the machine-name
+ * transform so both permission surfaces use the product label `Full access`;
+ * the warning body remains locale-aware.
  */
 function displayName(name: string): string {
   if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) return name
@@ -33,6 +34,13 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
   const [open, setOpen] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [acknowledged, setAcknowledged] = useState(false)
+
+  useEffect(() => {
+    if (!locked && value !== undefined) return
+    setOpen(false)
+    setAcknowledged(false)
+    setConfirmation(null)
+  }, [locked, value])
 
   if (value === undefined) return null
 
@@ -68,7 +76,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
   }
 
   const confirmFullAccess = (): void => {
-    if (!acknowledged || confirmation === null) return
+    if (locked || !acknowledged || confirmation === null) return
     const id = confirmation
     closeConfirmation()
     submit(id)
@@ -99,42 +107,19 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
           </button>
         }
       />
-      <Modal
+      <RiskConfirmation
         open={confirmation !== null}
-        onClose={closeConfirmation}
         title={t('confirm.title')}
-        className={css.confirmation ?? ''}
-        contentClassName={css.confirmationContent ?? ''}
-        footer={(
-          <>
-            <Button variant="outline" className={css.modalAction} onClick={closeConfirmation}>
-              {t('confirm.cancel')}
-            </Button>
-            <Button
-              variant="primary"
-              className={css.confirmAction}
-              disabled={!acknowledged}
-              onClick={confirmFullAccess}
-            >
-              {t('confirm.enable')}
-            </Button>
-          </>
-        )}
-      >
-        <div className={css.warning}>
-          <IconWarningOutline16 size={18} className={css.warningIcon} />
-          <p>{t('confirm.description')}</p>
-        </div>
-        <label className={css.acknowledgement}>
-          <input
-            type="checkbox"
-            checked={acknowledged}
-            autoFocus
-            onChange={(event) => { setAcknowledged(event.currentTarget.checked) }}
-          />
-          <span>{t('confirm.acknowledge')}</span>
-        </label>
-      </Modal>
+        description={t('confirm.description')}
+        acknowledgeLabel={t('confirm.acknowledge')}
+        cancelLabel={t('confirm.cancel')}
+        confirmLabel={t('confirm.enable')}
+        acknowledged={acknowledged}
+        disabled={locked}
+        onAcknowledgedChange={setAcknowledged}
+        onCancel={closeConfirmation}
+        onConfirm={confirmFullAccess}
+      />
     </>
   )
 }

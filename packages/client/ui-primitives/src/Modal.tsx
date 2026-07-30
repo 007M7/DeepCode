@@ -1,9 +1,11 @@
 // Modal: controlled full-viewport dialog (create-workspace and similar).
-// Fixed overlay in the React tree (no react-dom portal) so ui-primitives
-// stays free of a react-dom dependency; mask tokens match figma 451:18655.
+// The overlay portals to this document's body so ancestor stacking contexts
+// cannot leave sticky page controls above the mask. This is still an in-page
+// WebUI dialog; it never creates or targets another browser/native window.
 
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { IconCloseOutline16 } from './icons/index.tsx'
 import css from './Modal.module.css'
@@ -44,7 +46,7 @@ export function Modal({ open, onClose, title, description, children, footer, cla
 
   if (!open) return null
 
-  return (
+  return createPortal((
     <div className={css.root} role="presentation">
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
       <div
@@ -74,5 +76,5 @@ export function Modal({ open, onClose, title, description, children, footer, cla
           )}
       </div>
     </div>
-  )
+  ), document.body)
 }
