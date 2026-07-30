@@ -389,7 +389,13 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    const genericContent = view.card === 'generic' ? view.content ?? this.result?.content : undefined
+    // A generic card carries its UI content on the view; a read card is the same
+    // for the TUI, which has no dedicated read rendering — its `content`
+    // fallback (the envelope-stripped file text) takes the generic dim-Markdown
+    // body, so read output is unchanged from before the read card existed.
+    const genericContent = view.card === 'generic' || view.card === 'read'
+      ? view.content ?? this.result?.content
+      : undefined
     const unknownXml = this.definition === undefined && genericContent !== undefined
       ? renderUnknownXml(
         displayText(contentText(genericContent)),

@@ -21,16 +21,22 @@ buffer
 9| "● Tool / read"
   style 0-12 fg=green
 10| "Read a.txt                                                                                          "
+  style 0-99 dim
 11| "1: alpha                                                                                            "
+  style 0-99 dim
 12| "                                                                                                    "
 13| "(End of file - total 1 lines)                                                                       "
+  style 0-99 dim
 14| <blank>
 15| "● Tool / read"
   style 0-12 fg=green
 16| "Read b.txt                                                                                          "
+  style 0-99 dim
 17| "1: beta                                                                                             "
+  style 0-99 dim
 18| "                                                                                                    "
 19| "(End of file - total 1 lines)                                                                       "
+  style 0-99 dim
 20| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
   style 0-46 dim
 21| <blank>

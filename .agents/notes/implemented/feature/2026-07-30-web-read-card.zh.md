@@ -16,7 +16,7 @@ Status: implemented
 
 read 工具通过 `output.presentationMeta` 投影结构化窗口，这与 write/edit 用来投影其应用 diff hunk 的持久化通道相同（[规范化工具输出契约](../architecture/2026-07-20-canonical-tool-output-contract.md)）。`presentationMeta` 对一次顶层 surface 调用运行一次，返回 `{ path, lines, totalLines, lang? }` 作为会话校验并存储在结果 `meta` 上的 JSON，`presentResult` 在 live 和回放路径上都把该 meta 收窄回 `ReadResultView`。没有这个通道，行数组和总数就无法触及：原始输出对象不在线上，而重新解析 `N: text` 文本既有损又对截断脚注脆弱。
 
-`presentResult` 在以下情况返回 `undefined`——即 generic 回退：meta 缺失或畸形（`readMetaFromMeta` 防御性收窄它，因此回放旧的已记录结果永不抛错）、结果是错误、以及单个文本块不是 read 信封。在成功路径上，它在结构化字段之外携带 `content`（剥信封后的文本），因此不具备 read 能力的 UI（包括当前的 TUI）通过 generic/default card 分支渲染文件文本，与之前完全一致。TUI 的 `renderBody` switch（`packages/ui/tui/src/components/transcript.ts`）不是 `assertNever` 穷尽的：`terminal` 和 `diff` 有分支，其余都落入 generic 分支，该分支读取 `view.content` 与可选的 `title`。`ReadResultView` 原样满足该分支，因此 TUI 无需新代码、输出不变。
+`presentResult` 在以下情况返回 `undefined`——即 generic 回退：meta 缺失或畸形（`readMetaFromMeta` 防御性收窄它，因此回放旧的已记录结果永不抛错）、结果是错误、以及单个文本块不是 read 信封。在成功路径上，它在结构化字段之外携带 `content`（剥信封后的文本），因此不具备 read 能力的 UI（包括当前的 TUI）通过 generic/default card 分支渲染文件文本，与之前完全一致。TUI 的 `renderBody` switch（`packages/ui/tui/src/components/transcript.ts`）不是 `assertNever` 穷尽的：`terminal` 和 `diff` 有分支，其余都落入 generic 分支，该分支读取 `view.content`。仅有该默认分支还不够：`render()` 在一个独立门控上设置 `genericContent`（连同 dim-Markdown 的 `dimBody` 处理），该门控原先只判 `card === 'generic'`，因此 `read` card 虽保留文本却会丢失 dim 样式。现在该门控也接纳 `card: 'read'`，让 `content` 走同一条 dim-Markdown 路径，因此 read 在 TUI 中的渲染与 read card 出现之前完全一致。除这一处门控外，TUI 无需 read 专属代码。
 
 ### 语言提示推导
 
