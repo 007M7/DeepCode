@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-遥测 seam 与 OTel backend（[revival Note](2026-07-23-session-telemetry-otel-revival.zh.md)）自完成以来从未接入任何部署组合：没有 roster 行、没有开关、没有节奏口径，内部部署对用户会话零可观测。需要一个部署决策：哪些 surface 上报、报到哪、什么节奏、怎么关、CI 怎么隔离。
+遥测 seam 与 OTel backend（[revival Note](2026-07-23-session-telemetry-otel-revival.md)）自完成以来从未接入任何部署组合：没有 roster 行、没有开关、没有节奏口径，内部部署对用户会话零可观测。需要一个部署决策：哪些 surface 上报、报到哪、什么节奏、怎么关、CI 怎么隔离。
 
 ## Decision
 
