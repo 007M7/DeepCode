@@ -124,7 +124,9 @@
     "js-yaml": "^4.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-llm-mock-server": "workspace:^",
     "@types/js-yaml": "^4.0.9",
+    "execa": "^10.0.0",
     "node-pty": "1.1.0"
   }
 }
