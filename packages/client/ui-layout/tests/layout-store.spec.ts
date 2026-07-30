@@ -17,9 +17,9 @@ const PERSIST_KEY = 'dsh.layout.panels'
 beforeEach(() => { localStorage.clear() })
 
 describe('createLayoutStore', () => {
-  it('initializes both panels at their default widths', () => {
+  it('initializes the sidebar at its default width and details closed', () => {
     const { store } = createLayoutStore().create()
-    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: DETAILS_DEFAULT })
+    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: 0 })
   })
 
   it('each create() is an independent instance (factory is not a singleton)', () => {
@@ -50,9 +50,8 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().sidebar).toBe(SIDEBAR_DEFAULT)
   })
 
-  it('openDetails is a no-op when already open; closeDetails zeroes', () => {
+  it('openDetails uses the contract default, preserves an open width, and closeDetails zeroes', () => {
     const { store, actions } = createLayoutStore().create()
-    actions.closeDetails()
     actions.openDetails()
     expect(store.getSnapshot().details).toBe(DETAILS_DEFAULT)
     actions.setDetails(500)
@@ -65,13 +64,14 @@ describe('createLayoutStore', () => {
   it('does not persist panel geometry', () => {
     const first = createLayoutStore().create()
     first.actions.setSidebar(400)
-    first.actions.closeDetails()
+    first.actions.openDetails()
+    first.actions.setDetails(500)
     expect(localStorage.getItem(PERSIST_KEY)).toBeNull()
 
     const second = createLayoutStore().create()
     expect(second.store.getSnapshot()).toEqual({
       sidebar: SIDEBAR_DEFAULT,
-      details: DETAILS_DEFAULT,
+      details: 0,
     })
   })
 })
