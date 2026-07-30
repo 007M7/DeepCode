@@ -639,12 +639,12 @@ function assistantSourceBlock(block: AssistantBlock): TrajectorySourceBlock {
       callId: block.callId,
       toolName: block.name,
     }
-    // Durable attachment reference: bytes live behind the session-authorized
-    // loader, so the pure record carries identity, not a fetchable src.
+    // Attachment refs carry no fetchable bytes, so the record shows the
+    // durable metadata instead of an inline preview.
     case 'image': return {
       type: 'image',
-      content: block.attachment.name ?? String(block.attachment.attachmentId),
-      ...(block.alt === undefined ? {} : { imageAlt: block.alt }),
+      content: stringifySourceValue(block.attachment),
+      ...(block.alt !== undefined ? { imageAlt: block.alt } : {}),
     }
     case 'other': return sourceBlock(block.block)
   }

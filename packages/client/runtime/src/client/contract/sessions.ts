@@ -8,7 +8,7 @@
  * explicit act of widening what features may do to the sessions domain.
  */
 import type { Context } from 'cordis'
-import type { HostDescription, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import type { HostObservable, SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   SessionBinding, SessionListState, SessionProvideDescriptor,
@@ -22,11 +22,6 @@ export interface ISessions {
   readonly list: ObservableSnapshot<SessionListState>
   /** Atomic current-session provide projection (the renderer host's `sessions.provideInfo` feed). */
   readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
-  /**
-   * Read the latest successfully received host capability description.
-   * @returns host capabilities, or undefined before the first successful handshake.
-   */
-  hostDescription(): HostDescription | undefined
   /**
    * Select a session as current.
    * @param id - session id (must exist in the list; unknown ids fail loud).

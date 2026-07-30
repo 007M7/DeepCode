@@ -33,7 +33,6 @@ interface HeadlessInvocation {
  * value fails loud at boot). `port` is `Number`-coerced only because the schema
  * wants a number, not a string. `dev` mounts the client HMR driver;
  * `workspaceRoot` is the parent directory for name-created workspaces.
- * `provider` and `model` override the host's default model route.
  */
 interface WebInvocation {
   mode: 'web'
@@ -41,8 +40,6 @@ interface WebInvocation {
   port?: number
   dev: boolean
   workspaceRoot?: string
-  provider?: string
-  model?: string
   /** Extra authorities for the /api browser-trust fence (`host` or `host:port`); LAN IP literals are derived, not listed here. */
   trustedHosts?: string[]
 }
@@ -56,8 +53,6 @@ interface WebOptions {
   port?: string
   dev?: boolean
   workspaceRoot?: string
-  provider?: string
-  model?: string
   trustedHost?: string[]
 }
 
@@ -74,8 +69,6 @@ function resolveWeb(options: WebOptions): WebInvocation {
     ...options.port !== undefined && { port: Number(options.port) },
     dev: options.dev === true,
     ...options.workspaceRoot !== undefined && { workspaceRoot: options.workspaceRoot },
-    ...options.provider !== undefined && { provider: options.provider },
-    ...options.model !== undefined && { model: options.model },
     ...options.trustedHost !== undefined && { trustedHosts: options.trustedHost },
   }
 }
@@ -128,8 +121,6 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .option('--port <port>', 'override the config listen port (0 requests an OS-assigned port)')
     .option('--dev', 'mount the client HMR driver and watch plugin bundles for rebuilds')
     .option('--workspace-root <path>', 'parent directory for name-created workspaces')
-    .option('--provider <name>', 'override the host default provider')
-    .option('--model <id>', 'override the host default model')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
     .action((options: WebOptions) => {
       // Commander parses the parent (default-surface) options on either side of

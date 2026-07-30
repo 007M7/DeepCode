@@ -273,7 +273,7 @@ export interface ComposerBarInjected {
   /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane). */
   keyboard: ComposerKeyboard
   /** Create browser previews and append their ids to the session input state. */
-  addImages: (files: readonly File[], current: readonly ComposerAttachment[]) => string | null
+  addImages: (files: readonly File[]) => string | null
   /** Release one browser preview and remove its id from the session input state. */
   removeImage: (id: string) => void
   /** Resolve ordered input-state ids to browser-owned draft attachments. */

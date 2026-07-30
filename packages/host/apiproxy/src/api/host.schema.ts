@@ -3,14 +3,9 @@
  */
 
 import { z } from 'zod'
-import type { ModelModality } from '@deepseek-ai/dsh-llm'
 import type { DirectoryEntry } from './host.ts'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import { imageMediaTypeSchema } from './sessions.schema.ts'
-
-/** Merge-extensible modality passthrough: declaration merging cannot extend a runtime Zod union. */
-const modalitySchema = z.string() as unknown as z.ZodType<ModelModality>
 
 /** host.describe request payload (empty object literal). */
 export const hostDescribeRequestSchema = z.object({}) satisfies z.ZodType<Wire<RequestPayload<'host.describe'>>>
@@ -21,21 +16,6 @@ export const hostDescribeValueSchema = z.object({
   cwd: z.string(),
   provider: z.string().optional(),
   model: z.string().optional(),
-  activeModel: z.object({
-    provider: z.string(),
-    id: z.string(),
-    name: z.string(),
-    description: z.string().optional(),
-    inputModalities: z.array(modalitySchema).optional(),
-    outputModalities: z.array(modalitySchema).optional(),
-  }).optional(),
-  imageLimits: z.object({
-    maxImageBytes: z.number().int().positive(),
-    maxImagesPerMessage: z.number().int().positive(),
-    maxMessageImageBytes: z.number().int().positive(),
-    maxImagePixels: z.number().int().positive(),
-    mediaTypes: z.array(imageMediaTypeSchema),
-  }).optional(),
   attachedSessions: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.describe'>>>
 
