@@ -143,9 +143,9 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
  * snippet and a date, a source with no title (its hostname labels the link) and
  * a snippet but no date, and a source with a title and a date but no snippet.
  * `truncated` marks the capped indicator. The shape is the contract's own
- * search view minus its wire discriminants and fallback content.
+ * search view minus its wire discriminants.
  */
-const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind' | 'content'> = {
+const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind'> = {
   answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
   sources: [
     {
@@ -168,7 +168,7 @@ const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'sear
 }
 
 /** The `web_fetch` result view for fixture turn 67, authored inline for the same reason. */
-const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind' | 'content'> = {
+const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
   url: 'https://www.deepseek.com/blog/harness-architecture',
   statusCode: 200,
   truncated: false,
@@ -402,14 +402,15 @@ function presentResult(name: string, argsRaw: string, resultText: string): ToolR
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
   // The web tools keep a generic pending card, so their result card is chosen
-  // by tool name rather than by the pending card tag: the structured `web`
-  // card the frontend consumes, with the model-facing text kept as the
-  // capability-less fallback content.
+  // by tool name rather than by the pending card tag: the structured `web` card
+  // the frontend consumes. The view carries no `content` copy (per the contract
+  // and the web-result-card note); a capability-less UI falls back to the raw
+  // `tool/result` content, which this fixture emits from `resultText`.
   if (name === 'web_search') {
-    return { card: 'web', kind: 'search', ...WEB_SEARCH_RESULT, content: text(resultText) }
+    return { card: 'web', kind: 'search', ...WEB_SEARCH_RESULT }
   }
   if (name === 'web_fetch') {
-    return { card: 'web', kind: 'fetch', ...WEB_FETCH_RESULT, content: text(resultText) }
+    return { card: 'web', kind: 'fetch', ...WEB_FETCH_RESULT }
   }
   switch (call.card) {
     case 'terminal':
