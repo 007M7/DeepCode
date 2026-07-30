@@ -12,15 +12,17 @@ Three individually valid behaviors composed into the false impression. A glob wi
 
 ## Decision
 
-A result that fits within `globMaxResults` remains complete and byte-for-byte modification-time ordered. An over-cap result is sampled round-robin across the complete result's top-level entries: every entry receives one slot before any receives a second, exhausted groups drop out, and relative order remains stable within each group. Grouping is relative to the actual search root, including an explicit `path`.
+A result that fits within `globMaxResults` remains complete and byte-for-byte modification-time ordered. The required `sampleOverCapGlobResults` config has no fallback: `false` retains the modification-time head for an over-cap result, while `true` samples round-robin across the complete result's top-level entries. In sampling mode, every entry receives one slot before any receives a second, exhausted groups drop out, relative order remains stable within each group, and grouping is relative to the actual search root, including an explicit `path`.
 
-The footer states that the page is a cross-entry sample rather than the modification-time head, reports how many top-level entries it reaches when that fact adds information, and preserves the complete sorted list in the spill artifact. When more top-level entries exist than inline slots, it tells the model to narrow `path`.
+In sampling mode, the footer states that the page is a cross-entry sample rather than the modification-time head and reports how many top-level entries it reaches when that fact adds information. When more top-level entries exist than inline slots, it tells the model to narrow `path`. Head mode keeps the ordinary capped-result footer. When spill succeeds, both modes preserve the complete sorted list in the artifact.
 
-The prompt and schema also state that a pattern without `/` matches at any depth and that glob returns files, never directory entries. Directory orientation remains ordinary shell work in deployments that expose the model-facing bash tool: use `ls` for one directory, and glob for a named file-path pattern across the tree. `ctx.fs.listDir` remains an internal provider primitive used by skill discovery; this decision adds no model-facing `list` tool.
+The prompt and schema state the configured over-cap ordering, that a pattern without `/` matches at any depth, and that glob returns files, never directory entries. The shipped CLI composition explicitly selects head mode; deployments that want representative capped pages select sampling mode. Directory orientation remains ordinary shell work in deployments that expose the model-facing bash tool: use `ls` for one directory, and glob for a named file-path pattern across the tree. `ctx.fs.listDir` remains an internal provider primitive used by skill discovery; this decision adds no model-facing `list` tool.
 
 ## Alternatives considered
 
-**Keep the modification-time head and only warn about concentration.** Rejected after measuring the failure shape. A warning asks the model to distrust the only paths it received; representative data fixes the answer directly.
+**Keep the modification-time head as the only behavior.** Rejected after measuring the failure shape. Some deployments need the stable ordering, but a deployment that values workspace orientation can explicitly select representative data instead of asking the model to distrust the only paths it received.
+
+**Give the sampling choice a default.** Rejected. No product-wide evidence establishes either ordering as the implicit contract, so every composition selects one and misconfiguration fails at load.
 
 **Sample every result.** Rejected. A complete result loses nothing to truncation, so modification-time order remains useful for age-oriented questions. Sampling begins only when the head stops describing the whole.
 
@@ -36,10 +38,10 @@ The prompt and schema also state that a pattern without `/` matches at any depth
 
 ## Consequences
 
-An over-cap glob page no longer answers age-order questions from its inline paths; its footer says so, and the spill artifact retains the complete sorted view. Sampling balances only the first segment beneath the search root, so a deeper hot subtree can still dominate within one top-level entry.
+A sampling-mode over-cap page no longer answers age-order questions from its inline paths; its footer says so, and the spill artifact retains the complete sorted view. Sampling balances only the first segment beneath the search root, so a deeper hot subtree can still dominate within one top-level entry. Head mode retains the concentration risk as an explicit deployment trade-off.
 
-The tool surface does not grow. The fix changes glob's prompt, schema description, canonical output (`root` records the sampling basis), and over-cap Native rendering while leaving fitting results unchanged.
+The tool surface does not grow. Every composition must set `sampleOverCapGlobResults`; changing it alters glob's prompt, schema description, and over-cap Native rendering. The canonical output keeps `root` so sampling mode can recover its grouping basis, while fitting results remain unchanged.
 
 ## Testing
 
-Package tests pin concentrated and flat results, explicit roots, more groups than the JavaScript argument limit, exhausted groups, fewer slots than groups, and paths outside the workdir. The `fs-glob-sampling` ACP scenario boots a minimal real Loader/app/local-bash composition and executes the real search plugin against a deterministic `rg` process fixture; its result spans four top-level entries instead of returning one subtree's head.
+Package tests pin the required config, both over-cap modes, their prompt and schema descriptions, concentrated and flat results, explicit roots, more groups than the JavaScript argument limit, exhausted groups, fewer slots than groups, and paths outside the workdir. The `fs-glob-sampling` ACP scenario explicitly enables sampling, boots a minimal real Loader/app/local-bash composition, and executes the real search plugin against a deterministic `rg` process fixture; its result spans four top-level entries instead of returning one subtree's head.

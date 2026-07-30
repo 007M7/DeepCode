@@ -111,11 +111,13 @@ class FakeSpill extends SpillStore {
 }
 
 interface SetupOptions {
-  config?: ToolFsSearch.Config
+  config?: Partial<ToolFsSearch.Config>
   spill?: boolean
   probeError?: Error
   probeResult?: BashRunResult
 }
+
+const DEFAULT_CONFIG = { sampleOverCapGlobResults: true } satisfies ToolFsSearch.Config
 
 async function setup(options: SetupOptions = {}) {
   const ctx = new Context()
@@ -128,7 +130,7 @@ async function setup(options: SetupOptions = {}) {
   if (options.probeResult) bash.probeResult = options.probeResult
   if (options.probeError) bash.probeError = options.probeError
   if (options.spill === true) await ctx.plugin(FakeSpill)
-  const fiber = await ctx.plugin(ToolFsSearch, options.config)
+  const fiber = await ctx.plugin(ToolFsSearch, { ...DEFAULT_CONFIG, ...options.config })
   const spill = options.spill === true ? ctx.get('spillStore') as FakeSpill : undefined
   return { ctx, bash, spill, fiber, warnings }
 }
@@ -216,7 +218,7 @@ describe('registration', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
-    await ctx.plugin(ToolFsSearch) // no bash executor
+    await ctx.plugin(ToolFsSearch, DEFAULT_CONFIG) // no bash executor
     expect(ctx.tools.schemas()).toHaveLength(0)
   })
 
@@ -241,9 +243,27 @@ describe('registration', () => {
     expect(ctx.tools.get('glob')?.timeoutMs).toBe(30_000)
     expect(ctx.tools.get('grep')?.timeoutMs).toBe(30_000)
   })
+
+  it('describes the modification-time head when over-cap sampling is disabled', async () => {
+    const { ctx } = await setup({ config: { sampleOverCapGlobResults: false } })
+    const prompt = renderPrompt(await ctx.systemPrompt.assemble())
+    expect(prompt).toContain('a larger one keeps the modification-time-ordered head')
+    expect(prompt).not.toContain('sampled across top-level entries')
+    const glob = ctx.tools.schemas().find(schema => schema.name === 'glob')
+    expect(glob?.description).toContain('a larger result returns the first 100 paths in modification-time order')
+    expect(glob?.description).not.toContain('sampled across top-level entries')
+  })
 })
 
 describe('config validation', () => {
+  it('requires an explicit over-cap glob sampling choice', () => {
+    expect(() => new ToolFsSearch.Config()).toThrow(/sampleOverCapGlobResults/)
+    expect(new ToolFsSearch.Config({ sampleOverCapGlobResults: false })).toMatchObject({
+      sampleOverCapGlobResults: false,
+      globMaxResults: 100,
+    })
+  })
+
   it.each([
     ['globMaxResults', { globMaxResults: 0 }],
     ['grepMaxMatches', { grepMaxMatches: -1 }],
@@ -255,7 +275,7 @@ describe('config validation', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(FakeBash)
-    await expect(ctx.plugin(ToolFsSearch, config)).rejects.toThrow(new RegExp(`tool-fs-search: ${name} must be a positive integer`))
+    await expect(ctx.plugin(ToolFsSearch, { ...DEFAULT_CONFIG, ...config })).rejects.toThrow(new RegExp(`tool-fs-search: ${name} must be a positive integer`))
   })
 })
 
@@ -623,6 +643,16 @@ describe('glob results', () => {
       + '(Showing 3 of 6 paths, sampled across 3 of the 4 top-level entries this pattern matched '
       + 'instead of taken in modification-time order. Narrow path to inspect a specific subtree. '
       + 'The complete result could not be saved; narrow pattern or path to see more.)')
+  })
+
+  it('keeps the modification-time head when over-cap sampling is disabled', async () => {
+    const { ctx, bash } = await setup({
+      config: { globMaxResults: 3, sampleOverCapGlobResults: false },
+    })
+    bash.handler = () => runResult(['vendor/a.ts', 'vendor/b.ts', 'vendor/c.ts', 'src/d.ts', 'guide/e.md'].join('\n'))
+    expect(text(await call(ctx, 'glob', { pattern: '*' }, { agent: agent('/w') })))
+      .toBe('vendor/a.ts\nvendor/b.ts\nvendor/c.ts\n\n'
+        + '(Showing 3 of 5 paths. The complete result could not be saved; narrow pattern or path to see more.)')
   })
 
   it('samples relative to the explicit search root instead of its workdir prefix', async () => {

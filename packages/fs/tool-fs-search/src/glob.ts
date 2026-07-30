@@ -38,6 +38,8 @@ export const GLOB_VCS_EXCLUDES: readonly string[] = ['.git', '.svn', '.hg', '.bz
 
 /** Resolved glob-tool caps — plugin config after defaulting (see `Config` in index.ts). */
 export interface GlobToolCaps {
+  /** Whether over-cap pages are sampled across top-level entries instead of taking the modification-time head. */
+  sampleOverCapGlobResults: boolean
   /** Max paths retained inline; later paths go to the formatted spill file. */
   maxResults: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
@@ -183,24 +185,32 @@ export function sampleAcrossTopLevel(paths: readonly string[], maxItems: number,
  * @returns the model-facing text.
  */
 export function formatGlobOutput(sample: GlobSample, seen: number, spillRef: SpillRef | undefined): string {
-  const body = sample.items.join('\n')
-  const recovery = spillRef !== undefined
-    ? `Full sorted result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
-    : 'The complete result could not be saved; narrow pattern or path to see more.'
   const basis = sample.total === seen
     ? '.'
     : `, sampled across ${sample.shown} of the ${sample.total} top-level entries this pattern matched instead of taken in modification-time order.`
       + (sample.shown < sample.total ? ' Narrow path to inspect a specific subtree.' : '')
-  return `${body}\n\n(Showing ${sample.items.length} of ${seen} paths${basis} ${recovery})`
+  return formatGlobPage(sample.items, seen, spillRef, basis)
+}
+
+/** Format one bounded page and the recovery path for its complete sorted result. */
+function formatGlobPage(items: readonly string[], seen: number, spillRef: SpillRef | undefined, basis: string): string {
+  const body = items.join('\n')
+  const recovery = spillRef !== undefined
+    ? `Full sorted result stored at: ${spillRef.locator}. ${spillRef.retrievalHint}`
+    : 'The complete result could not be saved; narrow pattern or path to see more.'
+  return `${body}\n\n(Showing ${items.length} of ${seen} paths${basis} ${recovery})`
 }
 
 /** Bound and format one canonical path list for the Native surface relative to its search root. */
-function renderGlobPaths(paths: string[], maxResults: number, root: string, spillRef?: SpillRef): string {
+function renderGlobPaths(paths: string[], caps: GlobToolCaps, root: string, spillRef?: SpillRef): string {
   if (paths.length === 0) return 'No files found'
   // A result that fits is shown whole, untouched: modification-time order is the
   // tool's contract, and over a complete result it is what answers age questions.
-  if (paths.length <= maxResults) return paths.join('\n')
-  return formatGlobOutput(sampleAcrossTopLevel(paths, maxResults, root), paths.length, spillRef)
+  if (paths.length <= caps.maxResults) return paths.join('\n')
+  if (!caps.sampleOverCapGlobResults) {
+    return formatGlobPage(paths.slice(0, caps.maxResults), paths.length, spillRef, '.')
+  }
+  return formatGlobOutput(sampleAcrossTopLevel(paths, caps.maxResults, root), paths.length, spillRef)
 }
 
 /**
@@ -222,19 +232,24 @@ export function presentGlobCall(args: { pattern: string; path?: string }): Gener
  * @param caps - the deployment's resolved glob caps (plugin config after defaulting).
  */
 export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
+  const overCapGuidance = caps.sampleOverCapGlobResults
+    ? 'while a larger one is sampled across top-level entries, so it spans the tree instead of one subtree.'
+    : 'while a larger one keeps the modification-time-ordered head.'
   ctx.systemPrompt.section({
     name: 'tool:glob',
     order: 103,
     text: 'Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. '
-      + 'Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level entries, '
-      + 'so it spans the tree instead of one subtree.',
+      + `Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, ${overCapGuidance}`,
   })
 
+  const overCapDescription = caps.sampleOverCapGlobResults
+    ? `a larger result instead returns ${caps.maxResults} paths sampled across top-level entries`
+    : `a larger result returns the first ${caps.maxResults} paths in modification-time order`
   const tool = defineTool({
     name: 'glob',
     description: 'Find files whose paths match a glob pattern. Returns matching file paths — never directories — '
       + 'including hidden and ignored files (VCS metadata directories are excluded). '
-      + `Up to ${caps.maxResults} paths come back in modification-time order; a larger result instead returns ${caps.maxResults} paths sampled across top-level entries, `
+      + `Up to ${caps.maxResults} paths come back in modification-time order; ${overCapDescription}, `
       + 'says so, and reports where the complete sorted list was saved. This tool does not enumerate directory entries.',
     parameters: {
       pattern: {
@@ -255,7 +270,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
           paths: { type: 'array', required: true, items: { type: 'string' } },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps.maxResults, value.root) }],
+      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps, value.root) }],
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
@@ -284,7 +299,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
     const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
     return {
       kind: 'accept',
-      content: [{ type: 'text', text: renderGlobPaths(paths, caps.maxResults, value.root, spillRef) }],
+      content: [{ type: 'text', text: renderGlobPaths(paths, caps, value.root, spillRef) }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }
   })
