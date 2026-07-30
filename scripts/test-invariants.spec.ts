@@ -33,6 +33,28 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
   return { promise, resolve }
 }
 
+function requiredConfig() {
+  return z.object({
+    requiredValue: z.string().required(),
+  })
+}
+
+function invalidConfigApply(): never {
+  throw new Error('invalid plugin apply executed')
+}
+
+async function rejectionOf(fiber: ReturnType<Context['plugin']>): Promise<unknown> {
+  return fiber.then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+}
+
+function expectRequiredConfigValidation(error: unknown): void {
+  expect(error).toBeInstanceOf(ValidationError)
+  expect(error).toHaveProperty('message', expect.stringMatching(/requiredValue/))
+}
+
 async function withFakeCompanions(
   create: (path: string, index: number) => () => Promise<TestInvariantCompanion>,
   run: () => Promise<void>,
@@ -139,31 +161,59 @@ describe('global test invariant host', () => {
 
   it('preserves config validation failures without starting the rejected plugin', async () => {
     const ctx = new Context()
-    const apply = vi.fn(function invalidConfigApply() {
-      throw new Error('invalid plugin apply executed')
-    })
+    const apply = vi.fn(invalidConfigApply)
     const plugin = {
       apply,
-      Config: z.object({
-        requiredValue: z.string().required(),
-      }),
+      Config: requiredConfig(),
     }
 
     const fiber = ctx.plugin(plugin, {})
-    const firstError: unknown = await fiber.then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    expect(firstError).toBeInstanceOf(ValidationError)
-    expect(firstError).toHaveProperty('message', expect.stringMatching(/requiredValue/))
+    const firstError = await rejectionOf(fiber)
+    expectRequiredConfigValidation(firstError)
     await ctx.plugin(TestInvariantProbe)
-    const secondError: unknown = await fiber.then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+    const secondError = await rejectionOf(fiber)
     expect(secondError).toBe(firstError)
     expect(fiber.state).toBe(FiberState.DISPOSED)
     expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('disposes invalid config when readiness refresh wins the rejection-handler race', async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
+        const ctx = new Context()
+        const apply = vi.fn(invalidConfigApply)
+        let disposeQueuedReadiness: (() => void) | undefined
+        const plugin = {
+          apply,
+          Config: z.intersect([
+            z.transform(z.any(), () => {
+              queueMicrotask(() => {
+                disposeQueuedReadiness = ctx.provide(TEST_INVARIANT_READY_SERVICE, true)
+              })
+              return {}
+            }, true),
+            requiredConfig(),
+          ]),
+        }
+
+        const fiber = ctx.plugin(plugin, {})
+        const firstError = await rejectionOf(fiber)
+        expectRequiredConfigValidation(firstError)
+        expect(fiber.state).toBe(FiberState.DISPOSED)
+        expect(apply).not.toHaveBeenCalled()
+
+        await started
+        if (disposeQueuedReadiness === undefined) throw new Error('queued readiness was not published')
+        disposeQueuedReadiness()
+        release()
+        await ctx.plugin(TestInvariantProbe)
+
+        const secondError = await rejectionOf(fiber)
+        expect(secondError).toBe(firstError)
+        expect(fiber.state).toBe(FiberState.DISPOSED)
+        expect(apply).not.toHaveBeenCalled()
+      },
+    )
   })
 
   it('holds a root plugin until every lazy companion is active, then permits nested startup', async () => {
