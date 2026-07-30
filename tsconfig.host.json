@@ -12,6 +12,7 @@
     "apps/web/tests/support.ts",
     "apps/web/tests/live-interactions.e2e.ts",
     "apps/web/tests/question-composer.e2e.ts",
+    "apps/web/tests/plan-review.e2e.ts",
     "apps/web/tests/steering.e2e.ts",
     "apps/web/tests/navigation-panes.e2e.ts",
     "apps/web/tests/lifecycle-chrome.e2e.ts",
