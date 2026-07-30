@@ -31,6 +31,8 @@ export interface GroupNode {
   /** Backing Workspace id; absent only for the ungrouped bucket. */
   workspaceId: WorkspaceId | undefined
   cwd: string | undefined
+  /** Workspace creation time (epoch ms); absent only for the ungrouped bucket. */
+  createdAt: number | undefined
   label: string
   /** Total visible sessions in the group. */
   sessionCount: number
@@ -52,6 +54,7 @@ interface Group {
   key: string
   workspaceId: WorkspaceId | undefined
   cwd: string | undefined
+  createdAt: number | undefined
   label: string
   summaries: Map<SessionId, SessionSummary>
   roots: SessionId[]
@@ -91,6 +94,7 @@ function buildGroup(
   key: string,
   workspaceId: WorkspaceId | undefined,
   cwd: string | undefined,
+  createdAt: number | undefined,
   label: string,
   members: readonly SessionSummary[],
   order: 'account' | 'recency',
@@ -142,7 +146,7 @@ function buildGroup(
   for (const m of members) {
     if (!reachable.has(m.id)) rootIds.push(m.id)
   }
-  return { key, workspaceId, cwd, label, summaries, roots: rootIds, children }
+  return { key, workspaceId, cwd, createdAt, label, summaries, roots: rootIds, children }
 }
 
 /**
@@ -163,7 +167,8 @@ function groupByWorkspace(list: SessionListState, workspaces: readonly Workspace
       members.push(summary)
     }
     groups.push(buildGroup(
-      workspace.workspaceId, workspace.workspaceId, workspace.path, workspace.title, members, 'account',
+      workspace.workspaceId, workspace.workspaceId, workspace.path,
+      Date.parse(workspace.createdAt), workspace.title, members, 'account',
     ))
   }
   const stray = list.ids
@@ -171,7 +176,7 @@ function groupByWorkspace(list: SessionListState, workspaces: readonly Workspace
     .filter((s): s is SessionSummary =>
       s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current))
   if (stray.length > 0) {
-    groups.push(buildGroup(UNGROUPED_KEY, undefined, undefined, UNGROUPED_LABEL, stray, 'recency'))
+    groups.push(buildGroup(UNGROUPED_KEY, undefined, undefined, undefined, UNGROUPED_LABEL, stray, 'recency'))
   }
   return groups
 }
@@ -267,6 +272,7 @@ export function deriveGroups(
         key: g.key,
         workspaceId: g.workspaceId,
         cwd: g.cwd,
+        createdAt: g.createdAt,
         label: g.label,
         sessionCount: g.summaries.size,
         expanded,
@@ -280,6 +286,7 @@ export function deriveGroups(
         key: g.key,
         workspaceId: g.workspaceId,
         cwd: g.cwd,
+        createdAt: g.createdAt,
         label: g.label,
         sessionCount: g.summaries.size,
         expanded: visible.size > 0,
