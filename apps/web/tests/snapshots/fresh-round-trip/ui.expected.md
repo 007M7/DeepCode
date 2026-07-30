@@ -11,7 +11,10 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
+- button "上下文注入":
+  - img
+  - img
+  - text: 上下文注入
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - img
