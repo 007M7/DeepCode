@@ -128,6 +128,25 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
+  it('workspace hover card shows title, directory path, and creation time after the dwell', () => {
+    vi.useFakeTimers()
+    try {
+      const group: GroupNode = {
+        key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
+        sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
+      }
+      render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} />)
+      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(500) })
+      // Card body: full title + cwd + absolute creation time.
+      expect(screen.getAllByText('Project')).toHaveLength(2)
+      expect(screen.getByText('/projects/project')).toBeTruthy()
+      expect(screen.getByText(/^Created /)).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('ungrouped bucket renders no workspace menu', () => {
     const group: GroupNode = {
       key: '', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: 'Ungrouped',

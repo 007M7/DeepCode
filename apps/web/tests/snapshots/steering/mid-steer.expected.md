@@ -18,27 +18,21 @@
 - button:
   - img
   - img
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]}"
+- text: Ask question waiting
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]
-  - text: 1 / 1
-  - button "Previous question" [disabled]:
-    - img
-  - button "Next question" [disabled]:
-    - img
   - button "Dismiss all questions":
     - img
   - radiogroup:
-    - radio "Yes":
-      - text: 1 Yes
-      - img
-    - radio "No":
-      - text: 2 No
-      - img
-    - button "Other — enter a custom answer":
-      - img
-      - text: Other — enter a custom answer
+    - radio "Yes": 1 Yes
+    - radio "No": 2 No
+    - textbox "Type your answer"
+  - button "Previous question" [disabled]:
+    - img
+  - text: 1 / 1
+  - button "Next question" [disabled]:
+    - img
   - status
   - button "Skip this question"
   - button "Submit" [disabled]
