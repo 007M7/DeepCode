@@ -184,6 +184,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
     send: () => {},
+    updateInbox: () => 'not-found',
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

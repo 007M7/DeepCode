@@ -40,3 +40,5 @@ None; this package neither assembles nor sends a provider request.
 - **The sparkle icon for the others tool row is a hand-drawn approximation** — the design glyph's vector geometry is not exportable locally; promotion into ui-primitives waits on an exact export.
 - **The approval panel's "Always allow this type" is deferred** — durable grants need a grant-storage design; only allow-once/reject answer today.
 - **TodoPanel truncates long item text to one ellipsized line** — the figma strip has no wrap or expand affordance; full text is not readable inline.
+- **Queue edit is text-only** — rows containing non-text blocks still show a flattened preview, but their edit control is disabled because the inline editor cannot preserve those blocks. A text row's edit mode replaces delete with save and cancel; Enter saves and Escape cancels. QueueDock exposes no send-now control.
+- **Web exposes pending Queue only** — the Host omits pending steering from the Queue snapshot until steering has its own interaction. A consumed `steering/message` still renders in the durable transcript so external steering remains truthful on replay.
