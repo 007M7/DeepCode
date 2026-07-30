@@ -148,6 +148,8 @@ const AdapterConfig = z.object({
 async function harness(options?: {
   settings?: false | { doc?: Record<string, unknown>; readOnly?: boolean }
   credentials?: false | { shadowed?: string[] }
+  /** Skip the directory registration to exercise a namespace the proxy does not expose. */
+  configurableProviders?: false
 }): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -158,6 +160,13 @@ async function harness(options?: {
   await ctx.plugin(LlmService)
   if (options?.settings !== false) await ctx.plugin(MemorySettings, options?.settings)
   if (options?.credentials !== false) await ctx.plugin(MemoryCredentials, options?.credentials)
+  // The proxy serves only namespaces a configurable provider addresses, which
+  // is what the real LLM plugins declare at load; the tests mirror that.
+  if (options?.configurableProviders !== false) {
+    ctx.llm.registerConfigurableProviders([
+      { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+    ])
+  }
   // Host-stream opener reads the committed-workspace baseline; the stub
   // suffices — the real workspace composition is api-proxy-workspace.spec's.
   ctx.provide('workspace', { list: () => [] } as never)
@@ -213,6 +222,41 @@ describe('settings domain', () => {
     expect(JSON.stringify(value)).not.toContain('user-secret')
   })
 
+  it('serves only namespaces a registered model provider addresses', async () => {
+    // The settings seam is general: any plugin may register a namespace for
+    // its own configuration. The Web configuration plane is not — it is the
+    // model-provider surface, and a namespace nothing in the provider
+    // directory addresses must be invisible and unwritable here, so a future
+    // plugin cannot become remotely configurable just by registering.
+    const ctx = await harness()
+    ctx.settings.register(NS, AdapterConfig)
+    ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
+    const api = createApiProxy(ctx, DEFAULTS)
+
+    const value = expectOk(await api.settings.describe(request({})))
+    expect(value.namespaces.map(view => view.ns)).toEqual(['llm-deepseek'])
+
+    for (const response of [
+      await api.settings.update(request({ ns: 'some-other-plugin', patch: { secretPath: '/etc/shadow' } })),
+      await api.settings.replace(request({ ns: 'some-other-plugin', section: {} })),
+    ]) {
+      const error = expectErr(response)
+      expect(error.code).toBe('settings-not-exposed')
+      expect(error.details).toEqual({ ns: 'some-other-plugin' })
+    }
+    // The write never reached the seam.
+    expect(ctx.settings.describe().find(d => String(d.ns) === 'some-other-plugin')?.value).toEqual({})
+  })
+
+  it('refuses even a model-provider namespace once its directory entry is gone', async () => {
+    const ctx = await harness({ configurableProviders: false })
+    ctx.settings.register(NS, AdapterConfig)
+    const api = createApiProxy(ctx, DEFAULTS)
+    expect(expectOk(await api.settings.describe(request({}))).namespaces).toEqual([])
+    expect(expectErr(await api.settings.update(request({ ns: 'llm-deepseek', patch: { baseURL: 'https://x' } }))).code)
+      .toBe('settings-not-exposed')
+  })
+
   it('updates the user layer, answers with the new redacted view, and broadcasts the frame', async () => {
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig, { base: { baseURL: 'https://base' } })
@@ -238,7 +282,6 @@ describe('settings domain', () => {
 
   it.each([
     ['an invalid namespace name', 'Not A Namespace', {}],
-    ['an unregistered namespace', 'unknown-ns', {}],
     ['a schema-invalid patch', 'llm-deepseek', { baseURL: 42 }],
   ])('rejects %s as settings-rejected', async (_case, ns, patch) => {
     const ctx = await harness()
@@ -247,6 +290,21 @@ describe('settings domain', () => {
     const error = expectErr(await api.settings.update(request({ ns, patch })))
     expect(error.code).toBe('settings-rejected')
     expect(error.details).toEqual({ ns })
+  })
+
+  it('answers an unregistered namespace exactly like an unexposed one', async () => {
+    // Deliberately indistinguishable: separating "does not exist" from
+    // "exists but is not yours to configure" would let a caller enumerate the
+    // registered namespaces one probe at a time.
+    const ctx = await harness()
+    ctx.settings.register(NS, AdapterConfig)
+    ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
+    const api = createApiProxy(ctx, DEFAULTS)
+    const unknown = expectErr(await api.settings.update(request({ ns: 'unknown-ns', patch: {} })))
+    const unexposed = expectErr(await api.settings.update(request({ ns: 'some-other-plugin', patch: {} })))
+    expect(unknown.code).toBe('settings-not-exposed')
+    expect(unexposed.code).toBe(unknown.code)
+    expect(unexposed.message.replace('some-other-plugin', 'unknown-ns')).toBe(unknown.message)
   })
 
   it('maps a read-only provider refusal onto the same rejection', async () => {
@@ -303,7 +361,7 @@ describe('credentials domain', () => {
 
 describe('llm domain', () => {
   it('merges the configurable directory with live routes and appends undeclared ones', async () => {
-    const ctx = await harness()
+    const ctx = await harness({ configurableProviders: false })
     ctx.llm.registerConfigurableProviders([
       { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
       { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },

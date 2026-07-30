@@ -52,6 +52,7 @@ export interface RpcMethodMap {
   'settings.describe': SettingsApi['describe']
   'settings.update': SettingsApi['update']
   'settings.replace': SettingsApi['replace']
+  'settings.mutate': SettingsApi['mutate']
   'credentials.describe': CredentialsApi['describe']
   'credentials.set': CredentialsApi['set']
   'credentials.unset': CredentialsApi['unset']

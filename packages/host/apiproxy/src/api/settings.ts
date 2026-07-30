@@ -34,6 +34,15 @@ export interface SettingsNamespaceView {
   secrets: SettingsSecretView[]
 }
 
+/**
+ * One path-addressed edit carried by `settings.mutate`. `set` writes the
+ * value at the path (creating intermediate objects); `unset` removes it. The
+ * empty path addresses the section root.
+ */
+export type SettingsPathOpView =
+  | { op: 'set'; path: string[]; value: unknown }
+  | { op: 'unset'; path: string[] }
+
 /** Settings-domain unary methods (the map keys settings.* of RpcMethodMap). */
 export interface SettingsApi {
   /**
@@ -60,4 +69,14 @@ export interface SettingsApi {
    * keep) or accept the reset.
    */
   replace(request: RpcRequest<{ ns: string; section: object }>): Promise<RpcResponse<SettingsNamespaceView>>
+
+  /**
+   * Apply path-addressed edits to one namespace's user section, resolved
+   * against the section as stored — NOT against whatever the caller last
+   * read. This is the removal path for any client holding the redacted
+   * descriptor: it names the field it means, so a secret the wire never
+   * returned cannot be deleted as a side effect. `replace` remains the
+   * deliberate wholesale reset.
+   */
+  mutate(request: RpcRequest<{ ns: string; ops: SettingsPathOpView[] }>): Promise<RpcResponse<SettingsNamespaceView>>
 }

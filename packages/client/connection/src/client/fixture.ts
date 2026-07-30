@@ -1545,6 +1545,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         message: 'fixture: no settings namespaces are registered',
         details: { ns: request.payload.ns },
       }),
+      mutate: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: no settings namespaces are registered',
+        details: { ns: request.payload.ns },
+      }),
     },
     credentials: {
       describe: request => ok(request, {
@@ -1668,6 +1673,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'settings.describe': return this.api.settings.describe(request)
       case 'settings.update': return this.api.settings.update(request)
       case 'settings.replace': return this.api.settings.replace(request)
+      case 'settings.mutate': return this.api.settings.mutate(request)
       case 'credentials.describe': return this.api.credentials.describe(request)
       case 'credentials.set': return this.api.credentials.set(request)
       case 'credentials.unset': return this.api.credentials.unset(request)

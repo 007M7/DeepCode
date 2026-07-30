@@ -46,7 +46,7 @@ import {
   goalClearValueSchema,
 } from '../api/goals.schema.ts'
 import {
-  settingsDescribeValueSchema, settingsReplaceValueSchema, settingsUpdateValueSchema,
+  settingsDescribeValueSchema, settingsMutateValueSchema, settingsReplaceValueSchema, settingsUpdateValueSchema,
 } from '../api/settings.schema.ts'
 import {
   credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
@@ -117,6 +117,7 @@ export interface IApiClient {
     describe(payload: RequestPayload<'settings.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.describe'>>>
     update(payload: RequestPayload<'settings.update'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.update'>>>
     replace(payload: RequestPayload<'settings.replace'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.replace'>>>
+    mutate(payload: RequestPayload<'settings.mutate'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.mutate'>>>
   }
   credentials: {
     describe(payload: RequestPayload<'credentials.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'credentials.describe'>>>
@@ -167,6 +168,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'settings.describe': settingsDescribeValueSchema,
   'settings.update': settingsUpdateValueSchema,
   'settings.replace': settingsReplaceValueSchema,
+  'settings.mutate': settingsMutateValueSchema,
   'credentials.describe': credentialsDescribeValueSchema,
   'credentials.set': credentialsSetValueSchema,
   'credentials.unset': credentialsUnsetValueSchema,
@@ -408,6 +410,7 @@ export abstract class AbstractApiClient implements IApiClient {
     describe: (payload, signal) => this.callUnary('settings.describe', payload, signal),
     update: (payload, signal) => this.callUnary('settings.update', payload, signal),
     replace: (payload, signal) => this.callUnary('settings.replace', payload, signal),
+    mutate: (payload, signal) => this.callUnary('settings.mutate', payload, signal),
   }
 
   readonly credentials: IApiClient['credentials'] = {

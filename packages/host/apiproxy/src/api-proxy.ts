@@ -42,7 +42,7 @@ import type {} from '@deepseek-ai/dsh-skill'
 // service reads stay optional (`ctx.get`) so a composition without either
 // provider still serves every other domain.
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import type { SettingsDescriptor, SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsDescriptor, SettingsNamespace, SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
 import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
@@ -1011,15 +1011,38 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   }
 
   /**
+   * The settings namespaces this proxy serves: exactly those a registered
+   * configurable provider addresses. The settings seam itself is general —
+   * any plugin may register a namespace for its own configuration — but the
+   * Web configuration plane is scoped to model providers, and that boundary
+   * has to be enforced here rather than assumed from the current plugin set.
+   * Without it, every future `settings.register()` would silently become
+   * remotely readable and writable configuration.
+   */
+  function exposedNamespaces(): Set<string> {
+    return new Set(ctx.llm.listConfigurableProviders().map(entry => entry.settingsNs))
+  }
+
+  /** Refuse a namespace outside the model-provider boundary, naming why. */
+  function notExposed(request: RpcRequest<unknown>, ns: string): RpcResponse<SettingsNamespaceView> {
+    return err(request, {
+      code: 'settings-not-exposed',
+      message: `settings namespace "${ns}" is not exposed to configuration clients; only a namespace a registered model provider addresses is`,
+      details: { ns },
+    })
+  }
+
+  /**
    * Run one settings write (merge or wholesale replace) and acknowledge with
-   * the namespace's new redacted view. Every seam refusal — unknown or
-   * invalid namespace, read-only provider, schema validation, storage —
-   * becomes one `settings-rejected` carrying the seam's own message.
+   * the namespace's new redacted view. A namespace outside the model-provider
+   * boundary is refused before the seam is touched; every seam refusal —
+   * unknown or invalid namespace, read-only provider, schema validation,
+   * storage — becomes one `settings-rejected` carrying the seam's own message.
    */
   async function settingsWrite(
     request: RpcRequest<unknown>,
     ns: string,
-    mode: 'update' | 'replace',
+    mode: 'update' | 'replace' | 'mutate',
     section: object,
   ): Promise<RpcResponse<SettingsNamespaceView>> {
     const settings = ctx.get('settings')
@@ -1033,11 +1056,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     try {
       branded = settingsNamespace(ns)
     } catch (error: unknown) {
+      // A malformed name is a client bug, reported as such; it could never be
+      // in the exposed set either, so naming the real fault costs no ground.
       return rejected(error)
     }
+    if (!exposedNamespaces().has(ns)) return notExposed(request, ns)
     try {
       if (mode === 'update') await settings.update(branded, section)
-      else await settings.replace(branded, section)
+      else if (mode === 'replace') await settings.replace(branded, section)
+      else await settings.mutate(branded, section as SettingsPathOp[])
     } catch (error: unknown) {
       return rejected(error)
     }
@@ -1632,13 +1659,17 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       describe(request) {
         const settings = ctx.get('settings')
         if (settings === undefined) return Promise.resolve(err(request, settingsAbsent()))
+        const exposed = exposedNamespaces()
         return Promise.resolve(ok(request, {
           writable: settings.writable,
-          namespaces: settings.describe({ redactSecrets: true }).map(namespaceView),
+          namespaces: settings.describe({ redactSecrets: true })
+            .filter(descriptor => exposed.has(String(descriptor.ns)))
+            .map(namespaceView),
         }))
       },
       update: request => settingsWrite(request, request.payload.ns, 'update', request.payload.patch),
       replace: request => settingsWrite(request, request.payload.ns, 'replace', request.payload.section),
+      mutate: request => settingsWrite(request, request.payload.ns, 'mutate', request.payload.ops),
     },
 
     credentials: {

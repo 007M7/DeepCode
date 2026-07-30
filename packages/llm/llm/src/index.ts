@@ -236,17 +236,30 @@ export class LlmService extends Service {
     let invariantFailure: unknown
     for (const listener of this.ctx.events.dispatch('emit', ['llm/adapters-updated']) as Array<() => unknown>) {
       try {
-        listener()
+        const returned = listener()
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          // An emit listener may still be an async function; its rejection
+          // cannot reach the synchronous INVARIANT rethrow below, so it is
+          // contained here instead of becoming an unhandled rejection.
+          void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+            this.warnAdaptersListenerFailure(error)
+          })
+        }
       } catch (error) {
         if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
           invariantFailure ??= error
           continue
         }
-        this.ctx.logger.warn('llm: an llm/adapters-updated listener failed')
-        this.ctx.logger.warn(error)
+        this.warnAdaptersListenerFailure(error)
       }
     }
     if (invariantFailure !== undefined) throw invariantFailure as Error
+  }
+
+  /** Contained-listener diagnostic shared by the sync and async failure paths. */
+  private warnAdaptersListenerFailure(error: unknown): void {
+    this.ctx.logger.warn('llm: an llm/adapters-updated listener failed')
+    this.ctx.logger.warn(error)
   }
 
   /**

@@ -162,6 +162,44 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null
 }
 
+/**
+ * One path-addressed edit to a namespace's user section. Path mutation exists
+ * for a caller holding an INCOMPLETE view of the section — a configuration UI
+ * reads the redacted descriptor, which by construction never received the
+ * `role('secret')` fields. Such a caller can name the field it means without
+ * restating the section: a wholesale `replace` rebuilt from a redacted
+ * document silently deletes every secret the wire never returned.
+ */
+export type SettingsPathOp =
+  | { op: 'set'; path: readonly string[]; value: unknown }
+  | { op: 'unset'; path: readonly string[] }
+
+/** Apply one path op to a detached section, returning the next section. */
+function applyPathOp(section: Record<string, unknown>, op: SettingsPathOp): Record<string, unknown> {
+  const [head, ...rest] = op.path
+  // The empty path addresses the section itself.
+  if (head === undefined) {
+    if (op.op === 'unset') return {}
+    if (!isPlainObject(op.value)) {
+      throw new TypeError('settings mutate: setting the section root requires a plain object')
+    }
+    return { ...op.value }
+  }
+  if (rest.length === 0) {
+    if (op.op === 'set') return { ...section, [head]: op.value }
+    const { [head]: _removed, ...kept } = section
+    return kept
+  }
+  const child = section[head]
+  if (!isPlainObject(child)) {
+    // Unsetting through an absent path is already satisfied; setting through
+    // one creates the intermediate objects it needs.
+    if (op.op === 'unset') return section
+    return { ...section, [head]: applyPathOp({}, { ...op, path: rest }) }
+  }
+  return { ...section, [head]: applyPathOp(child, { ...op, path: rest }) }
+}
+
 /** Human label for a value rejected by the JSON-shape boundary (numbers reject inline). */
 function describeRejected(value: unknown): string {
   if (value === undefined) return 'undefined'
@@ -443,9 +481,32 @@ export abstract class Settings extends Service {
     return this.write(ns, section, 'replace')
   }
 
+  /**
+   * Apply path-addressed edits to one registered namespace's user section,
+   * validate, persist, then commit and emit. The ops are applied to the
+   * section as it stands when the write reaches the front of the queue, so a
+   * caller never has to restate fields it did not touch — and, crucially,
+   * cannot delete fields it never saw. This is the write path for any caller
+   * holding a redacted view; `replace` remains the wholesale reset.
+   * @param ns - the registered namespace to edit.
+   * @param ops - ordered path edits; later ops observe earlier ones.
+   */
+  async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[]): Promise<void> {
+    if (!Array.isArray(ops)) throw new TypeError(`settings mutate for "${ns}" must be an array of path ops`)
+    for (const op of ops) {
+      if (!isPlainObject(op) || (op['op'] !== 'set' && op['op'] !== 'unset')) {
+        throw new TypeError(`settings mutate for "${ns}" ops must be {op:'set'|'unset', path}`)
+      }
+      if (!Array.isArray(op['path']) || (op['path'] as unknown[]).some(part => typeof part !== 'string')) {
+        throw new TypeError(`settings mutate for "${ns}" op paths must be arrays of strings`)
+      }
+    }
+    return this.write(ns, ops, 'mutate')
+  }
+
   /** Validate a write, then queue it on the namespace's serialized write chain. */
-  private write(ns: SettingsNamespace, input: object, mode: 'merge' | 'replace'): Promise<void> {
-    const verb = mode === 'merge' ? 'update' : 'replace'
+  private write(ns: SettingsNamespace, input: object, mode: 'merge' | 'replace' | 'mutate'): Promise<void> {
+    const verb = mode === 'merge' ? 'update' : mode === 'replace' ? 'replace' : 'mutate'
     const registration = this.registrations.get(ns)
     if (registration === undefined) {
       throw new Error(`settings namespace "${ns}" is not registered`)
@@ -456,13 +517,19 @@ export abstract class Settings extends Service {
     if (!this.writable) {
       throw new Error(`settings provider is read-only: "${ns}" cannot be updated in-process`)
     }
-    if (!isPlainObject(input)) {
-      throw new TypeError(`settings ${verb} for "${ns}" must be a plain object`)
+    // A mutate's ops array is wrapped so one JSON-shape walk covers both
+    // shapes; merge/replace carry the section itself.
+    let payload: Record<string, unknown>
+    if (mode === 'mutate') {
+      payload = { ops: input }
+    } else {
+      if (!isPlainObject(input)) throw new TypeError(`settings ${verb} for "${ns}" must be a plain object`)
+      payload = input
     }
     // Snapshot at call time: the queue must never read a caller-owned object
     // the caller may keep mutating while the write waits its turn. The same
     // walk is the JSON-shape boundary check (see cloneJsonShaped).
-    const snapshot = cloneJsonShaped(input, (label, path) =>
+    const snapshot = cloneJsonShaped(payload, (label, path) =>
       new TypeError(`settings ${verb} for "${ns}" must be JSON-shaped data (found ${label} at ${path})`))
     const previous = this.writeQueues.get(ns) ?? Promise.resolve()
     // Chain past a failed predecessor: one rejected write must not poison the
@@ -474,9 +541,14 @@ export abstract class Settings extends Service {
       if (this.registrations.get(ns) !== registration) {
         throw new Error(`settings namespace "${ns}" registration was disposed before the queued ${verb} ran`)
       }
+      // Every mode derives from the section as it stands NOW, at the front of
+      // the queue — never from whatever the caller last saw.
+      const current = this.section(ns) ?? {}
       const section = mode === 'merge'
-        ? mergeLayers(this.section(ns) ?? {}, snapshot) as Record<string, unknown>
-        : snapshot
+        ? mergeLayers(current, snapshot) as Record<string, unknown>
+        : mode === 'replace'
+          ? snapshot
+          : (snapshot['ops'] as SettingsPathOp[]).reduce(applyPathOp, current)
       const next = deepFreeze(this.resolve(registration.schema, registration.base, section))
       await this.persist(ns, section)
       // The write reached storage either way; the cache must say so. Commit

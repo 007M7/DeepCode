@@ -220,16 +220,17 @@ export function apply(ctx: Context, config: Config): void {
   ])
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below.
-  let disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
+  const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
   let registeredPolicy = options().retryPolicy
   const ensureRegistrationFacts = (): void => {
     const policy = options().retryPolicy
     if (deepEqualJson(policy, registeredPolicy)) return
     // The registry captures the retry policy at registration, so it is the one
-    // fact per-request resolution cannot refresh: swap the registration in one
-    // synchronous section (same adapter instance, no NO_ADAPTER window).
-    disposeRoute()
-    disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
+    // fact per-request resolution cannot refresh. `replace` re-reads it in one
+    // synchronous registry section: disposing and re-registering instead would
+    // publish an empty route set between the two, and an observer that reacted
+    // to it would see this provider disappear and come back.
+    registration.replace([PROVIDER])
     registeredPolicy = policy
   }
 

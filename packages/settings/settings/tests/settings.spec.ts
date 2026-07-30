@@ -725,3 +725,89 @@ describe('installSettingsSection', () => {
     expect(changes).toEqual(['user'])
   })
 })
+
+describe('mutate (path-addressed writes)', () => {
+  interface KeyedConfig {
+    apiKey: string
+    baseURL: string
+    reasoning: string
+  }
+
+  const KeyedSchema: z<KeyedConfig> = z.object({
+    apiKey: z.string().role('secret'),
+    baseURL: z.string(),
+    reasoning: z.string(),
+  })
+
+  const KEYED = settingsNamespace('keyed')
+  const NESTED = settingsNamespace('workspace')
+
+  async function mounted(doc: Record<string, unknown>) {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc })
+    ctx.settings.register(KEYED, KeyedSchema)
+    return ctx
+  }
+
+  it('removes one field without touching a secret the caller never saw', async () => {
+    // The data-loss shape this exists to prevent: a configuration UI reads the
+    // REDACTED descriptor (no apiKey), the user resets baseURL, and the client
+    // rebuilds the section from what it holds. A wholesale replace of that
+    // rebuild deletes the stored literal key; a path unset cannot.
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored', baseURL: 'https://user', reasoning: 'high' } })
+    const redacted = ctx.settings.describe({ redactSecrets: true }).find(d => d.ns === KEYED)!
+    expect(redacted.user).toEqual({ baseURL: 'https://user', reasoning: 'high' })
+
+    await ctx.settings.mutate(KEYED, [{ op: 'unset', path: ['baseURL'] }])
+
+    const raw = ctx.settings.describe().find(d => d.ns === KEYED)!
+    expect(raw.user).toEqual({ apiKey: 'sk-stored', reasoning: 'high' })
+  })
+
+  it('applies set and unset in one write, in order', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored', baseURL: 'https://old' } })
+    await ctx.settings.mutate(KEYED, [
+      { op: 'set', path: ['baseURL'], value: 'https://new' },
+      { op: 'set', path: ['reasoning'], value: 'low' },
+      { op: 'unset', path: ['reasoning'] },
+    ])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user)
+      .toEqual({ apiKey: 'sk-stored', baseURL: 'https://new' })
+  })
+
+  it('reads the section as it stands at the front of the queue, not at call time', async () => {
+    // Two concurrent writers: the mutate is issued against the pre-update
+    // section but must observe the update that ran before it.
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    const first = ctx.settings.update(KEYED, { baseURL: 'https://first', reasoning: 'high' })
+    const second = ctx.settings.mutate(KEYED, [{ op: 'unset', path: ['reasoning'] }])
+    await Promise.all([first, second])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user)
+      .toEqual({ apiKey: 'sk-stored', baseURL: 'https://first' })
+  })
+
+  it('creates intermediate objects for a nested set and leaves an absent unset alone', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc: {} })
+    ctx.settings.register(NESTED, NestedSchema)
+    await ctx.settings.mutate(NESTED, [{ op: 'set', path: ['retry', 'attempts'], value: 5 }])
+    expect(ctx.settings.describe().find(d => d.ns === NESTED)!.user).toEqual({ retry: { attempts: 5 } })
+    await ctx.settings.mutate(NESTED, [{ op: 'unset', path: ['missing', 'deep'] }])
+    expect(ctx.settings.describe().find(d => d.ns === NESTED)!.user).toEqual({ retry: { attempts: 5 } })
+  })
+
+  it('rejects a malformed op before anything is queued', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'delete' } as never]))
+      .rejects.toThrow(/must be \{op:'set'\|'unset', path\}/)
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'unset', path: ['a', 1] as never }]))
+      .rejects.toThrow(/op paths must be arrays of strings/)
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ apiKey: 'sk-stored' })
+  })
+
+  it('rejects a value the JSON-shape boundary refuses', async () => {
+    const ctx = await mounted({ keyed: {} })
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'set', path: ['baseURL'], value: new Date() }]))
+      .rejects.toThrow(/must be JSON-shaped data/)
+  })
+})

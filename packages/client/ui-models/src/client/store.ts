@@ -76,6 +76,18 @@ export class ModelsSettingsStore {
   constructor(private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>) {}
 
   /**
+   * Surface a failure from an operation the page ran outside {@link load} —
+   * a row removal — on the same banner a load failure uses.
+   * @param message - the failure text to show.
+   */
+  fail(message: string): void {
+    this.store.update((s) => {
+      s.status = 'error'
+      s.error = message
+    })
+  }
+
+  /**
    * Refresh the whole page snapshot: directory and namespaces in parallel,
    * then one batched credential describe over every referenced ref. A
    * failure keeps the last good rows and surfaces the error.
@@ -125,10 +137,12 @@ export class ModelsSettingsStore {
     const refs = [...new Set(rows.flatMap(row => row.apiKeyEnv === undefined ? [] : [row.apiKeyEnv]))]
     let credentials: Record<string, CredentialView> = {}
     if (refs.length > 0) {
-      const response = await this.api.credentials.describe({ refs })
-      // Credential state is an enrichment: rows render without it, so a
-      // missing credential provider degrades the badge, not the page.
-      if (response.result.ok) credentials = response.result.value.credentials
+      // Credential state is an enrichment: rows render without it, so neither
+      // a business rejection nor a transport failure (disconnect, a request
+      // the host refuses) may fail the load — an escaping rejection would
+      // leave the page stuck in `loading` with no error shown.
+      const response = await this.api.credentials.describe({ refs }).catch(() => undefined)
+      if (response?.result.ok === true) credentials = response.result.value.credentials
     }
     if (generation !== this.generation) return
     this.store.update((s) => {

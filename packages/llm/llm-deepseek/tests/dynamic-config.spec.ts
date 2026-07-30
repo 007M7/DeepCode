@@ -113,9 +113,17 @@ describe('request-level dynamic configuration', () => {
     ])
   })
 
-  it('re-registers the route in place when the captured retry policy changes', async () => {
+  it('re-registers the route in place when the captured retry policy changes, without an empty-registry window', async () => {
     const dir = await home()
     const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+
+    // Observing the topology event, not just the end state: disposing and
+    // re-registering also lands on the right final registry, but publishes an
+    // empty route set in between, so an observer sees the provider disappear.
+    const observed: string[][] = []
+    ctx.on('llm/adapters-updated', () => {
+      observed.push(ctx.llm.listProviders().map(provider => provider.id))
+    })
 
     await ctx.settings.update(NS, {
       retryPolicy: { mode: 'always', backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 } },
@@ -127,6 +135,7 @@ describe('request-level dynamic configuration', () => {
       jitterRatio: 0.2,
     })
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
+    expect(observed).toEqual([['deepseek-official']])
   })
 
   it('keeps the last good options when a settings snapshot fails beyond-schema validation', async () => {
