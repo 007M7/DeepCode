@@ -35,7 +35,7 @@
           X-Deployment: production
 ```
 
-每个字典键都必须存在于 pi-ai 已安装 catalog 中；字典形状使重复项无法表示，发布前的数组形状（每个 profile 携带 `provider` 字段）会加载失败并给出迁移指引。`providers` 也可以为空或整体省略：适配器将以**休眠**姿态挂载——零路由、模型选择器不多一条——一旦 `llm-pi-ai:` settings 分节提供了 profile 就即时注册路由，分节清空时随之撤销。哪些适配器存在归组合面；哪些提供方在运行可以完全交给用户的设置文档。向 `ctx.llm` 注册具有原子性：如果与另一适配器已拥有的任何提供方路由冲突，插件会加载失败，不注册剩余路由。模型 id 不是生命周期配置；未知模型会在发起任何提供方请求前以 `LlmError('UNKNOWN_MODEL')` 失败。
+每个字典键都必须存在于 pi-ai 已安装 catalog 中；字典形状使重复项无法表示，发布前的数组形状（每个 profile 携带 `provider` 字段）会加载失败并给出迁移指引。`providers` 也可以为空或整体省略：适配器将以**休眠**姿态挂载——零路由、模型选择器不多一条——一旦 `llm-pi-ai:` settings 分节提供了 profile 就即时注册路由，分节清空时随之撤销。无论是否休眠，插件都会在可配置提供方目录（`ctx.llm.listConfigurableProviders()`，settings 路径 `providers.<provider>`）中声明每个已安装 catalog 提供方，因此配置界面可以在任何路由存在之前就提供完整 catalog。哪些适配器存在归组合面；哪些提供方在运行可以完全交给用户的设置文档。向 `ctx.llm` 注册具有原子性：如果与另一适配器已拥有的任何提供方路由冲突，插件会加载失败，不注册剩余路由。模型 id 不是生命周期配置；未知模型会在发起任何提供方请求前以 `LlmError('UNKNOWN_MODEL')` 失败。
 
 ## 动态配置（settings + credentials）
 
@@ -112,7 +112,7 @@ pi-ai 事件会变为 harness 推理、文本、工具调用、usage 与 finish 
 ## 已知限制与暂缓事项
 
 - **settings 能新增或覆盖路由，但不能移除组合路由**：用户层合并在组合 `base` 之上，因此删除 `cordis.yml` 提供的提供方属于组合变更；对该 namespace 执行 `replace` 只会重置用户层。
-- **`apiKey` 已在 schema 中标注 `role('secret')`，但尚未在任何地方脱敏**：settings 的 `describe()` 信封原样返回值；负责对 secret 角色字段脱敏的 wire／UI 层将随 settings RPC 面一起交付。
+- **`headers` 可能承载一条脱敏器看不见的凭据**：profile 的 `headers` 是纯字符串字典，因此设在其中的 `Authorization` 或 `api-key` 会被脱敏后的 `describe()` 原样返回，并被任何配置 UI 渲染出来。请把凭据存为 `apiKeyEnv` 引用；把该字典整体改为只写与其余[协议边界工作](../llm/README.md#known-limitations-and-deferred-work)一并暂缓。
 - **必须属于 catalog**：已安装 pi-ai catalog 中不存在的自定义模型 id 会以 `UNKNOWN_MODEL` 失败，即使提供方 profile 配置了自定义端点。
 - **不支持 `GenerateOptions.stop`**：pi-ai 的通用流选项无法保证所有提供方都支持 stop sequence，因此适配器会拒绝该字段。
 - **历史中的 `system` 消息使用 pi-ai 通用上下文转换**：提供方特定位置由 pi-ai 决定，而非由 harness 拥有的协议覆盖决定。

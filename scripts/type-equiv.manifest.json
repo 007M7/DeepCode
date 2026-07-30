@@ -1388,6 +1388,21 @@
       "doc": "docs/core-data-structures/credentials.md",
       "symbol": "CredentialInfo",
       "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsDescribeOptions",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "LlmConfigurableProvider",
+      "source": "packages/llm/llm/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsPathOp",
+      "source": "packages/settings/settings/src/index.ts"
     }
   ]
 }

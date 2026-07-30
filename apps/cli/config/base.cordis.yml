@@ -64,9 +64,10 @@
 
 # Credential store: the live process environment over `$DSH_HOME/.env`
 # (owner-only file, hot-reloaded). Adapters resolve their key references
-# through it at each request, so no key is inlined in this file — and nothing
-# hoists that document into the process environment, which would make every
-# stored key read as an unrotatable ambient override.
+# through it at each request, so no key is inlined in this file. The web
+# Models page's key inputs write it through `credentials.set`; nothing hoists
+# the document into the process environment, which would make every stored key
+# read as an unrotatable ambient override.
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
 
@@ -74,8 +75,9 @@
 # models in the picker) until a `llm-pi-ai:` settings section supplies provider
 # profiles — then those routes register live, keys resolving per request
 # through their apiKeyEnv references, and drop again when the section empties.
-# Which adapters exist is composition; which providers run is the user's
-# settings document.
+# Supplying those profiles is exactly what the web Models page does. Which
+# adapters exist is composition; which providers run is the user's settings
+# document.
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
 

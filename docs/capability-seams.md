@@ -41,6 +41,7 @@ flowchart LR
   pkg_settings["settings"]
   svc_settings["ctx.settings<br/>User-settings seam"]
   pkg_settings_local["settings-local"]
+  pkg_apiproxy["apiproxy"]
   pkg_credentials["credentials"]
   svc_credentials["ctx.credentials<br/>Credential seam"]
   pkg_credentials_local["credentials-local"]
@@ -55,7 +56,6 @@ flowchart LR
   svc_storageDomain["ctx.storageDomain<br/>Domain data facility"]
   pkg_workspace["workspace"]
   svc_workspace["ctx.workspace<br/>Workspace entity registry"]
-  pkg_apiproxy["apiproxy"]
   svc_sessionQuery["ctx.sessionQuery<br/>Session reads, traces, filters, and search"]
   pkg_session_reference["session-reference"]
   pkg_tool_session_query["tool-session-query"]
@@ -263,6 +263,7 @@ flowchart LR
   svc_codeRuntime --> pkg_tools
   svc_commands --> pkg_tui
   svc_compact --> pkg_compact_basic
+  svc_credentials --> pkg_apiproxy
   svc_credentials --> pkg_llm_deepseek
   svc_credentials --> pkg_llm_pi_ai
   svc_directoryPicker --> pkg_apiproxy
@@ -303,6 +304,7 @@ flowchart LR
   svc_sessions --> pkg_session_query
   svc_sessions --> pkg_session_query_sqlite
   svc_sessions --> pkg_subagent_inprocess
+  svc_settings --> pkg_apiproxy
   svc_settings --> pkg_llm_deepseek
   svc_settings --> pkg_llm_pi_ai
   svc_skills --> pkg_tool_skill
@@ -355,8 +357,8 @@ flowchart LR
 | `ctx.invariants` | `core` | [`invariants`](../packages/support/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures. |
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader) | - | Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
-| `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-local`](../packages/settings/settings-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section. |
-| `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request. |
+| `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-local`](../packages/settings/settings-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section; the web gateway serves redacted layered descriptors and writes the user layer. |
+| `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai), `apiproxy` | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request; the web gateway exposes value-free views and write-only storage. |
 | `ctx.telemetry` | `seam` | [`session-telemetry`](../packages/telemetry/session-telemetry) | [`session-telemetry-otel`](../packages/telemetry/session-telemetry-otel) | - | - | The seam captures, redacts, and hands session records to one backend; nothing else consumes the service — its output leaves the process. |
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |

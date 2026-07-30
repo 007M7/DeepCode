@@ -30,7 +30,7 @@ The provider advertises no start-time capabilities (`outputSchema`/`depthLimit`/
 | `command` | required | Executable spawned per run (the child runtime bin or packaged exe). |
 | `args` | `[]` | Command arguments (typically the child's `cordis.yml` path). |
 | `cwd` | parent session cwd | Working-directory override; same validation as [`subagent-acp`](../subagent-acp/README.md). |
-| `provider` | `deepseek` | Provider route sent in the child's `initialize`. |
+| `provider` | `deepseek-official` | Provider route sent in the child's `initialize`. |
 | `model` | `deepseek-v4-flash` | Model sent in the child's `initialize`. |
 | `maxTokens` | provider default | Per-request output-token cap sent in the child's `initialize`; it applies to the child root agent and its in-process descendants. |
 | `env` | `{}` | Explicit child environment layered over a credential-scrubbed parent environment (e.g. the child's own `DEEPSEEK_API_KEY`, or `DSH_CORDIS_CONFIG`). |

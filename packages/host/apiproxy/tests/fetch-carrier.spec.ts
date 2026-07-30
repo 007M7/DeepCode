@@ -43,7 +43,7 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           result: {
             ok: true,
             value: {
-              current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+              current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
               groups: [],
               failures: [],
             },
@@ -170,6 +170,39 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: false, error: { code: 'internal', message: 'stub', details: {} } } }
       },
     },
+    settings: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { writable: true, namespaces: [] } } }
+      },
+      async update(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+      async replace(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+      async mutate(request) {
+        return { rpcId: request.rpcId, result: { ok: false, error: { code: 'settings-rejected', message: 'stub', details: { ns: request.payload.ns } } } }
+      },
+    },
+    credentials: {
+      async describe(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { credentials: {} } } }
+      },
+      async set(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+      async unset(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: {} } }
+      },
+    },
+    llm: {
+      async providers(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { providers: [] } } }
+      },
+      async models(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { groups: [], failures: [] } } }
+      },
+    },
     events: {
       mux: (_request, signal) => stream(muxFrames, signal),
       host: (_request, signal) => stream(hostFrames, signal),
@@ -219,7 +252,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect((await c.sessions.models({ sessionId: 's' as never })).result.ok).toBe(true)
     const selected = await c.sessions.selectModel({
       sessionId: 's' as never,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       reasoningEffort: 'max',
     })
@@ -227,7 +260,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
       ok: true,
       value: {
         selected: {
-          provider: 'deepseek',
+          provider: 'deepseek-official',
           model: 'deepseek-v4-flash',
           reasoningEffort: 'max',
         },

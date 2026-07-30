@@ -106,27 +106,36 @@ describe('request-level dynamic configuration', () => {
     const dir = await home()
     const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
 
-    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
     await ctx.settings.update(NS, { models: [{ id: 'settings-model', name: 'From Settings' }] })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'settings-model', name: 'From Settings' },
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'settings-model', name: 'From Settings' },
     ])
   })
 
-  it('re-registers the route in place when the captured retry policy changes', async () => {
+  it('re-registers the route in place when the captured retry policy changes, without an empty-registry window', async () => {
     const dir = await home()
     const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+
+    // Observing the topology event, not just the end state: disposing and
+    // re-registering also lands on the right final registry, but publishes an
+    // empty route set in between, so an observer sees the provider disappear.
+    const observed: string[][] = []
+    ctx.on('llm/adapters-updated', () => {
+      observed.push(ctx.llm.listProviders().map(provider => provider.id))
+    })
 
     await ctx.settings.update(NS, {
       retryPolicy: { mode: 'always', backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 } },
     })
-    expect(ctx.llm.providerRetryPolicy('deepseek')).toEqual({
+    expect(ctx.llm.providerRetryPolicy('deepseek-official')).toEqual({
       mode: 'always',
       initialDelayMs: 25,
       maxDelayMs: 100,
       jitterRatio: 0.2,
     })
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
+    expect(observed).toEqual([['deepseek-official']])
   })
 
   it('keeps the last good options when a settings snapshot fails beyond-schema validation', async () => {
@@ -136,10 +145,10 @@ describe('request-level dynamic configuration', () => {
     // Schema-valid but resolver-invalid: duplicate catalog ids pass the array
     // schema and fail the explicit resolve step.
     await ctx.settings.update(NS, { models: [{ id: 'dup' }, { id: 'dup' }] })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
     await ctx.settings.update(NS, { models: [{ id: 'recovered' }] })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'recovered', name: 'recovered' },
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'recovered', name: 'recovered' },
     ])
   })
 

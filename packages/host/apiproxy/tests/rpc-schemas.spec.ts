@@ -160,13 +160,13 @@ describe('sessions domain schemas', () => {
     expect(sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }).hasMore).toBe(false)
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
-      current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
       groups: [{
-        id: 'deepseek',
+        id: 'deepseek-official',
         name: 'DeepSeek',
         models: [{
           id: 'deepseek-v4-flash',
@@ -186,12 +186,12 @@ describe('sessions domain schemas', () => {
     }).groups[0]?.models[0]?.id).toBe('deepseek-v4-flash')
     expect(sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     }).reasoningEffort).toBe('max')
     expect(sessionSelectModelValueSchema.parse({
-      selected: { provider: 'deepseek', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
+      selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' },
     }).selected.reasoningEffort).toBe('max')
     expect(() => sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
@@ -200,14 +200,14 @@ describe('sessions domain schemas', () => {
     })).toThrow()
     expect(() => sessionSelectModelRequestSchema.parse({
       sessionId: 's1',
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'm',
       reasoningEffort: '',
     })).toThrow()
     expect(() => sessionModelsValueSchema.parse({
-      current: { provider: 'deepseek', model: 'm' },
+      current: { provider: 'deepseek-official', model: 'm' },
       groups: [{
-        id: 'deepseek',
+        id: 'deepseek-official',
         name: 'DeepSeek',
         models: [{ id: 'm', name: 'M', reasoning: { efforts: [] } }],
       }],

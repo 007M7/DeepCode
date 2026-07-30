@@ -50,6 +50,25 @@ export interface RpcErrorDetailsMap {
   'command-error': {}
   /** A leading-/ prompt named no registered command; the message names the token. */
   'unknown-command': {}
+  /**
+   * A settings write was refused (schema validation, unknown namespace,
+   * read-only provider, or storage failure); the message is the seam's text.
+   */
+  'settings-rejected': { ns: string }
+  /**
+   * A settings namespace exists in the seam but is outside the configuration
+   * plane's model-provider boundary, so this proxy neither reads nor writes
+   * it; the message names the namespace.
+   */
+  'settings-not-exposed': { ns: string }
+  /**
+   * A settings write carried an `expectedRevision` the namespace has already
+   * moved past: another writer (tab, editor, or an external file edit) landed
+   * first. The details carry both revisions so a client can re-read and retry.
+   */
+  'settings-conflict': { ns: string; expected: number; actual: number }
+  /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
+  'credential-rejected': { ref: string }
   'title-invalid': { sessionId: SessionId }
   'fork-unavailable': { sessionId: SessionId }
   'internal': {}

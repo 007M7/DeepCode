@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import z from 'schemastery'
-import { Settings, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
+import { Settings, SettingsConflictError, deepEqualJson, installSettingsSection, settingsNamespace, type SettingsNamespace, type SettingsScope, type SettingsUpdateSource } from '../src/index.ts'
 import { MemorySettings } from './memory.ts'
 
 /** A provider implementing only the three primitives: the seam owns init. */
@@ -755,5 +755,258 @@ describe('installSettingsSection', () => {
     provider.pushExternal({ 'helper-ns': { theme: 'racing' } })
     await unloading
     expect(changes).toEqual(['user'])
+  })
+})
+
+describe('mutate (path-addressed writes)', () => {
+  interface KeyedConfig {
+    apiKey: string
+    baseURL: string
+    reasoning: string
+  }
+
+  const KeyedSchema: z<KeyedConfig> = z.object({
+    apiKey: z.string().role('secret'),
+    baseURL: z.string(),
+    reasoning: z.string(),
+  })
+
+  const KEYED = settingsNamespace('keyed')
+  const NESTED = settingsNamespace('workspace')
+
+  async function mounted(doc: Record<string, unknown>) {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc })
+    ctx.settings.register(KEYED, KeyedSchema)
+    return ctx
+  }
+
+  it('removes one field without touching a secret the caller never saw', async () => {
+    // The data-loss shape this exists to prevent: a configuration UI reads the
+    // REDACTED descriptor (no apiKey), the user resets baseURL, and the client
+    // rebuilds the section from what it holds. A wholesale replace of that
+    // rebuild deletes the stored literal key; a path unset cannot.
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored', baseURL: 'https://user', reasoning: 'high' } })
+    const redacted = ctx.settings.describe({ redactSecrets: true }).find(d => d.ns === KEYED)!
+    expect(redacted.user).toEqual({ baseURL: 'https://user', reasoning: 'high' })
+
+    await ctx.settings.mutate(KEYED, [{ op: 'unset', path: ['baseURL'] }])
+
+    const raw = ctx.settings.describe().find(d => d.ns === KEYED)!
+    expect(raw.user).toEqual({ apiKey: 'sk-stored', reasoning: 'high' })
+  })
+
+  it('applies set and unset in one write, in order', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored', baseURL: 'https://old' } })
+    await ctx.settings.mutate(KEYED, [
+      { op: 'set', path: ['baseURL'], value: 'https://new' },
+      { op: 'set', path: ['reasoning'], value: 'low' },
+      { op: 'unset', path: ['reasoning'] },
+    ])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user)
+      .toEqual({ apiKey: 'sk-stored', baseURL: 'https://new' })
+  })
+
+  it('reads the section as it stands at the front of the queue, not at call time', async () => {
+    // Two concurrent writers: the mutate is issued against the pre-update
+    // section but must observe the update that ran before it.
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    const first = ctx.settings.update(KEYED, { baseURL: 'https://first', reasoning: 'high' })
+    const second = ctx.settings.mutate(KEYED, [{ op: 'unset', path: ['reasoning'] }])
+    await Promise.all([first, second])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user)
+      .toEqual({ apiKey: 'sk-stored', baseURL: 'https://first' })
+  })
+
+  it('creates intermediate objects for a nested set and leaves an absent unset alone', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc: {} })
+    ctx.settings.register(NESTED, NestedSchema)
+    await ctx.settings.mutate(NESTED, [{ op: 'set', path: ['retry', 'attempts'], value: 5 }])
+    expect(ctx.settings.describe().find(d => d.ns === NESTED)!.user).toEqual({ retry: { attempts: 5 } })
+    await ctx.settings.mutate(NESTED, [{ op: 'unset', path: ['missing', 'deep'] }])
+    expect(ctx.settings.describe().find(d => d.ns === NESTED)!.user).toEqual({ retry: { attempts: 5 } })
+  })
+
+  it('edits one leaf of an existing nested object without replacing its siblings', async () => {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc: { workspace: { retry: { attempts: 5, delayMs: 250 } } } })
+    ctx.settings.register(NESTED, NestedSchema)
+    await ctx.settings.mutate(NESTED, [{ op: 'set', path: ['retry', 'delayMs'], value: 900 }])
+    expect(ctx.settings.describe().find(d => d.ns === NESTED)!.user)
+      .toEqual({ retry: { attempts: 5, delayMs: 900 } })
+  })
+
+  it('addresses the section itself through the empty path', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored', baseURL: 'https://user' } })
+    await ctx.settings.mutate(KEYED, [{ op: 'set', path: [], value: { reasoning: 'low' } }])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ reasoning: 'low' })
+    await ctx.settings.mutate(KEYED, [{ op: 'unset', path: [] }])
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({})
+  })
+
+  it('refuses a non-object at the section root, leaving the stored section alone', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'set', path: [], value: 'a whole section' }]))
+      .rejects.toThrow(/setting the section root requires a plain object/)
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ apiKey: 'sk-stored' })
+  })
+
+  it('rejects ops that are not an array at all', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    await expect(ctx.settings.mutate(KEYED, { op: 'unset', path: ['apiKey'] } as never))
+      .rejects.toThrow(/must be an array of path ops/)
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ apiKey: 'sk-stored' })
+  })
+
+  it('rejects a malformed op before anything is queued', async () => {
+    const ctx = await mounted({ keyed: { apiKey: 'sk-stored' } })
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'delete' } as never]))
+      .rejects.toThrow(/must be \{op:'set'\|'unset', path\}/)
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'unset', path: ['a', 1] as never }]))
+      .rejects.toThrow(/op paths must be arrays of strings/)
+    expect(ctx.settings.describe().find(d => d.ns === KEYED)!.user).toEqual({ apiKey: 'sk-stored' })
+  })
+
+  it('rejects a value the JSON-shape boundary refuses', async () => {
+    const ctx = await mounted({ keyed: {} })
+    await expect(ctx.settings.mutate(KEYED, [{ op: 'set', path: ['baseURL'], value: new Date() }]))
+      .rejects.toThrow(/must be JSON-shaped data/)
+  })
+})
+
+describe('revision and conflict detection', () => {
+  const REV = settingsNamespace('rev')
+  const RevSchema: z<{ a: string; b: string }> = z.object({
+    a: z.string().default('base-a'),
+    b: z.string(),
+  })
+
+  async function mounted(doc: Record<string, unknown> = {}) {
+    const ctx = new Context()
+    await ctx.plugin(BareProvider, { doc })
+    return ctx
+  }
+
+  it('refuses a write whose expected revision is stale, leaving the winner in place', async () => {
+    // Two editors open the same namespace, both holding revision 0. The first
+    // to land wins; the second must be told rather than overwrite it.
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const opened = ctx.settings.describe().find(d => d.ns === REV)!.revision
+
+    await ctx.settings.update(REV, { b: 'from-tab-B' }, opened)
+    await expect(ctx.settings.update(REV, { a: 'from-tab-A' }, opened))
+      .rejects.toThrow(/changed since it was read \(expected revision 0, now 1\)/)
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.user).toEqual({ b: 'from-tab-B' })
+  })
+
+  it('carries the machine code and both revisions on the refusal', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    await ctx.settings.update(REV, { b: 'first' })
+    const error = await ctx.settings.update(REV, { b: 'second' }, 0).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SettingsConflictError)
+    expect(error).toMatchObject({ code: 'SETTINGS_CONFLICT', expected: 0, actual: 1 })
+  })
+
+  it('accepts a write that carries no expectation at all', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    await ctx.settings.update(REV, { b: 'one' })
+    await ctx.settings.update(REV, { b: 'two' })
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.revision).toBe(2)
+  })
+
+  it('announces a raw change whose resolved value is unchanged', async () => {
+    // Storing an override equal to the schema default leaves `value` alone but
+    // changes what the document says: the field is now overridden, not
+    // inherited, and another tab has to learn that.
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const documents: Array<[string, number]> = []
+    const resolved: string[] = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    ctx.on('settings/updated', (ns) => { resolved.push(String(ns)) })
+
+    await ctx.settings.update(REV, { a: 'base-a' })
+
+    expect(documents).toEqual([['rev', 1]])
+    expect(resolved).toEqual([])
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.user).toEqual({ a: 'base-a' })
+  })
+
+  it('does not move the revision when a write stores an identical section', async () => {
+    const ctx = await mounted({ rev: { b: 'same' } })
+    ctx.settings.register(REV, RevSchema)
+    const documents: unknown[] = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    await ctx.settings.update(REV, { b: 'same' })
+    expect(documents).toEqual([])
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.revision).toBe(0)
+  })
+
+  it('moves the revision for an external edit the provider publishes', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const documents: Array<[string, number]> = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    ;(ctx.settings as unknown as { publish(doc: Record<string, unknown>): void })
+      .publish({ rev: { b: 'edited on disk' } })
+    expect(documents).toEqual([['rev', 1]])
+    // An editor that opened before the external edit is now refused.
+    await expect(ctx.settings.update(REV, { b: 'stale' }, 0)).rejects.toThrow(SettingsConflictError)
+  })
+
+  it('moves the revision past a stored section that was not an object', async () => {
+    // A hand-edited file can leave a namespace holding a scalar. The resolved
+    // value keeps its last good reading, and the repair that follows still has
+    // to announce itself — an open editor is reading a document it cannot see.
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const settings = ctx.settings as unknown as { publish(doc: Record<string, unknown>): void }
+    settings.publish({ rev: 'not a section' })
+    const documents: Array<[string, number]> = []
+    ctx.on('settings/document-updated', (ns, revision) => { documents.push([String(ns), revision]) })
+    settings.publish({ rev: { b: 'repaired by hand' } })
+    expect(documents).toEqual([['rev', 1]])
+  })
+
+  it('contains a throwing document listener and keeps the rest of the fan-out running', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    const seen: number[] = []
+    ctx.on('settings/document-updated', () => { throw new Error('document listener boom') })
+    ctx.on('settings/document-updated', (_ns, revision) => { seen.push(revision) })
+    await ctx.settings.update(REV, { b: 'one' })
+    await ctx.settings.update(REV, { b: 'two' })
+    expect(seen).toEqual([1, 2])
+  })
+
+  it('contains an async document listener rejection', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    // Same shape as the `settings/updated` case above: the unknown return type
+    // keeps an async listener legal at this file's typed surface while the
+    // runtime value stays the rejected promise the containment guard handles.
+    const boom = (): unknown => Promise.reject(new Error('async document boom'))
+    ctx.on('settings/document-updated', boom)
+    await ctx.settings.update(REV, { b: 'one' })
+    expect(ctx.settings.describe().find(d => d.ns === REV)!.revision).toBe(1)
+    // Give the rejected listener promise a microtask turn; containment means
+    // vitest observes no unhandled rejection out of this test.
+    await new Promise(resolve => setTimeout(resolve, 10))
+  })
+
+  it('propagates an invariant-coded document listener failure instead of containing it', async () => {
+    const ctx = await mounted()
+    ctx.settings.register(REV, RevSchema)
+    ctx.on('settings/document-updated', () => {
+      throw Object.assign(new Error('forged revision'), { code: 'INVARIANT' })
+    })
+    expect(() => {
+      (ctx.settings as unknown as { publish(doc: Record<string, unknown>): void })
+        .publish({ rev: { b: 'edited on disk' } })
+    }).toThrow(/forged revision/)
   })
 })
