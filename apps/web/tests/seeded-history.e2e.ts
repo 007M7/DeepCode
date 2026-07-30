@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { join } from 'node:path'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
@@ -117,6 +119,30 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const toolRows = page.locator('[data-variant], [data-sample]')
     await expect.poll(() => toolRows.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.getByText('a.txt', { exact: false }).count()).toBeGreaterThan(0)
+
+    const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
+    if (agent === undefined) throw new Error('seeded session did not attach an agent')
+    agent.inject(createUserMessage({
+      content: [{
+        type: 'text',
+        text: '<system-reminder>\n'
+          + 'The following workspace instructions may be relevant to your work. '
+          + 'Use them as guidance when applicable.\n\n'
+          + Array.from({ length: 24 }, (_, index) => `Instruction ${index + 1}: preserve the logged context contract.`).join('\n')
+          + '\n</system-reminder>',
+      }],
+      source: {
+        kind: 'workspace-instructions',
+        baseline: true,
+        changes: [{
+          action: 'set',
+          scope: '.\u0000AGENTS.md',
+          path: 'AGENTS.md',
+          digest: 'context-injection-browser-snapshot',
+        }],
+      },
+    }))
+    await page.getByRole('button', { name: '上下文注入' }).waitFor({ timeout: 10_000 })
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
@@ -130,6 +156,58 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+  })
+
+  it.skipIf(MODE === 'record')('matches the Figma context disclosure geometry', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-context-injection'))
+    const disclosure = page.getByRole('button', { name: '上下文注入' })
+    expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
+    const collapsedIcon = disclosure.locator('svg').first()
+    const collapsedIconBox = await collapsedIcon.boundingBox()
+    expect(collapsedIconBox?.width).toBe(14)
+    expect(collapsedIconBox?.height).toBe(14)
+
+    await disclosure.click()
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
+    const body = page.locator('[data-context-injection-body]')
+    await body.waitFor({ timeout: 5_000 })
+    const headerBox = await disclosure.boundingBox()
+    const bodyBox = await body.boundingBox()
+    if (headerBox === null || bodyBox === null) throw new Error('context disclosure geometry is not measurable')
+    expect(headerBox.height).toBe(24)
+    expect(bodyBox.x - headerBox.x).toBe(22)
+    expect(bodyBox.y - headerBox.y - headerBox.height).toBe(4)
+    expect(bodyBox.height).toBe(141)
+
+    const style = await body.evaluate((element) => {
+      const computed = getComputedStyle(element)
+      return {
+        backgroundColor: computed.backgroundColor,
+        borderRadius: computed.borderRadius,
+        color: computed.color,
+        fontSize: computed.fontSize,
+        lineHeight: computed.lineHeight,
+        padding: [
+          computed.paddingTop,
+          computed.paddingRight,
+          computed.paddingBottom,
+          computed.paddingLeft,
+        ],
+        scrolls: element.scrollHeight > element.clientHeight,
+      }
+    })
+    expect(style).toEqual({
+      backgroundColor: 'rgb(249, 250, 251)',
+      borderRadius: '8px',
+      color: 'rgb(129, 133, 140)',
+      fontSize: '11px',
+      lineHeight: '16px',
+      padding: ['10px', '16px', '12px', '12px'],
+      scrolls: true,
+    })
+
+    await disclosure.click()
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('false')
   })
 
   it.skipIf(MODE === 'record')('file-path tool rows rebuilt from the cold log stay details-inert', async () => {
