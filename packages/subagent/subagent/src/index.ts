@@ -13,11 +13,13 @@
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Public operations express caller intent: `start` returns one ready owned run,
- * `startContinuable` starts a Task-backed durable child, and `followup` routes
- * later content without exposing whether the child is live. Provider resume
- * dispatch stays private because only the continuation manager holds the
- * resolved descriptor and authorization facts.
+ * Public operations express caller intent: `start` returns one ready owned
+ * one-shot run, `startContinuable` establishes a durable continuable child, and
+ * `followup` delivers later content without exposing whether the child is
+ * resident. Continuable children never become a {@link SubagentRun}: the
+ * continuation manager holds their `AgentHandle` directly and orders every turn
+ * through the child's own inbox, so providers contribute only the detached
+ * creation spec and see no handle, turn, or teardown.
  *
  * Same-process providers are trusted typed collaborators. Requests, provider
  * descriptors, results, and lifecycle payloads are borrowed immutable values;
@@ -32,36 +34,38 @@ import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {
+  ContinuableCreateRequest,
+  ContinuableCreateSpec,
   SubagentCapabilities,
   SubagentProvider,
-  SubagentProviderResumeRequest,
-  SubagentProviderStartRequest,
   SubagentResult,
   SubagentRun,
   SubagentStartRequest,
 } from './types.ts'
 import { SubagentRunId } from './types.ts'
 import { SubagentError } from './error.ts'
+import { assertSubagentMaxDepth } from './depth.ts'
 import SubagentContinuationManager from './continuation.ts'
 import type {
+  ActivationObserver,
+  ActivationState,
   ContinuableStart,
   ContinuableStartSpec,
+  SubagentAuthority,
   SubagentFollowupOptions,
-  SubagentFollowupResult,
 } from './continuation.ts'
 
 export * from './out-of-process.ts'
 export { SubagentRunId } from './types.ts'
 export type {
+  ContinuableCreateRequest,
+  ContinuableCreateSpec,
   SubagentCapabilities,
-  SubagentContinuation,
   SubagentProvider,
-  SubagentProviderResumeRequest,
-  SubagentProviderStartRequest,
   SubagentResult,
   SubagentRun,
   SubagentStartRequest,
@@ -74,57 +78,27 @@ export {
   SUBAGENT_DESCRIPTOR_VERSION,
 } from './descriptor.ts'
 export type { SubagentDescriptorData, SubagentDescriptorInput } from './descriptor.ts'
+export { seedDescriptorTurn } from './descriptor-seed.ts'
 export { SubagentError } from './error.ts'
-export { settleRun } from './continuation.ts'
+export { settleRun } from './run-settlement.ts'
+export { assertSubagentMaxDepth, delegationDepthOf } from './depth.ts'
+export {
+  applyChildComposition,
+  childSessionMeta,
+  resolveChildAgentOptions,
+  resolveChildDepth,
+  SubagentDepthError,
+} from './child-agent.ts'
+export type { ChildComposition } from './child-agent.ts'
 export type {
+  ActivationObserver,
+  ActivationState,
   ContinuableStart,
   ContinuableStartSpec,
   CoordinatorMessageSource,
+  SubagentAuthority,
   SubagentFollowupOptions,
-  SubagentFollowupResult,
 } from './continuation.ts'
-
-declare module '@deepseek-ai/dsh-agent' {
-  interface AgentOptions {
-    /** Delegation depth: zero for a top-level agent and parent depth + 1 for a child. */
-    subagentDepth?: number
-  }
-}
-
-/**
- * Read an agent's delegation depth, treating absence as top-level depth zero.
- * The persisted session header is authoritative and monotone: runtime
- * `AgentOptions.subagentDepth` may DEEPEN the count but can never lower it —
- * a resumed child arrives with fresh options, and counting it from zero would
- * let it delegate as if it were top-level.
- * @param agent - the agent whose header and options carry the depth.
- * @returns its non-negative safe-integer depth.
- * @throws if the runtime `AgentOptions.subagentDepth` is not a non-negative safe integer.
- */
-export function delegationDepthOf(agent: Agent): number {
-  const runtime = agent.options.subagentDepth
-  if (runtime !== undefined && (!Number.isSafeInteger(runtime) || runtime < 0 || Object.is(runtime, -0))) {
-    throw new TypeError('agent subagentDepth must be a non-negative safe integer')
-  }
-  // The header value was validated at the session boundary (creation and
-  // persistence load both construct through the store).
-  return Math.max(agent.session.header.delegationDepth ?? 0, runtime ?? 0)
-}
-
-/**
- * Reject a recursion cap that cannot represent an exact delegation depth.
- * @param maxDepth - the optional runtime value to validate.
- */
-export function assertSubagentMaxDepth(maxDepth: unknown): void {
-  if (maxDepth !== undefined && (
-    typeof maxDepth !== 'number'
-    || !Number.isSafeInteger(maxDepth)
-    || maxDepth < 0
-    || Object.is(maxDepth, -0)
-  )) {
-    throw new TypeError('subagent maxDepth must be a non-negative safe integer')
-  }
-}
 
 declare module 'cordis' {
   interface Context {
@@ -195,19 +169,18 @@ export interface SubagentRunEndInfo {
   readonly lastAssistantMessage?: ContentBlock[]
 }
 
-/** Named provider registry with raw and Task-backed continuation operations. */
+/** Named provider registry with one-shot runs and continuable-child operations. */
 export class SubagentService extends Service {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
 
   constructor(ctx: Context) {
     super(ctx, 'subagents')
-    ctx.inject(['tasks', 'agents'], (childCtx: Context) => {
-      const manager = new SubagentContinuationManager(
-        childCtx,
-        (name, request) => this.startProvider(name, request),
-        request => this.resumeProvider(request),
-      )
+    ctx.inject(['agents'], (childCtx: Context) => {
+      const manager = new SubagentContinuationManager(childCtx, {
+        prepareContinuable: (name, request) => this.prepareContinuable(name, request),
+        observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
+      })
       this.continuations = manager
       childCtx.effect(() => () => {
         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
@@ -217,34 +190,64 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Start one durable continuable child through a Task-backed initial
-   * activation.
-   * @param spec - provider, Task label, and delegation request.
-   * @returns the stable child id and initial activation Task id.
+   * Establish one durable continuable child and deliver its initial prompt.
+   * Resolves when the child's inbox accepts that prompt, without waiting for the
+   * turn to start or for the message to reach the Session log; any earlier
+   * failure rejects with no ids and rolls back the child entirely.
+   * @param spec - provider, delegation request, and caller cancellation.
+   * @returns the durable child id and the accepted prompt's message id.
+   * @throws when continuation services are unavailable or materialization fails.
    */
-  startContinuable(spec: ContinuableStartSpec): ContinuableStart {
+  startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
     return this.requireContinuations().startContinuable(spec)
   }
 
   /**
-   * Follow up with a continuable child. A live child is steered and fulfillment
-   * confirms request admission; an idle child immediately returns a fresh Task
-   * whose descriptor lookup, authorization, and cold resume may later fail.
-   * @param parent - live direct parent authorizing the operation.
+   * Deliver one later message to a continuable child as its next FIFO turn. A
+   * resident child's Agent inbox accepts it directly (waking a `waiting`
+   * Activation), while an absent one is cold-resumed from its persisted
+   * Session. The Agent inbox is the only queue, so parent and user messages
+   * share one observable order.
+   * @param authority - trusted parent or user authority for this delivery.
    * @param childId - durable child session id.
    * @param content - user-role content to deliver.
-   * @param options - durable attribution and caller cancellation; aborting a
-   *   live-delivery wait cancels the shared activation and awaits quiescence.
-   * @returns the existing steered Task or newly started Task.
-   * @throws when continuation services are unavailable or live delivery is not admitted.
+   * @param options - durable provenance and caller cancellation, which stops the
+   *   operation only before inbox acceptance.
+   * @returns the accepted message's inbox id.
+   * @throws when continuation services are unavailable, authority is rejected,
+   *   or the message was not admitted.
    */
   followup(
-    parent: Agent,
+    authority: SubagentAuthority,
     childId: SessionId,
     content: ContentBlock[],
     options: SubagentFollowupOptions,
-  ): Promise<SubagentFollowupResult> {
-    return this.requireContinuations().followup(parent, childId, content, options)
+  ): Promise<MessageId> {
+    return this.requireContinuations().followup(authority, childId, content, options)
+  }
+
+  /**
+   * Read one durable child's live residency state.
+   * @param childId - durable child session id.
+   * @returns its Activation state, or `undefined` when no Activation is live.
+   * @throws when continuation services are unavailable.
+   */
+  activationState(childId: SessionId): ActivationState | undefined {
+    return this.requireContinuations().activationState(childId)
+  }
+
+  /**
+   * Close continuable admission synchronously, then dispose every live
+   * Activation forest child-first. A host calls this before disposing top-level
+   * agents so no descendant outlives the runtime that owns its teardown.
+   * @returns once every live Activation released its `AgentHandle`.
+   * @throws an aggregate error after all branches settle when any failed.
+   */
+  async drainContinuable(): Promise<void> {
+    const manager = this.continuations
+    // Absent continuation services means nothing was ever materialized.
+    if (manager === undefined) return
+    await manager.drain()
   }
 
   /**
@@ -298,40 +301,32 @@ export class SubagentService extends Service {
    * @param request - child prompt, parent, signal, and optional capabilities.
    * @returns the ready holder-owned run.
    */
-  async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun> {
-    return this.startProvider(name, request)
-  }
-
-  /** Validate and dispatch one ordinary or service-resolved provider start. */
-  private async startProvider(
-    name: string,
-    request: SubagentProviderStartRequest,
-  ): Promise<SubagentRun> {
+  async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
     const provider = this.expectProvider(name)
     this.assertCapabilities(provider, request)
     assertSubagentMaxDepth(request.maxDepth)
     if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
-    if (request.continuation !== undefined && provider.resume === undefined) {
-      throw new SubagentError(
-        `subagent provider "${provider.name}" does not support continuable children (no resume capability)`,
-        'UNSUPPORTED_CAPABILITY',
-      )
-    }
-
     return this.observeRun(name, request.parent, await provider.start(request))
   }
 
-  /** Dispatch one authorized provider resume and observe its run lifecycle. */
-  private async resumeProvider(request: SubagentProviderResumeRequest): Promise<SubagentRun> {
-    const name = request.descriptor.provider
+  /**
+   * Resolve one provider's detached continuable-creation contribution. Method
+   * presence on the provider IS the capability, so a provider without it is
+   * rejected before the manager reserves any child resources.
+   */
+  private async prepareContinuable(
+    name: string,
+    request: ContinuableCreateRequest,
+  ): Promise<ContinuableCreateSpec> {
     const provider = this.expectProvider(name)
-    if (provider.resume === undefined) {
+    if (provider.prepareContinuable === undefined) {
       throw new SubagentError(
-        `subagent provider "${provider.name}" does not support resuming persisted children (no resume capability)`,
+        `subagent provider "${provider.name}" does not support continuable children `
+        + '(no prepareContinuable capability)',
         'UNSUPPORTED_CAPABILITY',
       )
     }
-    return this.observeRun(name, request.parent, await provider.resume(request))
+    return provider.prepareContinuable(request)
   }
 
   /** Look up a provider for dispatch or fail loud. */
@@ -352,6 +347,41 @@ export class SubagentService extends Service {
       )
     }
     return this.continuations
+  }
+
+  /**
+   * Emit the start/end lifecycle pair for one continuable Activation's
+   * residency epoch. Observers see the same vocabulary as a one-shot run, so a
+   * child's start and settlement remain observable without exposing whether the
+   * manager materialized, woke, or cold-resumed it. Creation failure before
+   * residency reports only the terminal edge.
+   */
+  private observeActivation(
+    provider: string,
+    childId: SessionId,
+    parent: Agent | undefined,
+  ): ActivationObserver {
+    const identity = { runId: SubagentRunId(randomUUID()), provider, id: childId, local: true }
+    let started = false
+    let settled = false
+    return {
+      start: (): void => {
+        started = true
+        this.emitLifecycle('subagent/start', identity, parent)
+      },
+      settle: (child: Agent | undefined, failure: unknown): void => {
+        // A failure before residency has no start edge to pair, and inventing
+        // one would report a lifecycle the child never had.
+        if (settled || !started) return
+        settled = true
+        const output = failure === undefined ? lastAssistantOutput(child) : undefined
+        this.emitLifecycle('subagent/end', {
+          ...identity,
+          stopReason: failure === undefined ? 'completed' : 'error',
+          ...output === undefined ? {} : { lastAssistantMessage: output },
+        }, parent)
+      },
+    }
   }
 
   /** Emit the start/end lifecycle pair for one accepted run and return it. */
@@ -385,14 +415,16 @@ export class SubagentService extends Service {
    * Emit lifecycle events with per-listener synchronous and asynchronous
    * exception containment. Payloads are borrowed immutable values.
    */
-  private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo, parent: Agent): void
-  private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo, parent: Agent): void
+  private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo, parent: Agent | undefined): void
+  private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo, parent: Agent | undefined): void
   private emitLifecycle(name: 'subagent/provider-removed', info: string): void
   private emitLifecycle(
     name: 'subagent/start' | 'subagent/end' | 'subagent/provider-removed',
     info: SubagentRunInfo | SubagentRunEndInfo | string,
-    parent?: Agent,
+    parent?: Agent  ,
   ): void {
+    // A user-resumed continuable child has no delegating parent to key the
+    // carrier by, so its lifecycle reaches unscoped listeners globally.
     const dispatchArgs: unknown[] = parent === undefined
       ? [name, info]
       : [scopeTarget(this, parent), name, info]
@@ -425,6 +457,18 @@ export class SubagentService extends Service {
       }
     }
   }
+}
+
+/**
+ * The child's last assistant message content, for one Activation's terminal
+ * lifecycle edge. Absent when no assistant message reached the log.
+ */
+function lastAssistantOutput(child: Agent | undefined): ContentBlock[] | undefined {
+  if (child === undefined) return undefined
+  const message = child.session.events.findLast(
+    (event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message',
+  )
+  return message?.data.message.content
 }
 
 /** Render any listener-thrown value without letting coercion escape containment. */

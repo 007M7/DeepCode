@@ -36,9 +36,9 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `continuable` requires
-   * a provider with persisted resume support and returns both child and Task
-   * ids; follow-up adapters remain independently optional.
+   * Background execution policy (default `one-shot`). `continuable` requires a
+   * provider with the `prepareContinuable` capability and returns the durable
+   * child id; follow-up adapters remain independently optional.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
@@ -197,7 +197,7 @@ export function apply(ctx: Context, config: Config): void {
     const wording = providerWording(provider.inheritsParentContext)
     const backgroundEnabled = config.enableRunInBackground !== false
     const continuable = (config.backgroundMode ?? 'one-shot') === 'continuable'
-    if (continuable && provider.resume === undefined) {
+    if (continuable && provider.prepareContinuable === undefined) {
       throw new Error(
         `tool-subagent: provider "${provider.name}" does not support \`backgroundMode: continuable\``,
       )
@@ -206,9 +206,9 @@ export function apply(ctx: Context, config: Config): void {
       name: config.toolName ?? 'subagent',
       description: wording.description + (backgroundEnabled
         ? continuable
-          ? ' Set `run_in_background: true` to start a continuable background subagent: you receive its'
-          + ' stable subagent id and current task id; collect the result with `task_output` and stop it with'
-          + ' `task_kill`.'
+          ? ' Set `run_in_background: true` to start a background subagent that keeps its conversation:'
+          + ' you receive its subagent id and it works on its own. It does not report back to you, so read'
+          + ' its transcript by that id, or send it more work with `send_message`.'
           : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
@@ -226,8 +226,8 @@ export function apply(ctx: Context, config: Config): void {
           run_in_background: {
             type: 'boolean' as const,
             description: continuable
-              ? 'Run as a continuable background subagent and return its subagent and task ids; '
-              + 'collect with task_output or stop with task_kill.'
+              ? 'Run as a background subagent that keeps its conversation and return its subagent id; '
+              + 'send it more work with send_message.'
               : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},
@@ -241,7 +241,14 @@ export function apply(ctx: Context, config: Config): void {
               properties: {
                 kind: { type: 'string', required: true, const: 'background' },
                 taskId: { type: 'string', required: true },
-                subagentId: { type: 'string' },
+              },
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                kind: { type: 'string', required: true, const: 'continuable' },
+                subagentId: { type: 'string', required: true },
               },
             },
             {
@@ -258,10 +265,10 @@ export function apply(ctx: Context, config: Config): void {
         render: (_args, value) => [{
           type: 'text',
           text: value.kind === 'background'
-            ? value.subagentId === undefined
-              ? `started background subagent task ${value.taskId}`
-              : `started subagent ${value.subagentId} as task ${value.taskId}`
-            : outputValueText(value.output),
+            ? `started background subagent task ${value.taskId}`
+            : value.kind === 'continuable'
+              ? `started subagent ${value.subagentId}`
+              : outputValueText(value.output),
         }],
       },
       async execute(args, exec) {
@@ -288,16 +295,14 @@ export function apply(ctx: Context, config: Config): void {
             throw new Error('run_in_background is disabled for this tool instance (enableRunInBackground: false)')
           }
           if (continuable) {
-            const started = ctx.subagents.startContinuable({
+            // Resolves at inbox acceptance: the child owns its own turns from
+            // there, so this call neither waits for nor collects a result.
+            const started = await ctx.subagents.startContinuable({
               provider: config.provider,
-              label: args.description,
               request,
+              signal: exec.signal,
             })
-            return {
-              kind: 'background' as const,
-              taskId: started.taskId,
-              subagentId: started.childId,
-            }
+            return { kind: 'continuable' as const, subagentId: started.childId }
           }
           const tasks = ctx.get('tasks')
           if (tasks === undefined) {

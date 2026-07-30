@@ -1,34 +1,43 @@
 /**
  * Internal continuable-subagent manager: stable child ids, descriptor
- * persistence and lookup by known child id, Task-backed activation, and
- * steer-or-resume message routing behind `ctx.subagents`.
+ * persistence, activation admission, the live ownership graph, cold resume,
+ * and child-first disposal behind `ctx.subagents`.
  *
- * Every continuable activation — initial or resumed, parent- or human-started
- * — has exactly one Task and one result. Task settlement awaits the child
- * result, disposes the run, and only then records the outcome, so a terminal
- * Task leaves the durable child session but no live child Agent. Cancellation
- * targets the whole activation: parent and human messages that joined one
- * turn share its result and its `killed` outcome.
+ * A continuable child has one durable Session and at most one process-local
+ * {@link Activation} — one residency epoch for a reconstructed child Agent. An
+ * Activation is not a request, result, cancellation, or Task boundary: it may
+ * execute many FIFO turns and stays resident while descendants it created are
+ * still running. The Agent inbox is the only turn queue, so this manager owns
+ * residency while the Agent loop owns all turn ordering and execution. No
+ * continuable path creates a Task or an intermediate result-bearing wrapper.
  *
  * @module @deepseek-ai/dsh-subagent
  */
 
 import { randomUUID } from 'node:crypto'
 import type { Context } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { HarnessError } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
 import type {
-  SubagentProviderResumeRequest,
-  SubagentProviderStartRequest,
-  SubagentResult,
-  SubagentRun,
-  SubagentStartRequest,
-} from './types.ts'
-import type { TaskHooks, TaskId, TaskOutcome } from '@deepseek-ai/dsh-tasks'
+  Agent,
+  AgentHandle,
+  AgentOptions,
+  CreateAgentOptions,
+} from '@deepseek-ai/dsh-agent'
+import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
+import { foldSubagentDescriptor, snapshotSubagentDescriptor } from './descriptor.ts'
+import type { SubagentDescriptorData } from './descriptor.ts'
+import {
+  applyChildComposition,
+  childSessionMeta,
+  resolveChildAgentOptions,
+  resolveChildDepth,
+} from './child-agent.ts'
+import { seedDescriptorTurn } from './descriptor-seed.ts'
+import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentStartRequest } from './types.ts'
 import { SubagentError } from './error.ts'
 
 /** Attribution for a model coordinator's follow-up to one of its children. */
@@ -44,197 +53,251 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
+/**
+ * Who authorizes one continuable-subagent operation. Authority comes from a
+ * trusted host interaction or an exact live Agent tool context; durable
+ * {@link MessageSource} provenance never authorizes delivery.
+ */
+export type SubagentAuthority =
+  /** The exact live parent Agent whose tool context is making the call. */
+  | { readonly kind: 'parent'; readonly agent: Agent }
+  /** A trusted host adapter acting for the human user. */
+  | { readonly kind: 'user' }
+
 /** What a caller asks for when starting a continuable background child. */
 export interface ContinuableStartSpec {
-  /** The `ctx.subagents` provider to establish the child on. */
+  /** The `ctx.subagents` provider whose continuable-creation capability establishes the child. */
   readonly provider: string
-  /** One-line model-facing Task label (the delegation description). */
-  readonly label: string
   /**
-   * The delegation request. The service resolves the stable child id and the
-   * durable descriptor, then supplies the Task-owned cancellation signal and
-   * `continuation` itself.
+   * The delegation request. The manager reserves the stable child id, resolves
+   * the durable descriptor, and composes the child itself.
    */
-  readonly request: Omit<SubagentStartRequest, 'signal'>
+  readonly request: Omit<SubagentStartRequest, 'signal' | 'outputSchema'>
+  /** Caller cancellation, owning the operation only until inbox acceptance. */
+  readonly signal: AbortSignal
 }
 
-/** Identities returned by a continuable start. */
+/** Identities returned once a continuable child accepted its initial prompt. */
 export interface ContinuableStart {
   /** The durable child session id, stable across activations. */
   readonly childId: SessionId
-  /** The initial activation's Task id. */
-  readonly taskId: TaskId
+  /** The accepted initial prompt's inbox message id. */
+  readonly messageId: MessageId
 }
 
-/**
- * Options for following up with one continuable child.
- */
+/** Options for following up with one continuable child. */
 export interface SubagentFollowupOptions {
-  /** Durable attribution retained on either live or resumed delivery. */
+  /** Durable attribution retained on the delivered message; it grants no authority. */
   readonly source: MessageSource
-  /** Caller cancellation for a live-delivery admission wait. */
+  /** Caller cancellation, owning the operation only until inbox acceptance. */
   readonly signal: AbortSignal
 }
 
 /**
- * How a continuable follow-up was routed:
- * `steered` joined the running activation's existing Task without creating a
- * Task of its own; `started` created a fresh Task that cold-resumes the
- * durable child with the content. Failure is an exception, never a result —
- * undelivered content throws.
+ * The public residency state of one continuable child, derived from Agent
+ * quiescence and the owned-child set rather than a second state machine:
+ * `running` — the Agent has an active admission or turn, or waking inbox work;
+ * `waiting` — the Agent is quiescent but still owns undisposed children;
+ * `settled` — quiescent with every owned child disposed, so the manager
+ * disposes the `AgentHandle` and removes the Activation.
  */
-export type SubagentFollowupResult =
-  | { readonly route: 'steered'; readonly taskId: TaskId }
-  | { readonly route: 'started'; readonly taskId: TaskId }
-
-type StartProvider = (name: string, request: SubagentProviderStartRequest) => Promise<SubagentRun>
-type ResumeProvider = (request: SubagentProviderResumeRequest) => Promise<SubagentRun>
+export type ActivationState = 'running' | 'waiting' | 'settled'
 
 /**
- * One child's current process-local activation: its Task and, after provider
- * publication, its run. Installed before any provider or persistence await
- * and removed only after run disposal and Task terminal publication. This
- * exists solely so parent and human senders can find the same activation — it
- * is not a durable catalog, admission reservation, or run-state machine.
+ * Lifecycle observer for one Activation's residency epoch, so continuable
+ * children emit the same start/end pair as one-shot runs.
  */
-interface ActiveActivation {
-  /** Assigned in the same synchronous frame as the install, when the Task registers. */
-  taskId: TaskId | undefined
-  /** Filled when the provider publishes; `undefined` while starting or resuming. */
-  run: SubagentRun | undefined
-  /** The activation-owned cancellation authority, created before any await. */
-  readonly controller: AbortController
-  /** The producer's settlement (run disposed, outcome produced); assigned when the Task registers. */
-  done: Promise<TaskOutcome> | undefined
-  /** Resolved by the completion listener when the Task's terminal snapshot is recorded. */
-  readonly terminal: PromiseWithResolvers<void>
+export interface ActivationObserver {
+  /** Publish the start edge once the epoch is resident. */
+  start(): void
+  /**
+   * Publish the terminal edge exactly once. An epoch that never became resident
+   * emits nothing, because it has no start edge to pair.
+   * @param child - the child agent whose final output the edge reports, if any.
+   * @param failure - the teardown or durability failure, or `undefined` on success.
+   */
+  settle(child: Agent | undefined, failure: unknown): void
+}
+
+/** Hooks the manager needs from the owning service. */
+export interface ContinuationHost {
+  /**
+   * Resolve one provider's continuable-creation contribution, or reject when
+   * the provider is unknown or lacks the capability.
+   * @param name - the configured provider name.
+   * @param request - the reserved identity, delegating parent, and cancellation.
+   * @returns the provider's detached creation spec.
+   */
+  prepareContinuable(name: string, request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
+  /**
+   * Build the lifecycle observer for one Activation's residency epoch.
+   * @param provider - the provider name recorded in the durable descriptor.
+   * @param childId - the durable child session id.
+   * @param parent - the delegating parent for scoped dispatch, if any.
+   * @returns the observer whose edges this epoch publishes.
+   */
+  observeActivation(provider: string, childId: SessionId, parent: Agent | undefined): ActivationObserver
 }
 
 /**
- * Map a child result to the task outcome: completed carries final text,
- * aborted is killed, and every other reason is failed without partial output.
- * @param result - child terminal result.
- * @returns outcome for the `ctx.tasks` registration.
+ * One residency epoch for a reconstructed continuable child Agent. It directly
+ * owns the published `AgentHandle`; the manager's private activation-owner
+ * scope is its structural Cordis owner.
  */
-function runOutcome(result: SubagentResult): TaskOutcome {
-  switch (result.stopReason) {
-    case 'completed':
-      return { status: 'completed', output: finalText(result.output) }
-    case 'aborted':
-      return { status: 'killed' }
-    case 'error':
-    case 'max-tokens':
-    case 'refusal':
-      return { status: 'failed', detail: result.stopReason }
-    // Merge-extensible reasons remain failures with their raw detail.
-    default:
-      return { status: 'failed', detail: String(result.stopReason) }
+interface Activation {
+  /** The durable child this Activation is an epoch of. */
+  readonly childId: SessionId
+  /** The provider name recorded in the durable descriptor. */
+  readonly provider: string
+  /** The retained live Agent handle, disposed exactly once at settlement. */
+  readonly handle: AgentHandle
+  /**
+   * Session ids of the child Activations this one owns. Because one Session has
+   * at most one live Activation, the id identifies the live child without
+   * another runtime-incarnation reference. Non-empty blocks settlement.
+   */
+  readonly ownedChildren: Set<SessionId>
+  /** The lifecycle observer that emits this epoch's start and terminal edges. */
+  readonly observer: ActivationObserver
+  /**
+   * The memoized disposal transaction. Presence IS the admission cutoff: it is
+   * assigned synchronously when disposal begins, so no delivery can join a
+   * handle being torn down, and a racing delivery awaits it before cold-resuming
+   * a new Activation. Every converging releaser shares this one teardown.
+   */
+  disposal: Promise<void> | undefined
+  /** Renewed whenever a settlement watcher must re-observe quiescence. */
+  poke: PromiseWithResolvers<void>
+}
+
+/**
+ * Read one Activation's current disposal transaction. This indirection exists
+ * because a mutable field read inside a long-lived closure narrows to its
+ * last-seen value, which would flatten these genuine runtime checks to
+ * constants.
+ * @param activation - the Activation to inspect.
+ * @returns the in-flight or settled disposal, or `undefined` while resident.
+ */
+function disposalOf(activation: Activation): Promise<void> | undefined {
+  return activation.disposal
+}
+
+/** Whether one settlement attempt opened the disposal transaction. */
+type SettlementAttempt =
+  | { readonly settling: false }
+  | { readonly settling: true; readonly done: Promise<void> }
+
+/** Serialize each durable child's delivery, release, and disposal. */
+class ChildLock {
+  private tails = new Map<SessionId, Promise<unknown>>()
+
+  /**
+   * Run `operation` after every previously queued operation for `childId`.
+   * @param childId - the durable child whose operations are linearized.
+   * @param operation - the critical section to run in order.
+   * @returns the operation's own settlement.
+   */
+  run<T>(childId: SessionId, operation: () => Promise<T>): Promise<T> {
+    const previous = this.tails.get(childId) ?? Promise.resolve()
+    const result = previous.then(operation, operation)
+    // Absorb rejections in the chaining tail so one failed critical section
+    // cannot reject an unrelated later caller.
+    const tail = result.then(() => undefined, () => undefined)
+    this.tails.set(childId, tail)
+    void tail.then(() => {
+      if (this.tails.get(childId) === tail) this.tails.delete(childId)
+    })
+    return result
   }
 }
 
-/** Render infrastructure failure detail without hiding a durability diagnosis. */
-function runFailureDetail(error: unknown): string {
-  return error instanceof HarnessError && error.code === 'DURABILITY_FAILED'
-    ? error.message
-    : String(error)
-}
-
 /**
- * Await the child result, dispose the run, then return its task outcome. Result
- * and disposal failures become `failed`; when both fail, both details survive.
- * @param run - live run to settle and release.
- * @returns outcome after child resources are released.
- */
-export async function settleRun(run: SubagentRun): Promise<TaskOutcome> {
-  let outcome: TaskOutcome
-  try {
-    outcome = runOutcome(await run.result)
-  } catch (error: unknown) {
-    outcome = { status: 'failed', detail: runFailureDetail(error) }
-  }
-  try {
-    await run.dispose()
-  } catch (error: unknown) {
-    const prefix = outcome.detail === undefined ? '' : `${outcome.detail}; `
-    return { status: 'failed', detail: `${prefix}dispose failed: ${String(error)}` }
-  }
-  return outcome
-}
-
-/** Flatten a child's final output blocks to the task's final text. */
-function finalText(blocks: ContentBlock[]): string {
-  return blocks
-    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
-    .map(block => block.text)
-    .join('')
-}
-
-/**
- * The continuable-subagent orchestration service. Tool schema and UI adapters
- * are consumers of this one contract: parent and human messages route through
- * {@link followup} and share one activation result and cancellation
- * boundary, while foreground one-shot delegation keeps calling
- * `ctx.subagents.start()` directly.
+ * The continuable-subagent orchestration service behind `ctx.subagents`. Tool
+ * schema and host adapters are consumers of this one contract; foreground
+ * one-shot delegation keeps calling `ctx.subagents.start()` and never enters
+ * this lifecycle.
  */
 export class SubagentContinuationManager {
-  /** Child session id → its current activation. Process-local, never durable. */
-  private activations = new Map<SessionId, ActiveActivation>()
+  /** Child session id → its live Activation. Process-local, never durable. */
+  private activations = new Map<SessionId, Activation>()
+  private readonly locks = new ChildLock()
+  /** Structural Cordis owner of every Activation handle. */
+  private readonly ownerCtx: Context
+  private draining = false
 
   constructor(
     private readonly ctx: Context,
-    private readonly startProvider: StartProvider,
-    private readonly resumeProvider: ResumeProvider,
+    private readonly host: ContinuationHost,
   ) {
-    // Terminal publication is one of the two removal conditions. The exact
-    // Task id pins the resolution to this activation, never a later same-child one.
-    ctx.tasks.onTaskDone((snapshot) => {
-      for (const activation of this.activations.values()) {
-        if (activation.taskId === snapshot.id) activation.terminal.resolve()
-      }
-    })
-    // TaskService deliberately keeps producer Tasks alive across a
-    // follow-up-tool or producer reload, so this manager's disposal must not
-    // strand the activations it can no longer route to: cancel each one and
-    // await producer settlement (run disposal) before releasing the map. The
-    // effect-scoped onTaskDone listener above is already gone by then, so
-    // terminal publication is resolved here instead of waiting forever.
-    ctx.effect(() => async () => {
-      const active = [...this.activations.values()]
-      this.activations.clear()
-      for (const activation of active) {
-        activation.controller.abort('subagent continuation manager disposed')
-        activation.terminal.resolve()
-      }
-      await Promise.allSettled(active.map((activation) => {
-        /* v8 ignore next 2 -- TaskService invokes `run` synchronously before `start` returns;
-         * every retained activation has `done`, while registration failure removes it. */
-        if (activation.done === undefined) return Promise.resolve()
-        return activation.done
-      }))
-    }, 'subagents.continuations()')
+    // Ordinary Cordis owner effects unwind in reverse registration order, which
+    // cannot express the dynamic child graph. Register the private scope's
+    // structural disposer FIRST and the drain SECOND, so reverse unwind invokes
+    // the drain before releasing the scope; a cleanup effect on the same scope
+    // as the Agent handles would let structural handle disposal bypass
+    // child-first ordering.
+    const scope = ctx.plugin(function activationOwner() {})
+    this.ownerCtx = scope.ctx
+    ctx.effect(function* (this: SubagentContinuationManager) {
+      yield scope.dispose
+      yield () => this.drain()
+    }.bind(this), 'subagents.continuations()')
   }
 
   /**
-   * Start a continuable background child: allocate its stable session id,
-   * snapshot its durable descriptor, and register the initial activation's
-   * Task. A synchronous validation failure (a non-JSON descriptor input,
-   * missing persistence, Task preflight) throws without creating a Task; the
-   * method otherwise returns both identities immediately, without waiting for
-   * child publication or descriptor durability. Asynchronous startup failure
-   * settles the returned Task as `failed` (or `killed` when cancelled) after
-   * any published run is disposed, which can leave an unmaterialized child id
-   * that later by-id operations report as unavailable.
-   * @param spec - provider, Task label, and the delegation request.
-   * @returns the stable child id and the initial activation's Task id.
+   * Whether this manager still admits new materialization and delivery. Host
+   * teardown closes admission synchronously through {@link enterDraining}.
+   * @returns true once draining began.
    */
-  startContinuable(spec: ContinuableStartSpec): ContinuableStart {
+  get isDraining(): boolean {
+    return this.draining
+  }
+
+  /**
+   * Close admission synchronously: reject new creation, cold resume, and
+   * delivery so a host can drain the live Activation forest without racing new
+   * work. Idempotent.
+   */
+  enterDraining(): void {
+    this.draining = true
+  }
+
+  /**
+   * Read one durable child's live residency state.
+   * @param childId - the durable child session id.
+   * @returns its Activation state, or `undefined` when no Activation is live.
+   */
+  activationState(childId: SessionId): ActivationState | undefined {
+    const activation = this.activations.get(childId)
+    if (activation === undefined) return undefined
+    return this.stateOf(activation)
+  }
+
+  /**
+   * Start one continuable background child: reserve its durable identity,
+   * resolve the provider's detached creation spec, create the child Agent
+   * through the private activation-owner scope, establish any continuable-parent
+   * ownership, and submit the initial prompt. Resolves when inbox acceptance
+   * yields the message id — without waiting for the turn to start or for the
+   * message to reach the Session log.
+   *
+   * Every failure before that acceptance rejects without either id, disposing
+   * any created handle and rolling back the Activation and parent ownership.
+   * The caller signal owns lookup, materialization, and admission only until
+   * acceptance; afterwards the manager owns the Activation independently.
+   * @param spec - provider, delegation request, and caller cancellation.
+   * @returns the durable child id and the accepted initial prompt's message id.
+   */
+  async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
+    this.assertAdmitting()
     this.requirePersistence()
-    const childId = SessionId(randomUUID())
     const request = spec.request
-    // Snapshot before Task creation: invalid descriptor JSON rejects the call
-    // with no Task, and the detached value is what reaches the child log.
-    const agentProvider = request.agentOptions?.provider ?? request.parent.options.provider
-    const agentModel = request.agentOptions?.model ?? request.parent.options.model
+    const parent = request.parent
+    const childId = SessionId(randomUUID())
+    const childDepth = resolveChildDepth(parent, request.maxDepth)
+    // Snapshot before any await: invalid descriptor JSON rejects the call
+    // before a child exists, and the detached value is what reaches the log.
+    const agentProvider = request.agentOptions?.provider ?? parent.options.provider
+    const agentModel = request.agentOptions?.model ?? parent.options.model
     const descriptor = snapshotSubagentDescriptor({
       provider: spec.provider,
       ...agentProvider !== undefined ? { agentProvider } : {},
@@ -242,293 +305,498 @@ export class SubagentContinuationManager {
       ...request.persona !== undefined ? { persona: request.persona } : {},
       ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
     })
-    const taskId = this.startActivation(childId, spec.label, request.parent, signal =>
-      this.startProvider(spec.provider, {
-        ...request,
-        signal,
-        continuation: { sessionId: childId, descriptor },
-      }))
-    return { childId, taskId }
+
+    const prepared = await this.host.prepareContinuable(spec.provider, {
+      sessionId: childId,
+      parent,
+      signal: spec.signal,
+    })
+    spec.signal.throwIfAborted()
+    this.assertAdmitting()
+
+    const lineageSeedLength = prepared.seed?.length ?? 0
+    const seed = seedDescriptorTurn(childId, prepared.seed, descriptor)
+    const messageId = await this.locks.run(childId, async () => {
+      const activation = await this.materialize({
+        childId,
+        provider: spec.provider,
+        parent,
+        seed,
+        meta: childSessionMeta(parent, childDepth, lineageSeedLength),
+        agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
+        composition: { persona: request.persona, toolFilter: request.toolFilter },
+        signal: spec.signal,
+      })
+      return this.submit(activation, request.prompt, { kind: 'user' }, { kind: 'parent', agent: parent })
+    })
+    return { childId, messageId }
   }
 
   /**
-   * Follow up with a known continuable child: steer its running
-   * activation, or cold-resume the durable session into a fresh Task-backed
-   * activation. The two routes are reported distinctly so timing-dependent
-   * routing is observable. Rejection means the message was NOT delivered — in
-   * particular, losing a race with Task settlement does not fall through to
-   * cold resume within the same call; a later retry after Task terminal may
-   * start the next activation. The started Task owns descriptor lookup and
-   * direct-parent authorization (its AbortSignal exists before that lookup),
-   * so an unknown, foreign, or descriptor-less child settles the started Task
-   * as `failed` with a detail reporting the id as unavailable.
-   * @param parent - the live parent agent sending the message (model tool or
-   *   human adapter); Task access is authorized by its session id.
-   * @param childId - the stable child session id.
+   * Deliver one later message to a known continuable child as its next FIFO
+   * turn. Routing depends only on Activation residency: a `running` Activation
+   * enqueues, a `waiting` one wakes the same Agent, and an absent one
+   * cold-resumes a new Activation from the persisted Session. The Agent inbox
+   * is the only queue, so parent and user messages share one observable order.
+   *
+   * The caller signal owns lookup, materialization, and admission only until
+   * inbox acceptance; afterwards the accepted turn cannot be cancelled through
+   * this service.
+   * @param authority - trusted parent or user authority for this delivery.
+   * @param childId - the durable child session id.
    * @param content - the user-role content to deliver.
-   * @param options - caller attribution and cancellation. During live delivery,
-   *   abort cancels the shared activation and rejects only after quiescence.
-   * @returns whether the content `steered` the existing Task or `started` a new one.
+   * @param options - durable provenance and caller cancellation.
+   * @returns the accepted message's inbox id.
+   * @throws when authority, availability, or admission rejects the delivery.
    */
   async followup(
-    parent: Agent,
+    authority: SubagentAuthority,
     childId: SessionId,
     content: ContentBlock[],
     options: SubagentFollowupOptions,
-  ): Promise<SubagentFollowupResult> {
-    this.assertOwnership(childId)
-    const activation = this.activations.get(childId)
-    if (activation !== undefined) {
-      return {
-        route: 'steered',
-        taskId: await this.steerActivation(
-          activation,
-          parent,
-          childId,
-          content,
-          options.source,
-          options.signal,
-        ),
-      }
-    }
-    return {
-      route: 'started',
-      taskId: this.resumeActivation(parent, childId, content, options.source),
+  ): Promise<MessageId> {
+    this.assertAdmitting()
+    while (true) {
+      const live = await this.locks.run(childId, async () => {
+        const activation = this.activations.get(childId)
+        if (activation === undefined) return this.coldResume(authority, childId, content, options)
+        // A delivery that arrives after the disposal transaction began must not
+        // reach a handle being torn down; wait for release, then cold-resume.
+        if (activation.disposal !== undefined) {
+          return activation.disposal.then(() => undefined, () => undefined)
+        }
+        await this.authorizeLive(authority, activation)
+        return this.submit(activation, content, options.source, authority)
+      })
+      if (live !== undefined) return live
+      // The racing disposal completed; retry admission, which now cold-resumes.
+      this.assertAdmitting()
+      options.signal.throwIfAborted()
     }
   }
 
   /**
-   * Synchronous ownership compare before any by-id routing: a live registry
-   * Agent outside the association — or different from the associated run's
-   * agent — was started by something else. Fail instead of adopting an idle
-   * Agent or attaching an untracked turn.
+   * Dispose every live Activation forest child-first and await all handles.
+   * Sibling branches drain independently: one failure is recorded but never
+   * prevents the remaining handles from being attempted, and the aggregate
+   * rejects only after every branch settles.
+   * @returns once every snapshotted Activation released its handle.
+   * @throws an aggregate error when any branch failed to release.
    */
-  private assertOwnership(childId: SessionId): void {
-    const live = this.ctx.agents.get(childId)
-    if (live === undefined) return
-    const activation = this.activations.get(childId)
-    if (activation === undefined) {
+  async drain(): Promise<void> {
+    this.enterDraining()
+    // Snapshot roots after closing admission: a root is an Activation no live
+    // Activation owns, so disposing roots recurses child-first into the forest.
+    const owned = new Set<SessionId>()
+    for (const activation of this.activations.values()) {
+      for (const child of activation.ownedChildren) owned.add(child)
+    }
+    const roots = [...this.activations.values()].filter(activation => !owned.has(activation.childId))
+    const failures = await Promise.all(roots.map(async (activation) => {
+      try {
+        await this.dispose(activation)
+        return undefined
+      } catch (error: unknown) {
+        return error
+      }
+    }))
+    const reasons = failures.filter(failure => failure !== undefined)
+    if (reasons.length > 0) {
+      throw new SubagentError(
+        `continuable subagent teardown failed for ${reasons.length} activation(s): `
+        + reasons.map(reason => errorChain(reason)).join('; '),
+        'ACTIVATION_TEARDOWN_FAILED',
+      )
+    }
+  }
+
+  /** Reject new admission once the host or manager began draining. */
+  private assertAdmitting(): void {
+    if (this.draining) {
+      throw new SubagentError(
+        'continuable subagents are draining; the operation was not admitted',
+        'DRAINING',
+      )
+    }
+  }
+
+  /**
+   * Derive residency from Agent quiescence and the owned-child set. `running`
+   * covers an active admission, an open turn, or waking inbox work.
+   */
+  private stateOf(activation: Activation): ActivationState {
+    if (activation.handle.agent.status === 'running') return 'running'
+    if (activation.ownedChildren.size > 0) return 'waiting'
+    return 'settled'
+  }
+
+  /**
+   * Cold-resume a persisted child: load and authorize its Session, fold the
+   * generic descriptor, create the Activation through `ctx.agents.resume()`,
+   * and submit the waiting turn. This never dispatches through a subagent
+   * provider — the persisted Session already holds the initial prefix and the
+   * descriptor is the whole reconstruction input.
+   */
+  private async coldResume(
+    authority: SubagentAuthority,
+    childId: SessionId,
+    content: ContentBlock[],
+    options: SubagentFollowupOptions,
+  ): Promise<MessageId> {
+    const persistence = this.requirePersistence()
+    let loaded: Awaited<ReturnType<typeof persistence.load>>
+    try {
+      loaded = await persistence.load(childId)
+    } catch (error: unknown) {
+      throw new SubagentError(`subagent "${childId}" is unavailable`, 'NOT_RESUMABLE', { cause: error })
+    }
+    // The persistence seam takes no signal; recheck before any child work.
+    options.signal.throwIfAborted()
+    this.assertAdmitting()
+    // Authorize the persisted header before folding: only the durable child's
+    // direct parent — or the host user — may continue it.
+    this.authorizeLineage(authority, childId, loaded.meta.parentSession)
+    // Fold only the child's own suffix: a fork seed replays the parent's log,
+    // which may carry an ANCESTOR's descriptor when the parent is itself a
+    // continuable child.
+    const descriptor = foldSubagentDescriptor(loaded.events.slice(loaded.meta.seedLength ?? 0))
+    if (descriptor === undefined) {
+      throw new SubagentError(
+        `subagent "${childId}" has no supported continuation state and cannot be resumed; `
+        + 'do not retry send_message with this id',
+        'NOT_RESUMABLE',
+      )
+    }
+    const activation = await this.materialize({
+      childId,
+      provider: descriptor.provider,
+      parent: authority.kind === 'parent' ? authority.agent : undefined,
+      resume: true,
+      agentOptions: {
+        ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
+        ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
+      },
+      composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
+      signal: options.signal,
+    })
+    return this.submit(activation, content, options.source, authority)
+  }
+
+  /**
+   * Create or resume the child Agent through the private activation-owner
+   * scope, install the handle in a fresh Activation, and register ownership on
+   * a continuation-managed parent. Rejection leaves no Activation, no handle,
+   * and no ownership membership.
+   */
+  private async materialize(inputs: {
+    childId: SessionId
+    provider: string
+    parent: Agent | undefined
+    resume?: boolean
+    seed?: readonly SessionEvent[]
+    meta?: NonNullable<CreateAgentOptions['meta']>
+    agentOptions: AgentOptions
+    composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
+    signal: AbortSignal
+  }): Promise<Activation> {
+    const { childId, provider, parent } = inputs
+    if (this.activations.has(childId)) {
+      throw new SubagentError(
+        `subagent "${childId}" already has a live activation; the message was not delivered`,
+        'ACTIVATION_CONFLICT',
+      )
+    }
+    if (this.ctx.agents.get(childId) !== undefined) {
       throw new SubagentError(
         `subagent "${childId}" has a live agent outside continuation ownership; the message was not delivered`,
         'OWNERSHIP_CONFLICT',
       )
     }
-    if (activation.run !== undefined && activation.run.localAgent !== live) {
-      throw new SubagentError(
-        `subagent "${childId}" registry agent is not the associated activation's agent; the message was not delivered`,
-        'OWNERSHIP_CONFLICT',
-      )
-    }
-  }
-
-  /** Deliver to the running activation's Task through confirmed live steering. */
-  private async steerActivation(
-    activation: ActiveActivation,
-    parent: Agent,
-    childId: SessionId,
-    message: ContentBlock[],
-    source: MessageSource,
-    signal: AbortSignal,
-  ): Promise<TaskId> {
-    const taskId = activation.taskId
-    /* v8 ignore next 3 -- the install and Task registration share one synchronous frame, so an observed activation carries its Task id. */
-    if (taskId === undefined) {
-      throw new SubagentError(`subagent "${childId}" activation is starting; the message was not delivered`, 'NOT_DELIVERED')
-    }
-    // Owner-session authorization plus the live status for admission.
-    const snapshot = this.ctx.tasks.get(taskId, parent)
-    if (snapshot.status !== 'running') {
-      throw new SubagentError(
-        `subagent "${childId}" task ${taskId} is ${snapshot.status}; the message was not delivered `
-        + '— retry after it settles to start the next activation',
-        'NOT_DELIVERED',
-      )
-    }
-    const run = activation.run
-    if (run === undefined) {
-      throw new SubagentError(`subagent "${childId}" activation is starting; the message was not delivered`, 'NOT_DELIVERED')
-    }
-    if (run.steer === undefined) {
-      throw new SubagentError(
-        `subagent "${childId}" provider does not accept live delivery; the message was not delivered`,
-        'NOT_DELIVERED',
-      )
-    }
-    const cancelActivation = (): void => {
-      activation.controller.abort(signal.reason)
-    }
-    signal.addEventListener('abort', cancelActivation, { once: true })
-    if (signal.aborted) {
-      cancelActivation()
-      signal.removeEventListener('abort', cancelActivation)
-      return await this.cancelledLiveDelivery(activation, childId)
-    }
+    inputs.signal.throwIfAborted()
+    const setup = (childCtx: Context): void => { applyChildComposition(childCtx, inputs.composition) }
+    const observer = this.host.observeActivation(provider, childId, parent)
+    let handle: AgentHandle
     try {
-      await run.steer(message, source)
+      handle = inputs.resume === true
+        ? await this.ownerCtx.agents.resume({
+          resumeSessionId: childId,
+          agentOptions: inputs.agentOptions,
+          signal: inputs.signal,
+          setup,
+        })
+        : await this.ownerCtx.agents.create({
+          sessionId: childId,
+          ...inputs.meta !== undefined ? { meta: inputs.meta } : {},
+          ...inputs.seed !== undefined ? { seed: inputs.seed } : {},
+          agentOptions: inputs.agentOptions,
+          signal: inputs.signal,
+          setup,
+        })
     } catch (error: unknown) {
-      try {
-        signal.throwIfAborted()
-      } catch {
-        return await this.cancelledLiveDelivery(activation, childId, error)
-      }
-      // Confirmed steering lost the race with request admission. Deliberately no
-      // cold-resume fallback here: that would attach the message to a turn the
-      // caller did not observe.
-      throw new SubagentError(
-        `subagent "${childId}" stopped before delivery; the message was not delivered`,
-        'NOT_DELIVERED',
-        { cause: error },
-      )
-    } finally {
-      signal.removeEventListener('abort', cancelActivation)
+      // Agent creation provides rollback before handle transfer, so nothing
+      // outlives this rejection; report the epoch that never became resident.
+      observer.settle(undefined, error)
+      throw error
     }
-    return taskId
+
+    const activation: Activation = {
+      childId,
+      provider,
+      handle,
+      ownedChildren: new Set(),
+      observer,
+      disposal: undefined,
+      poke: Promise.withResolvers<void>(),
+    }
+    // After transfer, any failure must dispose the created handle, remove the
+    // Activation, and roll back parent ownership before rejecting.
+    this.activations.set(childId, activation)
+    try {
+      inputs.signal.throwIfAborted()
+      this.assertAdmitting()
+      this.acquireOwnership(parent, childId)
+    } catch (error: unknown) {
+      // Roll the transfer back completely: the Activation leaves the map, the
+      // parent's ownership membership is released, and the created handle is
+      // disposed before this rejection surfaces.
+      this.activations.delete(childId)
+      this.releaseOwnership(childId)
+      activation.disposal = (async () => {
+        try {
+          await handle.dispose()
+        } finally {
+          observer.settle(handle.agent, error)
+        }
+      })()
+      await activation.disposal.catch(() => undefined)
+      throw error
+    }
+    // Resident: publish the start edge before any turn can run, so observers
+    // see this epoch before its first request.
+    observer.start()
+    this.watchSettlement(activation)
+    return activation
   }
 
-  /** Reject a cancelled live delivery only after its shared activation is quiescent. */
-  private async cancelledLiveDelivery(
-    activation: ActiveActivation,
-    childId: SessionId,
-    cause?: unknown,
-  ): Promise<never> {
-    /* v8 ignore if -- a published run implies the producer assigned `done` before its provider await resolved. */
-    if (activation.done === undefined) {
-      throw new Error('published subagent activation has no settlement promise')
+  /**
+   * Register the child in a continuation-managed parent's owned set before the
+   * child can run, so that parent cannot settle while the child is live. A
+   * top-level or other non-continuation Agent has no Activation and stays
+   * outside the waiting graph.
+   */
+  private acquireOwnership(parent: Agent | undefined, childId: SessionId): void {
+    if (parent === undefined) return
+    const parentActivation = this.activations.get(parent.id)
+    if (parentActivation === undefined) return
+    if (parentActivation.disposal !== undefined) {
+      throw new SubagentError(
+        `subagent parent "${parent.id}" is being disposed; the child was not established`,
+        'ACTIVATION_CLOSING',
+      )
     }
-    await activation.done
-    throw new SubagentError(
-      `subagent "${childId}" live delivery was cancelled; the message was not delivered`,
-      'CANCELLED',
-      cause === undefined ? undefined : { cause },
+    parentActivation.ownedChildren.add(childId)
+  }
+
+  /** Remove one child from its live owner's set and let that owner re-check settlement. */
+  private releaseOwnership(childId: SessionId): void {
+    for (const candidate of this.activations.values()) {
+      if (candidate.ownedChildren.delete(childId)) this.wake(candidate)
+    }
+  }
+
+  /** Let a settlement watcher re-observe quiescence after ownership or inbox changes. */
+  private wake(activation: Activation): void {
+    activation.poke.resolve()
+    activation.poke = Promise.withResolvers<void>()
+  }
+
+  /**
+   * Submit one message as the child's next FIFO turn and return its accepted
+   * inbox id. Acceptance is the operation's success boundary; the manager owns
+   * the Activation independently afterwards.
+   */
+  private submit(
+    activation: Activation,
+    content: ContentBlock[],
+    source: MessageSource,
+    authority: SubagentAuthority,
+  ): MessageId {
+    // Parent-originated delivery keeps the parent live through ownership, so
+    // establish it before the message can enter the child's inbox.
+    if (authority.kind === 'parent') this.acquireOwnership(authority.agent, activation.childId)
+    const message = createUserMessage({ content, source })
+    activation.handle.agent.followup(message)
+    // Accepted waking work keeps this Activation live until whenIdle() observes
+    // the complete waking suffix.
+    this.wake(activation)
+    return message.id
+  }
+
+  /**
+   * Authorize delivery to a live Activation. A parent must be the exact live
+   * direct parent recorded in the child's durable header.
+   */
+  private async authorizeLive(authority: SubagentAuthority, activation: Activation): Promise<void> {
+    await Promise.resolve()
+    this.authorizeLineage(
+      authority,
+      activation.childId,
+      activation.handle.agent.session.header.parentSession,
     )
   }
 
   /**
-   * Cold-resume a persisted child into a fresh Task-backed activation. The
-   * Task owns its `AbortController` before descriptor lookup: the load,
-   * direct-parent authorization, and descriptor fold run inside the
-   * activation, with cancellation rechecked after the un-signalled
-   * persistence await so an early `task_kill` prevents any later child work.
+   * Authorize one operation against the durable direct-parent lineage. User
+   * authority may continue any child without loading its parent; parent
+   * authority requires the exact live direct parent. Other agents, ancestors,
+   * teams, and workflows remain rejected until an explicit authority protocol
+   * exists.
    */
-  private resumeActivation(
-    parent: Agent,
+  private authorizeLineage(
+    authority: SubagentAuthority,
     childId: SessionId,
-    message: ContentBlock[],
-    source: MessageSource,
-  ): TaskId {
-    const persistence = this.requirePersistence()
-    return this.startActivation(childId, resumeLabel(message), parent, async (signal) => {
-      let loaded: Awaited<ReturnType<typeof persistence.load>>
-      try {
-        loaded = await persistence.load(childId)
-      } catch (error: unknown) {
-        throw new SubagentError(
-          `subagent "${childId}" is unavailable`,
-          'NOT_RESUMABLE',
-          { cause: error },
-        )
-      }
-      // The persistence seam takes no signal; recheck before any child work.
-      if (signal.aborted) throw new SubagentError('subagent resume was cancelled during lookup', 'CANCELLED')
-      // Authorize the persisted header before folding: only the direct parent
-      // recorded at creation may continue this child.
-      if (loaded.meta.parentSession !== parent.id) {
-        throw new SubagentError(
-          `subagent "${childId}" belongs to another parent session`,
-          'UNAUTHORIZED',
-        )
-      }
-      // Fold only the child's own suffix: a fork seed replays the parent's
-      // log, which may carry an ANCESTOR's descriptor when the parent is
-      // itself a continuable child.
-      const descriptor = foldSubagentDescriptor(loaded.events.slice(loaded.meta.seedLength ?? 0))
-      if (descriptor === undefined) {
-        throw new SubagentError(
-          `subagent "${childId}" has no supported continuation state and cannot be resumed; `
-            + 'do not retry send_message with this id',
-          'NOT_RESUMABLE',
-        )
-      }
-      return this.resumeProvider({
-        sessionId: childId,
-        prompt: message,
-        source,
-        parent,
-        signal,
-        descriptor,
-      })
-    })
+    parentSession: SessionId | undefined,
+  ): void {
+    if (authority.kind === 'user') return
+    const parent = authority.agent
+    if (this.ctx.agents.get(parent.id) !== parent) {
+      throw new SubagentError(
+        `subagent "${childId}" delivery requires the exact live parent agent`,
+        'UNAUTHORIZED',
+      )
+    }
+    if (parentSession !== parent.id) {
+      throw new SubagentError(`subagent "${childId}" belongs to another parent session`, 'UNAUTHORIZED')
+    }
   }
 
   /**
-   * Install the activation association, register its Task, and bind the two
-   * removal conditions. The association is installed before any persistence
-   * or provider await — the producer body runs synchronously up to its first
-   * await — and removed only after run disposal (the producer settled) and
-   * Task terminal publication. This synchronous install admits one activation
-   * per child in this process; a competing untracked publication still loses
-   * at the Agent registry collision boundary inside the provider.
+   * Follow one Activation to settlement: wait for Agent quiescence, then for
+   * every owned child to complete disposal, and dispose the handle once both
+   * hold. A `next-turn` delivered while `waiting` wakes the same Agent and
+   * returns it to `running`, so this re-observes rather than settling early.
    */
-  private startActivation(
-    childId: SessionId,
-    label: string,
-    owner: Agent,
-    begin: (signal: AbortSignal) => Promise<SubagentRun>,
-  ): TaskId {
-    const activation: ActiveActivation = {
-      taskId: undefined,
-      run: undefined,
-      controller: new AbortController(),
-      done: undefined,
-      terminal: Promise.withResolvers<void>(),
-    }
-    this.activations.set(childId, activation)
-    let taskId: TaskId
-    try {
-      taskId = this.ctx.tasks.start({
-        kind: 'subagent',
-        label,
-        owner,
-        run: (): TaskHooks => {
-          const done = (async (): Promise<TaskOutcome> => {
-            try {
-              const run = await begin(activation.controller.signal)
-              activation.run = run
-              return await settleRun(run)
-            } catch (error: unknown) {
-              // A pre-publication abort rejects only after the provider's
-              // creation transaction rolled back to quiescence, so recording
-              // `killed` here honors the settlement-after-rollback contract.
-              return activation.controller.signal.aborted
-                ? { status: 'killed' }
-                : { status: 'failed', detail: String(error) }
-            }
-          })()
-          activation.done = done
-          void Promise.allSettled([done, activation.terminal.promise]).then(() => {
-            /* v8 ignore else -- service teardown clears the map while a producer is still settling. */
-            if (this.activations.get(childId) === activation) this.activations.delete(childId)
-          })
-          return {
-            cancel: (reason?: string) => {
-              // Cancellation targets the whole activation: every message that
-              // joined this turn shares the `killed` outcome.
-              activation.controller.abort(reason ?? 'subagent activation killed')
-            },
-            done,
-            // No readOutput: the child session owns intermediate detail.
+  private watchSettlement(activation: Activation): void {
+    void (async () => {
+      while (disposalOf(activation) === undefined) {
+        const poked = activation.poke.promise
+        await Promise.race([activation.handle.agent.whenIdle(), poked])
+        if (disposalOf(activation) !== undefined) return
+        // Re-check settlement INSIDE the child lock and begin disposal in the
+        // same critical section, so a concurrent delivery either wins admission
+        // before the transaction opens or waits for release and cold-resumes.
+        // Deciding outside the lock would let a delivery observe a not-yet
+        // resident handle that this watcher is already about to tear down.
+        const settling = await this.locks.run<SettlementAttempt>(activation.childId, () => {
+          if (disposalOf(activation) !== undefined || this.stateOf(activation) !== 'settled') {
+            return Promise.resolve({ settling: false })
           }
-        },
-      })
+          // `dispose()` assigns its memoized transaction synchronously, so
+          // admission is closed before this critical section releases.
+          return Promise.resolve({ settling: true, done: this.dispose(activation) })
+        })
+        if (!settling.settling) {
+          // Still running, or waiting on descendants: re-observe after the next
+          // accepted message or ownership release.
+          if (activation.handle.agent.status !== 'running') await poked
+          continue
+        }
+        try {
+          await settling.done
+        } catch (error: unknown) {
+          this.ctx.logger.warn(
+            `subagent "${activation.childId}" activation teardown failed: ${errorChain(error)}`,
+          )
+        }
+        return
+      }
+    })()
+  }
+
+  /**
+   * Release one Activation child-first: dispose owned children, checkpoint
+   * durability, dispose the handle, and release parent ownership. Memoized, so
+   * host shutdown, manager unload, child release, and normal settlement
+   * converge on one teardown.
+   *
+   * A failed final checkpoint is reported but never prevents handle disposal or
+   * ownership release, because retaining a failed child would permanently pin
+   * its ancestors in `waiting`.
+   */
+  private dispose(activation: Activation): Promise<void> {
+    return (activation.disposal ??= (async () => {
+      // The memoized assignment above already closed admission for this child:
+      // no caller may send to a handle after its disposal transaction begins.
+      this.wake(activation)
+      const { childId } = activation
+      let failure: Error | undefined
+      try {
+        // Child-first: every owned child must complete disposal before this
+        // handle is released.
+        const children = [...activation.ownedChildren]
+          .map(child => this.activations.get(child))
+          .filter((child): child is Activation => child !== undefined)
+        const childFailures = await Promise.all(children.map(async (child) => {
+          try {
+            await this.dispose(child)
+            return undefined
+          } catch (error: unknown) {
+            return error
+          }
+        }))
+        const reasons = childFailures.filter(reason => reason !== undefined)
+        if (reasons.length > 0) {
+          failure = new SubagentError(
+            `subagent "${childId}" child teardown failed: ${reasons.map(reason => errorChain(reason)).join('; ')}`,
+            'ACTIVATION_TEARDOWN_FAILED',
+          )
+        }
+        const durability = await this.checkpoint(activation)
+        failure ??= durability
+      } finally {
+        this.activations.delete(childId)
+        try {
+          await activation.handle.dispose()
+        } catch (error: unknown) {
+          failure ??= new SubagentError(
+            `subagent "${childId}" activation handle disposal failed: ${errorChain(error)}`,
+            'ACTIVATION_TEARDOWN_FAILED',
+            { cause: error },
+          )
+        } finally {
+          // Release ownership even on failure: a retained failed child would
+          // pin its ancestors in `waiting` forever.
+          this.releaseOwnership(childId)
+          activation.observer.settle(activation.handle.agent, failure)
+        }
+      }
+      if (failure !== undefined) throw failure
+    })())
+  }
+
+  /**
+   * Request the final durability checkpoint. Only `true` confirms durability;
+   * `false` and rejection both report `DURABILITY_FAILED` so the persisted
+   * child state is known to be possibly missing or stale on a later resume.
+   */
+  private async checkpoint(activation: Activation): Promise<SubagentError | undefined> {
+    const child = activation.handle.agent
+    try {
+      const participated = await child.ctx.sessions.flush(child.session)
+      if (participated) return undefined
+      return new SubagentError(
+        `subagent "${activation.childId}" required durability checkpoint has no registered listener; `
+        + 'the latest child state was not confirmed persisted and may be unavailable or stale on resume',
+        'DURABILITY_FAILED',
+      )
     } catch (error: unknown) {
-      // Task preflight failed; nothing started, so the install rolls back.
-      this.activations.delete(childId)
-      throw error
+      return new SubagentError(
+        `subagent "${activation.childId}" durability checkpoint failed; the latest child state was not `
+        + `confirmed persisted and may be unavailable or stale on resume: ${errorChain(error)}`,
+        'DURABILITY_FAILED',
+        { cause: error },
+      )
     }
-    // Same synchronous frame as the install: an observer that can run at all
-    // runs after this assignment.
-    activation.taskId = taskId
-    return taskId
   }
 
   /** Resolve the persistence service continuable children require, or fail loud. */
@@ -544,11 +812,5 @@ export class SubagentContinuationManager {
   }
 }
 
-/** Derive a resumed activation's Task label from its message. */
-function resumeLabel(message: ContentBlock[]): string {
-  const text = finalText(message).trim().replace(/\s+/g, ' ')
-  if (text.length === 0) return 'subagent follow-up'
-  return text.length > 80 ? `${text.slice(0, 79)}…` : text
-}
-
+export type { SubagentDescriptorData }
 export default SubagentContinuationManager
