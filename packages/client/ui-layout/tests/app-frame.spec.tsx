@@ -139,7 +139,7 @@ afterEach(() => {
 describe('AppFrame', () => {
   it('renders three tracks from store state', () => {
     const { frame } = mountFrame()
-    expect(tracks(frame)).toEqual([280, 360])
+    expect(tracks(frame)).toEqual([280, 0])
   })
 
   it('renders the session pair with empty owner shares (sessionId is framework-standard)', () => {
@@ -174,6 +174,9 @@ describe('AppFrame', () => {
 
   it('ignores unselected states and closes only when the Session id changes', () => {
     const { frame, instance, rerenderFrame } = mountFrame()
+    expect(tracks(frame)).toEqual([280, 0])
+
+    act(() => { instance.actions.openDetails() })
     expect(tracks(frame)).toEqual([280, 360])
 
     selectedSession.current = 's-next' as SessionId
@@ -200,15 +203,15 @@ describe('AppFrame', () => {
     expect(tracks(frame)).toEqual([280, 0])
   })
 
-  it('keeps the default details width when the first Session materializes', () => {
+  it('keeps details closed when the first Session materializes', () => {
     selectedSession.current = undefined
     const { frame, instance, rerenderFrame } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
-    expect(instance.getSnapshot().details).toBe(360)
+    expect(instance.getSnapshot().details).toBe(0)
 
     selectedSession.current = 's-first' as SessionId
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 360])
+    expect(tracks(frame)).toEqual([280, 0])
   })
 
   it('sidebar slot receives live concession output as owner props', () => {
@@ -224,7 +227,8 @@ describe('AppFrame', () => {
   })
 
   it('details drag widens leftward (negative dx grows the panel)', () => {
-    const { frame } = mountFrame()
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openDetails() })
     const handles = frame.querySelectorAll('[class*="handle"]')
     drag(handles[1]!, 1560, 1500)
     expect(tracks(frame)[1]).toBe(420)
@@ -233,6 +237,7 @@ describe('AppFrame', () => {
   it('drag base is the rendered (concession-clamped) width, not the preference', () => {
     frameWidth = 1250 // step-2 squeeze: details renders 330 while preference is 360
     const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openDetails() })
     expect(tracks(frame)).toEqual([280, 330])
     const handles = frame.querySelectorAll('[class*="handle"]')
     drag(handles[1]!, 920, 930) // shrink by 10 from the rendered width
@@ -240,8 +245,7 @@ describe('AppFrame', () => {
   })
 
   it('details column stays mounted at zero width', () => {
-    const { frame, instance, getByTestId } = mountFrame()
-    act(() => { instance.actions.closeDetails() })
+    const { frame, getByTestId } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
     expect(getByTestId('details-content')).toBeTruthy()
     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
@@ -250,7 +254,7 @@ describe('AppFrame', () => {
   it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
     const { frame, instance, slotCalls, getByTestId } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 360])
+    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
     expect(getByTestId('sidebar-content')).toBeTruthy()
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
     const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
@@ -258,7 +262,8 @@ describe('AppFrame', () => {
   })
 
   it('viewport shrink triggers the concession chain via ResizeObserver', () => {
-    const { frame } = mountFrame()
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openDetails() })
     frameWidth = 1250
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([280, 330])
@@ -269,6 +274,8 @@ describe('AppFrame', () => {
 
   it('drag handles disappear for collapsed columns', () => {
     const { frame, instance } = mountFrame()
+    expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
+    act(() => { instance.actions.openDetails() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(2)
     act(() => { instance.actions.closeDetails() })
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
@@ -323,7 +330,7 @@ describe('AppFrame — guard branches', () => {
     frameWidth = 0
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     // Track template still reflects the last non-zero viewport.
-    expect(tracks(frame)).toEqual([280, 360])
+    expect(tracks(frame)).toEqual([280, 0])
   })
 })
 
@@ -338,7 +345,8 @@ describe('AppFrame — unmount with an in-flight resize frame', () => {
   })
 
   it('double resize inside one frame rides the pending rAF (??= guard)', () => {
-    const { frame } = mountFrame()
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.openDetails() })
     frameWidth = 1250
     act(() => { fireResize?.(); fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([280, 330])
