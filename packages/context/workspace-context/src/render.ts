@@ -37,7 +37,10 @@ interface RenderedInstructionContext extends RenderedWorkspaceContext {
   represented: LoadedInstructionFile[]
 }
 
-/** Rendered baseline plus the files whose current content survived budgeting. */
+/**
+ * Rendered baseline plus files whose section retained content, or whose original content was empty.
+ * A partially rendered file keeps the digest of its complete original content.
+ */
 export interface RenderedInstructionSet {
   rendered: RenderedWorkspaceContext
   included: LoadedInstructionFile[]
@@ -201,7 +204,7 @@ export function renderInstructionChanges(
     text: rendered.text,
     changes: items
       .filter(item => represented.has(item.file.absolutePath)
-        && (item.change.action === 'remove' || !contentOmitted.has(item.file.displayPath)))
+        && !contentOmitted.has(item.file.displayPath))
       .map(item => item.change),
   }
 }
@@ -323,7 +326,7 @@ function renderInstructionContext(
  * Render a baseline together with the exact source files semantically represented in it.
  * @param files - loaded files ordered from broadest to most specific.
  * @param options - required rendering byte budget.
- * @returns bounded public rendering plus the original files whose semantic sections survived.
+ * @returns bounded public rendering plus files with surviving content, including genuinely empty files.
  * @internal
  */
 export function renderWorkspaceInstructionSet(

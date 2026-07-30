@@ -860,6 +860,7 @@ describe('workspace context rendering', () => {
     expect(rendered.changes).toEqual([change])
   })
 
+  // Each prose-derived budget is the smallest current value that retains the named heading plus a zero-byte marker.
   it.each([
     { action: 'set' as const, maxBytes: 327, heading: 'Additional instructions from:' },
     { action: 'replace' as const, maxBytes: 256, heading: 'Updated instructions from:' },
@@ -1338,14 +1339,14 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('does not expose state markers when a baseline heading survives with zero content bytes', async () => {
+  it.each([10, 120])('does not expose state markers when baseline content is omitted at %i bytes', async (maxBytes) => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await write(join(root, 'AGENTS.md'), 'x'.repeat(1000))
       const ctx = new Context()
-      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 120 })
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes })
       const agent = stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
@@ -1356,8 +1357,12 @@ describe('workspace context request injection', () => {
       expect(contexts).toHaveLength(1)
       const source = contexts[0]?.type === 'user/message' ? contexts[0].data.source : undefined
       expect(source?.kind === 'workspace-instructions' ? source.changes : undefined).toEqual([])
-      expect(derivedText(agent)).toContain('Instructions from: AGENTS.md')
-      expect(derivedText(agent)).toContain('from 1000 to 0 bytes')
+      if (maxBytes === 120) {
+        expect(derivedText(agent)).toContain('Instructions from: AGENTS.md')
+        expect(derivedText(agent)).toContain('from 1000 to 0 bytes')
+      } else {
+        expect(derivedText(agent)).not.toContain('Instructions from: AGENTS.md')
+      }
       expect(derivedText(agent)).not.toContain('workspace-context:')
     } finally {
       await rm(root, { recursive: true, force: true })
