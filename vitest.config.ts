@@ -156,6 +156,8 @@ export default defineConfig({
         'packages/client/ui-sidebar/src/client/index.ts',
         'packages/client/ui-skill/src/client/index.ts',
         'packages/client/ui-workspace/src/client/index.ts',
+        'packages/client/test-runtime/src/translate.ts',
+        'packages/client/ui-primitives/src/JsonTree.tsx',
         // Typert generator: correctness is pinned by its fixture suites and
         // the byte-for-byte catalog reproduction test; per-file coverage
         // would put whole-workspace compiler analysis under v8
