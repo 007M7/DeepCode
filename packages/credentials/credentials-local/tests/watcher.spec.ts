@@ -151,6 +151,7 @@ describe('watcher pipeline', () => {
     await fiber.dispose()
     disposed = true
     instance!.watcher.emit('all', 'change', path)
+    instance!.watcher.emit('ready')
     await new Promise(resolve => setTimeout(resolve, 100))
     expect(postDisposeCommits).toBe(0)
   })
@@ -203,5 +204,20 @@ describe('watcher pipeline', () => {
     instance!.watcher.emit('all', 'add', path)
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(await ctx.credentials.resolve(KEY)).toBeUndefined()
+  })
+
+  it('reconciles at watcher ready so a change during setup is not missed', async () => {
+    const dir = await tempDir()
+    const path = join(dir, '.env')
+    await writeFile(path, `${KEY}=a\n`)
+    const ctx = await boot({ path, debounceMs: 5 })
+    // Written after the initial load but before the watcher became active:
+    // no 'all' event will ever fire for it.
+    await writeFile(path, `${KEY}=written-before-ready\n`)
+    const [instance] = await fakeInstances()
+    instance!.watcher.emit('ready')
+    await vi.waitFor(async () => {
+      expect(await ctx.credentials.resolve(KEY)).toEqual({ value: 'written-before-ready', source: 'file' })
+    })
   })
 })
