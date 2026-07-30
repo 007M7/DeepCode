@@ -373,13 +373,13 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 
 ```ts persistence-catalog
 /**
- * Registration-bound context capacity for the route a request resolved to,
+ * Registration-bound context metadata for the route a request resolved to,
  * appended inside its step beside `request/header` and only when the route
  * or capacity differs from the last record. It is log-only and deliberately
  * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
  * route, not an input the request was built from, so it must not participate
- * in request reconstruction or header equality. Absent for a route whose
- * adapter advertises no capacity.
+ * in request reconstruction or header equality. `contextWindow` is absent
+ * when the route's adapter advertises no capacity.
  */
 'request/context': RequestContext
 ```

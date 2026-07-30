@@ -56,10 +56,10 @@ const projectionSchema = z.object({
   cacheWriteTokens: z.number().int().nonnegative(),
 }).strict()
 
-// Cast for the optional capacity: under exactOptionalPropertyTypes zod infers
-// `number | undefined` where the interface declares an absent-or-number field.
+// Cast for the optional values: under exactOptionalPropertyTypes zod infers
+// `number | undefined` where the interface declares absent-or-number fields.
 const pressureSchema = z.object({
-  pressureTokens: z.number().int().nonnegative(),
+  pressureTokens: z.number().int().nonnegative().optional(),
   contextWindow: z.number().int().positive().optional(),
 }).strict() as unknown as z.ZodType<ContextPressureProjection>
 
@@ -128,12 +128,14 @@ export const contextPressureProjectionDefinition:
 ProjectionDefinition<'contextPressure', ContextPressureProjection> = {
   key: 'contextPressure',
   schema: pressureSchema,
-  init: () => ({ pressureTokens: 0 }),
+  init: () => ({}),
   apply: (state, event) => {
     if (event.type === 'request/context') {
-      return event.data.contextWindow === state.contextWindow
-        ? state
-        : { ...state, contextWindow: event.data.contextWindow }
+      const contextWindow = event.data.contextWindow
+      if (contextWindow === state.contextWindow) return state
+      if (contextWindow !== undefined) return { ...state, contextWindow }
+      const { contextWindow: _removed, ...withoutContextWindow } = state
+      return withoutContextWindow
     }
     const usage = event.type === 'assistant/chunk' && event.data.chunk.type === 'usage'
       ? event.data.chunk.usage
@@ -147,5 +149,5 @@ ProjectionDefinition<'contextPressure', ContextPressureProjection> = {
       : { ...state, pressureTokens }
   },
   view: state => state,
-  stateVersion: 1,
+  stateVersion: 2,
 }

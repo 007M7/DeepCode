@@ -218,8 +218,8 @@ describe('small branch tails', () => {
   })
 
   it('StatsLine omits the cache-hit segment when no input accounting exists at all', () => {
-    // Cache hit is null only when uncached input and cache reads are both zero
-    // (pure output accounting) — any input makes it a real 0%.
+    // Cache hit is null only when all three prompt buckets are zero (pure
+    // output accounting) — any billed input makes it a real 0%.
     const snap = {
       nodes: [{ kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [], usage: { outputTokens: 10 } }],
     }

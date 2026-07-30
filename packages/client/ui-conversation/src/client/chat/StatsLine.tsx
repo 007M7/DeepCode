@@ -78,10 +78,20 @@ export function formatDuration(ms: number): string {
  * @returns rounded integer percent, or null when no input was billed.
  */
 export function cacheHitPercent(usage: TokenUsageProjection): number | null {
-  const denominator = usage.uncachedInputTokens + usage.cacheReadTokens
+  const denominator = billedInputTokens(usage)
   return denominator === 0
     ? null
     : Math.round(usage.cacheReadTokens / denominator * 100)
+}
+
+/** Sum the three disjoint prompt-side billing buckets. */
+function billedInputTokens(usage: TokenUsageProjection): number {
+  return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
+}
+
+interface ContextOccupancy {
+  percent: number
+  contextWindow: number
 }
 
 /**
@@ -90,11 +100,16 @@ export function cacheHitPercent(usage: TokenUsageProjection): number | null {
  * fields, so this is a reference figure rather than an exact measurement of one
  * request (see the token-meter README).
  * @param pressure - the session's context-pressure projection value.
- * @returns occupancy percent, or null when no capacity is known.
+ * @returns occupancy and its denominator, or null until both values are known.
  */
-export function contextPercent(pressure: ContextPressureProjection | undefined): number | null {
-  if (pressure?.contextWindow === undefined) return null
-  return Math.min(100, Math.round(pressure.pressureTokens / pressure.contextWindow * 100))
+export function contextOccupancy(
+  pressure: ContextPressureProjection | undefined,
+): ContextOccupancy | null {
+  if (pressure?.pressureTokens === undefined || pressure.contextWindow === undefined) return null
+  return {
+    percent: Math.min(100, Math.round(pressure.pressureTokens / pressure.contextWindow * 100)),
+    contextWindow: pressure.contextWindow,
+  }
 }
 
 /** Props: the conversation-snapshot selector plus the projection read seat. */
@@ -108,29 +123,31 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection }: 
   const usage = useProjection('tokenUsage')
   const pressure = useProjection('contextPressure')
   const stats = useMemo(() => deriveStats(nodes), [nodes])
-  if (stats.steps === 0) return null
   // Pipe-separated groups (figma stats strip); a group with no data drops out whole.
-  const groups: string[] = [`${stats.turns} turns · ${stats.steps} steps`]
-  const durations: string[] = []
-  if (stats.llmMs > 0) durations.push(`LLM ${formatDuration(stats.llmMs)}`)
-  if (stats.toolMs > 0) durations.push(`Tool call ${formatDuration(stats.toolMs)}`)
-  if (durations.length > 0) groups.push(durations.join(' · '))
-  const context = contextPercent(pressure)
-  // Capacity absent (no token-meter composed, or an adapter that advertises
-  // none) drops the group: an unknown denominator has no percentage to show.
-  if (context !== null && pressure?.contextWindow !== undefined) {
-    groups.push(`Context ${context}% of ${formatTokens(pressure.contextWindow)}`)
+  const groups: string[] = []
+  if (stats.steps > 0) {
+    groups.push(`${stats.turns} turns · ${stats.steps} steps`)
+    const durations: string[] = []
+    if (stats.llmMs > 0) durations.push(`LLM ${formatDuration(stats.llmMs)}`)
+    if (stats.toolMs > 0) durations.push(`Tool call ${formatDuration(stats.toolMs)}`)
+    if (durations.length > 0) groups.push(durations.join(' · '))
+  }
+  const context = contextOccupancy(pressure)
+  if (context !== null) {
+    groups.push(`Context ${context.percent}% of ${formatTokens(context.contextWindow)}`)
   }
   // Billing rides the durable projection, so these survive paging and
-  // compaction; a deployment without token-meter drops the groups entirely.
-  if (usage !== undefined) {
+  // compaction. Suppress the empty projection on a brand-new session.
+  if (usage !== undefined
+    && (stats.steps > 0 || billedInputTokens(usage) > 0 || usage.outputTokens > 0)) {
     const cacheHit = cacheHitPercent(usage)
     if (cacheHit !== null) groups.push(`Cache hit ${cacheHit}%`)
     groups.push(
-      `Input ${formatTokens(usage.uncachedInputTokens + usage.cacheReadTokens)} tok`
+      `Input ${formatTokens(billedInputTokens(usage))} tok`
       + ` · Output ${formatTokens(usage.outputTokens)} tok`,
     )
   }
+  if (groups.length === 0) return null
   return (
     <div className={css.root}>
       {groups.map((group, i) => (

@@ -227,14 +227,25 @@ const pressure = (ctx: Context, session: Session): ContextPressureProjection => 
   return value
 }
 
-function recordContext(session: Session, model: string, contextWindow: number): void {
-  session.append('request/context', { provider: 'mock', model, contextWindow })
+function recordContext(session: Session, model: string, contextWindow?: number): void {
+  session.append('request/context', {
+    provider: 'mock',
+    model,
+    ...contextWindow === undefined ? {} : { contextWindow },
+  })
 }
 
 describe('contextPressure session projection', () => {
-  it('serves zero pressure and no capacity for an empty log', async () => {
+  it('serves no pressure or capacity for an empty log', async () => {
     const { ctx, session } = await harness()
-    expect(pressure(ctx, session)).toEqual({ pressureTokens: 0 })
+    expect(pressure(ctx, session)).toEqual({})
+  })
+
+  it('does not synthesize zero pressure before a provider usage sample', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    recordContext(session, 'small', 64_000)
+    expect(pressure(ctx, session)).toEqual({ contextWindow: 64_000 })
   })
 
   it('sums prompt-side buckets and excludes response output', async () => {
@@ -271,6 +282,15 @@ describe('contextPressure session projection', () => {
     expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, contextWindow: 256_000 })
   })
 
+  it('removes an older capacity when the newest route advertises none', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    recordContext(session, 'small', 64_000)
+    usageChunk(session, { inputTokens: 100, outputTokens: 10 }, 1, 1)
+    recordContext(session, 'unknown')
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100 })
+  })
+
   it('pushes no change for unrelated events or a restated capacity', async () => {
     // The registry gates its change feed on Object.is, so a unit that rebuilt
     // state for an event it does not care about would push phantom updates.
@@ -299,6 +319,7 @@ describe('contextPressure session projection', () => {
     const checkpoint = JSON.parse(JSON.stringify(
       ctx.sessionProjections.checkpoint(session),
     )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
+    expect(checkpoint.contextPressure?.ver).toBe(2)
 
     await meterFiber.dispose()
     expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')

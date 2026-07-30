@@ -11,7 +11,6 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
 - paragraph: partial
 - text: 已停止
 - button "复制":
@@ -27,4 +26,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Context 0% of 128K Input 0 tok · Output 0 tok
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok

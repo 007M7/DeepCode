@@ -96,7 +96,7 @@ describe('Session.requestContext', () => {
   const CAPACITY = { provider: 'mock', model: 'm', contextWindow: 128_000 }
 
   /** A turn-enclosed capacity record; the invariant rejects one outside a turn. */
-  function seedWith(...records: { provider: string; model: string; contextWindow: number }[]): SessionEvent[] {
+  function seedWith(...records: { provider: string; model: string; contextWindow?: number }[]): SessionEvent[] {
     const events: SessionEvent[] = [{
       type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
     }]
@@ -127,6 +127,8 @@ describe('Session.requestContext', () => {
     expect(session.requestContext()).toEqual(CAPACITY)
     session.append('request/context', { ...CAPACITY, model: 'next', contextWindow: 64_000 })
     expect(session.requestContext()).toEqual({ provider: 'mock', model: 'next', contextWindow: 64_000 })
+    session.append('request/context', { provider: 'mock', model: 'unknown' })
+    expect(session.requestContext()).toEqual({ provider: 'mock', model: 'unknown' })
   })
 
   it('folds a batch appended between two reads', () => {
@@ -143,6 +145,6 @@ describe('Session.requestContext', () => {
     const held = session.requestContext()
     if (held === undefined) throw new Error('expected a folded capacity record')
     expect(Object.isFrozen(held)).toBe(true)
-    expect(() => { (held as { contextWindow: number }).contextWindow = 1 }).toThrow()
+    expect(() => { (held as { contextWindow?: number }).contextWindow = 1 }).toThrow()
   })
 })

@@ -44,7 +44,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import type { AssistantMessage, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
+import type { AssistantMessage, RequestContext, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
@@ -668,21 +668,21 @@ export class ReactLoopAgent implements Agent {
       session.append('request/header', { header, reason: 'change' })
     }
 
-    // Capacity of the route this request resolved to, recorded from the same
+    // Context metadata for the route this request resolved to, recorded from the same
     // registration-bound lookup that prepared the call (no second resolve).
-    // Deduplicated against the last record: an unchanged route logs nothing.
+    // A route with unknown capacity is still recorded so it clears any older
+    // denominator; an unchanged route logs nothing.
     const contextWindow = preparedCall?.context?.contextWindow
-    if (contextWindow !== undefined) {
-      const previous = session.requestContext()
-      if (previous?.provider !== config.provider
-        || previous.model !== config.model
-        || previous.contextWindow !== contextWindow) {
-        session.append('request/context', {
-          provider: config.provider,
-          model: config.model,
-          contextWindow,
-        })
-      }
+    const requestContext: RequestContext = {
+      provider: config.provider,
+      model: config.model,
+      ...contextWindow === undefined ? {} : { contextWindow },
+    }
+    const previous = session.requestContext()
+    if (previous?.provider !== requestContext.provider
+      || previous.model !== requestContext.model
+      || previous.contextWindow !== requestContext.contextWindow) {
+      session.append('request/context', requestContext)
     }
 
     const request = markAgentLoopRequest(deepFreeze({

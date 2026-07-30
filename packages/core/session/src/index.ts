@@ -584,11 +584,11 @@ export class Session {
   private contextFoldSeq = 0
 
   /**
-   * The route capacity in force after the log's last `request/context` event —
+   * The route metadata in force after the log's last `request/context` event —
    * what the NEXT request deduplicates against — or undefined before any such
    * record. Maintained incrementally like {@link requestHeader}, so a per-step
    * read costs O(new events).
-   * @returns the folded capacity record, or undefined when none exists yet.
+   * @returns the folded context record, or undefined when none exists yet.
    */
   requestContext(): RequestContext | undefined {
     if (this.contextFoldSeq < this.log.length) {

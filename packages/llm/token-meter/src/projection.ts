@@ -20,8 +20,8 @@ export interface TokenUsageProjection {
 /**
  * Approximate context occupancy for a status display.
  *
- * The two fields are deliberately NOT one atomic request observation:
- * `pressureTokens` is the newest provider-reported prompt size in the log,
+ * The two fields, when present, are deliberately NOT one atomic request
+ * observation: `pressureTokens` is the newest provider-reported prompt size,
  * `contextWindow` the newest recorded route capacity. Switching models can
  * therefore pair a fresh capacity with the previous route's pressure until the
  * next request reports usage. This is an intentional trade — the value is a
@@ -33,9 +33,9 @@ export interface ContextPressureProjection {
   /**
    * Provider-reported prompt size of the most recent request: uncached input
    * plus cache reads and writes. Response output is excluded, so this does not
-   * grow as the current turn streams.
+   * grow as the current turn streams. Absent until a provider reports usage.
    */
-  pressureTokens: number
+  pressureTokens?: number
   /** Newest recorded route capacity; absent when no adapter advertised one. */
   contextWindow?: number
 }

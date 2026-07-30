@@ -578,13 +578,38 @@ describe('request/context capacity records', () => {
       .map(event => event.data.contextWindow)).toEqual([64_000, 256_000])
   })
 
-  it('records nothing when the adapter advertises no capacity', async () => {
-    // The absent-capacity path must stay silent rather than log a placeholder:
-    // consumers read "no capacity known" and omit their percentage entirely.
-    const ctx = await harness(new MockAdapter([textResponse('a')]))
+  it('records and deduplicates a route whose adapter advertises no capacity', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('a'), textResponse('b')]))
     const agent = ctx.agentLoop.create(SessionId('capacity-absent'), { provider: 'mock', model: 'mock' })
-    send(agent, 'go')
+    send(agent, 'first')
     await waitForIdle(ctx, agent)
-    expect(agent.session.events.some(event => event.type === 'request/context')).toBe(false)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data)).toEqual([{ provider: 'mock', model: 'mock' }])
+  })
+
+  it('clears a previous capacity when the next route advertises none', async () => {
+    const adapter = capacityAdapter({ known: 64_000 }, [textResponse('a'), textResponse('b')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('capacity-clear'), { provider: 'mock', model: 'known' })
+    let model = 'known'
+    ctx.on('agent/request', (subject, _turn, _step, _signal, next) => subject === agent
+      ? Promise.resolve({ provider: 'mock', model })
+      : next())
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    model = 'unknown'
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(agent.session.events
+      .filter(event => event.type === 'request/context')
+      .map(event => event.data)).toEqual([
+      { provider: 'mock', model: 'known', contextWindow: 64_000 },
+      { provider: 'mock', model: 'unknown' },
+    ])
   })
 })

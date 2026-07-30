@@ -92,13 +92,13 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Registration-bound context capacity for the route a request resolved to,
+   * Registration-bound context metadata for the route a request resolved to,
    * appended inside its step beside `request/header` and only when the route
    * or capacity differs from the last record. It is log-only and deliberately
    * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
    * route, not an input the request was built from, so it must not participate
-   * in request reconstruction or header equality. Absent for a route whose
-   * adapter advertises no capacity.
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
    */
   'request/context': RequestContext
   /**
@@ -178,21 +178,21 @@ interface EpochHeader {
 
 ### 路由容量事件：`request/context`
 
-请求所解析到的路由的上下文窗口是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建契约：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由不追加任何记录，消费方将此读作「容量未知」。
+请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建契约：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
 
 ```ts type-equiv
 /**
- * Registration-bound context capacity of one resolved model route. Adapter
+ * Registration-bound context metadata of one resolved model route. Adapter
  * metadata about a route rather than a request input, which is why it lives
  * outside {@link EpochHeader}.
  */
 interface RequestContext {
-  /** Registered provider route the capacity was resolved through. */
+  /** Registered provider route the metadata was resolved through. */
   provider: string
-  /** Provider-owned model id the capacity belongs to. */
+  /** Provider-owned model id the metadata belongs to. */
   model: string
-  /** Maximum combined request and response context in tokens. */
-  contextWindow: number
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
 }
 ```
 
@@ -455,11 +455,11 @@ declare class Session {
    */
   requestHeader(): EpochHeader | undefined;
   /**
-   * The route capacity in force after the log's last `request/context` event —
+   * The route metadata in force after the log's last `request/context` event —
    * what the NEXT request deduplicates against — or undefined before any such
    * record. Maintained incrementally like {@link requestHeader}, so a per-step
    * read costs O(new events).
-   * @returns the folded capacity record, or undefined when none exists yet.
+   * @returns the folded context record, or undefined when none exists yet.
    */
   requestContext(): RequestContext | undefined;
   /**

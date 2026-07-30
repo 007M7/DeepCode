@@ -216,7 +216,6 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 /** Project types deliberately documented outside the core-data catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   AgentFactory: 'agent creation seam is owned by packages/core/agent/README.md',
-  AgentModelRequest: 'event-local live request metadata is owned by packages/core/agent/README.md',
   BeginCommandRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   InsertReferenceRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',
   ConsumeTokenRequest: 'event-local request contract is owned by packages/client/ui-slash/src/types.ts',

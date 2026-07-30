@@ -27,7 +27,7 @@ When the composition provides `ctx.sessionProjections`, token-meter registers tw
 
 `tokenUsage` carries the complete durable log's `uncachedInputTokens`, `outputTokens`, `cacheReadTokens`, and `cacheWriteTokens`. Usage chunks are counted even when a request later fails; a final assistant-message usage for the same `(turn, step)` replaces that sample instead of double-counting it. Reasoning remains an output subdivision. The single last-sample slot relies on a session-log ordering property: once a later step reports usage, a legal log never reports usage for an earlier step again.
 
-`contextPressure` carries `pressureTokens` — the newest provider-reported prompt size, summing uncached input plus cache reads and writes — and the optional `contextWindow` from the newest `request/context` record. Output is excluded, so the numerator holds still while a turn streams and steps forward when the next request reports its usage.
+`contextPressure` carries optional `pressureTokens` — the newest provider-reported prompt size, summing uncached input plus cache reads and writes — and optional `contextWindow` from the newest `request/context` record. Pressure stays absent until a provider reports usage; capacity stays absent for a route whose adapter advertises none. Output is excluded, so the numerator holds still while a turn streams and steps forward when the next request reports its usage.
 
 Both units use the standard projection baseline, live frame, higher-seq-wins store, and JSON checkpoint paths. Unloading token-meter removes both keys. A headless or TUI composition without the projection seam keeps the measurement service's existing behavior.
 
@@ -62,3 +62,4 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 - **Every measurement clones the current surface** — coherent immutable snapshots make reads O(surface), including below-threshold pressure checks.
 - **Provider usage is only reusable for an identical canonical envelope** — prompt, prefix, tools, provider, model, or call-config changes deliberately fall back to full heuristic estimation.
 - **Legacy provenance is conservative** — assistant messages without `sourceEventSeqs` cannot distinguish provider output from listener rewrites, so the fold avoids claiming a known empty or exact chunk stream.
+- **The TUI and browser fixture retain parallel folds** — `tokenUsage` owns durable session-projection semantics; the TUI keeps its live per-step map because its composition does not mount the generic projection seam, while the browser fixture mirrors the unit for standalone demo data.

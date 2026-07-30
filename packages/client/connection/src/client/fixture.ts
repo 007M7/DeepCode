@@ -475,6 +475,33 @@ interface FixtureTokenUsageProjection {
   cacheWriteTokens: number
 }
 
+interface FixtureUsageSample {
+  turn: number
+  step: number
+  usage: TokenUsage
+}
+
+/** Read one provider usage sample from either durable carrier. */
+function usageSampleOf(event: SessionEvent): FixtureUsageSample | undefined {
+  const item = event as unknown as {
+    type: string
+    data: {
+      turn?: number
+      step?: number
+      usage?: TokenUsage
+      chunk?: { type?: string; usage?: TokenUsage }
+    }
+  }
+  const usage = item.type === 'assistant/chunk' && item.data.chunk?.type === 'usage'
+    ? item.data.chunk.usage
+    : item.type === 'assistant/message'
+      ? item.data.usage
+      : undefined
+  return usage === undefined || item.data.turn === undefined || item.data.step === undefined
+    ? undefined
+    : { turn: item.data.turn, step: item.data.step, usage }
+}
+
 /** Fixture parallel of token-meter's last-sample-replacing usage projection. */
 function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection {
   const totals: FixtureTokenUsageProjection = {
@@ -489,47 +516,40 @@ function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection
     buckets: FixtureTokenUsageProjection
   } | null = null
   for (const event of log) {
-    const item = event as unknown as {
-      type: string
-      data: {
-        turn?: number
-        step?: number
-        usage?: TokenUsage
-        chunk?: { type?: string; usage?: TokenUsage }
-      }
-    }
-    const usage = item.type === 'assistant/chunk' && item.data.chunk?.type === 'usage'
-      ? item.data.chunk.usage
-      : item.type === 'assistant/message'
-        ? item.data.usage
-        : undefined
-    if (usage === undefined || item.data.turn === undefined || item.data.step === undefined) continue
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
     const buckets: FixtureTokenUsageProjection = {
-      uncachedInputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      cacheReadTokens: usage.cacheReadTokens ?? 0,
-      cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+      uncachedInputTokens: sample.usage.inputTokens,
+      outputTokens: sample.usage.outputTokens,
+      cacheReadTokens: sample.usage.cacheReadTokens ?? 0,
+      cacheWriteTokens: sample.usage.cacheWriteTokens ?? 0,
     }
-    const previous = last?.turn === item.data.turn && last.step === item.data.step
+    const previous = last?.turn === sample.turn && last.step === sample.step
       ? last.buckets
       : undefined
     totals.uncachedInputTokens += buckets.uncachedInputTokens - (previous?.uncachedInputTokens ?? 0)
     totals.outputTokens += buckets.outputTokens - (previous?.outputTokens ?? 0)
     totals.cacheReadTokens += buckets.cacheReadTokens - (previous?.cacheReadTokens ?? 0)
     totals.cacheWriteTokens += buckets.cacheWriteTokens - (previous?.cacheWriteTokens ?? 0)
-    last = { turn: item.data.turn, step: item.data.step, buckets }
+    last = { turn: sample.turn, step: sample.step, buckets }
   }
   return totals
 }
 
-/** Latest log-only capacity record, or undefined before any request ran. */
+interface FixtureRequestContext {
+  provider: string
+  model: string
+  contextWindow?: number
+}
+
+/** Latest log-only route context, or undefined before any request ran. */
 function lastRequestContext(
   log: readonly SessionEvent[],
-): { provider: string; model: string; contextWindow: number } | undefined {
+): FixtureRequestContext | undefined {
   const event = log.findLast(item => (item as { type: string }).type === 'request/context')
   return event === undefined
     ? undefined
-    : (event as unknown as { data: { provider: string; model: string; contextWindow: number } }).data
+    : (event as unknown as { data: FixtureRequestContext }).data
 }
 
 /**
@@ -539,26 +559,18 @@ function lastRequestContext(
  */
 function contextPressureOf(
   log: readonly SessionEvent[],
-): { pressureTokens: number; contextWindow?: number } {
-  let pressureTokens = 0
+): { pressureTokens?: number; contextWindow?: number } {
+  let pressureTokens: number | undefined
   for (const event of log) {
-    const item = event as unknown as {
-      type: string
-      data: { usage?: TokenUsage; chunk?: { type?: string; usage?: TokenUsage } }
-    }
-    const usage = item.type === 'assistant/chunk' && item.data.chunk?.type === 'usage'
-      ? item.data.chunk.usage
-      : item.type === 'assistant/message'
-        ? item.data.usage
-        : undefined
-    if (usage === undefined) continue
-    pressureTokens = usage.inputTokens
-      + (usage.cacheReadTokens ?? 0)
-      + (usage.cacheWriteTokens ?? 0)
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
+    pressureTokens = sample.usage.inputTokens
+      + (sample.usage.cacheReadTokens ?? 0)
+      + (sample.usage.cacheWriteTokens ?? 0)
   }
   const contextWindow = lastRequestContext(log)?.contextWindow
   return {
-    pressureTokens,
+    ...pressureTokens === undefined ? {} : { pressureTokens },
     ...contextWindow === undefined ? {} : { contextWindow },
   }
 }
@@ -588,12 +600,7 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
 function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
   const type = (event as { type: string }).type
   // One usage sample advances both token-meter units.
-  if (
-    (type === 'assistant/chunk'
-      && (event as unknown as { data: { chunk?: { type?: string } } }).data.chunk?.type === 'usage')
-    || (type === 'assistant/message'
-      && (event as unknown as { data: { usage?: TokenUsage } }).data.usage !== undefined)
-  ) {
+  if (usageSampleOf(event) !== undefined) {
     return [
       { type: 'session/projection', sessionId: id, key: 'tokenUsage', value: tokenUsageOf(log), seq: event.seq },
       { type: 'session/projection', sessionId: id, key: 'contextPressure', value: contextPressureOf(log), seq: event.seq },

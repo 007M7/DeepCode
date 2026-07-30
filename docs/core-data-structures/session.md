@@ -92,13 +92,13 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Registration-bound context capacity for the route a request resolved to,
+   * Registration-bound context metadata for the route a request resolved to,
    * appended inside its step beside `request/header` and only when the route
    * or capacity differs from the last record. It is log-only and deliberately
    * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
    * route, not an input the request was built from, so it must not participate
-   * in request reconstruction or header equality. Absent for a route whose
-   * adapter advertises no capacity.
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
    */
   'request/context': RequestContext
   /**
@@ -176,21 +176,21 @@ Canonical form represents an empty system prompt or tool list as an absent field
 
 ### The route capacity event: `request/context`
 
-The context window of the route a request resolved to is separate logged state, appended beside `request/header` inside the same step and only when the provider, model, or capacity differs from the previous record. It stays outside `EpochHeader` because that type is the reconstruction contract compared field-wise by `headerEquals`: capacity describes a route, not a request input, so folding it in would let a capacity change register as a request-envelope `change` and would pull adapter metadata into the loop's reconstruction invariant. Like `request/header`, it is not a `SurfaceEventType` and produces no LLM message. `session.requestContext()` folds the latest record incrementally. A route whose adapter advertises no capacity appends nothing, which consumers read as "capacity unknown".
+The context metadata of the route a request resolved to is separate logged state, appended beside `request/header` inside the same step and only when the provider, model, or capacity differs from the previous record. It stays outside `EpochHeader` because that type is the reconstruction contract compared field-wise by `headerEquals`: capacity describes a route, not a request input, so folding it in would let a capacity change register as a request-envelope `change` and would pull adapter metadata into the loop's reconstruction invariant. Like `request/header`, it is not a `SurfaceEventType` and produces no LLM message. `session.requestContext()` folds the latest record incrementally. A route whose adapter advertises no capacity is recorded with `contextWindow` absent, so the new record clears an older route's capacity.
 
 ```ts type-equiv
 /**
- * Registration-bound context capacity of one resolved model route. Adapter
+ * Registration-bound context metadata of one resolved model route. Adapter
  * metadata about a route rather than a request input, which is why it lives
  * outside {@link EpochHeader}.
  */
 interface RequestContext {
-  /** Registered provider route the capacity was resolved through. */
+  /** Registered provider route the metadata was resolved through. */
   provider: string
-  /** Provider-owned model id the capacity belongs to. */
+  /** Provider-owned model id the metadata belongs to. */
   model: string
-  /** Maximum combined request and response context in tokens. */
-  contextWindow: number
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
 }
 ```
 
@@ -453,11 +453,11 @@ declare class Session {
    */
   requestHeader(): EpochHeader | undefined;
   /**
-   * The route capacity in force after the log's last `request/context` event —
+   * The route metadata in force after the log's last `request/context` event —
    * what the NEXT request deduplicates against — or undefined before any such
    * record. Maintained incrementally like {@link requestHeader}, so a per-step
    * read costs O(new events).
-   * @returns the folded capacity record, or undefined when none exists yet.
+   * @returns the folded context record, or undefined when none exists yet.
    */
   requestContext(): RequestContext | undefined;
   /**

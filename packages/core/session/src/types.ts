@@ -170,17 +170,17 @@ export interface EpochHeader {
 }
 
 /**
- * Registration-bound context capacity of one resolved model route. Adapter
+ * Registration-bound context metadata of one resolved model route. Adapter
  * metadata about a route rather than a request input, which is why it lives
  * outside {@link EpochHeader}.
  */
 export interface RequestContext {
-  /** Registered provider route the capacity was resolved through. */
+  /** Registered provider route the metadata was resolved through. */
   provider: string
-  /** Provider-owned model id the capacity belongs to. */
+  /** Provider-owned model id the metadata belongs to. */
   model: string
-  /** Maximum combined request and response context in tokens. */
-  contextWindow: number
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
 }
 
 /**
@@ -265,13 +265,13 @@ export interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * Registration-bound context capacity for the route a request resolved to,
+   * Registration-bound context metadata for the route a request resolved to,
    * appended inside its step beside `request/header` and only when the route
    * or capacity differs from the last record. It is log-only and deliberately
    * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
    * route, not an input the request was built from, so it must not participate
-   * in request reconstruction or header equality. Absent for a route whose
-   * adapter advertises no capacity.
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
    */
   'request/context': RequestContext
   /**
