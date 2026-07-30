@@ -23,7 +23,7 @@ const MODE = webSnapshotMode()
 const PROMPTS = [
   'Can you create or edit a normal file right now under the current policy? Answer directly in one sentence. Do not call a tool just to discover the policy.',
   'Does the DSH file sandbox currently restrict file operations? Answer directly in one sentence. Do not call tools.',
-  'Under the current DSH file policy, where are writes allowed? Answer directly in one sentence. Do not call tools.',
+  'Reply with exactly WORKSPACE_POLICY_SEEN. Do not call tools.',
 ] as const
 
 const PRESET_LABELS = ['Read Only', 'Danger Full Access', 'Workspace Write'] as const
@@ -112,9 +112,9 @@ describe('web e2e: current sandbox policy reaches the model before tools', () =>
 
     const answers = assistantTexts(sessionEvents)
     expect(answers).toHaveLength(3)
-    expect(answers[0]).toMatch(/cannot create or edit normal files|writes?.*denied/i)
+    expect(answers[0]).toMatch(/cannot create or edit (?:a )?normal files?|writes?.*denied/i)
     expect(answers[1]).toMatch(/does not.*restrict file operations|not restrict.*file operations/i)
-    expect(answers[2]).toMatch(/workspace.*(temporary|temp)|writable roots/i)
+    expect(answers[2]).toBe('WORKSPACE_POLICY_SEEN')
     expect(sessionEvents.filter(event => event.type === 'tool/call')).toHaveLength(0)
   })
 
