@@ -1,28 +1,33 @@
+/* The takeover seats where the input card sits, so the frame mirrors the
+   InputBar geometry (side pad 32, card cap 800) to keep both edges flush. */
 .frame {
   display: flex;
   justify-content: center;
-  padding: 6px 24px 10px;
+  padding: 6px 32px 10px;
 }
 
+/* Figma Input 973:36348 body over the 1019:36938 header: no banner strip —
+   the card keeps zero padding and sections carry their own insets. */
 .card {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 720px;
+  max-width: 800px;
   /* Composer seat sits in a fixed-height conversation column (overflow
      hidden): cap the card against the viewport and scroll the option list
      so header and footer actions stay reachable on long batches. */
   max-height: min(60vh, 520px);
-  padding: 14px 16px 12px;
+  padding: 0 0 10px;
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
-  border-radius: 18px;
+  border-radius: 20px;
   background: var(--dsw-specific-input-major);
-  box-shadow: var(--dsw-shadow-lv1-blur);
+  box-shadow: var(--dsw-shadow-lv2);
   color: var(--dsw-alias-label-primary);
-  /* Elevated surface in dark, same as the menus: the option list inside scrolls
+  overflow: hidden;
+  /* Elevated surface in dark, same as the menus: the body inside scrolls
      once the card hits the cap above, so the thumb takes the l2 pair. Declared
      on the card because the elevation belongs to the surface, and the custom
-     properties inherit down to `.options` (see ui-theme styles/scrollbar.css
+     properties inherit down to `.body` (see ui-theme styles/scrollbar.css
      for the rebinding contract). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
@@ -33,64 +38,63 @@
   box-sizing: border-box;
 }
 
+/* Figma 1019:36938 header, user-tuned: heading block left, close right; the
+   pager sits in the footer to balance the card. */
 .header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   flex-shrink: 0;
-  margin-bottom: 8px;
+  padding: 20px 16px 0 24px;
 }
 
 .headingBlock {
   min-width: 0;
-  padding: 1px 2px;
 }
 
 .eyebrow {
-  margin-bottom: 2px;
+  /* Eyebrow-to-title gap widened from the figma 2px (user-tuned). */
+  margin-bottom: 5px;
   color: var(--dsw-alias-label-tertiary);
   font-size: 11px;
   line-height: 16px;
 }
 
 .title {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 6px;
   margin: 0;
   font-size: 16px;
   line-height: 22px;
-  font-weight: 600;
-}
-
-.multiSelectHint {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 400;
-  white-space: nowrap;
+  font-weight: 500;
 }
 
 .detail {
   margin: 0 2px 8px;
 }
 
-.headerActions,
 .footerActions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 .progress {
-  padding: 0 6px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
+  padding: 0 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
   line-height: 24px;
+  font-weight: 500;
   white-space: nowrap;
+  /* Narrow the plain spaces around the slash without touching glyph tracking. */
+  word-spacing: -2px;
 }
 
 .iconButton {
@@ -128,21 +132,23 @@
 .options {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
+  margin: 8px 0 0;
+  padding: 4px 12px;
 }
 
 .option {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
+  min-height: 40px;
   /* Rows are the scroll content, never the slack absorber: a shrinkable row
      collapses to min-height while its wrapped copy keeps the taller
      intrinsic height, and centered content then paints outside the row box —
      over the title and the next row. Overflow belongs to .options. */
   flex-shrink: 0;
-  padding: 5px 8px;
+  padding: 6px 12px 6px 8px;
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
@@ -161,23 +167,61 @@
   border-color: var(--dsw-alias-border-l2);
 }
 
-.option:disabled,
-.customTrigger:disabled {
+.option:disabled {
   cursor: default;
 }
 
+/* Leading indicator (figma 20×20, radius 6): single-select shows the option
+   number, multi-select swaps in a checkbox; the custom-answer row follows —
+   its checkbox mirrors the typed draft (styling only, exclusivity holds). */
 .number {
   display: grid;
   place-items: center;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-tertiary);
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-overlay);
+  color: var(--dsw-alias-label-secondary);
   font-size: 12px;
+  font-weight: 500;
   line-height: 18px;
+}
+
+/* Multi-select box (figma 1055:41594, user-tuned down to 14×14): a radius-4
+   box centered in the 20px indicator seat; the box itself is the ::before
+   layer so the check icon stacks over it in the same grid cell. */
+.checkbox {
+  display: grid;
+  place-items: center;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+}
+
+.checkbox::before {
+  content: '';
+  grid-area: 1 / 1;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 4px;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.checkbox > svg {
+  grid-area: 1 / 1;
+}
+
+/* Checked: label-primary fill with a primary-foreground check — the pair
+   inverts with the theme (dark fill in light mode, light fill in dark mode). */
+.checkboxChecked {
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.checkboxChecked::before {
+  border-color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-label-primary);
 }
 
 .optionCopy {
@@ -194,103 +238,101 @@
 
 .optionLabel {
   font-size: 14px;
-  line-height: 20px;
-  font-weight: 600;
+  line-height: 24px;
+  font-weight: 500;
 }
 
 .badge {
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--dsw-specific-sidebar-nav-item-active-accent);
+  color: var(--dsw-alias-button-info-fill);
   font-size: 11px;
   line-height: 18px;
+  font-weight: 600;
 }
 
 .description {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 14px;
+  line-height: 24px;
   font-weight: 400;
 }
 
-.choiceIcon {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.custom {
-  /* Same reason as .option: the custom block is scroll content, and shrinking
-     it pushes its trigger row (and the open textarea) past the footer. */
-  flex-shrink: 0;
-  border: 1px solid transparent;
-  border-radius: 12px;
-}
-
-.customOpen {
-  border-color: var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-module-platform);
-}
-
-.customOptionless {
-  border: none;
-  background: transparent;
-}
-
-.customTrigger {
+/* Custom answer row (figma 973:36427): an option-shaped row whose copy is an
+   inline text input; focus or a typed draft lifts it to the selected look. */
+.customRow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
-  padding: 5px 8px;
-  border: none;
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  line-height: 20px;
-  text-align: left;
-  cursor: pointer;
+  min-height: 40px;
+  /* Same reason as .option: the custom row is scroll content, and shrinking
+     it pushes the inline input past the footer. */
+  flex-shrink: 0;
+  padding: 6px 12px 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
 
-.customTrigger:hover:not(:disabled) {
-  color: var(--dsw-alias-label-primary);
+.customRow:hover,
+.customRow:focus-within,
+.customRowActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.customRow:focus-within,
+.customRowActive {
+  border-color: var(--dsw-alias-border-l2);
 }
 
 .customInput {
-  display: block;
-  width: calc(100% - 20px);
-  min-height: 54px;
-  max-height: 140px;
-  margin: 0 10px 10px;
-  padding: 7px 10px;
-  resize: vertical;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
   outline: none;
-  background: var(--dsw-specific-input-major);
+  background: transparent;
   color: var(--dsw-alias-label-primary);
   caret-color: var(--dsw-alias-state-business-primary);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.customInput:focus {
-  border-color: var(--dsw-alias-state-business-primary);
+  font-size: 14px;
+  line-height: 24px;
 }
 
 .customInput::placeholder {
   color: var(--dsw-alias-label-caption);
 }
 
-.customOptionless .customInput {
-  width: 100%;
-  min-height: 58px;
-  margin: 0;
+/* Optionless question: the free-form answer is the whole body. The 12px side
+   margins add to the .options 12px padding so both edges align with the
+   title's 24px inset; type matches the option rows, no resize handle. */
+.customTextarea {
+  display: block;
+  min-height: 64px;
+  max-height: 140px;
+  flex-shrink: 0;
+  margin: 0 12px;
+  padding: 8px 12px;
+  resize: none;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  outline: none;
   background: var(--dsw-alias-bg-module-platform);
+  color: var(--dsw-alias-label-primary);
+  caret-color: var(--dsw-alias-state-business-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.customTextarea:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.customTextarea::placeholder {
+  color: var(--dsw-alias-label-caption);
 }
 
 .footer {
@@ -299,15 +341,17 @@
   justify-content: space-between;
   gap: 12px;
   flex-shrink: 0;
-  margin-top: 8px;
-  padding: 0 2px;
+  margin-top: 12px;
+  padding: 0 10px 0 18px;
 }
 
 .feedback {
+  flex: 1;
   min-height: 16px;
   color: var(--dsw-alias-state-error-primary);
   font-size: 11px;
   line-height: 16px;
+  text-align: right;
 }
 
 @media (max-width: 720px) {
@@ -316,21 +360,15 @@
   }
 
   .card {
-    padding: 12px 10px 10px;
     border-radius: 16px;
   }
 
   .header {
-    display: block;
+    padding: 10px 12px 0 18px;
   }
 
-  .headerActions {
-    justify-content: flex-end;
-    margin-top: 8px;
-  }
-
-  .headingBlock {
-    padding: 0 2px;
+  .options {
+    padding: 4px 8px;
   }
 
   .title {
@@ -339,18 +377,15 @@
   }
 
   .option,
-  .customTrigger {
+  .customRow {
     align-items: flex-start;
     gap: 8px;
     padding: 6px;
   }
 
-  .choiceIcon {
-    margin-top: 3px;
-  }
-
   .footer {
     align-items: flex-end;
+    padding: 0 10px;
   }
 
   .footerActions {
@@ -359,7 +394,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .option {
+  .option,
+  .customRow {
     transition: none;
   }
 }
