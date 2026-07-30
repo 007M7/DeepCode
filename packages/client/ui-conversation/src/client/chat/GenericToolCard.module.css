@@ -1,0 +1,12 @@
+/* GenericToolCard read card: same column-around-summary layout and indentation
+   the keyed ReadRow uses, so a read-declaring tool without its own row (e.g.
+   web_fetch) renders its read card identically. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+}
+
+.read {
+  margin: 4px 0 4px 22px;
+}

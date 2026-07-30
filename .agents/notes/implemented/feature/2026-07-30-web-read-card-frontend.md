@@ -1,0 +1,48 @@
+# Agent Note: Web read card frontend — the read tool's line window renders line-numbered and highlighted
+
+Status: implemented
+
+English | [中文](2026-07-30-web-read-card-frontend.zh.md)
+
+## Problem
+
+The [read backend](2026-07-30-web-read-card.md) added a fourth render-intent card, `card: 'read'`, to `ToolResultView`: a settled read now carries `{ path, lines: [{ number, text }], totalLines, lang? }` onto the conversation snapshot as `resultView`. That data reaches the browser, but the Web client had no consumer for it. Every read row derived from args alone and the details panel flattened the result's content blocks into one `<pre>`, so a read showed as `N: text`-prefixed plain text with no gutter, no syntax highlighting, and no "showing N of M" affordance for a windowed read. The [web terminal card](2026-07-28-web-terminal-card.md) established the pattern for consuming a structured card; the read card follows it, result-side only.
+
+## Decision
+
+`ReadBlock` is a `ui-primitives` component that renders a read result as a line-numbered, optionally syntax-highlighted file view, and both Web render sites for a read consume the read render intent through it: the chat tool row (resident under the summary line) and the details panel's Output section. `ui-conversation/src/client/contract/read-card-model.ts` is the single place that turns the snapshot's `resultView` into the component's props, so the two sites cannot disagree.
+
+**A new `ReadBlock` primitive, not an extension of `CodeBlock`.** `CodeBlock` already does shiki highlighting with a language banner and a copy control, but a read view needs a per-line gutter carrying each line's own file number, which `CodeBlock` renders as a single `<pre>` tree with no per-line structure. Extending `CodeBlock` with an optional gutter would push a read-specific concern (windowed line numbers, a "showing N of M" note, a height cap) onto every markdown fence and every `run_code` body that shares that component. Instead `ReadBlock` reuses the part that is genuinely shared: the shiki grammar singleton in `markdown/highlight.ts`. A new `highlightLines(code, lang)` there tokenizes into shiki's own per-line token arrays (`codeToTokens`) rather than the single-`<pre>` HTML `highlightToHtml` produces, so the block can place one gutter number per line and still color the content through the same `--shiki-*` custom properties on the same grammar allowlist. The height cap and its head/tail expand arithmetic are copied from `TerminalBlock` (`ceil(max/2)` head plus the remaining tail), so a long read and a long command output collapse at the same place. The copy control writes the window's raw text (the lines joined by newlines), never the gutter numbers or the banner.
+
+`readCardModel` is result-side only, mirroring the backend: a read call carries no content until `execute` returns, so the pending call stays a `GenericCallView` (`kind: 'read'`) and this returns null for a running read — the row keeps its args-derived summary until the result arrives. It also returns null for a settled call whose result view is not a read card, including a `card` value this UI version does not know (which arrives over the wire and cannot be trusted to be a compiled variant) and the read tool's own generic fallback for an error result. The card's banner label is the read view's `title` when the tool supplied one (the contract's replacement-title rule), otherwise the file path relativized to the session workspace so a workspace-rooted absolute path shows the same short form the row summary shows. The model copies the frozen line array into the primitive's own line shape, so the card never holds a reference into the runtime's snapshot cache.
+
+The chat row renders the card **resident** under the summary line, capped at `CHAT_READ_MAX_LINES` (8, half the primitive's default), the same posture `BashRow` gives a terminal card — the block's internal expander keeps a long read from taking over the message flow. Two render sites carry it: the keyed `ReadRow` (registered under `read` in `apply.ts`, the load-order seam being `inject: ['slots', 'conversation']` exactly as the bash sample) whose summary is the file path as an openable host link, and `GenericToolCard`'s fallback for a read-declaring tool without its own keyed row (e.g. `web_fetch`, which classifies to the `read` variant). The details panel renders the same card at the primitive's own full-height cap (16), because the panel is the single-call reading surface.
+
+Whole-row collapse/expand (defaulting every tool call to collapsed) is a separate later change that will flip every resident card at once; this note's card is resident, matching the terminal card it sits beside.
+
+## Alternatives considered
+
+**Extend `CodeBlock` with an optional line-number gutter and `startLine`.** Rejected: it imposes a read-specific gutter, a windowed-count note, and a height cap on every markdown fence and `run_code` body that shares `CodeBlock`, for no benefit to those callers. The genuinely shared surface is the shiki grammar singleton, which both blocks reuse through `highlight.ts`; the chrome around it differs (a read has a gutter and a window note, a fence has neither), so a second small primitive is the correct split, exactly as `TerminalBlock` is a second primitive over the same tokens rather than a `CodeBlock` mode.
+
+**Reuse `highlightToHtml` and inject gutter numbers with CSS counters.** Rejected: the single-`<pre>` HTML shiki emits has no per-line boundary a gutter can hang a file line number off (a windowed read's numbers start above 1 and are not a simple CSS counter increment), and parsing the numbers back out of the HTML would be fragile. `codeToTokens` gives the per-line token structure directly.
+
+## Consequences
+
+`ui-primitives` gains `ReadBlock` and `highlightLines`; no new runtime dependency (shiki was already present for `CodeBlock`). `ReadBlock` reads only the read view's fields, so it stays a pure function of what the render intent carries — no session lookups, replay-safe like the presenters that produce the view. A UI without the read capability still gets the backend's `content` fallback (the envelope-stripped text) through the generic card, unchanged.
+
+A read row in the Web chat now carries the file content resident, a deliberate density increase over a summary-only row, bounded by the chat cap. A `run_code` sub-dispatch does not reach a read card on the shipped wire for the same reason a nested bash call does not reach a terminal card: `session.ts` folds `tool/code-dispatch(-start)` with `resultView: null`, so a nested read keeps the generic flattened form.
+
+## Testing
+
+`packages/client/ui-primitives/tests/read-block.spec.tsx` pins the primitive and the token path: `highlightLines`' per-line css-variables runs, its trailing-terminator-line drop and the genuinely-blank-final-line case, and its `undefined` for an unknown/absent language; and `ReadBlock`'s gutter-numbered rows keeping the file's own numbers, the highlighted-vs-plain content arms, the banner (label, language, the count note only when the read is a window), the head/tail height cap with its `aria-expanded` toggle, and the copy control writing the window's raw text on both the accepted and refused clipboard paths. Both `ReadBlock.tsx` and `highlight.ts` hold per-file 100% coverage (the latter over this spec plus `code-block.spec.tsx`, which covers `highlightToHtml`).
+
+`packages/client/ui-conversation/tests/read-card.spec.tsx` pins the wiring at every render site: `readCardModel`'s derivation and each null arm (running read, no view, generic view, unknown card), the result title replacing the relativized path, the path relativization against the workspace, the copy-not-alias of the frozen line array; the resident card in `GenericToolCard`'s fallback and in the keyed `ReadRow` (plus its path link opening the host, its running/error/stopped states, and its `read`-key registration); and the panel's Output section rendering the read card at full height while keeping the JSON Input section, with the running-read placeholder and non-read flattened-pre arms. That file sits on the coverage `exclude` list (`ui-conversation/src/*`), so it is written against no gate pressure.
+
+The fixture (`packages/client/connection/src/client/fixture.ts`) gains turn 66, a `read` call whose result view is a windowed read (lines starting at file line 41, `totalLines` 180, a `ts` hint), so the built-boot snapshot and a live `?fixture` server show the read card with its gutter numbers, highlighting, and count note. It is named `read` to exercise the keyed `ReadRow`; the render-site fallback row is already covered by the read sub-dispatches in the turn 64 `run_code` sample. It is ordered before the todo turn (now 67) for the same reason the terminal sample is: the standing plan retires at the next `turn/start`.
+
+## Related
+
+- [Read card backend](2026-07-30-web-read-card.md) — adds the `card: 'read'` result view this consumes; produces the `lines`/`totalLines`/`lang` this renders.
+- [Web terminal card](2026-07-28-web-terminal-card.md) — the precedent this follows: a `ui-primitives` block, a `contract/*-card-model.ts` derivation, a keyed row, and making `GenericToolCard`/`DetailsPanel` card-aware.
+- [Web client syntax highlighting](../process/2026-07-26-web-syntax-highlighting-shiki.md) — owns `CodeBlock` and the shiki `highlight.ts` singleton this extends with a per-line token path.
+- [Tagged render-intent union for tool-call presentation](../architecture/2026-07-02-tool-render-intent-union.md) — the `card`-tagged vocabulary; the Web client is now a full consumer of the `read` arm.

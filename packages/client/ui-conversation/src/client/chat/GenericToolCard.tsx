@@ -7,12 +7,14 @@
 import type { ReactNode } from 'react'
 import {
   IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconSparkle16,
-  IconThinkOutline14,
+  IconThinkOutline14, ReadBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowOwnerProps } from '../contract/slots.ts'
+import { CHAT_READ_MAX_LINES, readCardModel } from '../contract/read-card-model.ts'
 import { terminalCardModel } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
+import css from './GenericToolCard.module.css'
 
 /** Variant leading icons (figma table); all glyphs render at 14 inside the 16px leading box. */
 const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
@@ -29,8 +31,9 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
 export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
+  const read = readCardModel(block, cwd)
   const singleFile = model.filePath !== undefined
-  return (
+  const row = (
     <ToolRow
       variant={model.variant}
       toolName={toolName}
@@ -46,5 +49,16 @@ export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwner
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
     />
+  )
+  // A read-declaring tool without its own keyed row lands here (e.g. web_fetch),
+  // so the file's read card is resident below the summary row exactly as the
+  // keyed ReadRow draws it. Only wrap when a card is present, so every other
+  // tool keeps the bare ToolRow.
+  if (read === null) return row
+  return (
+    <div className={css.card}>
+      {row}
+      <ReadBlock {...read} maxLines={CHAT_READ_MAX_LINES} className={css.read} />
+    </div>
   )
 }

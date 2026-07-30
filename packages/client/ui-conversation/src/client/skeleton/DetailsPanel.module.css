@@ -106,3 +106,9 @@
 .terminal {
   margin: 0;
 }
+
+/* The read card sits directly under its section label, same as the terminal
+   card: drop the primitive's standalone vertical margin. */
+.read {
+  margin: 0;
+}

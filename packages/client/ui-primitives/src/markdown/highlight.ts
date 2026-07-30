@@ -17,6 +17,7 @@ import langTs from '@shikijs/langs/typescript'
 import langBash from '@shikijs/langs/shellscript'
 import langJson from '@shikijs/langs/json'
 import type { HighlighterCore } from 'shiki/core'
+import type { CSSProperties } from 'react'
 
 /**
  * Language ids (and aliases) the singleton registers; everything else renders
@@ -79,4 +80,43 @@ export function highlightToHtml(code: string, lang: string | undefined): string 
   const resolved = lang === undefined ? undefined : LANG_ALIASES.get(lang.toLowerCase())
   if (resolved === undefined) return undefined
   return highlighter().codeToHtml(code, { lang: resolved, theme: 'css-variables' })
+}
+
+/**
+ * One highlighted run of a line: the text and the inline style shiki assigned
+ * it. The css-variables theme colors every run through a `--shiki-*` custom
+ * property, so `style.color` is always present; it is held as a style object
+ * rather than a bare color so a run spreads onto a `<span style>` uniformly.
+ */
+export interface HighlightSpan {
+  text: string
+  style: CSSProperties
+}
+
+/**
+ * Tokenize `code` into per-line highlighted runs when `lang` maps to a
+ * registered grammar; `undefined` means the caller renders its plain fallback.
+ * A line-numbered view needs the token runs split per line (one gutter number
+ * per line), which the single-`<pre>` {@link highlightToHtml} does not expose,
+ * so this returns shiki's own 2D line/token structure narrowed to what a run
+ * renders. Each run's color is a `--shiki-*` custom property, keeping token
+ * colors on the theme package's sheets exactly as the HTML path does; the
+ * css-variables theme carries no font-style bits, matching that path's
+ * color-only output. The trailing newline shiki appends as a final empty line
+ * is dropped so the run count matches the caller's own line array.
+ * @param code - the source text.
+ * @param lang - the language hint (a file-extension-derived language id).
+ * @returns one entry per source line (each an array of runs), or `undefined` for unknown languages.
+ */
+export function highlightLines(code: string, lang: string | undefined): HighlightSpan[][] | undefined {
+  const resolved = lang === undefined ? undefined : LANG_ALIASES.get(lang.toLowerCase())
+  if (resolved === undefined) return undefined
+  const { tokens } = highlighter().codeToTokens(code, { lang: resolved, theme: 'css-variables' })
+  // shiki tokenizes `a\nb` into two lines; a trailing newline (`a\n`) adds a
+  // third, empty line the caller's own line array does not carry. Drop that
+  // one terminator line so the two structures stay in step.
+  const lines = tokens.length > 1 && tokens[tokens.length - 1]?.length === 0
+    ? tokens.slice(0, -1)
+    : tokens
+  return lines.map(line => line.map(token => ({ text: token.content, style: { color: token.color } })))
 }

@@ -136,6 +136,33 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
   [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
 }
 
+/**
+ * Read-card sample for the read turn: a WINDOW past an offset, so the line
+ * numbers start above 1 (the card's gutter keeps the file's own numbering) and
+ * `totalLines` exceeds the window (the card shows a "showing N of M" note). The
+ * fixture is client-side and cannot import the read tool, so the structured
+ * window is authored inline exactly as the tool would project it through
+ * `presentationMeta`. `lang` is a `ts` hint so the shiki path highlights it.
+ */
+const READ_SAMPLE_FIRST_LINE = 41
+const READ_SAMPLE_SOURCE = [
+  'export interface ReadBlockProps {',
+  '  label?: string | undefined',
+  '  lines: readonly ReadBlockLine[]',
+  '  totalLines: number',
+  '  lang?: string | undefined',
+  '  maxLines?: number | undefined',
+  '  className?: string | undefined',
+  '}',
+  '',
+  '// A windowed read keeps the file line numbers in the gutter.',
+  'const marker = "fixture read sample"',
+]
+const READ_SAMPLE_LINES = READ_SAMPLE_SOURCE.map((text, index) => ({ number: READ_SAMPLE_FIRST_LINE + index, text }))
+const READ_SAMPLE_PATH = 'packages/client/ui-primitives/src/ReadBlock.tsx'
+const READ_SAMPLE_TOTAL = 180
+const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -275,7 +302,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 67: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip.
   const fixtureTodos = [
     { content: '梳理需求', status: 'completed' },
@@ -296,8 +323,19 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
+  // Turn 66: the read sample — a WINDOW past an offset so the card draws file
+  // line numbers starting above 1 and a "showing N of M" note (the window is
+  // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
+  // highlights. Named `read`, so it exercises the keyed ReadRow registration
+  // (the render-site fallback row is covered by the read sub-dispatches in the
+  // turn 64 run_code sample). The read render intent is result-side only, so its
+  // pending call stays a generic `kind: 'read'` card; presentResult carries the
+  // structured window. Ordered BEFORE the todo turn for the same reason the
+  // terminal sample is: the standing plan retires at the next `turn/start`.
+  toolTurn(66, 'read', `{"path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(67, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -332,6 +370,12 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         card: 'diff', title: `Write ${str(args.path)}`,
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
+    // A read pending call is a GENERIC card (kind: 'read', a follow-along
+    // location): the read render intent is result-side only, because a call
+    // carries no file content until execute returns. The rich read card arrives
+    // in presentResult.
+    case 'read':
+      return { card: 'generic', title: `Read ${str(args.path)}`, kind: 'read', locations: [{ path: str(args.path) }] }
     case 'edit':
       return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
     case 'write':
@@ -344,6 +388,16 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // The read result is the structured window the tool projects through
+  // `presentationMeta`; the fixture authors it inline (it cannot import the
+  // tool). Keyed on the name because the read pending call is a generic card,
+  // so `call.card` alone does not distinguish it from edit/write.
+  if (name === 'read') {
+    return {
+      card: 'read', path: READ_SAMPLE_PATH, lines: READ_SAMPLE_LINES,
+      totalLines: READ_SAMPLE_TOTAL, lang: 'ts', content: text(resultText),
+    }
+  }
   switch (call.card) {
     case 'terminal':
       // The sample's own exit status, authored beside it: re-parsing the
