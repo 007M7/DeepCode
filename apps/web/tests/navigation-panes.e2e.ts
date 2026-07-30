@@ -98,7 +98,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
-    const search = page.getByPlaceholder('Search names or content', { exact: false })
+    const search = page.getByPlaceholder('Search name, keywords', { exact: false })
     // The cold row has not been opened, so only the persisted log can satisfy
     // this query. First search lazily reconciles the SQLite content index.
     await search.fill('zzzqx-no-such-session')
