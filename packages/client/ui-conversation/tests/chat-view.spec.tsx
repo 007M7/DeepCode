@@ -16,7 +16,7 @@ import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ChatViewSlotProps, SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
-import { deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, flowKeys } from '../src/client/chat/chat-flow.ts'
 
 afterEach(cleanup)
 // Keyless create() persists under the bare declared key; clear between cases
@@ -61,8 +61,8 @@ const user = (seq: number, text: string): UserMessageNode => ({
   content: [{ type: 'text', text }] as never,
   source: null,
 })
-const assistant = (seq: number, text: string): AssistantMessageNode => ({
-  kind: 'assistant', seq, time: seq * 1_000, turn: 1, step: 1, blocks: [{ kind: 'text', text }],
+const assistant = (seq: number, text: string, turn = 1): AssistantMessageNode => ({
+  kind: 'assistant', seq, time: seq * 1_000, turn, step: 1, blocks: [{ kind: 'text', text }],
 })
 const toolResult = (seq: number, callId: string, name = 'bash'): ToolResultNode => ({
   kind: 'tool-result', seq, time: seq * 1_000, callId,
@@ -156,6 +156,23 @@ describe('chat-flow derivation', () => {
     expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), { ...headsOnly, interrupted: true }, toolResult(5, 'b')]))).toBe('g3|n4|g5')
     expect(flowKeys(deriveChatFlow([toolResult(3, 'a'), assistant(4, 'found'), toolResult(5, 'b')]))).toBe('g3|n4|g5')
   })
+
+  it('assistantActionsSeqs keeps only the last content assistant per turn', () => {
+    const thinkOnly: AssistantMessageNode = {
+      kind: 'assistant', seq: 3, time: 3_000, turn: 1, step: 2,
+      blocks: [{ kind: 'reasoning', text: 'planning' }],
+    }
+    const seqs = assistantActionsSeqs([
+      user(1, 'hi'),
+      assistant(2, 'looking', 1),
+      thinkOnly,
+      toolResult(4, 'a'),
+      assistant(5, 'done', 1),
+      user(6, 'again'),
+      assistant(7, 'second turn', 2),
+    ])
+    expect([...seqs].sort((a, b) => a - b)).toEqual([5, 7])
+  })
 })
 
 describe('ChatView', () => {
@@ -194,6 +211,23 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('shows assistant IconActions only on the last content message of each turn', () => {
+    const h = makeHarness({
+      nodes: [
+        user(1, 'hi'),
+        assistant(2, 'mid-turn text'),
+        toolResult(3, 'a'),
+        assistant(4, 'final answer'),
+        user(5, 'next'),
+        assistant(6, 'second turn', 2),
+      ],
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    // 2 user + 2 turn-tail assistants; mid-turn text at seq 2 stays chrome-free.
+    expect(view.getAllByRole('button', { name: '复制' })).toHaveLength(4)
+    expect(view.getAllByRole('button', { name: '在新对话中分支' })).toHaveLength(4)
   })
 
   it('forks from both user and finalized assistant message actions at their event seq', () => {
