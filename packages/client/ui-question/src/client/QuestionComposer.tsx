@@ -4,9 +4,10 @@ import {
   Button, IconCheckOutline14, IconChevronLeftOutline14, IconChevronRightOutline14,
   IconCloseOutline16, IconEditOutline16, MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { LocaleSnapshot, Translate } from '@deepseek-ai/dsh-client-locale/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import { PendingQuestion, type QuestionAnswer, type QuestionComposerProps } from './contract/slots.ts'
+import {
+  PendingQuestion,
+  type QuestionAnswer, type QuestionComposerProps,
+} from './contract/slots.ts'
 import css from './QuestionComposer.module.css'
 
 interface DraftAnswer {
@@ -16,11 +17,12 @@ interface DraftAnswer {
 }
 
 /**
- * Displayed feedback: validation feedback is stored as a dictionary key so a
- * locale flip re-translates it; carrier failures arrive as raw (untranslated)
- * messages and display verbatim.
+ * Displayed feedback: validation feedback is stored as a dictionary KEY and
+ * translated at render, so already-shown feedback follows a locale switch;
+ * runtime failure messages (finished strings from the wire) pass through
+ * verbatim.
  */
-type Feedback = { key: 'error.incomplete' | 'error.empty' } | { message: string }
+type Feedback = { key: 'error.incomplete' | 'error.unanswered' } | { text: string }
 
 /**
  * Split the conventional recommendation suffix without changing the answer value.
@@ -51,17 +53,10 @@ export function QuestionComposer(props: QuestionComposerProps) {
   // Domain-face mint rides the carrier's stable identity (never minted in a
   // select/render dispatch — per-dispatch minting would churn memo identity).
   const question = useMemo(() => new PendingQuestion(props.matched), [props.matched])
-  return <QuestionFlow key={question.key} pending={question} t={props.t} useLocale={props.useLocale} />
+  return <QuestionFlow key={question.key} pending={question} t={props.t} />
 }
 
-function QuestionFlow({ pending, t, useLocale }: {
-  pending: PendingQuestion
-  t: Translate
-  useLocale: SnapshotSelectorHook<LocaleSnapshot>
-}) {
-  // Subscription only: t reads the active locale at call time, so the
-  // revision selector exists to re-render this tree on locale flips.
-  useLocale(snapshot => snapshot.revision)
+function QuestionFlow({ pending, t }: { pending: PendingQuestion } & Pick<QuestionComposerProps, 't'>) {
   const questions = pending.questions
   const [index, setIndex] = useState(0)
   const [drafts, setDrafts] = useState<DraftAnswer[]>(() => questions.map(() => ({
@@ -81,7 +76,7 @@ function QuestionFlow({ pending, t, useLocale }: {
     setError(null)
     void pending.cancel().catch((cause: unknown) => {
       setBusy(null)
-      setError({ message: cause instanceof Error ? cause.message : String(cause) })
+      setError({ text: cause instanceof Error ? cause.message : String(cause) })
     })
   }
 
@@ -132,13 +127,13 @@ function QuestionFlow({ pending, t, useLocale }: {
     setError(null)
     void pending.answer(answer).catch((cause: unknown) => {
       setBusy(null)
-      setError({ message: cause instanceof Error ? cause.message : String(cause) })
+      setError({ text: cause instanceof Error ? cause.message : String(cause) })
     })
   }
 
   const continueFlow = (): void => {
     if (!answered(draft)) {
-      setError({ key: 'error.empty' })
+      setError({ key: 'error.unanswered' })
       return
     }
     if (index < questions.length - 1) {
@@ -190,8 +185,8 @@ function QuestionFlow({ pending, t, useLocale }: {
             </h2>
           </div>
           <button
-            type="button" className={css.iconButton} aria-label={t('dismiss')}
-            title={t('dismiss')}
+            type="button" className={css.iconButton} aria-label={t('nav.cancel')}
+            title={t('nav.cancel')}
             disabled={busy !== null} onClick={cancelFlow}
           >
             <IconCloseOutline16 />
@@ -231,7 +226,9 @@ function QuestionFlow({ pending, t, useLocale }: {
                   <span className={css.optionCopy}>
                     <span className={css.optionLine}>
                       <span className={css.optionLabel}>{display.label}</span>
-                      {display.recommended && <span className={css.badge}>{t('option.recommended')}</span>}
+                      {display.recommended && (
+                        <span className={css.badge}>{t('option.recommended')}</span>
+                      )}
                       {option.description !== undefined && (
                         <span className={css.description}>{option.description}</span>
                       )}
@@ -287,7 +284,7 @@ function QuestionFlow({ pending, t, useLocale }: {
         <footer className={css.footer}>
           <div className={css.pager}>
             <button
-              type="button" className={css.iconButton} aria-label={t('pager.prev')}
+              type="button" className={css.iconButton} aria-label={t('nav.prev')}
               disabled={index === 0 || busy !== null}
               onClick={() => { setIndex(index - 1); setError(null) }}
             >
@@ -295,7 +292,7 @@ function QuestionFlow({ pending, t, useLocale }: {
             </button>
             <span className={css.progress}>{index + 1} / {questions.length}</span>
             <button
-              type="button" className={css.iconButton} aria-label={t('pager.next')}
+              type="button" className={css.iconButton} aria-label={t('nav.next')}
               disabled={index === questions.length - 1 || busy !== null}
               onClick={() => { setIndex(index + 1); setError(null) }}
             >
@@ -303,7 +300,7 @@ function QuestionFlow({ pending, t, useLocale }: {
             </button>
           </div>
           <div className={css.feedback} role="status">
-            {error === null ? null : 'key' in error ? t(error.key) : error.message}
+            {error === null ? null : 'key' in error ? t(error.key) : error.text}
           </div>
           <div className={css.footerActions}>
             <Button variant="outline" disabled={busy !== null} onClick={skipQuestion}>
@@ -314,8 +311,8 @@ function QuestionFlow({ pending, t, useLocale }: {
               disabled={busy !== null || !answered(draft)} onClick={continueFlow}
             >
               {busy === 'answer'
-                ? t('action.submitting')
-                : t(index === questions.length - 1 ? 'action.submit' : 'action.next')}
+                ? t('submitting')
+                : index === questions.length - 1 ? t('submit') : t('action.next')}
             </Button>
           </div>
         </footer>

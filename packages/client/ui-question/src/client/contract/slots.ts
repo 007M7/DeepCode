@@ -6,13 +6,12 @@
  * cancelled error encoding, receipt checks — lives HERE, with the package
  * that consumes it.
  */
-import type { HostObservable, InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Also pulls ui-conversation's SlotMap merge (the 'conversation.composer'
 // entry) into every program that sees this contract, so PropsRuntime resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { QuestionResponsePayload } from '@deepseek-ai/dsh-client-connection/client'
-import type { LocaleSnapshot, Translate } from '@deepseek-ai/dsh-client-locale/client'
 
 /** The pending question carrier the owner dispatches into the composer slot. */
 export type QuestionWait = PendingWait<'question'>
@@ -69,25 +68,11 @@ export class PendingQuestion {
 }
 
 /**
- * Registrant-injected share: the `question`-namespace translator plus the
- * locale snapshot as a hooks-compartment source. `t` reads the active locale
- * at call time; the bound `useLocale` subscription is what re-renders the
- * composer when the locale flips.
- */
-export interface QuestionComposerInjected {
-  /** Translator bound to the `question` namespace. */
-  t: Translate
-  hooks: {
-    /** Live locale snapshot (bound to the `useLocale` selector hook). */
-    locale: HostObservable<LocaleSnapshot>
-  }
-}
-
-/**
  * Full component props: the framework runtime share (chain currency +
- * session/global standard kit), the injected locale share, and the chain
- * `matched` share — the entry's selector result, already narrowed to the
- * question carrier. Data and verbs ride the carrier plus the domain face.
+ * session/global standard kit) plus the chain `matched` share — the entry's
+ * selector result, already narrowed to the question carrier — plus the
+ * standard locale seat; the carrier plus the domain face above carry the
+ * whole behavior surface.
  */
 export type QuestionComposerProps =
-  PropsRuntime<'conversation.composer'> & InjectFace<QuestionComposerInjected> & { matched: QuestionWait }
+  PropsRuntime<'conversation.composer'> & { matched: QuestionWait } & PropsLocale<'question'>

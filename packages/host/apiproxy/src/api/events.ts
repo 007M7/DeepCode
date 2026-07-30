@@ -9,6 +9,7 @@
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
 import type { Message } from '@deepseek-ai/dsh-llm/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
@@ -30,6 +31,14 @@ export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presen
 export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
+
+/** One pending queued occurrence in an authoritative queue snapshot. */
+export interface QueuedInboxItem {
+  /** Agent-owned occurrence identity used by queue mutations. */
+  id: InboxItemId
+  /** Complete pending message; it is not durable until the Agent claims it. */
+  message: Message
+}
 
 /** Streaming face of the contract: the two SSE stream openers (mux + host). */
 export interface EventsApi {
@@ -62,18 +71,13 @@ export type MuxFrame =
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * A message entered the addressed agent's inbox. A queued message is not
-   * model-visible, so there is no session event to carry it; this transient
-   * frame is the only wire signal. On stream open the
-   * host replays the current queue snapshot for every attached session (same
-   * refresh-recovery baseline as pending questions); queue clearing on cancel
-   * has no dedicated frame — clients fold it from the status flip.
-   * `steering` is the host's acceptance-time queue classification and remains
-   * authoritative in reconnect snapshots. `message.source` carries the prompt's rpcId
-   * when the message came over this wire (the client's provisional-echo
-   * reconciliation key).
+   * Complete transient queue state after every enqueue, mutation, claim, or
+   * discard. Pending work is not model-visible and therefore has no durable
+   * session event; the whole snapshot makes edit, deletion, cancel, and
+   * reconnect converge through one authoritative signal. Pending steering is
+   * outside this Web queue projection.
    */
-  | { type: 'session/queued'; sessionId: SessionId; message: Message; steering: boolean }
+  | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
   /**
    * One projection unit's finished value changed (session-projection RFC).
    * Live push state, never logged — replay recomputes on the host (the

@@ -47,6 +47,7 @@ function agentForCwd(cwd: string): Agent {
     status: 'idle',
     acceptsNextStep: false,
     send: () => {},
+    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) {
@@ -66,6 +67,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     acceptsNextStep: false,
     ctx: new Context(),
     send: () => {},
+    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) {

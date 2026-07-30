@@ -4,7 +4,8 @@
 // view groups them into tool rows through its keyed toolview slot (figma
 // step-summary flow). Shared by finalized nodes and the streaming partial;
 // the turn-level loading dots live in the chat view's tail, not here.
-// Finalized nodes append IconActions (copy / branch / clock) once streaming ends.
+// Finalized content (text) nodes append IconActions once streaming ends;
+// Think / tool-head-only nodes stay chrome-free.
 
 import { memo } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
@@ -38,6 +39,11 @@ function copyText(blocks: readonly AssistantBlock[]): string {
   return parts.join('')
 }
 
+/** True when the node has model-visible text content worth chrome under. */
+function hasContentText(blocks: readonly AssistantBlock[]): boolean {
+  return blocks.some(block => block.kind === 'text' && block.text.trim() !== '')
+}
+
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 function ThinkRow({ text, running }: { text: string; running: boolean }) {
   return (
@@ -64,8 +70,8 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     || interrupted === true
     || blocks.some(block => block.kind !== 'tool-call')
   if (!hasVisible) return null
-  // Footer only after the turn settles with a known event time; streaming omits it.
-  const showActions = !streaming && time !== undefined
+  // Footer only under settled content text; Think-only / streaming omit it.
+  const showActions = !streaming && time !== undefined && hasContentText(blocks)
   return (
     <div className={css.root} data-streaming={streaming || undefined}>
       <div className={css.body}>

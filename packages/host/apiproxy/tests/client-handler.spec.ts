@@ -48,6 +48,7 @@ function scriptedApi(overrides: {
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
       prompt: r => ok(r, { accepted: true as const }),
+      updateQueue: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,
     },
