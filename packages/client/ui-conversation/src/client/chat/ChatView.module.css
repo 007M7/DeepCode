@@ -144,8 +144,11 @@
 }
 
 :global([data-conversation-scroll]) .toBottomSlot {
-  /* Clears the sticky composer stack (stats + docks + input card). */
-  bottom: 168px;
+  /* Clears the sticky composer stack (docks + input card + stats): the live
+     height rides --dsh-composer-height (ConversationRoot's seat observer) so
+     the control follows a growing textarea; the fallback covers the first
+     paint before the observer fires. */
+  bottom: calc(var(--dsh-composer-height, 152px) + 16px);
 }
 
 .toBottom {

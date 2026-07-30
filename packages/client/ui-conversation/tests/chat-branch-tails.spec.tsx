@@ -227,6 +227,6 @@ describe('small branch tails', () => {
     const view = render(
       <StatsLine useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']} />,
     )
-    expect(view.getByText('10 tokens · 1 turns · 1 steps')).toBeTruthy()
+    expect(view.container.textContent).toBe('1 turns · 1 steps|Input 0 tok · Output 10 tok')
   })
 })
