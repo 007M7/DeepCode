@@ -286,6 +286,7 @@ const SCENARIOS: Scenario[] = [
     recorded: true,
     pinsHeader: true,
     headerClass: 'sandbox',
+    systemPromptSource: 'text-turn',
     toolSchemasSource: 'text-turn',
     env: { DSH_PERMISSION_MODE: 'workspace-write' },
   },

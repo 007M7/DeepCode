@@ -1,8 +1,8 @@
 // Web acceptance for current sandbox-policy context. A real Chromium drives
 // the shipped /permission command through all three presets; record mode uses
 // the real provider, while replay keeps the same provider-authored behavior
-// keyless. Assertions read the exact durable request headers and tool calls,
-// so assistant prose alone cannot satisfy the scenario.
+// keyless. Assertions read the exact durable header, runtime-context messages,
+// and tool calls, so assistant prose alone cannot satisfy the scenario.
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,7 +25,7 @@ const PROMPTS = [
   'Can you create or edit a normal file right now under the current policy? Answer directly in one sentence. Do not call a tool just to discover the policy.',
   'Does the DSH file sandbox currently restrict file operations? Answer directly in one sentence. Do not call tools.',
   'Reply with exactly WORKSPACE_POLICY_SEEN. Do not call tools.',
-  'Create policy-neutral.txt in the current workspace containing exactly POLICY_NEUTRAL_OK, verify its contents, then report completion.',
+  'Create the relative path policy-neutral.txt in the current workspace containing exactly POLICY_NEUTRAL_OK, verify its contents, then report completion.',
 ] as const
 
 const PRESET_LABELS = ['Read Only', 'Danger Full Access', 'Workspace Write'] as const
@@ -34,6 +34,15 @@ function requestSystems(events: readonly SessionEvent[]): string[] {
   return events.flatMap((event) => {
     if (event.type !== 'request/header') return []
     return typeof event.data.header.system === 'string' ? [event.data.header.system] : []
+  })
+}
+
+function runtimeContexts(events: readonly SessionEvent[]): string[] {
+  return events.flatMap((event) => {
+    if (event.type !== 'user/message'
+      || event.data.source.kind !== 'plugin'
+      || event.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
+    return event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
   })
 }
 
@@ -112,22 +121,31 @@ describe('web e2e: current sandbox policy reaches the model before tools', () =>
     if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 240_000)
 
-  it.skipIf(MODE === 'record')('records each effective policy before the corresponding model behavior', async () => {
+  it.skipIf(MODE === 'record')('records cache-safe current policy before the corresponding model behavior', async () => {
     const systems = requestSystems(sessionEvents)
-    expect(systems).toHaveLength(4)
-    expect(systems[0]).toContain('Current DSH file policy: read-only. The write and edit tools and one-shot bash commands cannot modify files under this policy.')
-    expect(systems[1]).toContain('Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict the write and edit tools or one-shot bash commands.')
-    expect(systems[1]).toContain('Approval prompts are disabled in this session')
+    expect(systems).toHaveLength(1)
+    expect(systems[0]).not.toContain('Current DSH file policy:')
+    expect(systems[0]).not.toContain('Approval policy:')
+    expect(systems[0]).not.toContain('Approval prompts are disabled in this session')
+
+    const contexts = runtimeContexts(sessionEvents)
+    expect(contexts).toHaveLength(4)
+    expect(contexts[0]).toContain('Current DSH file policy: read-only. The write and edit tools and one-shot bash commands cannot modify files in the standing mode.')
+    expect(contexts[0]).toContain('do not refuse a required modification from this standing mode alone')
+    expect(contexts[0]).toContain('Approval policy: ask.')
+    expect(contexts[1]).toContain('Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict the write and edit tools or one-shot bash commands.')
+    expect(contexts[1]).toContain('Approval prompts are disabled in this session')
 
     if (sessionWorkspace === undefined) throw new Error('permission-policy scenario observed no session workspace')
-    expect(systems[2]).toContain(`Current DSH file policy: workspace-write. The write and edit tools and one-shot bash commands may modify files under the session workspace: ${JSON.stringify(canonicalPath(sessionWorkspace))}. Some platform temporary areas may also be writable.`)
-    expect(systems[2]).not.toContain('Approval prompts are disabled in this session')
-    expect(systems[3]).toContain('Current DSH file policy: read-only.')
+    expect(contexts[2]).toContain(`Current DSH file policy: workspace-write. The write and edit tools and one-shot bash commands may modify files under the session workspace: ${JSON.stringify(canonicalPath(sessionWorkspace))}. Some platform temporary areas may also be writable.`)
+    expect(contexts[2]).toContain('Approval policy: ask.')
+    expect(contexts[2]).not.toContain('Approval prompts are disabled in this session')
+    expect(contexts[3]).toContain('Current DSH file policy: read-only.')
 
     const answers = assistantTexts(sessionEvents)
     expect(answers.length).toBeGreaterThanOrEqual(4)
-    expect(answers[0]).toMatch(/cannot create or edit (?:a )?normal files?|writes?.*denied/i)
-    expect(answers[1]).toMatch(/does not restrict.*(?:write\/edit tools|write and edit tools).*one-shot bash commands/i)
+    expect(answers[0]).toMatch(/read-only.*(?:denied|cannot modify|cannot create or edit)/i)
+    expect(answers[1]).toMatch(/does not restrict.*(?:file operations|(?:write\/edit tools|write and edit tools).*one-shot bash commands)/i)
     expect(answers[2]).toBe('WORKSPACE_POLICY_SEEN')
     const calls = sessionEvents.filter(
       (event): event is Extract<SessionEvent, { type: 'tool/call' }> => event.type === 'tool/call',
