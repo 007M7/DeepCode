@@ -47,7 +47,7 @@
 - **基于模型的会话标题提供方**：组合包挂载带可覆盖示例限制的后备服务（5 个词、40 个后备字节、80 个可接受标题字节）；叶节点可以恰好选用一个首消息或全消息 LLM 提供方。
 - **bash 执行器**：组合包交付 `tool-bash`（消费方 schema）；叶节点提供 `ctx.bash`（`bash-local` 或沙箱化实现）。
 - **非本地 skill 提供方**：组合包交付 skill 注册表、本地文件系统提供方和 `skill` 工具；部署可以把嵌入式目录或远程目录等其他提供方作为同级插件添加。
-- **前端入口与各应用基础设施**：终端 TUI 或 ACP（Agent Client Protocol）自动化传输，以及 `hmr`。应用包（[`dsh-tui-demo`](../tui-demo/README.md)、[`dsh-acp-demo`](../acp-demo/README.md)）拥有这些选择。`timer` 位于主干中，因为它是共有组件且不写 stdout；前端入口拥有 stdout，因此留在组合包外。
+- **前端入口与各应用基础设施**：终端 TUI 或 ACP（Agent Client Protocol）自动化传输，以及 `hmr`。应用包（[`dsh-cli-demo`](../cli-demo/README.md)、[`dsh-acp-demo`](../acp-demo/README.md)）拥有这些选择。`timer` 位于主干中，因为它是共有组件且不写 stdout；前端入口拥有 stdout，因此留在组合包外。
 
 这把[接口／实现／消费方 seam](../../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) 提升到组合层：组合包拥有共享主干，叶节点拥有后端，应用包拥有前端入口。
 

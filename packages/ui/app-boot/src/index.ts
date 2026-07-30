@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
-import { Context } from 'cordis'
+import { Context, type FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -94,20 +94,56 @@ export function loadPersonalPatches(
     if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return undefined
     throw new Error(`${binName}: failed to read personal patches ${file}: ${String(error)}`)
   }
+  return parsePatchList(binName, file, content, 'personal patches')
+}
+
+/**
+ * Load a required overlay patch list: a surface overlay (`tui.cordis.yml`) or a
+ * `--config <path>` overlay applied over the shared base. Same file format as
+ * {@link loadPersonalPatches}, but a missing file throws, because the caller
+ * named this file — its absence is a misconfiguration, not "no overlay".
+ * @param binName - the diagnostic prefix on the thrown error.
+ * @param file - absolute path of the overlay file.
+ * @returns the parsed patch list.
+ */
+export function loadOverlayPatches(binName: string, file: string): PatchOptions[] {
+  let content: string
+  try {
+    content = readFileSync(file, 'utf8')
+  } catch (error) {
+    throw new Error(`${binName}: failed to read overlay ${file}: ${String(error)}`)
+  }
+  return parsePatchList(binName, file, content, 'overlay')
+}
+
+/**
+ * Parse one loader patch list: a top-level YAML array of
+ * `@cordisjs/plugin-include` `PatchOptions` (id-targeted config overrides and
+ * `insert` lists, `!!js` expressions allowed). Every shape failure throws,
+ * because a patch file that cannot be applied at all is a misconfiguration; a
+ * single patch whose target row is absent stays a per-entry Loader warning, so
+ * one overlay shared across surfaces does not have to match every tree.
+ * @param binName - the diagnostic prefix on the thrown error.
+ * @param file - the source path, quoted in errors.
+ * @param content - the file's text.
+ * @param label - what to call this list in errors (`personal patches`, `overlay`).
+ * @returns the parsed patch list.
+ */
+function parsePatchList(
+  binName: string, file: string, content: string, label: string,
+): PatchOptions[] {
   let parsed: unknown
   try {
     parsed = yaml.load(content, { schema: personalPatchesSchema })
   } catch (error) {
-    throw new Error(`${binName}: failed to parse personal patches ${file}: ${String(error)}`)
+    throw new Error(`${binName}: failed to parse ${label} ${file}: ${String(error)}`)
   }
   if (!Array.isArray(parsed)) {
-    throw new Error(`${binName}: personal patches ${file} must be a top-level YAML array of loader patch entries`)
+    throw new Error(`${binName}: ${label} ${file} must be a top-level YAML array of loader patch entries`)
   }
-  // A present personal config that cannot apply is a misconfiguration and must
-  // fail loud here — the include only warns per entry at mount.
   parsed.forEach((entry, index) => {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      throw new Error(`${binName}: personal patches entry ${index + 1} in ${file} must be a mapping (a loader patch entry)`)
+      throw new Error(`${binName}: ${label} entry ${index + 1} in ${file} must be a mapping (a loader patch entry)`)
     }
   })
   return parsed as PatchOptions[]
@@ -156,16 +192,30 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   }
 }
 
+/** Runtime mirrors for Cordis's erased const-enum fiber states. */
+const FIBER_ACTIVE = 2 as FiberState.ACTIVE
+const FIBER_PENDING = 0 as FiberState.PENDING
+
 /**
- * Context key a bin sets through {@link boot}'s `prepare` hook to hand a resume
- * session id to the booted config: `ctx.provide(RESUME_SESSION_ID_KEY, id)`
- * makes `id` readable as the bare identifier `resumeSessionId` in a config
- * `!!js` expression. The value is the bin's already-parsed id (or `undefined`),
- * so resuming a session needs no environment variable. A bin that never
- * provides it leaves the identifier undeclared, so configs read it defensively
- * (`typeof resumeSessionId === 'string' ? resumeSessionId : undefined`).
+ * Reject enabled Loader entries whose fibers did not reach ACTIVE after settle.
+ * @param ctx - The settled application root.
+ * @param binName - Diagnostic prefix.
  */
-export const RESUME_SESSION_ID_KEY = 'resumeSessionId'
+export function assertEntriesActive(ctx: Context, binName: string): void {
+  const failures: string[] = []
+  for (const entry of ctx.loader.entries()) {
+    if (entry.fiber === undefined || entry.disabled || entry.fiber.state === FIBER_ACTIVE) continue
+    if (entry.fiber.state === FIBER_PENDING) {
+      const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
+      failures.push(`${entry.options.name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
+    } else {
+      failures.push(`${entry.options.name}: fiber state ${String(entry.fiber.state)}`)
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`${binName}: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
+  }
+}
 
 /**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
@@ -183,7 +233,7 @@ export const RESUME_SESSION_ID_KEY = 'resumeSessionId'
  * (see {@link resolveConfigPath}).
  * @param patches - optional overlay patches applied over the included tree
  * (see {@link loadPersonalPatches}); an empty list mounts none.
- * @param prepare - optional host setup run against the root context before any Loader entry mounts.
+ * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
  * @returns the root context once every entry has started.
  */
 export async function boot(
@@ -193,10 +243,10 @@ export async function boot(
   prepare?: (ctx: Context) => Promise<void> | void,
 ): Promise<Context> {
   const ctx = new Context()
-  await prepare?.(ctx)
   ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
+  await prepare?.(ctx)
   await ctx.loader.create({
     name: 'cordis:include',
     config: {
@@ -206,6 +256,7 @@ export async function boot(
   })
   await ctx.loader.await()
   assertEntriesLoaded(ctx, binName)
+  assertEntriesActive(ctx, binName)
   return ctx
 }
 
