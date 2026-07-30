@@ -12,11 +12,11 @@ Status: implemented
 
 Linux PR 的 `node 24 / snapshots and artifacts` 必须运行完整 Web 浏览器 replay/compare。`scripts/run-gates.ts` 把 `test:web:built` 作为 `ci-consumers` 的一个 gate，并显式注入 `DSH_SNAPSHOT=replay`；CI 永不以 `record` 或 `refresh` 模式运行，因此提交的 golden 与当前组装应用不一致时测试直接失败，不会在 runner 内静默改写后通过。
 
-静态 CI job 已经构建全部发布产物；它把 `apps/web/dist` 连同 package `lib/` 放进 built-tree artifact，consumer job 复用该 artifact 而不重复全仓构建。`node 24 / snapshots and artifacts` 消费方 job 按 lockfile 中的 Playwright 版本安装 Chromium 及系统依赖，并以操作系统和 `pnpm-lock.yaml` 哈希缓存浏览器。默认分支串行 job 不供给 Chromium，也不运行该套件。
+静态 CI job 已经构建全部发布产物；它把 `apps/web/dist` 和包的 `lib/` 目录放进 built-tree 产物，消费方 job 复用该产物而不重复全仓构建。在托管运行器上，CI 按锁文件中的 Playwright 版本安装 Chromium 及其系统依赖。在持久化故障切换 VM 上，镜像负责预装 Linux 系统软件包，CI 只安装 Chromium，避免每次运行都通过 `apt` 改动系统。托管的默认分支 Linux 串行 job 运行该套件，并生成以操作系统和锁文件为键的浏览器缓存；PR 恢复该缓存，使必需路径无需承担压缩和上传开销，并可在锁文件变化时按操作系统前缀回退。自托管热备运行相同的比较，但不执行托管缓存操作。
 
 本地 `pnpm run test:web` 仍先构建再运行浏览器全集；`test:web:built` 是已有构建产物的执行入口。开发者只在确认用户可见输出有意变化后显式运行 `DSH_SNAPSHOT=refresh pnpm run test:web`，评审每一处 expected diff，再以 replay 模式复验不再写文件。
 
-门禁仅在 Linux PR 消费方 job 中运行：这些场景面向 POSIX，串行参考 job 不供给 Chromium，也不运行该套件。PR 的 `all checks passed` 已依赖 consumer job，因此浏览器 compare 失败会阻止合并，无需新增 branch-protection check 名称。
+对 PR 而言，门禁仅在 Linux 消费方 job 中运行：这些场景面向 POSIX，其他 PR job 不供给 Chromium。托管和自托管的默认分支 Linux 串行聚合作业也包含该比较，而 macOS 和 Windows 串行 job 仍不使用浏览器。PR 的 `all checks passed` 已依赖消费方 job，因此浏览器比较失败会阻止合并，无需新增 branch-protection check 名称。
 
 ## 曾考虑的替代方案
 
