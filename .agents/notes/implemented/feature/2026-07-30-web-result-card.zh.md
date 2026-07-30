@@ -42,4 +42,3 @@ web 前端消费者是一个独立的后续 PR：本 PR 新增契约分支并让
 
 - [标签化的工具调用渲染意图联合类型](../architecture/2026-07-02-tool-render-intent-union.md) —— 本卡片以 `web` 分支扩展的 `card` 标签词汇表。
 - [Web terminal card](2026-07-28-web-terminal-card.md) —— 把 bash `terminal` 渲染意图带到浏览器的先例；本分支的 web 前端消费者是它的对应物，推迟到后续 PR。
-</content>

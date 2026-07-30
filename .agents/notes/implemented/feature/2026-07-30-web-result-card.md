@@ -42,5 +42,3 @@ A future web tool that wants this card declares `presentResult` returning a `car
 
 - [Tagged render-intent union for tool-call presentation](../architecture/2026-07-02-tool-render-intent-union.md) — the `card`-tagged vocabulary this extends with the `web` arm.
 - [Web terminal card](2026-07-28-web-terminal-card.md) — the precedent that carried the bash `terminal` render intent to the browser; the web frontend consumer of this arm is its analogue, deferred to a later PR.
-</content>
-</invoke>

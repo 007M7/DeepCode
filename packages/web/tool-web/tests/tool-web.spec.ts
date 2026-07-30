@@ -388,6 +388,27 @@ describe('web_fetch presentation meta and result view', () => {
     expect(formatFetchOutput(value, NO_CAP)).not.toContain('Content truncated')
   })
 
+  it('converts one HTML body once across the render and meta projections of the same result', () => {
+    // The registry calls output.render and output.presentationMeta with the same
+    // frozen result value; the memo must collapse them into one turndown walk so
+    // a large or deeply nested page is not parsed and converted twice. A second
+    // cap on the same result is a distinct entry, so it converts again.
+    const spy = vi.spyOn(TurndownService.prototype, 'turndown')
+    const value = {
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html' as const, content: '<p>hello</p>' },
+    }
+    try {
+      formatFetchOutput(value, NO_CAP)
+      fetchMetaFromValue(value, NO_CAP)
+      expect(spy).toHaveBeenCalledTimes(1)
+      formatFetchOutput(value, NO_CAP - 1)
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('presents a completed fetch as a web/fetch card carrying the summary, titled by the url, without content', () => {
     const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false, body: { kind: 'text', content: '# Title' } }, NO_CAP)
     expect(presentFetchResult({ url: 'https://a.test' }, toolResult(meta, '# Title'))).toEqual({

@@ -266,6 +266,11 @@ interface RenderedFetch {
  * limits the source prefix processed synchronously, then applies again where the
  * complete output — header, rendered body, and footer — is known.
  *
+ * The tool registry calls this once through `output.render` and again through
+ * `output.presentationMeta`, both with the same frozen result value; the
+ * conversion is memoized per `(result, maxOutputChars)` so the synchronous DOM
+ * parse and turndown walk run once, not twice, on the same body.
+ *
  * @param result - the seam's fetch outcome.
  * @param maxOutputChars - cap on the complete returned string; a cut body gets
  *   the same fetch-something-narrower notice as provider-side truncation.
@@ -273,6 +278,32 @@ interface RenderedFetch {
  *   the provider, a source cut, or the cap trimmed the content.
  */
 export function renderFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
+  const byCap = renderCache.get(result) ?? new Map<number, RenderedFetch>()
+  const cached = byCap.get(maxOutputChars)
+  if (cached !== undefined) return cached
+  const computed = computeFetchOutput(result, maxOutputChars)
+  byCap.set(maxOutputChars, computed)
+  renderCache.set(result, byCap)
+  return computed
+}
+
+/**
+ * Per-result memo for {@link renderFetchOutput}, keyed first on the frozen
+ * result value so a garbage-collected result drops its entry, then on the output
+ * cap (a deployment constant per registration). Collapses the registry's twin
+ * `render`/`presentationMeta` calls into one HTML→markdown conversion.
+ */
+const renderCache = new WeakMap<WebFetchResult, Map<number, RenderedFetch>>()
+
+/**
+ * The uncached conversion behind {@link renderFetchOutput}. Separated so the
+ * memo wraps exactly one call site and the conversion logic stays pure.
+ *
+ * @param result - the seam's fetch outcome.
+ * @param maxOutputChars - cap on the complete returned string.
+ * @returns the bounded text and effective truncation.
+ */
+function computeFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
   const header = `Fetched ${result.url} (HTTP ${result.statusCode})\n\n`
   const rendered = renderBody(result.body, maxOutputChars)
   const prefix = `${header}${rendered.text}`
