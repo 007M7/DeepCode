@@ -28,6 +28,12 @@ class SessionStore extends Service {
 
 An empty prefix is forkable; any non-empty boundary must be a safe existing sequence outside an open turn. Typed errors distinguish missing sources, stale objects, duplicate child ids, invalid boundaries, and prefixes ending during execution. Broader log validation and crash repair remain with their existing owners.
 
+### Host and browser adaptation
+
+The Host `session.fork` RPC accepts `atSeq` as an anchor within the desired turn rather than as the store's inclusive safe boundary. It selects the first `turn/end` at or after that anchor; an omitted or past-end anchor selects the last completed turn. An anchor already in the log but not followed by a matching `turn/end` returns `fork-unavailable` and never falls back to an earlier turn, so a message action cannot silently omit the clicked message.
+
+The Host creates the child through the agent registry with the selected seed and lineage, and pre-publication setup installs the latest logged provider, model, and reasoning target before the child can run. It then attaches the child to the source Workspace. An attachment failure returns `workspace-attach-failed` with the already-published child id; the client reconciles that child into its summary list before surfacing the error. The Session-row action uses the last completed turn, while a message action supplies its event seq; both open the child after success, and lineage expansion makes it visible beneath the source.
+
 ## Alternatives considered
 
 **Separate `ctx.sessionFork` service.** This was the first implementation, but review showed it overfit the capability-seam pattern. The code had no swappable backend, no extra event surface, no independent ownership lifecycle, and no durable behavior beyond `ctx.sessions.create({ seed, meta })`. Keeping a separate package would make callers discover and install a second service just to perform policy around a session-store primitive.
@@ -40,4 +46,4 @@ An empty prefix is forkable; any non-empty boundary must be a safe existing sequ
 
 The public surface stays small and discoverable: live session branching is part of `ctx.sessions`, next to `create({ seed })`, rather than a standalone service or a two-step helper pair. Persistence continues to work through existing `session/created` and `session/flush` behavior: a forked child starts life with seeded events, so existing backends persist that seed once and preserve `parentSession` / `seedLength` in the header.
 
-The v1 scope still excludes ACP `session/fork`, unloaded persisted-session forking, model-facing tools, and subagent refactors. If a future ACP method is added, it should advertise the capability only after it has protocol and snapshot coverage; this Agent Note adds no ACP wire behavior, so no ACP snapshot is required. Fork-child replay remains covered by the existing [seed-boundary testing Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md), while this API gets focused `dsh-session` unit tests plus JSONL persistence coverage.
+The v1 scope still excludes ACP `session/fork`, unloaded persisted-session forking, model-facing tools, and subagent refactors. If a future ACP method is added, it should advertise the capability only after it has protocol and snapshot coverage; this Agent Note adds no ACP wire behavior, so no ACP snapshot is required. Fork-child replay remains covered by the existing [seed-boundary testing Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md); focused store, Host, carrier, and client tests pin the boundary and reconciliation contracts, while the real Chromium scenario pins the assembled message action and lineage tree.
