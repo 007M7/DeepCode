@@ -481,8 +481,8 @@ export function WorkspaceBrowser({
 
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
-        <div className={css.listArea}>
-          {wide && (groupBy === 'flat'
+      <div className={css.listArea}>
+        {wide && (groupBy === 'flat'
           ? <FlatList useSessions={useSessions} open={open} forkSession={forkSession} onSessionRename={onSessionRename} query={query} />
           : (
             <SessionTree

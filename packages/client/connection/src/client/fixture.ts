@@ -1053,14 +1053,20 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           })
         }
         const log = logs.get(sessionId) ?? []
-        // Host-parallel boundary: first turn/end at or after atSeq, falling
-        // back to the last completed turn; no completed turn = fork-unavailable.
-        const boundary = (atSeq === undefined ? undefined : log.find(e => e.type === 'turn/end' && e.seq >= atSeq))
-          ?? log.findLast(e => e.type === 'turn/end')
+        const lastSeq = log.at(-1)?.seq ?? -1
+        const anchoredBoundary = atSeq === undefined
+          ? undefined
+          : log.find(e => e.type === 'turn/end' && e.seq >= atSeq)
+        const boundary = anchoredBoundary
+          ?? (atSeq === undefined || atSeq > lastSeq
+            ? log.findLast(e => e.type === 'turn/end')
+            : undefined)
         if (boundary === undefined) {
           return err(request, {
             code: 'fork-unavailable',
-            message: `session ${sessionId} has no completed turn`,
+            message: atSeq !== undefined && atSeq <= lastSeq
+              ? `session ${sessionId} has not completed the turn containing event ${String(atSeq)}`
+              : `session ${sessionId} has no completed turn`,
             details: { sessionId },
           })
         }

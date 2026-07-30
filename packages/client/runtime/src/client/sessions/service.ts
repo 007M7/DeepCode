@@ -338,7 +338,8 @@ export class SessionsService implements ISessions {
    * synchronous-addressability guarantee as {@link SessionsService.create}:
    * on resolution the child is in the list store and open() can target it).
    * @param opts - source session id and the optional event seq anchoring the
-   *   cut (the boundary is the first turn/end at or after it).
+   *   cut (the boundary is the first turn/end at or after it; an in-log
+   *   anchor in an open turn is unavailable rather than clipped backward).
    * @returns the child session id.
    * @throws {SessionForkError} with the source id.
    */

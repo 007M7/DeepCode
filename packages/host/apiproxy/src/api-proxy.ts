@@ -1154,15 +1154,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         if ('error' in found) return err(request, found.error)
         const source = found.agent.session
         const events = source.events
-        // Boundary: the first turn/end at or after atSeq (fork includes that
-        // whole turn); an overshooting atSeq or an omitted one falls back to
-        // the last completed turn.
-        const boundary = (atSeq === undefined ? undefined : events.find(e => e.type === 'turn/end' && e.seq >= atSeq))
-          ?? events.findLast(e => e.type === 'turn/end')
+        // An in-log anchor belongs to the turn containing it and must never
+        // clip backward to an earlier completed turn. Omitted and past-end
+        // anchors retain the last-completed-turn shortcut.
+        const lastSeq = events.at(-1)?.seq ?? -1
+        const anchoredBoundary = atSeq === undefined
+          ? undefined
+          : events.find(e => e.type === 'turn/end' && e.seq >= atSeq)
+        const boundary = anchoredBoundary
+          ?? (atSeq === undefined || atSeq > lastSeq
+            ? events.findLast(e => e.type === 'turn/end')
+            : undefined)
         if (boundary === undefined) {
           return err(request, {
             code: 'fork-unavailable',
-            message: `session "${sessionId}" has no completed turn to fork from`,
+            message: atSeq !== undefined && atSeq <= lastSeq
+              ? `session "${sessionId}" has not completed the turn containing event ${String(atSeq)}`
+              : `session "${sessionId}" has no completed turn to fork from`,
             details: { sessionId },
           })
         }
@@ -1183,6 +1191,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               seedLength: cut,
             },
             agentOptions,
+            setup: installTarget,
           })
         } catch (error: unknown) {
           return err(request, {

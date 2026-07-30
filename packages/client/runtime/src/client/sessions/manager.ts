@@ -293,7 +293,8 @@ export class SessionManager {
    * Contract session.fork; on success merge the child into summaries
    * immediately (same synchronous-addressability guarantee as create). The
    * child carries the source's history, so it is never blank; lineage rides
-   * parentSessionId so the list nests it under its source.
+   * parentSessionId so the list nests it under its source. A child published
+   * before Workspace attachment fails is also reconciled into the list.
    * @param opts - source session and the optional seq anchoring the cut.
    * @returns the fork result (the child session id).
    */
@@ -306,9 +307,12 @@ export class SessionManager {
         sessionId: opts.sessionId,
         ...opts.atSeq === undefined ? {} : { atSeq: opts.atSeq },
       })
-      if (result.ok) {
+      const childId = result.ok
+        ? result.value.sessionId
+        : workspaceAttachSessionId(result.error)
+      if (childId !== undefined) {
         this.recordMutation({ kind: 'upsert', summary: {
-          sessionId: result.value.sessionId, updatedAt: Date.now(), running: false, blank: false,
+          sessionId: childId, updatedAt: Date.now(), running: false, blank: false,
           parentSessionId: opts.sessionId,
           ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
         } })

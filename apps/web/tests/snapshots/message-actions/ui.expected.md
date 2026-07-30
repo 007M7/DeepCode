@@ -31,7 +31,7 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}}
+- text: {{clock}} cache hit 98% · 15,962 tokens · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img
@@ -41,4 +41,3 @@
   - text: deepseek-v4-flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 135 tok

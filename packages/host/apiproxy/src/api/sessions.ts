@@ -243,10 +243,11 @@ export interface SessionsApi {
    * anchors the cut: the boundary is the first `turn/end` at or after it
    * (a message's fork button passes the message seq, so the fork includes
    * that whole turn); a boundary past the log end, or an omitted `atSeq`,
-   * falls back to the source's last completed turn. A source with no
-   * completed turn fails with `fork-unavailable`. The child inherits the
-   * source cwd (and its workspace attachment) and records
-   * `parentSessionId` lineage; the seed prefix carries the source title.
+   * falls back to the source's last completed turn. An in-log anchor whose
+   * turn is still open fails with `fork-unavailable` instead of clipping to
+   * an earlier turn. The child inherits the source cwd, latest logged model
+   * target, workspace attachment, and `parentSessionId` lineage; the seed
+   * prefix carries the source title.
    */
   fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
   Promise<RpcResponse<{ sessionId: SessionId }>>

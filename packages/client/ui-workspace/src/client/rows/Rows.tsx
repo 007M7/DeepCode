@@ -261,10 +261,10 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename,
           open={menuOpen}
           onClose={() => { setMenuOpen(false) }}
           items={SESSION_MENU_ITEMS}
-            onSelect={(id) => {
-              setMenuOpen(false)
-              if (id === 'rename') onRename(node.id, row.title)
-              if (id === 'fork') onFork(node.id) // delete stays visual-only.
+          onSelect={(id) => {
+            setMenuOpen(false)
+            if (id === 'rename') onRename(node.id, row.title)
+            if (id === 'fork') onFork(node.id) // delete stays visual-only.
           }}
           portal
           closeOnPointerLeave

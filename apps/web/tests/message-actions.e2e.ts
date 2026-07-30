@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
@@ -19,6 +20,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/message-actions', import
 // a new recording (workspace-management / sidebar-scrollbar pattern).
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
+const FORK_EXPECTED = join(SNAPSHOT_DIR, 'fork.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'message-actions-web-e2e'
 
@@ -85,9 +87,28 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })
 
+  it.skipIf(MODE === 'record')('forks the session through the settled user-message action', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-message-fork'))
+    await page.getByRole('button', { name: '在新对话中分支' }).first().click()
+    await expect.poll(
+      () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SEED_ID)),
+      { timeout: 15_000 },
+    ).toBeDefined()
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-selected="true"]').count(),
+      { timeout: 10_000 },
+    ).toBe(1)
+    const tree = await captureStableAria(
+      page,
+      '[role="tree"][aria-label="Sessions"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(FORK_EXPECTED, tree, MODE)
+  })
+
   it.skipIf(MODE === 'record')('issued zero model calls and kept a closed inventory', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['fork.expected.md', 'ui.expected.md'])
   })
 })
