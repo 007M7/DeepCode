@@ -16,8 +16,6 @@ import type {
  * is all an implementation owes the abstract class.
  */
 class StubSubprocessService extends SubprocessService {
-  readonly cwd = '/stub'
-
   async resolveExecutable(command: string): Promise<string> {
     return `/bin/${command}`
   }
