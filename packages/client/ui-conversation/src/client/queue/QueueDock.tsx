@@ -4,11 +4,12 @@
 // The 'conversation.input.dock' SlotMap declaration lives in
 // ../contract/slots.ts beside the other input-region slots.
 import type { Context } from 'cordis'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  IconCheckOutline16, IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
+  IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
+  IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
 import css from './QueueDock.module.css'
@@ -22,17 +23,27 @@ export interface QueueDockInjected {
 /** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
 export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDockInjected
 
-/** Queue strip: one preview line per queued message; renders null when the queue is empty. */
+/**
+ * Queue strip: one item renders directly; multiple items default to a
+ * collapsible count header; an empty queue renders nothing.
+ */
 export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
   const queue = useSession(s => s.queue)
   const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<QueueItemId | null>(null)
+  const [collapsed, setCollapsed] = useState(true)
+  const listId = useId()
 
   useEffect(() => {
+    if (queue.length === 0 && !collapsed) setCollapsed(true)
     if (editing !== null && !queue.some(row => row.id === editing.id)) setEditing(null)
-  }, [editing, queue])
+  }, [collapsed, editing, queue])
 
   if (queue.length === 0) return null
+
+  const interactionActive = editing !== null || busy !== null
+  const expanded = !collapsed || interactionActive
+  const listVisible = queue.length === 1 || expanded
 
   const applyAction = async (
     itemId: QueueItemId,
@@ -63,8 +74,23 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
   return (
     <div className={css.dock}>
       <div className={css.panel}>
-        <ul className={css.list}>
-          {queue.map(row => (
+        {queue.length > 1 && (
+          <button
+            type="button"
+            className={css.header}
+            aria-controls={listId}
+            aria-expanded={expanded}
+            disabled={interactionActive}
+            onClick={() => { setCollapsed(value => !value) }}
+          >
+            <span className={css.count}>{queue.length} 条排队消息</span>
+            <span className={css.chevron} aria-hidden>
+              {expanded ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
+            </span>
+          </button>
+        )}
+        <ul id={listId} className={css.list} hidden={!listVisible}>
+          {listVisible && queue.map(row => (
             <li key={row.id} className={css.row}>
               {editing?.id === row.id
                 ? (
