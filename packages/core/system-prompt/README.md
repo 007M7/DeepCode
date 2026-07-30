@@ -8,6 +8,7 @@ System prompt assembly registry. Plugins contribute ordered sections, tool schem
 
 | Key | Default | Meaning |
 |---|---|---|
+| `includeHarnessIdentity` | `true` | Include the fixed `You are an AI agent powered by the DeepSeek Harness SDK.` order-−100 opener. Set false only when a compatibility deployment owns the complete system prompt. |
 | `persona` | `''` | The global deployment-persona default: the ONE config-authored prompt fragment, rendered as the order-0 `deployment:persona` section unless an agent-scoped contribution shadows it. A template — complete `{{…}}` groups are interpreted strictly against the registered variables (the shipped loop registers `{{model}}`/`{{cwd}}`), with no escape syntax for literal braces yet. Empty ⇒ the section is dropped at render. |
 | `toolOrder` | — | Explicit model-facing tool order, as a list of `ToolSchema.name`s with one `'<unlisted-tools>'` rest entry (`TOOL_ORDER_REST`): listed tools take their listed position, unlisted tools land at the rest entry in lexicographic name order. Absent ⇒ plain lexicographic name order. Applied to the collected tools BEFORE the `system-prompt/assemble` waterfall — like the sections' `order` sort, it canonicalizes what the registry contributed (registration order is a plugin-load artifact), and a waterfall listener that mutates the list owns the determinism of what it emits. Misconfiguration fails loud: a list without exactly one rest entry, or with duplicates, throws at load; a listed name with no registered tool rejects every `assemble()`; a tool provider returning the reserved rest-entry name also rejects. Under the shipped loop the turn fails before any model request. Why a central list and not per-plugin weights: [Explicit model-facing tool order](../../../.agents/notes/implemented/feature/2026-07-06-explicit-tool-order.md). |
 
@@ -48,7 +49,7 @@ Design rationale: [the prompt-variables Agent Note](../../../.agents/notes/imple
 
 #### What the model sees
 
-Every assembly starts with the harness identity below, then the configured persona and ordered plugin sections after strict variable interpolation. Empty sections disappear; scoped sections and variables can shadow globals for one agent. The final `system-prompt/assemble` waterfall result is authoritative, so an expert listener's changes determine the delivered prompt and tool schemas.
+By default every assembly starts with the harness identity below, then the configured persona and ordered plugin sections after strict variable interpolation. `includeHarnessIdentity: false` omits only that fixed opener for a deployment that owns the complete compatibility persona. Empty sections disappear; scoped sections and variables can shadow globals for one agent. The final `system-prompt/assemble` waterfall result is authoritative, so an expert listener's changes determine the delivered prompt and tool schemas.
 
 ##### Harness identity
 
@@ -58,7 +59,7 @@ You are an AI agent powered by the DeepSeek Harness SDK.
 
 #### Token effect
 
-Identity is a fixed per-request cost. Persona and plugin text are repeated per request and scale with their rendered content.
+Identity is a fixed per-request cost when enabled. Persona and plugin text are repeated per request and scale with their rendered content.
 
 #### KV Cache effect
 

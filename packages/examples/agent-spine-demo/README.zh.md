@@ -31,7 +31,7 @@
 @deepseek-ai/dsh-scope/invariant
 @deepseek-ai/dsh-agent-loop/invariant
                                   package-owned relational checks
-@deepseek-ai/dsh-tool-bash        the model-facing bash schema
+@deepseek-ai/dsh-tool-bash        the model-facing bash schema (unless toolBash=false)
 @deepseek-ai/dsh-workspace-context  AGENTS.md/CLAUDE.md workspace context loader
 @deepseek-ai/dsh-tool-skill       session-prefix skill catalog + model-facing loader schema
 @deepseek-ai/dsh-tool-tasks       task_output/task_list/task_kill schemas + completion notices
@@ -55,11 +55,11 @@
 
 ```ts
 import type { Config } from '@deepseek-ai/dsh-agent-spine-demo'
-// { agents?, maxParallelToolCalls?, persona?, toolOrder?, tools?, dshHome?, sessionTitle?, skills?, workspaceContext, toolBash?, toolTasks?, goals?, invariants? }
+// { agents?, maxParallelToolCalls?, includeHarnessIdentity?, persona?, toolOrder?, tools?, dshHome?, sessionTitle?, skills?, workspaceContext, toolBash?, toolTasks?, goals?, invariants? }
 // workspaceContext requires { maxBytes } or false; the other owner schemas supply defaults.
 ```
 
-组合包将每个字段转发给拥有它的子节点：`agents` 与 `maxParallelToolCalls` 交给 `agent-loop`（`agents` 默认为 `[]`，上限在该处默认），因此每个应用提供自己的预创建 agent；TUI 和无头应用预创建 `main`，ACP 应用则在 `session/new` 按需创建 agent；`persona` 与 `toolOrder` 交给 `dsh-system-prompt`；`tools` 交给工具注册表以配置呈现模式；`sessionTitle` 交给后备标题服务；`skills.registry`、`skills.local` 与 `skills.tool` 分别交给 skill 注册表、本地提供方和面向模型的消费方；必填的 `workspaceContext` 选择交给 `dsh-workspace-context`（`{ maxBytes }` 启用加载，`false` 禁用）；`invariants` 交给不变式服务；`toolBash`/`toolTasks` 交给组合包拥有的两个面向模型工具插件。组合包始终挂载 `dsh-llm-retry`，而每个叶节点适配器拥有自己的嵌套 `retryPolicy`。省略 `sessionTitle` 时采用显式示例策略：5 个词、40 个后备字节、80 个可接受标题字节。`goals` 对象会选用持久化领域、模型工具和同会话 Goal Round 驱动器，并将 `goals.domain` 与 `goals.tool` 转发给各自拥有者；省略或设为 `false` 会让整个栈缺席，使无头调用方继续以单轮次结算。设置 `skills.enabled: false` 会同时省略本地提供方和面向模型的 skill 工具；设置 `toolTasks: false` 会保留供前台生产方使用的任务服务，但不公开 `task_output`/`task_list`/`task_kill`。它对 `dshHome` 只解析一次，解析通过 [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) 完成，并将所得绝对值转发给 tool-bash 的托管环境和已启用的本地 skill 发现。顶层 `dshHome` 缺席时采用 `skills.local.dshHome`；两者同时提供但解析后的路径不同会明确失败。`toolBash.enableRunInBackground` 只控制 bash 生产方；独立加载的生产方保留各自配置。工作区指令先于 skill 目录注册，因此其会话前缀消息先渲染。应用包使用 `pickSpineConfig()`，只复制这些由组合包拥有的字段。
+组合包将每个字段转发给拥有它的子节点：`agents` 与 `maxParallelToolCalls` 交给 `agent-loop`（`agents` 默认为 `[]`，上限在该处默认），因此每个应用提供自己的预创建 agent；TUI 和无头应用预创建 `main`，ACP 应用则在 `session/new` 按需创建 agent；`includeHarnessIdentity`、`persona` 与 `toolOrder` 交给 `dsh-system-prompt`；`tools` 交给工具注册表以配置呈现模式；`sessionTitle` 交给后备标题服务；`skills.registry`、`skills.local` 与 `skills.tool` 分别交给 skill 注册表、本地提供方和面向模型的消费方；必填的 `workspaceContext` 选择交给 `dsh-workspace-context`（`{ maxBytes }` 启用加载，`false` 禁用）；`invariants` 交给不变式服务；`toolBash`/`toolTasks` 交给组合包拥有的两个面向模型工具插件。组合包始终挂载 `dsh-llm-retry`，而每个叶节点适配器拥有自己的嵌套 `retryPolicy`。省略 `sessionTitle` 时采用显式示例策略：5 个词、40 个后备字节、80 个可接受标题字节。`goals` 对象会选用持久化领域、模型工具和同会话 Goal Round 驱动器，并将 `goals.domain` 与 `goals.tool` 转发给各自拥有者；省略或设为 `false` 会让整个栈缺席，使无头调用方继续以单轮次结算。设置 `skills.enabled: false` 会同时省略本地提供方和面向模型的 skill 工具；当另一个插件拥有 `bash` 工具名时设置 `toolBash: false`；设置 `toolTasks: false` 会保留供前台生产方使用的任务服务，但不公开 `task_output`/`task_list`/`task_kill`。它对 `dshHome` 只解析一次，解析通过 [`@deepseek-ai/dsh-paths`](../../util/paths/README.md) 完成，并将所得绝对值转发给 tool-bash 的托管环境和已启用的本地 skill 发现。顶层 `dshHome` 缺席时采用 `skills.local.dshHome`；两者同时提供但解析后的路径不同会明确失败。`toolBash.enableRunInBackground` 只控制内置 bash 生产方；独立加载的生产方保留各自配置。工作区指令先于 skill 目录注册，因此其会话前缀消息先渲染。应用包使用 `pickSpineConfig()`，只复制这些由组合包拥有的字段。
 
 例如，`{ invariants: { enabled: true, package_allowlist: ['^@deepseek-ai/dsh-'], package_blocklist: ['agent-loop$'] } }` 会让包拥有的配套插件保持挂载，但抑制被阻止的拥有者。Blocklist 匹配优先于 allowlist 匹配；正则表达式与生命周期规则见 [`dsh-invariants`](../../support/invariants/README.md)。
 
@@ -79,5 +79,5 @@ YAML include 可以去重配置，却无法拥有 bin 或提供前端入口默�
 
 ## 已知限制与暂缓事项
 
-- **大部分主干集合固定在代码中**：`apply()` 始终挂载核心服务与 `tool-bash`；配置可以省略组合包内的目标、skill 与任务控制工具，但要替换循环或删除其他主干成员，就必须组合另一个组合包。
+- **大部分主干集合固定在代码中**：`apply()` 始终挂载核心服务；配置可以省略组合包内的目标、skill、bash 与任务控制工具，但要替换循环或删除其他主干成员，就必须组合另一个组合包。
 - **不变式 seam 与配套插件仍是固定成员**：`invariants.enabled: false` 或包筛选器会抑制检查，但不会移除服务或配套插件注册；Session 始终启用的校验与冻结是另一套机制。
