@@ -135,10 +135,10 @@ export const todoDockEntry = {
   name: 'conversation-todo-dock',
   inject: ['slots', 'conversation'],
   /**
-   * Register the plan strip into the input dock (list entry, above the queue rows).
+   * Register the plan strip between the goal and queue entries (order 10).
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: -1 }, TodoDock)
+    ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 10 }, TodoDock)
   },
 }
