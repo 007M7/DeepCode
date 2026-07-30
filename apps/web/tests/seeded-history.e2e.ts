@@ -228,9 +228,9 @@ describe('web e2e: seeded history renders through cold resume', () => {
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
     const frame = page.locator('[style*="grid-template-columns"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).toBeNull()
+    expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
     await fileLink.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
     // Path label survives from the recorded args (a.txt).
     await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })
@@ -246,7 +246,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       timeout: 5_000,
     }).toBe(1)
     expect(await page.getByText('The exact summary remains available.', { exact: false }).count()).toBeGreaterThan(0)
-    // Collapse again so the aria golden captured after this case is unaffected.
+    // Restore the shared page state for any later case.
     await marker.click()
     await expect.poll(() => marker.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
   })

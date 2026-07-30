@@ -33,8 +33,8 @@ import { toAssistantBlocks } from './conversation.ts'
  */
 const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
 
-/** In-window tool/call index entry (result-card backfill + runningCalls material). */
-export interface CallIndexEntry {
+/** In-window tool/call index entry used to materialize result cards. */
+interface CallIndexEntry {
   name: string
   argsRaw: string
   turn: number
@@ -194,11 +194,6 @@ export class TranscriptAdapter {
   private rev = 0
   private nodesResult: { rev: number; value: readonly ConversationNode[] } | null = null
 
-  /** In-window tool/call index (Session uses it for runningCalls and result-card backfill). */
-  get callIndex(): ReadonlyMap<string, CallIndexEntry> {
-    return this.callIdx
-  }
-
   /**
    * Window rebuild (after open/resync/page prepend): re-index the raw window
    * and re-project the transcript.
@@ -230,9 +225,10 @@ export class TranscriptAdapter {
 
   /**
    * Tail append (live session/event): index the event and, when it belongs to
-   * the transcript, extend the projection by one node — O(1) per append. An
-   * event that changes no node (a chunk storm) bumps no revision, so nodes()
-   * keeps returning the same array reference.
+   * the transcript, extend the projection by one copy-on-write node so a
+   * published array never mutates. An event that changes no node (a chunk
+   * storm) bumps no revision, so nodes() keeps returning the same array
+   * reference.
    * @param event - the live event (seq = window tail + 1).
    * @param view - host-computed tool view paired with the event when it is a tool call/result; indexed for card rendering.
    */

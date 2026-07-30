@@ -5,14 +5,13 @@
  * compile time through a type-only import of `dsh-compact/checkpoint`, so
  * renaming the seam's plugin already fails `tsc`. This spec covers the same
  * drift from the other side — end to end through the adapter, driving it with a
- * checkpoint built from the canonical `COMPACT_CHECKPOINT_SOURCE` **value** and
- * checking the seam's own predicate agrees. It runs in the client TEST program,
- * which can value-import the package root; a `packages/client/*` package
- * program cannot, because that root reaches `dsh-session`'s root and collides
- * the host `Context.sessions` merge (`TS2717`).
+ * checkpoint built from the canonical `COMPACT_CHECKPOINT_SOURCE` value and
+ * checking the seam's own predicate agrees. Both values come from the
+ * cordis-free checkpoint leaf, so the client test program never loads the host
+ * package root or its `Context` merges.
  */
 
-import { COMPACT_CHECKPOINT_SOURCE, isCompactCheckpointSource } from '@deepseek-ai/dsh-compact'
+import { COMPACT_CHECKPOINT_SOURCE, isCompactCheckpointSource } from '@deepseek-ai/dsh-compact/checkpoint'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
@@ -40,7 +39,7 @@ describe('compaction checkpoint recognition', () => {
     expect(adapter.nodes()).toEqual([{ kind: 'compaction', seq: 1, time: 1_700_000_000_001, summary: null }])
   })
 
-  it('agrees with the seam s own predicate on the source it recognizes', () => {
+  it("agrees with the seam's own predicate on the source it recognizes", () => {
     // Both sides answer the same question about the same value: if the seam
     // renames its plugin, this equality is what breaks.
     const checkpoint = canonicalCheckpoint(1)
