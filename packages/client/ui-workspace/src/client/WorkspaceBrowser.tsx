@@ -104,7 +104,6 @@ function SessionTree({
   const list = useSessions(s => s)
   const current = list.current
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
-  const [expandedSessions, setExpandedSessions] = useState<string[]>([])
   // Transient drag viewing state (never store-bound; order truth stays Host-side).
   const [drag, setDrag] = useState<DragState | null>(null)
   const currentGroup = current === undefined
@@ -115,27 +114,9 @@ function SessionTree({
     if (current === undefined || currentGroup === undefined) return
     setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
-  // The selected session must be visible: unfold its ancestor chain (fork
-  // lands the child under a possibly folded parent row).
-  const currentAncestors = useMemo(() => {
-    const chain: string[] = []
-    let cursor = current === undefined ? undefined : list.byId[current]?.parentId
-    while (cursor !== undefined && !chain.includes(cursor)) {
-      chain.push(cursor)
-      cursor = list.byId[cursor]?.parentId
-    }
-    return chain
-  }, [current, list])
-  useEffect(() => {
-    if (currentAncestors.length === 0) return
-    setExpandedSessions((l) => {
-      const missing = currentAncestors.filter(id => !l.includes(id))
-      return missing.length === 0 ? l : [...l, ...missing]
-    })
-  }, [currentAncestors])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, { expandedProjects, expandedSessions, query }),
-    [list, workspaces, expandedProjects, expandedSessions, query],
+    () => deriveGroups(list, workspaces, { expandedProjects, query }),
+    [list, workspaces, expandedProjects, query],
   )
   const now = Date.now()
 
@@ -146,7 +127,7 @@ function SessionTree({
           <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
         )}
         {groups.map(group => (
-          // Group section: header row + expanded session subtree. The
+          // Group section: header row + expanded top-level session rows. The
           // inter-group breathing room (former flat-list batch separator)
           // is the section's own margin (WorkspaceBrowser.module.css).
           <div key={group.key} className={css.groupSection}>
@@ -170,7 +151,7 @@ function SessionTree({
                 }}
             />
             {group.sessions.map((node, index) => {
-              // Draggable: real-workspace group roots outside search. The drag
+              // Draggable: real-workspace session rows outside search. The drag
               // never leaves its group — rows of other groups show no markers
               // and reject drops (visual movement confined to this section).
               const draggable = group.workspaceId !== undefined && query === ''
@@ -188,15 +169,15 @@ function SessionTree({
                 drop: (half: 'before' | 'after') => {
                   /* v8 ignore next -- narrowing guard: Rows gates drop on `active`, which is false while the drag state is null. */
                   if (drag === null) return
-                  const roots = group.sessions
+                  const sessions = group.sessions
                   // Anchor = the row the insert line points at ('after' means
                   // the next root; end-of-list omits the anchor → append).
-                  const anchor = half === 'before' ? node.id : roots[index + 1]?.id
+                  const anchor = half === 'before' ? node.id : sessions[index + 1]?.id
                   setDrag(null)
                   if (anchor === drag.sessionId) return
                   // No-op when the drop lands back on the source position.
-                  const sourceIndex = roots.findIndex(r => r.id === drag.sessionId)
-                  const anchorIndex = anchor === undefined ? roots.length : roots.findIndex(r => r.id === anchor)
+                  const sourceIndex = sessions.findIndex(r => r.id === drag.sessionId)
+                  const anchorIndex = anchor === undefined ? sessions.length : sessions.findIndex(r => r.id === anchor)
                   if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
                   insertSessionBefore(drag.workspaceId, drag.sessionId, anchor).catch((reason: unknown) => {
                     console.warn('session reorder rejected:', reason)
@@ -208,13 +189,11 @@ function SessionTree({
                 <SessionNodeItem
                   key={node.id}
                   node={node}
-                  depth={0}
                   currentId={current}
                   now={now}
                   onOpen={open}
                   onRename={onSessionRename}
                   onFork={forkSession}
-                  onToggle={(id) => { setExpandedSessions(l => toggled(l, id)) }}
                   drag={dragProps}
                 />
               )
@@ -242,15 +221,11 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, query }: Pi
           <SessionNodeItem
             key={node.id}
             node={node}
-            depth={0}
             currentId={list.current}
             now={now}
             onOpen={open}
             onRename={onSessionRename}
             onFork={forkSession}
-            /* v8 ignore next -- required-prop filler: flat rows render no twist, so it never fires. */
-            onToggle={() => {}}
-            flat
           />
         ))}
       </div>
