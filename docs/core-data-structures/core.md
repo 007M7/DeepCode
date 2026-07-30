@@ -221,6 +221,30 @@ interface LlmProviderInfo {
 }
 ```
 
+Adapter plugins additionally declare which routes *could* run through `registerConfigurableProviders()`, addressing each one's user-settings section, so configuration surfaces can offer dormant providers before any route registers.
+
+```ts type-equiv
+/**
+ * One provider route an adapter plugin can activate through configuration,
+ * whether or not the route is currently registered. Configuration surfaces
+ * merge this directory with `listProviders()` to offer every configurable
+ * provider alongside its live/dormant state.
+ */
+interface LlmConfigurableProvider {
+  /** Provider route key this entry activates when configured. */
+  provider: string
+  /** Human-readable provider name for configuration surfaces. */
+  displayName: string
+  /** User-settings namespace whose section configures this provider. */
+  settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile
+   * object; empty when the whole section is the profile.
+   */
+  settingsPath: readonly string[]
+}
+```
+
 ```ts type-equiv
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */
 interface LlmModelInfo {

@@ -82,6 +82,7 @@
     "@deepseek-ai/dsh-session-query": "workspace:^",
     "@deepseek-ai/dsh-session-query-sqlite": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
+    "@deepseek-ai/dsh-session-telemetry-otel": "workspace:^",
     "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/dsh-session-title-first-message-llm": "workspace:^",
     "@deepseek-ai/dsh-settings-local": "workspace:^",
@@ -124,7 +125,9 @@
     "js-yaml": "^4.2.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-llm-mock-server": "workspace:^",
     "@types/js-yaml": "^4.0.9",
+    "execa": "^10.0.0",
     "node-pty": "1.1.0"
   }
 }

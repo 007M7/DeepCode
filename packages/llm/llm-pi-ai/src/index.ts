@@ -29,6 +29,7 @@
  */
 
 import type { Context } from 'cordis'
+import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
@@ -111,6 +112,15 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const adapter = new PiAiAdapter({ profiles, resolveApiKey })
+  // The full installed catalog is configurable from the moment the plugin
+  // mounts — dormant or not — so configuration surfaces can offer every
+  // pi-ai provider before any route exists.
+  ctx.llm.registerConfigurableProviders(getBuiltinProviders().map(provider => ({
+    provider,
+    displayName: provider,
+    settingsNs: NS,
+    settingsPath: ['providers', provider],
+  })))
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below. A bare
   // mount (zero routes) is the dormant posture: nothing registers until a

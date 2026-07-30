@@ -801,6 +801,22 @@ registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHa
 listProviders(): LlmProviderInfo[]
 
 /**
+ * Declare provider routes an adapter plugin can activate through
+ * configuration. Registration is all-or-nothing: an empty list, invalid
+ * entry, or a provider already declared by any registration throws
+ * `LlmError` without registering the rest. Disposed with the fiber.
+ * @param entries - every configurable provider this plugin owns.
+ * @returns the disposer that withdraws all of them.
+ */
+registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void
+
+/**
+ * List every declared configurable provider, registered or dormant.
+ * @returns detached directory entries in declaration order.
+ */
+listConfigurableProviders(): LlmConfigurableProvider[]
+
+/**
  * Resolve the retry policy captured when one provider route was registered.
  * @param provider - registered provider route to inspect.
  * @returns the provider-owned policy, with normal defaults already resolved.
@@ -864,9 +880,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:215`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:227`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -1703,10 +1719,13 @@ Abstract settings service. Providers implement raw-document storage (`load`/`per
 register<T>(ns: SettingsNamespace, schema: z<T>, options?: SettingsRegisterOptions<T>): SettingsScope<T>
 
 /**
- * Describe every registered namespace for configuration surfaces.
+ * Describe every registered namespace for configuration surfaces, including
+ * the composition `base` and raw user layers so a form can mark which fields
+ * the user overrode (presence in `user`) and what a reset returns to.
+ * @param options - redaction switch; wire surfaces must redact.
  * @returns one descriptor per registered namespace, in registration order.
  */
-describe(): SettingsDescriptor[]
+describe(options?: SettingsDescribeOptions): SettingsDescriptor[]
 
 /**
  * Read one registered namespace's resolved value.
@@ -1723,8 +1742,10 @@ get(ns: SettingsNamespace): unknown
  * merging over the previous write's committed section.
  * @param ns - the registered namespace to update.
  * @param patch - plain-object patch over the user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
  */
-async update(ns: SettingsNamespace, patch: object): Promise<void>
+async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>
 
 /**
  * Replace one registered namespace's user section wholesale, validate,
@@ -1733,13 +1754,29 @@ async update(ns: SettingsNamespace, patch: object): Promise<void>
  * merge-only patch cannot express (`replace({})` re-inherits everything).
  * @param ns - the registered namespace to replace.
  * @param section - the complete next user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
  */
-async replace(ns: SettingsNamespace, section: object): Promise<void>
+async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void>
+
+/**
+ * Apply path-addressed edits to one registered namespace's user section,
+ * validate, persist, then commit and emit. The ops are applied to the
+ * section as it stands when the write reaches the front of the queue, so a
+ * caller never has to restate fields it did not touch — and, crucially,
+ * cannot delete fields it never saw. This is the write path for any caller
+ * holding a redacted view; `replace` remains the wholesale reset.
+ * @param ns - the registered namespace to edit.
+ * @param ops - ordered path edits; later ops observe earlier ones.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
+ */
+async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
 ```
 
-Types: [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:250`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 

@@ -24,6 +24,8 @@ The shipped TUI and Web compositions register the native DeepSeek adapter plus p
 
 `DSH_TOOLS_MODE` selects the tool presentation mode for the whole Web/headless process: `native` (the schema default when unset), `code` (the `run_code`-only Code Mode wire), or `both`; any other value fails loud at boot through the `dsh-tools` config schema. It is a TEMPORARY seam — process-wide because Loader composition is static — and is removed once the web UI owns per-session tool-mode selection; the TUI surface ignores it (its config tree pins its own mode).
 
+Every `dsh` surface — TUI, Web, and headless — reports session telemetry by default (the row lives in the shared `base.cordis.yml`): every session-log event streams as OTLP/HTTP log records to `https://harness-telemetry.deepseeksvc.com/v1/logs` on a 10-second batch cadence. `DSH_TELEMETRY_OTLP_URL` points the exporter at a different collector; setting `DSH_TELEMETRY_DISABLED` to ANY non-empty value — including `0` or `false` — disables the row before it loads (a privacy switch prefers off-by-mistake over on-by-mistake). No redaction rule is mounted in this composition yet: exported records are the raw captured copy, including message text, tool arguments and results, and the session's working-directory path. The deployment rulings live in the [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md).
+
 ## Install (developer machine)
 
 Symlink the source-running launcher onto your PATH; it resolves the checkout through its own real path, so code changes apply on the next launch with no build step:

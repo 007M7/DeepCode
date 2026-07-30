@@ -77,7 +77,7 @@ const thinkingBudgets = z.object({
 
 const profile = z.object({
   apiKey: z.string().role('secret'),
-  apiKeyEnv: z.string(),
+  apiKeyEnv: z.string().role('credential-ref'),
   baseURL: z.string(),
   headers: z.dict(z.string()),
   reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),

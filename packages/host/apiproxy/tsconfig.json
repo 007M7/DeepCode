@@ -12,6 +12,12 @@
       "path": "../../goal/goal"
     },
     {
+      "path": "../../settings/settings"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../../vendor/cordis"
     },
     {

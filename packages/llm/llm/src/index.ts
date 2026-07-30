@@ -9,6 +9,7 @@
 import { Context, Service } from 'cordis'
 import type {
   GenerateOptions,
+  LlmConfigurableProvider,
   LlmFailure,
   LlmModelInfo,
   LlmResolvedModelInfo,
@@ -56,6 +57,17 @@ declare module 'cordis' {
      * @mode waterfall
      */
     'llm/stream'(this: LlmService, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>
+
+    /**
+     * The provider topology changed: an adapter registered or unregistered
+     * routes, or the configurable-provider directory gained or lost entries.
+     * This is a payload-free registry notification fired at each commit point
+     * (including registration disposal); consumers re-read `listProviders()`,
+     * `listModels()`, or `listConfigurableProviders()` for the new state.
+     * Observer failures are contained and cannot veto the registry mutation.
+     * @mode emit
+     */
+    'llm/adapters-updated'(): void
   }
 }
 
@@ -214,9 +226,44 @@ export interface AdapterRegistrationHandle {
  */
 export class LlmService extends Service {
   private adapters = new Map<string, AdapterRegistration>()
+  private directory = new Map<string, LlmConfigurableProvider>()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
+  }
+
+  /** Notify topology observers without letting one broken listener veto the commit. */
+  private emitAdaptersUpdated(): void {
+    // Cordis emit uses Array.map: one synchronous throw starves later
+    // listeners. Registry notifications are non-vetoing, so contain each
+    // callback independently; INVARIANT-coded failures still surface.
+    let invariantFailure: unknown
+    for (const listener of this.ctx.events.dispatch('emit', ['llm/adapters-updated']) as Array<() => unknown>) {
+      try {
+        const returned = listener()
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          // An emit listener may still be an async function; its rejection
+          // cannot reach the synchronous INVARIANT rethrow below, so it is
+          // contained here instead of becoming an unhandled rejection.
+          void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+            this.warnAdaptersListenerFailure(error)
+          })
+        }
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
+          invariantFailure ??= error
+          continue
+        }
+        this.warnAdaptersListenerFailure(error)
+      }
+    }
+    if (invariantFailure !== undefined) throw invariantFailure as Error
+  }
+
+  /** Contained-listener diagnostic shared by the sync and async failure paths. */
+  private warnAdaptersListenerFailure(error: unknown): void {
+    this.ctx.logger.warn('llm: an llm/adapters-updated listener failed')
+    this.ctx.logger.warn(error)
   }
 
   /**
@@ -241,6 +288,7 @@ export class LlmService extends Service {
         released = true
         for (const provider of owned) this.adapters.delete(provider)
         owned.clear()
+        this.emitAdaptersUpdated()
       }
     }.bind(this), 'llm.registerAdapter()')
     // ctx.effect's disposer returns Promise<void>; our disposer API is
@@ -289,7 +337,9 @@ export class LlmService extends Service {
   /**
    * Swap this registration's routes for the prepared ones in one synchronous
    * section, so no observer can see the registry between the release and the
-   * re-registration.
+   * re-registration. The route set's one mutation point is also where
+   * `llm/adapters-updated` is published, so a `replace` announces itself
+   * exactly like a first registration.
    */
   private commitRoutes(owned: Set<string>, registrations: readonly AdapterRegistration[]): void {
     for (const provider of owned) this.adapters.delete(provider)
@@ -298,6 +348,7 @@ export class LlmService extends Service {
       this.adapters.set(registration.provider.id, registration)
       owned.add(registration.provider.id)
     }
+    this.emitAdaptersUpdated()
   }
 
   /**
@@ -306,6 +357,50 @@ export class LlmService extends Service {
    */
   listProviders(): LlmProviderInfo[] {
     return [...this.adapters.values()].map(({ provider }) => ({ ...provider }))
+  }
+
+  /**
+   * Declare provider routes an adapter plugin can activate through
+   * configuration. Registration is all-or-nothing: an empty list, invalid
+   * entry, or a provider already declared by any registration throws
+   * `LlmError` without registering the rest. Disposed with the fiber.
+   * @param entries - every configurable provider this plugin owns.
+   * @returns the disposer that withdraws all of them.
+   */
+  registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmService) {
+      if (entries.length === 0) {
+        throw new LlmError('a configurable-provider registration must declare at least one provider', 'INVALID_DIRECTORY')
+      }
+      const detached: LlmConfigurableProvider[] = []
+      for (const entry of entries) {
+        if (entry.provider.length === 0 || entry.displayName.length === 0 || entry.settingsNs.length === 0) {
+          throw new LlmError('configurable providers need a non-empty provider, displayName, and settingsNs', 'INVALID_DIRECTORY')
+        }
+        if (entry.settingsPath.some(segment => segment.length === 0)) {
+          throw new LlmError(`configurable provider "${entry.provider}" has an empty settingsPath segment`, 'INVALID_DIRECTORY')
+        }
+        if (this.directory.has(entry.provider) || detached.some(seen => seen.provider === entry.provider)) {
+          throw new LlmError(`configurable provider "${entry.provider}" is already declared`, 'DUPLICATE_DIRECTORY')
+        }
+        detached.push({ ...entry, settingsPath: [...entry.settingsPath] })
+      }
+      for (const entry of detached) this.directory.set(entry.provider, entry)
+      this.emitAdaptersUpdated()
+      yield () => {
+        for (const entry of detached) this.directory.delete(entry.provider)
+        this.emitAdaptersUpdated()
+      }
+    }.bind(this), 'llm.registerConfigurableProviders()')
+    return () => void dispose()
+  }
+
+  /**
+   * List every declared configurable provider, registered or dormant.
+   * @returns detached directory entries in declaration order.
+   */
+  listConfigurableProviders(): LlmConfigurableProvider[] {
+    return [...this.directory.values()].map(entry => ({ ...entry, settingsPath: [...entry.settingsPath] }))
   }
 
   /**

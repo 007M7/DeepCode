@@ -29,7 +29,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -154,6 +154,35 @@ const OPENAI_REASONING = {
     { id: 'max', name: 'Max' },
   ],
   defaultEffort: 'medium',
+}
+
+/** Catalog served by `session.models` and `llm.models` alike (fresh copies per call). */
+function fixtureModelGroups(): ModelProviderGroup[] {
+  return [
+    {
+      id: 'deepseek-official',
+      name: 'DeepSeek',
+      models: [
+        {
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek-V4-Flash',
+          description: '快速响应',
+          reasoning: DEEPSEEK_REASONING,
+        },
+        {
+          id: 'deepseek-v4-pro',
+          name: 'DeepSeek-V4-Pro',
+          description: '复杂任务',
+          reasoning: DEEPSEEK_REASONING,
+        },
+      ],
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
+    },
+  ]
 }
 
 function sid(id: string): SessionId {
@@ -823,8 +852,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
   const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
     session.sessionId,
-    { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
+  /** Credential store double: set/unset flip the describe badge, values never read back. */
+  const fixtureCredentials = new Map<string, true>([
+    // The assembled fixture represents an already-configured shipped
+    // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
+    ['DEEPSEEK_API_KEY', true],
+  ])
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -1179,7 +1214,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek', model: 'deepseek-v4-flash' })
+        modelTargets.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -1289,32 +1324,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
-          ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
-        groups: [
-          {
-            id: 'deepseek',
-            name: 'DeepSeek',
-            models: [
-              {
-                id: 'deepseek-v4-flash',
-                name: 'DeepSeek-V4-Flash',
-                description: '快速响应',
-                reasoning: DEEPSEEK_REASONING,
-              },
-              {
-                id: 'deepseek-v4-pro',
-                name: 'DeepSeek-V4-Pro',
-                description: '复杂任务',
-                reasoning: DEEPSEEK_REASONING,
-              },
-            ],
-          },
-          {
-            id: 'openai',
-            name: 'OpenAI',
-            models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
-          },
-        ],
+          ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        groups: fixtureModelGroups(),
         failures: [],
       }),
       selectModel: (request) => {
@@ -1559,14 +1570,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           const spec = PERMISSION_PRESETS[preset]
           if (preset === '') {
             const current = permissionSelectOf(logOf(id)).currentValue
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Current permission preset: ${current}. Available: ${Object.keys(PERMISSION_PRESETS).join(', ')}.` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `current preset ${current} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else if (spec === undefined) {
-            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown permission preset ${JSON.stringify(preset)} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown preset "${preset}" (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else {
             if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
             append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
             append(id, { type: 'approval/policy', data: { policy: spec.approval } })
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Permission preset: ${preset}.` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `preset ${preset}` } })
           }
           return ok(request, { matched: true as const, commandId })
         }
@@ -1750,6 +1761,64 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
       },
     },
+    settings: {
+      // Only the resolved DeepSeek address needed by first-run readiness is
+      // represented here. Fixture-backed journeys do not open its Models
+      // editor; real schema-driven forms ride the HTTP transport.
+      describe: request => ok(request, {
+        writable: true,
+        namespaces: [{
+          ns: 'llm-deepseek',
+          schema: {},
+          value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+          applies: 'live',
+          secrets: [{ path: ['apiKey'], set: false }],
+          revision: 0,
+        }],
+      }),
+      update: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
+        details: { ns: request.payload.ns },
+      }),
+      replace: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
+        details: { ns: request.payload.ns },
+      }),
+      mutate: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: no settings namespaces are registered',
+        details: { ns: request.payload.ns },
+      }),
+    },
+    credentials: {
+      describe: request => ok(request, {
+        credentials: Object.fromEntries(request.payload.refs.map(ref => [ref, {
+          configured: fixtureCredentials.has(ref),
+          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
+          writable: true,
+        }])),
+      }),
+      set: (request) => {
+        fixtureCredentials.set(request.payload.ref, true)
+        return ok(request, {})
+      },
+      unset: (request) => {
+        fixtureCredentials.delete(request.payload.ref)
+        return ok(request, {})
+      },
+    },
+    llm: {
+      providers: request => ok(request, {
+        providers: [
+          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+        ],
+      }),
+      models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
+    },
     respond(message: ClientResponse): Promise<RpcReceipt> {
       // Same routing discipline as the host: rpcId first, then the payload's
       // audit correlation; a settled or unknown id is not-pending.
@@ -1852,6 +1921,15 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'goal.resume': return this.api.goals.resume(request)
       case 'goal.complete': return this.api.goals.complete(request)
       case 'goal.clear': return this.api.goals.clear(request)
+      case 'settings.describe': return this.api.settings.describe(request)
+      case 'settings.update': return this.api.settings.update(request)
+      case 'settings.replace': return this.api.settings.replace(request)
+      case 'settings.mutate': return this.api.settings.mutate(request)
+      case 'credentials.describe': return this.api.credentials.describe(request)
+      case 'credentials.set': return this.api.credentials.set(request)
+      case 'credentials.unset': return this.api.credentials.unset(request)
+      case 'llm.providers': return this.api.llm.providers(request)
+      case 'llm.models': return this.api.llm.models(request)
     }
   }
 

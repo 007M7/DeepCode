@@ -1,0 +1,283 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.intro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-tertiary, #888);
+}
+
+.notice {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-warning, #a15c00);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rowCard {
+  border: 1px solid var(--border, #e2e2e2);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface, #fff);
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rowName {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.badges {
+  display: inline-flex;
+  gap: 6px;
+  flex: 1;
+}
+
+.badgeOk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-success, #0a7d33);
+  font-size: 12px;
+}
+
+.badgeOk::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentcolor;
+}
+
+.badgeMuted {
+  color: var(--text-tertiary, #999);
+  font-size: 12px;
+}
+
+.badgeWarn {
+  color: var(--text-warning, #a15c00);
+  font-size: 12px;
+}
+
+.rowActions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.primaryButton {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 18px;
+  background: var(--accent-strong, #111);
+  color: var(--text-inverse, #fff);
+  font: inherit;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dangerButton {
+  border: none;
+  background: none;
+  color: var(--text-danger, #c0392b);
+  font: inherit;
+  cursor: pointer;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.dangerButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.editor {
+  border: 1px solid var(--border, #e6e6e6);
+  border-radius: 12px;
+  background: var(--surface-secondary, #f7f7f8);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.editorHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.editorTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.editorRoute {
+  font-size: 12px;
+  color: var(--text-tertiary, #999);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #555);
+}
+
+.linkButton {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-tertiary, #888);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.advancedHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary, #999);
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.addBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.addButton {
+  align-self: flex-start;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+
+.addButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.addCard,
+.setupCard {
+  border: 1px solid var(--border, #e6e6e6);
+  border-radius: 12px;
+  background: var(--surface-secondary, #f7f7f8);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  list-style: none;
+}
+
+.addCard .editor,
+.setupCard .editor {
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.customized {
+  border-top: 1px solid var(--border, #ececec);
+  padding-top: 10px;
+}
+
+.customizedSummary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #555);
+  list-style: revert;
+}
+
+.customizedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.input {
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent-strong, #111);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary, #aaa);
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-danger, #c0392b);
+}

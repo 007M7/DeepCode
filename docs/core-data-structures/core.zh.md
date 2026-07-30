@@ -227,6 +227,30 @@ interface LlmProviderInfo {
 }
 ```
 
+适配器插件还会通过 `registerConfigurableProviders()` 声明哪些路由*可以*运行，并指明每条路由的用户设置分节，使配置界面能在任何路由注册之前就呈现休眠的提供方。
+
+```ts type-equiv
+/**
+ * One provider route an adapter plugin can activate through configuration,
+ * whether or not the route is currently registered. Configuration surfaces
+ * merge this directory with `listProviders()` to offer every configurable
+ * provider alongside its live/dormant state.
+ */
+interface LlmConfigurableProvider {
+  /** Provider route key this entry activates when configured. */
+  provider: string
+  /** Human-readable provider name for configuration surfaces. */
+  displayName: string
+  /** User-settings namespace whose section configures this provider. */
+  settingsNs: string
+  /**
+   * Path from that namespace's section root to this provider's profile
+   * object; empty when the whole section is the profile.
+   */
+  settingsPath: readonly string[]
+}
+```
+
 ```ts type-equiv
 /** One adapter-discovered model; catalog membership is advisory, not request validation. */
 interface LlmModelInfo {
