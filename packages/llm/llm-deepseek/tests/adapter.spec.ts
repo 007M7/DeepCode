@@ -34,8 +34,10 @@ async function harness(baseURL: string, config: object = {}) {
 /** Direct adapter over the plugin's real resolve step, with a static key. */
 function adapterOf(config: Partial<LlmDeepSeek.Config> & { apiKey?: string } = {}): DeepSeekAdapter {
   const { apiKey, ...rest } = config
+  const composition = resolveAdapterOptions(rest)
   return new DeepSeekAdapter({
-    options: () => resolveAdapterOptions(rest),
+    options: () => composition,
+    composition,
     resolveApiKey: () => Promise.resolve(apiKey ?? 'k'),
   })
 }
@@ -882,9 +884,10 @@ describe('plugin registration and config', () => {
 
   it('resolves connection facts and the credential exactly once per stream call', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
-    const options = vi.fn(() => resolveAdapterOptions({ baseURL: server.url }))
+    const composition = resolveAdapterOptions({ baseURL: server.url })
+    const options = vi.fn(() => composition)
     const resolveApiKey = vi.fn(() => Promise.resolve('per-request-key'))
-    const adapter = new DeepSeekAdapter({ options, resolveApiKey })
+    const adapter = new DeepSeekAdapter({ options, composition, resolveApiKey })
 
     for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
 

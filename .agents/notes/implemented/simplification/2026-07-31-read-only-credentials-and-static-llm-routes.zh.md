@@ -14,7 +14,7 @@ Status: implemented
 
 `ctx.credentials` 只暴露品牌化 `CredentialRef` 的构造，以及 `resolve(ref): Promise<string | undefined>`。`credentials-local` 先读取点名的进程环境值，再按需解析其 dotenv 文件。它不拥有修改、描述、事件、watcher、缓存、编辑器或写入器生命周期；从外部更改任一来源，都会在下一次解析时生效。
 
-LLM 提供方路由及其重试策略归组合所有。`registerAdapter()` 返回释放器，而非可变注册句柄。DeepSeek 始终拥有自身唯一的路由，pi-ai 则要求配置一份非空路由映射；settings 可以更改这些现有路由的请求级事实，但不能创建、移除或重新调整注册。因此，共享 CLI（命令行界面）组合不会挂载空的 pi-ai 适配器。
+LLM 提供方路由、模型／能力元数据、上下文限制、推理（reasoning）默认值与重试策略归组合所有。`registerAdapter()` 返回释放器，而非可变注册句柄。DeepSeek 始终拥有自身唯一的路由，pi-ai 则要求配置一份非空路由映射；settings 只能更改这些现有路由的连接、凭据与请求传输事实。更改固定事实的 settings 代会整代被拒绝。因此，共享 CLI（命令行界面）组合不会挂载空的 pi-ai 适配器。
 
 可选 settings 辅助工具只在组合配置项与存活 settings scope 之间切换消费方的来源 thunk。消费方经该 thunk 读取已提交值，因此辅助工具不需要更新 watcher、派生状态回调或拆卸状态镜像。`settings-local` 将自身的写入协议保留为私有实现，不再为一个已不存在的第二写入方公开工具。
 

@@ -12,11 +12,11 @@ Status: implemented
 
 ## 决策
 
-**按请求解析，而非重建 fiber。**适配器接收 options thunk 与按流调用的凭据解析器，不再重建其 fiber。连接、凭据与请求传输事实在操作期间读取，进行中的流则保持其起始事实。密钥缺失会在请求时以 `MISSING_CREDENTIAL` 失败，同时路由保持注册。提供方路由及其重试策略由组合固定，不触发注册替换。
+**按请求解析，而非重建 fiber。**适配器接收 options thunk 与按流调用的凭据解析器，不再重建其 fiber。连接、凭据与请求传输事实按流读取，进行中的流则保持其起始事实。模型 catalog／能力、上下文、推理（reasoning）默认值、提供方路由与重试策略由组合固定。密钥缺失会在请求时以 `MISSING_CREDENTIAL` 失败，同时路由保持注册。
 
 **机密是引用，值藏在 `ctx.credentials` 背后。**配置可以携带 `apiKeyEnv: DEEPSEEK_API_KEY`；只读凭据 seam 按操作解析它。`credentials-local` 先检查活跃进程环境，再按需解析 `$DSH_HOME/.env`，既不缓存，也不提供变更接口。适配器内的解析顺序为：非空的字面 `apiKey` 优先，然后是 seam，最后仅在未挂载 seam 时读取点名的原始环境变量。
 
-**按插件划分 namespace，schema ≡ `Config`。**每个适配器注册自己的 namespace（`llm-deepseek`、`llm-pi-ai`），采用其插件 `Config` schema，并以 `cordis.yml` 配置项为组合 `base`。`resolveAdapterOptions` 与 `resolveProfiles` 仍是显式校验步骤；错误的存活快照会保留最后可用的请求事实，错误的 entry 配置则会加载失败。pi-ai 的 `providers` 是以组合所拥有路由为键的非空字典；用户层可以覆盖这些路由的请求事实，但不能新增或移除路由。
+**按插件划分 namespace，schema ≡ `Config`。**每个适配器注册自己的 namespace（`llm-deepseek`、`llm-pi-ai`），采用其插件 `Config` schema，并以 `cordis.yml` 配置项为组合 `base`。`resolveAdapterOptions` 与 `resolveProfiles` 仍是显式校验步骤。存活快照若更改固定事实或违反其他约束，会整代沿用最后可用设置；错误的 entry 配置则会加载失败。pi-ai 的 `providers` 是以组合所拥有路由为键的非空字典；用户层只能覆盖这些路由的实时请求事实。
 
 ## 曾考虑的替代方案
 

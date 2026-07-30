@@ -34,10 +34,12 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 
-/** Constructor options for {@link PiAiAdapter}: the two resolution seams the plugin owns. */
+/** Constructor inputs for {@link PiAiAdapter}: live, composition, and credential facts. */
 export interface PiAiAdapterOptions {
-  /** Current validated profiles by provider route; called once per operation. */
+  /** Current validated request profiles by provider route; called once per stream. */
   profiles: () => ReadonlyMap<string, ResolvedPiAiProviderProfile>
+  /** Composition snapshot owning routes, model capabilities, reasoning defaults, and retry policies. */
+  compositionProfiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>
   /**
    * Resolve the credential for one already-resolved profile; called once per
    * stream call and frozen for that call. `undefined` defers to pi-ai's
@@ -117,11 +119,11 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
-    return this.config.profiles().get(provider)?.retryPolicy
+    return this.config.compositionProfiles.get(provider)?.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    const profile = this.config.profiles().get(provider)
+    const profile = this.config.compositionProfiles.get(provider)
     if (profile === undefined) {
       return Promise.reject(new LlmError(`pi-ai adapter does not own provider "${provider}"`, 'NO_ADAPTER'))
     }
@@ -137,7 +139,7 @@ export class PiAiAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    const profile = this.config.profiles().get(provider)
+    const profile = this.config.compositionProfiles.get(provider)
     if (profile === undefined) {
       return Promise.reject(new LlmError(
         `pi-ai adapter does not own provider "${provider}"`,
@@ -170,17 +172,18 @@ export class PiAiAdapter extends LlmAdapter {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
-    // One resolution per stream call: the profile snapshot and the credential
-    // freeze here and hold for this whole request, so an in-flight stream
-    // never observes a configuration change and the next call re-resolves.
+    // One live resolution per stream call: connection, credential, and
+    // transport facts freeze here and hold for the request. Capability and
+    // default reasoning facts come from the composition snapshot.
     const profile = this.config.profiles().get(options.provider)
-    if (profile === undefined) {
+    const compositionProfile = this.config.compositionProfiles.get(options.provider)
+    if (profile === undefined || compositionProfile === undefined) {
       throw new LlmError(`pi-ai adapter does not own provider "${options.provider}"`, 'NO_ADAPTER')
     }
     const model = resolvePiModel(profile, options.model)
     const reasoning = resolveReasoningLevel(
       model,
-      options.reasoningEffort ?? profile.reasoning,
+      options.reasoningEffort ?? compositionProfile.reasoning,
     )
     const apiKey = await this.config.resolveApiKey(options.provider, profile)
 

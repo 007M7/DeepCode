@@ -47,9 +47,9 @@ The same exact-model result exposes ordered `off`, `high`, and `max` efforts und
 
 ## Dynamic configuration (settings + credentials)
 
-Request facts are not frozen at load. `resolveAdapterOptions` is the one explicit resolve step from raw config to validated facts, and the adapter re-reads them through a thunk **once per operation**: base URL, catalog, request defaults, and idle budget take effect on the next operation, while an in-flight stream keeps the facts it started with. The `deepseek` route and its retry policy remain fixed by the plugin composition. Two optional seams feed the request facts:
+`resolveAdapterOptions` is the explicit resolve step from raw config to validated facts. The adapter reads live connection, credential, and request-transport facts through a thunk once per stream, so base URL, key, and idle budget changes reach the next request while an in-flight stream keeps its starting facts. The provider route, model catalog, context limits, thinking policy, reasoning default, and retry policy are composition-fixed. Two optional seams feed the live facts:
 
-- **`ctx.settings`** — the plugin registers the `llm-deepseek` namespace with this same `Config` schema and its `cordis.yml` entry as the composition `base`. Without a mounted settings service the entry config alone drives the adapter. A live settings snapshot that passes the schema but fails a beyond-schema bound (a duplicate catalog id, a broken thinking/effort pair) keeps the last good request facts and logs the failure; the entry config itself still fails plugin load.
+- **`ctx.settings`** — the plugin registers the `llm-deepseek` namespace with this same `Config` schema and its `cordis.yml` entry as the composition `base`. Without a mounted settings service the entry config alone drives the adapter. A live snapshot that changes a composition-fixed fact or fails a resolver bound is rejected as a whole generation: it contributes neither its changed connection nor credential. The entry config itself still fails plugin load.
 - **`ctx.credentials`** — the API key resolves per stream call, from the *same* resolved snapshot that supplies the endpoint: a non-empty literal `apiKey` wins, then `apiKeyEnv` through the credential seam (`$DSH_HOME/.env` under the live environment), then — only without a mounted seam — the raw environment variable. Because credential facts travel with the connection facts, a rejected settings snapshot contributes neither its endpoint nor its key. A request with no key anywhere fails with `MISSING_CREDENTIAL`; after the operator supplies the named environment or dotenv value, the next request resolves it without a restart.
 
 `ctx.llm.providerRetryPolicy('deepseek')` reports the policy captured from the composition entry at registration.
@@ -72,7 +72,7 @@ Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `QUOTA` 
 
 ## Testing
 
-Unit suites run against a local `node:http` mock SSE server (no network), including dynamic `high`/`off`/`max` selection, structured HTTP facts, malformed/truncated streams, caller abort, connection failure, and proof that idle timeout aborts the actual body. `tests/dynamic-config.spec.ts` drives real settings-local and credentials-local providers (next-request base-URL/key pickup, literal precedence, keyless onboarding, last-good snapshots, and composition-fixed retry policy), and `tests/loader-composition.spec.ts` boots the full chain from a test-only `cordis.yml` through the actual Loader and edits `settings.yaml`/`.env` on disk. Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback and a request whose key exists only in a credentials-local document.
+Unit suites run against a local `node:http` mock SSE server (no network), including dynamic `high`/`off`/`max` selection, structured HTTP facts, malformed/truncated streams, caller abort, connection failure, and proof that idle timeout aborts the actual body. `tests/dynamic-config.spec.ts` drives real settings-local and credentials-local providers, including next-request base-URL/key pickup and a change landing between capability resolution and dispatch; the latter proves a generation that changes composition facts cannot contribute a newer endpoint or key. `tests/loader-composition.spec.ts` boots the full chain from a test-only `cordis.yml` through the actual Loader and edits `settings.yaml`/`.env` on disk. Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback and a request whose key exists only in a credentials-local document.
 
 ## Model Experience
 
@@ -106,7 +106,7 @@ Loop-retained response blocks append to the next request and preserve its earlie
 
 ## Known Limitations and Deferred Work
 
-- **A settings `models` list replaces the composition list wholesale** — settings-layer merging is per-field, and arrays are one field; per-entry catalog merging would need a keyed shape.
+- **Settings cannot change model/capability defaults** — catalog, context limits, thinking policy, reasoning default, and retry policy belong to composition; a settings generation that changes one is rejected whole.
 - **`Config.apiKey` is schema-tagged `role('secret')` but not masked by `ctx.settings.describe()`** — do not expose that envelope to an untrusted UI without redacting secret-role fields.
 - **`tool_choice` is not mapped** — not part of the core vocabulary (MVP cut, shared with the pi-ai twin).
 - **Requests use raw `fetch`, not `@cordisjs/plugin-http`** — no shared proxy/interception configuration; adoption is deferred until a second adapter wants it (`TODO(http)`).

@@ -12,11 +12,11 @@ The [settings seam](2026-07-28-user-settings-seam.md) shipped without a producti
 
 ## Decision
 
-**Per-request resolution, not fiber rebuilds.** The adapters take an options thunk and a per-stream credential resolver instead of rebuilding their fibers. Connection, credential, and request-transport facts are read for the operation, while an in-flight stream keeps the facts it started with. A missing key is a request-time `MISSING_CREDENTIAL` failure while the route remains registered. Provider routes and their retry policies are composition-fixed instead of triggering registration swaps.
+**Per-request resolution, not fiber rebuilds.** The adapters take an options thunk and a per-stream credential resolver instead of rebuilding their fibers. Connection, credential, and request-transport facts are read for the stream, while an in-flight stream keeps the facts it started with. Model catalog/capability, context, reasoning-default, provider-route, and retry-policy facts are composition-fixed. A missing key is a request-time `MISSING_CREDENTIAL` failure while the route remains registered.
 
 **Secrets are references, values live behind `ctx.credentials`.** Configuration can carry `apiKeyEnv: DEEPSEEK_API_KEY`; the read-only credential seam resolves it per operation. `credentials-local` checks the live process environment first, then parses `$DSH_HOME/.env` on demand, with no cache or mutation surface. Resolution order in the adapters is a non-empty literal `apiKey` first, then the seam, then — only without a mounted seam — the named raw environment variable.
 
-**Per-plugin namespaces, schema ≡ `Config`.** Each adapter registers its own namespace (`llm-deepseek`, `llm-pi-ai`) with its plugin `Config` schema and `cordis.yml` entry as the composition `base`. `resolveAdapterOptions` and `resolveProfiles` remain the explicit validation steps, and a bad live snapshot keeps the last good request facts while a bad entry config fails load. pi-ai's `providers` is a non-empty dict keyed by its composition-owned routes; the user layer may override request facts for those routes but cannot add or remove them.
+**Per-plugin namespaces, schema ≡ `Config`.** Each adapter registers its own namespace (`llm-deepseek`, `llm-pi-ai`) with its plugin `Config` schema and `cordis.yml` entry as the composition `base`. `resolveAdapterOptions` and `resolveProfiles` remain the explicit validation steps. A live snapshot that changes a fixed fact or fails another bound keeps the whole last-good generation, while a bad entry config fails load. pi-ai's `providers` is a non-empty dict keyed by its composition-owned routes; the user layer may override only live request facts for those routes.
 
 ## Alternatives considered
 

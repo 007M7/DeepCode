@@ -47,9 +47,9 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 ## 动态配置（settings + credentials）
 
-请求事实不在加载时冻结。`resolveAdapterOptions` 是从原始配置到已校验事实的唯一显式 resolve 步骤，适配器经由一个 thunk **每操作重读一次**：base URL、catalog、请求默认值与 idle 预算都在下一次操作生效，进行中的流则保持其起始事实。`deepseek` 路由及其重试策略始终由插件组合固定。两个可选 seam 为请求事实供值：
+`resolveAdapterOptions` 是从原始配置到已校验事实的显式 resolve 步骤。适配器经由一个 thunk 每个流读取一次实时连接、凭据与请求传输事实，因此 base URL、密钥与 idle 预算变更会作用于下一次请求，进行中的流则保持其起始事实。提供方路由、模型 catalog、上下文限制、思考策略、推理默认值与重试策略由组合固定。两个可选 seam 为实时事实供值：
 
-- **`ctx.settings`**：插件用同一份 `Config` schema 注册 `llm-deepseek` namespace，并以其 `cordis.yml` 条目为组合 `base`。未挂载 settings 服务时，仅由 entry 配置驱动适配器。存活 settings 快照若通过 schema 却违反 schema 之外的约束（重复的 catalog id、无法成立的 thinking／推理强度组合），则保留最后可用的请求事实并记录失败；entry 配置本身仍会使插件加载失败。
+- **`ctx.settings`**：插件用同一份 `Config` schema 注册 `llm-deepseek` namespace，并以其 `cordis.yml` 条目为组合 `base`。未挂载 settings 服务时，仅由 entry 配置驱动适配器。存活快照若更改由组合固定的事实或违反 resolver 约束，会整代被拒绝：其变更后的连接与凭据均不会被采用。entry 配置本身仍会使插件加载失败。
 - **`ctx.credentials`**：API 密钥按每次 stream 调用解析，取自与端点*同一*份解析后的快照：非空的字面 `apiKey` 优先，其次经凭据 seam 解析 `apiKeyEnv`（活跃环境之下的 `$DSH_HOME/.env`），最后仅在未挂载 seam 时读取原始环境变量。由于凭据事实与连接事实同行，被拒绝的 settings 快照既不贡献自己的端点，也不贡献自己的密钥。任何地方都没有密钥的请求以 `MISSING_CREDENTIAL` 失败；操作者为点名的环境变量或 dotenv 值供值后，下一次请求无需重启即可解析它。
 
 `ctx.llm.providerRetryPolicy('deepseek')` 报告注册时从组合配置项捕获的策略。
@@ -72,7 +72,7 @@ harness LLM（大语言模型）seam 的 DeepSeek chat-completions 适配器：�
 
 ## 测试
 
-单元套件使用本地 `node:http` mock SSE 服务器（无网络），覆盖动态 `high`／`off`／`max` 选择、结构化 HTTP 事实、格式错误／截断流、调用方 abort、连接失败，以及 idle 超时确实会 abort 实际 body 的证明。`tests/dynamic-config.spec.ts` 驱动真实的 settings-local 与 credentials-local provider（下一请求即生效的 base-URL／密钥拾取、字面值优先、无密钥上手、最后可用快照，以及由组合固定的重试策略），`tests/loader-composition.spec.ts` 则从仅测试用的 `cordis.yml` 出发，经真实 Loader 拉起完整链路，并在磁盘上编辑 `settings.yaml`/`.env`。真实 API 覆盖位于 `tests/adapter.e2e.ts`（`pnpm run test:e2e`，需有 key 才会运行）：V4 Flash + V4 Pro，覆盖思考启用／禁用与两种官方 effort 级别，包括思考 + 工具往返与推理回传，以及密钥仅存在于 credentials-local 文档中的请求。
+单元套件使用本地 `node:http` mock SSE 服务器（无网络），覆盖动态 `high`／`off`／`max` 选择、结构化 HTTP 事实、格式错误／截断流、调用方 abort、连接失败，以及 idle 超时确实会 abort 实际 body 的证明。`tests/dynamic-config.spec.ts` 驱动真实的 settings-local 与 credentials-local provider，覆盖下一请求即生效的 base-URL／密钥拾取，以及落在能力解析与派发之间的变更；后者证明，更改组合事实的一代设置无法贡献更新的端点或密钥。`tests/loader-composition.spec.ts` 则从仅测试用的 `cordis.yml` 出发，经真实 Loader 拉起完整链路，并在磁盘上编辑 `settings.yaml`/`.env`。真实 API 覆盖位于 `tests/adapter.e2e.ts`（`pnpm run test:e2e`，需有 key 才会运行）：V4 Flash + V4 Pro，覆盖思考启用／禁用与两种官方 effort 级别，包括思考 + 工具往返与推理回传，以及密钥仅存在于 credentials-local 文档中的请求。
 
 ## 模型体验
 
@@ -106,7 +106,7 @@ loop 保留的响应块会追加到下一个请求，并保留其较早可复用
 
 ## 已知限制与暂缓事项
 
-- **settings 的 `models` 列表会整体替换组合列表**：settings 层按字段合并，而数组是单个字段；按条目合并 catalog 需要带键的形状。
+- **settings 无法更改模型／能力默认值**：catalog、上下文限制、思考策略、推理默认值与重试策略归组合所有；settings 若更改其中一项，整代设置都会被拒绝。
 - **`Config.apiKey` 已在 schema 中标注 `role('secret')`，但未由 `ctx.settings.describe()` 脱敏**：在对 secret 角色字段脱敏之前，不要向不受信任的 UI 暴露该信封。
 - **未映射 `tool_choice`**：它不属于核心词汇（MVP 取舍，与 pi-ai twin 共享）。
 - **请求使用原始 `fetch`，而非 `@cordisjs/plugin-http`**：没有共享 proxy／拦截配置；采用暂缓到第二个适配器需要该功能时（`TODO(http)`）。

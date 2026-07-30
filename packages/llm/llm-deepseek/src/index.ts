@@ -4,9 +4,9 @@
  * load: the plugin layers its `cordis.yml` entry config under the optional
  * `llm-deepseek` user-settings section (`ctx.settings`) and resolves the API
  * key through the optional credential seam (`ctx.credentials`), so a changed
- * base URL, catalog, or key reaches the very next request without restarting
- * anything, while an in-flight stream keeps the facts it started with. The
- * registration-captured facts stay composition-fixed.
+ * base URL, key, or request-transport control reaches the next request without
+ * restart. Catalog, capability/default, context, and retry facts stay fixed by
+ * composition.
  * @module @deepseek-ai/dsh-llm-deepseek
  */
 
@@ -15,7 +15,7 @@ import z from 'schemastery'
 import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
@@ -53,17 +53,17 @@ export interface Config {
   apiKeyEnv?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
+  /** Composition-fixed thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
-  /** Default thinking effort (default `high`); `off` disables thinking per request. */
+  /** Composition-fixed default thinking effort (default `high`); `off` disables thinking per request. */
   reasoningEffort?: 'off' | 'high' | 'max'
-  /** Positive context capacity used when the selected model has no exact value. */
+  /** Composition-fixed positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
-  /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
+  /** Composition-fixed advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
   streamIdleTimeoutMs?: number
-  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  /** Composition-fixed provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
 
@@ -90,10 +90,9 @@ export const Config: z<Config> = z.object({
 export const PUBLIC_BASE_URL = 'https://api.deepseek.com'
 
 /**
- * One resolution's complete request facts. Connection and credential facts
- * are one value on purpose: a snapshot the resolver rejects keeps the whole
- * previous generation, so a request can never pair a stale endpoint with a
- * newer key.
+ * One resolution's complete adapter facts. Connection and credential facts
+ * stay one value, while catalog, capability/default, context, and retry facts
+ * must equal the composition snapshot.
  */
 export type ResolvedDeepSeekOptions = DeepSeekConnectionOptions
 
@@ -165,8 +164,21 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
   }
 }
 
+/** Facts that must stay identical to the plugin composition for the route's lifetime. */
+function compositionFacts(options: ResolvedDeepSeekOptions): unknown {
+  return {
+    defaults: options.defaults,
+    ...options.defaultContextWindow === undefined
+      ? {}
+      : { defaultContextWindow: options.defaultContextWindow },
+    models: options.models,
+    retryPolicy: options.retryPolicy,
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   const compositionOptions = resolveAdapterOptions(config)
+  const fixedFacts = compositionFacts(compositionOptions)
   let current: () => Config = () => config
   let lastRaw: Config = config
   let lastGood = compositionOptions
@@ -175,12 +187,17 @@ export function apply(ctx: Context, config: Config): void {
     if (raw === lastRaw) return lastGood
     try {
       const next = resolveAdapterOptions(raw)
+      if (!deepEqualJson(compositionFacts(next), fixedFacts)) {
+        throw new Error(
+          'llm-deepseek: model catalog, capability defaults, context limits, and retry policy are composition-fixed',
+        )
+      }
       lastRaw = raw
       lastGood = next
       return next
     } catch (error) {
       // Static composition resolves before anything registers, so this branch
-      // only sees a live settings snapshot failing a beyond-schema bound:
+      // only sees an invalid live snapshot or one that changes a fixed fact:
       // keep serving the last good facts and say so once per bad snapshot.
       lastRaw = raw
       ctx.logger.error('llm-deepseek: keeping the last good configuration after an invalid settings section')
@@ -211,7 +228,7 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  const adapter = new DeepSeekAdapter({ options, resolveApiKey })
+  const adapter = new DeepSeekAdapter({ options, composition: compositionOptions, resolveApiKey })
   ctx.llm.registerAdapter([PROVIDER], adapter)
 
   installSettingsSection(ctx, NS, Config, config, {

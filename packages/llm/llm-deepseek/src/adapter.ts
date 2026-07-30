@@ -1,9 +1,9 @@
 /**
  * `DeepSeekAdapter`: fetch + SSE against a DeepSeek (OpenAI-compatible)
  * chat-completions endpoint, emitting harness StreamChunks. The adapter is
- * transport-only: connection facts arrive through a thunk resolved once per
- * operation and the bearer token through a per-request resolver, so the
- * registering plugin owns validation, layering, and credential policy.
+ * transport-only: live connection facts arrive through a thunk resolved once
+ * per stream, composition-fixed capability/default facts arrive separately,
+ * and the bearer token comes from a per-request resolver.
  *
  * @module dsh-llm-deepseek/adapter
  */
@@ -38,10 +38,9 @@ export interface DeepSeekCatalogModel {
 }
 
 /**
- * Validated connection facts for one operation. The plugin's
- * `resolveAdapterOptions` is the one explicit resolve step producing this
- * shape; the adapter trusts it and re-reads it per operation, which is what
- * makes a configuration change reach the next request without re-registration.
+ * Validated adapter facts. The plugin's `resolveAdapterOptions` is the explicit
+ * resolve step producing this shape; the adapter receives one composition
+ * snapshot plus a per-stream current snapshot.
  */
 export interface DeepSeekConnectionOptions {
   /** Endpoint base; `/chat/completions` is appended. */
@@ -54,22 +53,24 @@ export interface DeepSeekConnectionOptions {
   apiKey?: string
   /** Credential reference of this same resolution, resolved per request when no literal key exists. */
   apiKeyEnv: CredentialRef
-  /** Request defaults applied to every call (thinking mode, effort). */
+  /** Composition-fixed request defaults applied to every call (thinking mode, effort). */
   defaults: RequestDefaults
-  /** Positive context capacity used when the selected model has no exact value. */
+  /** Composition-fixed positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
-  /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
+  /** Composition-fixed advisory models exposed to discovery consumers; requests remain unrestricted. */
   models: readonly DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs: number
-  /** Provider-owned model-request retry policy, already resolved. */
+  /** Composition-fixed provider-owned model-request retry policy, already resolved. */
   retryPolicy: ResolvedRetryPolicy
 }
 
-/** Constructor options for {@link DeepSeekAdapter}: the two resolution seams the plugin owns. */
+/** Constructor inputs for {@link DeepSeekAdapter}: live, composition, and credential facts. */
 export interface DeepSeekAdapterOptions {
-  /** Current validated connection facts; called once per operation. */
+  /** Current validated request facts; called once per stream. */
   options: () => DeepSeekConnectionOptions
+  /** Composition snapshot owning catalog, capability/default, context, and retry facts. */
+  composition: DeepSeekConnectionOptions
   /**
    * Resolve the bearer token for the connection facts of one request. The
    * snapshot is passed in — never re-read — so the key can only ever come
@@ -154,11 +155,11 @@ export class DeepSeekAdapter extends LlmAdapter {
   }
 
   override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
-    return this.config.options().retryPolicy
+    return this.config.composition.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve(this.config.options().models.map(model => modelInfo(provider, model)))
+    return Promise.resolve(this.config.composition.models.map(model => modelInfo(provider, model)))
   }
 
   override resolveModel(
@@ -166,16 +167,16 @@ export class DeepSeekAdapter extends LlmAdapter {
     model: string,
     _signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    const connection = this.config.options()
-    const configured = connection.models.find(entry => entry.id === model)
+    const composition = this.config.composition
+    const configured = composition.models.find(entry => entry.id === model)
     const contextWindow = configured?.contextWindow
-      ?? connection.defaultContextWindow
+      ?? composition.defaultContextWindow
     return Promise.resolve({
       ...configured === undefined
         ? { provider, id: model, name: model }
         : modelInfo(provider, configured),
       ...contextWindow === undefined ? {} : { context: { contextWindow } },
-      ...connection.defaults.thinking === 'disabled'
+      ...composition.defaults.thinking === 'disabled'
         ? {
           reasoning: {
             efforts: OFF_ONLY_REASONING_EFFORTS,
@@ -185,9 +186,9 @@ export class DeepSeekAdapter extends LlmAdapter {
         : {
           reasoning: {
             efforts: REASONING_EFFORTS,
-            defaultEffort: connection.defaults.reasoningEffort === 'off'
+            defaultEffort: composition.defaults.reasoningEffort === 'off'
               ? OFF_REASONING_EFFORT
-              : connection.defaults.reasoningEffort === 'max'
+              : composition.defaults.reasoningEffort === 'max'
                 ? MAX_REASONING_EFFORT
                 : HIGH_REASONING_EFFORT,
           },
@@ -196,9 +197,9 @@ export class DeepSeekAdapter extends LlmAdapter {
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    // One resolution per stream call: connection facts and the credential
-    // freeze here and hold for this whole request, so an in-flight stream
-    // never observes a configuration change and the next call re-resolves.
+    // One live resolution per stream call: connection, credential, and
+    // transport facts freeze here and hold for the request. Model capability
+    // and default facts come from the composition snapshot above.
     // The key resolves *from this snapshot*, so an endpoint and the secret
     // sent to it can never come from different configuration generations.
     const connection = this.config.options()
@@ -250,7 +251,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     connection: DeepSeekConnectionOptions,
     apiKey: string,
   ): AsyncIterable<StreamChunk> {
-    const body = serializeRequest(options, connection.defaults)
+    const body = serializeRequest(options, this.config.composition.defaults)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
     // transport boundary, never a serialization failure.
     const payload = JSON.stringify(body)

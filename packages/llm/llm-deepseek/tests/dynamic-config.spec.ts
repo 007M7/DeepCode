@@ -19,6 +19,7 @@ afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
   await closeMockServers()
   vi.unstubAllEnvs()
+  vi.restoreAllMocks()
 })
 
 async function home(): Promise<string> {
@@ -99,15 +100,13 @@ describe('request-level dynamic configuration', () => {
     expect(server.headers[0]?.authorization).toBe('Bearer sk-arrived')
   })
 
-  it('advertises a live settings catalog without re-registration', async () => {
+  it('keeps the model catalog composition-fixed', async () => {
     const dir = await home()
     const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
 
     await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
     await ctx.settings.update(NS, { models: [{ id: 'settings-model', name: 'From Settings' }] })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'settings-model', name: 'From Settings' },
-    ])
+    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
   })
 
   it('keeps the registration retry policy composition-fixed', async () => {
@@ -133,33 +132,19 @@ describe('request-level dynamic configuration', () => {
     expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
   })
 
-  it('keeps the last good options when a settings snapshot fails beyond-schema validation', async () => {
-    const dir = await home()
-    const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
-
-    // Schema-valid but resolver-invalid: duplicate catalog ids pass the array
-    // schema and fail the explicit resolve step.
-    await ctx.settings.update(NS, { models: [{ id: 'dup' }, { id: 'dup' }] })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
-    await ctx.settings.update(NS, { models: [{ id: 'recovered' }] })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'recovered', name: 'recovered' },
-    ])
-  })
-
-  it('sends the whole last-good snapshot when a rejected one changed both the key and the URL', async () => {
+  it('rejects a settings generation that combines new composition and connection facts', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
     const good = await mockServer([{ kind: 'sse', events: textEvents }])
     const rejected = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx } = await boot(dir, { apiKey: 'good-key', baseURL: good.url })
 
-    // One snapshot moves the endpoint AND the literal key, and fails the
-    // resolve step beyond the schema (duplicate catalog ids).
+    // One schema-valid snapshot moves the endpoint and key while also trying
+    // to replace the composition-owned catalog.
     await ctx.settings.update(NS, {
       apiKey: 'rejected-key',
       baseURL: rejected.url,
-      models: [{ id: 'dup' }, { id: 'dup' }],
+      models: [{ id: 'settings-model' }],
     })
 
     await prompt(ctx)
@@ -168,6 +153,42 @@ describe('request-level dynamic configuration', () => {
     expect(rejected.requests).toHaveLength(0)
     expect(good.requests).toHaveLength(1)
     expect(good.headers[0]?.authorization).toBe('Bearer good-key')
+  })
+
+  it('cannot mix earlier capability facts with a later settings connection', async () => {
+    const dir = await home()
+    const first = await mockServer([{ kind: 'sse', events: textEvents }])
+    const second = await mockServer([{ kind: 'sse', events: textEvents }])
+    const { ctx } = await boot(dir, {
+      apiKey: 'first-key',
+      baseURL: first.url,
+      thinking: 'disabled',
+      reasoningEffort: 'off',
+    })
+    const resolveModel = vi.spyOn(LlmDeepSeek.DeepSeekAdapter.prototype, 'resolveModel')
+    resolveModel.mockImplementation(async function (
+      this: LlmDeepSeek.DeepSeekAdapter,
+      provider,
+      model,
+      signal,
+    ) {
+      resolveModel.mockRestore()
+      const resolved = await this.resolveModel(provider, model, signal)
+      // Land a complete settings generation after capability resolution but
+      // before stream dispatch. Its changed composition fact rejects it whole.
+      await ctx.settings.update(NS, {
+        apiKey: 'second-key',
+        baseURL: second.url,
+        thinking: 'enabled',
+        reasoningEffort: 'max',
+      })
+      return resolved
+    })
+
+    await prompt(ctx)
+    expect(second.requests).toHaveLength(0)
+    expect(first.headers[0]?.authorization).toBe('Bearer first-key')
+    expect(first.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
   })
 
   it('falls back to the composition entry when settings detach', async () => {

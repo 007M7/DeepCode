@@ -18,6 +18,7 @@ afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
   await closeMockServers()
   vi.unstubAllEnvs()
+  vi.restoreAllMocks()
 })
 
 async function home(): Promise<string> {
@@ -96,5 +97,46 @@ describe('request-level dynamic profiles', () => {
       maxDelayMs: 100,
       jitterRatio: 0.2,
     })
+  })
+
+  it('cannot mix earlier capability facts with a later settings connection', async () => {
+    const dir = await home()
+    const first = await mockServer([{ events: textEvents }])
+    const second = await mockServer([{ events: textEvents }])
+    const ctx = await boot(dir, {
+      providers: {
+        deepseek: {
+          apiKey: 'first-key',
+          baseURL: first.url,
+          reasoning: 'off',
+        },
+      },
+    })
+    const resolveModel = vi.spyOn(LlmPiAi.PiAiAdapter.prototype, 'resolveModel')
+    resolveModel.mockImplementation(async function (
+      this: LlmPiAi.PiAiAdapter,
+      provider,
+      model,
+      signal,
+    ) {
+      resolveModel.mockRestore()
+      const resolved = await this.resolveModel(provider, model, signal)
+      // Land a complete settings generation after capability resolution but
+      // before stream dispatch. Its changed reasoning default rejects it whole.
+      await ctx.settings.update(NS, {
+        providers: {
+          deepseek: {
+            apiKey: 'second-key',
+            baseURL: second.url,
+            reasoning: 'max',
+          },
+        },
+      })
+      return resolved
+    })
+
+    await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
+    expect(second.requests).toHaveLength(0)
+    expect(first.headers[0]?.authorization).toBe('Bearer first-key')
   })
 })

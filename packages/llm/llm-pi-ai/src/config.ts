@@ -28,7 +28,7 @@ export interface PiAiProviderProfile {
   baseURL?: string
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
-  /** Provider-neutral pi-ai reasoning level. */
+  /** Composition-fixed provider-neutral pi-ai reasoning default. */
   reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
   thinkingBudgets?: ThinkingBudgets
@@ -42,7 +42,7 @@ export interface PiAiProviderProfile {
   websocketConnectTimeoutMs?: number
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
-  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  /** Composition-fixed provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
 

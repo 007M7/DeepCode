@@ -25,8 +25,10 @@ async function harness(baseURL: string, overrides: Record<string, unknown> = {})
 
 /** Direct adapter over the real profile resolver, with literal-key resolution. */
 function adapterOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>): PiAiAdapter {
+  const compositionProfiles = resolveProfiles(providers)
   return new PiAiAdapter({
-    profiles: () => resolveProfiles(providers),
+    profiles: () => compositionProfiles,
+    compositionProfiles,
     resolveApiKey: (_provider, profile) => Promise.resolve(profile.apiKey),
   })
 }

@@ -39,15 +39,15 @@
 
 ## 动态配置（settings + credentials）
 
-适配器经由一个 thunk **每操作读取一次** profile，而非在构造期冻结请求事实。插件在可选的 `ctx.settings` seam 上用同一份 `Config` schema 注册 `llm-pi-ai` namespace，并以其 `cordis.yml` 条目为组合 `base`。用户层可以覆盖组合路由的请求级字段，例如端点、凭据引用、标头或传输控制项，并在下一次操作生效。提供方路由与重试策略始终由组合固定；settings 快照若更改任一项，就会整代被拒绝。未挂载 settings 服务时，仅由 entry 配置驱动适配器。
+适配器经由一个 thunk 每个流读取一次实时连接、凭据与请求传输事实。插件在可选的 `ctx.settings` seam 上用同一份 `Config` schema 注册 `llm-pi-ai` namespace，并以其 `cordis.yml` 条目为组合 `base`。用户层可以为下一次请求覆盖组合路由的端点、凭据引用、标头、预算、缓存／传输选项与超时。提供方路由、已安装模型的能力、推理（reasoning）默认值与重试策略始终由组合固定；settings 快照若更改固定事实，就会整代被拒绝。未挂载 settings 服务时，仅由 entry 配置驱动适配器。
 
-凭据按每次 stream 调用解析：非空的字面 `apiKey` 优先，其次经可选的 `ctx.credentials` seam 解析 `apiKeyEnv`（活跃环境之下的 `$DSH_HOME/.env`；未挂载 seam 时恰好读取该环境变量）。只有完全没有点名任何凭据的 profile（仅限这一种情况），才交给 pi-ai 的环境发现。存活 settings 快照若更改注册事实、点名未知提供方或违反其他 resolver 约束，则保留最后可用 profile 并记录失败；entry 配置本身会使插件加载失败。
+凭据按每次 stream 调用解析：非空的字面 `apiKey` 优先，其次经可选的 `ctx.credentials` seam 解析 `apiKeyEnv`（活跃环境之下的 `$DSH_HOME/.env`；未挂载 seam 时恰好读取该环境变量）。只有完全没有点名任何凭据的 profile（仅限这一种情况），才交给 pi-ai 的环境发现。存活 settings 快照若更改固定事实、点名未知提供方或违反其他 resolver 约束，则保留最后可用 profile 并记录失败；其中的连接与凭据事实一概不会泄漏进请求。entry 配置本身会使插件加载失败。
 
 适配器通过 `ctx.llm.listModels(provider)` 公开每个已配置提供方已安装的 pi-ai 模型。这是从 `getModels(provider)` 派生的提供方无关 selector 元数据；请求时解析仍会执行权威 catalog 查找，因此发现不会创建第二个模型注册表。`ctx.llm.resolveModelInfo(provider, model)` 会执行一次精确 descriptor 查找，并返回其身份、上下文窗口和可选思考级别，让权威元数据保留在拥有路由的适配器上，而非消费方。
 
-`reasoning.efforts` 列表是 pi-ai 有序的 `getSupportedThinkingLevels(model)` 结果，不经筛选或规范化，其中包括 `off`，以及模型对 `xhigh` 或 `max` 的特定支持。Harness 将每个规范 pi-ai 级别公开为不透明 ID；提供方／模型在协议格式中的表示仍保留在 pi-ai 的 `thinkingLevelMap` 中。因此，不具备推理（reasoning）能力的模型也会公开 pi-ai 的 `off` 选项。配置 profile 的 `reasoning` 值（包括 `off`）在存在时是部署默认值；省略它会保留提供方默认值。每次请求的 `GenerateOptions.reasoningEffort` 优先；任何未出现在确切模型能力中的显式值都会在网络 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败，而不会被自动调整。pi-ai 的通用流选项通过省略 `reasoning` 表示 `off`。
+`reasoning.efforts` 列表是 pi-ai 有序的 `getSupportedThinkingLevels(model)` 结果，不经筛选或规范化，其中包括 `off`，以及模型对 `xhigh` 或 `max` 的特定支持。Harness 将每个规范 pi-ai 级别公开为不透明 ID；提供方／模型在协议格式中的表示仍保留在 pi-ai 的 `thinkingLevelMap` 中。因此，不具备推理能力的模型也会公开 pi-ai 的 `off` 选项。组合 profile 的 `reasoning` 值（包括 `off`）在存在时是部署默认值；省略它会保留提供方默认值。每次请求的 `GenerateOptions.reasoningEffort` 优先；任何未出现在确切模型能力中的显式值都会在网络 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败，而不会被自动调整。pi-ai 的通用流选项通过省略 `reasoning` 表示 `off`。
 
-受支持的 profile 字段是 `apiKey`、`apiKeyEnv`、`baseURL`、`headers`、`reasoning`、`thinkingBudgets`、`cacheRetention`、`transport`、`timeoutMs`、`websocketConnectTimeoutMs`、`streamIdleTimeoutMs` 和 `retryPolicy`。每个 profile 的可选重试策略都会与该提供方路由一同捕获；省略时使用有界的常规默认值。流空闲间隔必须是正的有限 Node 定时器延迟，默认为五分钟，且只覆盖未完成提供方读取，不包括消费方思考时间。若已配置标头中有同名项，则以 Harness 应用归因为准。
+受支持的 profile 字段是 `apiKey`、`apiKeyEnv`、`baseURL`、`headers`、`reasoning`、`thinkingBudgets`、`cacheRetention`、`transport`、`timeoutMs`、`websocketConnectTimeoutMs`、`streamIdleTimeoutMs` 和 `retryPolicy`。`reasoning` 与 `retryPolicy` 属于组合事实，其他字段属于实时请求事实。每个可选重试策略都会与该提供方路由一同捕获；省略时使用有界的常规默认值。流空闲间隔必须是正的有限 Node 定时器延迟，默认为五分钟，且只覆盖未完成提供方读取，不包括消费方思考时间。若已配置标头中有同名项，则以 Harness 应用归因为准。
 
 适配器强制 pi-ai SDK `maxRetries` 为零，因此一次 `stream()` 调用只会发起一次提供方请求。已移除 profile 字段 `maxRetries` 和 `maxRetryDelayMs` 会使加载失败，而不是静默倍增或隐藏单独组合的 agent（智能体）级重试预算。空闲超时会 abort SDK 的稳定请求信号，并以 `TIMEOUT` 呈现；较早的调用方 abort 仍为 `ABORTED`。
 
@@ -77,7 +77,7 @@ pi-ai 会安装多个提供方 SDK，并延迟加载 catalog 模型所选的 SDK
 
 ## 测试
 
-单元测试使用重定向到本地 mock 服务器的 pi-ai catalog 模型，覆盖提供方／profile 路由、每次适配器调用只发起一个协议请求、idle-timeout 响应终止、调用方 abort、原生 API 选择、端点覆盖、归因、转换、回放状态验证，以及一个适配器实例内的跨提供方／模型回放。`tests/dynamic-config.spec.ts` 驱动真实的 settings-local 与 credentials-local provider：端点与 `apiKeyEnv` 变更会作用于后续请求，而路由与重试策略始终由组合固定。`tests/loader-composition.spec.ts` 从仅测试用的 `cordis.yml` 出发，经真实 Loader 拉起该链路，并在磁盘上编辑 `settings.yaml`/`.env`。真实 API 覆盖仍需 key 才会启用，并通过 `pnpm run test:e2e` 运行。
+单元测试使用重定向到本地 mock 服务器的 pi-ai catalog 模型，覆盖提供方／profile 路由、每次适配器调用只发起一个协议请求、idle-timeout 响应终止、调用方 abort、原生 API 选择、端点覆盖、归因、转换、回放状态验证，以及一个适配器实例内的跨提供方／模型回放。`tests/dynamic-config.spec.ts` 驱动真实的 settings-local 与 credentials-local provider：端点与凭据变更会作用于后续请求，而落在能力解析与派发之间的变更无法把较早一代的推理默认值与较新一代的端点或密钥拼接起来。`tests/loader-composition.spec.ts` 从仅测试用的 `cordis.yml` 出发，经真实 Loader 拉起该链路，并在磁盘上编辑 `settings.yaml`/`.env`。真实 API 覆盖仍需 key 才会启用，并通过 `pnpm run test:e2e` 运行。
 
 ## 模型体验
 
@@ -111,7 +111,7 @@ pi-ai 事件会变为 harness 推理、文本、工具调用、usage 与 finish 
 
 ## 已知限制与暂缓事项
 
-- **settings 无法新增或移除路由**：提供方所有权与重试策略属于组合事实；用户层只能更改现有路由的请求级字段。
+- **settings 无法更改路由或模型默认值**：提供方所有权、已安装模型的能力、推理默认值与重试策略属于组合事实；用户层只能更改现有路由的连接、凭据与请求传输字段。
 - **`apiKey` 已在 schema 中标注 `role('secret')`，但未由 `ctx.settings.describe()` 脱敏**：在对 secret 角色字段脱敏之前，不要向不受信任的 UI 暴露该信封。
 - **必须属于 catalog**：已安装 pi-ai catalog 中不存在的自定义模型 id 会以 `UNKNOWN_MODEL` 失败，即使提供方 profile 配置了自定义端点。
 - **不支持 `GenerateOptions.stop`**：pi-ai 的通用流选项无法保证所有提供方都支持 stop sequence，因此适配器会拒绝该字段。

@@ -3,9 +3,9 @@
  * provider routes; requests select a profile by provider and resolve the
  * model dynamically from pi-ai's installed catalog. Profile facts resolve per
  * request over the optional `llm-pi-ai` user-settings section and the
- * optional credential seam, so a changed key, endpoint, or request knob
- * reaches the next request without a restart. Provider routes and retry
- * policies stay composition-fixed.
+ * optional credential seam, so a changed key, endpoint, or request-transport
+ * knob reaches the next request without a restart. Provider routes, model
+ * capabilities, reasoning defaults, and retry policies stay composition-fixed.
  *
  * ```yaml
  * - id: llm
@@ -45,20 +45,24 @@ export const inject = ['llm']
 const NS = settingsNamespace('llm-pi-ai')
 
 /**
- * The registry captures these per route; a change here must re-register.
+ * Composition captures these per route; a settings change cannot alter them.
  * Sorted by provider so a settings document that merely reorders its keys is
  * not mistaken for a route change.
  */
-function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>): unknown {
+function compositionFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>): unknown {
   return [...profiles.entries()]
-    .map(([provider, profile]) => ({ provider, retryPolicy: profile.retryPolicy }))
+    .map(([provider, profile]) => ({
+      provider,
+      reasoning: profile.reasoning,
+      retryPolicy: profile.retryPolicy,
+    }))
     .sort((left, right) => left.provider.localeCompare(right.provider))
 }
 
 /** Register one generic pi-ai adapter for all configured provider routes. */
 export function apply(ctx: Context, config: Config): void {
   const compositionProfiles = resolveProfiles(config.providers)
-  const compositionFacts = registrationFacts(compositionProfiles)
+  const fixedFacts = compositionFacts(compositionProfiles)
   let current: () => Config = () => config
   let lastRaw: Config = config
   let lastGood: ReadonlyMap<string, ResolvedPiAiProviderProfile> = compositionProfiles
@@ -67,15 +71,15 @@ export function apply(ctx: Context, config: Config): void {
     if (raw === lastRaw) return lastGood
     try {
       const next = resolveProfiles(raw.providers)
-      if (!deepEqualJson(registrationFacts(next), compositionFacts)) {
-        throw new Error('llm-pi-ai: provider routes and retry policies are composition-fixed')
+      if (!deepEqualJson(compositionFacts(next), fixedFacts)) {
+        throw new Error('llm-pi-ai: provider routes, reasoning defaults, and retry policies are composition-fixed')
       }
       lastRaw = raw
       lastGood = next
       return next
     } catch (error) {
       // Static composition resolves before anything registers, so this branch
-      // only sees a live settings snapshot failing catalog or bound checks:
+      // only sees an invalid live snapshot or one that changes a fixed fact:
       // keep serving the last good profiles and say so once per bad snapshot.
       lastRaw = raw
       ctx.logger.error('llm-pi-ai: keeping the last good profiles after an invalid settings section')
@@ -111,7 +115,7 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  const adapter = new PiAiAdapter({ profiles, resolveApiKey })
+  const adapter = new PiAiAdapter({ profiles, compositionProfiles, resolveApiKey })
   ctx.llm.registerAdapter([...compositionProfiles.keys()], adapter)
 
   installSettingsSection(ctx, NS, Config, config, {

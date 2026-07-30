@@ -630,17 +630,17 @@ export interface Config {
   apiKeyEnv?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
+  /** Composition-fixed thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
-  /** Default thinking effort (default `high`); `off` disables thinking per request. */
+  /** Composition-fixed default thinking effort (default `high`); `off` disables thinking per request. */
   reasoningEffort?: 'off' | 'high' | 'max'
-  /** Positive context capacity used when the selected model has no exact value. */
+  /** Composition-fixed positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
-  /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
+  /** Composition-fixed advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
   streamIdleTimeoutMs?: number
-  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  /** Composition-fixed provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
 
@@ -682,7 +682,7 @@ export interface PiAiProviderProfile {
   baseURL?: string
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
-  /** Provider-neutral pi-ai reasoning level. */
+  /** Composition-fixed provider-neutral pi-ai reasoning default. */
   reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
   thinkingBudgets?: ThinkingBudgets
@@ -696,7 +696,7 @@ export interface PiAiProviderProfile {
   websocketConnectTimeoutMs?: number
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
-  /** Provider-owned model-request retry policy; omission uses normal defaults. */
+  /** Composition-fixed provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
 ```
