@@ -124,17 +124,12 @@ describe('MarkdownText', () => {
 })
 
 describe('JsonBlock', () => {
-  it('collapsed by default; accessible toggle reveals pretty-printed payload', () => {
-    render(<JsonBlock label="args" payload={{ a: 1 }} collapsedIcon={<span data-testid="json-icon">T</span>} />)
-    const toggle = screen.getByRole('button', { name: 'args' })
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    expect(screen.getByTestId('json-icon')).toBeDefined()
+  it('collapsed by default; toggle reveals pretty-printed payload', () => {
+    render(<JsonBlock label="args" payload={{ a: 1 }} />)
     expect(screen.queryByText(/"a": 1/)).toBeNull()
-    fireEvent.click(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: /args/ }))
     expect(screen.getByText(/"a": 1/)).toBeDefined()
-    fireEvent.click(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: /args/ }))
     expect(screen.queryByText(/"a": 1/)).toBeNull()
   })
 

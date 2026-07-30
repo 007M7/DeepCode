@@ -1,17 +1,16 @@
 // MessageItem: the four simple node kinds — user bubble (right-aligned, with
 // clock + copy / branch / edit IconActions), steering (badged bubble), context
-// injection as a text-icon disclosure, and unknown-surface JSON rows. Props
-// are frozen node slices off the snapshot cache; memo holds across streaming
-// because unchanged nodes keep their references.
+// injection and unknown-surface JSON rows. Props are frozen node slices off
+// the snapshot cache; memo holds across streaming because unchanged nodes
+// keep their references.
 
 import { memo } from 'react'
 import type { ReactNode } from 'react'
 import type {
   ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import {
-  IconTextOutline14, JsonBlock, MessageText,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
@@ -96,13 +95,7 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
     }
     case 'context':
       return (
-        <div className={css.contextRow}>
-          <JsonBlock
-            label="上下文注入"
-            payload={{ content: node.content, source: node.source }}
-            collapsedIcon={<IconTextOutline14 />}
-          />
-        </div>
+        <ContextInjectionRow content={node.content} source={node.source} />
       )
     default:
       return (

@@ -3,54 +3,22 @@
 }
 
 .toggle {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: 12px;
+  line-height: 18px;
   color: var(--dsw-alias-label-secondary);
-  padding: 0;
+  padding: 2px 6px;
   border: none;
   background: transparent;
   cursor: pointer;
+  border-radius: 6px;
 }
 
-.leading {
-  position: relative;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 6px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.iconIdle {
-  display: inline-flex;
-  opacity: 1;
-  transition: opacity 100ms ease;
-}
-
-.chevronHover {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.toggle:hover .iconIdle {
-  opacity: 0;
-}
-
-.toggle:hover .chevronHover {
-  opacity: 1;
+.toggle:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .body {
-  margin: 4px 0 0 22px;
+  margin: 4px 0 0;
   padding: 8px;
   max-height: 200px;
   overflow: auto;

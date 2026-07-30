@@ -685,18 +685,6 @@ export const IconChecklistOutline14 = ({ size = 14, className }: IconProps) => (
   </svg>
 )
 
-/** Text document glyph for context-disclosure rows. */
-export const IconTextOutline14 = ({ size = 14, className }: IconProps) => (
-  <svg width={size} height={size} className={className} viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path
-      fillRule="evenodd"
-      clipRule="evenodd"
-      d="M4.083 1.167h4.55c.31 0 .606.123.825.342l2.7 2.7c.219.219.342.516.342.825v6.05c0 .966-.784 1.75-1.75 1.75H4.083a1.75 1.75 0 0 1-1.75-1.75V2.917c0-.967.784-1.75 1.75-1.75Zm4.084 1.166H4.083a.583.583 0 0 0-.583.584v8.166c0 .323.261.584.583.584h6.667a.583.583 0 0 0 .583-.584V5.25H9.917a1.75 1.75 0 0 1-1.75-1.75V2.333Zm1.166.825 1.175 1.175h-.591a.583.583 0 0 1-.584-.583v-.592ZM5.25 7h4.667v1.167H5.25V7Zm0 2.333h4.667V10.5H5.25V9.333Z"
-      fill="currentColor"
-    />
-  </svg>
-)
-
 /** ic_ds_List_Pen_outline_16 */
 export const IconListPenOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
