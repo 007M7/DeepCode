@@ -214,6 +214,8 @@ export class SettingsLocal extends Settings {
       // carries owner-only permissions that survive the rename — a document that
       // may hold personal values is never world-readable and never a symlink.
       const temp = `${this.spec.filename}.${randomBytes(6).toString('hex')}.tmp`
+      // TODO(settings-atomic-durability): Use a replacement that fsyncs the file
+      // and parent directory and preserves owner-only permissions on Windows.
       try {
         await writeFile(temp, output, { mode: 0o600, flag: 'wx' })
         await rename(temp, this.spec.filename)
@@ -248,6 +250,8 @@ export class SettingsLocal extends Settings {
       // is free right now, so retry without burning backoff or deadline.
       if (ageMs === undefined) continue
       if (ageMs > LOCK_STALE_MS) {
+        // TODO(settings-lock-ownership): Replace age-only takeover with ownership-safe
+        // acquisition and release so a slow writer cannot remove a successor's lock.
         this.ctx.logger.warn('settings-local: breaking a stale writer lock at %s', lockPath)
         await rm(lockPath, { force: true })
         continue
