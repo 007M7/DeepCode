@@ -127,14 +127,15 @@
   min-height: 0;
 }
 
-/* Composer stack: dock strips above the input card (design §6 MIX order).
-   The stack owns the vertical rhythm: one gap here, entries carry no outer
-   margins — an entry that renders null costs nothing, so spacing stays
-   correct for any dock combination. */
+/* Composer context stack (Figma 9:937): standalone dock cards share one
+   rhythm; the terminal queue strip additionally tucks under the input card. */
 .composerStack {
+  --dsh-composer-stack-gap: 6px;
+  --dsh-queue-composer-overlap: 5px;
+
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--dsh-composer-stack-gap);
 }
 
 /* Common seat for the composer chain (fallback + elected overlay siblings). */

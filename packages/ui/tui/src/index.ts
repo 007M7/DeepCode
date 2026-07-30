@@ -19,7 +19,7 @@ import {
   type SlashCommand,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import { Service, type Context, type Fiber } from 'cordis'
+import { Service, type Context, type Fiber, type FiberState } from 'cordis'
 import {
   assembleContextFor,
   installAgentLlmTarget,
@@ -56,6 +56,7 @@ import {
   TuiExtensionServiceImpl,
   TuiOverlayManager,
 } from './extension/overlay-manager.ts'
+
 import {
   parseTuiPromptTemplate,
   renderTuiPromptTemplate,
@@ -171,6 +172,9 @@ export type {
   TuiViewport,
 } from './extension/types.ts'
 
+/** First terminal Cordis state: FAILED, DISPOSED, and UNLOADING are unusable. */
+const FIBER_FAILED = 3 as FiberState.FAILED
+
 declare module 'cordis' {
   interface Context {
     /** Terminal-only interaction service, available only while a TUI is mounted. */
@@ -183,8 +187,6 @@ declare module 'cordis' {
     tuiGoodbyeMessage: string | undefined
     /** Skill the launcher wants auto-invoked as the fresh session's first turn; absent leaves it to the user. */
     tuiInitialSkill: string | undefined
-    /** Launcher-owned session-store root the app bundle defaults to; absent keeps the bundle's project-local default. */
-    launcherSessionsRoot: string | undefined
   }
 }
 
@@ -228,16 +230,6 @@ export const TUI_GOODBYE_MESSAGE_KEY = 'tuiGoodbyeMessage'
  * re-fires on a resumed one. Absent leaves the first turn to the user.
  */
 export const INITIAL_SKILL_KEY = 'tuiInitialSkill'
-
-/**
- * Context key a launcher sets before any Loader entry mounts
- * (`ctx.provide(SESSIONS_ROOT_KEY, root)`) to supply its session-store root as
- * the app bundle's default persistence root. Shared-store policy (one store
- * across every cwd) belongs to the launcher — the dsh CLI resolves it under the
- * Harness home — never to a plugin; a bundle without this slot keeps its own
- * project-local default, and an explicit `persistenceRoot` config still wins.
- */
-export const SESSIONS_ROOT_KEY = 'launcherSessionsRoot'
 
 /**
  * Optional terminal-local interaction service provided by one mounted TUI.
@@ -307,7 +299,6 @@ export function createTuiChat(
   const sessionId = SessionId(config.sessionId ?? 'main')
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
-  const sessionQuery = ctx.get('sessionQuery')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.theme.color)
   const mdTheme = markdownTheme(palette)
@@ -854,7 +845,14 @@ export function createTuiChat(
     resolved,
     palette,
     overlayManager,
-    sessionQuery,
+    // Optional and independently mounted. Cordis transiently leaves this sibling
+    // non-ACTIVE during command callbacks, so the non-strict read is intentional;
+    // terminal fiber states still exclude failed, closing, and closed providers.
+    sessionQuery: () => {
+      const implementation = ctx.reflect._getImpl('sessionQuery', false)
+      if (implementation === undefined || implementation.fiber.state >= FIBER_FAILED) return undefined
+      return ctx.get('sessionQuery', false)
+    },
     ui,
     editor,
     appendNotice,
@@ -1663,9 +1661,35 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
   if (existing !== undefined) start(existing)
 }
 
+const ROOT_DISPOSE_TIMEOUT_MS = 5_000
+
+/**
+ * Dispose the whole application before process exit, with a bounded fallback.
+ * @param ctx - The TUI plugin context whose root owns sibling resources.
+ * @param code - Process status to report.
+ * @param exit - Exit boundary, replaceable by tests.
+ */
+export function disposeRootAndExit(
+  ctx: Context,
+  code: number,
+  exit: (status: number) => void = (status) => { process.exit(status) },
+): void {
+  let exited = false
+  const exitOnce = (): void => {
+    if (exited) return
+    exited = true
+    exit(code)
+  }
+  const timeout = setTimeout(exitOnce, ROOT_DISPOSE_TIMEOUT_MS)
+  void ctx.root.fiber.dispose().then(
+    () => { clearTimeout(timeout); exitOnce() },
+    () => { clearTimeout(timeout); exitOnce() },
+  )
+}
+
 /** Cordis entry point using the process terminal; explicit TUI composition requires a TTY pair. */
 /* v8 ignore start -- production process wiring; fake-terminal tests cover mountTui/createTuiChat,
-   and the tui-agent PTY smoke covers the real entry */
+   and apps/cli PTY smokes cover the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('ui-tui: both stdin and stdout must be TTYs; use the one-shot @deepseek-ai/dsh-cli-demo app for pipes')
@@ -1685,7 +1709,7 @@ export function apply(ctx: Context, config: Config): void {
     initialSkill === undefined ? {} : { initialSkill },
   ), {
     terminal: new ProcessTerminal(),
-    exit: code => process.exit(code),
+    exit: (code) => { disposeRootAndExit(ctx, code) },
     ...resumeHost === undefined ? {} : { handoffResume: (sessionId, cwd) => resumeHost.handoff(sessionId, cwd) },
     ...goodbyeMessage === undefined ? {} : { goodbyeMessage },
   })

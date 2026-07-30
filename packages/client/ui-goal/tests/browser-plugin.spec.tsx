@@ -92,7 +92,7 @@ describe('ui-goal browser plugin', () => {
   it('registers the GoalBar dock entry with the documented id and order', async () => {
     const b = bench()
     await b.fiber.await()
-    expect(b.entry()).toMatchObject({ id: 'goal', order: 1 })
+    expect(b.entry()).toMatchObject({ id: 'goal', order: 0 })
     expect(b.entry()?.inject).toBeTypeOf('function')
   })
 
