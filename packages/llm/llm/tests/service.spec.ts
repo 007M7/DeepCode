@@ -756,7 +756,7 @@ describe('LlmService', () => {
         return {
           [Symbol.asyncIterator](): AsyncIterator<StreamChunk> {
             // Third-party adapters can reject with arbitrary values.
-            // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+            // oxlint-disable-next-line typescript/prefer-promise-reject-errors
             return { next: () => Promise.reject('plain provider failure') }
           },
         }

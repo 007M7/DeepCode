@@ -4,7 +4,6 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
 - text: Reply with the single word LIGHTHOUSE and stop. {{clock}}
 - button "复制":
   - img

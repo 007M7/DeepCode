@@ -42,6 +42,9 @@
       "path": "../../session-projection/session-projection-cache"
     },
     {
+      "path": "../../session-title/session-title"
+    },
+    {
       "path": "../../skill/skill"
     },
     {

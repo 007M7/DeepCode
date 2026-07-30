@@ -136,7 +136,7 @@ describe('CommandService', () => {
 
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
     ctx.on('commands/change', () => { throw new Error('observer threw') })
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- exercises rejected-listener containment
+    // oxlint-disable-next-line typescript/no-misused-promises -- exercises rejected-listener containment
     ctx.on('commands/change', () => Promise.reject(new Error('observer rejected')))
     const afterFailures = vi.fn()
     ctx.on('commands/change', afterFailures)
@@ -229,7 +229,7 @@ describe('CommandService', () => {
     ctx.commands.register({
       name: 'reject-value',
       description: 'Reject a non-Error value',
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercise untyped plugin normalization
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercise untyped plugin normalization
       handler: () => Promise.reject('not an Error'),
     })
     await expect(ctx.commands.execute(agent, '/reject-value', new AbortController().signal))
@@ -239,7 +239,7 @@ describe('CommandService', () => {
     ctx.commands.register({
       name: 'reject-hostile',
       description: 'Reject an unrenderable value',
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- exercise hostile plugin normalization
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercise hostile plugin normalization
       handler: () => Promise.reject(hostile),
     })
     await expect(ctx.commands.execute(agent, '/reject-hostile', new AbortController().signal))

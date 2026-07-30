@@ -115,6 +115,37 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+.list.compactList,
+.submenu.compactList {
+  min-width: 164px;
+  padding: 2px;
+  border-radius: 7px;
+}
+
+.compactList .item {
+  min-height: 26px;
+  gap: 6px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.compactList .itemIcon {
+  width: 14px;
+  height: 14px;
+}
+
+.compactList .separator {
+  margin: 2px;
+}
+
+.compactList .label {
+  padding: 4px 7px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .item:disabled {
   opacity: 0.4;
   cursor: not-allowed;

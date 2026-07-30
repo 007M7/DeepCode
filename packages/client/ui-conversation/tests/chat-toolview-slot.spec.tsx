@@ -15,15 +15,27 @@ import { cleanup, fireEvent } from '@testing-library/react'
 import type { ISession, SessionId, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const SID = 's1' as SessionId
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 // The chat store persists under its declared key; clear between cases.
 beforeEach(() => {
   localStorage.clear()
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
 const toolResult = (seq: number, callId: string, name: string, args = '{"command":"make build","description":"Build"}'): ToolResultNode => ({
@@ -53,6 +65,7 @@ async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.provide('layout', layout)
+  runtime.provide('locale', new LocaleService(runtime.ctx))
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S' },
@@ -180,6 +193,7 @@ describe('registrant load-order seam', () => {
   it("suspends a registrant on inject: ['slots', 'conversation'] until the service (and the hole) exists", async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
+    runtime.provide('locale', new LocaleService(runtime.ctx))
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject

@@ -2,52 +2,79 @@
 // Mounted on 'conversation.composer.dock' so it sticks with the composer in the
 // active conversation scrollport (see ConversationRoot data-conversation-scroll).
 
-import { memo, useMemo } from 'react'
-import type {
-  ConversationSnapshot, UseProjection,
-} from '@deepseek-ai/dsh-client-runtime/client'
+import { Fragment, memo, useMemo } from 'react'
+import type { ConversationSnapshot, UseProjection } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import css from './StatsLine.module.css'
 
-interface VisibleCounts {
+interface WindowStats {
   turns: number
   steps: number
+  /** Summed request wall time (step/start → assistant/message); 0 when no node carries timing. */
+  llmMs: number
+  /** Summed tool wall time (tool/call → tool/result); 0 when no pair is in-window. */
+  toolMs: number
 }
 
 /**
- * Count visible assistant turns and steps without treating the paged window
- * as an accounting source.
+ * Fold assistant and tool-result nodes into the window-scoped display totals.
+ *
+ * Counts and wall times describe the loaded window on purpose — they answer
+ * "what is on screen". Token accounting deliberately does NOT come from here:
+ * the window is paged and compaction rewrites it, so billing rides the durable
+ * `tokenUsage` projection instead.
  * @param nodes - snapshot nodes.
- * @returns visible turn and step counts.
+ * @returns visible counts and summed wall times.
  */
-export function deriveVisibleCounts(nodes: ConversationSnapshot['nodes']): VisibleCounts {
+export function deriveStats(nodes: ConversationSnapshot['nodes']): WindowStats {
   const turns = new Set<number>()
   let steps = 0
+  let llmMs = 0
+  let toolMs = 0
   for (const node of nodes) {
+    if (node.kind === 'tool-result') {
+      if (node.callTime !== null) toolMs += Math.max(0, node.time - node.callTime)
+      continue
+    }
     if (node.kind !== 'assistant') continue
     turns.add(node.turn)
     steps += 1
+    if (node.timing !== undefined && node.timing.stepStartTime !== null) {
+      llmMs += Math.max(0, node.timing.completedTime - node.timing.stepStartTime)
+    }
   }
-  return { turns: turns.size, steps }
+  return { turns: turns.size, steps, llmMs, toolMs }
 }
 
 /**
- * Format large token values with the status surfaces' compact suffix style.
- * @param value - token count or model capacity.
- * @returns locale-formatted count.
+ * Compact token count: 517 / 12.2K / 517K / 1.2M (one decimal under three digits).
+ * @param n - token count.
+ * @returns display string.
  */
-export function formatMetricTokens(value: number): string {
-  if (value < 1_000) return value.toLocaleString('en-US')
-  return value.toLocaleString('en-US', {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).replace('K', 'k').replace('M', 'm').replace('B', 'b')
+export function formatTokens(n: number): string {
+  const scaled = (v: number): string =>
+    v >= 100 ? String(Math.round(v)) : String(Math.round(v * 10) / 10)
+  if (n < 1_000) return String(n)
+  if (n < 1_000_000) return `${scaled(n / 1_000)}K`
+  return `${scaled(n / 1_000_000)}M`
 }
 
 /**
- * Existing Web cache-hit formula over disjoint uncached and cache-read input.
- * @param usage - full-log token usage projection.
+ * Compact duration: 45.2s under a minute, 2m42s from there on.
+ * @param ms - duration in milliseconds.
+ * @returns display string.
+ */
+export function formatDuration(ms: number): string {
+  const s = ms / 1_000
+  if (s < 60) return `${Math.round(s * 10) / 10}s`
+  const whole = Math.round(s)
+  return `${Math.floor(whole / 60)}m${whole % 60}s`
+}
+
+/**
+ * Cache-hit share of prompt-side input over the whole durable log.
+ * @param usage - the session's token-usage projection value.
  * @returns rounded integer percent, or null when no input was billed.
  */
 export function cacheHitPercent(usage: TokenUsageProjection): number | null {
@@ -60,8 +87,8 @@ export function cacheHitPercent(usage: TokenUsageProjection): number | null {
 /**
  * Approximate context occupancy, using the TUI's integer rounding and upper
  * clamp. The numerator and capacity are independent last-wins projection
- * fields, so this is a reference figure rather than an exact request
- * measurement (see the token-meter README).
+ * fields, so this is a reference figure rather than an exact measurement of one
+ * request (see the token-meter README).
  * @param pressure - the session's context-pressure projection value.
  * @returns occupancy percent, or null when no capacity is known.
  */
@@ -70,7 +97,7 @@ export function contextPercent(pressure: ContextPressureProjection | undefined):
   return Math.min(100, Math.round(pressure.pressureTokens / pressure.contextWindow * 100))
 }
 
-/** Props: the framework's session snapshot and projection hook seats. */
+/** Props: the conversation-snapshot selector plus the projection read seat. */
 export interface StatsLineProps {
   useSession: SnapshotSelectorHook<ConversationSnapshot>
   useProjection: UseProjection
@@ -80,30 +107,38 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection }: 
   const nodes = useSession(s => s.nodes)
   const usage = useProjection('tokenUsage')
   const pressure = useProjection('contextPressure')
-  const counts = useMemo(() => deriveVisibleCounts(nodes), [nodes])
-  const hasUsage = usage !== undefined && (
-    usage.uncachedInputTokens !== 0
-    || usage.outputTokens !== 0
-    || usage.cacheReadTokens !== 0
-    || usage.cacheWriteTokens !== 0
-  )
+  const stats = useMemo(() => deriveStats(nodes), [nodes])
+  if (stats.steps === 0) return null
+  // Pipe-separated groups (figma stats strip); a group with no data drops out whole.
+  const groups: string[] = [`${stats.turns} turns · ${stats.steps} steps`]
+  const durations: string[] = []
+  if (stats.llmMs > 0) durations.push(`LLM ${formatDuration(stats.llmMs)}`)
+  if (stats.toolMs > 0) durations.push(`Tool call ${formatDuration(stats.toolMs)}`)
+  if (durations.length > 0) groups.push(durations.join(' · '))
   const context = contextPercent(pressure)
-  if (counts.steps === 0 && !hasUsage && context === null) return null
-
-  const parts: string[] = []
-  if (usage !== undefined) {
-    parts.push(`${formatMetricTokens(usage.uncachedInputTokens)} uncached input`)
-    parts.push(`${formatMetricTokens(usage.outputTokens)} output`)
-    parts.push(`${formatMetricTokens(usage.cacheReadTokens)} cache read`)
-    const cacheHit = cacheHitPercent(usage)
-    if (cacheHit !== null) parts.push(`cache hit ${cacheHit}%`)
-  }
-  // Capacity absent (no token-meter, or an adapter that advertises none) omits
-  // the segment: an unknown denominator has no percentage worth a placeholder.
+  // Capacity absent (no token-meter composed, or an adapter that advertises
+  // none) drops the group: an unknown denominator has no percentage to show.
   if (context !== null && pressure?.contextWindow !== undefined) {
-    parts.push(`context ${context}% of ${formatMetricTokens(pressure.contextWindow)}`)
+    groups.push(`Context ${context}% of ${formatTokens(pressure.contextWindow)}`)
   }
-  parts.push(`${counts.turns} turns`)
-  parts.push(`${counts.steps} steps`)
-  return <div className={css.root}>{parts.join(' · ')}</div>
+  // Billing rides the durable projection, so these survive paging and
+  // compaction; a deployment without token-meter drops the groups entirely.
+  if (usage !== undefined) {
+    const cacheHit = cacheHitPercent(usage)
+    if (cacheHit !== null) groups.push(`Cache hit ${cacheHit}%`)
+    groups.push(
+      `Input ${formatTokens(usage.uncachedInputTokens + usage.cacheReadTokens)} tok`
+      + ` · Output ${formatTokens(usage.outputTokens)} tok`,
+    )
+  }
+  return (
+    <div className={css.root}>
+      {groups.map((group, i) => (
+        <Fragment key={group}>
+          {i > 0 && <span className={css.sep} aria-hidden>|</span>}
+          <span>{group}</span>
+        </Fragment>
+      ))}
+    </div>
+  )
 })

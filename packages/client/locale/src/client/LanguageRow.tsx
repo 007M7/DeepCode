@@ -5,23 +5,22 @@
  * settings surface.
  */
 import { useState } from 'react'
-import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from './settings-contract.ts'
 import type { createLanguageRowStore } from './settings-store.ts'
 import css from './LanguageRow.module.css'
 
-/** Injected business face: namespace-bound translate + the preference write. */
+/** Injected business face: the preference write (t rides the standard locale seat). */
 export interface LanguageRowInjected {
-  /** Translate a `settings.locale` dictionary key to the active-locale text. */
-  t: (key: string) => string
   /** Switch the active locale (a registered locale id). */
   setLocale: (id: string) => void
 }
 
-/** Full component props: runtime share + store share + injected face. */
+/** Full component props: runtime share + store share + locale seat + injected face. */
 export type LanguageRowComponentProps =
-  PropsRuntime<'settings.general.item'> & PropsStore<ReturnType<typeof createLanguageRowStore>> & LanguageRowInjected
+  PropsRuntime<'settings.general.item'> & PropsStore<ReturnType<typeof createLanguageRowStore>>
+  & PropsLocale<'settings.locale'> & LanguageRowInjected
 
 /**
  * Render the Language row.

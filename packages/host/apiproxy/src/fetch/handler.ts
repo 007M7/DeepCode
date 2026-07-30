@@ -21,7 +21,9 @@ import {
   sessionListRequestSchema,
   sessionModelsRequestSchema,
   sessionPromptRequestSchema,
+  sessionRenameRequestSchema,
   sessionSelectModelRequestSchema,
+  sessionUpdateQueueRequestSchema,
 } from '../api/sessions.schema.ts'
 import {
   hostCreateDirectoryRequestSchema, hostDescribeRequestSchema,
@@ -68,7 +70,9 @@ const UNARY_ROUTES: UnaryRoutes = {
   'session.history': { schema: sessionHistoryRequestSchema, invoke: (api, r) => api.sessions.history(r) },
   'session.models': { schema: sessionModelsRequestSchema, invoke: (api, r) => api.sessions.models(r) },
   'session.selectModel': { schema: sessionSelectModelRequestSchema, invoke: (api, r) => api.sessions.selectModel(r) },
+  'session.rename': { schema: sessionRenameRequestSchema, invoke: (api, r) => api.sessions.rename(r) },
   'session.prompt': { schema: sessionPromptRequestSchema, invoke: (api, r) => api.sessions.prompt(r) },
+  'session.updateQueue': { schema: sessionUpdateQueueRequestSchema, invoke: (api, r) => api.sessions.updateQueue(r) },
   'session.cancel': { schema: sessionCancelRequestSchema, invoke: (api, r) => api.sessions.cancel(r) },
   'host.describe': { schema: hostDescribeRequestSchema, invoke: (api, r) => api.host.describe(r) },
   'host.pickDirectory': { schema: hostPickDirectoryRequestSchema, invoke: (api, r, signal) => api.host.pickDirectory(r, signal) },
@@ -123,7 +127,7 @@ function fullResponse(narrow: RpcResponse<unknown>): Response {
  */
 // K appears once in the signature but ties the UNARY_ROUTES[K] row lookup to its own
 // schema/invoke pairing; a union parameter degrades the row to an uninvokable intersection.
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 async function handleUnary<K extends keyof RpcMethodMap>(
   api: ApiProxy, method: K, message: ClientRequest, signal: AbortSignal,
 ): Promise<Response> {

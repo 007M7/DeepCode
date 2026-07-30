@@ -4,7 +4,6 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "复制":
   - img
@@ -13,7 +12,6 @@
 - button "编辑":
   - img
 - button "▸ 上下文注入"
-- text: 0 uncached input · 0 output · 0 cache read · context 4% of 128k · 0 turns · 0 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img
