@@ -222,11 +222,11 @@ describe.skipIf(!ENABLED || !process.env.DEEPSEEK_API_KEY)('sandbox-policy wordi
         const prompt = samplePrompt(family, path, expected)
         try {
           const created = await rpc<{ sessionId: string }>(scaffold, 'session.create', {})
-          await rpc<{ accepted: true }>(scaffold, 'session.prompt', {
+          const command = await rpc<{ matched: boolean; commandId?: string }>(scaffold, 'command.execute', {
             sessionId: created.sessionId,
-            mode: 'queue',
-            content: [{ type: 'text', text: '/permission read-only' }],
+            line: '/permission read-only',
           })
+          if (!command.matched) throw new Error('read-only permission command was not matched')
           const configured = scaffold.ctx.agents.get(SessionId(created.sessionId))
           const configuredMode = configured?.session.events.findLast(event => event.type === 'sandbox/mode')
           if (configuredMode?.type !== 'sandbox/mode' || configuredMode.data.mode !== 'read-only') {
