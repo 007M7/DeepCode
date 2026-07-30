@@ -112,7 +112,7 @@ pi-ai 事件会变为 harness 推理、文本、工具调用、usage 与 finish 
 ## 已知限制与暂缓事项
 
 - **settings 能新增或覆盖路由，但不能移除组合路由**：用户层合并在组合 `base` 之上，因此删除 `cordis.yml` 提供的提供方属于组合变更；对该 namespace 执行 `replace` 只会重置用户层。
-- **`apiKey` 已在 schema 中标注 `role('secret')`，但尚未在任何地方脱敏**：settings 的 `describe()` 信封原样返回值；负责对 secret 角色字段脱敏的 wire／UI 层将随 settings RPC 面一起交付。
+- **`headers` 可能承载一条脱敏器看不见的凭据**：profile 的 `headers` 是纯字符串字典，因此设在其中的 `Authorization` 或 `api-key` 会被脱敏后的 `describe()` 原样返回，并被任何配置 UI 渲染出来。请把凭据存为 `apiKeyEnv` 引用；把该字典整体改为只写与其余[协议边界工作](../llm/README.md#known-limitations-and-deferred-work)一并暂缓。
 - **必须属于 catalog**：已安装 pi-ai catalog 中不存在的自定义模型 id 会以 `UNKNOWN_MODEL` 失败，即使提供方 profile 配置了自定义端点。
 - **不支持 `GenerateOptions.stop`**：pi-ai 的通用流选项无法保证所有提供方都支持 stop sequence，因此适配器会拒绝该字段。
 - **历史中的 `system` 消息使用 pi-ai 通用上下文转换**：提供方特定位置由 pi-ai 决定，而非由 harness 拥有的协议覆盖决定。

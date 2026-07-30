@@ -10,9 +10,9 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
-import { deletePath } from '@deepseek-ai/dsh-client-schema-form'
+import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
+import { messageOf } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import { ProviderEditor } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
@@ -45,24 +45,35 @@ interface EditorTarget {
 }
 
 /**
- * Remove one user-added provider profile from its namespace's user section
- * (wholesale replace — merge cannot express a removal) and reload on success.
+ * Remove one user-added provider profile by unsetting its path in the stored
+ * user section, then reload. The removal names the profile rather than
+ * rebuilding the section: this page only ever holds the redacted descriptor,
+ * so a rebuilt section would drop every literal secret stored elsewhere in
+ * the namespace along with the profile being removed.
  * @param api - settings wire face.
  * @param controller - the page store to refresh.
  * @param target - the provider's settings address.
- * @param namespace - the owning namespace view.
- * @returns settles when the write and any reload finished.
+ * @returns the failure message, or undefined once the write and reload landed.
  */
 export async function removeProviderProfile(
   api: Pick<IApiClient, 'settings'>,
   controller: ModelsSettingsStore,
   target: { settingsNs: string; settingsPath: readonly string[] },
-  namespace: SettingsNamespaceView,
-): Promise<void> {
-  const user = structuredClone((namespace.user ?? {}) as Record<string, unknown>)
-  const next = deletePath(user, [...target.settingsPath])
-  const response = await api.settings.replace({ ns: target.settingsNs, section: next })
-  if (response.result.ok) await controller.load()
+): Promise<string | undefined> {
+  let response
+  try {
+    response = await api.settings.mutate({
+      ns: target.settingsNs,
+      ops: [{ op: 'unset', path: [...target.settingsPath] }],
+    })
+  } catch (error) {
+    // The transport rejected rather than answering; the caller must be able
+    // to say so instead of the row silently staying put.
+    return messageOf(error)
+  }
+  if (!response.result.ok) return response.result.error.message
+  await controller.load()
+  return undefined
 }
 
 /**
@@ -182,7 +193,11 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                         type="button"
                         className={styles['dangerButton']}
                         disabled={!state.writable}
-                        onClick={() => { void removeProviderProfile(api, controller, target, namespace) }}
+                        onClick={() => {
+                          void removeProviderProfile(api, controller, target).then((failure) => {
+                            if (failure !== undefined) controller.fail(failure)
+                          })
+                        }}
                       >
                         {t('remove')}
                       </button>

@@ -70,6 +70,7 @@ function harness(options: {
               : { apiKeyEnv: options.apiKeyEnv ?? 'DEEPSEEK_API_KEY' },
             applies: 'live' as const,
             secrets: [{ path: ['apiKey'], set: options.literal === true }],
+            revision: 0,
           }],
       })),
     },

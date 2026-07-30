@@ -1,7 +1,7 @@
 /** Page-store join: directory × namespaces × credentials, with last-good rows on failure. */
 import { describe, expect, it } from 'vitest'
 import type { RpcResponse } from '@deepseek-ai/dsh-client-connection/client'
-import { ModelsSettingsStore } from '../src/client/store.ts'
+import { messageOf, ModelsSettingsStore } from '../src/client/store.ts'
 
 let nextRpc = 0
 function ok<T>(value: T): RpcResponse<T> {
@@ -26,6 +26,7 @@ const NAMESPACES = [
     base: { baseURL: 'https://base' },
     applies: 'live' as const,
     secrets: [{ path: ['apiKey'], set: false }],
+    revision: 0,
   },
   {
     ns: 'llm-pi-ai',
@@ -34,6 +35,7 @@ const NAMESPACES = [
     user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY' } } },
     applies: 'live' as const,
     secrets: [],
+    revision: 0,
   },
 ]
 
@@ -121,7 +123,7 @@ describe('ModelsSettingsStore', () => {
 
   it('stringifies a non-Error credential transport rejection', async () => {
     const { face } = api({
-      // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario
       describeCredentials: () => Promise.reject('credential transport refusal'),
     })
     const store = new ModelsSettingsStore(face)
@@ -199,6 +201,7 @@ describe('edge joins', () => {
           value: { providers: { weird: 'oops' } },
           applies: 'live' as const,
           secrets: [],
+          revision: 0,
         }] as never,
       })),
       providers: () => Promise.resolve(ok({
@@ -218,7 +221,7 @@ describe('edge joins', () => {
     const { face, seenRefs } = api({
       describeSettings: () => Promise.resolve(ok({
         writable: true,
-        namespaces: [{ ns: 'llm-pi-ai', schema: {}, value: { providers: {} }, applies: 'live' as const, secrets: [] }] as never,
+        namespaces: [{ ns: 'llm-pi-ai', schema: {}, value: { providers: {} }, applies: 'live' as const, secrets: [], revision: 0 }] as never,
       })),
       providers: () => Promise.resolve(ok({
         providers: [
@@ -241,7 +244,7 @@ describe('edge joins', () => {
 
   it('stringifies a non-Error load failure', async () => {
     // The wire can surface non-Error throwables; the store must stringify them.
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario
     const { face } = api({ providers: () => Promise.reject('plain refusal') })
     const store = new ModelsSettingsStore(face)
     await store.load()
@@ -270,5 +273,15 @@ describe('edge joins', () => {
     await first
     // The stale empty directory never overwrote the newer join.
     expect(store.store.getSnapshot().rows).toHaveLength(4)
+  })
+})
+
+describe('messageOf', () => {
+  it('reads an Error message, and stringifies anything else a rejection may carry', () => {
+    // The wire layer rejects with an Error, but a host or a runtime can reject
+    // with any value, and the page still has to render something.
+    expect(messageOf(new Error('connection lost'))).toBe('connection lost')
+    expect(messageOf('the host refused')).toBe('the host refused')
+    expect(messageOf(undefined)).toBe('undefined')
   })
 })

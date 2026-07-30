@@ -109,7 +109,7 @@ loop 保留的响应块会追加到下一个请求，并保留其较早可复用
 ## 已知限制与暂缓事项
 
 - **settings 的 `models` 列表会整体替换组合列表**：settings 层按字段合并，而数组是单个字段；按条目合并 catalog 需要带键的形状。
-- **`Config.apiKey` 已在 schema 中标注 `role('secret')`，但尚未在任何地方脱敏**：settings 的 `describe()` 信封原样返回值；负责对 secret 角色字段脱敏的 wire／UI 层将随 settings RPC 面一起交付。
+- **`Config.apiKey` 在协议上已脱敏，但仍是一个已存的字面值**：`describe({ redactSecrets: true })` 会把它剥离并报告该槽位，配置 UI 因此永远收不到该值；但这个密钥仍存放在 settings 文档而非凭据存储中，所以请优先使用 `apiKeyEnv`。
 - **未映射 `tool_choice`**：它不属于核心词汇（MVP 取舍，与 pi-ai twin 共享）。
 - **请求使用原始 `fetch`，而非 `@cordisjs/plugin-http`**：没有共享 proxy／拦截配置；采用暂缓到第二个适配器需要该功能时（`TODO(http)`）。
 - **序列化会将 user 与工具结果内容展平为文本块**：会跳过插件添加的块类型，空工具输出会以字面 `(no output)` 通过协议发送。

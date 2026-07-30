@@ -96,7 +96,7 @@ jobs:
       - name: Pack built tree
         run: >-
           tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
-          apps/*/lib packages/*/*/lib vendor/*/lib
+          apps/*/lib apps/web/dist packages/*/*/lib vendor/*/lib
 
       - uses: actions/upload-artifact@v7
         with:
@@ -224,6 +224,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      # Pull requests restore the cache produced by serial-linux on master;
+      # they do not pay compression and upload on the required path.
+      - uses: actions/cache/restore@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install dependencies and prepare bubblewrap
         run: |
           pnpm install --frozen-lockfile &
@@ -236,6 +246,16 @@ jobs:
           wait "$sandbox_pid" || sandbox_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
+
+      - name: Install Playwright Chromium and hosted dependencies
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install --with-deps chromium
+
+      # The persistent VM image owns Playwright's Linux system packages; do
+      # not mutate the shared host with apt on every failover run.
+      - name: Install Playwright Chromium on the failover VM
+        if: vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]'
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install chromium
 
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
@@ -448,8 +468,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      # Master produces the hosted Chromium cache restored by pull requests.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install --with-deps chromium
 
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
@@ -463,7 +494,7 @@ jobs:
           DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: pnpm run check:ci
+        run: pnpm run check:ci:linux-primary
 
   # Hot-standby drill for the in-house self-hosted pool: every master move
   # re-runs the complete unsharded aggregate on the persistent 64-core VM,
@@ -505,6 +536,11 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
+      # The persistent VM image owns Playwright's Linux system packages; this
+      # step also proves that browser provisioning remains usable for failover.
+      - name: Install Playwright Chromium
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install chromium
+
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
 
@@ -517,7 +553,7 @@ jobs:
           DSH_OXLINT_THREADS: '1'
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: pnpm run check:ci
+        run: pnpm run check:ci:linux-primary
 
   serial-macos:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'

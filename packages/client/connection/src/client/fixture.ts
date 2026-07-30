@@ -1545,6 +1545,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
           applies: 'live',
           secrets: [{ path: ['apiKey'], set: false }],
+          revision: 0,
         }],
       }),
       update: request => err(request, {
@@ -1555,6 +1556,11 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       replace: request => err(request, {
         code: 'settings-rejected',
         message: 'fixture: the minimal readiness settings descriptor is read-only',
+        details: { ns: request.payload.ns },
+      }),
+      mutate: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: no settings namespaces are registered',
         details: { ns: request.payload.ns },
       }),
     },
@@ -1680,6 +1686,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'settings.describe': return this.api.settings.describe(request)
       case 'settings.update': return this.api.settings.update(request)
       case 'settings.replace': return this.api.settings.replace(request)
+      case 'settings.mutate': return this.api.settings.mutate(request)
       case 'credentials.describe': return this.api.credentials.describe(request)
       case 'credentials.set': return this.api.credentials.set(request)
       case 'credentials.unset': return this.api.credentials.unset(request)

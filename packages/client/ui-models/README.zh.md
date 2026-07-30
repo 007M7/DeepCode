@@ -8,7 +8,7 @@
 
 首次使用浮层从同一个联接快照得出 `deepseek-official` 的就绪状态。若 `apiKey` 字面量对应的 secret 槽位标记为已设置，或凭据引用已配置，浮层就不再显示，其中包括来自启动环境且只读的凭据。适配器已挂载、引用可写但尚未配置时，浮层只显示一个操作按钮，用于打开「设置」的 Models 分区；密钥输入和 `credentials.set` 仅由该分区已有的设置卡片负责，浮层绝不持有 secret。适配器缺失时直接跳过，因为浏览器导航无法挂载 Cordis 插件；设置或凭据能力不可用时则显示部署诊断，并提供同一个前往 Models 的入口。
 
-「应用」语义与 settings seam 呈镜像：不含删除的编辑以最小的 `settings.update` 合并 patch 落地，把折叠区字段清回继承值或删除整行则经对整个用户分节的 `settings.replace` 落地，使删除真正生效——整体替换是安全的，因为该分节存的是密钥引用，从不存密钥值。页面加载完成后会在推送的失效事件（`settings/changed`、`credentials/changed`、`models/changed` 与 `connection/reset`）上重拉，因此外部的 `settings.yaml` 编辑、第二个标签页或 settings 新生的路由都无需轮询即可收敛。
+每一次编辑都以 `settings.mutate` 的路径 op 落到已存分节上——每个变更字段一条 set、每个清空字段一条 unset、删除整行则是单独一条 unset。页面自始至终只持有**脱敏后**的 descriptor，因此它点名自己看得见的字段，而不是重建分节：一个它从未收到过的已存字面机密不会被任何 op 提及，也就得以留存。每次写入都携带该卡片打开时的 `revision`，因此来自另一个标签页或对 `settings.yaml` 的外部编辑所产生的并发写入会以 `settings-conflict` 被拒绝，卡片会请用户重新打开，而不是把自己的陈旧快照重放上去。页面加载完成后会在推送的失效事件（`settings/changed`、`credentials/changed`、`models/changed` 与 `connection/reset`）上重拉，因此外部的 `settings.yaml` 编辑、第二个标签页或 settings 新生的路由都无需轮询即可收敛。
 
 ## 模型体验
 
@@ -20,8 +20,7 @@
 
 ## 已知限制与暂缓事项
 
-- **重置可能丢弃同一子树中已存储的字面 secret**：经 replace 承载的删除无法重新提供协议从未返回过的 secret；把密钥放在 `credentials.*` 引用背后（产品默认做法），该情形便不会出现。
 - **卡片上可编辑的只有 API 密钥与精选折叠区字段**：手写编辑器用 schema 通用的字段覆盖面换来了设计稿上的布局（[Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）；进阶字段（`models`、重试策略、超时……）在 `settings.yaml` 中编辑，折叠区会指向它。不带这些约定字段的 profile schema 只渲染该提示，两套精选布局则以 `llm-deepseek`/`llm-pi-ai` 这两个 namespace 的名字为键。
-- **删除一行会把它已存储的密钥留在 `.env` 里**：删除替换的是 settings profile，却刻意不清除那条派生凭据；重新添加该提供方时会发现密钥已配置。显式的密钥移除控件暂缓。
+- **删除一行会把它已存储的密钥留在 `.env` 里**：删除取消设置的是 settings profile，却刻意不清除那条派生凭据；重新添加该提供方时会发现密钥已配置。显式的密钥移除控件暂缓。
 - **页面上没有逐提供方的模型列表**：模型由选择器呈现；本页只展示路由状态。逐行的模型预览暂缓，待有消费方需要时再实现。
 - **未声明的存活路由无处渲染**：未附带可配置提供方声明即注册的路由没有 settings 地址；它在各选择器中仍然可见，但不会出现在本页的行里。

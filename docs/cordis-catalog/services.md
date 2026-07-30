@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:196`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:252`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -1652,7 +1652,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:695`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:713`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1742,8 +1742,10 @@ get(ns: SettingsNamespace): unknown
  * merging over the previous write's committed section.
  * @param ns - the registered namespace to update.
  * @param patch - plain-object patch over the user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
  */
-async update(ns: SettingsNamespace, patch: object): Promise<void>
+async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>
 
 /**
  * Replace one registered namespace's user section wholesale, validate,
@@ -1752,13 +1754,29 @@ async update(ns: SettingsNamespace, patch: object): Promise<void>
  * merge-only patch cannot express (`replace({})` re-inherits everything).
  * @param ns - the registered namespace to replace.
  * @param section - the complete next user section.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
  */
-async replace(ns: SettingsNamespace, section: object): Promise<void>
+async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void>
+
+/**
+ * Apply path-addressed edits to one registered namespace's user section,
+ * validate, persist, then commit and emit. The ops are applied to the
+ * section as it stands when the write reaches the front of the queue, so a
+ * caller never has to restate fields it did not touch — and, crucially,
+ * cannot delete fields it never saw. This is the write path for any caller
+ * holding a redacted view; `replace` remains the wholesale reset.
+ * @param ns - the registered namespace to edit.
+ * @param ops - ordered path edits; later ops observe earlier ones.
+ * @param expectedRevision - the descriptor `revision` the caller read; a
+ *   namespace that moved past it rejects with {@link SettingsConflictError}.
+ */
+async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
 ```
 
-Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+Types: [SettingsDescribeOptions](../core-data-structures/settings.md) · [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsPathOp](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:270`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:365`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -2022,7 +2040,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:246`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:248`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 
@@ -2318,7 +2336,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:247`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:240`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 

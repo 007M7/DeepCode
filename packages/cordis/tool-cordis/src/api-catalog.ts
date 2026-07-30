@@ -795,12 +795,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Read one registered namespace\'s resolved value.\n * @param ns - the namespace to read.\n * @returns the resolved value, or `undefined` while unregistered.\n */',
       },
       {
-        signature: 'async update(ns: SettingsNamespace, patch: object): Promise<void>',
-        jsDoc: '/**\n * Merge a patch into one registered namespace\'s user layer, validate the\n * resolved candidate, persist through the provider, then commit and emit.\n * A validation failure rejects before anything is persisted. Writes to one\n * namespace are serialized: concurrent updates apply in call order, each\n * merging over the previous write\'s committed section.\n * @param ns - the registered namespace to update.\n * @param patch - plain-object patch over the user section.\n */',
+        signature: 'async update(ns: SettingsNamespace, patch: object, expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Merge a patch into one registered namespace\'s user layer, validate the\n * resolved candidate, persist through the provider, then commit and emit.\n * A validation failure rejects before anything is persisted. Writes to one\n * namespace are serialized: concurrent updates apply in call order, each\n * merging over the previous write\'s committed section.\n * @param ns - the registered namespace to update.\n * @param patch - plain-object patch over the user section.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
       },
       {
-        signature: 'async replace(ns: SettingsNamespace, section: object): Promise<void>',
-        jsDoc: '/**\n * Replace one registered namespace\'s user section wholesale, validate,\n * persist, then commit and emit. Keys absent from `section` fall back to the\n * composition `base` and schema defaults — this is the removal/reset path a\n * merge-only patch cannot express (`replace({})` re-inherits everything).\n * @param ns - the registered namespace to replace.\n * @param section - the complete next user section.\n */',
+        signature: 'async replace(ns: SettingsNamespace, section: object, expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Replace one registered namespace\'s user section wholesale, validate,\n * persist, then commit and emit. Keys absent from `section` fall back to the\n * composition `base` and schema defaults — this is the removal/reset path a\n * merge-only patch cannot express (`replace({})` re-inherits everything).\n * @param ns - the registered namespace to replace.\n * @param section - the complete next user section.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
+      },
+      {
+        signature: 'async mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>',
+        jsDoc: '/**\n * Apply path-addressed edits to one registered namespace\'s user section,\n * validate, persist, then commit and emit. The ops are applied to the\n * section as it stands when the write reaches the front of the queue, so a\n * caller never has to restate fields it did not touch — and, crucially,\n * cannot delete fields it never saw. This is the write path for any caller\n * holding a redacted view; `replace` remains the wholesale reset.\n * @param ns - the registered namespace to edit.\n * @param ops - ordered path edits; later ops observe earlier ones.\n * @param expectedRevision - the descriptor `revision` the caller read; a\n *   namespace that moved past it rejects with {@link SettingsConflictError}.\n */',
       },
     ],
   },
@@ -1384,6 +1388,13 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'session/flush\'(this: Scoped<Session>, session: Session): Promise<void> | void',
     jsDoc: '/**\n * Awaited parallel durability checkpoint: every listener runs and the\n * caller awaits all of them, with no waterfall veto. Dispatch through\n * {@link SessionStore.flush}. Scope-filtered dispatch\n * (`@deepseek-ai/dsh-scope`) reuses the session\'s owner scope.\n * @param session - the session whose buffered events must reach durable storage.\n * @dshScopeScan unsupported\n * @mode parallel\n */',
     summary: 'Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto.',
+  },
+  {
+    name: 'settings/document-updated',
+    mode: 'emit',
+    signature: '\'settings/document-updated\'(ns: SettingsNamespace, revision: number): void',
+    jsDoc: '/**\n * One registered namespace\'s RAW user section changed, whether or not the\n * resolved value did. `settings/updated` is the consumer-facing event and\n * stays deep-equal-gated; this one exists for configuration surfaces,\n * which must learn that a field went from inherited to overridden (same\n * resolved value, different meaning) and that their held revision is\n * stale. Listener containment matches `settings/updated`.\n * @param ns - the namespace whose stored section changed.\n * @param revision - the namespace\'s new revision.\n * @mode emit\n */',
+    summary: 'One registered namespace\'s RAW user section changed, whether or not the resolved value did.',
   },
   {
     name: 'settings/updated',
@@ -2278,7 +2289,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n        trigger: TurnTrigger;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'steering/message\': {\n        turn: number;\n        message: UserMessage;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -2482,11 +2493,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SettingsDescriptor',
-    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    base?: unknown;\n    user?: unknown;\n    applies: SettingsApplies;\n    secrets?: RedactedSecret[];\n}',
+    declaration: 'export interface SettingsDescriptor {\n    ns: SettingsNamespace;\n    schema: unknown;\n    value: unknown;\n    revision: number;\n    base?: unknown;\n    user?: unknown;\n    applies: SettingsApplies;\n    secrets?: RedactedSecret[];\n}',
   },
   {
     name: 'SettingsNamespace',
     declaration: 'export type SettingsNamespace = Branded<\'SettingsNamespace\'>;',
+  },
+  {
+    name: 'SettingsPathOp',
+    declaration: 'export type SettingsPathOp = {\n    op: \'set\';\n    path: readonly string[];\n    value: unknown;\n} | {\n    op: \'unset\';\n    path: readonly string[];\n};',
   },
   {
     name: 'SettingsRegisterOptions',

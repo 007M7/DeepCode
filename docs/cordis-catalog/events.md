@@ -398,7 +398,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:148`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:157`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 
@@ -706,6 +706,29 @@ Source: [`packages/core/session/src/index.ts:103`](../../packages/core/session/s
 
 ## `settings/*`
 
+### `settings/document-updated` — emit
+
+One registered namespace's RAW user section changed, whether or not the resolved value did. `settings/updated` is the consumer-facing event and stays deep-equal-gated; this one exists for configuration surfaces, which must learn that a field went from inherited to overridden (same resolved value, different meaning) and that their held revision is stale. Listener containment matches `settings/updated`.
+
+```ts cordis-catalog
+/**
+ * One registered namespace's RAW user section changed, whether or not the
+ * resolved value did. `settings/updated` is the consumer-facing event and
+ * stays deep-equal-gated; this one exists for configuration surfaces,
+ * which must learn that a field went from inherited to overridden (same
+ * resolved value, different meaning) and that their held revision is
+ * stale. Listener containment matches `settings/updated`.
+ * @param ns - the namespace whose stored section changed.
+ * @param revision - the namespace's new revision.
+ * @mode emit
+ */
+'settings/document-updated'(ns: SettingsNamespace, revision: number): void
+```
+
+Types: [SettingsNamespace](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:150`](../../packages/settings/settings/src/index.ts)
+
 ### `settings/updated` — emit
 
 Committed change to one registered namespace's resolved value. Emitted after the provider persisted (for `update`) or published (`provider`) the change; never emitted when the resolved value is deep-equal. Listener failures are contained and logged — a sync throw and an async rejection alike — except `INVARIANT`-coded failures, which rethrow after every listener ran; that rethrow reaches the emitter only from synchronous listeners, so invariant checks on this event must not be async functions.
@@ -731,7 +754,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:130`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:137`](../../packages/settings/settings/src/index.ts)
 
 ## `skills/*`
 

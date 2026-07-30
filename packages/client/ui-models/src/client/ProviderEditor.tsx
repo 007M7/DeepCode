@@ -6,19 +6,19 @@
  * has none, and the pi-ai profile records that derivation as `apiKeyEnv`);
  * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
  * both families, plus `reasoningEffort` for deepseek / `reasoning` for
- * pi-ai). Everything else stays owned by `settings.yaml`. Profile edits land as a
- * minimal `settings.update` merge patch; clearing a field back to inherited
- * removes its key, so that apply replaces the user section (safe: the section
- * stores references, never key values).
+ * pi-ai). Everything else stays owned by `settings.yaml`. Profile edits land as
+ * minimal `settings.mutate` path ops against the stored section — the card
+ * reads the redacted descriptor, so it names only the fields it can see and a
+ * stored literal secret is never collaterally removed.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { CredentialView, IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
+import type { CredentialView, IApiClient, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-client-connection/client'
 import {
   deletePath, getPath, nodeAtPath, rehydrateSchema, setPath, validateDraft,
 } from '@deepseek-ai/dsh-client-schema-form'
-import { deriveKeyRef } from './store.ts'
+import { deriveKeyRef, messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -70,21 +70,33 @@ function draftAt(namespace: SettingsNamespaceView, path: readonly string[]): Rec
 }
 
 /**
- * Whether any key present in `before` is absent from `after` (a reset
- * happened somewhere in the draft, so the apply must replace, not merge).
- * @param before - the user-layer subtree the draft started from.
- * @param after - the edited draft.
- * @returns whether a removal exists at any depth.
+ * The minimal path ops carrying `after` over `before`, both as the card sees
+ * them (that is, redacted). Only keys the card observed are named: a stored
+ * `role('secret')` field appears in neither side, so it produces no op and
+ * survives the write — the whole reason edits are path-addressed rather than
+ * a rebuilt section.
+ * @param base - path of the edited subtree inside the user section.
+ * @param before - the subtree as loaded, or undefined when it is new.
+ * @param after - the subtree as edited.
+ * @returns ordered set/unset ops; empty when nothing changed.
  */
-export function removedAny(before: unknown, after: unknown): boolean {
-  if (typeof before !== 'object' || before === null) return false
-  /* v8 ignore next -- the editor edits containers in place; a container cannot become a primitive */
-  if (typeof after !== 'object' || after === null) return true
-  for (const [key, value] of Object.entries(before)) {
-    if (!(key in (after as Record<string, unknown>))) return true
-    if (removedAny(value, (after as Record<string, unknown>)[key])) return true
+export function pathOps(
+  base: readonly string[],
+  before: unknown,
+  after: Record<string, unknown>,
+): SettingsPathOpView[] {
+  const previous = typeof before === 'object' && before !== null && !Array.isArray(before)
+    ? before as Record<string, unknown>
+    : {}
+  const ops: SettingsPathOpView[] = []
+  for (const [key, value] of Object.entries(after)) {
+    if (JSON.stringify(previous[key]) === JSON.stringify(value)) continue
+    ops.push({ op: 'set', path: [...base, key], value })
   }
-  return false
+  for (const key of Object.keys(previous)) {
+    if (!(key in after)) ops.push({ op: 'unset', path: [...base, key] })
+  }
+  return ops
 }
 
 /** The editor layout the owning namespace selects. */
@@ -115,6 +127,10 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const [keyState, setKeyState] = useState<CredentialView | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
+  // The revision this card opened at. A write carrying it is refused if
+  // anything else — another tab, an external edit of settings.yaml — moved the
+  // namespace meanwhile, instead of silently overwriting that change.
+  const [openedAt] = useState(() => namespace.revision)
   const root = useMemo(() => rehydrateSchema(namespace.schema), [namespace.schema])
   const node = useMemo(() => nodeAtPath(root, settingsPath), [root, settingsPath])
   const fallback = getPath(namespace.value, settingsPath)
@@ -125,10 +141,17 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   useEffect(() => {
     let stale = false
     setKeyState(undefined)
-    void api.credentials.describe({ refs: [keyRef] }).then((response) => {
-      if (stale || !response.result.ok) return
-      setKeyState(response.result.value.credentials[keyRef])
-    })
+    // The key state is a placeholder hint, not a precondition for editing:
+    // neither a business rejection nor a transport failure may reach the
+    // browser as an unhandled rejection, so the card simply renders without
+    // the "already configured" hint.
+    void api.credentials.describe({ refs: [keyRef] }).then(
+      (response) => {
+        if (stale || !response.result.ok) return
+        setKeyState(response.result.value.credentials[keyRef])
+      },
+      () => undefined,
+    )
     return () => { stale = true }
   }, [api.credentials, keyRef])
 
@@ -140,9 +163,14 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     setDraft(current => next === undefined ? deletePath(current, [key]) : setPath(current, [key], next))
   }
 
-  const apply = async (): Promise<void> => {
-    setBusy(true)
-    setFailure(undefined)
+  /**
+   * The write for this card, or a failure message. Every edit travels as
+   * path ops against the STORED section: the draft comes from the redacted
+   * descriptor, so a wholesale replace rebuilt from it would delete the
+   * literal secrets the wire never returned. Ops name only the fields this
+   * card can see, so a stored secret is untouched by construction.
+   */
+  const applyOnce = async (): Promise<string | undefined> => {
     const ns = namespace.ns
     const original = getPath(namespace.user, settingsPath)
     // The pi-ai profile must name the reference the key stores under, so a
@@ -151,45 +179,46 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       && stringAt(fallback, 'apiKeyEnv') === undefined
       ? setPath(draft, ['apiKeyEnv'], keyRef)
       : draft
-    const settingsChanged = JSON.stringify(next) !== JSON.stringify(original ?? {})
-    if (settingsChanged) {
-      const needsReplace = removedAny(original, next)
-      // Merge patches stay minimal (just this profile); a replace must carry
-      // the complete next user section because it lands wholesale.
-      const patch = settingsPath.length === 0 ? next : setPath({}, [...settingsPath], next)
-      /* v8 ignore next 3 -- a subtree apply implies the join served this namespace's user layer */
-      const nextSection = settingsPath.length === 0
-        ? next
-        : setPath(structuredClone((namespace.user ?? {}) as Record<string, unknown>), [...settingsPath], next)
-      /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
-      if (node !== undefined) {
-        const sectionError = settingsPath.length === 0 ? validateDraft(node, next) : undefined
-        if (sectionError !== undefined) {
-          setBusy(false)
-          setFailure(sectionError)
-          return
-        }
-      }
-      const response = needsReplace
-        ? await api.settings.replace({ ns, section: nextSection })
-        : await api.settings.update({ ns, patch })
+    /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
+    if (node !== undefined && settingsPath.length === 0) {
+      const sectionError = validateDraft(node, next)
+      if (sectionError !== undefined) return sectionError
+    }
+    const ops = pathOps(settingsPath, original, next)
+    if (ops.length > 0) {
+      const response = await api.settings.mutate({ ns, ops, expectedRevision: openedAt })
       if (!response.result.ok) {
-        setBusy(false)
-        setFailure(response.result.error.message)
-        return
+        return response.result.error.code === 'settings-conflict'
+          ? t('conflict')
+          : response.result.error.message
       }
     }
     if (keyDraft.length > 0) {
       const stored = await api.credentials.set({ ref: keyRef, value: keyDraft })
-      if (!stored.result.ok) {
-        setBusy(false)
-        setFailure(stored.result.error.message)
+      if (!stored.result.ok) return stored.result.error.message
+    }
+    setKeyDraft('')
+    return undefined
+  }
+
+  const apply = async (): Promise<void> => {
+    setBusy(true)
+    setFailure(undefined)
+    try {
+      const failure = await applyOnce()
+      if (failure !== undefined) {
+        setFailure(failure)
         return
       }
-      setKeyDraft('')
+      props.onClose(true)
+    } catch (error) {
+      // A transport failure (disconnect, a request the host refuses) rejects
+      // rather than answering; without this the card would stay busy forever
+      // with no error shown.
+      setFailure(messageOf(error))
+    } finally {
+      setBusy(false)
     }
-    setBusy(false)
-    props.onClose(true)
   }
 
   if (node === undefined) {

@@ -6,7 +6,7 @@
 
 ```sh
 pnpm run demo:acp             # needs DEEPSEEK_API_KEY (repo-root .env or env)
-pnpm run demo:code-mode acp   # same protocol with the Code Mode tool transport
+pnpm run demo:code-mode       # same protocol with the Code Mode tool transport
 ```
 
 该叶节点加载 ACP 应用、DeepSeek 适配器、受沙箱限制的 bash 与文件系统栈、一次性批准策略、压缩（compaction）、subagent、工作流、钩子、派生会话查询索引和重复守卫。应用为每次 `session/new` 创建一个新 agent，将会话持久化到 JSONL，并保持 stdout 只含协议内容。[`session-query.cordis.yml`](session-query.cordis.yml) 为其专用快照显式选用 workspace 授权的查询工具和通用超时／溢出策略；[`fs.cordis.yml`](fs.cordis.yml) 为文件系统场景添加溢出存储，[`code-mode.cordis.yml`](code-mode.cordis.yml) 添加 `run_code` 及其生成的 TypeScript SDK，[`web.cordis.yml`](web.cordis.yml) 则为 web-fetch 快照添加 web seam、本地抓取提供方、`web_fetch` 与一个回环 HTML fixture（测试前置数据）服务器。

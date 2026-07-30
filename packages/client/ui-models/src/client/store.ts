@@ -45,6 +45,17 @@ export interface ModelsSettingsState {
 }
 
 /**
+ * Human text for a rejected wire call. A transport failure rejects with an
+ * Error; a host or a runtime can reject with anything, and the page still has
+ * to say something.
+ * @param error - the rejection value.
+ * @returns the message to show.
+ */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
  * Derive the conventional credential reference for a provider route: the v1
  * page never asks for an environment-variable name, so a typed key stores
  * under this derived reference and the profile records it as `apiKeyEnv`.
@@ -77,11 +88,6 @@ function literalApiKeyConfigured(
     && secret.path.every((key, index) => key === secretPath[index]))
 }
 
-/** Safe display text for a rejected transport or business response. */
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
@@ -96,6 +102,18 @@ export class ModelsSettingsStore {
    * @param api - the wire face (settings/credentials/llm domains).
    */
   constructor(private readonly api: Pick<IApiClient, 'settings' | 'credentials' | 'llm'>) {}
+
+  /**
+   * Surface a failure from an operation the page ran outside {@link load} —
+   * a row removal — on the same banner a load failure uses.
+   * @param message - the failure text to show.
+   */
+  fail(message: string): void {
+    this.store.update((s) => {
+      s.status = 'error'
+      s.error = message
+    })
+  }
 
   /**
    * Refresh the whole page snapshot: directory and namespaces in parallel,
@@ -151,12 +169,13 @@ export class ModelsSettingsStore {
     if (refs.length > 0) {
       try {
         const response = await this.api.credentials.describe({ refs })
-        // Credential state is an enrichment for the Models page, while the
-        // onboarding readiness projection below reports its failure.
+        // Credential state is an enrichment for the Models page: neither a
+        // business rejection nor a transport failure fails the load. The
+        // onboarding projection below retains the failure distinction.
         if (response.result.ok) credentials = response.result.value.credentials
         else credentialError = response.result.error.message
       } catch (error) {
-        credentialError = errorText(error)
+        credentialError = messageOf(error)
       }
     }
     if (generation !== this.generation) return

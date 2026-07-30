@@ -20,7 +20,7 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 |---|---|---|---|
 | 1 协议同构层 | `AbstractApiClient` + `toFetchHandler`（双向数据/rpcId/ZOD类型/SSE 流/合批/超时） | **同构点全链**：`InProcessApiClient(toFetchHandler(脚本化 impl))` 不过网络但真跑 wire 序列化——零浏览器、纯 node env | `packages/host/apiproxy/tests/client-handler.spec.ts` |
 | 2 对象层编排 | `Session`/`SessionManager`/`ConnectionController`（状态机与时序：缝合/去重/翻页/乐观清稿/pendingBuffers/重连/退避） | **「事件序列进→快照出」黄金路径**：可编程假体 + deferred 控时序 + fake timers 控退避 | `packages/client/{runtime,connection}/tests/` |
-| 3 组装呈现层 | 构建产物 × 真实 client loader 与插件组合 | 归应用所有的语义快照会在 jsdom 下启动全部 8 个已构建的 client 插件，以固定确定性的跨插件状态变化；独立使用 Playwright 裸库的冒烟测试负责验证真实浏览器/承载层边界，真 host 用例在无密钥时自行跳过；无密钥浏览器 e2e 车道会禁用交付配置中的模型适配器行，并通过 `dsh-llm-replay` 在真实进程内 web 组装中回放录制的会话 fixture，与会话区 aria 期望输出比对（[web e2e 车道](../testing/2026-07-24-web-gui-browser-e2e-lane.md)） | `apps/web/tests/*.snapshot.ts`、`apps/web/tests/smoke-{fixture,real}.e2e.ts`、`apps/web/tests/{replay-round-trip,seeded-history}.e2e.ts` |
+| 3 组装呈现层 | 构建产物 × 真实 client loader 与插件组合 | 归应用所有的语义快照会在 jsdom 下启动全部 8 个已构建的 client 插件，以固定确定性的跨插件状态变化；独立使用 Playwright 裸库的冒烟测试负责验证真实浏览器/承载层边界，真 host 用例在无密钥时自行跳过；无密钥浏览器 e2e 车道会禁用交付配置中的模型适配器行，并通过 `dsh-llm-replay` 在真实进程内 web 组装中回放录制的会话 fixture，与会话区 aria 期望输出比对（[web e2e 车道](../testing/2026-07-24-web-gui-browser-e2e-lane.md)、[必需 CI 门禁](../testing/2026-07-30-web-browser-snapshot-ci-gate.md)） | `apps/web/tests/*.snapshot.ts`、`apps/web/tests/smoke-{fixture,real}.e2e.ts`、`apps/web/tests/{replay-round-trip,seeded-history}.e2e.ts` |
 
 层间纪律：**下层各测各的，上层不重测下层**：应用语义快照只固定组装后插件边界上的用户可见投影，Playwright 冒烟测试负责验证浏览器与承载层是否存活；wire 语义归 1 层，数据语义归 2 层。纯函数层（lineage/partial/notifier/fold-adapter）随 2 层同包 tests/ 零假体直测。
 
@@ -34,6 +34,7 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 | 基础 | `pnpm run test:gui` | 1+2 层 vitest（`packages/client packages/host`），秒级、无浏览器无 server | 改 GUI 任意源码后随手跑 |
 | 语义快照 | `DSH_EXAMPLE_MODE=lib pnpm run test:snapshot` | 无需密钥的组装应用语义，以及仓库按传输形态划分的预期输出 | 用户可见的 GUI 变更后；交付前 |
 | 浏览器端到端 | `pnpm run test:web` | 先重建前端 dist，再跑 3 层浏览器全集：双级 smoke（fixture 级 + 真 host 级 self-skip）加上无密钥回放 e2e 场景（`DSH_SNAPSHOT=record`/`refresh` 重录 fixture / 重写期望输出） | 改构建面/boot/承载后；交付前 |
+| 浏览器预期输出门禁 | `DSH_SNAPSHOT=replay pnpm run test:web:built` | 复用 CI 构建的产物，并在不写入的情况下比较每份已提交的浏览器预期输出 | 每个 Linux 拉取请求 |
 | 门禁 | `pnpm run test:coverage` | 全仓 gate（host 与 client GUI 包均纳入，仅排除带注释的浏览器级例外） | PR 窗口 |
 
 **浏览器脚本与 vitest 的分工**：Playwright 负责浏览器/承载层黑盒回归和较长的连续用户操作流程；普通 vitest 负责引用稳定性、时序和 wire 结构等数据层语义；快照 vitest 通过构建后的组合负责稳定的应用层语义输出。这些车道彼此互补，而不重复断言。
@@ -46,7 +47,7 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 
 ## Consequences
 
-各车道各测各层：改动任意 GUI 源码后都能获得秒级 `test:gui` 反馈，wire/对象层语义在 Node 环境中进行毫秒级断言，基于构建后组合的快照固定确定性的用户可见投影，浏览器负责接线与承载层验收。接受的代价是层间纪律由评审而非机器门禁维持，而且每个新的应用快照都必须避开不稳定的布局或时钟输出。
+各车道各测各层：改动任意 GUI 源码后都能获得秒级 `test:gui` 反馈，wire/对象层语义在 Node 环境中进行毫秒级断言，基于构建后组合的快照固定确定性的用户可见投影，浏览器负责接线与承载层验收。层间纪律仍由评审负责，而 Linux CI 通过机器门禁确保浏览器预期输出的新鲜度。每个新的应用快照都必须避开不稳定的布局或时钟输出。
 
 ## Alternatives considered
 
@@ -56,4 +57,4 @@ GUI 栈需要考虑多种应用形态，同应用形态内的不同运行环境�
 | verify 脚本迁 vitest | 有序剧本共享浏览器会话，拆 case 要么形式化（sequential+共享 page）要么重走前置×N；PASS/FAIL 流式输出正是 agent 定位接口 |
 | 测试复用 FixtureApiClient | 演示脚本走真实时钟，测试需要 deferred 手控时序——用途正交，硬复用把测试绑死在演示节奏上 |
 | GUI 包独立 vitest config（曾设计 vitest.gui.config.ts） | 包级 tests/ 本就被根 include 扫到，`vitest run packages/client packages/host` 路径过滤即窄循环——零新 config |
-| hooks/组件层暂缓单测（原裁决） | 曾以「组件是耗材、等重做后再议」暂缓；2026-07-20 用户改判——**jsdom 主线进覆盖率**（CI 无浏览器基建是决定性理由，playwright 降级为本地增强），RTL 依赖入 devDeps、首个 spec 已落 |
+| hooks/组件层暂缓单测 | jsdom 仍是覆盖率主线，因为它能快速验证逐文件组件行为；必需的浏览器回放门禁在组装层与之互补，而非取代它（[CI 门禁决策](../testing/2026-07-30-web-browser-snapshot-ci-gate.md)） |

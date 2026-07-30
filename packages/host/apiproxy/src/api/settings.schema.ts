@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
-import type { SettingsNamespaceView, SettingsSecretView } from './settings.ts'
+import type { SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
 
 /** One redacted secret slot. */
 export const settingsSecretViewSchema = z.object({
@@ -23,6 +23,7 @@ export const settingsNamespaceViewSchema = z.object({
   user: z.unknown().optional(),
   applies: z.union([z.literal('live'), z.literal('restart')]),
   secrets: z.array(settingsSecretViewSchema),
+  revision: z.number(),
 }) satisfies z.ZodType<Wire<SettingsNamespaceView>>
 
 /** settings.describe request payload. */
@@ -38,6 +39,7 @@ export const settingsDescribeValueSchema = z.object({
 export const settingsUpdateRequestSchema = z.object({
   ns: z.string().min(1),
   patch: z.record(z.string(), z.unknown()),
+  expectedRevision: z.number().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'settings.update'>>>
 
 /** settings.update response value: the namespace's new redacted view. */
@@ -47,7 +49,24 @@ export const settingsUpdateValueSchema = settingsNamespaceViewSchema satisfies z
 export const settingsReplaceRequestSchema = z.object({
   ns: z.string().min(1),
   section: z.record(z.string(), z.unknown()),
+  expectedRevision: z.number().optional(),
 }) satisfies z.ZodType<Wire<RequestPayload<'settings.replace'>>>
+
+/** One path-addressed edit of settings.mutate. */
+export const settingsPathOpSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('set'), path: z.array(z.string()), value: z.unknown() }),
+  z.object({ op: z.literal('unset'), path: z.array(z.string()) }),
+]) as unknown as z.ZodType<Wire<SettingsPathOpView>>
+
+/** settings.mutate request payload. */
+export const settingsMutateRequestSchema = z.object({
+  ns: z.string().min(1),
+  ops: z.array(settingsPathOpSchema),
+  expectedRevision: z.number().optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'settings.mutate'>>>
+
+/** settings.mutate response value: the namespace's new redacted view. */
+export const settingsMutateValueSchema = settingsNamespaceViewSchema satisfies z.ZodType<Wire<ResponseValue<'settings.mutate'>>>
 
 /** settings.replace response value. */
 export const settingsReplaceValueSchema = settingsNamespaceViewSchema satisfies z.ZodType<Wire<ResponseValue<'settings.replace'>>>

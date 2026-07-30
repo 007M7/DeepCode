@@ -186,10 +186,12 @@ describe('TelemetryCoordinator adoption', () => {
 
     const seqs = backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']])
     expect(seqs).toEqual(expect.arrayContaining([['seed-parent', 0], ['seed-parent', 1]]))
-    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2]])
+    // 2 end-seed, 3 turn/end: both this lifecycle's own writes, while
+    // inherited 0-1 stay with the parent stream.
+    expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2], ['seeded', 3]])
   })
 
-  it('resume shape: a full-log seed exports nothing yet still rebuilds the chunk projection', async () => {
+  it('resume shape: a full-log seed exports only its own end-seed and rebuilds the chunk projection', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -205,14 +207,16 @@ describe('TelemetryCoordinator adoption', () => {
     const ofResumed = () => backend.ledger()
       .filter(r => r.attributes['session.id'] === 'resumed')
       .map(r => r.attributes['event.seq'])
-    expect(ofResumed()).toEqual([])
+    // Nothing inherited is re-exported; seq 2 is this session's own first
+    // write — the end-seed event its constructor appended after the seed.
+    expect(ofResumed()).toEqual([2])
     // The seed fed the projection: the (turn 1, step 1) first chunk already
     // shipped from the original process, so its continuation is re-dropped…
     resumed.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'continuation' } })
-    expect(ofResumed()).toEqual([])
+    expect(ofResumed()).toEqual([2])
     // …while a new step's first chunk exports normally.
     resumed.append('assistant/chunk', { turn: 1, step: 2, chunk: { type: 'text-delta', index: 0, text: 'next step' } })
-    expect(ofResumed()).toEqual([3])
+    expect(ofResumed()).toEqual([2, 4])
   })
 
   it('stamps session.seed_length from the header so receivers can stitch fork streams', async () => {

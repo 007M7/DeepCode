@@ -89,6 +89,7 @@ function scriptedApi(overrides: {
       describe: r => ok(r, { writable: true, namespaces: [] }),
       update: err,
       replace: err,
+      mutate: err,
       ...overrides.settings,
     },
     credentials: {
@@ -601,6 +602,7 @@ describe('config unary surface', () => {
       user: { baseURL: 'https://next' },
       applies: 'live' as const,
       secrets: [{ path: ['apiKey'], set: true }],
+      revision: 0,
     }
     const providerRow = {
       provider: 'openai',
@@ -615,6 +617,7 @@ describe('config unary surface', () => {
         describe: record('settings.describe', r => ok(r, { writable: true, namespaces: [view] })),
         update: record('settings.update', r => ok(r, view)),
         replace: record('settings.replace', r => ok(r, view)),
+        mutate: record('settings.mutate', r => ok(r, view)),
       },
       credentials: {
         describe: record('credentials.describe', r => ok(r, { credentials: { OPENAI_API_KEY: { configured: true, source: 'file', writable: true } } })),

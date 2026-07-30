@@ -9,19 +9,22 @@ import type { RpcReceipt } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { PendingQuestion, type QuestionComposerProps } from '../src/client/contract/slots.ts'
-import {
-  QuestionComposer, parseQuestionTitle, parseRecommendedLabel,
-} from '../src/client/QuestionComposer.tsx'
-import { zh } from '../src/client/locales.ts'
+import { QuestionComposer, parseRecommendedLabel } from '../src/client/QuestionComposer.tsx'
+import { en, zh } from '../src/client/locales.ts'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
 
-/** Framework standard-kit stubs: the composer consumes none of them, the
- *  composed props type mandates their delivery (framework hooks are plain
- *  stubs per the client testing discipline). */
+/** Seat stub over a dictionary pair mirroring the real lookup chain: package dictionary, then common vocabulary, then the key. */
+const seatOver = (dict: Record<string, string>, common: Record<string, string>): QuestionComposerProps['t'] =>
+  (key => dict[key] ?? common[key] ?? key)
+
+/** Framework standard-kit stubs: the composer consumes only the locale seat;
+ *  the composed props type mandates delivery of the rest (framework hooks are
+ *  plain stubs per the client testing discipline). */
 const kit = {
   sessionId: SID,
   useSession: (() => { throw new Error('unused') }) as unknown as SnapshotSelectorHook<ConversationSnapshot>,
@@ -30,11 +33,8 @@ const kit = {
   useProjection: (() => undefined) as never,
   useInput: (() => { throw new Error('unused') }) as never,
   inputActions: { setDraft: () => { throw new Error('unused') }, submit: () => { throw new Error('unused') } } as never,
-  // The seat's key domain is question ∪ common; the stub mirrors the real
-  // lookup chain: package dictionary, then common vocabulary, then the key.
-  t: (key => (zh as Record<string, string>)[key]
-    ?? (commonZh as Record<string, string>)[key]
-    ?? key) as QuestionComposerProps['t'],
+  // The seat's key domain is question ∪ common.
+  t: seatOver(zh, commonZh),
 }
 
 const QUESTIONS = [
@@ -75,6 +75,7 @@ describe('QuestionComposer', () => {
     const { carrier, respond } = wait()
     render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
 
+    expect(screen.getByText('偏好')).toBeTruthy()
     expect(screen.getByText('1 / 3')).toBeTruthy()
     expect(screen.getByText('推荐')).toBeTruthy()
     expect(screen.getByText('工程落地型')).toBeTruthy()
@@ -96,9 +97,8 @@ describe('QuestionComposer', () => {
     fireEvent.keyDown(custom, { key: 'Enter' })
 
     expect(screen.getByText('3 / 3')).toBeTruthy()
-    expect(screen.getByText('选择重要信号')).toBeTruthy()
-    expect(screen.getByText('可多选')).toBeTruthy()
-    expect(screen.queryByText('（可多选）')).toBeNull()
+    // The model's question text renders verbatim — no marker filtering.
+    expect(screen.getByText('选择重要信号（可多选）')).toBeTruthy()
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
@@ -175,11 +175,10 @@ describe('QuestionComposer', () => {
     expect(screen.getByText('3 / 3')).toBeTruthy()
   })
 
-  it('opens custom input, reports missing skipped answers, and supports header navigation', () => {
+  it('shows the inline custom input, reports missing answers, and supports pager navigation', () => {
     const { carrier, respond } = wait()
     render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} />)
 
-    fireEvent.click(screen.getByRole('button', { name: '其他，请填写自定义答案' }))
     expect(screen.getByPlaceholderText('输入你的答案')).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: '工程落地型' }))
     const emptyCustom = screen.getByPlaceholderText('输入你的答案')
@@ -240,6 +239,16 @@ describe('QuestionComposer', () => {
     expect(await screen.findByText('字符串错误')).toBeTruthy()
   })
 
+  it('renders chrome copy through the English dictionary', () => {
+    const respond = vi.fn(() => Promise.resolve<RpcReceipt>({ accepted: true }))
+    const carrier = new PendingWait(
+      'question', RpcId('solo'), SID, { questions: [{ id: 'detail', question: '补充你的要求' }] }, respond)
+    render(<QuestionComposer matched={carrier} interactions={[carrier]} {...kit} t={seatOver(en, commonEn)} />)
+    expect(screen.getByLabelText('Dismiss all questions')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Skip this question' })).toBeTruthy()
+    expect(screen.getByPlaceholderText('Type your answer')).toBeTruthy()
+  })
+
   it('same-key carrier replacement (baseline replay) keeps drafts', () => {
     const first = wait('same-id')
     const view = render(<QuestionComposer matched={first.carrier} interactions={[first.carrier]} {...kit} />)
@@ -293,13 +302,5 @@ describe('parseRecommendedLabel', () => {
     expect(parseRecommendedLabel('稳妥（推荐）')).toEqual({ label: '稳妥', recommended: true })
     expect(parseRecommendedLabel('稳妥 (推荐)')).toEqual({ label: '稳妥', recommended: true })
     expect(parseRecommendedLabel('Plain')).toEqual({ label: 'Plain', recommended: false })
-  })
-})
-
-describe('parseQuestionTitle', () => {
-  it('removes Chinese and ASCII multi-select suffixes', () => {
-    expect(parseQuestionTitle('选择信号（可多选）')).toBe('选择信号')
-    expect(parseQuestionTitle('选择信号 (可多选)')).toBe('选择信号')
-    expect(parseQuestionTitle('选择信号')).toBe('选择信号')
   })
 })

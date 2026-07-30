@@ -7,7 +7,7 @@ import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
 import { ModelsSection, needsSetup, removeProviderProfile } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
-import { removedAny } from '../src/client/ProviderEditor.tsx'
+import { pathOps } from '../src/client/ProviderEditor.tsx'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
@@ -44,6 +44,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       user: { reasoningEffort: 'high' },
       applies: 'live',
       secrets: [{ path: ['apiKey'], set: false }],
+      revision: 0,
     },
     {
       ns: 'llm-plain',
@@ -53,6 +54,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       value: {},
       applies: 'live',
       secrets: [],
+      revision: 0,
     },
     {
       ns: 'llm-pi-ai',
@@ -61,6 +63,7 @@ function wireNamespaces(): SettingsNamespaceView[] {
       user: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' } }, zombie: {} } },
       applies: 'live',
       secrets: [{ path: ['token'], set: false }, { path: ['providers', 'openai', 'apiKey'], set: false }],
+      revision: 0,
     },
   ]
 }
@@ -79,10 +82,12 @@ function fail<T>(message: string, code = 'settings-rejected'): RpcResponse<T> {
 function scriptedFace(overrides: {
   update?: ReturnType<typeof vi.fn>
   replace?: ReturnType<typeof vi.fn>
+  mutate?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
 } = {}) {
   const update = overrides.update ?? vi.fn(() => Promise.resolve(ok(wireNamespaces()[2])))
   const replace = overrides.replace ?? vi.fn(() => Promise.resolve(ok(wireNamespaces()[2])))
+  const mutate = overrides.mutate ?? vi.fn(() => Promise.resolve(ok(wireNamespaces()[2])))
   const set = overrides.set ?? vi.fn(() => Promise.resolve(ok({})))
   const face = {
     llm: {
@@ -102,6 +107,7 @@ function scriptedFace(overrides: {
       describe: vi.fn(() => Promise.resolve(ok({ writable: true, namespaces: wireNamespaces() }))),
       update,
       replace,
+      mutate,
     },
     credentials: {
       describe: vi.fn((payload: { refs: string[] }) => Promise.resolve(ok({
@@ -115,13 +121,13 @@ function scriptedFace(overrides: {
       unset: vi.fn(() => Promise.resolve(ok({}))),
     },
   }
-  return { face, update, replace, set }
+  return { face, update, replace, mutate, set }
 }
 
 type WireFace = ConstructorParameters<typeof ModelsSettingsStore>[0]
 
 async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) {
-  const { face, update, replace, set } = scriptedFace(overrides)
+  const { face, update, replace, mutate, set } = scriptedFace(overrides)
   const controller = new ModelsSettingsStore(face as unknown as WireFace)
   await controller.load()
   const injected: ModelsSectionInjected = {
@@ -131,7 +137,7 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
     t,
   }
   const view = render(<ModelsSection {...injected} />)
-  return { view, face, update, replace, set, controller }
+  return { view, face, update, replace, mutate, set, controller }
 }
 
 describe('ModelsSection', () => {
@@ -197,10 +203,15 @@ describe('ModelsSection', () => {
     expect(deriveKeyRef('minimax-cn')).toBe('MINIMAX_CN_API_KEY')
   })
 
-  it('detects removals at any draft depth', () => {
-    expect(removedAny({ a: { b: 1, c: 2 } }, { a: { b: 1 } })).toBe(true)
-    expect(removedAny({ a: { b: 1 } }, { a: { b: 2 }, d: 3 })).toBe(false)
-    expect(removedAny(undefined, {})).toBe(false)
+  it('names only the fields the card can see, so an unseen secret survives', () => {
+    // `before` is the REDACTED subtree: a stored literal apiKey is in neither
+    // side, so no op mentions it and the seam leaves it alone.
+    expect(pathOps(['providers', 'openai'], { baseURL: 'https://old', reasoning: 'high' }, { reasoning: 'high' }))
+      .toEqual([{ op: 'unset', path: ['providers', 'openai', 'baseURL'] }])
+    expect(pathOps([], { b: 1 }, { b: 2, d: 3 }))
+      .toEqual([{ op: 'set', path: ['b'], value: 2 }, { op: 'set', path: ['d'], value: 3 }])
+    expect(pathOps([], undefined, {})).toEqual([])
+    expect(pathOps([], { a: 1 }, { a: 1 })).toEqual([])
   })
 
   it('stores a typed key write-only from the setup card without touching settings', async () => {
@@ -213,9 +224,9 @@ describe('ModelsSection', () => {
     await waitFor(() => { expect(face.settings.describe.mock.calls.length).toBeGreaterThan(1) })
   })
 
-  it('applies customized deepseek fields as a merge patch', async () => {
-    const { update } = await mountSection({
-      update: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+  it('applies customized deepseek fields as path ops', async () => {
+    const { mutate } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
     })
     fireEvent.click(screen.getByText(en.customized))
     const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
@@ -224,23 +235,33 @@ describe('ModelsSection', () => {
     expect(baseURL.placeholder).toBe('https://api.deepseek.com')
     fireEvent.change(baseURL, { target: { value: 'https://next2' } })
     fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
-    expect(update.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    // Only the field that actually changed: reasoningEffort was already
+    // 'high' in the loaded profile, so it produces no op.
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
-      patch: { reasoningEffort: 'high', baseURL: 'https://next2' },
+      ops: [{ op: 'set', path: ['baseURL'], value: 'https://next2' }],
+      expectedRevision: 0,
     })
   })
 
-  it('clears an inherited override through replace so the removal lands', async () => {
-    const { replace, update } = await mountSection()
+  it('clears an inherited override with an unset op, never a whole-section replace', async () => {
+    // The data-loss shape: the old path rebuilt the section from the REDACTED
+    // user layer and replaced it wholesale, deleting any stored literal key.
+    const { replace, update, mutate } = await mountSection()
     fireEvent.click(screen.getByText(en.customized))
     const effort = screen.getByLabelText<HTMLSelectElement>(en.effort)
     expect(effort.value).toBe('high')
     fireEvent.change(effort, { target: { value: '' } })
     fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(replace).toHaveBeenCalledTimes(1) })
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(replace).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
-    expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-deepseek', section: {} })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{ op: 'unset', path: ['reasoningEffort'] }],
+      expectedRevision: 0,
+    })
   })
 
   it('pins the deepseek placeholder and clears typed input back to inherited', async () => {
@@ -251,6 +272,7 @@ describe('ModelsSection', () => {
       value: {},
       applies: 'live',
       secrets: [],
+      revision: 0,
     }
     const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
     render(<ProviderEditor
@@ -282,7 +304,7 @@ describe('ModelsSection', () => {
   })
 
   it('edits a pi-ai profile with the curated fields only', async () => {
-    const { update } = await mountSection()
+    const { mutate } = await mountSection()
     fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
     // The configured credential shows as the stored placeholder.
     const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
@@ -297,19 +319,20 @@ describe('ModelsSection', () => {
     const effort = screen.getAllByLabelText<HTMLSelectElement>(en.effort)
     fireEvent.change(effort[effort.length - 1] as HTMLSelectElement, { target: { value: 'xhigh' } })
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
-    await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
-    expect(update.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    // Only the edited field travels: apiKeyEnv, baseURL and headers were
+    // already stored with these values, so no op restates them — and the
+    // profile's stored literal apiKey, absent from the redacted view the card
+    // read, is named by nothing at all.
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
-      patch: {
-        providers: {
-          openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' }, reasoning: 'xhigh' },
-        },
-      },
+      ops: [{ op: 'set', path: ['providers', 'openai', 'reasoning'], value: 'xhigh' }],
+      expectedRevision: 0,
     })
   })
 
   it('adds a dormant provider with a derived reference and stores its key', async () => {
-    const { update, set } = await mountSection()
+    const { mutate, set } = await mountSection()
     fireEvent.click(screen.getByText(`+ ${en.add}`))
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
     expect([...pick.options].map(option => option.value)).toEqual(['anthropic', 'broken', 'plain'])
@@ -323,10 +346,11 @@ describe('ModelsSection', () => {
     const addKey = keys[keys.length - 1] as HTMLInputElement
     fireEvent.change(addKey, { target: { value: 'sk-ant' } })
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
-    await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
-    expect(update.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
-      patch: { providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } } },
+      ops: [{ op: 'set', path: ['providers', 'anthropic', 'apiKeyEnv'], value: 'ANTHROPIC_API_KEY' }],
+      expectedRevision: 0,
     })
     await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'ANTHROPIC_API_KEY', value: 'sk-ant' }) })
   })
@@ -349,7 +373,7 @@ describe('ModelsSection', () => {
 
   it('surfaces a rejected settings write and never stores the key after it', async () => {
     const { set } = await mountSection({
-      update: vi.fn(() => Promise.resolve(fail('llm-pi-ai: unknown pi-ai provider "bogus"'))),
+      mutate: vi.fn(() => Promise.resolve(fail('llm-pi-ai: unknown pi-ai provider "bogus"'))),
     })
     fireEvent.click(screen.getByText(`+ ${en.add}`))
     await screen.findByLabelText(en.provider)
@@ -358,6 +382,57 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
     await screen.findByText(/unknown pi-ai provider/)
     expect(set).not.toHaveBeenCalled()
+  })
+
+  it('renders the card without the stored-key hint when the credential probe rejects', async () => {
+    // The probe is a placeholder hint, not a precondition: an escaping
+    // rejection would surface in the browser as an unhandled rejection.
+    const { face } = scriptedFace()
+    face.credentials.describe = vi.fn(() => Promise.reject(new Error('connection lost')))
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      const controller = new ModelsSettingsStore(face as unknown as WireFace)
+      await controller.load()
+      render(<ModelsSection
+        controller={controller}
+        useSnapshot={bindSnapshotSelector(controller.store)}
+        api={face as never}
+        t={t}
+      />)
+      const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+      expect(key.placeholder).toBe(en.keyPlaceholder)
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(unhandled).not.toHaveBeenCalled()
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('tells the user to reopen when another writer moved the namespace first', async () => {
+    // The stale-draft overwrite: two tabs open the same card, the other saves,
+    // and this one must be refused rather than replay its opening snapshot.
+    const { set } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(fail('changed since it was read', 'settings-conflict'))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://mine' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await screen.findByText(en.conflict)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('keeps the card usable when the write rejects instead of answering', async () => {
+    // A transport failure (disconnect, or the 403 a non-loopback browser now
+    // gets on the whole configuration plane) rejects rather than returning a
+    // failed envelope: without a catch the card would stay busy forever.
+    await mountSection({ mutate: vi.fn(() => Promise.reject(new Error('connection lost'))) })
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://next' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await screen.findByText('connection lost')
+    // Not stuck in `applying…`: the finally cleared busy, so Apply is live again.
+    expect(screen.getByText(en.apply)).toBeTruthy()
   })
 
   it('surfaces a shadowed credential write on the card', async () => {
@@ -396,11 +471,15 @@ describe('ModelsSection', () => {
     await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })
   })
 
-  it('removes a user-added provider through replace', async () => {
-    const { replace } = await mountSection()
+  it('removes a user-added provider by unsetting its path', async () => {
+    const { replace, mutate } = await mountSection()
     fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
-    await waitFor(() => { expect(replace).toHaveBeenCalledTimes(1) })
-    expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-pi-ai', section: { providers: { zombie: {} } } })
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(replace).not.toHaveBeenCalled()
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-pi-ai',
+      ops: [{ op: 'unset', path: ['providers', 'openai'] }],
+    })
   })
 
   it('renders the load failure with a retry control', async () => {
@@ -474,30 +553,54 @@ describe('ModelsSection', () => {
     await screen.findByText('DeepSeek')
   })
 
-  it('removes against a namespace with no user layer as an empty-section replace', async () => {
-    const { face, replace, controller } = await mountSection()
-    const namespace = controller.store.getSnapshot().namespaces.get('llm-plain')
+  it('removes by unsetting the profile path, never by rebuilding the section', async () => {
+    // The section rebuild is what dropped stored literal secrets: this page
+    // only ever holds the redacted descriptor, so the removal names the path.
+    const { face, mutate, replace, controller } = await mountSection()
     await removeProviderProfile(
       face as unknown as Parameters<typeof removeProviderProfile>[0],
       controller,
       { settingsNs: 'llm-plain', settingsPath: ['ghost-profile'] },
-      namespace as NonNullable<typeof namespace>,
     )
-    expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-plain', section: {} })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-plain',
+      ops: [{ op: 'unset', path: ['ghost-profile'] }],
+    })
+    expect(replace).not.toHaveBeenCalled()
   })
 
-  it('keeps the snapshot untouched when a removal write is refused', async () => {
+  it('keeps the snapshot untouched and reports the message when a removal write is refused', async () => {
     const { face, controller } = await mountSection({
-      replace: vi.fn(() => Promise.resolve(fail('read-only'))),
+      mutate: vi.fn(() => Promise.resolve(fail('read-only'))),
     })
-    const namespace = controller.store.getSnapshot().namespaces.get('llm-pi-ai')
     const before = controller.store.getSnapshot().rows
-    await removeProviderProfile(
+    const failure = await removeProviderProfile(
       face as unknown as Parameters<typeof removeProviderProfile>[0],
       controller,
       { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
-      namespace as NonNullable<typeof namespace>,
     )
+    expect(failure).toBe('read-only')
     expect(controller.store.getSnapshot().rows).toBe(before)
+  })
+
+  it('shows a failed removal on the page banner, including a non-Error rejection', async () => {
+    // The whole click path: the row's Remove button, the transport rejecting
+    // with a non-Error value, and the store surfacing it where a load failure
+    // would appear — rather than the row silently staying put.
+    await mountSection({ mutate: vi.fn(() => Promise.reject(new Error('the host refused'))) })
+    fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
+    await screen.findByText(`${en.loadFailed}: the host refused`)
+  })
+
+  it('reports a transport rejection instead of failing the removal silently', async () => {
+    const { face, controller } = await mountSection({
+      mutate: vi.fn(() => Promise.reject(new Error('connection lost'))),
+    })
+    const failure = await removeProviderProfile(
+      face as unknown as Parameters<typeof removeProviderProfile>[0],
+      controller,
+      { settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'] },
+    )
+    expect(failure).toBe('connection lost')
   })
 })

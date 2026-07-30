@@ -109,7 +109,7 @@ Loop-retained response blocks append to the next request and preserve its earlie
 ## Known Limitations and Deferred Work
 
 - **A settings `models` list replaces the composition list wholesale** — settings-layer merging is per-field, and arrays are one field; per-entry catalog merging would need a keyed shape.
-- **`Config.apiKey` is schema-tagged `role('secret')` but not yet masked anywhere** — the settings `describe()` envelope returns values verbatim; the wire/UI layer that must redact secret-role fields ships with the settings RPC surface.
+- **`Config.apiKey` is redacted on the wire but still a stored literal** — `describe({ redactSecrets: true })` strips it and reports the slot, so a configuration UI never receives the value; the key is nonetheless stored in the settings document rather than the credential store, so prefer `apiKeyEnv`.
 - **`tool_choice` is not mapped** — not part of the core vocabulary (MVP cut, shared with the pi-ai twin).
 - **Requests use raw `fetch`, not `@cordisjs/plugin-http`** — no shared proxy/interception configuration; adoption is deferred until a second adapter wants it (`TODO(http)`).
 - **Serialization flattens user and tool-result content to text blocks** — plugin-added block types are skipped, and empty tool output crosses the wire as the literal `(no output)`.

@@ -32,7 +32,22 @@ export interface SettingsNamespaceView {
   applies: 'live' | 'restart'
   /** Every schema-declared secret slot with its configured state. */
   secrets: SettingsSecretView[]
+  /**
+   * Monotonic revision of the raw user section this view was read at. Send it
+   * back as `expectedRevision` on a write so a stale editor is refused rather
+   * than silently overwriting a concurrent change.
+   */
+  revision: number
 }
+
+/**
+ * One path-addressed edit carried by `settings.mutate`. `set` writes the
+ * value at the path (creating intermediate objects); `unset` removes it. The
+ * empty path addresses the section root.
+ */
+export type SettingsPathOpView =
+  | { op: 'set'; path: string[]; value: unknown }
+  | { op: 'unset'; path: string[] }
 
 /** Settings-domain unary methods (the map keys settings.* of RpcMethodMap). */
 export interface SettingsApi {
@@ -50,7 +65,7 @@ export interface SettingsApi {
    * merge preserves the stored value. Responds with the namespace's new
    * redacted view; a schema or storage rejection is `settings-rejected`.
    */
-  update(request: RpcRequest<{ ns: string; patch: object }>): Promise<RpcResponse<SettingsNamespaceView>>
+  update(request: RpcRequest<{ ns: string; patch: object; expectedRevision?: number }>): Promise<RpcResponse<SettingsNamespaceView>>
 
   /**
    * Replace one namespace's user section wholesale — the removal/reset path a
@@ -59,5 +74,17 @@ export interface SettingsApi {
    * fold the descriptor's `user` layer (and re-supply any secret it wants to
    * keep) or accept the reset.
    */
-  replace(request: RpcRequest<{ ns: string; section: object }>): Promise<RpcResponse<SettingsNamespaceView>>
+  replace(request: RpcRequest<{ ns: string; section: object; expectedRevision?: number }>): Promise<RpcResponse<SettingsNamespaceView>>
+
+  /**
+   * Apply path-addressed edits to one namespace's user section, resolved
+   * against the section as stored — NOT against whatever the caller last
+   * read. This is the removal path for any client holding the redacted
+   * descriptor: it names the field it means, so a secret the wire never
+   * returned cannot be deleted as a side effect. `replace` remains the
+   * deliberate wholesale reset.
+   */
+  mutate(
+    request: RpcRequest<{ ns: string; ops: SettingsPathOpView[]; expectedRevision?: number }>,
+  ): Promise<RpcResponse<SettingsNamespaceView>>
 }

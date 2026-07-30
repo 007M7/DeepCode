@@ -192,6 +192,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SettingsRegisterOptions: 'settings.md',
   SettingsScope: 'settings.md',
   SettingsDescriptor: 'settings.md',
+  SettingsPathOp: 'settings.md',
   SettingsDescribeOptions: 'settings.md',
   SettingsUpdateSource: 'settings.md',
   CredentialRef: 'credentials.md',

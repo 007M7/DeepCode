@@ -53,6 +53,42 @@ describe('llm/adapters-updated', () => {
     expect(warn).toHaveBeenCalledWith('llm: an llm/adapters-updated listener failed')
   })
 
+  it('contains an ASYNC listener rejection instead of leaving it unhandled', async () => {
+    // An emit listener may be an async function; its rejection cannot reach
+    // the synchronous catch, so an uncontained one escapes the process as an
+    // unhandled rejection rather than a warned observer failure.
+    const ctx = await setup()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    const unhandled = vi.fn()
+    process.on('unhandledRejection', unhandled)
+    try {
+      // Typed as returning unknown so the listener is not a Promise-returning
+      // function type: the point is exactly that an async one may slip in.
+      const rejecting = (): unknown => Promise.reject(new Error('async observer'))
+      ctx.on('llm/adapters-updated', rejecting)
+      ctx.llm.registerAdapter(['a'], new NoopAdapter())
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['a'])
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(unhandled).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalledWith('llm: an llm/adapters-updated listener failed')
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
+  })
+
+  it('replaces a route set in one event, never publishing an empty registry between the two', async () => {
+    // The retry-policy swap in llm-deepseek: disposing and re-registering
+    // would let an observer see the provider disappear and come back.
+    const ctx = await setup()
+    const observed: string[][] = []
+    const registration = ctx.llm.registerAdapter(['a'], new NoopAdapter())
+    ctx.on('llm/adapters-updated', () => {
+      observed.push(ctx.llm.listProviders().map(provider => provider.id))
+    })
+    registration.replace(['a'])
+    expect(observed).toEqual([['a']])
+  })
+
   it('rethrows the first INVARIANT-coded listener failure after notifying the rest', async () => {
     const ctx = await setup()
     const later = vi.fn()
