@@ -29,7 +29,13 @@ import type { ChannelNotice, ChatChannelDeps } from './channel.ts'
 export interface ResumeControllerDeps extends ChatChannelDeps, ChannelNotice {
   readonly agent: Agent
   readonly runtime: TuiRuntime
-  readonly sessionQuery: SessionQueryService | undefined
+  /**
+   * The optional session-query service, re-read at each use. `sessionQuery` is
+   * mounted by an independent plugin, and a flat config tree gives no ordering
+   * guarantee between it and this front door, so a value captured once at
+   * construction can be `undefined` even though the service arrives moments later.
+   */
+  readonly sessionQuery: (this: void) => SessionQueryService | undefined
   readonly ui: TUI
   readonly editor: HintEditor
   /** Current agent status, re-read at each resume precondition point. */
@@ -74,9 +80,11 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
           events: live.events.map(event => structuredClone(event)),
         }
       } else {
-        /* v8 ignore next -- caller checks the optional service before mapping records */
-        if (sessionQuery === undefined) throw new Error('session query is unavailable')
-        snapshot = await sessionQuery.readSession(record.header.id)
+        const readQuery = sessionQuery()
+        /* v8 ignore start -- caller proves the optional service before mapping records */
+        if (readQuery === undefined) throw new Error('session query is unavailable')
+        /* v8 ignore stop */
+        snapshot = await readQuery.readSession(record.header.id)
       }
       return summarizeResumeCandidate(
         record,
@@ -104,11 +112,13 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
    * resolve the exact identity and workspace the host will re-exec into.
    */
   const preflightResume = async (sessionId: SessionId): Promise<{ id: SessionId; cwd: string }> => {
-    /* v8 ignore next -- only showResume can call this closure, after proving the optional service exists */
-    if (sessionQuery === undefined) throw new Error('Resume is unavailable: session query is not mounted.')
+    const query = sessionQuery()
+    /* v8 ignore start -- showResume alone calls this after proving the optional service exists */
+    if (query === undefined) throw new Error('Resume is unavailable: session query is not mounted.')
+    /* v8 ignore stop */
     const initialStatus = deps.agentStatus()
     if (initialStatus !== 'idle') throw new Error(`Resume requires an idle agent (status: ${initialStatus}).`)
-    const record = (await sessionQuery.listSessions()).find(candidate => candidate.header.id === sessionId)
+    const record = (await query.listSessions()).find(candidate => candidate.header.id === sessionId)
     if (record === undefined) throw new Error(`Session "${sessionId}" is no longer available.`)
     const candidate = await readResumeCandidate(
       record,
@@ -177,13 +187,14 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         deps.appendNotice('Resume requires the current turn to finish or be cancelled first.', 'warning')
         return
       }
-      if (sessionQuery === undefined) {
+      const listQuery = sessionQuery()
+      if (listQuery === undefined) {
         deps.appendNotice('Resume is not available: session query is not mounted.', 'warning')
         return
       }
       const scan = ++resumeScan
       void resumeOverlay?.close()
-      void sessionQuery.listSessions().then(async (records) => {
+      void listQuery.listSessions().then(async (records) => {
         if (deps.isDisposed() || scan !== resumeScan) return
         // Every workspace in the store is summarized; the picker owns the
         // current-workspace/all-workspaces scope split over the whole set.
