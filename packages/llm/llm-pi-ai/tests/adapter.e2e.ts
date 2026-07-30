@@ -155,7 +155,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-pi-ai e2e (real API)', () =>
 
     const prompt = ask('Reply with exactly the word: pong')
     const [fromDeepSeek, fromPiAi] = await Promise.all([
-      assemble(deepseekCtx, { model: FLASH, messages: prompt, maxTokens: 50 }),
+      assemble(deepseekCtx, { provider: 'deepseek-official', model: FLASH, messages: prompt, maxTokens: 50 }),
       assemble(piCtx, { model: FLASH, messages: prompt, maxTokens: 50 }),
     ])
     expect(blockKinds(fromPiAi)).toEqual(blockKinds(fromDeepSeek))

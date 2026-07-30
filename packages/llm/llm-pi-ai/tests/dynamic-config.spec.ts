@@ -59,6 +59,16 @@ describe('request-level dynamic profiles', () => {
     const ctx = await boot(dir, {})
 
     expect(ctx.llm.listProviders()).toEqual([])
+    // Dormant ≠ invisible: every installed catalog provider is configurable
+    // before any route exists, each addressed inside the providers dict.
+    const directory = ctx.llm.listConfigurableProviders()
+    expect(directory.length).toBeGreaterThan(30)
+    expect(directory).toContainEqual({
+      provider: 'openai',
+      displayName: 'openai',
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', 'openai'],
+    })
     await ctx.settings.update(NS, {
       providers: { deepseek: { apiKeyEnv: 'PI_DYNAMIC_KEY', baseURL: server.url } },
     })

@@ -43,7 +43,7 @@
 - id: cli-agent
   name: '@deepseek-ai/dsh-cli-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     # Stays on flash: the goal/ralph replay corpora were recorded on it, and
     # their nested-include overlays cannot re-pin the app config (a config
     # patch cannot target an entry behind a nested include).

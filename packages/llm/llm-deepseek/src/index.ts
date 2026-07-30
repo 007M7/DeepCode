@@ -1,5 +1,5 @@
 /**
- * Register a {@link DeepSeekAdapter} for the `deepseek` provider route on
+ * Register a {@link DeepSeekAdapter} for the `deepseek-official` provider route on
  * `ctx.llm`, with connection facts resolved per request instead of frozen at
  * load: the plugin layers its `cordis.yml` entry config under the optional
  * `llm-deepseek` user-settings section (`ctx.settings`) and resolves the API
@@ -32,7 +32,7 @@ export const inject = ['llm']
 const NS = settingsNamespace('llm-deepseek')
 const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
 /** The single provider route this plugin owns. */
-const PROVIDER = 'deepseek'
+const PROVIDER = 'deepseek-official'
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
   { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 256_000 },
@@ -77,7 +77,7 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
 
 export const Config: z<Config> = z.object({
   apiKey: z.string().role('secret'),
-  apiKeyEnv: z.string().default(DEFAULT_API_KEY_ENV),
+  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['off', 'high', 'max']),
@@ -215,18 +215,22 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   const adapter = new DeepSeekAdapter({ options, resolveApiKey })
+  ctx.llm.registerConfigurableProviders([
+    { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
+  ])
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below.
-  let disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
+  const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
   let registeredPolicy = options().retryPolicy
   const ensureRegistrationFacts = (): void => {
     const policy = options().retryPolicy
     if (deepEqualJson(policy, registeredPolicy)) return
     // The registry captures the retry policy at registration, so it is the one
-    // fact per-request resolution cannot refresh: swap the registration in one
-    // synchronous section (same adapter instance, no NO_ADAPTER window).
-    disposeRoute()
-    disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
+    // fact per-request resolution cannot refresh. `replace` re-reads it in one
+    // synchronous registry section: disposing and re-registering instead would
+    // publish an empty route set between the two, and an observer that reacted
+    // to it would see this provider disappear and come back.
+    registration.replace([PROVIDER])
     registeredPolicy = policy
   }
 

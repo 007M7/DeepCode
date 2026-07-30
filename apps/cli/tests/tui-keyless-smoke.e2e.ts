@@ -449,7 +449,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
             '  config:',
             '    agents:',
             '      - id: main',
-            '        provider: deepseek',
+            '        provider: deepseek-official',
             '        model: deepseek-v4-flash',
             '        cwd: !!js process.cwd()',
             '- id: tui',
