@@ -14,9 +14,24 @@ function tool(name: string, description = 'd'): ToolSchema {
 
 describe('canonicalHeader', () => {
   it('normalizes empty optional fields to absence and preserves populated fields', () => {
-    expect(canonicalHeader({ config: CONFIG, system: '', tools: [] })).toEqual({ config: CONFIG })
-    const full = canonicalHeader({ config: CONFIG, system: 's', tools: [tool('a')] })
-    expect(full).toEqual({ config: CONFIG, system: 's', tools: [tool('a')] })
+    expect(canonicalHeader({
+      config: CONFIG,
+      adapterDefaults: {},
+      system: '',
+      tools: [],
+    })).toEqual({ config: CONFIG })
+    const full = canonicalHeader({
+      config: { ...CONFIG, maxTokens: 256_000 },
+      adapterDefaults: { maxTokens: true },
+      system: 's',
+      tools: [tool('a')],
+    })
+    expect(full).toEqual({
+      config: { ...CONFIG, maxTokens: 256_000 },
+      adapterDefaults: { maxTokens: true },
+      system: 's',
+      tools: [tool('a')],
+    })
   })
 })
 
@@ -30,6 +45,14 @@ describe('headerEquals', () => {
       ...base,
       config: { ...base.config, reasoningEffort: ReasoningEffortId('high') },
     })).toBe(false)
+    expect(headerEquals(
+      { ...base, config: { ...base.config, maxTokens: 256_000 } },
+      {
+        ...base,
+        config: { ...base.config, maxTokens: 256_000 },
+        adapterDefaults: { maxTokens: true },
+      },
+    )).toBe(false)
     expect(headerEquals(base, { ...base, system: 'other' })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [] })).toBe(false)
     expect(headerEquals(base, { ...base, tools: [tool('a', 'changed')] })).toBe(false)

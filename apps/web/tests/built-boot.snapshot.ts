@@ -60,6 +60,9 @@ let unmount: (() => void) | undefined
 
 beforeEach(() => {
   localStorage.clear()
+  // English pinned before boot: role/text locators stay deterministic across
+  // localized component migrations (the newEnglishPage e2e convention).
+  localStorage.setItem('dsh.locale', 'en')
   document.title = 'DeepSeek Harness'
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>

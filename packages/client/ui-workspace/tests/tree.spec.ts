@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type {
   SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { deriveFlat, deriveGroups, formatRelativeTime, projectLabel, UNGROUPED_KEY, UNGROUPED_LABEL } from '../src/client/tree.ts'
+import { deriveFlat, deriveGroups, projectLabel, relativeTime, UNGROUPED_KEY, UNGROUPED_LABEL } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 
 const sid = (id: string) => id as SessionId
@@ -52,26 +52,35 @@ describe('deriveGroups', () => {
       sessions, [workspace('first', ['shown', 'current-blank', 'stale-blank'])], view(['first']),
     )
     expect(groups[0]!.sessions.map(session => session.id)).toEqual([real.id, currentBlank.id])
-    expect(groups[0]!.sessions.find(session => session.id === currentBlank.id)!.title).toBe('New Session')
+    const blankNode = groups[0]!.sessions.find(session => session.id === currentBlank.id)!
+    // The stored placeholder title stays canonical; the renderer swaps in
+    // the localized New Session label via the blank flag.
+    expect(blankNode.title).toBe('New Session')
+    expect(blankNode.blank).toBe(true)
+    expect(groups[0]!.sessions.find(session => session.id === real.id)!.blank).toBe(false)
     expect(groups[0]!.sessionCount).toBe(2)
     // A non-current blank stray never surfaces an Ungrouped bucket either.
     const strayGroups = deriveGroups(list({ ...summary('stray', 2), blank: true }), [workspace('first', [])], view())
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
   })
 
-  it('searches the current blank session by its New Session title', () => {
+  it('excludes blank sessions from search regardless of the query', () => {
     const currentBlank = { ...summary('opaque-current', 5), blank: true }
     const staleBlank = { ...summary('new session stale', 4), blank: true }
+    const real = { ...summary('real', 3), displayTitle: 'new session notes' }
     const sessions = {
-      ...list(currentBlank, staleBlank),
+      ...list(currentBlank, staleBlank, real),
       current: currentBlank.id,
     }
     const groups = deriveGroups(
-      sessions, [workspace('first', ['opaque-current', 'new session stale'])], view([], 'new session'),
+      sessions,
+      [workspace('first', ['opaque-current', 'new session stale', 'real'])],
+      view([], 'new session'),
     )
-    expect(groups[0]!.sessions.map(session => session.id)).toEqual([currentBlank.id])
-    expect(groups[0]!.sessions[0]!.title).toBe('New Session')
-    expect(groups[0]!.sessionCount).toBe(1)
+    // Only the real title hit matches; the current blank's placeholder title
+    // never participates (it displays localized, so matching it would tie
+    // search to one language).
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([real.id])
   })
 
   it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
@@ -168,7 +177,7 @@ describe('deriveFlat', () => {
     expect(deriveFlat(partial, { query: '' }).map(row => row.id)).toEqual([sid('present')])
   })
 
-  it('shows only the current blank session with its New Session title', () => {
+  it('shows only the current blank session and excludes blanks from search', () => {
     const currentBlank = { ...summary('current-blank', 9), blank: true }
     const staleBlank = { ...summary('stale-blank', 8), blank: true }
     const sessions = {
@@ -178,7 +187,10 @@ describe('deriveFlat', () => {
     const rows = deriveFlat(sessions, { query: '' })
     expect(rows.map(row => row.id)).toEqual([currentBlank.id, sid('real')])
     expect(rows.map(row => row.title)).toEqual(['New Session', 'real'])
-    expect(deriveFlat(sessions, { query: 'new session' }).map(row => row.id)).toEqual([currentBlank.id])
+    expect(rows.map(row => row.blank)).toEqual([true, false])
+    // Blank rows never match a query — not their placeholder title, not their id.
+    expect(deriveFlat(sessions, { query: 'new session' })).toEqual([])
+    expect(deriveFlat(sessions, { query: 'current-blank' })).toEqual([])
     expect(deriveFlat(sessions, { query: 'stale-blank' })).toEqual([])
   })
 })
@@ -202,14 +214,14 @@ describe('projectLabel', () => {
   })
 })
 
-describe('formatRelativeTime', () => {
-  it('formats current, minute, hour, day, month, and year buckets', () => {
+describe('relativeTime', () => {
+  it('buckets current, minute, hour, day, month, and year distances', () => {
     const now = 400 * 24 * 60 * 60 * 1_000
-    expect(formatRelativeTime(now, now)).toBe('now')
-    expect(formatRelativeTime(now - 5 * 60_000, now)).toBe('5min')
-    expect(formatRelativeTime(now - 3 * 3_600_000, now)).toBe('3h')
-    expect(formatRelativeTime(now - 2 * 86_400_000, now)).toBe('2d')
-    expect(formatRelativeTime(now - 60 * 86_400_000, now)).toBe('2mo')
-    expect(formatRelativeTime(0, now)).toBe('1y')
+    expect(relativeTime(now, now)).toEqual({ unit: 'now', n: 0 })
+    expect(relativeTime(now - 5 * 60_000, now)).toEqual({ unit: 'minutes', n: 5 })
+    expect(relativeTime(now - 3 * 3_600_000, now)).toEqual({ unit: 'hours', n: 3 })
+    expect(relativeTime(now - 2 * 86_400_000, now)).toEqual({ unit: 'days', n: 2 })
+    expect(relativeTime(now - 60 * 86_400_000, now)).toEqual({ unit: 'months', n: 2 })
+    expect(relativeTime(0, now)).toEqual({ unit: 'years', n: 1 })
   })
 })

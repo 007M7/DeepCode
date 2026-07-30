@@ -1,0 +1,7 @@
+.dialog {
+  width: min(420px, 100%);
+}
+
+.primary {
+  width: 100%;
+}

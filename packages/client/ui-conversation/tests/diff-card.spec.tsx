@@ -12,16 +12,21 @@ import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../src/client/contract/diff-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
+import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { FileMutationRow, fileMutationToolview } from '../src/client/toolviews/file-mutation-row.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
 const SID = 's1' as SessionId
+
+const t = makeTranslate(zh, commonZh)
 
 const ARGS = '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}'
 
@@ -105,8 +110,8 @@ describe('diffCardModel', () => {
 })
 
 describe('chat row diff body', () => {
-  const ownerProps = (block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName: 'edit', block, openFile: vi.fn(),
+  const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
+    callId: 'c1', toolName: 'edit', block, openFile: vi.fn(), t,
   })
 
   it('the expanded body is the applied diff, capped tighter than the panel', () => {
@@ -130,7 +135,7 @@ describe('chat row diff body', () => {
     // A non-file tool name so the row is not single-file (no path link), and its
     // args body is the fallback the diff card must not have replaced.
     const view = render(<GenericToolCard {...{
-      callId: 'c1', toolName: 'some_tool', openFile: vi.fn(),
+      callId: 'c1', toolName: 'some_tool', openFile: vi.fn(), t,
       block: settled({
         call: { name: 'some_tool', argsRaw: '{"foo":"bar"}' },
         callView: null, resultView: null,
@@ -297,6 +302,7 @@ describe('DetailsPanel diff Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
   }
@@ -333,6 +339,6 @@ describe('DetailsPanel diff Output section', () => {
       })],
     }), target)
     expect(view.container.querySelector('[data-diff]')).toBeNull()
-    expect(view.getByText('Output').closest('section')?.querySelector('pre')?.textContent).toBe('permission denied')
+    expect(view.getByText('输出').closest('section')?.querySelector('pre')?.textContent).toBe('permission denied')
   })
 })

@@ -11,9 +11,16 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
-import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { StatsLine, deriveStats, formatDuration, formatTokens, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
+import { zh } from '../src/client/locales.ts'
+
+type BashRowProps = Parameters<typeof BashRow>[0]
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: BashRowProps['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)
 
@@ -168,12 +175,13 @@ describe('bash sample row', () => {
 
   const rowProps = (sessionId: SessionId, over?: {
     store?: ReturnType<typeof listStore>
-  }): ToolRowProps => ({
+  }): BashRowProps => ({
     callId: 'c1', toolName: 'bash', block: result('c1'),
     openFile: vi.fn(),
     sessionId,
     useSessions: bindSnapshotSelector(over?.store ?? listStore()),
-  } as unknown as ToolRowProps)
+    t,
+  } as unknown as BashRowProps)
 
   it('differential rendering: the scoped variant in sub-sessions, global at roots', () => {
     const scoped = render(<BashRow {...rowProps(CHILD)} />)

@@ -52,11 +52,11 @@ export class FakeApiClient implements IApiClient {
     () => Promise.resolve(ok({
       events: [],
       hasMore: false,
-      modelTarget: { provider: 'deepseek', model: 'deepseek-chat' },
+      modelTarget: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))
 
   onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({
-    current: { provider: 'deepseek', model: 'deepseek-chat' },
+    current: { provider: 'deepseek-official', model: 'deepseek-chat' },
     groups: [],
     failures: [],
   }))
@@ -154,6 +154,24 @@ export class FakeApiClient implements IApiClient {
     resume: payload => this.record('goal.resume', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
     complete: payload => this.record('goal.complete', payload, Promise.resolve(ok({ ref: { id: 'fake-goal' as never, revision: 1 } }))),
     clear: payload => this.record('goal.clear', payload, Promise.resolve(ok({ cleared: true as const }))),
+  }
+
+  readonly settings: IApiClient['settings'] = {
+    describe: payload => this.record('settings.describe', payload, Promise.resolve(ok({ writable: true, namespaces: [] }))),
+    update: payload => this.record('settings.update', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
+    replace: payload => this.record('settings.replace', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
+    mutate: payload => this.record('settings.mutate', payload, Promise.resolve(ok({ ns: 'fake', schema: {}, value: {}, applies: 'live' as const, secrets: [], revision: 0 }))),
+  }
+
+  readonly credentials: IApiClient['credentials'] = {
+    describe: payload => this.record('credentials.describe', payload, Promise.resolve(ok({ credentials: {} }))),
+    set: payload => this.record('credentials.set', payload, Promise.resolve(ok({}))),
+    unset: payload => this.record('credentials.unset', payload, Promise.resolve(ok({}))),
+  }
+
+  readonly llm: IApiClient['llm'] = {
+    providers: payload => this.record('llm.providers', payload, Promise.resolve(ok({ providers: [] }))),
+    models: payload => this.record('llm.models', payload, Promise.resolve(ok({ groups: [], failures: [] }))),
   }
 
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */

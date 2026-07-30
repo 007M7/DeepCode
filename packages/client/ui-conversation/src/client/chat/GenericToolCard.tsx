@@ -9,7 +9,7 @@ import {
   IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconSparkle16,
   IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ToolRowOwnerProps } from '../contract/slots.ts'
+import type { ChatViewSlotProps, ToolRowOwnerProps } from '../contract/slots.ts'
 import { diffCardModel } from '../contract/diff-card-model.ts'
 import { terminalCardModel } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
@@ -27,13 +27,19 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
   others: <IconSparkle16 size={14} />,
 }
 
-export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
+/** Card props: the owner payload plus the render site's locale seat (plain prop). */
+export interface GenericToolCardProps extends ToolRowOwnerProps {
+  t: ChatViewSlotProps['t']
+}
+
+export function GenericToolCard({ toolName, block, cwd, openFile, t }: GenericToolCardProps) {
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
   const diff = diffCardModel(block)
   const singleFile = model.filePath !== undefined
   return (
     <ToolRow
+      t={t}
       variant={model.variant}
       toolName={toolName}
       icon={VARIANT_ICONS[model.variant]}
