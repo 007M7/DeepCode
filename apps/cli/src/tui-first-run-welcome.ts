@@ -7,8 +7,9 @@
  * @module @deepseek-ai/dsh/tui-first-run-welcome
  */
 
-import { lstat, mkdir, open, rm } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { lstat, mkdir, open, rename, rm } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import type { Context } from 'cordis'
 import {
   Key,
@@ -97,9 +98,9 @@ export async function hasTuiFirstRunWelcomeAcknowledgement(
 }
 
 /**
- * Persist one version acknowledgement as an immutable exclusive marker.
- * Concurrent launches race only on file creation: the winner syncs the marker,
- * and every loser accepts the same already-published regular file.
+ * Persist one version acknowledgement by syncing a random same-directory file
+ * before atomically replacing the immutable marker. Concurrent launches publish
+ * the same fact, so same-value last-writer-wins replacement loses no state.
  * @param dshHome - Resolved Harness home.
  * @param version - Copy version being acknowledged.
  */
@@ -109,32 +110,24 @@ export async function acknowledgeTuiFirstRunWelcome(
 ): Promise<void> {
   const path = tuiFirstRunWelcomeAcknowledgementPath(dshHome, version)
   const directory = dirname(path)
+  const temp = join(directory, `.${basename(path)}.${randomUUID()}.tmp`)
   await mkdir(directory, { recursive: true, mode: 0o700 })
   await syncDirectory(dirname(directory))
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
-    handle = await open(path, 'wx', 0o600)
-  } catch (error) {
-    /* v8 ignore else -- the only expected race is another creator publishing this exact marker */
-    if ((error as NodeJS.ErrnoException | null)?.code === 'EEXIST') {
-      /* v8 ignore else -- EEXIST is accepted only after the winner is verified as a regular marker */
-      if (await hasTuiFirstRunWelcomeAcknowledgement(dshHome, version)) return
-    }
-    /* v8 ignore next -- unexpected filesystem failures pass through unchanged */
-    throw error
-  }
-  try {
+    handle = await open(temp, 'wx', 0o600)
     await handle.sync()
     const created = handle
     handle = undefined
     await created.close()
+    await rename(temp, path)
     await syncDirectory(directory)
   } catch (error) {
     /* v8 ignore start -- fault-injected UI coverage proves failed acknowledgements stay uncommitted and retryable */
     try {
       await handle?.close()
     } finally {
-      await rm(path, { force: true })
+      await rm(temp, { force: true })
     }
     throw error
     /* v8 ignore stop */

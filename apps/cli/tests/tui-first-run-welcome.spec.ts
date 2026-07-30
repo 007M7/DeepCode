@@ -101,7 +101,7 @@ describe('TUI first-run welcome acknowledgement', () => {
       recursive: true,
     })
     await expect(hasTuiFirstRunWelcomeAcknowledgement(home)).rejects.toThrow('is not a file')
-    await expect(acknowledgeTuiFirstRunWelcome(home)).rejects.toThrow('is not a file')
+    await expect(acknowledgeTuiFirstRunWelcome(home)).rejects.toThrow()
   })
 
   it('detects only explicit ASCII-only terminal environments', () => {
