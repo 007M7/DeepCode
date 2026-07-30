@@ -14,19 +14,19 @@ Send cancellation resolves the current foreground process group and delivers a r
 
 ## Model Experience
 
-### Indirect consumer
+### Current file policy and indirect consumer
 
 #### What the model sees
 
-Nothing directly. Through `@deepseek-ai/dsh-tool-pty`, the model may receive bounded MOTD, send deltas, scrollback pages, readiness reasons, and cleanup errors.
+This backend contributes the terminal family to the owner-rendered `sandbox:policy` section. Through `@deepseek-ai/dsh-tool-pty` or another PTY consumer, the model may also receive bounded MOTD, send deltas, scrollback pages, readiness reasons, and cleanup errors.
 
 #### Token effect
 
-None until a consumer returns bounded backend output. Retained PTY scrollback is not placed in model history by this package.
+The current-policy clause is present while this backend is mounted. Retained PTY scrollback is not placed in model history until a consumer returns bounded output.
 
 #### KV Cache effect
 
-No direct invalidation; the consumer owns prompts, schemas, and appended results.
+A standing-policy or terminal-family change updates the owner-rendered request prefix; consumer results remain append-only.
 
 ## Known Limitations and Deferred Work
 

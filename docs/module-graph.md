@@ -456,9 +456,6 @@ flowchart TD
   pkg_sandbox_local --> pkg_invariants
   pkg_sandbox_local --> pkg_llm
   pkg_sandbox_local --> pkg_sandbox
-  pkg_sandbox_policy --> pkg_invariants
-  pkg_sandbox_policy --> pkg_sandbox
-  pkg_sandbox_policy --> pkg_session
   pkg_session_projection --> pkg_invariants
   pkg_session_projection --> pkg_session
   pkg_llm_retry --> pkg_agent
@@ -540,6 +537,11 @@ flowchart TD
   pkg_pty --> pkg_agent
   pkg_pty --> pkg_brand
   pkg_pty --> pkg_invariants
+  pkg_sandbox_policy --> pkg_agent
+  pkg_sandbox_policy --> pkg_invariants
+  pkg_sandbox_policy --> pkg_sandbox
+  pkg_sandbox_policy --> pkg_session
+  pkg_sandbox_policy --> pkg_system_prompt
   pkg_scripts --> pkg_app_boot
   pkg_scripts --> pkg_invariants
   pkg_session_projection_cache --> pkg_invariants
@@ -1079,7 +1081,6 @@ flowchart TD
 | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`lsp-local`](../packages/lsp/lsp-local) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
-| [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |
 | [`session-projection`](../packages/session-projection/session-projection) | `session-projection` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`llm-retry`](../packages/llm/llm-retry) | `llm` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`goal`](../packages/goal/goal) | `goal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session-projection/session-projection) |
@@ -1100,6 +1101,7 @@ flowchart TD
 | [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`tmux-context`](../packages/context/tmux-context) | `context` | [`agent`](../packages/core/agent), [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`pty`](../packages/pty/pty) | `pty` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
+| [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`agent`](../packages/core/agent), [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`scripts`](../packages/sdk/scripts) | `sdk` | [`app-boot`](../packages/ui/app-boot), [`invariants`](../packages/support/invariants) |
 | [`session-projection-cache`](../packages/session-projection/session-projection-cache) | `session-projection` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence), [`session-projection`](../packages/session-projection/session-projection), [`storage-domain`](../packages/storage/storage-domain) |
 | [`tasks`](../packages/tasks/tasks) | `tasks` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |

@@ -27,6 +27,7 @@
     "apps/web/tests/queue-actions.e2e.ts",
     "apps/web/tests/skill-invocation-policy.e2e.ts",
     "apps/web/tests/permission-policy-context.e2e.ts",
+    "apps/web/tests/sandbox-policy-wording.experiment.e2e.ts",
     "apps/cli/tests/**/*.ts",
     "examples/*/src/**/*.ts",
     "examples/*/start.ts",

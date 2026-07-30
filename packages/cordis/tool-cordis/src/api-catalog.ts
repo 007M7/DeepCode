@@ -513,6 +513,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'The sandbox-policy service (`ctx.sandboxPolicy`).',
     methods: [
       {
+        signature: 'registerEnforcedFamily(family: \'filesystem\' | \'bash\' | \'terminal\'): () => void',
+        jsDoc: '/**\n * Register one runtime contribution that enforces the shared file policy for\n * a model-facing operation family. Equal families remain independently\n * disposable; registration and removal invalidate assembled prompt caches\n * when a system-prompt service is active.\n * @param family - operation family whose file effects this contribution enforces.\n * @returns the exact Cordis effect disposer for this contribution.\n */',
+      },
+      {
         signature: 'resolve(request: SandboxPolicyRequest = {}): SandboxExecutionPolicy',
         jsDoc: '/**\n * Resolve the complete policy for one capability call. An approved explicit\n * mode outranks the session\'s last `sandbox/mode` event, which outranks the\n * deployment default. A session cwd is its workspace-write boundary; the\n * configured root is the fallback for agentless calls and sessions without a\n * cwd.\n * @param request - optional session and approved mode override.\n * @returns the fully resolved per-call mode and absolute workspace root.\n */',
       },

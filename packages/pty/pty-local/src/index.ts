@@ -129,5 +129,6 @@ export class LocalPtyBackend implements PtyBackend {
 export function apply(ctx: Context, config: Config): void {
   validateConfig(config)
   const inspector = createProcessInspector()
+  ctx.sandboxPolicy.registerEnforcedFamily('terminal')
   ctx.pty.registerBackend(new LocalPtyBackend(ctx, config, inspector))
 }

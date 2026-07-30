@@ -1017,9 +1017,19 @@ Source: [`packages/sandbox/sandbox/src/index.ts:131`](../../packages/sandbox/san
 
 ## `ctx.sandboxPolicy` — `SandboxPolicyService`
 
-The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode, fallback workspace root, and current request-time policy section. Tool layers call resolve for each execution so a session's mode log and immutable cwd travel together to every enforcing capability.
+The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mode, fallback workspace root, enforcing-family contributions, and current request-time policy section. Tool layers call resolve for each execution so a session's mode log and immutable cwd travel together to every enforcing capability.
 
 ```ts cordis-catalog
+/**
+ * Register one runtime contribution that enforces the shared file policy for
+ * a model-facing operation family. Equal families remain independently
+ * disposable; registration and removal invalidate assembled prompt caches
+ * when a system-prompt service is active.
+ * @param family - operation family whose file effects this contribution enforces.
+ * @returns the exact Cordis effect disposer for this contribution.
+ */
+registerEnforcedFamily(family: 'filesystem' | 'bash' | 'terminal'): () => void
+
 /**
  * Resolve the complete policy for one capability call. An approved explicit
  * mode outranks the session's last `sandbox/mode` event, which outranks the
@@ -1041,7 +1051,7 @@ overrideOf(session: Session): SandboxMode | undefined
 
 Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:90`](../../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:116`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 

@@ -76,7 +76,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/examples/agent-spine-demo': { kind: 'indirect', reason: 'The bundle only mounts model-facing child plugins.' },
   'packages/fs/fs': { kind: 'indirect', reason: 'The service interface delegates model rendering to dsh-tool-fs.' },
   'packages/fs/fs-local': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-fs.' },
-  'packages/fs/fs-sandbox': { kind: 'indirect', reason: 'The provider backend delegates model rendering to dsh-tool-fs.' },
   'packages/hooks/hook-protocol': { kind: 'indirect', reason: 'Only the hook bridge plugins render decoded hook output to a model.' },
   'packages/host/apiproxy': { kind: 'none', reason: 'The wire contract and fetch carriers move already-composed messages and register no model surface.' },
   'packages/host/directory-picker': { kind: 'none', reason: 'The GUI-host picking seam registers no model surface.' },

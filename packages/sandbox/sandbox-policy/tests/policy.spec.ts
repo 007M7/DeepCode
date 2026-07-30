@@ -10,10 +10,9 @@ import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SandboxPolicyService, { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 
 async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}) {
   const ctx = new Context()
@@ -130,6 +129,7 @@ describe('SandboxPolicyService', () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     const fiber = await ctx.plugin(SandboxPolicyService, {})
+    ctx.sandboxPolicy.registerEnforcedFamily('filesystem')
     expect(ctx.sandboxPolicy).toBeDefined()
     expect(await policySection(ctx, session('sess-hmr'))).toContain('read-only')
     await fiber.dispose()
@@ -146,38 +146,95 @@ describe('sandbox:policy request context', () => {
     return ctx
   }
 
-  it('states the fresh read-only consequences before a tool attempt', async () => {
+  it('omits policy prose when no enforcing family is registered', async () => {
     const ctx = await promptMounted()
-    const text = await policySection(ctx, session('sess-read-only', '/projects/read-only'))
-    expect(text).toBe('Current DSH file sandbox policy: read-only. Ordinary file writes, edits, and file-mutating shell effects are denied; required sinks such as `/dev/null` may remain writable. Host OS permissions and sandbox-backend availability may restrict operations further. This policy does not govern network or process access.')
+    expect(await policySection(ctx, session('sess-no-family'))).toBe('')
   })
 
-  it('states canonical workspace and temporary roots under workspace-write', async () => {
+  it.each([
+    [['filesystem'], 'Current DSH file policy: read-only. The write and edit tools cannot modify files under this policy.'],
+    [['bash'], 'Current DSH file policy: read-only. One-shot bash commands cannot modify files under this policy.'],
+    [['terminal'], 'Current DSH file policy: read-only. Terminal sessions cannot modify files under this policy.'],
+    [['filesystem', 'bash'], 'Current DSH file policy: read-only. The write and edit tools and one-shot bash commands cannot modify files under this policy.'],
+    [['filesystem', 'terminal'], 'Current DSH file policy: read-only. The write and edit tools and terminal sessions cannot modify files under this policy.'],
+    [['bash', 'terminal'], 'Current DSH file policy: read-only. One-shot bash commands and terminal sessions cannot modify files under this policy.'],
+    [['filesystem', 'bash', 'terminal'], 'Current DSH file policy: read-only. The write and edit tools, one-shot bash commands, and terminal sessions cannot modify files under this policy.'],
+  ] as const)('states read-only consequences for %j', async (families, expected) => {
+    const ctx = await promptMounted()
+    for (const family of [...families].reverse()) ctx.sandboxPolicy.registerEnforcedFamily(family)
+    expect(await policySection(ctx, session(`sess-read-only-${families.join('-')}`))).toBe(expected)
+  })
+
+  it('states the portable workspace guarantee without enumerating host temp paths', async () => {
     const ctx = await promptMounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
+    ctx.sandboxPolicy.registerEnforcedFamily('filesystem')
+    ctx.sandboxPolicy.registerEnforcedFamily('bash')
+    ctx.sandboxPolicy.registerEnforcedFamily('terminal')
     const active = session('sess-workspace-write', '/projects/../projects/current')
-    const policy = ctx.sandboxPolicy.resolve({ session: active })
-    const roots = writableRoots(policy)
-    const text = await policySection(ctx, active)
-    expect(text).toBe(`Current DSH file sandbox policy: workspace-write. File writes, edits, and file-mutating shell effects are limited to these canonical writable roots: ${roots.map(root => JSON.stringify(root)).join(', ')}. Host OS permissions and sandbox-backend availability may restrict operations further. This policy does not govern network or process access.`)
-    expect(roots[0]).toBe(resolve('/projects/current'))
-    expect(roots).toContain(canonicalPath('/tmp'))
+    expect(await policySection(ctx, active)).toBe('Current DSH file policy: workspace-write. The write and edit tools, one-shot bash commands, and terminal sessions may modify files under the session workspace: "/projects/current". Some platform temporary areas may also be writable.')
   })
 
-  it('states that danger-full-access adds no DSH file restriction without claiming wider authority', async () => {
+  it('states the exact families bypassed by danger-full-access', async () => {
     const ctx = await promptMounted({ mode: 'danger-full-access' })
-    const text = await policySection(ctx, session('sess-danger', '/projects/current'))
-    expect(text).toBe('Current DSH file sandbox policy: danger-full-access. The DSH file sandbox does not restrict file operations. Host OS permissions and other policies still apply. This policy does not govern network or process access.')
+    ctx.sandboxPolicy.registerEnforcedFamily('filesystem')
+    ctx.sandboxPolicy.registerEnforcedFamily('terminal')
+    expect(await policySection(ctx, session('sess-danger', '/projects/current'))).toBe('Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict the write and edit tools or terminal sessions.')
+  })
+
+  it('renders family contributions independently across mount and repeated disposal', async () => {
+    const ctx = await promptMounted()
+    const active = session('sess-family-lifecycle')
+    const filesystemFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.sandboxPolicy.registerEnforcedFamily('filesystem')
+    }, { inject: ['sandboxPolicy'] }))
+    expect(await policySection(ctx, active)).toContain('The write and edit tools cannot modify files')
+
+    let disposeBashFirst!: () => void
+    const bashFirstFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      disposeBashFirst = inner.sandboxPolicy.registerEnforcedFamily('bash')
+    }, { inject: ['sandboxPolicy'] }))
+    const bashSecondFiber = await ctx.plugin(Object.assign((inner: Context) => {
+      inner.sandboxPolicy.registerEnforcedFamily('bash')
+    }, { inject: ['sandboxPolicy'] }))
+    expect(await policySection(ctx, active)).toContain('The write and edit tools and one-shot bash commands')
+    disposeBashFirst()
+    disposeBashFirst()
+    expect(await policySection(ctx, active)).toContain('The write and edit tools and one-shot bash commands')
+    await bashSecondFiber.dispose()
+    expect(await policySection(ctx, active)).toContain('The write and edit tools cannot modify files')
+    await bashFirstFiber.dispose()
+    await filesystemFiber.dispose()
+    expect(await policySection(ctx, active)).toBe('')
+  })
+
+  it('keeps the complete rendered prompt byte-stable across TMPDIR changes', async () => {
+    const ctx = await promptMounted({ mode: 'workspace-write' })
+    ctx.sandboxPolicy.registerEnforcedFamily('filesystem')
+    const active = session('sess-tmpdir-stability', '/projects/current')
+    const previous = process.env.TMPDIR
+    try {
+      process.env.TMPDIR = '/tmp/first-host-temp'
+      const first = renderPrompt(await ctx.systemPrompt.assemble({ agent: agentFor(active) }))
+      process.env.TMPDIR = '/tmp/second-host-temp'
+      const second = renderPrompt(await ctx.systemPrompt.assemble({ agent: agentFor(active) }))
+      expect(second).toBe(first)
+      expect(second).not.toContain('host-temp')
+    } finally {
+      if (previous === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = previous
+    }
   })
 
   it('reflects the latest durable switch on the next assembly and stays byte-stable otherwise', async () => {
     const ctx = await promptMounted()
+    ctx.sandboxPolicy.registerEnforcedFamily('filesystem')
     const active = session('sess-switch', '/projects/current')
     const first = await policySection(ctx, active)
     expect(await policySection(ctx, active)).toBe(first)
 
     setSandboxMode(active, 'danger-full-access')
     const danger = await policySection(ctx, active)
-    expect(danger).toContain('does not restrict file operations')
+    expect(danger).toContain('does not restrict the write and edit tools')
     expect(await policySection(ctx, active)).toBe(danger)
 
     setSandboxMode(active, 'workspace-write')
@@ -189,6 +246,7 @@ describe('sandbox:policy request context', () => {
     setSandboxMode(active, 'workspace-write')
     const resumed = new Session(active.id, active.events, active.header)
     const ctx = await promptMounted({ mode: 'read-only' })
+    ctx.sandboxPolicy.registerEnforcedFamily('filesystem')
 
     expect(await policySection(ctx, resumed)).toContain('workspace-write')
     expect((await ctx.systemPrompt.assemble()).sections.find(section => section.name === 'sandbox:policy')?.text).toBe('')

@@ -63,6 +63,7 @@ export class SandboxedFileSystem extends LocalFileSystem {
   constructor(ctx: Context, config: Config) {
     super(ctx, config)
     this.defaultMode = ctx.sandboxPolicy.defaultMode
+    ctx.sandboxPolicy.registerEnforcedFamily('filesystem')
   }
 
   /** The deployment default mode — the capability fact the tool layer reads to advertise escalation. */

@@ -1014,7 +1014,7 @@ export interface Config {
 
 Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:66`](../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:91`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 

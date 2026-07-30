@@ -7,12 +7,12 @@
  * `sandbox:policy` system section; request headers therefore reconstruct the
  * same mode and roots the enforcing consumers resolve.
  *
- * Both enforcing capability families read the SAME policy here: the sandboxed
- * bash executor (`@deepseek-ai/dsh-bash-sandbox`) and the sandboxed filesystem
- * provider (`@deepseek-ai/dsh-fs-sandbox`) consume the SAME resolved per-call
- * policy, so bash and fs can never confine to different roots — the split
- * world the sandbox RFC warns about. The service reads session state once at
- * the tool boundary; executors and providers remain session-free.
+ * Enforcing filesystem, one-shot bash, and terminal backends read the SAME
+ * resolved policy here and register their independently disposable model-facing
+ * families. The request section therefore describes only operations this
+ * runtime actually fences, while each backend retains its own enforcement
+ * dialect. The service reads session state once at each operation boundary;
+ * executors and providers remain session-free.
  *
  * @module @deepseek-ai/dsh-sandbox-policy
  */
@@ -21,7 +21,7 @@ import { resolve as resolvePath } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
-import { canonicalPath, writableRoots, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { effectiveSandboxMode } from './session-mode.ts'
@@ -33,15 +33,40 @@ function resolveWorkspaceRoot(path: string): string {
   return resolvePath(canonicalPath(path))
 }
 
-/** Render the current file-effect policy without claiming host or backend capabilities. */
-function renderPolicyContext(policy: SandboxExecutionPolicy): string {
+/** Model-facing operation family whose current file policy is enforced by a runtime contribution. */
+type FilePolicyFamily = 'filesystem' | 'bash' | 'terminal'
+
+/** Canonical model-facing order, independent of plugin load order. */
+const FILE_POLICY_FAMILIES: readonly FilePolicyFamily[] = ['filesystem', 'bash', 'terminal']
+
+const FAMILY_LABELS: Readonly<Record<FilePolicyFamily, string>> = {
+  filesystem: 'the write and edit tools',
+  bash: 'one-shot bash commands',
+  terminal: 'terminal sessions',
+}
+
+/** Join model-facing family names with stable English punctuation. */
+function familyList(families: readonly FilePolicyFamily[], conjunction: 'and' | 'or'): string {
+  const labels = families.map(family => FAMILY_LABELS[family])
+  if (labels.length === 1) return labels[0] as string
+  if (labels.length === 2) return `${labels[0]} ${conjunction} ${labels[1]}`
+  return `${labels.slice(0, -1).join(', ')}, ${conjunction} ${labels.at(-1)}`
+}
+
+/** Render only policy facts shared by every backend enforcing each registered family. */
+function renderPolicyContext(policy: SandboxExecutionPolicy, families: readonly FilePolicyFamily[]): string {
+  if (families.length === 0) return ''
   switch (policy.mode) {
-    case 'read-only':
-      return 'Current DSH file sandbox policy: read-only. Ordinary file writes, edits, and file-mutating shell effects are denied; required sinks such as `/dev/null` may remain writable. Host OS permissions and sandbox-backend availability may restrict operations further. This policy does not govern network or process access.'
-    case 'workspace-write':
-      return `Current DSH file sandbox policy: workspace-write. File writes, edits, and file-mutating shell effects are limited to these canonical writable roots: ${writableRoots(policy).map(root => JSON.stringify(root)).join(', ')}. Host OS permissions and sandbox-backend availability may restrict operations further. This policy does not govern network or process access.`
+    case 'read-only': {
+      const subjects = familyList(families, 'and')
+      return `Current DSH file policy: read-only. ${subjects[0]?.toUpperCase()}${subjects.slice(1)} cannot modify files under this policy.`
+    }
+    case 'workspace-write': {
+      const subjects = familyList(families, 'and')
+      return `Current DSH file policy: workspace-write. ${subjects[0]?.toUpperCase()}${subjects.slice(1)} may modify files under the session workspace: ${JSON.stringify(policy.workspaceRoot)}. Some platform temporary areas may also be writable.`
+    }
     case 'danger-full-access':
-      return 'Current DSH file sandbox policy: danger-full-access. The DSH file sandbox does not restrict file operations. Host OS permissions and other policies still apply. This policy does not govern network or process access.'
+      return `Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict ${familyList(families, 'or')}.`
     /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
     default: {
       const mode: never = policy.mode
@@ -83,9 +108,10 @@ export interface SandboxPolicyRequest {
 
 /**
  * The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment
- * default mode, fallback workspace root, and current request-time policy
- * section. Tool layers call {@link resolve} for each execution so a session's
- * mode log and immutable cwd travel together to every enforcing capability.
+ * default mode, fallback workspace root, enforcing-family contributions, and
+ * current request-time policy section. Tool layers call {@link resolve} for
+ * each execution so a session's mode log and immutable cwd travel together to
+ * every enforcing capability.
  */
 export class SandboxPolicyService extends Service {
   // Inline schema call: the config catalog walks `static Config` statically.
@@ -100,6 +126,8 @@ export class SandboxPolicyService extends Service {
   readonly defaultMode: SandboxMode
   /** The absolute `workspace-write` fallback root for calls without a session cwd. */
   readonly workspaceRoot: string
+  /** Independently disposable enforcement-family contributions. */
+  private readonly enforcedFamilies = new Map<FilePolicyFamily, Set<symbol>>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sandboxPolicy')
@@ -115,10 +143,36 @@ export class SandboxPolicyService extends Service {
         order: 110,
         text: (context) => {
           const session = context.agent?.session
-          return session === undefined ? '' : renderPolicyContext(this.resolve({ session }))
+          return session === undefined ? '' : renderPolicyContext(this.resolve({ session }), this.activeFamilies())
         },
       })
     })
+  }
+
+  /**
+   * Register one runtime contribution that enforces the shared file policy for
+   * a model-facing operation family. Equal families remain independently
+   * disposable; registration and removal invalidate assembled prompt caches
+   * when a system-prompt service is active.
+   * @param family - operation family whose file effects this contribution enforces.
+   * @returns the exact Cordis effect disposer for this contribution.
+   */
+  registerEnforcedFamily(family: 'filesystem' | 'bash' | 'terminal'): () => void {
+    const token = Symbol(family)
+    const dispose = this.ctx.effect(() => {
+      const contributions = this.enforcedFamilies.get(family) ?? new Set<symbol>()
+      contributions.add(token)
+      this.enforcedFamilies.set(family, contributions)
+      this.emitPromptChange()
+      return () => {
+        contributions.delete(token)
+        if (contributions.size === 0 && this.enforcedFamilies.get(family) === contributions) {
+          this.enforcedFamilies.delete(family)
+        }
+        this.emitPromptChange()
+      }
+    }, 'sandboxPolicy.registerEnforcedFamily()')
+    return () => void dispose()
   }
 
   /**
@@ -145,6 +199,16 @@ export class SandboxPolicyService extends Service {
    */
   overrideOf(session: Session): SandboxMode | undefined {
     return effectiveSandboxMode(session.events)
+  }
+
+  /** Active families in canonical model-facing order. */
+  private activeFamilies(): FilePolicyFamily[] {
+    return FILE_POLICY_FAMILIES.filter(family => (this.enforcedFamilies.get(family)?.size ?? 0) > 0)
+  }
+
+  /** Notify prompt consumers only after their registry exists. */
+  private emitPromptChange(): void {
+    if (this.ctx.get('systemPrompt') !== undefined) this.ctx.emit('system-prompt/change')
   }
 }
 

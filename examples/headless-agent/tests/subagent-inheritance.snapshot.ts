@@ -97,6 +97,17 @@ describe('parent-only override inheritance snapshot', () => {
           data: { mode: 'read-only', source: 'delegation' },
         })
 
+        const requestSystems = (content: string): string[] => content.trimEnd().split('\n').flatMap((line) => {
+          const record = JSON.parse(line) as { type?: string; data?: { header?: { system?: unknown } } }
+          const system = record.type === 'request/header' ? record.data?.header?.system : undefined
+          return typeof system === 'string' ? [system] : []
+        })
+        for (const system of [...requestSystems(parent), ...requestSystems(child)]) {
+          expect(system).toContain('The write and edit tools cannot modify files under this policy.')
+          expect(system).not.toContain('one-shot bash commands')
+          expect(system).not.toContain('terminal sessions')
+        }
+
         const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd }
         const normalizedParent = scrubRequestHeaders(normalizeSessionLog(parent, context))
         const normalizedChild = scrubRequestHeaders(normalizeSessionLog(child, context))

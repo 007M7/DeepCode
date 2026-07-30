@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
+import { canonicalPath } from '@deepseek-ai/dsh-sandbox'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, fixtureUserPrompts, launchWebScaffold, recordFixture,
@@ -97,17 +97,12 @@ describe('web e2e: current sandbox policy reaches the model before tools', () =>
   it.skipIf(MODE === 'record')('records each effective policy before the corresponding model behavior', () => {
     const systems = requestSystems(sessionEvents)
     expect(systems).toHaveLength(3)
-    expect(systems[0]).toContain('Current DSH file sandbox policy: read-only. Ordinary file writes, edits, and file-mutating shell effects are denied')
-    expect(systems[1]).toContain('Current DSH file sandbox policy: danger-full-access. The DSH file sandbox does not restrict file operations.')
+    expect(systems[0]).toContain('Current DSH file policy: read-only. The write and edit tools and one-shot bash commands cannot modify files under this policy.')
+    expect(systems[1]).toContain('Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict the write and edit tools or one-shot bash commands.')
     expect(systems[1]).toContain('Approval prompts are disabled in this session')
 
     if (sessionWorkspace === undefined) throw new Error('permission-policy scenario observed no session workspace')
-    const policy = {
-      mode: 'workspace-write' as const,
-      workspaceRoot: canonicalPath(sessionWorkspace),
-    }
-    const roots = writableRoots(policy)
-    expect(systems[2]).toContain(`Current DSH file sandbox policy: workspace-write. File writes, edits, and file-mutating shell effects are limited to these canonical writable roots: ${roots.map(root => JSON.stringify(root)).join(', ')}.`)
+    expect(systems[2]).toContain(`Current DSH file policy: workspace-write. The write and edit tools and one-shot bash commands may modify files under the session workspace: ${JSON.stringify(canonicalPath(sessionWorkspace))}. Some platform temporary areas may also be writable.`)
     expect(systems[2]).not.toContain('Approval prompts are disabled in this session')
 
     const answers = assistantTexts(sessionEvents)
