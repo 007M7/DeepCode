@@ -5,13 +5,8 @@
  */
 
 import { grantArgs as landlockGrantArgs } from 'node-addon-landlock-run'
-import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
+import { writableRoots } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
-
-/** This policy's read denials, canonical and deduplicated like the writable roots. */
-function denyPaths(policy: SandboxPolicy): string[] {
-  return [...new Set((policy.readDenyPaths ?? []).map(path => canonicalPath(path)))]
-}
 
 /**
  * Build the bwrap profile arguments for one file-effect policy.
@@ -24,10 +19,6 @@ export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
     args.push('--tmpfs', '/tmp')
     args.push('--bind', policy.workspaceRoot, policy.workspaceRoot)
   }
-  // Read denials come last so a workspace bind can never re-expose one.
-  // `/dev/null` over the path reads as empty; the `-try` form tolerates a
-  // path that does not exist yet (no credential stored so far).
-  for (const path of denyPaths(policy)) args.push('--ro-bind-try', '/dev/null', path)
   return args
 }
 
@@ -37,10 +28,6 @@ export function bwrapProfileArgs(policy: SandboxPolicy): string[] {
  * @returns launcher grant arguments before the trailing separator and command argv.
  */
 export function landlockProfileArgs(policy: SandboxPolicy): string[] {
-  // Landlock grants are a pure allow-list: a read grant on `/` cannot be
-  // subtracted from, so a requested read denial is unenforceable here. The
-  // provider reports `partial` enforcement for exactly this case rather than
-  // pretending the boundary exists.
   const readWrite = ['/dev/null']
   if (policy.mode === 'workspace-write') {
     readWrite.push('/tmp', policy.workspaceRoot)
@@ -66,14 +53,6 @@ export function seatbeltProfileArgs(policy: SandboxPolicy): string[] {
   const roots = writableRoots(policy)
   if (roots.length > 0) {
     forms.push(`(allow file-write* ${roots.map(root => `(subpath ${sbplString(root)})`).join(' ')})`)
-  }
-  // SBPL applies the last matching rule, so the read denial is appended after
-  // every allow above and governs both reads and writes of those paths. Both
-  // filters are emitted so a denial may name a file or a directory.
-  const denied = denyPaths(policy)
-  if (denied.length > 0) {
-    const filters = denied.map(path => `(literal ${sbplString(path)}) (subpath ${sbplString(path)})`).join(' ')
-    forms.push(`(deny file-read* file-write* ${filters})`)
   }
   return ['-p', forms.join(' ')]
 }

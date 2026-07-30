@@ -3618,9 +3618,6 @@ importers:
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
-      '@deepseek-ai/dsh-paths':
-        specifier: workspace:^
-        version: link:../../util/paths
       '@deepseek-ai/dsh-sandbox':
         specifier: workspace:^
         version: link:../sandbox

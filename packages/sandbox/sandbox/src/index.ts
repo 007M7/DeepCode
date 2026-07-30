@@ -40,18 +40,6 @@ export interface SandboxExecutionPolicy {
   mode: SandboxMode
   /** Absolute root directory `workspace-write` may write under. */
   workspaceRoot: string
-  /**
-   * Absolute paths a confined execution must not READ, whatever the mode
-   * otherwise permits — the harness's own credential document is the
-   * motivating case, which is why these are exact paths rather than roots:
-   * denying the whole harness home would also take away the model's
-   * documented access to its own session log. Not every backend can express
-   * a read denial (a Landlock allow-list granting `/` cannot subtract from
-   * itself), so {@link ConfinedArgv.enforcement} drops to `partial` when a
-   * denial is requested and the selected backend cannot apply it. Never a
-   * boundary under `danger-full-access`, which confines nothing at all.
-   */
-  readDenyPaths?: readonly string[]
 }
 
 /**

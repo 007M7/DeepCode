@@ -32,12 +32,9 @@ External edits publish `credentials/updated` per changed reference after the sna
 
 ## Security boundary
 
-The document is `0600` under a `0700` directory, which stops other OS users — **not** the model. Tool processes (bash, the filesystem tools) run as the same user, so under the shipped `danger-full-access` default they can read this file exactly like any other file the user owns. Two things narrow that:
+The document is `0600` under a `0700` directory, which stops other OS users — **not** the model. Tool processes (bash, the filesystem tools) run as the same user, so under the shipped `danger-full-access` default they can read this file exactly like any other file the user owns, and no sandbox mode singles it out. What the harness does hold to is narrower: it never hands the model a resolved path to the document, and never loads it into the process environment (see [app-boot's Personal config](../../ui/app-boot/README.md#personal-config)), so reaching the value takes a deliberate read of a path the agent was not given.
 
-- A **confining sandbox mode** denies the credential document specifically: [`dsh-sandbox-policy`](../../sandbox/sandbox-policy/README.md) defaults `readDenyPaths` to `$DSH_HOME/.env`, and the Seatbelt and bwrap backends enforce it (Landlock cannot subtract from its own `/` read grant and reports `partial`). The denial names the file, not the home, so the model keeps its documented access to its own session log.
-- The harness never hands the model a resolved path to the document, and never loads it into the process environment (see [app-boot's Personal config](../../ui/app-boot/README.md#personal-config)).
-
-Neither makes an unconfined agent safe. A deployment that must keep provider keys away from its own agent should run a confining mode; an OS-keychain provider — a store the model's processes cannot read at all — is the deferred answer and belongs beside this provider as a sibling package.
+That is discretion, not a boundary. A deployment that must keep provider keys away from its own agent cannot get there with file permissions; an OS-keychain provider — a store the model's processes cannot read at all — is the deferred answer and belongs beside this provider as a sibling package.
 
 ## Model Experience
 

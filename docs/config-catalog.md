@@ -1027,22 +1027,12 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
-  /**
-   * Absolute paths confined executions must not read, whatever their mode
-   * otherwise permits. Omitted (or empty) denies the harness home's
-   * credential document (`$DSH_HOME/.env`) — exactly that file, so the model
-   * keeps the documented access to its own session log under the same home;
-   * a non-empty list replaces it. Backends that cannot express a read denial
-   * report `partial` enforcement instead of pretending, and
-   * `danger-full-access` confines nothing, so no denial applies there at all.
-   */
-  readDenyPaths?: string[]
 }
 ```
 
 Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:45`](../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:44`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 

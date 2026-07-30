@@ -13,12 +13,6 @@ Two families enforce the same mode vocabulary: the sandboxed bash executor (`@de
 - `mode` — the deployment default `SandboxMode` (`read-only` / `workspace-write` / `danger-full-access`), validated at load. Default `read-only` (fail-safe).
 - `workspaceRoot` — the fallback directory `workspace-write` may write under for agentless calls or sessions without a cwd. Default `process.cwd()`, resolved to its absolute filesystem identity either way. A normal agent call uses its session header's immutable `cwd` instead.
 
-## Read denials
-
-`readDenyPaths` names absolute paths a **confined** execution must not read, whatever its mode otherwise permits. Omitted (or empty) denies the harness credential document `$DSH_HOME/.env`; a non-empty list replaces that default. Denials name exact paths rather than roots on purpose: denying the whole harness home would also take away the model's documented access to its own session log.
-
-Enforcement is backend-shaped. Seatbelt appends a trailing `deny file-read* file-write*` (last matching rule wins) and bwrap maps `/dev/null` over each path after any workspace bind; Landlock grants are a pure allow-list, so a read grant on `/` cannot be subtracted from and `confine()` reports `partial` enforcement rather than pretending the boundary exists. `danger-full-access` confines nothing at all, so no denial applies there — the credential document is then protected only by its file mode, which does not stop a same-UID tool process.
-
 ## Surface
 
 - `ctx.sandboxPolicy.resolve({ session?, mode? })` — resolves one complete per-call policy. An explicit approved mode outranks the session's last `sandbox/mode` event, which outranks `defaultMode`; the session's immutable `cwd` is canonicalized with filesystem semantics before becoming `workspaceRoot`, otherwise the configured fallback applies. Canonicalization precedes lexical normalization so `symlink/..` agrees with process working-directory resolution.
