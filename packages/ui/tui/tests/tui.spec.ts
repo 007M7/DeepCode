@@ -29,6 +29,7 @@ import SessionReferenceService, { formatSessionReferenceMention } from '@deepsee
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
+  disposeRootAndExit,
   FILE_REFERENCE_PROMPT,
   mountTui,
   renderSkillInvocation,
@@ -499,6 +500,41 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('session query is not mounted')
+    await dispose(result)
+  })
+
+  it('allows a transient session-query state but rejects a terminal state', async () => {
+    let queryCtx: Context | undefined
+    let listCalls = 0
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        await ctx.plugin({
+          apply(child: Context) {
+            queryCtx = child
+            child.provide('sessionQuery', {
+              listSessions: async () => { listCalls++; return [] },
+            } as never)
+          },
+        })
+      },
+    })
+    if (queryCtx === undefined) throw new Error('query provider did not mount')
+    const activeState = queryCtx.fiber.state
+    queryCtx.fiber.state = 0
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(listCalls).toBe(1)
+    result.terminal.send('\u001B')
+    await tick()
+    queryCtx.fiber.state = 5
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session query is not mounted')
+    expect(listCalls).toBe(1)
+    queryCtx.fiber.state = activeState
     await dispose(result)
   })
 
@@ -4959,6 +4995,59 @@ describe('TUI extension service', () => {
     await secondController.dispose()
     await plugin.dispose()
     await result.ctx.fiber.dispose()
+  })
+})
+
+describe('application exit', () => {
+  it('disposes the root fiber rather than only the TUI child before exiting', async () => {
+    const rootDispose = vi.fn(() => Promise.resolve())
+    const childDispose = vi.fn(() => Promise.resolve())
+    const ctx = {
+      root: { fiber: { dispose: rootDispose } },
+      fiber: { dispose: childDispose },
+    } as unknown as Context
+    const exit = vi.fn()
+    disposeRootAndExit(ctx, 7, exit)
+    await Promise.resolve()
+    expect(rootDispose).toHaveBeenCalledOnce()
+    expect(childDispose).not.toHaveBeenCalled()
+    expect(exit).toHaveBeenCalledOnce()
+    expect(exit).toHaveBeenCalledWith(7)
+  })
+
+  it('forces exit when root disposal does not settle', async () => {
+    vi.useFakeTimers()
+    try {
+      let settle!: () => void
+      const disposal = new Promise<void>((resolve) => { settle = resolve })
+      const ctx = {
+        root: { fiber: { dispose: () => disposal } },
+      } as unknown as Context
+      const exit = vi.fn()
+      disposeRootAndExit(ctx, 9, exit)
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(exit).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(exit).toHaveBeenCalledOnce()
+      expect(exit).toHaveBeenCalledWith(9)
+      settle()
+      await disposal
+      await Promise.resolve()
+      expect(exit).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('exits after a rejected root disposal without an unhandled rejection', async () => {
+    const ctx = {
+      root: { fiber: { dispose: () => Promise.reject(new Error('cleanup failed')) } },
+    } as unknown as Context
+    const exit = vi.fn()
+    disposeRootAndExit(ctx, 5, exit)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(exit).toHaveBeenCalledWith(5)
   })
 })
 
