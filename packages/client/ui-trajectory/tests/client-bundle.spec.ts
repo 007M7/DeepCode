@@ -41,7 +41,7 @@ describe('tsdown client artifact', () => {
     // Same execution form the loader uses (inline script eval, window scope) —
     // the implied-eval ban targets accidental string execution, not this
     // deliberate bundle-execution fixture.
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call
+    // oxlint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
     new Function(code!)()
     expect(handoff).toBeDefined()
     const modules = new Map<string, unknown>([

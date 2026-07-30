@@ -489,7 +489,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Deliver an allowed signal through an owned backend session.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param signal - allowed POSIX signal name.\n * @returns delivered foreground process-group identity.\n */',
       },
       {
-        signature: 'async kill(owner: Agent, id: PtySessionId, reason = \'model request\'): Promise<boolean>',
+        signature: 'async kill(owner: Agent, id: PtySessionId, reason: string = \'model request\'): Promise<boolean>',
         jsDoc: '/**\n * Close one owned session and remove it only after quiescent backend cleanup.\n * @param owner - exact session owner.\n * @param id - target PTY identity.\n * @param reason - diagnostic cleanup reason.\n * @returns true for a newly closed session, false when the same close is already in flight.\n */',
       },
       {
@@ -679,7 +679,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Exact-read consumer that prepares immutable cross-session message context.',
     methods: [
       {
-        signature: 'async listCandidates( agent: Agent, query = \'\', limit = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
+        signature: 'async listCandidates( agent: Agent, query: string = \'\', limit: number = this.config.candidateLimit, signal?: AbortSignal, ): Promise<SessionReferenceCandidate[]>',
         jsDoc: '/**\n * List reference candidates, ranked by working-directory affinity.\n * @param agent - target agent; self is excluded and its cwd drives ranking.\n * @param query - optional case-insensitive session-id/cwd/title substring.\n * @param limit - optional positive result cap.\n * @param signal - optional cancellation boundary for host autocomplete teardown.\n * @returns candidates labeled by latest title or, when absent, session id.\n */',
       },
       {
@@ -1003,6 +1003,40 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'typert',
+    summary: 'Registry of generated schemas and package reflection.',
+    methods: [
+      {
+        signature: 'register(contribution: TypertContribution): () => void',
+        jsDoc: '/**\n * Register one generated contribution atomically for the calling fiber.\n * Duplicate package-face identities or schema keys reject the whole batch.\n * @param contribution - generated schemas and package metadata.\n * @returns the exact effect disposer that removes this contribution.\n */',
+      },
+      {
+        signature: 'get(key: string): TypertSchemaRecord | undefined',
+        jsDoc: '/**\n * Look up one schema by `<package>#<name>`.\n * @param key - global schema key.\n * @returns the live schema record, or `undefined` when absent.\n */',
+      },
+      {
+        signature: 'resolve(key: string): TypertSchemaRecord',
+        jsDoc: '/**\n * Resolve one required schema.\n * @param key - global schema key.\n * @returns the live schema record.\n * @throws when the key is malformed, the package face is absent, or the schema is not contributed.\n */',
+      },
+      {
+        signature: 'list(filter: TypertSchemaFilter = {}): TypertSchemaRecord[]',
+        jsDoc: '/**\n * Enumerate live schemas in registration order.\n * @param filter - optional package and face restriction.\n * @returns matching schema records.\n */',
+      },
+      {
+        signature: 'getPackage(packageName: string, face: TypertFace = \'host\'): TypertPackageRecord | undefined',
+        jsDoc: '/**\n * Look up generated reflection for one package face.\n * @param packageName - exact npm package name.\n * @param face - face to query; defaults to the host runtime.\n * @returns the live package record, or `undefined` when absent.\n */',
+      },
+      {
+        signature: 'listPackages(filter: TypertPackageFilter = {}): TypertPackageRecord[]',
+        jsDoc: '/**\n * Enumerate generated package reflection in registration order.\n * @param filter - optional package and face restriction.\n * @returns matching package records.\n */',
+      },
+      {
+        signature: 'toJSONSchema(key: string, params?: z.core.ToJSONSchemaParams): z.core.JSONSchema.BaseSchema',
+        jsDoc: '/**\n * Project a live Zod schema to JSON Schema without caching the result.\n * @param key - global schema key.\n * @param params - Zod projection parameters.\n * @returns a fresh JSON Schema document.\n */',
+      },
+    ],
+  },
+  {
     key: 'userInteraction',
     summary: '`ctx.userInteraction`: one active UI provider plus an `ask()` surface.',
     methods: [
@@ -1280,34 +1314,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'skills/change\'(): void',
     jsDoc: '/**\n * A skill provider, runtime contribution, or provider-backed catalog may\n * have changed. This is an unfiltered invalidation notification; consumers\n * refetch the catalog for their own lookup options. Listener failures are\n * contained and cannot veto the registry mutation.\n * @mode emit\n */',
     summary: 'A skill provider, runtime contribution, or provider-backed catalog may have changed.',
-  },
-  {
-    name: 'slash/input-begin-command',
-    mode: 'bail',
-    signature: '\'slash/input-begin-command\'(request: BeginCommandRequest): true | undefined',
-    jsDoc: '/**\n * Applies one command claim to the scoped Input. Dispatched with the\n * session\'s scope carrier; the owning session\'s input listener returns\n * `true` only after the phase and span CAS checks pass and the machine\n * actually mutated — producers treat anything else as "not applied".\n * @param request - Claim and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Applies one command claim to the scoped Input.',
-  },
-  {
-    name: 'slash/input-consume-token',
-    mode: 'bail',
-    signature: '\'slash/input-consume-token\'(request: ConsumeTokenRequest): true | undefined',
-    jsDoc: '/**\n * Consumes one command token after business success (popup settle /\n * menu-pick execute). Same carrier routing and applied-truth contract.\n * @param request - Exact span or bare-token guard.\n * @mode bail\n */',
-    summary: 'Consumes one command token after business success (popup settle / menu-pick execute).',
-  },
-  {
-    name: 'slash/input-insert-reference',
-    mode: 'bail',
-    signature: '\'slash/input-insert-reference\'(request: InsertReferenceRequest): true | undefined',
-    jsDoc: '/**\n * Inserts one reference into the scoped Input (same carrier routing and\n * applied-truth contract as begin-command).\n * @param request - Reference and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Inserts one reference into the scoped Input (same carrier routing and applied-truth contract as begin-command).',
-  },
-  {
-    name: 'slash/input-insert-text',
-    mode: 'bail',
-    signature: '\'slash/input-insert-text\'(request: InsertTextRequest): true | undefined',
-    jsDoc: '/**\n * Replaces the trigger token span with literal text — the plain-text\n * reference path (decision 21). Same carrier routing and applied-truth\n * contract; the draft gains ordinary characters, no occurrence entry.\n * @param request - Replacement text and menu-time span CAS.\n * @mode bail\n */',
-    summary: 'Replaces the trigger token span with literal text — the plain-text reference path (decision 21).',
   },
   {
     name: 'subagent/end',
@@ -2697,6 +2703,62 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TurnTriggerMap',
     declaration: 'export interface TurnTriggerMap {\n    message: {\n        kind: \'message\';\n        source: MessageSource;\n    };\n    retry: {\n        kind: \'retry\';\n    };\n    injection: {\n        kind: \'injection\';\n        source: MessageSource;\n    };\n}',
+  },
+  {
+    name: 'TypertContribution',
+    declaration: 'export interface TypertContribution {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly schemas: readonly TypertSchema[];\n    readonly model: TypertPackageModel;\n}',
+  },
+  {
+    name: 'TypertDocTag',
+    declaration: 'export interface TypertDocTag {\n    readonly name: string;\n    readonly argument?: string;\n    readonly comment?: string;\n    readonly text: string;\n}',
+  },
+  {
+    name: 'TypertDocumentation',
+    declaration: 'export interface TypertDocumentation {\n    readonly description?: string;\n    readonly summary?: string;\n    readonly tags: readonly TypertDocTag[];\n    readonly jsDoc?: string;\n}',
+  },
+  {
+    name: 'TypertEventModel',
+    declaration: 'export interface TypertEventModel extends TypertDocumentation {\n    readonly name: string;\n    readonly mode?: string;\n    readonly signature: string;\n}',
+  },
+  {
+    name: 'TypertMemberModel',
+    declaration: 'export interface TypertMemberModel {\n    readonly kind: \'property\' | \'method\' | \'getter\' | \'setter\' | \'call\' | \'construct\' | \'index\';\n    readonly name: string;\n    readonly signature: string;\n    readonly summary?: string;\n    readonly jsDoc?: string;\n}',
+  },
+  {
+    name: 'TypertObjectModel',
+    declaration: 'export interface TypertObjectModel extends TypertDocumentation {\n    readonly name: string;\n    readonly exportName: string;\n    readonly members: readonly TypertMemberModel[];\n    readonly types: readonly TypertTypeModel[];\n}',
+  },
+  {
+    name: 'TypertPackageFilter',
+    declaration: 'export interface TypertPackageFilter {\n    readonly package?: string;\n    readonly face?: TypertFace;\n}',
+  },
+  {
+    name: 'TypertPackageModel',
+    declaration: 'export interface TypertPackageModel {\n    readonly services: readonly TypertServiceModel[];\n    readonly events: readonly TypertEventModel[];\n    readonly objects: readonly TypertObjectModel[];\n}',
+  },
+  {
+    name: 'TypertPackageRecord',
+    declaration: 'export interface TypertPackageRecord {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly key: string;\n    readonly model: TypertPackageModel;\n}',
+  },
+  {
+    name: 'TypertSchema',
+    declaration: 'export interface TypertSchema {\n    readonly name: string;\n    readonly schema: z.ZodType;\n}',
+  },
+  {
+    name: 'TypertSchemaFilter',
+    declaration: 'export interface TypertSchemaFilter {\n    readonly package?: string;\n    readonly face?: TypertFace;\n}',
+  },
+  {
+    name: 'TypertSchemaRecord',
+    declaration: 'export interface TypertSchemaRecord extends TypertSchema {\n    readonly package: string;\n    readonly face: TypertFace;\n    readonly key: string;\n}',
+  },
+  {
+    name: 'TypertServiceModel',
+    declaration: 'export interface TypertServiceModel extends TypertDocumentation {\n    readonly key: string;\n    readonly exportName: string;\n    readonly members: readonly TypertMemberModel[];\n    readonly types: readonly TypertTypeModel[];\n}',
+  },
+  {
+    name: 'TypertTypeModel',
+    declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
   },
   {
     name: 'UserInteractionProvider',

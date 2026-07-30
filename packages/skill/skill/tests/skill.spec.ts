@@ -761,7 +761,7 @@ describe('SkillService registry', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
     const disposeThrowing = ctx.on('skills/change', () => { throw new Error('observer threw') })
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- deliberate rejection proves notification containment
+    // oxlint-disable-next-line typescript/no-misused-promises -- deliberate rejection proves notification containment
     const disposeRejecting = ctx.on('skills/change', () => Promise.reject(new Error('observer rejected')))
     let observed = 0
     const disposeObserver = ctx.on('skills/change', () => { observed += 1 })
@@ -907,7 +907,7 @@ describe('SkillService registry', () => {
       name: 'hostile-failure',
       list() {
         // Deliberately violate the provider contract to prove containment is total.
-        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
         return Promise.reject(hostileFailure)
       },
       async get() {
