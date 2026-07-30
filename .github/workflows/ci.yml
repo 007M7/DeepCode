@@ -27,8 +27,8 @@ env:
 
 jobs:
 
-  # TEMPORARY: the four serial reference jobs remain defined but cannot run.
-  # Restore their master-push conditions to re-enable them.
+  # FIXME: Re-enable the three hosted serial reference jobs before cutting a release.
+  # The self-hosted standby remains active on every master push.
 
   # Three enterprise jobs isolate coverage, static analysis, and the
   # build-backed consumer tail. The static job publishes its exact build so
@@ -42,8 +42,8 @@ jobs:
   # three onto the in-house
   # vm-backup pool and re-running the failed jobs is the entire switch —
   # see .agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md. The
-  # Normally, the in-house pool's readiness is re-proven on every master push
-  # by the serial-linux-selfhosted standby lane below.
+  # in-house pool's readiness is re-proven on every master push by the
+  # serial-linux-selfhosted standby lane below.
   node-24:
     if: github.event_name == 'pull_request'
     runs-on: >-
@@ -431,10 +431,10 @@ jobs:
           cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/"
           du -sh "$HOME/wine-debs"
 
-  # The disabled definitions below normally run on master pushes. When
-  # enabled, each host executes the complete, unsharded primary Node aggregate
-  # with one gate worker, giving reviewers a simple cross-platform oracle for
-  # completeness and timing.
+  # The hosted reference jobs below are temporarily disabled; the self-hosted
+  # standby remains active. Each enabled host executes the complete, unsharded
+  # primary Node aggregate with one gate worker, giving reviewers a simple
+  # cross-platform oracle for completeness and timing.
   serial-linux:
     if: false
     name: serial / linux
@@ -515,7 +515,7 @@ jobs:
   # tool caches make them redundant (and saving here would poison the hosted
   # cache namespace with self-hosted paths).
   serial-linux-selfhosted:
-    if: false
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     name: serial / linux (self-hosted standby)
     runs-on: [self-hosted, linux, x64, vm-backup]
     steps:
