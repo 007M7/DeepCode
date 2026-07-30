@@ -108,7 +108,7 @@ ctx.tools.register(defineTool({
 工具可以选择拥有纯 `presentCall()` 和 `presentResult()` 呈现意图，使 UI 无需特殊处理工具名称：
 
 - 调用视图为 `{ card: 'generic', title, kind?, rawInput?, content?, locations? }`、`{ card: 'terminal', title, description?, cwd? }` 或 `{ card: 'diff', title, diffs, locations? }`。
-- 结果视图为 `{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }` 或 `{ card: 'diff', title?, diffs }`。
+- 结果视图为 `{ card: 'generic', title?, content? }`、`{ card: 'terminal', title?, output?, exitCode?, signal? }`、`{ card: 'diff', title?, diffs }` 或 `{ card: 'web', kind: 'search' | 'fetch', title?, … }`（已完成的 web 检索；`kind` 各分支携带结构化的搜索来源或抓取摘要，不具备 `web` 能力的 UI 回退到原始结果内容）。
 
 返回 `undefined` 会选择通用回退。呈现器只依赖其参数和持久结果，因为 UI 会在实时流式输出和日志回放期间调用它们。`output.presentationMeta(args, value)` 为直接接口调用派生 JSON 元数据；该元数据随 `tool/result` 持久化并传回 `presentResult`，而规范值本身仍只存在于执行局部，绝不会回放。嵌套 Code 分发不会计算元数据。`defineTool` 会软验证较旧的日志参数并回退，而不会使回放崩溃。`dsh-tool-bash` 与 `dsh-tool-fs` 是参考实现；[规范输出 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-20-canonical-tool-output-contract.md) 规定值／呈现拆分，[呈现意图 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-02-tool-render-intent-union.md) 规定卡片词汇。
 
