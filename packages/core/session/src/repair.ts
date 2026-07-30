@@ -11,44 +11,11 @@ import type { ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from './types.ts'
 
 /**
- * Whether the event at `seq` was inherited rather than written by the lifecycle
- * that owns `events` — the stored-history reading of `Session.firstLiveSeq`.
- *
- * An owner of a standalone open/close bracket calls this on an unmatched
- * opening marker: `true` means the operation cannot still be running, because
- * the lifecycle that opened it has ended (a crashed writer, a succeeding
- * process, or a parent the events were forked out of). `false` means it belongs
- * to the current lifecycle and must be treated as live.
- *
- * Reads the log rather than a `Session`, so it serves a consumer holding only
- * loaded events; in-process, compare against `session.firstLiveSeq` instead.
- * @param events - the log to scan, contiguous from seq 0.
- * @param seq - the event seq to classify.
- * @returns true when a `session/inherited` boundary sits at or above `seq`.
- */
-export function isInheritedSeq(events: readonly SessionEvent[], seq: number): boolean {
-  // Tail-first: an unmarked log costs no full scan, and bracket queries are
-  // usually about recent events.
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]
-    /* v8 ignore next -- a contiguous log has no holes; the guard is for the index type */
-    if (event === undefined) continue
-    if (event.seq < seq) return false
-    if (event.type === 'session/inherited') return true
-  }
-  return false
-}
-
-/**
- * The `time` of the log's last event that represents actual work, skipping the
- * `session/inherited` boundary.
- *
- * Picking a session up is not activity, and lazy resume means browsing writes a
- * boundary, so activity ordering (a resume picker, a session list) must skip it
- * or every opened session sorts as freshly worked in.
+ * The `time` of the log's last event representing actual work, skipping the
+ * `session/inherited` boundary — picking a session up is not activity, so
+ * activity ordering must exclude it.
  * @param events - the log to scan, in seq order.
- * @returns the latest non-boundary event's `time`, or undefined when the log has
- *   no such event (empty, or nothing but boundaries).
+ * @returns the latest non-boundary event's `time`, or undefined when there is none.
  */
 export function lastActivityTime(events: readonly SessionEvent[]): number | undefined {
   return events.findLast(event => event.type !== 'session/inherited')?.time

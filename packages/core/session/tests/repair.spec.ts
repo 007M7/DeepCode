@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CallId , createMessage, createToolResultMessage } from '@deepseek-ai/dsh-llm'
-import { interruptedTurnClosers, isInheritedSeq, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '../src/index.ts'
+import { interruptedTurnClosers, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from '../src/index.ts'
 import type { SessionEvent, SurfaceEvent } from '../src/index.ts'
 
 /**
@@ -274,64 +274,6 @@ describe('interruptedTurnClosers', () => {
   })
 })
 
-/**
- * The stored-history reading of the inherited boundary. A bracket owner calls
- * this on an unmatched opening marker to decide whether the operation can still
- * be running, so the classification of the marker's own seq — and of the
- * boundary seq itself — is the contract.
- */
-describe('isInheritedSeq', () => {
-  const inheritedAt = (seq: number): SessionEvent =>
-    ({ type: 'session/inherited', seq, time: seq, data: {} })
-
-  it('classifies nothing as inherited in a log without a boundary', () => {
-    const events: SessionEvent[] = [
-      userTurnStart(1, 0),
-      { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
-    ]
-    expect(isInheritedSeq(events, 0)).toBe(false)
-    expect(isInheritedSeq(events, 1)).toBe(false)
-  })
-
-  it('treats an empty log as owning nothing', () => {
-    expect(isInheritedSeq([], 0)).toBe(false)
-  })
-
-  it('splits the log at the boundary', () => {
-    // seqs 0-1 inherited; the boundary at 2; seq 3 written by this lifecycle.
-    const events: SessionEvent[] = [
-      userTurnStart(1, 0),
-      { type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'completed' } } },
-      inheritedAt(2),
-      userTurnStart(2, 3),
-    ]
-    expect(isInheritedSeq(events, 0)).toBe(true)
-    expect(isInheritedSeq(events, 1)).toBe(true)
-    // The boundary's own seq counts as inherited: it belongs to the pickup.
-    expect(isInheritedSeq(events, 2)).toBe(true)
-    expect(isInheritedSeq(events, 3)).toBe(false)
-  })
-
-  it('reports inherited for an event below a later boundary', () => {
-    // Two pickups in turn: the tail scan must not stop at the nearer boundary.
-    const events: SessionEvent[] = [
-      userTurnStart(1, 0),
-      inheritedAt(1),
-      userTurnStart(2, 2),
-      inheritedAt(3),
-      userTurnStart(3, 4),
-    ]
-    expect(isInheritedSeq(events, 0)).toBe(true)
-    expect(isInheritedSeq(events, 2)).toBe(true)
-    expect(isInheritedSeq(events, 4)).toBe(false)
-  })
-})
-
-/**
- * Activity ordering excludes the pickup boundary. A resume picker or session
- * list sorting by log tail would otherwise promote every session the user
- * merely opened above the ones they actually worked in.
- */
 describe('lastActivityTime', () => {
   const inheritedAt = (seq: number, time: number): SessionEvent =>
     ({ type: 'session/inherited', seq, time, data: {} })

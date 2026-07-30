@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-30-session-inherited-log-boundary.md
-2026-07-30-session-inherited-log-boundary.md: 027281a7555214122b4e2d1f8457d3554a751921
-2026-07-30-session-inherited-log-boundary.zh.md: 3c169e16f0b409f125ccc29226412f239a58c6aa
+2026-07-30-session-inherited-log-boundary.md: 3b9cb09d1d1a16d30fd212b439a97e3d9296bd6d
+2026-07-30-session-inherited-log-boundary.zh.md: de048bc994ca97f937f74783b9055fbeb171314a

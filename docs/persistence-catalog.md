@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:312`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:344`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:270`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:306`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:338`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -408,28 +408,22 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 
 ```ts persistence-catalog
 /**
- * The log-only durable projection of {@link Session.firstLiveSeq}: everything
- * BELOW it was inherited through a constructor seed — resume, fork, or replay
- * — and no writer in this session's lifecycle produced it. Appended as the
- * first live event of every seeded session.
+ * Log-only durable projection of {@link Session.firstLiveSeq}: everything
+ * below it was inherited through a constructor seed (resume, fork, or replay)
+ * and no writer in this lifecycle produced it. Payload is empty — position
+ * and `time` carry the meaning.
  *
- * A plugin owning a standalone open/close bracket (`compact/start` …
- * `compact/end`) needs it because inherited history and live work are
- * otherwise byte-identical: an unmatched opening marker below this boundary
- * belongs to an ended lifecycle, so it is dead whether the writer crashed,
- * the process succeeded it, or the events were forked out of a parent that is
- * still running. Read it through `isInheritedSeq`.
- *
- * NOT a liveness signal about other writers: a concurrently live session may
- * hold an open bracket over the same stored history with its own boundary
+ * An owner of a standalone open/close bracket (`compact/start` …
+ * `compact/end`) reads it because inherited history and live work are
+ * otherwise byte-identical: an unmatched opening marker below the boundary
+ * belongs to an ended lifecycle, whatever ended it. NOT a liveness signal
+ * about other writers — a concurrently live session holds its own boundary
  * elsewhere, so tolerating concurrent writers needs a signal beyond the log.
- *
- * The payload is empty by design — position and `time` carry the meaning.
  */
 'session/inherited': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:272`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 

@@ -92,23 +92,17 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * The log-only durable projection of {@link Session.firstLiveSeq}: everything
-   * BELOW it was inherited through a constructor seed — resume, fork, or replay
-   * — and no writer in this session's lifecycle produced it. Appended as the
-   * first live event of every seeded session.
+   * Log-only durable projection of {@link Session.firstLiveSeq}: everything
+   * below it was inherited through a constructor seed (resume, fork, or replay)
+   * and no writer in this lifecycle produced it. Payload is empty — position
+   * and `time` carry the meaning.
    *
-   * A plugin owning a standalone open/close bracket (`compact/start` …
-   * `compact/end`) needs it because inherited history and live work are
-   * otherwise byte-identical: an unmatched opening marker below this boundary
-   * belongs to an ended lifecycle, so it is dead whether the writer crashed,
-   * the process succeeded it, or the events were forked out of a parent that is
-   * still running. Read it through `isInheritedSeq`.
-   *
-   * NOT a liveness signal about other writers: a concurrently live session may
-   * hold an open bracket over the same stored history with its own boundary
+   * An owner of a standalone open/close bracket (`compact/start` …
+   * `compact/end`) reads it because inherited history and live work are
+   * otherwise byte-identical: an unmatched opening marker below the boundary
+   * belongs to an ended lifecycle, whatever ended it. NOT a liveness signal
+   * about other writers — a concurrently live session holds its own boundary
    * elsewhere, so tolerating concurrent writers needs a signal beyond the log.
-   *
-   * The payload is empty by design — position and `time` carry the meaning.
    */
   'session/inherited': Record<string, never>
 }
@@ -535,7 +529,7 @@ The optional `dsh-session/invariant` companion enforces the relations owned by c
 
 A seeded session — resume, fork, or replay — appends this log-only event as its first live write, at the seq its `firstLiveSeq` names. It is the durable projection of that field: `firstLiveSeq` answers "which prefix did I inherit" for a consumer holding the object, this event for one holding only stored bytes. The payload is empty, so position and `time` carry the whole meaning, and it produces no message. An empty seed writes nothing, and a seed already ending in one is not re-marked, so reopening an untouched session does not grow its log per open.
 
-It exists because inherited history and live work are otherwise byte-identical, which defeats any plugin owning a standalone open/close bracket: an unmatched `compact/start` reads the same whether the writer crashed mid-compaction or is compacting right now. `isInheritedSeq(events, seq)` is the predicate a bracket owner calls — true means the opening marker belongs to an ended lifecycle, whatever ended it (a crash, a succeeding process, or a fork out of a still-running parent). It classifies only brackets *this* session inherited: a concurrently live session holding an open bracket over the same history has its own boundary elsewhere, so tolerating concurrent writers needs a liveness signal beyond the log. Core writes the boundary and reads nothing from it — a bracket's vocabulary stays with its owning plugin, which is why crash repair closes turn/step/tool boundaries and never `compact/*`.
+It exists because inherited history and live work are otherwise byte-identical, which defeats any plugin owning a standalone open/close bracket: an unmatched `compact/start` reads the same whether the writer crashed mid-compaction or is compacting right now. An opening marker below the boundary belongs to an ended lifecycle, whatever ended it (a crash, a succeeding process, or a fork out of a still-running parent), so its owner may treat it as dead. That covers only brackets *this* session inherited: a concurrently live session holding an open bracket over the same history has its own boundary elsewhere, so tolerating concurrent writers needs a liveness signal beyond the log. Core writes the boundary and reads nothing from it — a bracket's vocabulary stays with its owning plugin, which is why crash repair closes turn/step/tool boundaries and never `compact/*`.
 
 Activity ordering excludes the boundary through `lastActivityTime(events)`: picking a session up is not work, and lazy resume means browsing writes one, so a resume picker or session list ordering by log tail would float every opened session to the top.
 

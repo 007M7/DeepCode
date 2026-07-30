@@ -92,23 +92,17 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
-   * The log-only durable projection of {@link Session.firstLiveSeq}: everything
-   * BELOW it was inherited through a constructor seed — resume, fork, or replay
-   * — and no writer in this session's lifecycle produced it. Appended as the
-   * first live event of every seeded session.
+   * Log-only durable projection of {@link Session.firstLiveSeq}: everything
+   * below it was inherited through a constructor seed (resume, fork, or replay)
+   * and no writer in this lifecycle produced it. Payload is empty — position
+   * and `time` carry the meaning.
    *
-   * A plugin owning a standalone open/close bracket (`compact/start` …
-   * `compact/end`) needs it because inherited history and live work are
-   * otherwise byte-identical: an unmatched opening marker below this boundary
-   * belongs to an ended lifecycle, so it is dead whether the writer crashed,
-   * the process succeeded it, or the events were forked out of a parent that is
-   * still running. Read it through `isInheritedSeq`.
-   *
-   * NOT a liveness signal about other writers: a concurrently live session may
-   * hold an open bracket over the same stored history with its own boundary
+   * An owner of a standalone open/close bracket (`compact/start` …
+   * `compact/end`) reads it because inherited history and live work are
+   * otherwise byte-identical: an unmatched opening marker below the boundary
+   * belongs to an ended lifecycle, whatever ended it. NOT a liveness signal
+   * about other writers — a concurrently live session holds its own boundary
    * elsewhere, so tolerating concurrent writers needs a signal beyond the log.
-   *
-   * The payload is empty by design — position and `time` carry the meaning.
    */
   'session/inherited': Record<string, never>
 }
@@ -539,7 +533,7 @@ interface TurnEndReasonMap {
 
 带种子的会话（恢复、fork 或重放）把这个仅日志事件作为自己的第一次实时写入追加，位置正是 `firstLiveSeq` 指出的 seq。它是该字段的持久投影：`firstLiveSeq` 为持有对象的消费方回答"我继承了哪一段前缀"，这个事件则为只持有存储字节的消费方回答同一问题。payload 为空，因此位置与 `time` 承载全部含义，且不产生任何消息。空种子不写入任何内容；种子本身已以该事件结尾时不会重复标记，因此重新打开一个未被改动的会话不会每次打开都增长日志。
 
-它之所以必要，是因为继承历史与实时工作在字节层面完全相同，这会让任何拥有独立开／闭括号的插件失效：一个未配对的 `compact/start`，无论写入方是在压缩中途崩溃、还是此刻正在压缩，读起来都一样。`isInheritedSeq(events, seq)` 就是括号所有方调用的谓词——为真意味着该开启标记属于一个已结束的生命周期，无论结束原因为何（崩溃、进程接替，或从仍在运行的父会话 fork 出来）。它只判定*本*会话继承的括号：另一个并发存活的会话可能在同一段历史上持有开放括号，而它自己的边界在别处，因此容忍并发写入方还需要日志之外的存活信号。核心写入该边界但不从中读取任何内容——括号的词汇表仍归其所属插件，这也正是崩溃修复只关闭轮次／步骤／工具边界而从不处理 `compact/*` 的原因。
+它之所以必要，是因为继承历史与实时工作在字节层面完全相同，这会让任何拥有独立开／闭括号的插件失效：一个未配对的 `compact/start`，无论写入方是在压缩中途崩溃、还是此刻正在压缩，读起来都一样。边界之下的开启标记属于一个已结束的生命周期，无论结束原因为何（崩溃、进程接替，或从仍在运行的父会话 fork 出来），因此其所有方可以视之为已死。这只覆盖*本*会话继承的括号：另一个并发存活的会话可能在同一段历史上持有开放括号，而它自己的边界在别处，因此容忍并发写入方还需要日志之外的存活信号。核心写入该边界但不从中读取任何内容——括号的词汇表仍归其所属插件，这也正是崩溃修复只关闭轮次／步骤／工具边界而从不处理 `compact/*` 的原因。
 
 活动排序通过 `lastActivityTime(events)` 排除该边界：接手会话不算工作，而惰性恢复意味着浏览就会写入一个，因此按日志尾部排序的恢复选择器或会话列表会把每个打开过的会话顶到最前。
 
