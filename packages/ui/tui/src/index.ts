@@ -1676,7 +1676,9 @@ export function apply(ctx: Context, config: Config): void {
     initialSkill === undefined ? {} : { initialSkill },
   ), {
     terminal: new ProcessTerminal(),
-    exit: code => process.exit(code),
+    exit: (code) => {
+      void ctx.fiber.dispose().finally(() => { process.exit(code) })
+    },
     ...resumeHost === undefined ? {} : { handoffResume: (sessionId, cwd) => resumeHost.handoff(sessionId, cwd) },
     ...goodbyeMessage === undefined ? {} : { goodbyeMessage },
   })

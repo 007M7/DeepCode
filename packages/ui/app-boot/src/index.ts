@@ -208,7 +208,7 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
  * (see {@link resolveConfigPath}).
  * @param patches - optional overlay patches applied over the included tree
  * (see {@link loadPersonalPatches}); an empty list mounts none.
- * @param prepare - optional host setup run against the root context before any Loader entry mounts.
+ * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
  * @returns the root context once every entry has started.
  */
 export async function boot(
@@ -218,10 +218,10 @@ export async function boot(
   prepare?: (ctx: Context) => Promise<void> | void,
 ): Promise<Context> {
   const ctx = new Context()
-  await prepare?.(ctx)
   ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
+  await prepare?.(ctx)
   await ctx.loader.create({
     name: 'cordis:include',
     config: {

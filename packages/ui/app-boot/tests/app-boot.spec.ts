@@ -195,7 +195,11 @@ describe('boot', () => {
     writeFileSync(join(dir, 'noop.mjs'), 'export const name = "noop"\nexport function apply() {}\n')
     writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
     const prepared: Context[] = []
-    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, (hostCtx) => { prepared.push(hostCtx) })
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, (hostCtx) => {
+      expect(hostCtx.loader).toBeDefined()
+      expect([...hostCtx.loader.entries()]).toEqual([])
+      prepared.push(hostCtx)
+    })
     try {
       expect(prepared).toEqual([ctx])
     } finally {

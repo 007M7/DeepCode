@@ -144,23 +144,15 @@ export async function runTui(
   const entry = process.argv[1]
   const execve = process.execve?.bind(process)
   const app: { current?: Context } = {}
-  // Resuming reproduces THIS invocation with a different id. Meta mode is a
-  // subcommand that rejects `--config`, while the default surface carries it, so
-  // both the in-place handoff and the printed command derive from one shape.
-  // `meta` is only reproducible for a target inside this checkout: it chdirs to
-  // SOURCE_ROOT itself, which would override any other workspace, so a
-  // cross-workspace resume takes the default surface and the caller supplies the
-  // directory instead.
-  const resumeArgs = (sessionId: string, targetCwd?: string): string[] =>
-    workspace !== undefined && (targetCwd === undefined || targetCwd === workspace)
-      ? ['meta', `--resume=${sessionId}`]
-      : [
-        `--resume=${sessionId}`,
-        // Both config flags must survive the handoff: resuming into a different
-        // tree than the session was created in would silently change the agent.
-        ...resolvedConfig !== undefined ? ['--config', resolvedConfig] : [],
-        ...resolvedConfigReplace !== undefined ? ['--config-replace', resolvedConfigReplace] : [],
-      ]
+  // Resume always enters the default surface because meta rejects parent
+  // options, including `--resume`. The resumed session already persists its cwd.
+  const resumeArgs = (sessionId: string, _targetCwd?: string): string[] => [
+    `--resume=${sessionId}`,
+    // Both config flags must survive the handoff: resuming into a different
+    // tree than the session was created in would silently change the agent.
+    ...resolvedConfig !== undefined ? ['--config', resolvedConfig] : [],
+    ...resolvedConfigReplace !== undefined ? ['--config-replace', resolvedConfigReplace] : [],
+  ]
   // Mint the fresh id here rather than in the app bundle: the exit line names
   // the session to resume, so the launcher must know it before the tree boots.
   const identity: MainSessionIdentity = resumeSessionId === undefined
