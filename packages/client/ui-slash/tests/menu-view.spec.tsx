@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 /**
  * MenuView rendering spec, props-direct (slot-parity doctrine): closed store
- * renders null, groups render in roster order with pending rows as loading,
- * pointer picks route (source, index) back without stealing focus, and the
- * highlight is exposed through aria-activedescendant + aria-selected.
+ * renders null, groups render in roster order under localized title rows
+ * (unknown sources fall back to the raw name) with pending rows as loading,
+ * pointer picks route (source, index) back without stealing focus, the
+ * highlight is exposed through aria-activedescendant + aria-selected, and
+ * the list height clamps to the space above the composer.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MenuState, TriggerHit } from '@deepseek-ai/dsh-client-ui-slash/client'
@@ -34,13 +36,35 @@ function openState(partial?: Partial<MenuState>): MenuState {
   }
 }
 
-afterEach(cleanup)
+// jsdom has no scrollIntoView; the view calls it on the highlighted option.
+const scrollIntoView = vi.fn()
+beforeEach(() => {
+  Element.prototype.scrollIntoView = scrollIntoView
+  scrollIntoView.mockClear()
+})
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+// Dictionary-backed fake mirroring the LocaleService key fallback (an
+// unknown key comes back verbatim, so unknown sources show their raw name).
+const DICT: Record<string, string> = { command: 'Commands', skill: 'Skills', loading: 'Loading…' }
+const t = (key: string) => DICT[key] ?? key
 
 function mount(state: MenuState) {
   const menu = createSnapshotStore<MenuState>(state)
   const onPick = vi.fn()
-  const view = render(<MenuView menu={menu} onPick={onPick} />)
-  return { menu, onPick, view }
+  const onDismiss = vi.fn()
+  const view = render(<MenuView menu={menu} onPick={onPick} onDismiss={onDismiss} t={t} />)
+  return { menu, onPick, onDismiss, view }
+}
+
+/** The non-interactive group title rows (role=presentation), in document order. */
+function titles(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('div[role="presentation"][data-source]')]
+    .map(el => el.textContent ?? '')
 }
 
 describe('MenuView', () => {
@@ -57,7 +81,19 @@ describe('MenuView', () => {
     mount(openState())
     const options = screen.getAllByRole('option')
     expect(options.map(o => o.textContent)).toEqual(['⚑goalSet up a goal', 'plan'])
-    expect(screen.queryByText('Loading skill…')).not.toBeNull()
+    expect(screen.queryByText('Loading…')).not.toBeNull()
+  })
+
+  it('titles each group with the localized source name, raw name for unknown sources, none for empty ready groups', () => {
+    const { view } = mount(openState({
+      groups: [
+        { source: 'command', status: 'ready', items: [{ name: 'goal' }] },
+        { source: 'hollow', status: 'ready', items: [] },
+        { source: 'mystery', status: 'ready', items: [{ name: 'x' }] },
+        { source: 'skill', status: 'pending', items: [] },
+      ],
+    }))
+    expect(titles(view.container)).toEqual(['Commands', 'mystery', 'Skills'])
   })
 
   it('exposes the highlight via aria-activedescendant and aria-selected', () => {
@@ -73,6 +109,79 @@ describe('MenuView', () => {
   it('omits aria-activedescendant without a highlight', () => {
     mount(openState({ highlight: null }))
     expect(screen.getByRole('listbox').getAttribute('aria-activedescendant')).toBeNull()
+  })
+
+  it('scrolls the highlighted option into view when the highlight moves', () => {
+    const { menu } = mount(openState())
+    scrollIntoView.mockClear()
+    act(() => { menu.set(openState({ highlight: { source: 'command', index: 1 } })) })
+    const options = screen.getAllByRole('option')
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(options[1])
+  })
+
+  it('caps the list height at the design maximum when the composer sits low enough', () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 800 } as DOMRect)
+    mount(openState())
+    expect(screen.getByRole('listbox').style.maxHeight).toBe('320px')
+  })
+
+  it('clamps the list height to the space above the composer minus the safe margin', () => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect)
+    mount(openState())
+    expect(screen.getByRole('listbox').style.maxHeight).toBe('188px')
+  })
+
+  it('re-fits the height when the window resizes', () => {
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect')
+    rect.mockReturnValue({ bottom: 800 } as DOMRect)
+    mount(openState())
+    expect(screen.getByRole('listbox').style.maxHeight).toBe('320px')
+    rect.mockReturnValue({ bottom: 100 } as DOMRect)
+    act(() => { window.dispatchEvent(new Event('resize')) })
+    expect(screen.getByRole('listbox').style.maxHeight).toBe('88px')
+  })
+
+  it('pointerdown outside the menu (no composer card ancestor) dismisses', () => {
+    const { onDismiss } = mount(openState())
+    fireEvent.pointerDown(document.body)
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('pointerdown inside the list does not dismiss', () => {
+    const { onDismiss } = mount(openState())
+    fireEvent.pointerDown(screen.getAllByRole('option')[0]!)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('pointerdown inside the surrounding composer card does not dismiss; outside it does', () => {
+    const menu = createSnapshotStore<MenuState>(openState())
+    const onDismiss = vi.fn()
+    render(
+      <div data-composer-card="">
+        <MenuView menu={menu} onPick={vi.fn()} onDismiss={onDismiss} t={t} />
+        <button type="button" data-testid="composer-button" />
+      </div>,
+    )
+    fireEvent.pointerDown(screen.getByTestId('composer-button'))
+    expect(onDismiss).not.toHaveBeenCalled()
+    fireEvent.pointerDown(document.body)
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a pointerdown whose target is not a DOM node', () => {
+    const { onDismiss } = mount(openState())
+    const ev = new Event('pointerdown', { bubbles: true })
+    Object.defineProperty(ev, 'target', { value: {} })
+    document.dispatchEvent(ev)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it('closing the menu removes the dismiss listener', () => {
+    const { menu, onDismiss } = mount(openState())
+    act(() => { menu.set(CLOSED) })
+    fireEvent.pointerDown(document.body)
+    expect(onDismiss).not.toHaveBeenCalled()
   })
 
   it('mousedown on a row picks (source, index) and prevents the focus steal', () => {

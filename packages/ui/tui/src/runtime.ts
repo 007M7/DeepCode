@@ -12,12 +12,17 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 /** Process-lifecycle owner used by the shipped CLI for an atomic resume handoff. */
 export interface TuiResumeHost {
   /**
-   * Dispose the current app and replace it with a runtime for `sessionId`.
-   * Success does not return. A host may reject before it commits teardown;
-   * after commit it owns fatal reporting and process exit.
+   * Dispose the current app and replace it with a runtime for `sessionId` in
+   * `cwd`. Success does not return. A host may reject before it commits
+   * teardown; after commit it owns fatal reporting and process exit.
    * @param sessionId - validated persisted session selected by the user.
+   * @param cwd - the selected session's own workspace, which the replacement
+   *   process must run in: process cwd, not the restored session header, is what
+   *   filesystem and shell tools resolve against. It may differ from the current
+   *   workspace, so a host that cannot enter it must reject before committing
+   *   teardown.
    */
-  handoff(sessionId: SessionId): Promise<never>
+  handoff(sessionId: SessionId, cwd: string): Promise<never>
 }
 
 /** Runtime boundary used by the interactive TUI. */
@@ -40,6 +45,13 @@ export interface TuiRuntime {
   gitBranch?: (cwd: string) => string | undefined
   /** Monotonic-enough wall clock for elapsed status rendering. Defaults to `Date.now`. */
   now?(): number
-  /** Host-owned process handoff; absent leaves `resumeCommand` as the fallback. */
+  /** Host-owned process handoff; absent leaves the session selectable but not resumable in place. */
   handoffResume?: TuiResumeHost['handoff']
+  /**
+   * Line the host wants printed once the terminal is released on exit, such as
+   * the command that resumes this session. Absent prints nothing. The host owns
+   * the wording; the TUI owns rendering and escapes terminal controls, so
+   * embedded ANSI is shown literally rather than applied.
+   */
+  goodbyeMessage?: string
 }

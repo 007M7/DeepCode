@@ -45,7 +45,7 @@ export interface Config {
  * project directory and the fallback parent for name-created Workspaces.
  */
 export class ApiProxyService extends Service implements ApiProxy {
-  static inject = ['agents', 'llm', 'sessions', 'tools', 'userInteraction', 'workspace']
+  static inject = ['agents', 'directoryPicker', 'llm', 'sessions', 'tools', 'userInteraction', 'workspace']
 
   static Config: z<Config> = z.object({
     provider: z.string().required(),

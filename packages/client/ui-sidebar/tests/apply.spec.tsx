@@ -2,6 +2,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { SidebarRootInjected } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
@@ -14,6 +15,7 @@ async function bench(declare = true) {
   ctx.provide('layout', layout)
   ctx.provide('sessions', sessions as never)
   ctx.provide('workspaces', workspaces as never)
+  ctx.provide('locale', new LocaleService(ctx))
   const slots = ctx.get('slots') as SlotsService
   if (declare) {
     slots.register(
@@ -26,7 +28,7 @@ async function bench(declare = true) {
 
 describe('ui-sidebar apply', () => {
   it('declares only the services it uses', () => {
-    expect(inject).toEqual(['slots', 'layout', 'sessions', 'workspaces'])
+    expect(inject).toEqual(['slots', 'layout', 'sessions', 'workspaces', 'locale'])
   })
 
   it('registers the shell and declares the browsing-region hole', async () => {
@@ -34,6 +36,8 @@ describe('ui-sidebar apply', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     expect(b.slots.entries('sidebar')).toHaveLength(1)
     expect(b.slots.spec('sidebar.workspaces')).toEqual({ kind: 'single', scope: 'root' })
+    // Copy rides the standard locale seat, not the inject face.
+    expect(b.slots.entries('sidebar')[0]!.locale).toBe('sidebar')
     const injected = (b.slots.entries('sidebar')[0]!.inject as () => SidebarRootInjected)()
     expect(Object.keys(injected)).toEqual(['startSession', 'toggleSidebar'])
     // Both arms delegate to the runtime's shared New Session action.

@@ -1,6 +1,7 @@
 /**
  * Conservative readable-tree rendering for model-facing text containing one XML
- * document, used by the transcript's tool and context cards.
+ * document, used by the transcript's tool cards for unknown tool results. Injected
+ * context is prose and is not parsed; only {@link preview} is shared with its card.
  * @module @deepseek-ai/dsh-tui/components/xml-tool-output
  */
 
@@ -76,26 +77,42 @@ function meaningfulChildren(element: XmlElement): readonly XmlNode[] {
   return element.children.filter(child => typeof child !== 'string' || child.trim() !== '')
 }
 
-function textBlock(text: string, depth: number): string[] {
-  return text.replace(/^\n|\n$/gu, '').split('\n').map(line => `${'  '.repeat(depth)}${line}`)
+function textBlock(text: string, depth: number, body: (text: string) => string): string[] {
+  return text.replace(/^\n|\n$/gu, '').split('\n')
+    .map(line => line === '' ? line : `${'  '.repeat(depth)}${body(line)}`)
 }
 
-function treeLines(element: XmlElement, depth: number, label: (text: string) => string): string[] {
+function treeLines(
+  element: XmlElement,
+  depth: number,
+  label: (text: string) => string,
+  body: (text: string) => string,
+): string[] {
   const indent = '  '.repeat(depth)
   const children = meaningfulChildren(element)
   if (children.length === 0) return [`${indent}${label(elementLabel(element))}`]
   if (children.length === 1 && typeof children[0] === 'string' && !children[0].includes('\n')) {
-    return [`${indent}${label(`${elementLabel(element)}:`)} ${children[0].trim()}`]
+    return [`${indent}${label(`${elementLabel(element)}:`)} ${body(children[0].trim())}`]
   }
   const lines = [`${indent}${label(elementLabel(element))}`]
   for (const child of children) {
-    if (typeof child === 'string') lines.push(...textBlock(child, depth + 1))
-    else lines.push(...treeLines(child, depth + 1, label))
+    if (typeof child === 'string') lines.push(...textBlock(child, depth + 1, body))
+    else lines.push(...treeLines(child, depth + 1, label, body))
   }
   return lines
 }
 
-function preview(lines: readonly string[], limit: number, omitted: (count: number) => string): string[] {
+/**
+ * Collapse `lines` to a head/tail preview around one omitted-count marker.
+ * The single fold rule for every transcript card, so a card's fold never depends
+ * on how its body was rendered: tool cards share it with their tree output and
+ * context cards apply it to prose rows.
+ * @param lines - Fully rendered body rows.
+ * @param limit - Maximum retained rows, excluding the marker.
+ * @param omitted - Renders the marker for the omitted row count.
+ * @returns `lines` unchanged when within `limit`, else head rows, the marker, and tail rows.
+ */
+export function preview(lines: readonly string[], limit: number, omitted: (count: number) => string): string[] {
   if (lines.length <= limit) return [...lines]
   const head = Math.ceil(limit / 2)
   const tail = limit - head
@@ -104,13 +121,15 @@ function preview(lines: readonly string[], limit: number, omitted: (count: numbe
 
 /**
  * Render a complete XML document as an indented tree, or decline without changing partial/mixed text.
- * @param source - Raw model-facing text from a context message or unknown tool result.
+ * @param source - Raw model-facing text from an unknown tool result.
  * @param maxChildLines - Collapsed budget independently applied to each top-level child's lines and
  * to the number of top-level children, so many siblings cannot grow the collapsed card without bound.
  * @param expanded - Whether to retain every rendered child line.
  * @param display - Escapes parsed text and attribute values for terminal output; character references
  * can expand to control characters that pre-parse escaping never saw.
  * @param label - Styles element names and attributes.
+ * @param body - Styles the text content under those elements; the card's body tone, so tree
+ * content matches the surrounding card rows instead of falling back to the default foreground.
  * @param omitted - Renders the omitted-line marker for a collapsed child or child range.
  * @returns Tree rows, or `undefined` when `source` is not one supported complete XML document.
  */
@@ -120,12 +139,13 @@ export function renderUnknownXml(
   expanded: boolean,
   display: (text: string) => string,
   label: (text: string) => string,
+  body: (text: string) => string,
   omitted: (count: number) => string,
 ): string[] | undefined {
   const root = parseXml(source, display)
   if (root === undefined) return undefined
   const blocks = meaningfulChildren(root).map(child =>
-    typeof child === 'string' ? textBlock(child, 1) : treeLines(child, 1, label))
+    typeof child === 'string' ? textBlock(child, 1, body) : treeLines(child, 1, label, body))
   const rootLine = label(elementLabel(root))
   if (expanded) return [rootLine, ...blocks.flat()]
   const previewed = blocks.map(block => preview(block, maxChildLines, omitted))

@@ -49,7 +49,7 @@ describe('render branch tails', () => {
     const view = render(
       <StatsLine useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
     )
-    expect(view.getByText('cache hit 0% · 15 tokens · 2 turns · 3 steps')).toBeTruthy()
+    expect(view.container.textContent).toBe('2 turns · 3 steps|Cache hit 0%|Input 9 tok · Output 6 tok')
   })
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {

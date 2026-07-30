@@ -19,6 +19,7 @@ import type {
   LlmResolvedModelInfo,
   Message,
   StreamChunk,
+  TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
@@ -233,6 +234,8 @@ function oversizedToolResult(chars = 3_000, withCompactablePrompt = false): Sess
 
 class TestCompactService extends BasicCompactService {
   summary: ContentBlock[] = [{ type: 'text', text: 'small checkpoint' }]
+  rawOutput: ContentBlock[] | undefined
+  usage: TokenUsage | undefined
   summaryProvider = 'summary-provider'
   summaryModel = 'summary-model'
   error: unknown
@@ -243,15 +246,24 @@ class TestCompactService extends BasicCompactService {
     input: SummarizationInput,
     _agent: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+  ): Promise<{
+    summary: ContentBlock[]
+    rawOutput?: ContentBlock[]
+    provider: string
+    model: string
+    maxTokens?: number
+    usage?: TokenUsage
+  }> {
     this.calls.push({ input, signal })
     this.mutateDuringSummary?.()
     if (this.error !== undefined) throw this.error
     return {
       summary: this.summary,
+      ...this.rawOutput === undefined ? {} : { rawOutput: this.rawOutput },
       provider: this.summaryProvider,
       model: this.summaryModel,
       maxTokens: 123,
+      ...this.usage === undefined ? {} : { usage: this.usage },
     }
   }
 }
@@ -829,6 +841,11 @@ describe('optional model-free tool-result pruning', () => {
 describe('compaction region transaction', () => {
   it('lands a framed, replayable checkpoint with exact pricing provenance', async () => {
     const compact = service()
+    compact.rawOutput = [
+      { type: 'reasoning', text: 'private compact thought' },
+      ...compact.summary,
+    ]
+    compact.usage = { inputTokens: 40, outputTokens: 5 }
     const session = conversation(3)
     const before = [...session.surface.nodes]
     const result = await compact.compactRegion(
@@ -849,6 +866,8 @@ describe('compaction region transaction', () => {
       provider: 'summary-provider',
       model: 'summary-model',
       maxTokens: 123,
+      rawOutput: compact.rawOutput,
+      usage: compact.usage,
     })
     const head = session.deriveMessages()[0]!
     expect(head.content[0]?.type).toBe('text')
@@ -1088,6 +1107,7 @@ describe('compaction region transaction', () => {
 
 class ScriptedAdapter extends LlmAdapter {
   lastOptions: GenerateOptions | undefined
+  usage: TokenUsage | undefined
 
   constructor(
     private readonly blocks: readonly ContentBlock[],
@@ -1108,6 +1128,7 @@ class ScriptedAdapter extends LlmAdapter {
         yield { type: 'block-end', index, block }
       }
     }
+    if (this.usage !== undefined) yield { type: 'usage', usage: this.usage }
     yield { type: 'finish', reason: this.finish }
   }
 }
@@ -1117,7 +1138,14 @@ class ExposedCompactService extends BasicCompactService {
     input: SummarizationInput,
     owner: Agent,
     signal?: AbortSignal,
-  ): Promise<{ summary: ContentBlock[]; provider: string; model: string; maxTokens?: number }> {
+  ): Promise<{
+    summary: ContentBlock[]
+    rawOutput?: ContentBlock[]
+    provider: string
+    model: string
+    maxTokens?: number
+    usage?: TokenUsage
+  }> {
     return this.summarize(input, owner, signal)
   }
 }
@@ -1150,13 +1178,20 @@ describe('default one-shot summarizer', () => {
       maxTokens: 321,
     })
     const session = conversation(1)
+    adapter.usage = { inputTokens: 12, outputTokens: 3 }
     const output = await compact.runSummarize(promptInput('transcript'), agent(session, 'fallback'), SIGNAL)
 
     expect(output).toEqual({
       summary: [{ type: 'text', text: 'public summary' }],
+      rawOutput: [
+        { type: 'reasoning', text: 'private' },
+        { type: 'text', text: 'public summary' },
+        { type: 'tool-call', id: CallId('unexpected'), name: 'x', arguments: '{}' },
+      ],
       provider: MODEL,
       model: MODEL,
       maxTokens: 321,
+      usage: adapter.usage,
     })
     expect(adapter.lastOptions).toMatchObject({
       provider: MODEL,

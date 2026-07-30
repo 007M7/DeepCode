@@ -4,7 +4,7 @@ import LlmService, { createUserMessage, CallId, MessageSource, ProviderRequestId
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent, type InboxPlacement } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent, type InboxItem, type InboxPlacement } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { ReactLoopAgent } from '../src/agent.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -52,6 +52,111 @@ function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
 function send(agent: Agent, text: string) {
   agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
+
+function inboxText(item: InboxItem): string {
+  return item.message.content
+    .flatMap(block => block.type === 'text' ? [block.text] : [])
+    .join('')
+}
+
+describe('addressable inbox operations', () => {
+  it('edits in place and removes exactly one queued item', async () => {
+    const adapter = new MockAdapter([
+      textResponse('first reply'),
+      textResponse('edited reply'),
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('inbox-actions'), { provider: 'mock', model: 'mock' })
+    const admission = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('agent/prompt-submit', async (_subject, message, _signal, next) => {
+      if (message.content[0]?.type === 'text' && message.content[0].text === 'first') {
+        admission.resolve(undefined)
+        await release.promise
+      }
+      return next()
+    })
+
+    const pending: InboxItem[] = []
+    const updates: { id: string; text: string }[] = []
+    const discards: string[][] = []
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent && inboxText(item) !== 'first') pending.push(item)
+    })
+    ctx.on('agent/inbox/update', (subject, item) => {
+      if (subject === agent) updates.push({ id: item.id, text: inboxText(item) })
+    })
+    ctx.on('agent/inbox/discard', (subject, items) => {
+      if (subject === agent) discards.push(items.map(item => item.id))
+    })
+
+    send(agent, 'first')
+    await admission.promise
+    send(agent, 'remove me')
+    send(agent, 'edit me')
+    expect(pending.map(inboxText)).toEqual(['remove me', 'edit me'])
+
+    const remove = pending[0]!
+    const edit = pending[1]!
+    expect(agent.updateInbox(edit.id, {
+      kind: 'edit',
+      content: [{ type: 'text', text: 'edited' }],
+    })).toBe('applied')
+    expect(agent.updateInbox(remove.id, { kind: 'remove' })).toBe('applied')
+    expect(updates).toEqual([{ id: edit.id, text: 'edited' }])
+    expect(discards).toEqual([[remove.id]])
+
+    const idle = waitForIdle(ctx, agent)
+    release.resolve(undefined)
+    await idle
+    expect(agent.session.events
+      .filter(event => event.type === 'user/message')
+      .map(event => event.type === 'user/message'
+        ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+        : ''))
+      .toEqual(['first', 'edited'])
+    expect(agent.updateInbox(edit.id, { kind: 'remove' })).toBe('not-found')
+  })
+
+  it('does not mutate steering occurrences', async () => {
+    const adapter = new MockAdapter([textResponse('done')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('steering-inbox-actions'), { provider: 'mock', model: 'mock' })
+    const entered = Promise.withResolvers<undefined>()
+    const decision = Promise.withResolvers<{ kind: 'allow' }>()
+    ctx.on('agent/prompt-submit', async () => {
+      entered.resolve(undefined)
+      return decision.promise
+    })
+
+    const pending: InboxItem[] = []
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent && item.placement === 'steering') pending.push(item)
+    })
+
+    const idle = waitForIdle(ctx, agent)
+    send(agent, 'admitted prompt')
+    await entered.promise
+    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'keep me' }], source: { kind: 'user' } }))
+    expect(pending.map(inboxText)).toEqual(['keep me'])
+
+    const steering = pending[0]!
+    expect(agent.updateInbox(steering.id, {
+      kind: 'edit',
+      content: [{ type: 'text', text: 'edited' }],
+    })).toBe('not-found')
+    expect(agent.updateInbox(steering.id, { kind: 'remove' })).toBe('not-found')
+
+    decision.resolve({ kind: 'allow' })
+    await idle
+    expect(agent.session.events
+      .filter(event => event.type === 'steering/message')
+      .map(event => event.type === 'steering/message'
+        ? event.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+        : ''))
+      .toEqual(['keep me'])
+  })
+})
 
 describe('assistant replay provenance', () => {
   it('records adapter replay state with the assembled assistant content', async () => {
@@ -502,10 +607,10 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     const queuedSources: MessageSource[] = []
     const queuedShapes: string[][] = []
     const placements: InboxPlacement[] = []
-    ctx.on('agent/inbox/enqueue', (_agent, message, placement) => {
-      queuedSources.push(message.source)
-      queuedShapes.push(Object.keys(message).sort())
-      placements.push(placement)
+    ctx.on('agent/inbox/enqueue', (_agent, item) => {
+      queuedSources.push(item.message.source)
+      queuedShapes.push(Object.keys(item.message).sort())
+      placements.push(item.placement)
     })
 
     send(agent, 'go') // no explicit source → default {kind:'user'} must be visible

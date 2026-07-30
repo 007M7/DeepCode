@@ -57,7 +57,7 @@ When `run_in_background` is true, this plugin preflights `ctx.tasks.start()` bef
 
 ## UI presentation
 
-The tool owns its `presentCall`/`presentResult` render intent. A foreground call is a terminal card carrying command, description, cwd, raw output, and parsed exit status. A background start is a generic execute card because it returns only a task id; the generic `task_*` tools own their own cards. These presenters are pure and replay-safe.
+The tool owns its `presentCall`/`presentResult` render intent. A foreground call is a terminal card carrying command, description, cwd, output, and parsed exit status. Because the card shows the exit as its own pill, the `[exit code: N]` / `[killed by signal: …]` marker the parse consumes leaves the output; every other marker (truncation, timeout, sandbox) stays in it. A background start is a generic execute card because it returns only a task id; the generic `task_*` tools own their own cards. These presenters are pure and replay-safe.
 
 ## The tool builds its request from named args only
 
@@ -153,6 +153,6 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 ## Known Limitations and Deferred Work
 
-- **Replay exit pills parse from result text** — output whose final line happens to be exactly `[exit code: N]` / `[killed by signal: …]` shows a wrong pill on session replay; a display-only known residual.
+- **Replay exit pills parse from result text** — output whose final line happens to be exactly `[exit code: N]` / `[killed by signal: …]` shows a wrong pill on session replay and loses that line from the card body, because the parse treats it as the marker it consumes; a display-only known residual.
 - **The `bash` tool opts out of `timeout-policy` budgets** — it keeps the executor-owned `BASH_TIMEOUT` path, per [the tool-call timeout-policy Agent Note](../../../.agents/notes/implemented/architecture/2026-07-07-tool-call-timeout-policy.md).
 - **Background processes have no executor timeout** — callers must use `task_kill`, or rely on owner/service disposal, when work no longer matters.
