@@ -48,9 +48,13 @@ interface EventRelation {
   listeners: Set<string>
 }
 
-interface PackageSource {
+/** One scanned package source file and its owning package short name. */
+export interface PackageSource {
+  /** Repository-relative path. */
   rel: string
+  /** Package short name from the `packages/<group>/<pkg>/src` path. */
   pkg: string
+  /** The bound program source file. */
   sourceFile: ts.SourceFile
 }
 
@@ -685,11 +689,16 @@ function renderAppComposition(example: AppExample): string {
 
 type CallSiteIndex = Map<ts.SignatureDeclaration | ts.JSDocSignature, ts.CallExpression[]>
 
-/** The only method names visitSource classifies; receiver typing runs on these alone. */
+/**
+ * The only method names visitSource classifies; receiver typing runs on these
+ * alone. Obligation: every method name matched by a branch inside visitSource
+ * must appear here — the prefilter drops non-members before any branch runs,
+ * so a branch for an unlisted name is silently dead.
+ */
 const EVENT_API_METHODS = new Set(['on', 'once', 'emit', 'parallel', 'serial', 'waterfall', 'dispatch'])
 
 /** Collect event dispatch/listener relations from real cross-file receiver types. */
-class EventRelationCollector {
+export class EventRelationCollector {
   private readonly relations = new Map<string, EventRelation>()
   private readonly fileCallSites = new Map<ts.SourceFile, CallSiteIndex>()
   private readonly localCalleeProofs = new Map<ts.FunctionDeclaration, boolean>()
@@ -767,14 +776,21 @@ class EventRelationCollector {
   }
 
   /**
-   * Prove every same-file reference to one helper is a direct callee. Alias
-   * escapes (re-export statements, default exports, value reads) resolve back
-   * to the owner symbol at a non-callee position and fail the proof, as does
-   * anything the scan cannot positively classify.
+   * Prove every same-file reference to one helper is a direct callee. The
+   * proof owns its premises: an exported helper or a helper in a global
+   * script file (no import/export means program-wide scope, callable from
+   * another file with no same-file reference at all) fails immediately.
+   * Alias escapes (re-export statements, default exports, value reads)
+   * resolve back to the owner symbol at a non-callee position and fail the
+   * proof, as does anything the scan cannot positively classify.
    */
   private provenLocalCallee(owner: ts.FunctionDeclaration): boolean {
     const cached = this.localCalleeProofs.get(owner)
     if (cached !== undefined) return cached
+    if (hasExportModifier(owner) || !ts.isExternalModule(owner.getSourceFile())) {
+      this.localCalleeProofs.set(owner, false)
+      return false
+    }
     const name = owner.name
     const ownerSymbol = name && this.project.checker.getSymbolAtLocation(name)
     let proven = !!ownerSymbol
