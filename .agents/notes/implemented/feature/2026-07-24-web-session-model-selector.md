@@ -18,7 +18,7 @@ The browser `ModelService` owns one `ModelDirectory` per live session. Its snaps
 
 `@deepseek-ai/dsh-client-ui-conversation` declares the session-scoped single slot `conversation.input.model` as a child of its composer-bar entry. InputBar renders the seat in its trailing controls immediately before the pending indicator and primary button; the seat receives the bar's `locked` owner prop and session scope. `@deepseek-ai/dsh-client-ui-model` occupies that seat and also contributes `/model` over the same directory. Its compact trigger displays the catalog model name and effective reasoning label, falling back to ids when metadata is absent. The upward menu first offers Model and, when the current exact model supports it, Effort; Model drills into provider groups, while Effort drills into the adapter-ordered levels. The provider-default row appears only when the adapter does not configure a model default.
 
-The production browser roster is the flat config tree in `apps/cli/cordis.yml`; the model feature is one `dshClient` row rather than a package hardcoded in Web boot code. Its package manifest orders it after the runtime and command feature, while Cordis service injection waits for the conversation slot before registering the composer occupant.
+The production browser roster is assembled from `apps/cli/config/base.cordis.yml` plus `apps/cli/config/web.cordis.yml`; the model feature is one `dshClient` row rather than a package hardcoded in Web boot code. Its package manifest orders it after the runtime and command feature, while Cordis service injection waits for the conversation slot before registering the composer occupant.
 
 ## Alternatives considered
 
