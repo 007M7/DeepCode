@@ -24,6 +24,67 @@ export * from './deferred.ts'
 /** Slot contract table. Owners extend via declaration merging; entries are {@link SlotEntryDef}. */
 export interface SlotMap {}
 
+/**
+ * Locale namespace table. Dictionary owners extend via declaration merging
+ * (exactly like {@link SlotMap}, and declared in this entry module for the
+ * same lexical-merge reason): the key is the namespace string, the value is
+ * the union of its dictionary keys. Register sites declare one of these
+ * namespaces (`locale:`), which puts the typed `t` standard seat on the
+ * component props.
+ */
+export interface LocaleNamespaceMap {}
+
+/**
+ * Translate a dictionary key with optional `{name}` template params.
+ * `K` narrows the accepted keys to the owning namespace's dictionary union
+ * (plus the shared common vocabulary where composed).
+ */
+export type Translate<K extends string = string> =
+  (key: K, params?: Record<string, unknown>) => string
+
+/**
+ * The shared `common` vocabulary keys as merged by the locale plugin;
+ * resolves to `never` in programs without the merge (this package's tests),
+ * keeping the union collapse harmless.
+ */
+export type CommonKeyOf = LocaleNamespaceMap extends { common: infer C } ? C & string : never
+
+/**
+ * Key domain of a namespace-bound translate: the namespace's own dictionary
+ * union plus the shared common vocabulary (the lookup chain consults common
+ * after the namespace misses).
+ */
+export type LocaleKeysOf<N extends keyof LocaleNamespaceMap & string> =
+  (LocaleNamespaceMap[N] & string) | CommonKeyOf
+
+/**
+ * Namespace-addressed translate — the developer-facing alias over
+ * {@link Translate}: `TranslateNS<'model'>` is the translate function of the
+ * `model` namespace (key domain = its dictionary union plus the shared
+ * common vocabulary), the exact type of the framework-injected `t` seat and
+ * of the locale service's typed `bind`.
+ */
+export type TranslateNS<N extends keyof LocaleNamespaceMap & string> = Translate<LocaleKeysOf<N>>
+
+/**
+ * Dictionary shape for a declared namespace: exactly the keys the namespace
+ * merged into {@link LocaleNamespaceMap} — a missing or extra key at a typed
+ * registration site is a compile error.
+ */
+export type LocaleDictOf<N extends keyof LocaleNamespaceMap & string> =
+  Record<LocaleNamespaceMap[N] & string, string>
+
+/**
+ * Locale share of the composed component props: the framework-injected `t`
+ * seat, present exactly on entries whose registration declares `locale:`.
+ */
+export type PropsLocale<N> = N extends keyof LocaleNamespaceMap & string
+  ? {
+    /** Translate a dictionary key of the declared namespace (or the shared common vocabulary). */
+    t: TranslateNS<N>
+  }
+  : object
+
 /** Slot cardinality: single occupant, ordered list, key-dispatched, or selector-routed chain. */
 export type SlotKind = 'single' | 'list' | 'keyed' | 'chain'
 
@@ -244,10 +305,11 @@ export type InjectFace<I extends object> =
   I extends { hooks: infer HS extends HooksSources } ? Omit<I, 'hooks'> & PropsHooks<HS> : I
 
 /**
- * The four-share component props intersection: runtime share (SlotMap) +
+ * The composed component props intersection: runtime share (SlotMap) +
  * child-render share (children declaration) + store share (declared handle) +
  * the registrant's injected business face (its hooks compartment bound, see
- * {@link InjectFace}). Each share derives from its single source of truth;
+ * {@link InjectFace}) + the locale `t` seat (declared namespace, see
+ * {@link PropsLocale}). Each share derives from its single source of truth;
  * components reference this composition, never re-type it.
  */
 export type ComposedProps<
@@ -256,7 +318,8 @@ export type ComposedProps<
   H,
   I extends object,
   M = never,
-> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & InjectFace<I> & MatchedShare<SlotMap[K], M>
+  N = undefined,
+> = PropsRuntime<K> & PropsRenderSlots<S> & PropsStore<H> & InjectFace<I> & MatchedShare<SlotMap[K], M> & PropsLocale<N>
 
 /**
  * Inject factory parameter list, derived from the registration's declaration:
@@ -303,13 +366,20 @@ type RendersCheck<C, D> =
       : unknown
 
 /** Common register options share (see {@link SlotCore.register} for semantics). */
-type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M = never> = {
+type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M = never, N = undefined> = {
   /** Target slot key (the entry contributes INTO this slot). */
   name: K
   /** Child-slot declaration + render authorization + runtime spec, in one table. */
   children?: D
   /** Store seat: a shared handle (apply-constructed) or an exclusive factory (framework-called per entry x scope). */
   store?: H
+  /**
+   * Dictionary namespace of this entry's copy. Declaring it puts the
+   * framework-synthesized `t` seat (typed to the namespace's dictionary
+   * union) on the component props; rendering requires an installed locale
+   * face — fails loud otherwise.
+   */
+  locale?: N
   /** Registrant identity label for diagnostics (the runtime Service wrapper stamps the caller's fiber name). */
   registrant?: string
 } & KindOptions<SlotMap[K], M>
@@ -330,6 +400,8 @@ export interface StoredEntry {
   children?: Readonly<Record<string, SlotSpec<SlotEntryDef>>> | undefined
   /** Declared store seat (instance resolution and lifecycle live with the host machinery). */
   store?: StoreDecl | undefined
+  /** Declared dictionary namespace (the render machinery synthesizes the `t` seat from it). */
+  locale?: string | undefined
   /** Diagnostics label of who registered. */
   registrant?: string | undefined
 }
@@ -350,6 +422,7 @@ interface ErasedOptions {
   priority?: number | undefined
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
   store?: StoreDecl | undefined
+  locale?: string | undefined
   /* oxlint-disable-next-line typescript/no-explicit-any --
    * implementation-signature position only (both public overloads type inject
    * exactly); `never[]` would fail overload-to-implementation compatibility
@@ -427,16 +500,20 @@ export class SlotCore {
    * @returns disposer removing the registration and its declarations
    * (idempotent; stale disposers after a cascade are no-ops).
    */
+  /* jscpd:ignore-start -- the two register overloads are deliberately
+   * parallel declarations differing only in the inject share; folding them
+   * would lose the per-overload inference of I. */
   register<
     K extends keyof SlotMap & string,
     const D extends ChildrenDecl = Record<never, never>,
     H extends StoreDecl | undefined = undefined,
     M = never,
+    N extends (keyof LocaleNamespaceMap & string) | undefined = undefined,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, D, H, M> & { inject?: undefined },
+    options: BaseOptions<K, D, H, M, N> & { inject?: undefined },
     component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object, NoInfer<M>>>
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, object, NoInfer<M>, NoInfer<N>>>
       & RendersCheck<C, D>,
   ): () => void
   /**
@@ -455,13 +532,15 @@ export class SlotCore {
     const D extends ChildrenDecl = Record<never, never>,
     H extends StoreDecl | undefined = undefined,
     M = never,
+    N extends (keyof LocaleNamespaceMap & string) | undefined = undefined,
     C extends SlotComponent<never> = SlotComponent<never>,
   >(
-    options: BaseOptions<K, D, H, M> & { inject: (...args: InjectParams<K, H>) => I },
+    options: BaseOptions<K, D, H, M, N> & { inject: (...args: InjectParams<K, H>) => I },
     component: C
-      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I, NoInfer<M>>>
+      & SlotComponent<ComposedProps<K, keyof NoInfer<D> & keyof SlotMap & string, HandleOf<NoInfer<H>>, I, NoInfer<M>, NoInfer<N>>>
       & RendersCheck<C, D>,
   ): () => void
+  /* jscpd:ignore-end */
   register(options: ErasedOptions, component: unknown): () => void {
     const rec = this.records.get(options.name)
     if (!rec?.spec) {
@@ -523,6 +602,7 @@ export class SlotCore {
       ...(options.inject !== undefined ? { inject: options.inject } : {}),
       ...(options.children !== undefined ? { children: options.children } : {}),
       ...(options.store !== undefined ? { store: options.store } : {}),
+      ...(options.locale !== undefined ? { locale: options.locale } : {}),
       ...(options.registrant !== undefined ? { registrant: options.registrant } : {}),
     }
     const next = [...rec.entries, entry]

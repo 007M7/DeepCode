@@ -177,7 +177,7 @@ describe('small branch tails', () => {
     expect(view.getByText('one-liner')).toBeTruthy()
   })
 
-  it('finalized assistant messages expose copy / branch / clock after the body; streaming omits them', () => {
+  it('finalized content messages expose copy / branch / clock; Think-only and streaming omit them', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -198,6 +198,17 @@ describe('small branch tails', () => {
     fireEvent.click(settled.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('answer body')
     settled.unmount()
+
+    const thinkOnly = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'reasoning', text: 'only thinking' }]}
+        streaming={false}
+        time={time}
+      />,
+    )
+    expect(thinkOnly.queryByRole('button', { name: '复制' })).toBeNull()
+    expect(thinkOnly.queryByText('14:24')).toBeNull()
+    thinkOnly.unmount()
 
     const streaming = render(
       <AssistantMarkdown blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
