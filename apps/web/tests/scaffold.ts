@@ -186,6 +186,14 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },
+    // The shipped directory-picker row is the -auto chooser, which resolves
+    // the interaction from the RUNNING host (display, SSH launch, bind). The
+    // lane's goldens are interaction-specific (workspace-management drives
+    // the in-app browse dialog), so pin -browse deterministically on every
+    // host: patch `name` is an assertion, not an override, hence the
+    // disable+insert pair.
+    { id: 'directory-picker', disabled: true },
+    { insert: [{ id: 'directory-picker-browse', name: '@deepseek-ai/dsh-host-directory-picker-browse' }] },
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]

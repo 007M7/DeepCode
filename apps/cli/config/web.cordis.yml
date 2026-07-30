@@ -111,12 +111,15 @@
     - id: tool-todo
       name: '@deepseek-ai/dsh-tool-todo'
 
+    # Resolve bind host, SSH launch, and display once at boot, then mount the
+    # matching dual-face directory picker. Mount -native or -browse directly in
+    # an overlay to pin the interaction.
+    - id: directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-auto'
+
     # The API gateway: the transport-agnostic dispatch face every client shape
     # shares. provider/model are the host default routing — the profile json's
     # mapping target (user config overrides these engineering defaults).
-    - id: directory-picker
-      name: '@deepseek-ai/dsh-host-directory-picker-browse'
-
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
       config:
