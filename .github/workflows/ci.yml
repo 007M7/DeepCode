@@ -96,7 +96,7 @@ jobs:
       - name: Pack built tree
         run: >-
           tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
-          apps/*/lib packages/*/*/lib vendor/*/lib
+          apps/*/lib apps/web/dist packages/*/*/lib vendor/*/lib
 
       - uses: actions/upload-artifact@v7
         with:
@@ -224,6 +224,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      - uses: actions/cache@v4
+        if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install dependencies and prepare bubblewrap
         run: |
           pnpm install --frozen-lockfile &
@@ -236,6 +242,9 @@ jobs:
           wait "$sandbox_pid" || sandbox_status=$?
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install --with-deps chromium
 
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
@@ -448,8 +457,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install --with-deps chromium
 
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
@@ -464,6 +481,11 @@ jobs:
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
+
+      - name: Compare web browser snapshots
+        env:
+          DSH_SNAPSHOT: replay
+        run: pnpm run test:web:built
 
   # Hot-standby drill for the in-house self-hosted pool: every master move
   # re-runs the complete unsharded aggregate on the persistent 64-core VM,
@@ -505,6 +527,9 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright Chromium
+        run: pnpm --filter @deepseek-ai/dsh-frontend exec playwright install --with-deps chromium
+
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
 
@@ -518,6 +543,11 @@ jobs:
           DSH_PUBLINT_CONCURRENCY: '1'
           DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
         run: pnpm run check:ci
+
+      - name: Compare web browser snapshots
+        env:
+          DSH_SNAPSHOT: replay
+        run: pnpm run test:web:built
 
   serial-macos:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'

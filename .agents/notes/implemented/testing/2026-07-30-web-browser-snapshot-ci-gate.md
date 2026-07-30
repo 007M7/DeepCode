@@ -1,0 +1,33 @@
+# Agent Note: Required CI gate for web browser expected outputs
+
+Status: implemented
+
+English | [中文](2026-07-30-web-browser-snapshot-ci-gate.zh.md)
+
+## Problem
+
+The [keyless web browser e2e lane](2026-07-24-web-gui-browser-e2e-lane.md) runs only under the local `pnpm run test:web` command, and PR CI does not compare `apps/web/tests/snapshots/**/*.expected.md`. A PR that changes user-visible web output can therefore remain green when its expected outputs are not refreshed; when any later branch explicitly runs `DSH_SNAPSHOT=refresh`, it backfills the earlier change and produces a diff unrelated to that branch. Ordinary local runs already default to read-only replay, so the gap is mandatory enforcement at the PR level, not a ban on writes in refresh mode.
+
+## Decision
+
+For Linux PRs, the `node 24 / snapshots and artifacts` job must run the full web browser replay/compare suite. `scripts/run-gates.ts` registers `test:web:built` as a `ci-consumers` gate and explicitly injects `DSH_SNAPSHOT=replay`; CI never runs in `record` or `refresh` mode, so when the committed goldens disagree with the currently assembled application, the tests fail directly instead of silently rewriting them on the runner and then passing.
+
+The static CI job already builds all publishable artifacts; it puts `apps/web/dist` and the package `lib/` directories in the built-tree artifact, which the consumer job reuses without rebuilding the entire repository. The consumer job installs Chromium and its system dependencies at the Playwright version in the lockfile, and caches the browser by operating system and the `pnpm-lock.yaml` hash. The default branch's serial Linux job runs the same compare command and populates the default-branch cache, which subsequent PRs can restore directly.
+
+Local `pnpm run test:web` continues to build first and then run the full browser suite; `test:web:built` is the entry point for existing build artifacts. Developers explicitly run `DSH_SNAPSHOT=refresh pnpm run test:web` only after confirming that user-visible output changed intentionally, review every expected-output diff, and then verify again in replay mode that no files are written.
+
+The gate remains Linux-only: these scenarios target POSIX, and the Windows and macOS serial reference jobs do not run them again. A PR's `all checks passed` verdict already depends on the consumer job, so a browser compare failure blocks the merge without requiring a new branch-protection check name.
+
+## Alternatives considered
+
+**Continue requiring only local runs.** Rejected: execution depends on developer memory, which is precisely why stale goldens drift across PRs, and cannot guarantee that the PR introducing a behavior change carries its own expected-output diff.
+
+**Run CI in `refresh` mode and then check the working tree.** Rejected: checking after writing turns the assertion mechanism into a generator; if the working-tree check is wired incorrectly, it can turn a regression into a passing expected-output update. Replay compares the existing goldens directly and has a smaller failure surface.
+
+**Create a standalone browser job and rebuild the entire repository.** Rejected: it would duplicate dependency installation and the publishable build. The existing Linux consumer job already consumes the same built-tree artifact and is part of the unified required verdict.
+
+**Replace real Chromium with jsdom snapshots.** Rejected: jsdom does not cover the browser, HTTP/SSE carriage, or the composition of real client plugin bundles. It remains useful for fast lower-layer feedback, but cannot replace the assembled browser chain.
+
+## Consequences
+
+Before merge, every PR proves that the current web assembly matches all committed browser expected outputs, turning a missed refresh from an “unrelated change in a later PR” into a failure in the PR that introduced it. The cost is Chromium provisioning and one serial pass through the browser scenarios in Linux CI; built-artifact reuse and the default-branch browser cache avoid duplicate builds and routine downloads. The gate still makes no claim of cross-platform browser consistency, and if a Playwright/Chromium upgrade changes the ARIA format, the upgrade PR must explicitly refresh the expected outputs and review the churn.

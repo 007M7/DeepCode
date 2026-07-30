@@ -331,6 +331,7 @@ function ciConsumerGates(): Gate[] {
     }),
     pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
     snapshotGate(restoredBuild),
+    webSnapshotGate(restoredBuild),
     pnpmScript('publint', 'publint'),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -339,6 +340,15 @@ function ciConsumerGates(): Gate[] {
     builtPackageInvariantsGate(publicArtifacts),
     builtBinSmokeGate(restoredBuild),
   ]
+}
+
+function webSnapshotGate(needs: string[]): Gate {
+  return pnpmScript('web-snapshot', 'test:web:built', {
+    label: 'web browser snapshot',
+    displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+    env: { DSH_SNAPSHOT: 'replay' },
+    needs,
+  })
 }
 
 function ciWindowsBlockingGates(): Gate[] {

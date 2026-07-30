@@ -76,7 +76,7 @@ The GUI test structure (three tiers, lane map) is settled in the [GUI testing sy
 Run the narrowest rung that covers what you touched; escalate only when the change surface demands it.
 
 1. **Every GUI code change** — `pnpm run test:gui` (seconds; no browser, no server): the client suites plus the host-side GUI packages. This is the inner loop; run it as freely as a typecheck.
-2. **Changes to the build surface, boot wiring, static serving, or the wire carriage** (`apps/web`, vite config, `dsh-host-webserver`, connection/handler/SSE) — additionally `pnpm run test:web`: rebuilds the frontend dist, then runs the browser smoke pair (the real-host case self-skips without `DEEPSEEK_API_KEY`) plus the keyless replayed e2e scenarios (`DSH_SNAPSHOT=refresh` rewrites their aria goldens after an intentional conversation-UI change; `DSH_SNAPSHOT=record` re-records fixtures with a key).
+2. **Changes to the build surface, boot wiring, static serving, or the wire carriage** (`apps/web`, vite config, `dsh-host-webserver`, connection/handler/SSE) — additionally `pnpm run test:web`: rebuilds the frontend dist, then runs the browser smoke pair (the real-host case self-skips without `DEEPSEEK_API_KEY`) plus the keyless replayed e2e scenarios. Linux PR CI pins replay mode and compares the committed goldens; it never records or refreshes. Use `DSH_SNAPSHOT=refresh` locally after an intentional conversation-UI change, or `DSH_SNAPSHOT=record` with a key to re-record fixtures.
 3. **Before a PR** — `pnpm run check:pre-push` (the repo-wide gate ladder). Between PR windows this rung is not expected on every commit.
 
 If `test:gui` is red on code you did not touch, neither silently fix nor ignore it: note it in your handoff so it lands in the next PR window's sweep.
