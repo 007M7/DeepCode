@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { Context, type FiberState } from 'cordis'
+import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, visibleWidth, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
   agentEvents, assembleContextFor, InboxItemId, type Agent, type InboxItem,
