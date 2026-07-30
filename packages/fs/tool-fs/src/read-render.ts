@@ -223,25 +223,41 @@ export interface FsReadMeta {
   lang?: string
 }
 
-/** Whether `value` is a valid {@link FileTextLine} (defensive narrowing from opaque `meta`). */
+/**
+ * Whether `value` is a valid {@link FileTextLine} (defensive narrowing from
+ * opaque `meta`). `number` must be a 1-based integer line number, since a card
+ * rendered from a zero, fractional, or non-finite line number would violate the
+ * 1-based numbering contract the read window promises.
+ */
 function isFileTextLine(value: unknown): value is FileTextLine {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const { number, text } = value as Record<string, unknown>
-  return typeof number === 'number' && typeof text === 'string'
+  return typeof number === 'number' && Number.isInteger(number) && number >= 1 && typeof text === 'string'
 }
 
 /**
  * Narrow opaque live or replayed result metadata to a structured read window.
  * Malformed metadata returns `undefined` so presentation can fall back to the
- * generic text card instead of throwing during replay.
+ * generic text card instead of throwing during replay. Beyond shape, the
+ * semantic contract of a read window is enforced against replayed JSON that is
+ * well-typed but out of range: `totalLines` must be a non-negative integer, each
+ * line number must be a 1-based integer, the line numbers must strictly increase,
+ * and no line number may exceed `totalLines`. Any violation declines to the
+ * generic fallback rather than emitting a card that misnumbers or overcounts.
  * @param meta - result metadata.
- * @returns the validated read window, or `undefined` for absent or malformed data.
+ * @returns the validated read window, or `undefined` for absent, malformed, or semantically invalid data.
  */
 export function readMetaFromMeta(meta: unknown): FsReadMeta | undefined {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return undefined
   const { path, lines, totalLines, lang } = meta as Record<string, unknown>
   if (typeof path !== 'string' || typeof totalLines !== 'number') return undefined
+  if (!Number.isInteger(totalLines) || totalLines < 0) return undefined
   if (!Array.isArray(lines) || !lines.every(isFileTextLine)) return undefined
   if (lang !== undefined && typeof lang !== 'string') return undefined
+  let previous = 0
+  for (const { number } of lines) {
+    if (number <= previous || number > totalLines) return undefined
+    previous = number
+  }
   return { path, lines, totalLines, ...lang === undefined ? {} : { lang } }
 }

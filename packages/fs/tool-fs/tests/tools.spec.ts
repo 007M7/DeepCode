@@ -351,7 +351,6 @@ describe('read tool', () => {
     if (result.isError) throw new Error('expected read success')
     expect(result.meta).toEqual({ path: '/abs/notes', lines: [{ number: 1, text: 'plain' }], totalLines: 1 })
   })
-
 })
 
 describe('formatReadOutput footer variants', () => {

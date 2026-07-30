@@ -166,4 +166,27 @@ describe('readMetaFromMeta', () => {
     expect(readMetaFromMeta({ ...good, lines: [null] })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, lang: 5 })).toBeUndefined()
   })
+
+  it('rejects a line number that is not a 1-based integer', () => {
+    expect(readMetaFromMeta({ ...good, lines: [{ number: 0, text: 'x' }], totalLines: 1 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lines: [{ number: 1.5, text: 'x' }], totalLines: 2 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lines: [{ number: NaN, text: 'x' }], totalLines: 1 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lines: [{ number: Infinity, text: 'x' }], totalLines: 1 })).toBeUndefined()
+  })
+
+  it('rejects a totalLines that is not a non-negative integer', () => {
+    expect(readMetaFromMeta({ ...good, totalLines: -1 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, totalLines: 1.5 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, totalLines: NaN })).toBeUndefined()
+  })
+
+  it('rejects lines that do not strictly increase or exceed totalLines', () => {
+    const twoLines = { path: '/abs/a', lang: 'ts' }
+    // Duplicate line numbers.
+    expect(readMetaFromMeta({ ...twoLines, lines: [{ number: 1, text: 'a' }, { number: 1, text: 'b' }], totalLines: 2 })).toBeUndefined()
+    // Out-of-order line numbers.
+    expect(readMetaFromMeta({ ...twoLines, lines: [{ number: 2, text: 'b' }, { number: 1, text: 'a' }], totalLines: 2 })).toBeUndefined()
+    // A line number past totalLines.
+    expect(readMetaFromMeta({ ...twoLines, lines: [{ number: 3, text: 'c' }], totalLines: 2 })).toBeUndefined()
+  })
 })
