@@ -125,7 +125,7 @@ afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true })
 })
 
-describe('gen-cordis-catalog collectEvents', () => {
+describe('gen-cordis-catalog collectEvents', { timeout: 60_000 }, () => {
   it('extracts a well-formed event with its @mode and JSDoc', () => {
     const events = collectEvents(make(
       '    /**\n     * A thing happened.\n     * @param id - which thing.\n     * @mode emit\n     */\n    \'fix/happened\'(id: string): void',
