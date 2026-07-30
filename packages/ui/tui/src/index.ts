@@ -269,6 +269,12 @@ export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly
  */
 const COMPACTION_MARKER = '… earlier context was compacted …'
 
+/**
+ * Status glyph for a live standalone compaction bracket. Compaction is not a
+ * step phase, so the glyph stays local to the TUI indicator.
+ */
+const COMPACTING_GLYPH = '⊙'
+
 interface RunningStatus {
   turn: number | undefined
   timer: ReturnType<typeof setInterval>
@@ -337,6 +343,11 @@ export function createTuiChat(
   let completedStreaming: StreamingAssistantComponent | undefined
   let runningStatus: RunningStatus | undefined
   let fadingStatus: FadingStatus | undefined
+  /**
+   * Live standalone compaction observed by this process. Never derive this
+   * state from history: a resumed log may contain a stale orphaned start.
+   */
+  let compacting: { startedAt: number; timer: ReturnType<typeof setInterval> } | undefined
   // TUI steering submissions that the inbox has not yet claimed or discarded.
   // Correlation ids avoid guessing whether a running-state submission actually
   // joined steering or fell back to the queued-turn FIFO during turn close.
@@ -419,6 +430,7 @@ export function createTuiChat(
     // fading out after it ends before the plain `>` returns. Only the gray
     // brightness changes, so the cursor never shifts.
     const runningGlyph = runningPhaseGlyph(agent.session.events, runningStatus !== undefined)
+      ?? (compacting === undefined ? undefined : COMPACTING_GLYPH)
     // Remember the live phase glyph so the fade-out shows it, not the ttft
     // fallback the derivation returns once the closing turn's step has ended.
     if (runningStatus !== undefined && runningGlyph !== undefined) runningStatus.lastGlyph = runningGlyph
@@ -426,8 +438,9 @@ export function createTuiChat(
     // glyph the whole turn. Truecolor opacity is envelope × throb; the
     // non-truecolor fallback keys visibility off the envelope alone, so the
     // throb never blinks it. `envelope` clamps to [0, 1].
-    const envelope = runningStatus !== undefined && runningGlyph !== undefined
-      ? { glyph: runningGlyph, level: Math.min(1, (now() - runningStatus.startedAt) / STATUS_FADE_MS) }
+    const activeSince = runningStatus?.startedAt ?? compacting?.startedAt
+    const envelope = activeSince !== undefined && runningGlyph !== undefined
+      ? { glyph: runningGlyph, level: Math.min(1, (now() - activeSince) / STATUS_FADE_MS) }
       : fadingStatus !== undefined
         ? { glyph: fadingStatus.glyph, level: Math.max(0, 1 - (now() - fadingStatus.endedAt) / STATUS_FADE_MS) }
         : undefined
@@ -537,8 +550,8 @@ export function createTuiChat(
     requestRender()
   }
 
-  /** Stop the running and fade-out timers and drop both states at once. */
-  const clearStatus = (): void => {
+  /** Stop the turn-phase running and fade-out timers and drop both states. */
+  const clearTurnStatus = (): void => {
     if (runningStatus !== undefined) {
       clearInterval(runningStatus.timer)
       runningStatus = undefined
@@ -547,7 +560,16 @@ export function createTuiChat(
       clearInterval(fadingStatus.timer)
       fadingStatus = undefined
     }
-    runtime.terminal.setProgress(false)
+    runtime.terminal.setProgress(compacting !== undefined)
+  }
+
+  /** Hard clear: drop every indicator, including a live compaction bracket. */
+  const clearStatus = (): void => {
+    if (compacting !== undefined) {
+      clearInterval(compacting.timer)
+      compacting = undefined
+    }
+    clearTurnStatus()
   }
 
   /**
@@ -556,12 +578,12 @@ export function createTuiChat(
    * own timer. A hard clear (teardown) skips this via {@link clearStatus}.
    */
   const beginFadeOut = (glyph: string): void => {
-    clearStatus()
+    clearTurnStatus()
     const fading: FadingStatus = {
       glyph,
       endedAt: now(),
       timer: setInterval(() => {
-        if (now() - fading.endedAt >= STATUS_FADE_MS) clearStatus()
+        if (now() - fading.endedAt >= STATUS_FADE_MS) clearTurnStatus()
         renderStatus()
       }, STATUS_ANIMATION_INTERVAL_MS),
     }
@@ -571,9 +593,9 @@ export function createTuiChat(
   const setStatus = (status: AgentStatus): void => {
     const priorTurn = runningStatus?.turn
     const fadeOutGlyph = status !== 'running' ? runningStatus?.lastGlyph : undefined
-    if (status === 'running') clearStatus()
+    if (status === 'running') clearTurnStatus()
     else if (fadeOutGlyph !== undefined) beginFadeOut(fadeOutGlyph)
-    else clearStatus()
+    else clearTurnStatus()
     editor.borderColor = status === 'running' ? text => palette.accent(text) : text => palette.dim(text)
     editor.hint = status === 'running' ? palette.dim(displayInlineText(resolved.theme.inputPlaceholder)) : undefined
     if (status === 'running') {
@@ -1498,6 +1520,28 @@ export function createTuiChat(
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
     if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
+    // Standalone compaction runs while the agent remains idle, so only the
+    // live durable bracket can announce its in-flight state without mistaking
+    // a stale resumed orphan for current work.
+    if (event.type === 'compact/start' && event.data.turn === null) {
+      compacting = {
+        startedAt: now(),
+        timer: setInterval(renderStatus, STATUS_ANIMATION_INTERVAL_MS),
+      }
+      runtime.terminal.setProgress(true)
+      requestRender()
+      return
+    }
+    if (event.type === 'compact/end' && event.data.turn === null && compacting !== undefined) {
+      clearInterval(compacting.timer)
+      compacting = undefined
+      if (event.data.error !== undefined) {
+        appendNotice(`Compaction failed: ${event.data.error}`, 'warning')
+      }
+      beginFadeOut(COMPACTING_GLYPH)
+      requestRender()
+      return
+    }
     // A replacement mutates only the model surface, so the rendered transcript
     // keeps what it already showed; a landed summary checkpoint adds its marker.
     if (isReplacementSurfaceEvent(event)) {
