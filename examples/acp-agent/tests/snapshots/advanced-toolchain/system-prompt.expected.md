@@ -110,7 +110,7 @@ interface ToolArgsMap {
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
   } & Record<string, JsonValue>;
-  /** Send a follow-up message to a background subagent by its subagent id. If it is still working, the message joins its current task; if it has finished, this starts a new task that continues the same subagent conversation. Either way the response arrives through the returned task id — collect it with `task_output`. A failure means the message was NOT delivered. */
+  /** Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. The subagent does not reply to you — read its transcript by its id to see what it did. A failure means the message was NOT delivered. */
   send_message: {
     /** The subagent id returned when the background subagent was started. */
     subagent_id: string;
@@ -122,22 +122,22 @@ interface ToolArgsMap {
     /** The exact skill name from the available skills list. */
     name: string;
   } & Record<string, JsonValue>;
-  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to start a continuable background subagent: you receive its stable subagent id and current task id; collect the result with `task_output` and stop it with `task_kill`. */
+  /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) and return its final result. Use this to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent runs to completion and you receive only its final answer, not its intermediate steps. Give it a complete, standalone prompt: it does not see this conversation. Set `run_in_background: true` to start a background subagent that keeps its conversation: you receive its subagent id and it works on its own. It does not report back to you, so read its transcript by that id, or send it more work with `send_message`. */
   subagent: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs. */
     prompt: string;
-    /** Run as a continuable background subagent and return its subagent and task ids; collect with task_output or stop with task_kill. */
+    /** Run as a background subagent that keeps its conversation and return its subagent id; send it more work with send_message. */
     run_in_background?: boolean;
   } & Record<string, JsonValue>;
-  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to start a continuable background subagent: you receive its stable subagent id and current task id; collect the result with `task_output` and stop it with `task_kill`. */
+  /** Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn), returning only its final result. Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive only its final answer, not its intermediate steps. Set `run_in_background: true` to start a background subagent that keeps its conversation: you receive its subagent id and it works on its own. It does not report back to you, so read its transcript by that id, or send it more work with `send_message`. */
   subagent_fork: {
     /** A short (3-5 word) description of the delegated task, for display. */
     description: string;
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
-    /** Run as a continuable background subagent and return its subagent and task ids; collect with task_output or stop with task_kill. */
+    /** Run as a background subagent that keeps its conversation and return its subagent id; send it more work with send_message. */
     run_in_background?: boolean;
   } & Record<string, JsonValue>;
   /** Request cancellation of a running background task by task id. Returns immediately; the task settles as killed once its work actually stops. */
@@ -317,8 +317,7 @@ interface ToolOutputMap {
     totalLines: number;
   };
   send_message: {
-    route: "steered" | "started";
-    taskId: string;
+    messageId: string;
   };
   skill: {
     name: string;
@@ -338,7 +337,9 @@ interface ToolOutputMap {
   subagent: {
     kind: "background";
     taskId: string;
-    subagentId?: string;
+  } | {
+    kind: "continuable";
+    subagentId: string;
   } | {
     kind: "foreground";
     runId: string;
@@ -347,7 +348,9 @@ interface ToolOutputMap {
   subagent_fork: {
     kind: "background";
     taskId: string;
-    subagentId?: string;
+  } | {
+    kind: "continuable";
+    subagentId: string;
   } | {
     kind: "foreground";
     runId: string;
