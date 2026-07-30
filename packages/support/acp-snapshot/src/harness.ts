@@ -156,13 +156,6 @@ export interface RunOptions {
    */
   workspaceDir?: string
   /**
-   * Optional setup run in the generated cwd after {@link workspaceDir} is
-   * copied and before the child boots — for world state a committed fixture
-   * cannot express, such as a `.git` entry (git never tracks that name, so a
-   * repository-shaped fixture has to be materialized at run time).
-   */
-  prepareCwd?: (cwd: string) => Promise<void>
-  /**
    * Parent directory for the generated session cwd. Defaults to
    * `os.tmpdir()`. A scenario that must distinguish its workspace from the
    * sandbox's always-writable temporary roots can place the generated child
@@ -228,7 +221,6 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
     }
-    await opts.prepareCwd?.(cwd)
     const env: NodeJS.ProcessEnv = {
       ...opts.env,
       DSH_SNAPSHOT: opts.mode,

@@ -131,12 +131,6 @@ export interface Scenario {
    */
   workspaceParent?: string
   /**
-   * Setup run in the generated cwd after the `workspace/` fixture is copied and
-   * before the child boots, for world state a committed fixture cannot express
-   * — a `.git` entry, which git never tracks under that name.
-   */
-  prepareCwd?: (cwd: string) => Promise<void>
-  /**
    * Whether Windows additionally compares stdout with native separators against
    * `stdout.expected.windows.jsonl`. The shared canonical stdout expected output is still
    * compared on every platform, and the fixture guard requires this sidecar
@@ -987,7 +981,6 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ...!RECORDING && childFixtureFiles.length > 0 ? { childFiles: childFixtureFiles.map(file => join(dir, file)) } : {},
           ...existsSync(workspaceDir) ? { workspaceDir } : {},
           ...scenario.workspaceParent !== undefined ? { workspaceParent: scenario.workspaceParent } : {},
-          ...scenario.prepareCwd !== undefined ? { prepareCwd: scenario.prepareCwd } : {},
           // A scenario booting an overlay tree passes its own live config; the
           // bin's replay swap derives the sibling `*cordis.snapshot.yml` from it.
           ...scenario.configPath !== undefined ? { configPath: scenario.configPath } : {},
