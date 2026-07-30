@@ -37,6 +37,36 @@ export function isSurfaceEvent(event: SessionEvent): event is SurfaceEvent {
   return (event as SessionEvent<SurfaceEventType>).surfaceOp !== undefined
 }
 
+/**
+ * Narrow an event to an append-origin surface event: one that entered the
+ * surface at its own log position and was never itself a replacement copy.
+ *
+ * The model-visible surface deliberately shadows replaced ranges, so it is the
+ * wrong source for a human transcript — a landed replacement would erase
+ * conversation the user already saw. Append-origin events are that transcript's
+ * durable source material; replacement copies stay model-only.
+ * @param event - event to test.
+ * @returns true when the event appended to the surface tail.
+ */
+export function isAppendSurfaceEvent(
+  event: SessionEvent,
+): event is SurfaceEvent & { surfaceOp: 'append' } {
+  return isSurfaceEvent(event) && event.surfaceOp === 'append'
+}
+
+/**
+ * Narrow an event to a surface replacement: a node that shadowed an existing
+ * surface range instead of appending to the tail. The counterpart of
+ * {@link isAppendSurfaceEvent} over the two {@link SurfaceOp} variants.
+ * @param event - event to test.
+ * @returns true when the event replaced a surface range.
+ */
+export function isReplacementSurfaceEvent(
+  event: SessionEvent,
+): event is SurfaceEvent & { surfaceOp: Extract<SurfaceOp, { op: 'replace' }> } {
+  return isSurfaceEvent(event) && event.surfaceOp !== 'append'
+}
+
 /** One replacement operation observed while folding a session surface. */
 export interface SurfaceFoldReplacement {
   /** Seq of the event that replaced the prior surface range. */
