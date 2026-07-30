@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Goal 表面插件（浏览器半件）：`conversation.input.dock` 列表中的 `GoalBar` 条带（order 1，紧贴 composer）。活值经 `useProjection('goal')` 到达——host 计算的全量值由历史尾页播种、由 `session/projection` 帧更新——因此本插件不持有 store、不设刷新链、不挂事件监听。slot 注入面只携带四个变更动词（edit / pause / resume / clear，走 `goal.*` 协议域——active 的 goal 提供暂停动作，paused 的提供恢复）；每个动词在调用时从会话当前投影值读取 CAS ref，并把结算后的 RPC 错误内联呈现（RPC 的 compare-and-set 即陈旧性防护——客户端没有任何栅栏）。goal 的创建仍归 `/goal` host 命令；加载中、无 goal、已完成三种状态一律不渲染。
+Goal 表面插件（浏览器半件）：`GoalBar` 条带是 `conversation.input.dock` composer 上下文堆栈中的第一张独立卡片（order 0，位于 Todo 和 Queue 之前）。活值经 `useProjection('goal')` 到达——host 计算的全量值由历史尾页播种、由 `session/projection` 帧更新——因此本插件不持有 store、不设刷新链、不挂事件监听。slot 注入面只携带四个变更动词（edit / pause / resume / clear，走 `goal.*` 协议域——active 的 goal 提供暂停动作，paused 的提供恢复）；每个动词在调用时从会话当前投影值读取 CAS ref，并把结算后的 RPC 错误内联呈现（RPC 的 compare-and-set 即陈旧性防护——客户端没有任何栅栏）。goal 的创建仍归 `/goal` host 命令；加载中、无 goal、已完成三种状态一律不渲染。
 
 `/client` 出口面为插件本体（`apply`/`inject`）、`GoalBar`/`GoalDock` 组件与注入动词面类型。
 
