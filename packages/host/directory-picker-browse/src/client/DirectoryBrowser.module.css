@@ -13,6 +13,12 @@
   height: min(500px, calc(100dvh - 32px));
   padding: 0;
   gap: 0;
+  /* The Modal card is an l2 surface and the columns below scroll on it:
+   * rebind the scrollbar indirection to the elevation pair here, on the
+   * surface, so it inherits down to whichever descendant scrolls (the
+   * rebinding contract in ui-theme styles/scrollbar.css). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 /* Card-scope wrapper hosting the path editor's Escape and focus-leave
@@ -146,6 +152,8 @@
   flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
+  /* Anchors the floating loading pill (.loadingFloat). */
+  position: relative;
   /* Right inset is slimmer than the left: the trailing column's own 8px
    * scrollbar clearance makes up the optical difference. */
   padding: 16px 16px 16px 24px;
@@ -234,6 +242,10 @@
 .status,
 .error {
   padding: 4px;
+  /* The loading pill occupies the opposite corner while a stale status stays
+   * visible. Reserve its widest localized footprint so wrapped text cannot
+   * run underneath it on a narrow card. */
+  padding-right: 120px;
   font-size: 12px;
   line-height: 18px;
 }
@@ -244,6 +256,23 @@
 
 .error {
   color: var(--dsw-alias-state-error-primary);
+}
+
+/* The slow-scan indicator floats over the content's bottom-RIGHT corner on
+ * the card background instead of occupying a row: a scan must never shift
+ * the columns' height, and the stale view keeps rendering beneath it (it
+ * only appears at all once a scan outlives SLOW_SCAN_DELAY_MS). Right,
+ * not left: the truncated/error status rows flow at the bottom LEFT and
+ * stay on screen through a scan, with their reserved right padding keeping
+ * both legible even on a narrow card. After .status in the cascade — the
+ * element carries both classes and this padding must win the
+ * same-specificity race. */
+.loadingFloat {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  padding: 2px 8px;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 /* Footer: l3 separator on top, symmetric padding so the row sits vertically
