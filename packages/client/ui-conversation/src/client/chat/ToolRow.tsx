@@ -19,12 +19,15 @@
 import { useState, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { TerminalCardModel } from '../contract/terminal-card-model.ts'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { terminalBlockLabels, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import { DisclosureRow } from './DisclosureRow.tsx'
 import css from './ToolRow.module.css'
 
 export interface ToolRowProps {
+  /** The render site's conversation locale seat (terminal/code body copy). */
+  t: TranslateNS<'conversation'>
   variant: ToolRowVariant
   /** Wire tool name for tool-owned styling layered over the generic variant. */
   toolName?: string | undefined
@@ -82,6 +85,7 @@ function leadingFor(state: ToolRowState, icon: ReactNode): ReactNode {
 }
 
 export function ToolRow({
+  t,
   variant,
   toolName,
   icon,
@@ -163,14 +167,21 @@ export function ToolRow({
             toggle it) carries the expanded body and the Inspect pill below. */}
         <div className={css.bodyWrap}>
           {terminalBody !== null
-            ? <TerminalBlock {...terminalBody.card} maxLines={Infinity} className={css.terminalBody} />
+            ? (
+              <TerminalBlock
+                {...terminalBody.card}
+                maxLines={Infinity}
+                labels={terminalBlockLabels(t)}
+                className={css.terminalBody}
+              />
+            )
             : isThink
               ? <div className={css.thinkBody}>{body}</div>
               : (
                 <>
                   {variant === 'code' && body !== null && (
                     <div className={css.bodyScroll}>
-                      <CodeBlock code={body} lang="typescript" className={css.codeBody} />
+                      <CodeBlock code={body} lang="typescript" copyLabel={t('copy')} copiedLabel={t('copied')} className={css.codeBody} />
                     </div>
                   )}
                   {(cardBody !== null || outputText !== null) && (

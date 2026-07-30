@@ -19,7 +19,7 @@
  * and a hole has exactly one declaring entry — they carry the same owner
  * contract and the same occupant.
  */
-import type { HostObservable, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pull the owner SlotMap merges into programs that resolve the
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -111,13 +111,14 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
 }
 
-/** Full browser props: shell owner share + viewing store + injected actions. */
+/** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
 export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
   & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & Omit<WorkspaceBrowserInjected, 'hooks'>
   & DirectoryPickingHooks
+  & PropsLocale<'workspace'>
 
 /**
  * Picker-private injected share. Pick semantics remain in the owner's onPick
@@ -130,12 +131,13 @@ export type WorkspacePickerInjected = DirectoryPickingInjected & {
 }
 
 /**
- * Full picker props: the owner share plus the creation callback. The two
- * picker holes (blank-session hero / New-Session view) share one owner
- * currency, so one composed type serves both registrations.
+ * Full picker props: the owner share plus the creation callback and the
+ * locale seat. The two picker holes (blank-session hero / New-Session view)
+ * share one owner currency, so one composed type serves both registrations.
  */
 export type WorkspacePickerProps =
   PropsRuntime<'conversation.hero.workspace'>
   & PropsRenderSlots<'conversation.hero.workspace.directoryFlow'>
   & Omit<WorkspacePickerInjected, 'hooks'>
   & DirectoryPickingHooks
+  & PropsLocale<'workspace'>

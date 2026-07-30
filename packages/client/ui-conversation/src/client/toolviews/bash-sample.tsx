@@ -19,10 +19,15 @@ import clsx from 'clsx'
 import {
   IconApiOutline14, IconChevronDownOutline14, StateDot, TerminalBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { terminalCardModel, terminalFailed } from '../contract/terminal-card-model.ts'
+import { terminalBlockLabels, terminalCardModel, terminalFailed } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
+import { NS } from '../locales.ts'
 import css from './bash-sample.module.css'
+
+/** Bash row props: the toolview runtime share plus the standard locale seat. */
+type BashRowProps = ToolRowProps & PropsLocale<'conversation'>
 
 function leadingFor(state: ToolRowState) {
   switch (state) {
@@ -34,11 +39,11 @@ function leadingFor(state: ToolRowState) {
 }
 
 /** Visually hidden status — StateDot is aria-hidden; AT needs a text label. */
-function stateStatus(state: ToolRowState): string | null {
+function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
   switch (state) {
-    case 'running': return '运行中'
-    case 'error': return '失败'
-    case 'stopped': return '已停止'
+    case 'running': return t('bash.running')
+    case 'error': return t('bash.failed')
+    case 'stopped': return t('bash.stopped')
     default: return null
   }
 }
@@ -48,7 +53,7 @@ function stateStatus(state: ToolRowState): string | null {
  * whole row toggling the command's terminal card (ToolRow's unified
  * expand interaction, replicated locally per the registrant posture).
  */
-export function BashRow({ toolName, block, sessionId, useSessions, inspect }: ToolRowProps) {
+export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
   const model = toolRowModel(toolName, block)
   // Session workspace root: the terminal view's cwd resolves against it (an
   // omitted workdir IS the workspace), which the pure presenter cannot do.
@@ -60,7 +65,7 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect }: To
     ? 'error'
     : model.state
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
-  const status = stateStatus(state)
+  const status = stateStatus(state, t)
   const [expanded, setExpanded] = useState(false)
   const expandable = terminal !== null
   const open = expanded && expandable
@@ -112,7 +117,12 @@ export function BashRow({ toolName, block, sessionId, useSessions, inspect }: To
         /* Same hover-Inspect posture as ToolRow's expanded body, replicated
            locally per the registrant posture. */
         <div className={css.bodyWrap}>
-          <TerminalBlock {...terminal.card} maxLines={Infinity} className={css.terminal} />
+          <TerminalBlock
+            {...terminal.card}
+            maxLines={Infinity}
+            labels={terminalBlockLabels(t)}
+            className={css.terminal}
+          />
           {inspect !== undefined && (
             <button type="button" className={css.inspectButton} onClick={inspect}>
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
@@ -141,6 +151,6 @@ export const bashToolviewSample = {
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
-    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash' }, BashRow)
+    ctx.slots.register({ name: 'conversation.chat.toolview', key: 'bash', locale: NS }, BashRow)
   },
 }
