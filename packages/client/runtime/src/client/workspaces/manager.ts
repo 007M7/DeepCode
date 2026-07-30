@@ -39,6 +39,13 @@ export class WorkspaceManager {
   private inflight: Promise<void> | null = null
   private refreshFrames: WorkspaceDelta[] | null = null
   /**
+   * True once a frame or unary echo installed the archive set while a list
+   * request was in flight: that install is newer than the pending baseline,
+   * so the baseline's (older) set must not roll it back — the archive
+   * mirror of replaying refreshFrames over the item baseline.
+   */
+  private archivedSupersedesRefresh = false
+  /**
    * Ids this process has seen removed, kept for the connection's lifetime so
    * a late changed frame or a stale baseline row cannot resurrect a deleted
    * row. Correctness rests on Host ids never being reused (the registry mints
@@ -82,7 +89,7 @@ export class WorkspaceManager {
           items = items.filter(workspace => !this.removedIds.has(workspace.workspaceId))
           for (const delta of frames) items = applyWorkspaceDelta(items, delta)
           this.installViews(items)
-          this.installArchived(result.value.archivedSessionIds)
+          if (!this.archivedSupersedesRefresh) this.installArchived(result.value.archivedSessionIds)
           this.state = 'idle'
           this.phase = 'ready'
         } else {
@@ -96,6 +103,7 @@ export class WorkspaceManager {
         this.error = folded.ok ? null : folded.error
       } finally {
         this.refreshFrames = null
+        this.archivedSupersedesRefresh = false
         this.inflight = null
         this.notifier.markDirty()
       }
@@ -224,6 +232,7 @@ export class WorkspaceManager {
 
   /** Replace the archive set when membership actually changed (set identity backs Object.is short-circuits). */
   private installArchived(archivedSessionIds: readonly SessionId[]): void {
+    if (this.refreshFrames !== null) this.archivedSupersedesRefresh = true
     if (archivedSessionIds.length === this.archivedSessionIds.size
       && archivedSessionIds.every(id => this.archivedSessionIds.has(id))) return
     this.archivedSessionIds = new Set(archivedSessionIds)

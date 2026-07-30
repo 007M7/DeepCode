@@ -429,7 +429,15 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       }
       return await ungroupedRow.getAttribute('aria-expanded')
     }, { timeout: 5_000 }).toBe('true')
-    const sessionRow = ungroupedSection.locator('[role="treeitem"]').nth(1)
+    // Anchor on session rows (the rows carrying a session actions button),
+    // not a positional index, and assert the single-stray assumption loudly
+    // so a fixture gaining a second stray fails here instead of archiving
+    // the wrong row. CSS attribute match, not getByRole: the button is
+    // display:none until its row hovers, and role queries skip hidden nodes.
+    const sessionRows = ungroupedSection.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+    await expect.poll(() => sessionRows.count(), { timeout: 10_000 }).toBe(1)
+    const sessionRow = sessionRows.first()
     const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
     // Row menu: hover reveals the actions button; Archive session commits
     // without a confirmation dialog (non-destructive: log + accounting stay).

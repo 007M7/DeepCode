@@ -49,14 +49,16 @@ export class WorkspaceNameConflictError extends Error {
   }
 }
 
-/** An archiveSession request named a session neither live nor in session persistence. */
+/**
+ * An archiveSession request named a session neither live nor in session
+ * persistence — a definite miss only; storage faults propagate as themselves.
+ */
 export class WorkspaceUnknownSessionError extends Error {
   /**
    * @param sessionId - The unknown session id.
-   * @param options - Standard error options (the header-read failure as `cause`).
    */
-  constructor(readonly sessionId: SessionId, options?: ErrorOptions) {
-    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`, options)
+  constructor(readonly sessionId: SessionId) {
+    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`)
     this.name = 'WorkspaceUnknownSessionError'
   }
 }
@@ -215,14 +217,25 @@ export class WorkspaceRegistry extends Service {
       // The chain slot serializes against every other registry write, so this
       // check-then-write pair cannot interleave with another archive.
       if (this.requireState().archivedSessionIds.includes(sessionId)) return
-      try {
-        await this.readSessionHeader(sessionId)
-      } catch (error) {
-        throw new WorkspaceUnknownSessionError(sessionId, { cause: error })
+      if (!(await this.sessionKnown(sessionId))) {
+        throw new WorkspaceUnknownSessionError(sessionId)
       }
       const state = this.requireState()
       await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
     })
+  }
+
+  /**
+   * Whether a session is live, header-indexed, or present in a fresh
+   * persistence listing. Only a definite miss returns false — a failing
+   * `sessionPersistence.list()` propagates so storage faults never
+   * masquerade as an unknown session.
+   */
+  private async sessionKnown(id: SessionId): Promise<boolean> {
+    if (this.ctx.get('sessions')?.get(id) !== undefined) return true
+    if (this.headers.has(id)) return true
+    await this.indexHeaders(await this.ctx.sessionPersistence.list())
+    return this.headers.has(id)
   }
 
   /**

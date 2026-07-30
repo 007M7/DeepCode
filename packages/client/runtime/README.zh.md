@@ -10,7 +10,7 @@ Workspace 和 Session 列表各自具有单调的 `pending` → `ready` 基线�
 
 `WorkspacesService.delete(workspaceId)` 在一元响应成功后从客户端投影中移除注册记录；对应的 `host/workspace-removed` 帧具有幂等性，并负责同步其他标签页。Session 状态与当前 Session selection 相互独立，因此 Workspace 消失后，其已纳入客户端投影的 Session 会立即投影到 Ungrouped 下。
 
-`WorkspaceListState.archivedSessionIds` 镜像 Host 的注册表级全局归档集合（一个 `ReadonlySet`，仅在成员变化时才替换）。它是全快照状态：`workspace.list` 基线、`archiveSession` 一元回声和 `host/archived-sessions-changed` 帧各自安装完整集合。`WorkspacesService.archiveSession(sessionId)` 通过 wire 归档；当被归档的会话正是当前 selection 时，将其清空为 New Session 视图状态。各分组视图在所有位置隐藏集合成员，而会话行本身仍留在列表 store 中。
+`WorkspaceListState.archivedSessionIds` 镜像 Host 的注册表级全局归档集合（一个 `ReadonlySet`，仅在成员变化时才替换）。它是全快照状态：`workspace.list` 基线、`archiveSession` 一元回声和 `host/archived-sessions-changed` 帧各自安装完整集合。`WorkspacesService.archiveSession(sessionId)` 通过 wire 归档；投影层在当前 selection 落入归档集合时统一清空为 New Session 视图状态——一条规则同时覆盖本地回声、其他标签页的帧、以及重连基线恢复出一个离线期间被归档的 selection。在 `workspace.list` 请求进行中安装的集合还会取代该过期基线携带的集合。各分组视图在所有位置隐藏集合成员，而会话行本身仍留在列表 store 中。
 
 SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 observable；web-react 创建钩子。Workspace 业务状态不会进入 `SessionListState` 或配置项 store。
 

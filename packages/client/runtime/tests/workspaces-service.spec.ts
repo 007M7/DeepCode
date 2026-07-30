@@ -337,6 +337,38 @@ describe('WorkspacesService', () => {
     await workspaces.refresh()
     expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-open'])
   })
+
+  it('clears a current archived by a remote frame and shields the set from a stale in-flight baseline', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    api.onList = () => Promise.resolve(ok({
+      items: [{ sessionId: sid('s-open'), updatedAt: 1, running: false, blank: false }],
+    }) as never)
+    await sessions.refresh()
+    sessions.open(sid('s-open'))
+
+    // A stale baseline is in flight (older, empty set) when another tab's
+    // archive frame lands: the frame clears the current selection and its
+    // set survives the baseline's later resolution.
+    const gate = deferred<Awaited<ReturnType<FakeApiClient['onWorkspaceList']>>>()
+    api.onWorkspaceList = () => gate.promise
+    const hydration = workspaces.refresh()
+    workspaces.handleHostEnvelope({
+      rpcId: 'frame' as never,
+      payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [sid('s-open')] },
+    } as never)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(sessions.list.getSnapshot().current).toBeUndefined()
+    gate.resolve(ok({ items: [], archivedSessionIds: [] }))
+    await hydration
+    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-open'])
+    // The next (fresh) baseline is authoritative again.
+    api.onWorkspaceList = () => Promise.resolve(ok({ items: [], archivedSessionIds: [] }) as never)
+    await workspaces.refresh()
+    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual([])
+  })
 })
 
 describe('startInitialSelection', () => {

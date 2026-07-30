@@ -260,15 +260,14 @@ export class WorkspacesService implements IWorkspaces {
   }
 
   /**
-   * Archive a session into the registry-global set. When the archived
-   * session is the current one, the selection is cleared into the New
-   * Session view state — a hidden row must not stay open behind the list.
+   * Archive a session into the registry-global set. Clearing an archived
+   * current selection is the projection sweep's job (one rule for the local
+   * echo and a remote tab's frame alike).
    * @param sessionId - session to archive.
    */
   async archiveSession(sessionId: SessionId): Promise<void> {
     const result = await this.manager.archiveSession(sessionId)
     if (!result.ok) throw new Error(`session archive failed: ${result.error.code}: ${result.error.message}`)
-    if (this.sessions.list.getSnapshot().current === sessionId) this.sessions.clear()
   }
 
   /**
@@ -313,6 +312,14 @@ export class WorkspacesService implements IWorkspaces {
     const workspace = this.manager.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
     const baselinesReady = workspace.phase === 'ready' && sessions.phase === 'ready'
+    // An archived current selection clears into the New Session view state —
+    // a hidden row must not stay open behind the list. Sweeping here covers
+    // every install path with one rule: the local unary echo, another tab's
+    // changed frame, and a reconnect baseline restoring a persisted
+    // selection that was archived while this client was away.
+    if (sessions.current !== undefined && workspace.archivedSessionIds.has(sessions.current)) {
+      this.sessions.clear()
+    }
     this.list.set({
       items: workspace.items,
       archivedSessionIds: workspace.archivedSessionIds,

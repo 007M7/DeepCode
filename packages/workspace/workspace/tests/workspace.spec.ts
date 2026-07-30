@@ -866,6 +866,16 @@ describe('registry-global session archive', () => {
     expect(storedState(result.pool).archivedSessionIds).toEqual(['stray', 'live-only'])
   })
 
+  it('propagates a persistence-listing failure instead of reporting an unknown session', async () => {
+    const result = await harness({ sessions: [] })
+    result.list.mockRejectedValueOnce(new Error('persistence backend down'))
+    // The storage fault is the error — never WorkspaceUnknownSessionError,
+    // which the API layer would misreport as session-not-found.
+    await expect(result.registry.archiveSession(SessionId('unlisted')))
+      .rejects.toThrow(/persistence backend down/)
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+  })
+
   it('restores the archive set across restarts and defaults it for pre-field media', async () => {
     const dir = await makeDir('archive-restart')
     const pool = new MemoryMediaPool()
