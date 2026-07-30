@@ -36,6 +36,7 @@
 - button "Add attachment":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- button "Plan mode off, press to turn on": Plan off
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img
