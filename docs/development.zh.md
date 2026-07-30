@@ -143,7 +143,7 @@ pnpm run demo:headless "summarize this workspace"
 pnpm run demo:tui
 ```
 
-自指的 cordis-agent 演示可以检查并修改其实时插件运行时，并需要相同的凭证：
+自指的 cordis 演示可以检查并修改其实时插件运行时，并需要相同的凭证（默认 `web`，也可用 `acp`）：
 
 ```sh
 pnpm run demo:cordis
