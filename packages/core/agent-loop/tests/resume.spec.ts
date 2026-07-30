@@ -283,7 +283,8 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
       agentOptions: { provider: 'mock', model: 'mock' },
       setup: async (agentCtx) => {
         expect(agentCtx.agent?.id).toBe(sessionId)
-        expect(agentCtx.agent?.session.events).toHaveLength(2)
+        // The two persisted events plus the end-seed marker.
+        expect(agentCtx.agent?.session.events).toHaveLength(3)
         agentCtx.on('session/created', () => void order.push('setup-listener:session/created'))
         agentCtx.on('agent/created', () => void order.push('setup-listener:agent/created'))
         order.push('setup:start')
@@ -585,7 +586,10 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('sess-resume') })).agent
     // The resumed session carries the prior history…
     expect(a2.session.id).toBe('sess-resume')
-    expect(a2.session.events.length).toBe(events1.length)
+    // …followed by one end-seed event marking the constructor seed.
+    expect(a2.session.events.length).toBe(events1.length + 1)
+    expect(a2.session.firstLiveSeq).toBe(events1.length)
+    expect(a2.session.events.at(-1)?.type).toBe('session/end-seed')
     const replay = new Session(SessionId('replay'), events1)
     expect(a2.session.deriveMessages()).toEqual(replay.deriveMessages())
 

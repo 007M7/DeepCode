@@ -378,7 +378,9 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessions.flush(child)
     const loaded = await ctx.sessionPersistence.load(child.id)
 
-    expect(loaded.events).toEqual(source.events)
+    // The constructor seed reaches disk verbatim, then the child's end-seed.
+    expect(loaded.events.slice(0, source.events.length)).toEqual(source.events)
+    expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed', seq: source.events.length })
     expect(loaded.meta).toMatchObject({
       id: SessionId('persist-child'),
       cwd: '/workspace',

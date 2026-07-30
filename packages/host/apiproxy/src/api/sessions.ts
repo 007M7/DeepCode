@@ -133,7 +133,11 @@ export type QueueAction =
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
-  /** Persisted file mtime. */
+  /**
+   * Last activity. Attached: the last non-`session/end-seed` event, since a
+   * pickup is not activity. Cold: the log's mtime, or `createdAt` for a backend
+   * with no per-session file (README Known Limitations covers the skew).
+   */
   updatedAt: number
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean

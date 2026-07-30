@@ -112,7 +112,19 @@ describe('Session properties', () => {
       const original = build(events)
       const replayed = new Session(SessionId(`replay-${counter++}`), [...original.events])
       expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
-      expect(replayed.seq).toBe(original.seq)
+      // A non-empty replay grows by exactly one log-only boundary.
+      expect(replayed.events.slice(0, original.seq)).toEqual(original.events)
+      expect(replayed.seq).toBe(original.seq === 0 ? 0 : original.seq + 1)
+    }))
+  })
+
+  it('replaying a log that already ends in end-seed adds no further marker', () => {
+    fc.assert(fc.property(logArb, (events) => {
+      const original = build(events)
+      const once = new Session(SessionId(`idem-a-${counter++}`), [...original.events])
+      const twice = new Session(SessionId(`idem-b-${counter++}`), [...once.events])
+      // Lazy resume makes browsing a pickup, so this must not grow per open.
+      expect(twice.events).toEqual(once.events)
     }))
   })
 

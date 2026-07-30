@@ -182,6 +182,8 @@ describe('SessionTitleService configuration and refresh boundaries', () => {
       'turn/start',
       'user/message',
       'turn/end',
+      // The seeded constructor's end-seed marker.
+      'session/end-seed',
       'session/title',
     ])
     expect(ctx.sessionTitle.get(session)?.messageSeqs).toEqual([source.seq])

@@ -75,7 +75,7 @@ describe('Session', () => {
     session.append('turn/start', { turn: 1 })
     session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     const replayed = new Session(SessionId('aborted-replay'), structuredClone(session.events))
-    expect(replayed.events).toEqual(session.events)
+    expect(replayed.events.slice(0, -1)).toEqual(session.events)
     const turnEnd = replayed.events.findLast(event => event.type === 'turn/end')
     expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason)
       .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
@@ -136,7 +136,10 @@ describe('Session', () => {
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
-    expect(replayed.seq).toBe(original.seq)
+    // The seed verbatim, plus the end-seed event the constructor appends.
+    expect(replayed.events.slice(0, original.seq)).toEqual(original.events)
+    expect(replayed.seq).toBe(original.seq + 1)
+    expect(replayed.firstLiveSeq).toBe(original.seq)
   })
 
   it('rejects pre-provider request headers and assistant messages on seed/load', () => {
@@ -165,7 +168,7 @@ describe('Session', () => {
     const unrelatedPrimitiveData = {
       type: 'plugin/event', seq: 0, time: 1, data: null,
     } as unknown as SessionEvent
-    expect(new Session(SessionId('primitive-plugin-data'), [unrelatedPrimitiveData]).events)
+    expect(new Session(SessionId('primitive-plugin-data'), [unrelatedPrimitiveData]).events.slice(0, 1))
       .toEqual([unrelatedPrimitiveData])
   })
 
@@ -470,7 +473,8 @@ describe('Session', () => {
       { type: 'turn/end' as const, seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' as const } } },
     ] as SessionEvent[]
     const session = new Session(SessionId('seed-ok'), goodSeed)
-    expect(session.events).toHaveLength(3)
+    expect(session.events.slice(0, 3)).toEqual(goodSeed)
+    expect(session.firstLiveSeq).toBe(3)
   })
 
   it('reads each seed array entry once so validation and storage use the same event', () => {
@@ -494,7 +498,7 @@ describe('Session', () => {
     const session = new Session(SessionId('seed-entry-snapshot'), seed)
 
     expect(reads).toBe(1)
-    expect(session.events).toEqual([accepted])
+    expect(session.events.slice(0, 1)).toEqual([accepted])
   })
 
   it('reads a nested seed-data getter once and stores its first JSON value', () => {
@@ -572,7 +576,7 @@ describe('Session', () => {
 
     const session = new Session(SessionId('seed-null-prototype'), [event])
 
-    expect(session.events).toEqual([{ ...event }])
+    expect(session.events.slice(0, 1)).toEqual([{ ...event }])
   })
 
   it('reads a nested seed-metadata getter once and stores its first JSON value', () => {
@@ -1588,6 +1592,7 @@ describe('todo/write event', () => {
     const replayed = new Session(SessionId('t4-replay'), [...original.events])
     expect(replayed.events.findLast(e => e.type === 'todo/write')!.data.todos)
       .toEqual([{ content: 'only', status: 'completed' }])
-    expect(replayed.seq).toBe(original.seq)
+    expect(replayed.events.slice(0, original.seq)).toEqual(original.events)
+    expect(replayed.firstLiveSeq).toBe(original.seq)
   })
 })
