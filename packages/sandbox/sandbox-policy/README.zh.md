@@ -13,6 +13,12 @@
 - `mode`：部署默认 `SandboxMode`（`read-only`／`workspace-write`／`danger-full-access`），加载时验证。默认为 `read-only`（故障安全）。
 - `workspaceRoot`：无 agent（智能体）的调用或没有 cwd 的会话在 `workspace-write` 下可写入的回退目录。默认为 `process.cwd()`；无论显式配置还是采用默认值，都会解析为其绝对文件系统标识。普通 agent 调用改用其会话头中不可变的 `cwd`。
 
+## 读取拒绝
+
+`readDenyPaths` 列出**受约束**执行绝不可读取的绝对路径，无论其模式在其他方面允许什么。省略（或为空）时拒绝 harness 凭据文档 `$DSH_HOME/.env`；非空列表则替换该默认值。拒绝项有意点名确切路径而非根目录：拒绝整个 harness home 会连带拿走模型对自己会话日志的既定访问。
+
+强制执行的形态由后端决定。Seatbelt 追加一条尾部 `deny file-read* file-write*`（最后匹配的规则胜出），bwrap 在任何工作区绑定之后把 `/dev/null` 映射到每个路径上；Landlock 的授权是纯粹的允许列表，`/` 上的读授权无法被扣除，因此 `confine()` 把强制执行报为 `partial`，而不是假装该边界存在。`danger-full-access` 根本不做任何约束，那里也就没有任何拒绝适用——凭据文档届时只受自身文件权限模式保护，而这挡不住同 UID 的工具进程。
+
 ## 接口
 
 - `ctx.sandboxPolicy.resolve({ session?, mode? })`：解析一项完整的逐调用策略。显式批准的模式优先于会话最后一条 `sandbox/mode` 事件，后者又优先于 `defaultMode`；会话不可变的 `cwd` 会先按文件系统语义规范化，再成为 `workspaceRoot`，否则使用配置的回退值。规范化先于词法归一化，因此 `symlink/..` 与进程工作目录解析保持一致。

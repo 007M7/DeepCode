@@ -160,6 +160,7 @@ function upsertLine(text: string | undefined, ref: CredentialRef, rendered: stri
     }
     const [, key, valuePart] = match
     if (key !== ref) {
+      /* v8 ignore next -- the value group is `(.*)`, which always participates; the fallback only satisfies noUncheckedIndexedAccess */
       pendingQuote = opensMultiline(valuePart ?? '')
       out.push(line)
       continue

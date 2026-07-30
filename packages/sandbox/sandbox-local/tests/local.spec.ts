@@ -329,6 +329,15 @@ describe('the default landlock probe (launcher CLI contract)', () => {
     expect(sandbox.confine(['true'], RO).enforcement).toBe('partial')
   })
 
+  it('reports partial enforcement when a read denial is requested it cannot express', async () => {
+    const launcher = fakeLauncher()
+    const { sandbox } = await setup({}, { platform: 'linux', probeBwrap: () => false, landlockLauncher: launcher })
+    // Fully enforced for the write policy, yet the read denial is
+    // unexpressible in an allow-list that already grants `/` for reads.
+    expect(sandbox.confine(['true'], RO).enforcement).toBe('full')
+    expect(sandbox.confine(['true'], { ...RO, readDenyPaths: ['/ws/secret.env'] }).enforcement).toBe('partial')
+  })
+
   it('reads a failing launcher as unusable: the chain ends and fails closed', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-fake-landlock-'))
     const launcher = join(dir, 'landlock-run')

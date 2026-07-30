@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import type { BashRunResult, CollectedOutput } from '@deepseek-ai/dsh-bash'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
@@ -74,8 +75,11 @@ function runResult(exitCode: number | null, stderr: string): BashRunResult {
   return { exitCode, signal: null, timedOut: false, aborted: false, timeoutMs: 1000, stdout: output(''), stderr: output(stderr) }
 }
 
+/** The policy home's default read denial: the harness credential document. */
+const DEFAULT_DENY = [resolve(resolveDshHome(), '.env')]
+
 function executionPolicy(mode: SandboxMode, workspaceRoot = resolve(process.cwd())): SandboxExecutionPolicy {
-  return { mode, workspaceRoot }
+  return { mode, workspaceRoot, readDenyPaths: DEFAULT_DENY }
 }
 
 describe('the provider hand-off', () => {
@@ -86,7 +90,7 @@ describe('the provider hand-off', () => {
     expect(result.sandbox).toEqual({ mode: 'read-only', denied: false, enforcement: 'full' })
     expect(calls).toEqual([{
       argv: ['bash', '-c', 'echo \'a b\' "c\'d"'],
-      policy: { mode: 'read-only', workspaceRoot: resolve(process.cwd()) },
+      policy: { mode: 'read-only', workspaceRoot: resolve(process.cwd()), readDenyPaths: DEFAULT_DENY },
     }])
   })
 
@@ -103,7 +107,7 @@ describe('the provider hand-off', () => {
     const { bash, calls } = await setup({ mode: 'workspace-write' })
     const result = await bash.run(bash.resolve({ command: 'true' }))
     expect(result.sandbox).toEqual({ mode: 'workspace-write', denied: false, enforcement: 'full' })
-    expect(calls[0]?.policy).toEqual({ mode: 'workspace-write', workspaceRoot: resolve(process.cwd()) })
+    expect(calls[0]?.policy).toEqual({ mode: 'workspace-write', workspaceRoot: resolve(process.cwd()), readDenyPaths: DEFAULT_DENY })
   })
 
   it('an explicit workspaceRoot on the policy wins', async () => {

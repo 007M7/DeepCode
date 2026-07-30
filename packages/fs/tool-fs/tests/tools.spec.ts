@@ -5,6 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
@@ -111,6 +112,9 @@ function call(ctx: Context, name: string, args: unknown, agent?: object) {
 function text(result: { content: { type: string; text?: string }[] }): string {
   return result.content.filter(b => b.type === 'text').map(b => b.text).join('')
 }
+
+/** The policy home's default read denial: the harness credential document. */
+const DEFAULT_DENY = [resolve(resolveDshHome(), '.env')]
 
 describe('session cwd resolution', () => {
   const execution = (cwd?: string) => cwd === undefined
@@ -763,13 +767,13 @@ describe('sandbox escalation surface (write/edit)', () => {
   it('a plain write stamps the default mode with the calling session root', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
-    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: resolve('/session-project') }])
+    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: resolve('/session-project'), readDenyPaths: DEFAULT_DENY }])
   })
 
   it('a standing session override folds onto the stamp', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
-    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
+    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project'), readDenyPaths: DEFAULT_DENY }])
   })
 
   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
@@ -802,7 +806,7 @@ describe('sandbox escalation surface (write/edit)', () => {
       agent: escalationAgent() as never,
       signal: new AbortController().signal,
     })
-    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project'), readDenyPaths: DEFAULT_DENY }])
   })
 
   it('a rejected escalation fails closed with its own text and never mutates', async () => {

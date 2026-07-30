@@ -54,7 +54,7 @@ const NS = settingsNamespace('llm-pi-ai')
 function registrationFacts(profiles: ReadonlyMap<string, ResolvedPiAiProviderProfile>): unknown {
   return [...profiles.entries()]
     .map(([provider, profile]) => ({ provider, retryPolicy: profile.retryPolicy }))
-    .sort((left, right) => left.provider < right.provider ? -1 : left.provider > right.provider ? 1 : 0)
+    .sort((left, right) => left.provider.localeCompare(right.provider))
 }
 
 /** Register one generic pi-ai adapter for all configured provider routes. */

@@ -823,6 +823,27 @@ describe('plugin registration and config', () => {
       .rejects.toThrow(/store DEEPSEEK_API_KEY through the credentials service.*as a last resort.*"apiKey"/s)
   })
 
+  it('reads the ambient variable when no credentials seam is mounted', async () => {
+    // The plain cordis.yml composition: no credential provider, the key in
+    // the launching environment.
+    vi.stubEnv('DEEPSEEK_API_KEY', 'ambient-key')
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, { baseURL: server.url })
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(server.headers[0]?.authorization).toBe('Bearer ambient-key')
+  })
+
+  it('treats an empty ambient variable as no key when no credentials seam is mounted', async () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
+    await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
+      .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+  })
+
   it('prefers explicit config over env for key and base URL', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'env-key')
     vi.stubEnv('DEEPSEEK_BASE_URL', 'http://env-host:1')

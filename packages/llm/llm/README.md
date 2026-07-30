@@ -10,7 +10,7 @@ An adapter registry plus a single streaming call surface, interceptable via a wa
 
 ### Public API
 
-- `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): () => void` Register one adapter instance for the given provider routes. Registration is all-or-nothing, and is disposed with the calling fiber.
+- `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle` Register one adapter instance for the given provider routes. Registration is all-or-nothing, and is disposed with the calling fiber. The returned disposer also carries `replace(providers)`: the candidate route set is validated in full before anything moves, so a conflict with another adapter leaves the current routes registered and serving, and the swap itself is one synchronous section with no observable gap. `replace([])` is legal — a registration holding zero routes — unlike an empty initial registration.
 - `ctx.llm.listProviders(): LlmProviderInfo[]` Describe registered provider routes in registration order.
 - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` Return the provider-owned retry policy captured during registration, with normal defaults resolved.
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` Discover the models one registered provider currently advertises.

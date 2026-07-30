@@ -54,6 +54,13 @@ describe('SandboxPolicyService', () => {
     expect(ctx.sandboxPolicy.resolve().readDenyPaths).toEqual([resolve(resolveDshHome(), '.env')])
   })
 
+  it('defaults the denial list under programmatic construction too', () => {
+    // Constructing the service directly bypasses Schemastery, so the field
+    // arrives undefined rather than as the empty array the schema fills.
+    const service = new SandboxPolicyService(new Context(), {})
+    expect(service.readDenyPaths).toEqual([resolve(resolveDshHome(), '.env')])
+  })
+
   it('replaces the default with a configured denial list', async () => {
     const configured = await mounted({ readDenyPaths: ['/vault/../vault/./keys.env'] })
     expect(configured.sandboxPolicy.readDenyPaths).toEqual([resolve('/vault/keys.env')])
