@@ -12,6 +12,7 @@ import {
   IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GroupNode, SessionNode } from '../tree.ts'
 import { formatRelativeTime } from '../tree.ts'
 import css from './Rows.module.css'
@@ -135,7 +136,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
 }
 
 /** Session status presentation; approval waiting outranks the underlying running state. */
-function sessionStatus(node: SessionNode): { state: 'warning' | 'ongoing' | 'done'; label: string } {
+function sessionStatus(node: SessionNode): { state: StateDotState; label: string } {
   if (node.waitingApproval) return { state: 'warning', label: 'Waiting for approval' }
   if (node.running) return { state: 'ongoing', label: 'Running' }
   return { state: 'done', label: 'Idle' }
