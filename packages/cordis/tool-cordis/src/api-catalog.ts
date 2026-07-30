@@ -404,7 +404,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>',
-        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize an adapter-configured default. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed. This\n * standalone query does not bind a later dispatch; use {@link prepareCall}\n * when logging and streaming must share one adapter registration.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a detached config only when a default must be materialized.\n */',
+        jsDoc: '/**\n * Validate a conversation call config against its exact model capability and\n * materialize adapter-configured defaults. Unsupported explicit efforts\n * reject before provider I/O; no clamping or aliasing is performed. This\n * standalone query does not bind a later dispatch; use {@link prepareCall}\n * when logging and streaming must share one adapter registration.\n * @param config - provider/model route and optional request controls.\n * @param signal - optional cancellation for adapter-owned capability lookup.\n * @returns a detached config only when a default must be materialized.\n */',
       },
       {
         signature: 'async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>',
@@ -1937,7 +1937,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmResolvedModelInfo',
-    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    reasoning?: LlmModelReasoningInfo;\n}',
+    declaration: 'export interface LlmResolvedModelInfo extends LlmModelInfo {\n    context?: LlmModelContext;\n    defaultMaxTokens?: number;\n    reasoning?: LlmModelReasoningInfo;\n}',
   },
   {
     name: 'Message',

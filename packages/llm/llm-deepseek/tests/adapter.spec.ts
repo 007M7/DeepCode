@@ -124,6 +124,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     // The wire request carried the auth header contents we configured.
     expect(server.requests[0]).toMatchObject({
       model: 'deepseek-v4-flash',
+      max_tokens: 256_000,
       reasoning_effort: 'high',
       stream: true,
       stream_options: { include_usage: true },
@@ -230,6 +231,20 @@ describe('DeepSeekAdapter against a mock server', () => {
       thinking: { type: 'enabled' },
       reasoning_effort: 'max',
     })
+  })
+
+  it('uses the configured maxTokens default and preserves an explicit request cap', async () => {
+    const server = await mockServer([
+      { kind: 'sse', events: textEvents },
+      { kind: 'sse', events: textEvents },
+    ])
+    const ctx = await harness(server.url, { maxTokens: 32_000 })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], maxTokens: 8_192 })
+
+    expect(server.requests[0]).toMatchObject({ max_tokens: 32_000 })
+    expect(server.requests[1]).toMatchObject({ max_tokens: 8_192 })
   })
 
   it('publishes only off and omits the wire effort when thinking is disabled', async () => {
@@ -666,7 +681,8 @@ describe('plugin registration and config', () => {
         provider: 'deepseek',
         id: 'deepseek-v4-flash',
         name: 'DeepSeek-V4-Flash',
-        context: { contextWindow: 256_000 },
+        context: { contextWindow: 1_000_000 },
+        defaultMaxTokens: 256_000,
         reasoning: {
           efforts: [
             { id: ReasoningEffortId('off'), name: 'Off' },
@@ -795,7 +811,10 @@ describe('plugin registration and config', () => {
         description: 'Higher reasoning budget',
       })
     await expect(ctx.llm.resolveModelInfo('deepseek', 'arbitrary-unlisted'))
-      .resolves.not.toHaveProperty('context')
+      .resolves.toMatchObject({
+        context: { contextWindow: 1_000_000 },
+        defaultMaxTokens: 256_000,
+      })
   })
 
   it('uses exact model capacity before the adapter-wide default', async () => {
@@ -876,6 +895,26 @@ describe('plugin registration and config', () => {
         baseURL: 'http://127.0.0.1:1',
         defaultContextWindow,
       })).rejects.toThrow(/defaultContextWindow/)
+      expect(ctx.llm.listProviders()).toEqual([])
+    },
+  )
+
+  it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid adapter-wide maxTokens %s',
+    async (maxTokens) => {
+      expect(() => new DeepSeekAdapter({
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        maxTokens,
+      })).toThrow(/maxTokens must be a positive safe integer/)
+
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      await expect(ctx.plugin(LlmDeepSeek, {
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        maxTokens,
+      })).rejects.toThrow(/maxTokens/)
       expect(ctx.llm.listProviders()).toEqual([])
     },
   )

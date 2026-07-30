@@ -42,6 +42,8 @@ export interface DeepSeekAdapterOptions {
   baseURL: string
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults?: RequestDefaults
+  /** Default per-request output cap; explicit request values win. */
+  maxTokens?: number
   /** Positive context capacity used when the selected model has no exact value. */
   defaultContextWindow?: number
   /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
@@ -54,6 +56,10 @@ export interface DeepSeekAdapterOptions {
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
+/** Default combined request/response context capacity. */
+export const DEFAULT_CONTEXT_WINDOW = 1_000_000
+/** Default per-request output-token cap. */
+export const DEFAULT_MAX_TOKENS = 256_000
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 const OFF_REASONING_EFFORT = ReasoningEffortId('off')
 const HIGH_REASONING_EFFORT = ReasoningEffortId('high')
@@ -120,6 +126,8 @@ export function httpErrorCode(status: number, error?: WireError['error']): strin
 export class DeepSeekAdapter extends LlmAdapter {
   private readonly streamIdleTimeoutMs: number
   private readonly retryPolicy: ResolvedRetryPolicy
+  private readonly defaultContextWindow: number
+  private readonly maxTokens: number
 
   constructor(private readonly options: DeepSeekAdapterOptions) {
     super()
@@ -128,9 +136,13 @@ export class DeepSeekAdapter extends LlmAdapter {
       && options.defaults.reasoningEffort !== 'off') {
       throw new Error('llm-deepseek: only reasoningEffort "off" can be configured when thinking is disabled')
     }
-    if (options.defaultContextWindow !== undefined
-      && (!Number.isInteger(options.defaultContextWindow) || options.defaultContextWindow <= 0)) {
+    this.defaultContextWindow = options.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW
+    if (!Number.isInteger(this.defaultContextWindow) || this.defaultContextWindow <= 0) {
       throw new Error('llm-deepseek: defaultContextWindow must be a positive integer')
+    }
+    this.maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS
+    if (!Number.isSafeInteger(this.maxTokens) || this.maxTokens <= 0) {
+      throw new Error('llm-deepseek: maxTokens must be a positive safe integer')
     }
     this.streamIdleTimeoutMs = options.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(this.streamIdleTimeoutMs)
@@ -162,12 +174,13 @@ export class DeepSeekAdapter extends LlmAdapter {
   ): Promise<LlmResolvedModelInfo> {
     const configured = this.options.models?.find(entry => entry.id === model)
     const contextWindow = configured?.contextWindow
-      ?? this.options.defaultContextWindow
+      ?? this.defaultContextWindow
     return Promise.resolve({
       ...configured === undefined
         ? { provider, id: model, name: model }
         : modelInfo(provider, configured),
-      ...contextWindow === undefined ? {} : { context: { contextWindow } },
+      context: { contextWindow },
+      defaultMaxTokens: this.maxTokens,
       ...this.options.defaults?.thinking === 'disabled'
         ? {
           reasoning: {
@@ -231,7 +244,7 @@ export class DeepSeekAdapter extends LlmAdapter {
   }
 
   private async * request(options: GenerateOptions, signal: AbortSignal): AsyncIterable<StreamChunk> {
-    const body = serializeRequest(options, this.options.defaults ?? {})
+    const body = serializeRequest(options, this.options.defaults, this.maxTokens)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
     // transport boundary, never a serialization failure.
     const payload = JSON.stringify(body)

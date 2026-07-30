@@ -60,6 +60,7 @@ class CatalogAdapter extends ScriptedAdapter {
     private readonly models: readonly LlmModelInfo[],
     private readonly contexts: Readonly<Record<string, LlmModelContext>> = {},
     private readonly reasoning: Readonly<Record<string, LlmModelReasoningInfo>> = {},
+    private readonly defaultMaxTokens: Readonly<Record<string, number>> = {},
   ) {
     super(SCRIPT)
   }
@@ -82,6 +83,7 @@ class CatalogAdapter extends ScriptedAdapter {
       name: model,
       ...this.contexts[model] === undefined ? {} : { context: this.contexts[model] },
       ...this.reasoning[model] === undefined ? {} : { reasoning: this.reasoning[model] },
+      ...this.defaultMaxTokens[model] === undefined ? {} : { defaultMaxTokens: this.defaultMaxTokens[model] },
     })
   }
 }
@@ -919,6 +921,46 @@ describe('LlmService', () => {
     const explicit = { provider: 'route', model: 'model', reasoningEffort: ReasoningEffortId('ultra') }
     await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
   })
+
+  it('materializes an adapter-owned maxTokens default while preserving an explicit cap', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      {},
+      { model: 256_000 },
+    ))
+
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toMatchObject({
+      defaultMaxTokens: 256_000,
+    })
+    await expect(ctx.llm.resolveCallConfig({ provider: 'route', model: 'model' })).resolves.toEqual({
+      provider: 'route',
+      model: 'model',
+      maxTokens: 256_000,
+    })
+    const explicit = { provider: 'route', model: 'model', maxTokens: 8_192 }
+    await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+  })
+
+  it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid adapter-owned default maxTokens %s',
+    async (defaultMaxTokens) => {
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      const adapter = new class extends ScriptedAdapter {
+        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({ provider, id: model, name: model, defaultMaxTokens })
+        }
+      }(SCRIPT)
+      ctx.llm.registerAdapter(['route'], adapter)
+
+      await expect(ctx.llm.resolveModelInfo('route', 'model'))
+        .rejects.toMatchObject({ code: 'INVALID_MODEL_MAX_TOKENS' })
+    },
+  )
 
   it.each([
     [{ efforts: [] }, 'empty effort list'],

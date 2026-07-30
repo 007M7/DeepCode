@@ -158,6 +158,22 @@ describe('request stability across the loop', () => {
     }
   })
 
+  it('logs an adapter-owned maxTokens default before dispatch', async () => {
+    const adapter = new MockAdapter([textResponse('bounded')], undefined, 256_000)
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('adapter-max-tokens'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    send(agent, 'use the adapter output limit')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]?.maxTokens).toBe(256_000)
+    const header = agent.session.events.find(event => event.type === 'request/header')
+    expect(header?.type === 'request/header' && header.data.header.config.maxTokens).toBe(256_000)
+  })
+
   it('keeps exact-model resolution, request logging, and dispatch on one adapter registration', async () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

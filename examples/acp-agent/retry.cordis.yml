@@ -17,7 +17,6 @@
           baseURL: !!js process.env.DEEPSEEK_BASE_URL
           thinking: enabled
           reasoningEffort: max
-          defaultContextWindow: 256000
           retryPolicy:
             mode: normal
             maxRetries: 2
