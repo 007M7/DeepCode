@@ -54,30 +54,22 @@ function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Prom
 describe('WelcomeNotice', () => {
   it('renders the owner copy with one primary action and no dismissal control', async () => {
     const h = mount()
-    const dialog = await screen.findByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title })
-    for (const text of [
-      WELCOME_NOTICE_COPY.zh.title,
-      WELCOME_NOTICE_COPY.zh.lead,
-      WELCOME_NOTICE_COPY.zh.feedbackTitle,
-      WELCOME_NOTICE_COPY.zh.feedbackBody,
-      WELCOME_NOTICE_COPY.zh.closing,
-      WELCOME_NOTICE_COPY.zh.quote,
-    ]) {
-      expect(screen.getByText(text)).toBeTruthy()
-    }
-    expect(dialog.textContent?.match(/感谢您试用 DeepSeek Harness/g) ?? []).toHaveLength(1)
-    const buttons = dialog.querySelectorAll('button')
+    const page = await screen.findByRole('region', { name: WELCOME_NOTICE_COPY.zh.title })
+    expect(screen.getByText(WELCOME_NOTICE_COPY.zh.title)).toBeTruthy()
+    for (const text of WELCOME_NOTICE_COPY.zh.paragraphs) expect(page.textContent).toContain(text)
+    expect(page.textContent?.match(/感谢您愿意拨冗试用 DeepSeek Harness/g) ?? []).toHaveLength(1)
+    const buttons = page.querySelectorAll('button')
     expect(buttons).toHaveLength(1)
     expect(screen.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel })).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: WELCOME_NOTICE_COPY.zh.title }))
     fireEvent.keyDown(document, { key: 'Escape' })
-    fireEvent.click(dialog.parentElement!.firstElementChild!)
     expect(h.complete).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('region')).toBeTruthy()
   })
 
   it('completes only after the acknowledgement write commits', async () => {
     const h = mount()
-    await screen.findByRole('dialog')
+    await screen.findByRole('region')
     fireEvent.click(screen.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }))
     await act(async () => { await Promise.resolve() })
     expect(h.mutate).toHaveBeenCalledOnce()
@@ -87,7 +79,7 @@ describe('WelcomeNotice', () => {
   it('skips itself when this exact version was already acknowledged', async () => {
     const h = mount(WELCOME_NOTICE_VERSION)
     await act(async () => { await h.controller.load() })
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('region')).toBeNull()
     expect(h.complete).toHaveBeenCalledOnce()
   })
 
@@ -95,7 +87,7 @@ describe('WelcomeNotice', () => {
     let resolveWrite!: (value: unknown) => void
     const write = new Promise<unknown>((resolve) => { resolveWrite = resolve })
     const h = mount(undefined, () => write)
-    await screen.findByRole('dialog')
+    await screen.findByRole('region')
     const action = screen.getByRole<HTMLButtonElement>('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel })
     fireEvent.click(action)
     expect(action.disabled).toBe(true)

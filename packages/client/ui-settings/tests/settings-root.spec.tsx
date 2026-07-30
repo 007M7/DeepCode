@@ -196,6 +196,17 @@ describe('SettingsPanel navigation', () => {
     expect(inactive).toHaveLength(0)
   })
 
+  it('makes the underlying application inert while onboarding owns the viewport', () => {
+    const appRoot = document.createElement('div')
+    appRoot.id = 'root'
+    document.body.append(appRoot)
+    const { view } = mount()
+    expect(appRoot.inert).toBe(true)
+    view.unmount()
+    expect(appRoot.inert).toBe(false)
+    appRoot.remove()
+  })
+
   it('falls back to the first row when the active entry unregisters', () => {
     const { bump } = mount()
     openPanel()

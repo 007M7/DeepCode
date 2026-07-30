@@ -10,6 +10,7 @@
  * sessions-derived empty-Hero fact is active.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { IconCloseOutline16, IconDataOutline16, IconSettingsOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './contract/slots.ts'
@@ -132,6 +133,14 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     })
   }, [])
 
+  useEffect(() => {
+    if (onboardingStep === undefined) return
+    const appRoot = document.getElementById('root')
+    if (appRoot === null) return
+    appRoot.inert = true
+    return () => { appRoot.inert = false }
+  }, [onboardingStep])
+
   return (
     <>
       <button
@@ -152,11 +161,18 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           onClose={close}
         />
       )}
-      {onboardingStep !== undefined && renderSlot('settings.onboarding', {
-        stepId: onboardingStep.id,
-        complete: () => { completeOnboardingStep(onboardingStep.id) },
-        openSection,
-      }, { only: onboardingStep.id })}
+      {onboardingStep !== undefined && createPortal((
+        <div className={css.onboardingOverlay} role="presentation">
+          <div className={css.onboardingMask} aria-hidden="true" />
+          <div className={css.onboardingStage}>
+            {renderSlot('settings.onboarding', {
+              stepId: onboardingStep.id,
+              complete: () => { completeOnboardingStep(onboardingStep.id) },
+              openSection,
+            }, { only: onboardingStep.id })}
+          </div>
+        </div>
+      ), document.body)}
     </>
   )
 }

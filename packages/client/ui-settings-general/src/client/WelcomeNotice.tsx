@@ -3,10 +3,23 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { BrandWordmark, Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import type { WelcomeNoticeState, WelcomeNoticeStore } from './welcome-store.ts'
 import css from './WelcomeNotice.module.css'
+
+function emphasizedFeedback(paragraph: string, emphasis: string): ReactNode {
+  const index = paragraph.indexOf(emphasis)
+  /* v8 ignore next -- both locale values derive from one owner object that contains the emphasis */
+  if (index < 0) return paragraph
+  return (
+    <>
+      {paragraph.slice(0, index)}
+      <strong>{emphasis}</strong>
+      {paragraph.slice(index + emphasis.length)}
+    </>
+  )
+}
 
 /** Registrant-owned dependencies of {@link WelcomeNotice}. */
 export interface WelcomeNoticeInjected {
@@ -23,6 +36,7 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
   const { complete, controller, useSnapshot, t } = props
   const state = useSnapshot(snapshot => snapshot)
   const finished = useRef(false)
+  const titleRef = useRef<HTMLHeadingElement | null>(null)
   const finish = useCallback((): void => {
     if (finished.current) return
     finished.current = true
@@ -37,6 +51,10 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
     if (state.acknowledged) finish()
   }, [finish, state.acknowledged])
 
+  useEffect(() => {
+    if (state.status === 'ready' && !state.acknowledged) titleRef.current?.focus()
+  }, [state.acknowledged, state.status])
+
   if (state.status === 'idle' || state.status === 'loading' || state.acknowledged) return null
 
   const acknowledge = async (): Promise<void> => {
@@ -44,30 +62,26 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
   }
 
   return (
-    <div className={css.overlay} role="presentation">
-      <div className={css.mask} aria-hidden="true" />
-      <section className={css.dialog} role="dialog" aria-modal="true" aria-labelledby="welcome-notice-title">
-        <h2 id="welcome-notice-title" className={css.title}>{t('welcome.title')}</h2>
-        <p className={css.lead}>{t('welcome.lead')}</p>
-        <div className={css.feedback}>
-          <strong>{t('welcome.feedbackTitle')}</strong>
-          <p>{t('welcome.feedbackBody')}</p>
-        </div>
-        <p className={css.closing}>{t('welcome.closing')}</p>
-        {state.error === null ? null : <p className={css.error} role="alert">{t('welcome.error')}</p>}
-        <div className={css.footer}>
-          <p className={css.quote}>{t('welcome.quote')}</p>
-          <Button
-            variant="primary"
-            className={css.primary}
-            autoFocus
-            disabled={state.status === 'saving'}
-            onClick={() => { void acknowledge() }}
-          >
-            {t('welcome.continue')}
-          </Button>
-        </div>
-      </section>
-    </div>
+    <section className={css.page} role="region" aria-labelledby="welcome-notice-title">
+      <div className={css.brand} aria-hidden="true"><BrandWordmark size={24} /></div>
+      <h2 ref={titleRef} id="welcome-notice-title" className={css.title} tabIndex={-1}>{t('welcome.title')}</h2>
+      <p className={css.opening}>{t('welcome.paragraph.0')}</p>
+      <p className={css.status}>{t('welcome.paragraph.1')}</p>
+      <blockquote className={css.reflection}>{t('welcome.paragraph.2')}</blockquote>
+      <p className={css.feedback}>
+        {emphasizedFeedback(t('welcome.paragraph.3'), t('welcome.feedbackEmphasis'))}
+      </p>
+      {state.error === null ? null : <p className={css.error} role="alert">{t('welcome.error')}</p>}
+      <div className={css.footer}>
+        <Button
+          variant="primary"
+          className={css.primary}
+          disabled={state.status === 'saving'}
+          onClick={() => { void acknowledge() }}
+        >
+          {t('welcome.continue')}
+        </Button>
+      </div>
+    </section>
   )
 }

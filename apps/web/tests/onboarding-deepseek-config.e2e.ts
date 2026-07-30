@@ -48,14 +48,17 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
 
   it('stores a key write-only and observes configured state without restarting', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-onboarding-deepseek-config'))
-    const welcome = page.getByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title })
+    const welcome = page.getByRole('region', { name: WELCOME_NOTICE_COPY.zh.title })
     await welcome.waitFor({ timeout: 15_000 })
-    const welcomeAria = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(true)
+    const welcomeAria = await captureStableAria(page, '[role="region"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(WELCOME_EXPECTED, welcomeAria, MODE)
     expect(await welcome.getByRole('button').allTextContents()).toEqual([WELCOME_NOTICE_COPY.zh.continueLabel])
     expect(await welcome.locator('button').count()).toBe(1)
 
-    const maskStyles = await welcome.locator('xpath=..').locator(':scope > div').first().evaluate((mask) => {
+    const mask = page.locator('[class*="onboardingMask"]')
+    expect(await mask.count()).toBe(1)
+    const maskStyles = await mask.evaluate((mask) => {
       const style = getComputedStyle(mask)
       const rect = mask.getBoundingClientRect()
       return {
@@ -89,16 +92,17 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
 
     await welcome.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }).click()
     await welcome.waitFor({ state: 'detached', timeout: 15_000 })
-    const dialog = page.getByRole('dialog', { name: '添加一个 API Key 开始使用' })
-    await dialog.waitFor({ timeout: 15_000 })
-    expect(await dialog.getByRole('textbox').count()).toBe(0)
-    const initial = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
+    const credentialStep = page.getByRole('region', { name: '添加一个 API Key 开始使用' })
+    await credentialStep.waitFor({ timeout: 15_000 })
+    expect(await credentialStep.getByRole('textbox').count()).toBe(0)
+    const initial = await captureStableAria(page, '[role="region"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(MISSING_EXPECTED, initial, MODE)
 
-    await dialog.getByRole('button', { name: '前往配置' }).click()
-    await dialog.waitFor({ state: 'detached', timeout: 15_000 })
+    await credentialStep.getByRole('button', { name: '前往配置' }).click()
+    await credentialStep.waitFor({ state: 'detached', timeout: 15_000 })
     const settings = page.getByRole('dialog', { name: '设置' })
     await settings.waitFor({ timeout: 10_000 })
+    expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(false)
     const keyInput = settings.getByLabel('API 密钥', { exact: true })
     await keyInput.waitFor({ timeout: 10_000 })
 
@@ -132,8 +136,8 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await page.reload({ waitUntil: 'load' })
     acknowledgeReloadConnectionLoss(tripwire, secondReloadWarnings)
     await page.waitForSelector('[class*="frame"]', { timeout: 15_000 })
-    expect(await page.getByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title }).count()).toBe(0)
-    expect(await page.getByRole('dialog', { name: '添加一个 API Key 开始使用' }).count()).toBe(0)
+    expect(await page.getByRole('region', { name: WELCOME_NOTICE_COPY.zh.title }).count()).toBe(0)
+    expect(await page.getByRole('region', { name: '添加一个 API Key 开始使用' }).count()).toBe(0)
 
     // A different stored copy version represents an intentional version bump:
     // the welcome step returns even though the credential is already ready.
@@ -146,7 +150,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     await welcome.waitFor({ timeout: 15_000 })
     await welcome.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }).click()
     await welcome.waitFor({ state: 'detached', timeout: 15_000 })
-    expect(await page.getByRole('dialog', { name: '添加一个 API Key 开始使用' }).count()).toBe(0)
+    expect(await page.getByRole('region', { name: '添加一个 API Key 开始使用' }).count()).toBe(0)
 
     expect((await page.content()).includes(secret)).toBe(false)
     expect((await page.locator('body').ariaSnapshot()).includes(secret)).toBe(false)
