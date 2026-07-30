@@ -24,6 +24,15 @@ function sanitizeUrl(url: string): string {
 
 const safeUrl: UrlTransform = url => sanitizeUrl(url)
 
+function remoteImageUrl(url: string): string | undefined {
+  try {
+    const protocol = new URL(url).protocol
+    return protocol === 'http:' || protocol === 'https:' ? url : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Build the component table; while `streaming`, fences render the plain arm (see CodeBlock). */
 function buildComponents(streaming: boolean): Components {
   return {
@@ -40,7 +49,20 @@ function buildComponents(streaming: boolean): Components {
         </a>
       )
     },
-    img: ({ alt = '' }) => <span className={css.imageAlt}>{alt}</span>,
+    img: ({ alt = '', src = '' }) => {
+      const imageSrc = remoteImageUrl(src)
+      if (imageSrc === undefined) return <span className={css.imageAlt}>{alt}</span>
+      return (
+        <img
+          className={css.image}
+          src={imageSrc}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+        />
+      )
+    },
     table: ({ children }) => (
       <div className={css.tableScroll}>
         <table>{children}</table>
@@ -74,7 +96,8 @@ const streamingComponents = buildComponents(true)
  * Render untrusted assistant-authored Markdown as semantic React elements.
  * @param props - Markdown source text preserved by the session projection;
  * `streaming` renders fences plain (highlighting lands on the finalize swap).
- * @returns A GFM document with raw HTML, relative links, unsafe protocols, and remote images disabled.
+ * @returns A GFM document with raw HTML, relative destinations, and unsafe
+ * protocols disabled; absolute HTTP(S) images render directly.
  */
 export function MarkdownText({ text, streaming = false }: { text: string; streaming?: boolean }) {
   return (

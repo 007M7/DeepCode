@@ -1,0 +1,33 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Markdown image policy" [disabled]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Show the Markdown image policy. {{clock}}
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- button "编辑":
+  - img
+- heading "Markdown images" [level=2]
+- paragraph:
+  - img "Remote test image"
+- paragraph: Local test image
+- paragraph: REMOTE_IMAGE_DONE
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- button "Plan mode off, press to turn on": Plan off
+- button "Select model, current deepseek-v4-flash":
+  - text: deepseek-v4-flash
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
