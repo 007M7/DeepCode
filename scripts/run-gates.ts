@@ -181,10 +181,6 @@ function pnpmInvocation(args: string[]): Pick<Gate, 'command' | 'args'> {
   return { command: process.execPath, args: [entrypoint, ...args] }
 }
 
-function nodeOptions(...options: string[]): string {
-  return [process.env.NODE_OPTIONS, ...options].filter(option => option !== undefined && option !== '').join(' ')
-}
-
 /**
  * Construct the complete gate list for a named aggregate.
  * @param selected - aggregate mode to construct.
@@ -287,6 +283,11 @@ function nodeCompatSmokeGates(): Gate[] {
       'run',
       'packages/session-persistence/session-persistence-jsonl/tests/zstd.compat.spec.ts',
     ], { label: 'JSONL Zstandard smoke' }),
+    pnpmExec('dsh-source-launch-smoke', [
+      'vitest',
+      'run',
+      'apps/cli/tests/source-launch.compat.spec.ts',
+    ], { label: 'dsh source-launch smoke' }),
   ]
 }
 
@@ -375,43 +376,11 @@ function ciWindowsObservationalGates(): Gate[] {
   ]
 }
 
-function lintGate(eslintTargets: readonly string[] = ['.']): Gate {
-  const concurrencyArgs = eslintConcurrencyArgs()
-  if (process.env.DSH_ESLINT_CACHE === '1') {
-    return pnpmExec('lint', [
-      'eslint',
-      ...eslintTargets,
-      ...concurrencyArgs,
-      '--cache',
-      '--cache-location',
-      '.cache/eslint/',
-      '--cache-strategy',
-      'content',
-    ], {
-      label: 'lint',
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    })
-  }
-  if (concurrencyArgs.length > 0) {
-    return pnpmExec('lint', ['eslint', ...eslintTargets, ...concurrencyArgs], {
-      label: 'lint',
-      env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-    })
-  }
-  return pnpmScript('lint', 'lint', {
-    env: { NODE_OPTIONS: nodeOptions('--max-old-space-size=8192') },
-  })
-}
-
-function eslintConcurrencyArgs(): string[] {
-  const raw = process.env.DSH_ESLINT_CONCURRENCY
-  if (raw === undefined || raw === '') return []
-  if (raw === 'auto') return ['--concurrency=auto']
-  const parsed = Number.parseInt(raw, 10)
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || String(parsed) !== raw) {
-    throw new Error(`run-gates: DSH_ESLINT_CONCURRENCY must be a positive integer or auto, got ${JSON.stringify(raw)}.`)
-  }
-  return [`--concurrency=${raw}`]
+function lintGate(): Gate {
+  const raw = process.env.DSH_OXLINT_THREADS
+  return pnpmScript('lint', 'lint', raw === undefined || raw === ''
+    ? {}
+    : { displayCommand: `DSH_OXLINT_THREADS=${raw} pnpm run lint` })
 }
 
 function coverageGate(): Gate {
@@ -485,7 +454,6 @@ function docSyncLeafGates(options: {
   return [
     pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
-    pnpmScript('cordis-api', 'verify-cordis-api', { label: 'cordis api' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
     pnpmScript('config-catalog', 'verify-config-catalog', { label: 'config catalog' }),

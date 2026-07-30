@@ -67,6 +67,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
           },
         }
       },
+      async rename(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { title: request.payload.title, seq: 0 } } }
+      },
       async prompt(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
@@ -224,6 +227,8 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
         },
       },
     })
+    const renamed = await c.sessions.rename({ sessionId: 's' as never, title: 'named' })
+    expect(renamed.result).toMatchObject({ ok: true, value: { title: 'named', seq: 0 } })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)

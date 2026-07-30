@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/llm/token-meter/README.md
 README.md: 578728ded9cf51a12abcd70d541404e995028f26
-README.zh.md: 51518e98c43e740822970c1a39154f550ea962dc
+README.zh.md: 9d54ddb4792e6c897af7d57a6f8ae98204caa11d

@@ -1,4 +1,4 @@
-# Full-screen TUI coding agent with swappable DeepSeek and local-bash backends.
+# Full-screen TUI coding agent with swappable model and local-bash backends.
 # `dsh-tui-demo` supplies the agent spine, workspace instructions, generic
 # task controls, JSONL persistence, the pi-tui front door, and `main`.
 # HMR remains a leaf because it depends on Loader internals. The app bin loads
@@ -19,6 +19,17 @@
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
     thinking: enabled
     reasoningEffort: max
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      - provider: openai
+        apiKey: !!js process.env.OPENAI_API_KEY
+        baseURL: !!js process.env.OPENAI_BASE_URL
+      - provider: anthropic
+        apiKey: !!js process.env.ANTHROPIC_API_KEY
+        baseURL: !!js process.env.ANTHROPIC_BASE_URL
 
 # Local executor for the app bundle's bash tool.
 # Managed child-process groups for the bash executor (spawn/kill/output plumbing).

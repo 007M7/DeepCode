@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`node-addon-landlock-run` 的记录真源：这是 harness 从 npm 消费的 Landlock「先限制自身、再执行」启动器（`packages/sandbox/sandbox-local`、`packages/bash/bash-sandbox`）。启动器在此处开发，与消费方相邻；独立仓库是打包并发布 npm 包系列的发布镜像。
+`node-addon-landlock-run` 的权威源码位于此处：这是 harness 从 npm 引入并使用的 Landlock「先限制自身、再执行」启动器（`packages/sandbox/sandbox-local`、`packages/bash/bash-sandbox`）。启动器在此处开发，与消费方相邻；独立仓库是打包并发布 npm 包（package）系列的发布镜像。
 
 ## 发布镜像
 
@@ -17,6 +17,6 @@
 1. 先通过常规 harness PR 将启动器更改落地于此；触发 `Landlock Run` 工作流，并确保其所有任务通过。
 2. 在镜像 checkout 中替换 `.github/` 以外的所有内容：`git -C <mirror> rm -rq -- . ':!.github'`，然后执行 `git -C <harness> archive HEAD:native/landlock-run | tar -x -C <mirror>`，最后执行 `git -C <mirror> add -A` 并提交。
 3. 在镜像中按照其发布清单（`docs/release.md`）操作：`pnpm release:commit <version>` → 合并 → 标记 `vX.Y.Z` → 两阶段 `Release` 工作流（先以 `publish=false` 预演，再从标签以 `publish=true` 发布）。
-4. 使用已发布的标签／commit 更新上方 manifest（元数据清单）表，并在同一更改中提升 harness 消费方的依赖范围。
+4. 使用已发布的标签／commit 更新上方 manifest（元数据清单）表，并在同一更改中上调 harness 消费方的依赖版本范围。
 
-镜像不得分叉：如果更改直接提交到镜像中（例如发布期间的热修复），必须在下次导出前将其移植回此处。
+发布镜像不得与此处的权威源码产生分歧：如果更改直接提交到镜像中（例如发布期间的热修复），必须在下次导出前将其移植回此处。

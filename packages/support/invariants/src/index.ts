@@ -192,7 +192,7 @@ export class InvariantService extends Service {
     }
     // Cordis attaches setup thenability and async teardown to this callable;
     // the service seam intentionally exposes only the conventional disposer.
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- the extra runtime shape stays private.
+    // oxlint-disable-next-line typescript/no-misused-promises -- the extra runtime shape stays private.
     return registration
   }
 }

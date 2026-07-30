@@ -62,8 +62,8 @@ occurrence 表与 chip 三投影：
 
 对"命令"零知识的触发/菜单/pick 管线：
 
-- service 只有 source 注册表（`SlashSource{trigger: '/'|'@', name, candidates, onPick, matchSpace?, matchEnter?}`；(trigger,name) 唯一、注册序 = 组序 = 轮询序）与 `sessionOf(sctx)`。实现 match 钩子即参与空格/回车裁决的声明；管线按注册序轮询，首个非 undefined 应答胜出，无人认领落 default sink。matchSpace 同步（空格在击键中触发，只许热缓存）；matchEnter 异步（可 await 源自身预热，预热失败即 reject）。
-- controller 持有唯一权威 hit（含 span；菜单关闭后为 Space 保留）、per-session menu store、候选 fetch generation、键盘仲裁（combobox 模式：焦点始终在 textarea，↑↓/Enter/Escape 拦截且全程过 IME composition 守卫，唯一例外 Shift+Enter 无条件先行）、pick 编排（outcome → 自派 bail 事件）；每个 session scope 出生时对 source roster 做一次 `warm(projection)`，projection 在该 scope 内只有稳定的 sessionId，无 published/能力跃迁；scope disposer 拆除 controller。
+- service 只有 source 注册表（`SlashSource{trigger: '/'|'@', name, order?, candidates, onPick, matchSpace?, matchEnter?}`；(trigger,name) 唯一；可选 `order` 对 roster 排序——越小越靠前、默认 0、同值保持注册序——排序后的 roster 同时是组序与轮询序）与 `sessionOf(sctx)`。实现 match 钩子即参与空格/回车裁决的声明；管线按 roster 序轮询，首个非 undefined 应答胜出，无人认领落 default sink。matchSpace 同步（空格在击键中触发，只许热缓存）；matchEnter 异步（可 await 源自身预热，预热失败即 reject）。
+- controller 持有唯一权威 hit（含 span；菜单关闭后为 Space 保留）、per-session menu store、候选 fetch generation、键盘仲裁（combobox 模式：焦点始终在 textarea，↑↓/Enter/Escape 拦截且全程过 IME composition 守卫，唯一例外 Shift+Enter 无条件先行）、pick 编排（outcome → 自派 bail 事件）；`dismiss()` 动词支撑 MenuView 注入的 `onDismiss`（指针落在菜单与所在 composer 卡片之外即关闭菜单；MenuView 还经 `slash.menu` locale 命名空间本地化组标题，并经 ui-primitives 的 `useAnchoredMaxHeight` 把高度收敛到 composer 上方的视口空间）；每个 session scope 出生时对 source roster 做一次 `warm(projection)`，projection 在该 scope 内只有稳定的 sessionId，无 published/能力跃迁；scope disposer 拆除 controller。
 - 触发检测词边界（`user@host`、URL `/` 永不触发）、守卫分档（plain：`/` 到处 + `@` 行内 / claimed：`/` 抑制、`@` 活 / frozen：全无）为冻结纯核。
 
 ### hub / facade：常驻外壳与严格 session 输入体

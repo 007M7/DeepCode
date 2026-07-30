@@ -3,18 +3,22 @@
  * store into the conversation.input.overlay anchor. Unlike the slash menu
  * (combobox — textarea keeps focus), this shell HOLDS focus while open: the
  * inner search input takes focus, plain typing filters the loaded options
- * locally, Enter/↑↓ drive the filtered highlight, Escape dismisses back to
- * the composer, and ←→ keep the search input's native caret. Any pointer
- * interaction outside the box dismisses (the click's own target takes
- * focus). Closed state renders null; the overlay slot stays mounted.
+ * locally, Enter/↑↓ drive the filtered highlight (scrolled into view), Escape
+ * dismisses back to the composer, and ←→ keep the search input's native
+ * caret. Any pointer interaction outside the box dismisses (the click's own
+ * target takes focus). Closed state renders null; the overlay slot stays
+ * mounted. The card height clamps to the space above the composer.
  */
 import { useEffect, useRef } from 'react'
 import { useSyncExternalStore } from 'react'
 import clsx from 'clsx'
-import { IconCheckOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCheckOutline16, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
 import { filterOptions } from './popup.ts'
 import type { PopupSelectController } from './popup.ts'
 import css from './PopupSelectView.module.css'
+
+/** Design cap on the card height (same MenuDropdown family as the slash menu). */
+const MAX_HEIGHT = 320
 
 /** Injected business face of the popupSelect overlay entry. */
 export interface PopupSelectInjected {
@@ -34,6 +38,17 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
   )
   const cardRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  // The card is bottom-anchored above the composer; clamp the design cap to
+  // the space above it, re-measured on every store update.
+  const maxHeight = useAnchoredMaxHeight(cardRef, MAX_HEIGHT, state)
+  const active = state.open ? state.active : null
+
+  // The search input keeps focus while arrows move a virtual highlight, so
+  // the browser never scrolls the active row into view — do it here.
+  useEffect(() => {
+    if (active === null) return
+    cardRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [active])
 
   // Focus ownership: the search input grabs on open (the design's
   // transient-layer rule), and ANY outside pointer interaction dismisses —
@@ -42,7 +57,6 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
   // takes focus naturally, so no focusComposer here.
   useEffect(() => {
     if (!state.open) return
-    searchRef.current?.focus()
     const onPointerDown = (ev: PointerEvent): void => {
       if (cardRef.current !== null && ev.target instanceof Node && cardRef.current.contains(ev.target)) return
       popup.dismiss()
@@ -50,6 +64,11 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => { document.removeEventListener('pointerdown', onPointerDown, true) }
   }, [state.open, popup])
+
+  // Focus the search input after it mounts (separate effect so the ref is populated).
+  useEffect(() => {
+    if (state.open) searchRef.current?.focus()
+  }, [state.open])
 
   if (!state.open) return null
 
@@ -83,6 +102,7 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
     <div
       ref={cardRef}
       className={css.card}
+      style={{ maxHeight }}
       aria-label={`/${String(state.command)} options`}
       onKeyDown={onKeyDown}
     >
@@ -108,7 +128,7 @@ export function PopupSelectView({ popup }: PopupSelectInjected) {
       {state.submitting && <div className={css.status}>Applying…</div>}
       {state.status === 'ready' && rows.length === 0 && <div className={css.status}>No options</div>}
       {state.status === 'ready' && (
-        <div role="listbox" aria-label={`/${String(state.command)} matches`}>
+        <div role="listbox" aria-label={`/${String(state.command)} matches`} className={css.viewport}>
           {rows.map((option, index) => (
             <div
               key={option.id}

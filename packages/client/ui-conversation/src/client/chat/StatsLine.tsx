@@ -1,4 +1,6 @@
 // Settled-node identity prevents stream-delta updates from rerendering this row.
+// Mounted on 'conversation.composer.dock' so it sticks with the composer in the
+// active conversation scrollport (see ConversationRoot data-conversation-scroll).
 
 import { memo, useMemo } from 'react'
 import type { ConversationSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
@@ -49,7 +51,7 @@ export function deriveStats(nodes: ConversationSnapshot['nodes']): UsageTotals {
   }
 }
 
-/** Props: the conversation-snapshot selector hook (handed down by ChatView). */
+/** Props: the conversation-snapshot selector (dock registration or unit mount). */
 export interface StatsLineProps { useSession: SnapshotSelectorHook<ConversationSnapshot> }
 
 export const StatsLine = memo(function StatsLine({ useSession }: StatsLineProps) {
