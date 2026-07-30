@@ -46,7 +46,12 @@ for line in sys.stdin:
                 "sessionId": params["sessionId"],
                 "event": {
                     "type": "assistant/message",
-                    "data": {"content": [{"type": "text", "text": "hello from runtime"}]},
+                    "data": {
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "hello from runtime"}],
+                        },
+                    },
                 },
             },
         }), flush=True)

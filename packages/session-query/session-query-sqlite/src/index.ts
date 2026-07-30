@@ -62,6 +62,16 @@ export {
   type JournalMode,
 } from './schema.ts'
 
+/** Boot-context slot for a launcher-owned absolute path to this process's derived query index. */
+export const SESSION_QUERY_SQLITE_PATH_KEY = 'launcherSessionQueryPath'
+
+declare module 'cordis' {
+  interface Context {
+    /** Launcher-owned absolute path to this process's disposable derived query index. */
+    launcherSessionQueryPath?: string
+  }
+}
+
 /** Default result page size. */
 export const SESSION_QUERY_SQLITE_DEFAULT_LIMIT = 20
 /** Maximum accepted result page size. */

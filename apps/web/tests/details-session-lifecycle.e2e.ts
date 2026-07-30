@@ -1,14 +1,16 @@
-// Keyless browser regression for the details column's Session ownership.
-// The shipped composition retains geometry through unselected states and closes it only when a different Session takes ownership.
+// Keyless browser regression for the details column's default visibility and Session ownership.
+// The shipped composition starts closed after selection and reload, retains an explicitly opened width through
+// unselected states, and closes it only when a different Session takes ownership.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  fixtureUserPrompts, launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
+  acknowledgeReloadConnectionLoss, fixtureUserPrompts, launchWebScaffold, seedSession, watchConsole,
+  webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const FIXTURE = fileURLToPath(new URL('./snapshots/lifecycle-chrome/session.jsonl', import.meta.url))
 const SEED_FIXTURE = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
@@ -40,7 +42,7 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: 5 })
     await seedSession(scaffold, await readFile(SEED_FIXTURE, 'utf8'), 'details-session-lifecycle-seed')
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await appFrame(page).waitFor({ timeout: 30_000 })
@@ -52,7 +54,7 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     await scaffold?.close()
   })
 
-  it('retains geometry through hero and closes it for a different Session', async () => {
+  it('starts and reloads closed, then stays closed across Session ownership changes', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-details-session-lifecycle'))
     const settled = scaffold.whenTurnSettled()
     const input = page.locator('textarea').first()
@@ -61,11 +63,18 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     await settled
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
 
-    await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(360)
-    expect(await page.getByText('详情', { exact: true }).count()).toBe(1)
+    await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
+    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
 
-    // The localized chrome names the sidebar entry 新建会话 (zh default locale).
-    await page.getByRole('button', { name: '新建会话' }).last().click()
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await appFrame(page).waitFor({ timeout: 30_000 })
+    await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
+    await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
+    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
+
+    await page.getByRole('button', { name: /^(?:New session|新.*会话)$/ }).last().click()
     await page.getByText("Let's start building", { exact: false }).waitFor({ timeout: 15_000 })
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
     expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
@@ -73,8 +82,8 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     const original = page.locator('[role=treeitem]').filter({ hasText: 'Reply with the single word' }).first()
     await original.click()
     await page.getByText('LIGHTHOUSE', { exact: true }).waitFor({ timeout: 15_000 })
-    await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(360)
-    expect(await page.getByText('详情', { exact: true }).count()).toBe(1)
+    await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
+    expect(await page.getByText('详情', { exact: true }).isVisible()).toBe(false)
 
     const ungrouped = page.getByText('Ungrouped', { exact: true })
     const ungroupedRow = ungrouped.locator('..').locator('..')

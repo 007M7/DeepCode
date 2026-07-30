@@ -1,9 +1,9 @@
 /**
  * ui-plan browser half on a real SlotsService: the plugin occupies the
  * conversation-declared `conversation.input.plan` single seat with the plan
- * status chip; the injected face executes /plan off and folds admission
- * outcomes into null (admitted) or a user-visible failure line; teardown
- * empties the seat (HMR safety).
+ * toggle chip; the injected face executes /plan or /plan off by direction and
+ * folds admission outcomes into null (admitted) or a user-visible failure
+ * line; teardown empties the seat (HMR safety).
  */
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
@@ -49,7 +49,7 @@ describe('ui-plan browser apply', () => {
       .rejects.toThrow(/slot "conversation.input.plan" is not declared/)
   })
 
-  it('registers the chip, executes /plan off, and unregisters on teardown', async () => {
+  it('registers the chip, executes /plan by direction, and unregisters on teardown', async () => {
     const b = await bench()
     const fiber = b.ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -57,20 +57,22 @@ describe('ui-plan browser apply', () => {
     expect(entry.component).toBe(PlanChip)
     const injected = (entry.inject as unknown as (id: SessionId) => PlanChipInjected)(SID)
 
-    await expect(injected.exitPlanMode()).resolves.toBeNull()
+    await expect(injected.setPlanMode(false)).resolves.toBeNull()
     expect(b.execute).toHaveBeenLastCalledWith({ sessionId: SID, line: '/plan off' })
+    await expect(injected.setPlanMode(true)).resolves.toBeNull()
+    expect(b.execute).toHaveBeenLastCalledWith({ sessionId: SID, line: '/plan' })
 
     // Business failure folds to the composer-visible line.
     b.execute.mockResolvedValueOnce({
       result: { ok: false as const, error: { code: 'session-not-found', message: 'gone', details: {} } },
     } as never)
-    await expect(injected.exitPlanMode()).resolves.toBe('gone（session-not-found）')
+    await expect(injected.setPlanMode(false)).resolves.toBe('gone（session-not-found）')
 
     // Unmatched admission (plan-mode not composed host-side) is also a failure line.
     b.execute.mockResolvedValueOnce({
       result: { ok: true as const, value: { matched: false as const } },
     } as never)
-    await expect(injected.exitPlanMode()).resolves.toBe('未知命令：/plan off')
+    await expect(injected.setPlanMode(true)).resolves.toBe('未知命令：/plan')
 
     await fiber.dispose()
     expect(b.slots.entries('conversation.input.plan')).toHaveLength(0)

@@ -52,7 +52,7 @@ The full-screen agent can read and write files, run commands, delegate subtasks,
 
 ## What happened
 
-headless-agent uses the `@deepseek-ai/dsh-cli-demo` app; tui-agent uses the interactive `@deepseek-ai/dsh-tui-demo` app. Both load the same providerless agent spine, while their `cordis.yml` files select the DeepSeek model and capability plugins appropriate to each surface.
+headless-agent uses the `@deepseek-ai/dsh-cli-demo` app; the interactive `dsh` surface instead composes [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml) with the `tui.cordis.yml` overlay and no app bundle. Both load the same providerless agent spine, while their `cordis.yml` files select the DeepSeek model and capability plugins appropriate to each surface.
 
 ## Next steps
 

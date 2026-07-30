@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包（package）在设计上与传输方式无关，不注册任何路由；载体（目前为 HTTP，未来可以是 IPC）自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`apps/cli/cordis.yml`](../../../apps/cli/cordis.yml)。
+所有客户端形态共用的 API 网关：TS 契约（`src/api/`，不依赖 Node，可从浏览器导入）、fetch 载体对（`src/fetch/`：宿主侧的 `toFetchHandler`，以及客户端侧的 `AbstractApiClient` 与平台子类）和宿主侧实现（`src/api-proxy.ts`：`createApiProxy` 加上默认导出的 `ApiProxyService` 网关插件，其配置为 `{provider, model, workspaceRoot?}`，提供 `ctx.apiProxy`）。该包（package）在设计上与传输方式无关，不注册任何路由；载体（目前为 HTTP，未来可以是 IPC）自行包装 `ctx.apiProxy`。已发布的核心组合位于 [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml)。
 
 ## 契约层（`/api`）
 
@@ -46,3 +46,4 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 - **预留 seam 不进入 `RpcMethodMap`**：`session.fork`、`prompt.mode: 'inject'`、`task.list` 和描述字段 `hostInstanceId` 都是已记录的预留项（先前预留的 `host.listModels` 已作为 `llm.models` 交付）；未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
 - **没有协议版本字段**：客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
 - **Linux 原生选择器依赖桌面工具**：在 `native` 能力下，Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；组合层面的回退是 browse 后端（见 [native 后端 README](../directory-picker-native/README.md)）。
+- **冷会话的 `updatedAt` 会把一次单纯的拾起算作写入（仅逐文件后端）**：已附加投影排除了 `session/end-seed` 边界，因为接手一个会话不算活动；但冷会话的 `updatedAt` 取自其日志文件的 mtime，而每一次持久写入都会刷新它，包括这条边界。`agentFor()` 会在首次触碰时恢复一个冷会话，因此在客户端里仅仅打开一个会话就会写入它。这只适用于 `locate()` 能解析出逐会话产物的场景，即 JSONL；SQLite 返回 `undefined`，因此它的冷会话回退到 `createdAt`，偏差方向相反——偏旧而不是偏新——且与这条边界无关。于是一个被触碰过却没有在里面工作过的会话，在重新附加之前会排在它最后一次真实活动之后。要把两者区分开需要读取日志，而这恰恰是 mtime 路径存在的目的；在索引中存储一个最后活动字段可以从源头修好它，范围见[最后活动索引 Agent Note](../../../.agents/notes/proposed/architecture/2026-07-29-durable-last-activity-index.md)。
