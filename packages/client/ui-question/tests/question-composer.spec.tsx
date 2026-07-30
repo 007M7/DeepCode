@@ -238,6 +238,11 @@ describe('QuestionComposer', () => {
     fireEvent.keyDown(custom, { key: 'Enter' })
     fireEvent.click(screen.getByRole('checkbox', { name: '系统设计' }))
     fireEvent.click(screen.getByRole('button', { name: '提交' }))
+    expect(respond).toHaveBeenNthCalledWith(1, answeredEnvelope('second', [
+      { id: 'profile', selected: ['工程落地型 (Recommended)'] },
+      { id: 'detail', selected: [], custom: 'x' },
+      { id: 'signals', selected: ['系统设计'] },
+    ]))
     expect(await screen.findByText('网络中断')).toBeTruthy()
     expect(screen.getByRole<HTMLButtonElement>('button', { name: '提交' }).disabled).toBe(false)
 

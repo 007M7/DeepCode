@@ -10,7 +10,7 @@ The user-interaction result vocabulary carries selected option labels and option
 
 ## Decision
 
-For a question with `multiSelect: true`, one answer item may contain both a non-empty `selected` array and non-empty `custom` text. Web drafts preserve both values regardless of whether the user selects an option or types custom text first; the TUI projects its checked option set when custom text is submitted; and the Web host accepts the combined response after applying its existing id, label, uniqueness, batch, and non-empty-text validation.
+For a question with `multiSelect: true`, one answer item may contain both a non-empty `selected` array and non-empty `custom` text. Web drafts preserve both values regardless of whether the user selects an option or types custom text first; the TUI retains pending custom text across option/custom mode switches and projects it with checked labels from either submit mode; and the Web host accepts the combined response after applying its existing id, label, uniqueness, batch, and non-empty-text validation.
 
 Single-select and optionless questions keep exclusive semantics: custom text overrides any selected option. The result shape remains `{ id, selected, custom? }`, so no wire or tool-output schema changes.
 
@@ -22,4 +22,4 @@ Single-select and optionless questions keep exclusive semantics: custom text ove
 
 ## Consequences
 
-Multi-select UIs can represent the user's complete answer without discarding either source. Providers and consumers retain the existing DTO, while request-aware validators interpret the allowed combination from `multiSelect`. Web, TUI, host-response, tool-projection, and assembled keyless TUI coverage pin the combined result; single-select host coverage pins the remaining exclusivity rule.
+Multi-select UIs can represent the user's complete answer without discarding either source. Providers and consumers retain the existing DTO, while request-aware validators interpret the allowed combination from `multiSelect`. Web component and assembled-browser coverage, TUI coverage, host-response coverage, and tool-projection coverage pin the combined result. Web, TUI, and tool-projection coverage also retain labels-only answers; assembled keyless TUI coverage pins the combined terminal flow, and single-select host coverage pins the remaining exclusivity rule.

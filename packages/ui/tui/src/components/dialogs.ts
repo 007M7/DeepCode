@@ -804,11 +804,12 @@ export class QuestionDialog implements Component, Focusable {
       const selected = this.question.multiSelect
         ? this.selectedOptionLabels()
         : [options[this.selectedIndex]?.label].filter((label): label is string => label !== undefined)
-      if (selected.length === 0) {
+      const custom = this.question.multiSelect ? this.input.getValue().trim() : ''
+      if (selected.length === 0 && custom === '') {
         this.error = 'Select at least one option, or press Tab for a custom answer.'
         return
       }
-      this.done({ selected })
+      this.done({ selected, ...(custom === '' ? {} : { custom }) })
     } else if (matchesKey(data, Key.tab) || data.toLowerCase() === 'c') {
       this.mode = 'custom'
       this.error = ''
@@ -854,7 +855,12 @@ export class QuestionDialog implements Component, Focusable {
     push('')
     if (this.mode === 'custom') {
       for (const line of this.input.render(innerWidth)) push(line)
-      push(this.palette.dim(this.options.length > 0 ? 'Enter submit • Esc options' : 'Enter submit • Esc cancel'))
+      const controls = [
+        ...(this.options.length > 0 && this.question.multiSelect ? [`${this.selected.size} selected`] : []),
+        'Enter submit',
+        this.options.length > 0 ? 'Esc options' : 'Esc cancel',
+      ]
+      push(this.palette.dim(controls.join(' • ')))
     } else {
       const options = this.options
       const start = Math.max(0, Math.min(
