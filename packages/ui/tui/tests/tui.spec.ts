@@ -2544,7 +2544,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it('bare /details opens the transcript-details selector and applies the confirmed state', async () => {
+  it('bare /details opens the transcript-details toggle and Tab applies immediately', async () => {
     const result = await setup()
     const open = async (): Promise<number> => {
       const from = result.terminal.output.length
@@ -2563,50 +2563,40 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await result.ctx.commands.execute(result.agent, '/details', new AbortController().signal)
     await tick()
 
-    // Esc cancels without touching the state.
-    const cancelOutput = result.terminal.output.length
-    result.terminal.send('\x1b')
-    await tick()
-    expect(result.terminal.output.slice(cancelOutput)).not.toContain('Tool and context cards')
-
-    // Tab cycles the highlighted entry's pending value; Enter applies it.
-    const cycled = await open()
+    // Each Tab applies one step immediately while the dialog stays open:
+    // collapsed -> expanded -> hidden -> collapsed (wraparound).
     result.terminal.send('\t')
-    await tick()
-    expect(result.terminal.output.slice(cycled)).toContain('collapsed → expanded')
-    result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('Tool and context cards expanded.')
-
-    // Both entries apply in one confirm: cycle tool cards through the
-    // wraparound back to collapsed and toggle reasoning off.
-    const reopened = await open()
-    result.terminal.send('\t')
     result.terminal.send('\t')
     await tick()
-    expect(result.terminal.output.slice(reopened)).toContain('expanded → collapsed')
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+    result.terminal.send('\t')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards collapsed.')
+
+    // The reasoning entry toggles the same way.
     result.terminal.send('\x1b[B')
     result.terminal.send('\t')
     await tick()
-    expect(result.terminal.output.slice(reopened)).toContain('shown → hidden')
-    result.terminal.send('\r')
-    await tick()
     expect(result.terminal.output).toContain('Reasoning blocks hidden.')
-    expect(result.terminal.output).toContain('Tool and context cards collapsed.')
 
-    // Enter with no pending change closes without a notice.
-    const unchanged = await open()
+    // Enter closes without further changes.
+    const entered = result.terminal.output.length
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output.slice(unchanged)).not.toContain('Tool and context cards')
-    expect(result.terminal.output.slice(unchanged)).not.toContain('Reasoning blocks')
+    expect(result.terminal.output.slice(entered)).not.toContain('Reasoning blocks')
 
-    // Ctrl+C also cancels.
-    const ctrlCOutput = result.terminal.output.length
-    await open()
+    // Esc and Ctrl+C also close; the reopened dialog shows the live values.
+    const reopened = await open()
+    expect(result.terminal.output.slice(reopened)).toContain('collapsed')
+    expect(result.terminal.output.slice(reopened)).toContain('hidden')
+    result.terminal.send('\x1b')
+    await tick()
+    const ctrlCOutput = await open()
     result.terminal.send('\x03')
     await tick()
-    expect(result.terminal.output.slice(ctrlCOutput)).not.toContain('Reasoning blocks shown.')
+    expect(result.terminal.output.slice(ctrlCOutput)).not.toContain('Reasoning blocks')
 
     await dispose(result)
   })

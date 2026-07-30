@@ -1049,9 +1049,8 @@ export function createTuiChat(
         toolsVisibility,
         showReasoning,
         palette,
+        // Each Tab applies immediately; one dimension changes per call.
         (selection: DetailsSelection) => {
-          void session.close()
-          // Reasoning first: its transcript rebuild would drop the card notice.
           if (selection.showReasoning !== showReasoning) setReasoning(selection.showReasoning)
           if (selection.visibility !== toolsVisibility) setToolsVisibility(selection.visibility)
         },

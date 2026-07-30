@@ -663,9 +663,10 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('\r')
     })
     await checkpoint('details-command', harness.terminal, { includeScrollback: true })
-    // Bare /details opens the two-entry selector seeded with the current
-    // hidden/reasoning-off state; one Tab renders the tool-card entry's
-    // pending cycle as `hidden → collapsed`.
+    // Bare /details opens the two-entry toggle seeded with the current
+    // hidden/reasoning-off state; one Tab immediately cycles tool cards
+    // hidden -> collapsed, so the frame pins the applied notice, the restored
+    // tool card behind the dialog, and the updated entry value together.
     await renderAfter(harness, () => {
       harness.terminal.send('/details')
       harness.terminal.send('\r')

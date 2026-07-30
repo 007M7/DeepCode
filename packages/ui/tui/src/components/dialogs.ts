@@ -433,7 +433,7 @@ export class ModelDialog implements Component {
   }
 }
 
-/** Both transcript-detail dimensions the details selector applies on confirm. */
+/** Both transcript-detail dimensions, applied immediately on each Tab. */
 export interface DetailsSelection {
   readonly visibility: ToolCardVisibility
   readonly showReasoning: boolean
@@ -442,62 +442,47 @@ export interface DetailsSelection {
 const TOOL_CARD_PHASES: readonly ToolCardVisibility[] = ['collapsed', 'expanded', 'hidden']
 
 /**
- * Keyboard selector over the two transcript-detail entries — tool-card
- * visibility and reasoning display. Tab cycles the highlighted entry's pending
- * value, Enter applies both pending values and closes, Esc or Ctrl+C closes
- * without changing anything. A pending value renders as `current → pending`.
+ * Keyboard toggle over the two transcript-detail entries — tool-card
+ * visibility and reasoning display. Tab cycles the highlighted entry's value
+ * and applies it immediately, so the transcript behind the dialog is the live
+ * preview; Enter, Esc, or Ctrl+C closes.
  */
 export class DetailsDialog implements Component {
   private readonly list: SelectList
   private readonly toolsItem: SelectItem
   private readonly reasoningItem: SelectItem
-  private pendingVisibility: ToolCardVisibility
-  private pendingReasoning: boolean
 
   constructor(
-    private readonly visibility: ToolCardVisibility,
-    private readonly showReasoning: boolean,
+    private visibility: ToolCardVisibility,
+    private showReasoning: boolean,
     private readonly palette: Palette,
-    done: (selection: DetailsSelection) => void,
-    private readonly cancel: () => void,
+    private readonly apply: (selection: DetailsSelection) => void,
+    private readonly close: () => void,
   ) {
-    this.pendingVisibility = visibility
-    this.pendingReasoning = showReasoning
-    this.toolsItem = { value: 'tools', label: 'Tool cards', description: this.describeTools() }
-    this.reasoningItem = { value: 'reasoning', label: 'Reasoning', description: this.describeReasoning() }
+    this.toolsItem = { value: 'tools', label: 'Tool cards', description: visibility }
+    this.reasoningItem = { value: 'reasoning', label: 'Reasoning', description: this.reasoningLabel() }
     this.list = new SelectList([this.toolsItem, this.reasoningItem], 2, dialogSelectTheme(palette))
-    this.list.onSelect = () => {
-      done({ visibility: this.pendingVisibility, showReasoning: this.pendingReasoning })
-    }
+    this.list.onSelect = close
   }
 
-  /** `current → pending` when Tab moved the value, otherwise the current value. */
-  private static pendingLabel(current: string, pending: string): string {
-    return pending === current ? current : `${current} → ${pending}`
+  private reasoningLabel(): string {
+    return this.showReasoning ? 'shown' : 'hidden'
   }
 
-  private describeTools(): string {
-    return DetailsDialog.pendingLabel(this.visibility, this.pendingVisibility)
-  }
-
-  private describeReasoning(): string {
-    const label = (show: boolean): string => show ? 'shown' : 'hidden'
-    return DetailsDialog.pendingLabel(label(this.showReasoning), label(this.pendingReasoning))
-  }
-
-  /** Cycle the highlighted entry's pending value one step. */
-  private cyclePending(): void {
+  /** Cycle the highlighted entry one step and apply the new state. */
+  private cycle(): void {
     const selected = this.list.getSelectedItem()
     /* v8 ignore next -- the two-entry list always has a selection. */
     if (selected === null) return
     if (selected.value === 'tools') {
-      const index = TOOL_CARD_PHASES.indexOf(this.pendingVisibility)
-      this.pendingVisibility = TOOL_CARD_PHASES[(index + 1) % TOOL_CARD_PHASES.length] as ToolCardVisibility
-      this.toolsItem.description = this.describeTools()
+      const index = TOOL_CARD_PHASES.indexOf(this.visibility)
+      this.visibility = TOOL_CARD_PHASES[(index + 1) % TOOL_CARD_PHASES.length] as ToolCardVisibility
+      this.toolsItem.description = this.visibility
     } else {
-      this.pendingReasoning = !this.pendingReasoning
-      this.reasoningItem.description = this.describeReasoning()
+      this.showReasoning = !this.showReasoning
+      this.reasoningItem.description = this.reasoningLabel()
     }
+    this.apply({ visibility: this.visibility, showReasoning: this.showReasoning })
   }
 
   invalidate(): void {
@@ -505,8 +490,8 @@ export class DetailsDialog implements Component {
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) this.cancel()
-    else if (matchesKey(data, Key.tab)) this.cyclePending()
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) this.close()
+    else if (matchesKey(data, Key.tab)) this.cycle()
     else this.list.handleInput(data)
     this.invalidate()
   }
@@ -516,7 +501,7 @@ export class DetailsDialog implements Component {
     return renderDialog('Transcript details', [
       ...this.list.render(innerWidth),
       '',
-      this.palette.dim('↑/↓ move • Tab cycle • Enter apply • Esc cancel'),
+      this.palette.dim('↑/↓ move • Tab toggle • Enter/Esc close'),
     ], width, this.palette)
   }
 }

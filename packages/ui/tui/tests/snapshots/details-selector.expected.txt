@@ -20,41 +20,53 @@ buffer
 8| "You                                                                                                 "
   style 0-2 fg=bright-magenta bold underline
 9| "Inspect the renderer.                                                                               "
-10| "Model wait 0.0s · Completed 2026-07-30 18:00:00                                                     "
-  style 0-46 dim
-11| <blank>
-12| "Reasoning blocks hidden.                                                                            "
+10| <blank>
+11| "Assistant                                                                                           "
+  style 0-8 fg=bright-magenta bold underline
+12| <blank>
+13| "● Tool / bash / Run the coverage gate"
+  style 0-36 fg=green
+14| "$ pnpm run test:coverage                                                                            "
   style 0-23 dim
-13| <blank>
-14| "Tool cards hidden.                                                                                  "
+15| "/workspace/project                                                                                  "
   style 0-17 dim
-15| <blank>
-16| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
-  style 0-17 fg=bright-magenta bold
-  style 18-31 dim
-  style 34-50 dim
-  style 53-57 dim
-  style 60-69 dim
-17| " dsh >        ╭ Transcript details ──────────────────────────────────────────────────╮              "
-  style 1-3 fg=bright-magenta bold
-  style 5-6 dim
-  style 7-7 inverse
+16| "… +4 lines (Ctrl+O to expand)                                                                       "
+  style 0-28 dim
+17| "[exit 0]      ╭ Transcript details ──────────────────────────────────────────────────╮              "
+  style 0-7 dim
   style 14-85 fg=bright-magenta
-18| "              │ → Tool cards                      hidden → collapsed                 │              "
+18| "Model wait 0.0│ → Tool cards                      collapsed                          │              "
+  style 0-13 dim
   style 14-14 fg=bright-magenta
-  style 16-67 fg=bright-magenta inverse
+  style 16-58 fg=bright-magenta inverse
   style 85-85 fg=bright-magenta
 19| "              │   Reasoning                       hidden                             │              "
   style 14-14 fg=bright-magenta
   style 27-55 dim
   style 85-85 fg=bright-magenta
-20| "              │                                                                      │              "
+20| "Reasoning bloc│                                                                      │              "
+  style 0-13 dim
   style 14-14 fg=bright-magenta
   style 85-85 fg=bright-magenta
-21| "              │ ↑/↓ move • Tab cycle • Enter apply • Esc cancel                      │              "
+21| "              │ ↑/↓ move • Tab toggle • Enter/Esc close                              │              "
   style 14-14 fg=bright-magenta
-  style 16-62 dim
+  style 16-54 dim
   style 85-85 fg=bright-magenta
-22| "              ╰──────────────────────────────────────────────────────────────────────╯              "
+22| "Tool cards hid╰──────────────────────────────────────────────────────────────────────╯              "
+  style 0-13 dim
   style 14-85 fg=bright-magenta
-23-39| <blank>
+23| <blank>
+24| "Tool and context cards collapsed.                                                                   "
+  style 0-32 dim
+25| <blank>
+26| "/workspace/project (tui-staging)  deepseek-v4-flash  ↑0 ↓0  0% context"
+  style 0-17 fg=bright-magenta bold
+  style 18-31 dim
+  style 34-50 dim
+  style 53-57 dim
+  style 60-69 dim
+27| " dsh >                                                                                              "
+  style 1-3 fg=bright-magenta bold
+  style 5-6 dim
+  style 7-7 inverse
+28-39| <blank>
