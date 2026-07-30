@@ -39,6 +39,8 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`session-projection/`](session-projection/README.md) | Projection seam: domain fold units serve whole values | Product — stable surface |
 | [`session-query/`](session-query/README.md) | Session retrieval family: logical corpus, bounded reads, lineage, event relationships, semantic filtering, and SQLite full-text search | Product — stable surface |
 | [`session-title/`](session-title/README.md) | Log-backed session titles: fallback service and opt-in LLM providers | Product — stable surface |
+| [`settings/`](settings/README.md) | User-settings seam + file-backed provider | Product — stable surface |
+| [`credentials/`](credentials/README.md) | Credential-reference seam + env-over-`.env` provider | Product — stable surface |
 | [`telemetry/`](telemetry/README.md) | Session reporting: capture/redact seam, OTel backend | Product — stable surface |
 | [`storage/`](storage/README.md) | Non-session storage hub + backends + domain form | Product — stable surface |
 | [`workspace/`](workspace/README.md) | Workspace entity | Product — stable surface |
@@ -47,11 +49,12 @@ Packages live at `packages/<group>/<pkg>/`; groups are containers, while names r
 | [`ui/`](ui/README.md) | TUI and JSON-RPC integrations, approval/interaction seams, ask-user tool | Product — stable surface |
 | [`host/`](host/README.md) | Web-GUI host half: API gateway + HTTP route server | Product — stable surface |
 | [`client/`](client/README.md) | Web-GUI browser half: shell, wire, object services, slots, `ui-*` plugins | Product — stable surface |
+| [`experimental/`](experimental/README.md) | Prototypes and internal plugins | Unreleased |
 | [`examples/`](examples/README.md) | Demo bundles (agent-spine + TUI/CLI/ACP/JSON-RPC bins) leaves load | Support — example infra |
 | [`support/`](support/README.md) | Support infrastructure (testkits, invariants, replay, Loader smokes) | Support — lower compatibility expectations |
 | [`util/`](util/README.md) | Low-level zero-dependency utilities shared across groups (`Branded<B>`, Harness home/path helpers, timeout, retention) | Support — small, stable, harness-dep-free |
 
-Groups distinguish product API from support infrastructure. New packages join an existing group; a new group updates its README and this table.
+New packages join existing groups; new groups update their README and this table.
 
 ## Dependencies
 

@@ -7,6 +7,7 @@
 
 import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
@@ -23,6 +24,9 @@ import {
 
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
+
+/** InboxItemId: one brand cast after non-empty string validation. */
+export const inboxItemIdSchema = z.string().min(1) as unknown as z.ZodType<InboxItemId>
 
 /**
  * WorkspaceId: the workspace domain's one brand cast. Hosted here rather
@@ -116,6 +120,17 @@ export const sessionRenameValueSchema = z.object({
   title: z.string().min(1),
   seq: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.rename'>>>
+
+/** session.fork request payload (atSeq anchors the completed-turn cut). */
+export const sessionForkRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  atSeq: z.number().int().nonnegative().optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.fork'>>>
+
+/** session.fork response value (the child session id). */
+export const sessionForkValueSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'session.fork'>>>
 
 /** session.history request payload (beforeSeq/maxMessages page backwards from the window tail). */
 export const sessionHistoryRequestSchema = z.object({
@@ -245,6 +260,21 @@ export const sessionPromptValueSchema = z.object({
     text: z.string().optional(),
   }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
+
+/** session.updateQueue request payload. */
+export const sessionUpdateQueueRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  itemId: inboxItemIdSchema,
+  action: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('edit'), content: z.array(contentBlockSchema) }),
+    z.object({ kind: z.literal('remove') }),
+  ]),
+}) as unknown as z.ZodType<RequestPayload<'session.updateQueue'>>
+
+/** session.updateQueue response value. */
+export const sessionUpdateQueueValueSchema = z.object({
+  accepted: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.updateQueue'>>>
 
 /** session.cancel request payload. */
 export const sessionCancelRequestSchema = z.object({

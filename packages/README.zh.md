@@ -39,6 +39,8 @@
 | [`session-projection/`](session-projection/README.md) | 投影 seam：领域折叠单元供给全量值 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
 | [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务与选用 LLM 提供方 | 产品：稳定表面 |
+| [`settings/`](settings/README.md) | 用户设置 seam + 文件 provider | 产品：稳定表面 |
+| [`credentials/`](credentials/README.md) | 凭据引用 seam + 环境叠加 `.env` provider | 产品：稳定表面 |
 | [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |
@@ -47,11 +49,12 @@
 | [`ui/`](ui/README.md) | TUI 与 JSON-RPC 集成、批准／交互 seam、用户问答工具 | 产品：稳定表面 |
 | [`host/`](host/README.md) | web GUI 宿主半侧：API 网关 + HTTP 路由服务器 | 产品：稳定表面 |
 | [`client/`](client/README.md) | web GUI 浏览器半侧：shell、协议层、对象服务、slot、`ui-*` 插件 | 产品：稳定表面 |
+| [`experimental/`](experimental/README.md) | 原型和内部插件 | 未发布 |
 | [`examples/`](examples/README.md) | 演示组合包（agent-spine + TUI/CLI/ACP/JSON-RPC bin），由叶节点加载 | 支持：示例基础设施 |
 | [`support/`](support/README.md) | 支持基础设施（testkit、不变式、回放、Loader 冒烟测试） | 支持：兼容性预期较低 |
 | [`util/`](util/README.md) | 组间共享的低层零依赖工具（`Branded<B>`、Harness home／路径辅助函数、超时、保留策略） | 支持：小型、稳定、无 harness 依赖 |
 
-组用于区分产品 API 与支持基础设施。新包加入现有组；新组则更新其 README 和此表。
+新包加入现有组；新组更新其 README 和此表。
 
 ## 依赖
 

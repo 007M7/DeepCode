@@ -90,7 +90,13 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async rename(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { title: request.payload.title, seq: 0 } } }
       },
+      async fork(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { sessionId: 's-fork' as never } } }
+      },
       async prompt(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+      },
+      async updateQueue(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
       },
       async cancel(request) {
@@ -227,7 +233,7 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     if (!response.result.ok) expect(response.result.error.code).toBe('session-not-found')
   })
 
-  it('covers create/prompt/cancel/describe passthrough', async () => {
+  it('covers create/prompt/updateQueue/cancel/describe passthrough', async () => {
     const c = client()
     expect((await c.sessions.search({ query: 'fixture' })).result).toEqual({
       ok: true,
@@ -254,6 +260,11 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const renamed = await c.sessions.rename({ sessionId: 's' as never, title: 'named' })
     expect(renamed.result).toMatchObject({ ok: true, value: { title: 'named', seq: 0 } })
     expect((await c.sessions.prompt({ sessionId: 's' as never, mode: 'queue', content: [{ type: 'text', text: 'x' }] })).result.ok).toBe(true)
+    expect((await c.sessions.updateQueue({
+      sessionId: 's' as never,
+      itemId: 'item-1' as never,
+      action: { kind: 'remove' },
+    })).result.ok).toBe(true)
     expect((await c.sessions.cancel({ sessionId: 's' as never })).result.ok).toBe(true)
     expect((await c.host.describe({})).result.ok).toBe(true)
   })

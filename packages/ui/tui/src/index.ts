@@ -19,7 +19,7 @@ import {
   type SlashCommand,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import { Service, type Context, type Fiber } from 'cordis'
+import { Service, type Context, type Fiber, type FiberState } from 'cordis'
 import {
   assembleContextFor,
   installAgentLlmTarget,
@@ -35,6 +35,8 @@ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
+  isReplacementSurfaceEvent,
+  lastActivityTime,
   SessionId,
   type SessionEvent,
   type UserMessage,
@@ -55,6 +57,7 @@ import {
   TuiExtensionServiceImpl,
   TuiOverlayManager,
 } from './extension/overlay-manager.ts'
+
 import {
   parseTuiPromptTemplate,
   renderTuiPromptTemplate,
@@ -118,14 +121,14 @@ import {
 } from './chat/skill-invocation.ts'
 import { ReferenceAutocompleteProvider } from './chat/autocomplete.ts'
 import {
-  activeSurfaceSeqs,
-  activeToolCallIds,
   BANNER_REVEAL_INTERVAL_MS,
   BANNER_REVEAL_STEPS,
   formatCwd,
   gitBranch,
   HintEditor,
+  isCompactCheckpoint,
   sessionReferenceCard,
+  transcriptToolCallIds,
 } from './chat/helpers.ts'
 import {
   createModelController,
@@ -170,6 +173,9 @@ export type {
   TuiViewport,
 } from './extension/types.ts'
 
+/** First terminal Cordis state: FAILED, DISPOSED, and UNLOADING are unusable. */
+const FIBER_FAILED = 3 as FiberState.FAILED
+
 declare module 'cordis' {
   interface Context {
     /** Terminal-only interaction service, available only while a TUI is mounted. */
@@ -182,8 +188,6 @@ declare module 'cordis' {
     tuiGoodbyeMessage: string | undefined
     /** Skill the launcher wants auto-invoked as the fresh session's first turn; absent leaves it to the user. */
     tuiInitialSkill: string | undefined
-    /** Launcher-owned session-store root the app bundle defaults to; absent keeps the bundle's project-local default. */
-    launcherSessionsRoot: string | undefined
   }
 }
 
@@ -229,16 +233,6 @@ export const TUI_GOODBYE_MESSAGE_KEY = 'tuiGoodbyeMessage'
 export const INITIAL_SKILL_KEY = 'tuiInitialSkill'
 
 /**
- * Context key a launcher sets before any Loader entry mounts
- * (`ctx.provide(SESSIONS_ROOT_KEY, root)`) to supply its session-store root as
- * the app bundle's default persistence root. Shared-store policy (one store
- * across every cwd) belongs to the launcher — the dsh CLI resolves it under the
- * Harness home — never to a plugin; a bundle without this slot keeps its own
- * project-local default, and an explicit `persistenceRoot` config still wins.
- */
-export const SESSIONS_ROOT_KEY = 'launcherSessionsRoot'
-
-/**
  * Optional terminal-local interaction service provided by one mounted TUI.
  *
  * The concrete provider retains pi-tui, focus, and terminal lifecycle state.
@@ -267,6 +261,13 @@ export const inject = ['agents', 'sessions', 'commands', 'userInteraction', 'too
 
 /** Model guidance for path-only file references selected through the TUI. */
 export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.'
+
+/**
+ * Transcript row standing in for one compacted range. The conversation the
+ * compaction replaced stays rendered above it: the marker reports where the
+ * model stopped seeing that history, not that the history is gone.
+ */
+const COMPACTION_MARKER = '… earlier context was compacted …'
 
 interface RunningStatus {
   turn: number | undefined
@@ -306,7 +307,6 @@ export function createTuiChat(
   const sessionId = SessionId(config.sessionId ?? 'main')
   const agent = ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`ui-tui: session "${sessionId}" is not running`)
-  const sessionQuery = ctx.get('sessionQuery')
   const resolved = resolveTuiConfig(config)
   const palette = createPalette(resolved.theme.color)
   const mdTheme = markdownTheme(palette)
@@ -816,6 +816,23 @@ export function createTuiChat(
     }
   }
 
+  const renderCompactionMarker = (): void => {
+    chat.addChild(new Spacer(1))
+    chat.addChild(new Text(palette.dim(COMPACTION_MARKER), 0, 0))
+  }
+
+  /**
+   * Replay the human transcript from the append-only log. The model-visible
+   * surface shadows compacted ranges, so it is not the source here: every
+   * append-origin message stays rendered, and a replacement contributes at most
+   * the compaction marker at its own log position.
+   *
+   * The `tool/call` pairing check has no live counterpart, because only replay
+   * can meet an orphan: `tool/call` carries no `surfaceOp` of its own, so it
+   * inherits transcript membership from the `assistant/message` that advertised
+   * it, which the live listener has necessarily just rendered. A loaded log is a
+   * replay boundary, so the pairing is re-derived here instead of assumed.
+   */
   const rebuildTranscript = (populateHistory: boolean): void => {
     chat.clear()
     toolCards.clear()
@@ -823,15 +840,13 @@ export function createTuiChat(
     contextCards.clear()
     streaming = undefined
     todo.update([])
-    const active = activeSurfaceSeqs(agent.session)
-    const activeCalls = activeToolCallIds(agent.session, active)
+    const transcriptCalls = transcriptToolCallIds(agent.session)
     for (const event of agent.session.events) {
-      const isSurface = event.type === 'user/message'
-        || event.type === 'assistant/message'
-        || event.type === 'tool/result'
-        || event.type === 'steering/message'
-      if (isSurface && !active.has(event.seq)) continue
-      if (event.type === 'tool/call' && !activeCalls.has(event.data.callId)) continue
+      if (isReplacementSurfaceEvent(event)) {
+        if (isCompactCheckpoint(event)) renderCompactionMarker()
+        continue
+      }
+      if (event.type === 'tool/call' && !transcriptCalls.has(event.data.callId)) continue
       renderEvent(event, { addHistory: populateHistory, renderChunks: false })
     }
     requestRender()
@@ -853,7 +868,14 @@ export function createTuiChat(
     resolved,
     palette,
     overlayManager,
-    sessionQuery,
+    // Optional and independently mounted. Cordis transiently leaves this sibling
+    // non-ACTIVE during command callbacks, so the non-strict read is intentional;
+    // terminal fiber states still exclude failed, closing, and closed providers.
+    sessionQuery: () => {
+      const implementation = ctx.reflect._getImpl('sessionQuery', false)
+      if (implementation === undefined || implementation.fiber.state >= FIBER_FAILED) return undefined
+      return ctx.get('sessionQuery', false)
+    },
     ui,
     editor,
     appendNotice,
@@ -985,7 +1007,7 @@ export function createTuiChat(
     const systemPrompt = displayText(renderPrompt(assembly)) || '(empty)'
     const registeredTools = assembly.tools.map(tool => displayText(tool.name)).join(', ') || '(none)'
     const events = agent.session.events
-    const latestActivity = events.at(-1)?.time ?? agent.session.header.createdAt
+    const latestActivity = lastActivityTime(events) ?? agent.session.header.createdAt
     const usedContext = Math.max(0, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens))
     let context = `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
     const contextWindow = modelController.contextWindow()
@@ -1249,9 +1271,9 @@ export function createTuiChat(
     }, { prepend: true })
     // Installed before followup(): an enqueue listener can synchronously
     // cancel and discard before followup() returns its id.
-    const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
+    const detachDiscard = ctx.on('agent/inbox/discard', (subject, items) => {
       if (subject !== agent) return
-      for (const message of messages) discarded.add(message.id)
+      for (const item of items) discarded.add(item.message.id)
       if (discarded.has(acceptedId)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
@@ -1476,8 +1498,11 @@ export function createTuiChat(
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
     if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
-    if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
-      rebuildTranscript(false)
+    // A replacement mutates only the model surface, so the rendered transcript
+    // keeps what it already showed; a landed summary checkpoint adds its marker.
+    if (isReplacementSurfaceEvent(event)) {
+      if (isCompactCheckpoint(event)) renderCompactionMarker()
+      requestRender()
       return
     }
     renderEvent(event, { addHistory: false, renderChunks: true })
@@ -1486,13 +1511,13 @@ export function createTuiChat(
   const settlePendingSteering = (id: MessageId): void => {
     if (pendingSteering.delete(id)) refreshStatus()
   }
-  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {
-    if (subject === agent) settlePendingSteering(message.id)
+  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, item) => {
+    if (subject === agent) settlePendingSteering(item.message.id)
   })
-  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, messages) => {
+  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, items) => {
     if (subject !== agent) return
     let changed = false
-    for (const message of messages) changed = pendingSteering.delete(message.id) || changed
+    for (const item of items) changed = pendingSteering.delete(item.message.id) || changed
     if (changed) refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
@@ -1662,9 +1687,35 @@ export function mountTui(ctx: Context, config: Config, runtime: TuiRuntime): voi
   if (existing !== undefined) start(existing)
 }
 
+const ROOT_DISPOSE_TIMEOUT_MS = 5_000
+
+/**
+ * Dispose the whole application before process exit, with a bounded fallback.
+ * @param ctx - The TUI plugin context whose root owns sibling resources.
+ * @param code - Process status to report.
+ * @param exit - Exit boundary, replaceable by tests.
+ */
+export function disposeRootAndExit(
+  ctx: Context,
+  code: number,
+  exit: (status: number) => void = (status) => { process.exit(status) },
+): void {
+  let exited = false
+  const exitOnce = (): void => {
+    if (exited) return
+    exited = true
+    exit(code)
+  }
+  const timeout = setTimeout(exitOnce, ROOT_DISPOSE_TIMEOUT_MS)
+  void ctx.root.fiber.dispose().then(
+    () => { clearTimeout(timeout); exitOnce() },
+    () => { clearTimeout(timeout); exitOnce() },
+  )
+}
+
 /** Cordis entry point using the process terminal; explicit TUI composition requires a TTY pair. */
 /* v8 ignore start -- production process wiring; fake-terminal tests cover mountTui/createTuiChat,
-   and the tui-agent PTY smoke covers the real entry */
+   and apps/cli PTY smokes cover the real entry */
 export function apply(ctx: Context, config: Config): void {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error('ui-tui: both stdin and stdout must be TTYs; use the one-shot @deepseek-ai/dsh-cli-demo app for pipes')
@@ -1684,7 +1735,7 @@ export function apply(ctx: Context, config: Config): void {
     initialSkill === undefined ? {} : { initialSkill },
   ), {
     terminal: new ProcessTerminal(),
-    exit: code => process.exit(code),
+    exit: (code) => { disposeRootAndExit(ctx, code) },
     ...resumeHost === undefined ? {} : { handoffResume: (sessionId, cwd) => resumeHost.handoff(sessionId, cwd) },
     ...goodbyeMessage === undefined ? {} : { goodbyeMessage },
   })

@@ -24,6 +24,8 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [commands.md](commands.md) | 人类命令 seam：定义、适配器发现、直接调用、结果与解析视图 |
 | [session.md](session.md) | 完整的 `SessionEventMap` 变体目录、`TurnTrigger`/`TurnEndReason`、`deriveMessages()`、执行封闭与独立事件 |
 | [persistence.md](persistence.md) | 持久性 seam：`SessionPersistence`、JSONL + SQLite 后端、`session/flush`、崩溃恢复、`SessionHeader` |
+| [settings.md](settings.md) | 用户设置 seam：`SettingsNamespace` 注册、分层解析（默认值 → 组合 `base` → 用户文档）、owner scope、热提交 |
+| [credentials.md](credentials.md) | 凭据 seam：配置中的 `CredentialRef` 引用（绝不含值）、按操作解析、对 UI 安全的 `CredentialInfo`、provider 来源层 |
 | [session-query.md](session-query.md) | 逻辑记录、有界精确事件读取、关系追踪、语义筛选器/文档与全文检索结果页 |
 | [session-title.md](session-title.md) | 持久标题快照、来源 provenance 与异步提供方契约 |
 | [system-prompt.md](system-prompt.md) | 逐次组装的上下文、工具提供方结果、提示词段落与协作式组装 |
@@ -186,6 +188,34 @@ interface MessageSourceMap {
 源码：[`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
 提供方与模型发现使用小型、提供方无关的描述符。模型目录仅供参考：路由仍以已注册提供方为键，适配器也可以接受未列出的模型 id。
+
+注册适配器会返回一个句柄：既是释放器，也带有原子的路由替换——路由集合由用户配置决定的插件正需要它。
+
+```ts type-equiv
+/**
+ * What {@link LlmService.registerAdapter} returns: the disposer, plus an
+ * atomic route replacement for the same adapter instance.
+ */
+interface AdapterRegistrationHandle {
+  /** Release every route this registration currently holds. */
+  (): void
+  /**
+   * Replace this registration's routes with `providers`, keeping the same
+   * adapter instance. The candidate set is validated in full first — a
+   * conflict with another adapter, an invalid name, or bad provider metadata
+   * throws and leaves the current routes untouched — and the swap itself is
+   * one synchronous section, so no request can observe a gap. An empty array
+   * is legal here (a settings section that emptied holds zero routes while
+   * staying registered), unlike an empty initial registration.
+   *
+   * Throws `LlmError` with code `REGISTRATION_DISPOSED` once the registration
+   * has been released: its routes are gone and its disposer has already run,
+   * so anything registered afterwards would have no owner left to release it.
+   * @param providers - the complete next route set for this registration.
+   */
+  replace(providers: string[]): void
+}
+```
 
 ```ts type-equiv
 /** Display metadata for one registered provider route. */
@@ -438,6 +468,32 @@ type SendTarget = 'next-turn' | 'next-step'
 type InboxPlacement = 'queued' | 'steering'
 ```
 
+`InboxItemId` 是为每次获准进入 FIFO 的项铸造的进程本地品牌字符串。它有意区别于 `MessageId`：同一条不可变消息发送两次，会创建两个可独立寻址的待处理项。
+
+```ts type-equiv
+/** One independently addressable accepted occurrence in an agent inbox. */
+interface InboxItem {
+  /** Agent-loop-minted occurrence identity. */
+  readonly id: InboxItemId
+  /** Identified message delivered by the caller. */
+  readonly message: UserMessage
+  /** Acceptance-time FIFO classification. */
+  readonly placement: InboxPlacement
+}
+```
+
+```ts type-equiv
+/** A user-requested mutation of one still-pending queued occurrence. */
+type InboxAction =
+  | { readonly kind: 'edit'; readonly content: ContentBlock[] }
+  | { readonly kind: 'remove' }
+```
+
+```ts type-equiv
+/** Result of applying an inbox action at the synchronous ownership boundary. */
+type InboxActionResult = 'applied' | 'not-found'
+```
+
 ```ts type-equiv
 /**
  * Options for the unified {@link Agent.send} primitive over the
@@ -461,7 +517,7 @@ interface SendOptions {
 }
 ```
 
-固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。投递方法不会返回其 `MessageId`，但该 id 在这条消息的各个 `agent/inbox/*` 事件中保持稳定。注入绕过两个 FIFO，从不出现在这些事件中。
+固定预设的别名方法自带 `target` 与 `wakeup`；其已有标识的 `UserMessage` 会携带角色、内容与 provenance。编辑替换消息内容时，其 `MessageId` 保持稳定；外层 `InboxItemId` 则在 `agent/inbox/enqueue`、`agent/inbox/update` 及终态 dequeue 或 discard 之间标识同一次入队。注入绕过两个 FIFO，从不出现在这些事件中。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -528,6 +584,16 @@ interface Agent {
    * @param options - target queue and wakeup decision.
    */
   send(message: UserMessage, options: SendOptions): void
+
+  /**
+   * Mutate one still-pending queued occurrence synchronously. Editing preserves
+   * the message identity and queue position; removal publishes its terminal
+   * discard. Steering occurrences and driver-claimed items return `not-found`.
+   * @param id - independently addressable queued occurrence.
+   * @param action - edit or remove operation.
+   * @returns whether the pending occurrence was found and updated.
+   */
+  updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active

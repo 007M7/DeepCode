@@ -8,17 +8,19 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/message-actions', import.meta.url))
 // Borrowed read-only: this scenario needs any settled user+assistant pair, not
 // a new recording (workspace-management / sidebar-scrollbar pattern).
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
+const FORK_EXPECTED = join(SNAPSHOT_DIR, 'fork.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'message-actions-web-e2e'
 
@@ -40,7 +42,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     expect(fixtureUserPrompts(raw), 'borrowed seed must carry the drive prompt').toEqual([PROMPT])
     await seedSession(scaffold, raw, SEED_ID)
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -75,7 +77,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
   it.skipIf(MODE === 'record')('matches the conversation aria golden with IconActions and clocks', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-message-actions-aria'))
     await page.getByRole('button', {
-      name: '选择模型，当前 deepseek-v4-flash',
+      name: 'Select model, current deepseek-v4-flash',
     }).waitFor({ timeout: 10_000 })
     // Keep a footer focused so opacity-hidden actions stay in the a11y tree
     // as an active/focused control during the capture.
@@ -85,9 +87,58 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })
 
+  it.skipIf(MODE === 'record')('forks through the settled-message and session-row actions', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-message-fork'))
+    // Exercise the assistant action specifically; package coverage pins the
+    // user action separately at its own event seq.
+    await page.getByRole('button', { name: '在新对话中分支' }).last().click()
+    await expect.poll(
+      () => scaffold.ctx.agents.list().find(agent => agent.session.header.parentSession === SessionId(SEED_ID)),
+      { timeout: 15_000 },
+    ).toBeDefined()
+    await expect.poll(
+      () => page.locator('[role="treeitem"]').count(),
+      { timeout: 10_000 },
+    ).toBe(3)
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-selected="true"]').count(),
+      { timeout: 10_000 },
+    ).toBe(1)
+    // The row action owns a distinct ui-workspace injection from the message
+    // action above, so exercise both through the loaded app before capture.
+    const sourceRow = page.locator('[role="treeitem"][aria-selected="true"]')
+    const rowBox = await sourceRow.boundingBox()
+    if (rowBox === null) throw new Error('fork source row has no layout box')
+    const actionButton = sourceRow.locator('button[aria-label^="Session actions for "]')
+    await sourceRow.hover({ position: { x: rowBox.width - 16, y: rowBox.height / 2 } })
+    await expect.poll(() => actionButton.isVisible(), { timeout: 2_000 }).toBe(true)
+    const buttonBox = await actionButton.boundingBox()
+    if (buttonBox === null) throw new Error('fork source row action has no layout box')
+    await page.mouse.click(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2)
+    await page.getByRole('menuitem', { name: 'Fork session' }).click()
+    await expect.poll(
+      () => scaffold.ctx.agents.list().filter(agent => agent.session.header.parentSession !== undefined).length,
+      { timeout: 15_000 },
+    ).toBe(2)
+    await expect.poll(
+      () => page.locator('[role="treeitem"]').count(),
+      { timeout: 10_000 },
+    ).toBe(4)
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-selected="true"]').count(),
+      { timeout: 10_000 },
+    ).toBe(1)
+    const tree = await captureStableAria(
+      page,
+      '[role="tree"][aria-label="Sessions"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(FORK_EXPECTED, tree, MODE)
+  })
+
   it.skipIf(MODE === 'record')('issued zero model calls and kept a closed inventory', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['fork.expected.md', 'ui.expected.md'])
   })
 })

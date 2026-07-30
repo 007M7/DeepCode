@@ -18,7 +18,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/navigation-panes', import.meta.url))
 const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
@@ -57,7 +57,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       await seedSession(scaffold, raw, SEED_ID)
     }
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     slotErrors = []
     page.on('console', (message) => {
@@ -174,24 +174,24 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.locator('tr[data-timeline-focus]').count(), { timeout: 10_000 }).toBe(0)
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('bash and file-path rows leave the default details column open', async () => {
+  it.skipIf(MODE === 'record')('bash and file-path rows leave the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-details'))
     await page.getByRole('tab', { name: 'Chat' }).click()
     const bashRow = page.locator('[data-sample="bash-global"]').first()
     await bashRow.waitFor({ timeout: 15_000 })
     const frame = page.locator('[style*="grid-template-columns"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).toBeNull()
+    expect(await frame.getAttribute('data-details-collapsed')).toBe('true')
     await bashRow.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
     // The card's own controls are outside the summary row and must not open
     // details either — the terminal card is read in place.
     await page.locator('[data-sample="bash-global"] ~ [data-terminal] [class*="_copyButton_"]').first().click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
     // Read summaries are host-open file links; they also must not open details.
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
     await fileLink.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBe('true')
   }, 60_000)
 
   it.skipIf(MODE === 'record')('renders the bash row as a terminal card in the real browser', async () => {

@@ -33,6 +33,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AdapterRegistrationHandle",
+      "source": "packages/llm/llm/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "LlmProviderInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -94,6 +99,21 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "InboxPlacement",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxItem",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxAction",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxActionResult",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -677,6 +697,11 @@
     {
       "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionOption",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionIntent",
       "source": "packages/ui/user-interaction/src/types.ts"
     },
     {
@@ -1318,6 +1343,51 @@
       "doc": "docs/core-data-structures/subprocess.md",
       "symbol": "SubprocessCollectedOutputs",
       "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsNamespace",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsRegisterOptions",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsApplies",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsScope",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsDescriptor",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsUpdateSource",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "CredentialRef",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "ResolvedCredential",
+      "source": "packages/credentials/credentials/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/credentials.md",
+      "symbol": "CredentialInfo",
+      "source": "packages/credentials/credentials/src/index.ts"
     }
   ]
 }

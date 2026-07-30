@@ -18,6 +18,10 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 `WorkspacesService.connectWorkspace(workspaceId)` 解析 New Session 流程最终落入的会话：先在列表镜像中复用该 workspace 的既有空会话（`blank && cwd == workspace.path`），未命中则调用 `session.create({workspaceId})`，返回会话 id 由调用方 open。`SessionSummary.blank` 镜像主机派生的空日志位，在客户端只降不升：由 `session.list`／`host/session-added` 帧播种，本地首次获 Host 接受的 `prompt()`（RPC 成功响应时——受理即证明用户消息已入主机日志；首讯被拒则会话保持 blank、保持可复用）与任何 `running: true` 状态帧翻为 false，每次列表重拉重新对齐。列表界面隐藏 blank 行；store 保留全部行。`SessionsService.create` 接受可选的、由调用方预先分配的 SessionId，失败时抛出 `SessionCreateError`（携带 `requestedSessionId`）。
 
+## 待处理队列投影
+
+`ConversationSnapshot.queue` 是 Host 提供的权威瞬态 Queue 快照；待处理 steering（中途引导）不进入此投影。每行都携带其 `InboxItemId`、所有内容块均为文本时的完整可编辑文本，以及扁平化预览。`session/queue` 会整体替换该投影；重连缓冲只保留最新快照，持久轮次事件和 running 状态变化都不会猜测某个项已被认领。`Session.updateQueue()` 发送编辑／移除操作，不进行乐观更新，因此下一份 Host 快照是唯一可见的提交结果，认领竞态则会返回 `queue-item-not-found`。
+
 ## Code Mode 子调用索引
 
 `ConversationSnapshot.codeDispatches` 按父调用的 callId 和启动顺序，用原生调用块形状组织一个 `run_code` 调用的子调用：`tool/code-dispatch-start` 事件落成 `RunningToolCall` 形状（行组件从该形状推导运行中的转圈状态），其 `tool/code-dispatch` 完结事件原位替换为 `ToolResultNode` 形状，`callTime` 携带成对 start 事件的时间。start 落在回放窗口之外的完结事件则直接追加，`callTime: null`（耗时未知——绝不伪造零耗时）。live mux 帧与历史回放构建相同的索引；子调用永不进入 surface `nodes` 流；无关快照交换不会改变每个父调用对应的数组引用和映射引用，两者均保持 memo 稳定。
@@ -25,6 +29,10 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 ## Session 标题投影
 
 `SessionManager` 独立于列表和 Session 实例到达情况，保留最近一次通过验证的 `session/title` 控制快照。seq 更高的事件会替换旧快照，标题时间戳计入列表新近程度；订阅基线会先丢弃 seq 超过其 `lastSeq` 的任何已保留标题，再接收可选的折叠标题。显式移除 Session 也会清除已保留标题。因此，面向客户端的 `SessionSummary.title` 只包含实际的持久化标题；`displayTitle` 始终存在，并依次回退到 cwd basename 和 Session id。冷态持久化会话会保持该回退值，直到打开或恢复会话，促使主机折叠并投影由日志支撑的标题。`ISession.rename` 用 unary 响应中的 `{title, seq}` 直接结算 `title` 投影格，遵循同一 seq 高者胜规则——列表行和所有 `useProjection('title')` 读者在推送帧到达前即更新；推送帧随后重放同一 seq 时为无操作。
+
+## 会话 fork
+
+`ISessions.fork({sessionId, atSeq?, increaseTitle?})` 只在子会话摘要已能在本地寻址后才完成；该摘要携带源会话的谱系和 cwd，且 `blank: false`，由调用方决定是否打开。`increaseTitle: true` 会在 client 端把源会话的持久化标题改名到子会话：尾部 `(N)` 或 `（N）` 递增并保留括号样式，其余标题追加 ` (1)`；源会话没有持久化标题时跳过改名，改名失败时拒绝 promise 但保留已创建的子会话。该选项不会进入 Host fork 请求。即使响应为 `workspace-attach-failed`，其中仍会标识 Host 已发布的子会话，因此 `SessionManager` 会先将这一部分成功对账，再让 `SessionForkError` 到达调用方，避免重试创建重复的子会话。
 
 ## 会话模型选择
 

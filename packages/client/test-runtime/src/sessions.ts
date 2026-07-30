@@ -88,6 +88,14 @@ export class FixtureSession implements SessionFace {
   }
 
   /**
+   * Fail-loud stub; supply `updateQueue` on the fixture's session face to exercise it.
+   * @returns never — always throws.
+   */
+  updateQueue(): never {
+    throw new Error(`test session "${this.sessionId}": updateQueue is not stubbed — supply it on the fixture's session face`)
+  }
+
+  /**
    * Fail-loud stub; supply `cancel` on the fixture's session face to exercise it.
    * @returns never — always throws.
    */
@@ -163,8 +171,8 @@ export class TestSessions implements ISessions {
   /** The production provide channel (roster, materialization rules, current projection) — no test-side mirror. */
   private readonly channel: SessionProvideChannel
 
-  /** Calls observed on the service-level face (open/clear/search), newest last. */
-  readonly calls: { method: 'open' | 'clear' | 'search'; args: unknown[] }[] = []
+  /** Calls observed on the service-level face (open/clear/search/fork), newest last. */
+  readonly calls: { method: 'open' | 'clear' | 'search' | 'fork'; args: unknown[] }[] = []
 
   /** The wire schema's `session.search` result bound (production parity). */
   readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
@@ -412,6 +420,17 @@ export class TestSessions implements ISessions {
   search(query: string, signal: AbortSignal): ReturnType<ISessions['search']> {
     this.calls.push({ method: 'search', args: [query, signal] })
     return Promise.resolve({ ok: true, value: this.searchStub?.(query, signal) ?? { items: [], hasMore: false } })
+  }
+
+  /**
+   * Recorded fork stub: no child materializes (benches asserting the full
+   * fork flow drive the production service; this face only proves the call).
+   * @param opts - source session id, optional cut anchor, and client title policy.
+   * @returns the source id (no child record is created).
+   */
+  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
+    this.calls.push({ method: 'fork', args: [opts] })
+    return Promise.resolve(opts.sessionId)
   }
 
   /**

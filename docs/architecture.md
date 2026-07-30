@@ -46,6 +46,8 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | durable session-log storage |
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | live-preferred exact/filter/trace queries over SQLite FTS, workspace-authorized model tools |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | log-backed fallbacks, one optional asynchronous provider |
+| `ctx.settings` | [`settings/`](../packages/settings/README.md) | per-plugin user-settings namespaces layered over composition entries |
+| `ctx.credentials` | [`credentials/`](../packages/credentials/README.md) | named secret references resolved per operation, never inlined in configuration |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI-host directory picking (`native`/`browse` interactions) |
 | `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | runtime registry for generated package reflection and live Zod schemas |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | package-name-selected registry of package-owned runtime checks |
@@ -78,8 +80,8 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for a queued message
-  claim message -> emit agent/status(running) if starting an interval
+  wait for queued occurrence
+  claim (edit/remove end) -> emit agent/status(running) if starting an interval
   open the next-step acceptance window
   -> agent/prompt-submit
     blocked or failed prompt -> close the window without opening a turn

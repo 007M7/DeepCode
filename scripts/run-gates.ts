@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks'
 /** A named aggregate exposed by the gate runner. */
 export type Mode =
   | 'ci-primary'
+  | 'ci-linux-primary'
   | 'ci-static'
   | 'ci-lint'
   | 'ci-coverage'
@@ -97,6 +98,7 @@ async function main(args: string[]): Promise<number> {
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
+    case 'ci-linux-primary':
     case 'ci-static':
     case 'ci-lint':
     case 'ci-coverage':
@@ -112,7 +114,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -190,8 +192,10 @@ export function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
+    case 'ci-linux-primary':
+      return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
     case 'ci-static':
-      return ciStaticGates()
+      return ciStaticGates({ ownsBuild: false })
     case 'ci-lint':
       return [
         lintGate(),
@@ -327,16 +331,21 @@ function runningNodeMajor(): number {
   return major
 }
 
-function ciStaticGates(): Gate[] {
+function ciStaticGates(options: { ownsBuild: boolean }): Gate[] {
   return [
     pnpmScript('runtime-closure', 'verify-runtime-closure', { label: 'runtime closure' }),
     pnpmScript('constraints', 'constraints'),
     pnpmScript('package-invariants', 'verify-package-invariants', { label: 'package invariants' }),
     pnpmScript('cordis-config', 'verify-cordis-config', { label: 'Cordis config' }),
-    pnpmScript('build', 'build'),
+    ...options.ownsBuild ? [pnpmScript('build', 'build')] : [],
     ...docSyncLeafGates({
-      docTypecheckNeeds: ['build'],
-      docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+      includeDocTypecheck: options.ownsBuild,
+      ...options.ownsBuild
+        ? {
+          docTypecheckNeeds: ['build'],
+          docTypecheckEnv: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+        }
+        : {},
       docsBuildScript: 'docs:build:mpa',
     }),
     pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
@@ -358,23 +367,38 @@ function ciArtifactGates(): Gate[] {
 }
 
 function ciConsumerGates(): Gate[] {
-  const publicArtifacts = ['publint']
-  const restoredBuild = ['built-package-invariants']
+  const builtTree = ['build']
+  const validatedBuild = ['built-package-invariants']
   return [
+    pnpmScript('build', 'build'),
+    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
+    pnpmScript('publint', 'publint', { needs: builtTree }),
+    builtPackageInvariantsGate(['publint']),
     pnpmScript('lint-and-duplication', 'check:ci:lint', {
       label: 'lint and duplication',
-      needs: restoredBuild,
+      needs: validatedBuild,
     }),
-    pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
-    snapshotGate(restoredBuild),
-    pnpmScript('publint', 'publint'),
+    snapshotGate(validatedBuild),
+    webSnapshotGate(validatedBuild),
+    pnpmScript('doc-typecheck', 'doc-typecheck', {
+      needs: validatedBuild,
+      env: { DSH_DOC_TYPECHECK_USE_BUILD_OUTPUT: '1' },
+    }),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
-      needs: restoredBuild,
+      needs: validatedBuild,
     }),
-    builtPackageInvariantsGate(publicArtifacts),
-    builtBinSmokeGate(restoredBuild),
+    builtBinSmokeGate(validatedBuild),
   ]
+}
+
+function webSnapshotGate(needs: string[]): Gate {
+  return pnpmScript('web-snapshot', 'test:web:built', {
+    label: 'web browser snapshot',
+    displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+    env: { DSH_SNAPSHOT: 'replay' },
+    needs,
+  })
 }
 
 function ciWindowsBlockingGates(): Gate[] {
@@ -399,7 +423,7 @@ function ciWindowsCompleteGates(): Gate[] {
 
 function ciWindowsObservationalGates(): Gate[] {
   return [
-    ...ciStaticGates(),
+    ...ciStaticGates({ ownsBuild: true }),
     // Linux owns required lint, coverage, and snapshots; Windows omits those duplicates.
     pnpmScript('duplication', 'duplication'),
     pnpmScript('publint', 'publint', { needs: ['build'] }),
@@ -432,7 +456,7 @@ function coverageGate(): Gate {
 
 // Example and package snapshots boot their bins in `lib` mode (built artifacts under plain Node,
 // plugins via real exports); repository-script snapshots execute their real source entry path.
-// Build-owning modes wait on `build`; a restored-artifact mode passes its validation dependency.
+// Callers wait either on `build` or on a validation gate that transitively owns that build.
 function snapshotGate(needs: string[] = ['build']): Gate {
   return pnpmScript('snapshot', 'test:snapshot', {
     env: { DSH_EXAMPLE_MODE: 'lib' },
@@ -480,6 +504,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
 }
 
 function docSyncLeafGates(options: {
+  includeDocTypecheck?: boolean
   docTypecheckNeeds?: string[]
   docTypecheckEnv?: Record<string, string | undefined>
   docsBuildScript?: 'docs:build' | 'docs:build:mpa'
@@ -488,7 +513,9 @@ function docSyncLeafGates(options: {
   if (options.docTypecheckNeeds !== undefined) docTypecheckOptions.needs = options.docTypecheckNeeds
   if (options.docTypecheckEnv !== undefined) docTypecheckOptions.env = options.docTypecheckEnv
   return [
-    pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions),
+    ...options.includeDocTypecheck === false
+      ? []
+      : [pnpmScript('doc-typecheck', 'doc-typecheck', docTypecheckOptions)],
     pnpmScript('cordis-catalog', 'verify-cordis-catalog', { label: 'cordis catalog' }),
     pnpmScript('export-jsdoc', 'verify-export-jsdoc', { label: 'export jsdoc' }),
     pnpmScript('tool-catalog', 'verify-tool-catalog', { label: 'tool catalog' }),
@@ -525,7 +552,7 @@ function builtBinSmokeGate(needs: string[] = ['build']): Gate {
     '--config',
     'vitest.e2e.config.ts',
     'examples/headless-agent/tests/keyless-smoke.e2e.ts',
-    'examples/tui-agent/tests/tui-keyless-smoke.e2e.ts',
+    'apps/cli/tests/tui-keyless-smoke.e2e.ts',
     'packages/examples/cli-demo/tests/built-bin.e2e.ts',
     'packages/examples/acp-demo/tests/built-bin.e2e.ts',
     'packages/ui/jsonrpc/tests/built-scope-carrier.e2e.ts',

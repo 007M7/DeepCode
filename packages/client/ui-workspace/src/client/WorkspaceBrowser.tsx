@@ -100,7 +100,7 @@ interface DragState {
 
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
-  'useSessions' | 'startSession' | 'open' | 'insertSessionBefore'
+  'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore'
 > & {
   workspaces: readonly WorkspaceView[]
   /** Open the browser-owned rename dialog for a real Workspace group. */
@@ -113,13 +113,12 @@ type SessionTreeProps = Pick<
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
-  useSessions, startSession, open, workspaces,
+  useSessions, startSession, open, forkSession, workspaces,
   onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
   const [expandedProjects, setExpandedProjects] = useState<string[]>([])
-  const [expandedSessions, setExpandedSessions] = useState<string[]>([])
   // Transient drag viewing state (never store-bound; order truth stays Host-side).
   const [drag, setDrag] = useState<DragState | null>(null)
   const currentGroup = current === undefined
@@ -131,8 +130,8 @@ function SessionTree({
     setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, { expandedProjects, expandedSessions }),
-    [list, workspaces, expandedProjects, expandedSessions],
+    () => deriveGroups(list, workspaces, { expandedProjects }),
+    [list, workspaces, expandedProjects],
   )
   const now = Date.now()
 
@@ -143,7 +142,7 @@ function SessionTree({
           <div className={css.empty}>No sessions yet</div>
         )}
         {groups.map(group => (
-          // Group section: header row + expanded session subtree. The
+          // Group section: header row + expanded top-level session rows. The
           // inter-group breathing room (former flat-list batch separator)
           // is the section's own margin (WorkspaceBrowser.module.css).
           <div key={group.key} className={css.groupSection}>
@@ -167,7 +166,7 @@ function SessionTree({
                 }}
             />
             {group.sessions.map((node, index) => {
-              // Draggable: real-workspace group roots. The drag
+              // Draggable: real-workspace session rows. The drag
               // never leaves its group — rows of other groups show no markers
               // and reject drops (visual movement confined to this section).
               const draggable = group.workspaceId !== undefined
@@ -185,15 +184,15 @@ function SessionTree({
                 drop: (half: 'before' | 'after') => {
                   /* v8 ignore next -- narrowing guard: Rows gates drop on `active`, which is false while the drag state is null. */
                   if (drag === null) return
-                  const roots = group.sessions
+                  const sessions = group.sessions
                   // Anchor = the row the insert line points at ('after' means
                   // the next root; end-of-list omits the anchor → append).
-                  const anchor = half === 'before' ? node.id : roots[index + 1]?.id
+                  const anchor = half === 'before' ? node.id : sessions[index + 1]?.id
                   setDrag(null)
                   if (anchor === drag.sessionId) return
                   // No-op when the drop lands back on the source position.
-                  const sourceIndex = roots.findIndex(r => r.id === drag.sessionId)
-                  const anchorIndex = anchor === undefined ? roots.length : roots.findIndex(r => r.id === anchor)
+                  const sourceIndex = sessions.findIndex(r => r.id === drag.sessionId)
+                  const anchorIndex = anchor === undefined ? sessions.length : sessions.findIndex(r => r.id === anchor)
                   if (sourceIndex !== -1 && (anchorIndex === sourceIndex || anchorIndex === sourceIndex + 1)) return
                   insertSessionBefore(drag.workspaceId, drag.sessionId, anchor).catch((reason: unknown) => {
                     console.warn('session reorder rejected:', reason)
@@ -205,12 +204,11 @@ function SessionTree({
                 <SessionNodeItem
                   key={node.id}
                   node={node}
-                  depth={0}
                   currentId={current}
                   now={now}
                   onOpen={open}
                   onRename={onSessionRename}
-                  onToggle={(id) => { setExpandedSessions(l => toggled(l, id)) }}
+                  onFork={forkSession}
                   drag={dragProps}
                 />
               )
@@ -224,7 +222,7 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, onSessionRename }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'onSessionRename'>) {
+function FlatList({ useSessions, open, forkSession, onSessionRename }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename'>) {
   const list = useSessions(s => s)
   const rows = useMemo(() => deriveFlat(list), [list])
   const now = Date.now()
@@ -238,14 +236,11 @@ function FlatList({ useSessions, open, onSessionRename }: Pick<SessionTreeProps,
           <SessionNodeItem
             key={node.id}
             node={node}
-            depth={0}
             currentId={list.current}
             now={now}
             onOpen={open}
             onRename={onSessionRename}
-            /* v8 ignore next -- required-prop filler: flat rows render no twist, so it never fires. */
-            onToggle={() => {}}
-            flat
+            onFork={forkSession}
           />
         ))}
       </div>
@@ -336,6 +331,7 @@ export function WorkspaceBrowser({
   startSession,
   open,
   renameSession,
+  forkSession,
   renameWorkspace,
   deleteWorkspace,
   insertSessionBefore,
@@ -602,11 +598,12 @@ export function WorkspaceBrowser({
             />
           )
           : groupBy === 'flat'
-            ? <FlatList useSessions={useSessions} open={open} onSessionRename={onSessionRename} />
+            ? <FlatList useSessions={useSessions} open={open} forkSession={forkSession} onSessionRename={onSessionRename} />
             : (
               <SessionTree
                 useSessions={useSessions}
                 onSessionRename={onSessionRename}
+                forkSession={forkSession}
                 workspaces={workspaces}
                 startSession={startSession}
                 open={open}

@@ -44,7 +44,7 @@ async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandl
 
 Types: [Agent](../core-data-structures/core.md) · [AgentOptions](../core-data-structures/core.md) · [SessionHeader](../core-data-structures/persistence.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:196`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:252`](../../packages/core/agent-loop/src/index.ts)
 
 ## `ctx.agents` — `AgentRegistry`
 
@@ -216,7 +216,7 @@ roots(): Agent[]
 
 Types: [Agent](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/index.ts:215`](../../packages/core/agent/src/index.ts)
+Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/index.ts)
 
 ## `ctx.approval` — `ApprovalService`
 
@@ -488,6 +488,52 @@ Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionT
 
 Source: [`packages/compact/compact/src/index.ts:54`](../../packages/compact/compact/src/index.ts)
 
+## `ctx.credentials` — `Credentials` (abstract seam)
+
+Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.
+
+```ts cordis-catalog
+/**
+ * Resolve one reference to its current value. Resolution is per call:
+ * consumers re-resolve at each operation and must not cache across
+ * operations — that per-operation read is what makes a changed credential
+ * reach the next operation without a restart.
+ * @param ref - the reference to resolve.
+ * @returns the value and its source, or `undefined` while unconfigured.
+ */
+abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>
+
+/**
+ * Describe one reference for configuration surfaces without exposing the
+ * value.
+ * @param ref - the reference to describe.
+ * @returns configured state, supplying source, and writability.
+ */
+abstract describe(ref: CredentialRef): Promise<CredentialInfo>
+
+/**
+ * Durably store one value in the provider-managed writable source. Rejects
+ * while a read-only source shadows the reference — the write would appear
+ * to succeed while resolution keeps returning the shadowing value — and
+ * rejects an empty value (use {@link unset}).
+ * @param ref - the reference to store.
+ * @param value - the non-empty secret value.
+ */
+abstract set(ref: CredentialRef, value: string): Promise<void>
+
+/**
+ * Remove one reference from the provider-managed writable source; removing
+ * an absent reference is a no-op. Rejects while a read-only source shadows
+ * the reference, like {@link set}.
+ * @param ref - the reference to remove.
+ */
+abstract unset(ref: CredentialRef): Promise<void>
+```
+
+Types: [CredentialInfo](../core-data-structures/credentials.md) · [CredentialRef](../core-data-structures/credentials.md) · [ResolvedCredential](../core-data-structures/credentials.md)
+
+Source: [`packages/credentials/credentials/src/index.ts:77`](../../packages/credentials/credentials/src/index.ts)
+
 ## `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
 
 Abstract directory-picking service. Subclass, implement `capability()`, and load the subclass as a plugin — it registers as `ctx.directoryPicker` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior). The capability object must be stable for the service lifetime: consumers may capture it across calls.
@@ -744,9 +790,9 @@ The abstract `llm` service: an adapter registry plus a streaming model-call surf
  * Disposed with the fiber.
  * @param providers - every provider route this adapter should serve.
  * @param adapter - the adapter that streams calls for those providers.
- * @returns the disposer that unregisters all of them.
+ * @returns the disposer, carrying {@link AdapterRegistrationHandle.replace}.
  */
-registerAdapter(providers: string[], adapter: LlmAdapter): () => void
+registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle
 
 /**
  * Describe provider routes with a registered adapter.
@@ -818,9 +864,9 @@ async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<Prepared
 stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 ```
 
-Types: [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
+Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:191`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:215`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -908,7 +954,7 @@ set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:182`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -1590,7 +1636,7 @@ fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): 
 
 Types: [CreateSessionOptions](../core-data-structures/persistence.md) · [Session](../core-data-structures/session.md) · [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/session/src/index.ts:695`](../../packages/core/session/src/index.ts)
+Source: [`packages/core/session/src/index.ts:714`](../../packages/core/session/src/index.ts)
 
 ## `ctx.sessionTitle` — `SessionTitleService`
 
@@ -1638,6 +1684,62 @@ register(provider: SessionTitleProvider): () => Promise<void>
 Types: [Session](../core-data-structures/session.md) · [SessionTitleProvider](../core-data-structures/session-title.md) · [SessionTitleSnapshot](../core-data-structures/session-title.md)
 
 Source: [`packages/session-title/session-title/src/index.ts:261`](../../packages/session-title/session-title/src/index.ts)
+
+## `ctx.settings` — `Settings` (abstract seam)
+
+Abstract settings service. Providers implement raw-document storage (`load`/`persist`) and push external changes through Settings.publish; the base class owns namespace registration, resolution, validation, change detection, and the `settings/updated` commit event.
+
+```ts cordis-catalog
+/**
+ * Register a namespace schema and receive its owner scope. The registration
+ * is an effect on the calling plugin's fiber: disposing that fiber removes
+ * the namespace and its observers. An invalid stored section fails the
+ * registration itself — the earliest point where the schema can judge it.
+ * @param ns - unique namespace; duplicate registration fails loud.
+ * @param schema - schemastery schema resolving this namespace's value.
+ * @param options - composition `base` layer and effect timing.
+ * @returns the owner scope for reads, observation, and updates.
+ */
+register<T>(ns: SettingsNamespace, schema: z<T>, options?: SettingsRegisterOptions<T>): SettingsScope<T>
+
+/**
+ * Describe every registered namespace for configuration surfaces.
+ * @returns one descriptor per registered namespace, in registration order.
+ */
+describe(): SettingsDescriptor[]
+
+/**
+ * Read one registered namespace's resolved value.
+ * @param ns - the namespace to read.
+ * @returns the resolved value, or `undefined` while unregistered.
+ */
+get(ns: SettingsNamespace): unknown
+
+/**
+ * Merge a patch into one registered namespace's user layer, validate the
+ * resolved candidate, persist through the provider, then commit and emit.
+ * A validation failure rejects before anything is persisted. Writes to one
+ * namespace are serialized: concurrent updates apply in call order, each
+ * merging over the previous write's committed section.
+ * @param ns - the registered namespace to update.
+ * @param patch - plain-object patch over the user section.
+ */
+async update(ns: SettingsNamespace, patch: object): Promise<void>
+
+/**
+ * Replace one registered namespace's user section wholesale, validate,
+ * persist, then commit and emit. Keys absent from `section` fall back to the
+ * composition `base` and schema defaults — this is the removal/reset path a
+ * merge-only patch cannot express (`replace({})` re-inherits everything).
+ * @param ns - the registered namespace to replace.
+ * @param section - the complete next user section.
+ */
+async replace(ns: SettingsNamespace, section: object): Promise<void>
+```
+
+Types: [SettingsDescriptor](../core-data-structures/settings.md) · [SettingsNamespace](../core-data-structures/settings.md) · [SettingsRegisterOptions](../core-data-structures/settings.md) · [SettingsScope](../core-data-structures/settings.md)
+
+Source: [`packages/settings/settings/src/index.ts:250`](../../packages/settings/settings/src/index.ts)
 
 ## `ctx.skills` — `SkillService`
 
@@ -1901,7 +2003,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:246`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:248`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 
@@ -2174,7 +2276,7 @@ async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>
 
 Types: [ScopeKey](../core-data-structures/scope.md) · [ToolDefinition](../core-data-structures/tools.md) · [ToolExecutionInput](../core-data-structures/tools.md) · [ToolExecutionMode](../core-data-structures/tools.md) · [ToolExecutionResult](../core-data-structures/tools.md) · [ToolGuard](../core-data-structures/tools.md) · [ToolRestriction](../core-data-structures/tools.md) · [ToolSchema](../core-data-structures/tools.md)
 
-Source: [`packages/core/tools/src/index.ts:700`](../../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:704`](../../packages/core/tools/src/index.ts)
 
 ## `ctx.tui` — `TuiExtensionService` (abstract seam)
 
@@ -2197,7 +2299,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:247`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:241`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
@@ -2284,7 +2386,7 @@ async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 
 Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
 
-Source: [`packages/ui/user-interaction/src/index.ts:50`](../../packages/ui/user-interaction/src/index.ts)
+Source: [`packages/ui/user-interaction/src/index.ts:51`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

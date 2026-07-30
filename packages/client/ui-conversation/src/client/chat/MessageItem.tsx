@@ -10,11 +10,14 @@ import type {
   ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
   node: UserMessageNode | SteeringMessageNode | ContextMessageNode | UnknownSurfaceNode
+  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  onFork?: (seq: number) => void
 }
 
 function contentText(content: readonly unknown[]): { text: string; rest: unknown[] } {
@@ -60,7 +63,7 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-export const MessageItem = memo(function MessageItem({ node }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ node, onFork }: MessageItemProps) {
   switch (node.kind) {
     case 'user': {
       const { text, rest } = contentText(node.content)
@@ -75,6 +78,7 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
             time={node.time}
             clock="start"
             edit
+            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
           />
         </div>
@@ -94,9 +98,7 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
     }
     case 'context':
       return (
-        <div className={css.contextRow}>
-          <JsonBlock label="上下文注入" payload={{ content: node.content, source: node.source }} />
-        </div>
+        <ContextInjectionRow content={node.content} source={node.source} />
       )
     default:
       return (

@@ -24,7 +24,7 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
 const view = (expandedProjects: readonly string[] = []) => ({
-  expandedProjects, expandedSessions: [] as string[],
+  expandedProjects,
 })
 
 describe('deriveGroups', () => {
@@ -62,7 +62,7 @@ describe('deriveGroups', () => {
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
   })
 
-  it('builds, sorts, expands, and cycle-guards an ungrouped session tree', () => {
+  it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
     const parent = summary('parent', 1)
     const oldChild = { ...summary('old-child', 10), parentId: parent.id }
     const newChild = { ...summary('new-child', 20), parentId: parent.id }
@@ -75,15 +75,13 @@ describe('deriveGroups', () => {
     const groups = deriveGroups(
       list(parent, oldChild, newChild, tieB, tieA, self, orphan, cycleA, cycleB),
       [],
-      { expandedProjects: [UNGROUPED_KEY], expandedSessions: [parent.id, cycleA.id, cycleB.id] },
+      { expandedProjects: [UNGROUPED_KEY] },
     )
 
     expect(groups).toHaveLength(1)
     expect(groups[0]!.sessions.map(node => node.id)).toEqual([
-      sid('orphan'), sid('self'), parent.id, sid('cycle-a'),
-    ])
-    expect(groups[0]!.sessions[2]!.children.map(node => node.id)).toEqual([
       newChild.id, tieA.id, tieB.id, oldChild.id,
+      cycleB.id, cycleA.id, orphan.id, self.id, parent.id,
     ])
 
     // Equal timestamps use ids as a deterministic tiebreak in either input order.
@@ -120,8 +118,6 @@ describe('deriveFlat', () => {
     const tieA = summary('tie-a', 20)
     const rows = deriveFlat(list(parent, child, tieB, tieA))
     expect(rows.map(row => row.id)).toEqual([sid('child'), sid('tie-a'), sid('tie-b'), sid('parent')])
-    // Rows are branch-free: no children, no expansion.
-    expect(rows.every(row => row.children.length === 0 && !row.hasChildren && !row.expanded)).toBe(true)
   })
 
   it('tolerates ids whose summary has not landed yet', () => {

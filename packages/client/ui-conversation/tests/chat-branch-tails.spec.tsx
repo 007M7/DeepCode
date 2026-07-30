@@ -107,11 +107,48 @@ describe('MessageItem arms', () => {
     expect(view.queryByRole('button', { name: '复制' })).toBeNull()
   })
 
-  it('context and unknown nodes render their JSON rows', () => {
+  it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {
     const ctxView = render(
-      <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null } as never} />,
+      <MessageItem node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'x\n"y":,[{}]' }],
+        source: { kind: 'plugin', plugin: 'fixture', empty: {}, list: [] },
+      } as never}
+      />,
     )
-    expect(ctxView.getByText(/上下文注入/)).toBeTruthy()
+    const disclosure = ctxView.getByRole('button', { name: '上下文注入' })
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+    expect(ctxView.container.querySelector('[data-context-injection-body]')).toBeNull()
+    expect(ctxView.container.querySelector('svg')).not.toBeNull()
+
+    fireEvent.click(disclosure)
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true')
+    expect(ctxView.container.querySelector('[data-context-injection-body]')?.textContent).toBe(
+      '{ "content": [ { "type": "text", "text": "x\\n\\"y\\":,[{}]" } ], '
+      + '"source": { "kind": "plugin", "plugin": "fixture", "empty": {}, "list": [] } }',
+    )
+
+    fireEvent.keyDown(disclosure, { key: ' ' })
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('context preserves the bounded JSON truncation contract', () => {
+    const view = render(
+      <MessageItem node={{
+        kind: 'context',
+        seq: 3,
+        content: [{ type: 'text', text: 'x'.repeat(21_000) }],
+        source: null,
+      } as never}
+      />,
+    )
+    fireEvent.click(view.getByRole('button', { name: '上下文注入' }))
+    expect(view.container.querySelector('[data-context-injection-body]')?.textContent)
+      .toMatch(/… 已截断，共 \d+ 字符$/)
+  })
+
+  it('unknown nodes retain the generic JSON row', () => {
     const unknownView = render(
       <MessageItem node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )
@@ -177,7 +214,7 @@ describe('small branch tails', () => {
     expect(view.getByText('one-liner')).toBeTruthy()
   })
 
-  it('finalized assistant messages expose copy / branch / clock after the body; streaming omits them', () => {
+  it('finalized content messages expose copy / branch / clock; Think-only and streaming omit them', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -199,6 +236,17 @@ describe('small branch tails', () => {
     expect(writeText).toHaveBeenCalledWith('answer body')
     settled.unmount()
 
+    const thinkOnly = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'reasoning', text: 'only thinking' }]}
+        streaming={false}
+        time={time}
+      />,
+    )
+    expect(thinkOnly.queryByRole('button', { name: '复制' })).toBeNull()
+    expect(thinkOnly.queryByText('14:24')).toBeNull()
+    thinkOnly.unmount()
+
     const streaming = render(
       <AssistantMarkdown blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
     )
@@ -216,6 +264,6 @@ describe('small branch tails', () => {
     const view = render(
       <StatsLine useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']} />,
     )
-    expect(view.getByText('10 tokens · 1 turns · 1 steps')).toBeTruthy()
+    expect(view.container.textContent).toBe('1 turns · 1 steps|Input 0 tok · Output 10 tok')
   })
 })

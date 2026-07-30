@@ -38,6 +38,12 @@ flowchart LR
   pkg_tool_bash["tool-bash"]
   pkg_hooks_claude["hooks-claude"]
   pkg_hooks_codex["hooks-codex"]
+  pkg_settings["settings"]
+  svc_settings["ctx.settings<br/>User-settings seam"]
+  pkg_settings_local["settings-local"]
+  pkg_credentials["credentials"]
+  svc_credentials["ctx.credentials<br/>Credential seam"]
+  pkg_credentials_local["credentials-local"]
   pkg_session_telemetry["session-telemetry"]
   svc_telemetry["ctx.telemetry<br/>Session telemetry seam"]
   pkg_session_telemetry_otel["session-telemetry-otel"]
@@ -171,6 +177,8 @@ flowchart LR
   pkg_compact --> svc_compact
   pkg_compact_basic --> svc_compact
   pkg_compact_tool_result_prune --> svc_toolResultPrune
+  pkg_credentials --> svc_credentials
+  pkg_credentials_local --> svc_credentials
   pkg_directory_picker --> svc_directoryPicker
   pkg_directory_picker_browse --> svc_directoryPicker
   pkg_directory_picker_native --> svc_directoryPicker
@@ -205,6 +213,8 @@ flowchart LR
   pkg_session_title --> svc_sessionTitle
   pkg_session_title_all_messages_llm --> svc_sessionTitle
   pkg_session_title_first_message_llm --> svc_sessionTitle
+  pkg_settings --> svc_settings
+  pkg_settings_local --> svc_settings
   pkg_skill --> svc_skills
   pkg_skill_local --> svc_skills
   pkg_spill --> svc_spillStore
@@ -253,6 +263,8 @@ flowchart LR
   svc_codeRuntime --> pkg_tools
   svc_commands --> pkg_tui
   svc_compact --> pkg_compact_basic
+  svc_credentials --> pkg_llm_deepseek
+  svc_credentials --> pkg_llm_pi_ai
   svc_directoryPicker --> pkg_apiproxy
   svc_fs --> pkg_tool_fs
   svc_httpServer --> pkg_connection
@@ -291,6 +303,8 @@ flowchart LR
   svc_sessions --> pkg_session_query
   svc_sessions --> pkg_session_query_sqlite
   svc_sessions --> pkg_subagent_inprocess
+  svc_settings --> pkg_llm_deepseek
+  svc_settings --> pkg_llm_pi_ai
   svc_skills --> pkg_tool_skill
   svc_spillStore --> pkg_spill_policy
   svc_storage --> pkg_storage_domain
@@ -341,6 +355,8 @@ flowchart LR
 | `ctx.invariants` | `core` | [`invariants`](../packages/support/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures. |
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader) | - | Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
+| `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-local`](../packages/settings/settings-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. The LLM adapters register their entry config as the composition base under the user section. |
+| `ctx.credentials` | `seam` | [`credentials`](../packages/credentials/credentials) | [`credentials-local`](../packages/credentials/credentials-local) | [`llm-deepseek`](../packages/llm/llm-deepseek), [`llm-pi-ai`](../packages/llm/llm-pi-ai) | - | Configuration carries references to secrets; providers own the values. Consumers resolve per operation, so a rotated credential reaches the very next request. |
 | `ctx.telemetry` | `seam` | [`session-telemetry`](../packages/telemetry/session-telemetry) | [`session-telemetry-otel`](../packages/telemetry/session-telemetry-otel) | - | - | The seam captures, redacts, and hands session records to one backend; nothing else consumes the service — its output leaves the process. |
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
@@ -357,7 +373,7 @@ flowchart LR
 | `ctx.sessionProjectionCache` | `core` | [`session-projection-cache`](../packages/session-projection/session-projection-cache) | - | [`host-apiproxy`](../packages/host/apiproxy) | - | Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs. |
 | `ctx.tui` | `bundle` | [`tui`](../packages/ui/tui) | - | - | - | One TUI front door provides a FIFO overlay host; injected plugins receive caller-fiber ownership without access to pi-tui or terminal lifecycle state. |
 | `ctx.skills` | `seam` | [`skill`](../packages/skill/skill) | [`skill-local`](../packages/skill/skill-local) | [`tool-skill`](../packages/skill/tool-skill) | - | Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies. |
-| `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`cli-demo`](../packages/examples/cli-demo), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), [`tui-demo`](../packages/examples/tui-demo) | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
+| `ctx.agents` | `core` | [`agent`](../packages/core/agent) | - | [`agent-loop`](../packages/core/agent-loop), [`acp`](../packages/acp/acp), [`cli-demo`](../packages/examples/cli-demo), [`subagent-inprocess`](../packages/subagent/subagent-inprocess), `tui-demo` | - | Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation. |
 | `ctx.agentLoop` | `bundle` | [`agent-loop`](../packages/core/agent-loop) | - | [`agent-spine-demo`](../packages/examples/agent-spine-demo) | - | The one concrete loop plugin; extension packages depend on dsh-agent events and services, not on this package. |
 | `ctx.goals` | `core` | [`goal`](../packages/goal/goal) | - | - | - | Folds revisioned objective state from the session log and keeps live continuation activation process-local. |
 | `ctx.subprocess` | `seam` | [`subprocess`](../packages/subprocess/subprocess) | [`subprocess-local`](../packages/subprocess/subprocess-local) | [`bash-local`](../packages/bash/bash-local), [`bash-sandbox`](../packages/bash/bash-sandbox), [`lsp-local`](../packages/lsp/lsp-local), [`subagent-acp`](../packages/subagent/subagent-acp) | - | The bash executors, the LSP host, and the ACP subagent backend spawn their children through ctx.subprocess; the service owns tree lifetime, stdio dispositions (pipes, inherit, bounded spill-backed collection), and kill escalation. |
