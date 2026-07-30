@@ -1333,6 +1333,36 @@
       "doc": "docs/core-data-structures/subprocess.md",
       "symbol": "SubprocessCollectedOutputs",
       "source": "packages/subprocess/subprocess/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsNamespace",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsRegisterOptions",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsApplies",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsScope",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsDescriptor",
+      "source": "packages/settings/settings/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/settings.md",
+      "symbol": "SettingsUpdateSource",
+      "source": "packages/settings/settings/src/index.ts"
     }
   ]
 }
