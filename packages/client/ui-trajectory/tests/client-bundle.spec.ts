@@ -41,7 +41,7 @@ describe('tsdown client artifact', () => {
     // Same execution form the loader uses (inline script eval, window scope) —
     // the implied-eval ban targets accidental string execution, not this
     // deliberate bundle-execution fixture.
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, @typescript-eslint/no-unsafe-call
+    // oxlint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
     new Function(code!)()
     expect(handoff).toBeDefined()
     const modules = new Map<string, unknown>([
@@ -72,8 +72,9 @@ describe('tsdown client artifact', () => {
       name: 'root',
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
-    // The plugin injects 'conversation' as an ordering edge and 'sessionHistory'
-    // for its per-session history callback; this bench supplies both.
+    // The plugin injects 'conversation' as an ordering edge and
+    // 'sessionHistory' for its per-session ledger callback; this bench
+    // supplies both.
     ctx.provide('conversation', {})
     ctx.provide('sessionHistory', {})
     const fiber = ctx.plugin(surface as { apply: (ctx: Context) => void })

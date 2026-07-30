@@ -13,6 +13,9 @@ examples/*/.sessions/
 coverage/
 .doc-typecheck-*/
 .node-next-types-*/
+.oxlint-contract-*/
+.oxlintrc.contract-*.json
+oxlint-contract-*.ts
 .humanize/
 tmp/
 .claude/commands/
@@ -34,3 +37,4 @@ apps/web/dist/
 .worktrees/
 worktrees/
 .agents/worktrees/
+.typert-*/
