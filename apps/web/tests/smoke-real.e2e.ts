@@ -24,7 +24,7 @@ import { pathToFileURL } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { REPO_ROOT, connectFreshWorkspace, probeFreePort, requireDist, saveFailureShot } from './support.ts'
+import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -357,22 +357,26 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     requireDist()
     sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-w5-'))
     const port = await probeFreePort()
-    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. cwd is a
-    // temp dir (persistenceRoot is cwd-relative), so tsx needs the repo's loader
-    // and tsconfig paths pointed at explicitly.
+    // tsx boot mirrors demo:web — lib/ may be unbuilt in this worktree. Isolate
+    // the global Harness home inside the temp world; tsx also needs the repo's
+    // loader and tsconfig paths pointed at explicitly.
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     child = spawn(
       process.execPath,
       ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port)],
       {
         cwd: sessionsDir,
-        env: { ...process.env, TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json') },
+        env: {
+          ...process.env,
+          DSH_HOME: join(sessionsDir, '.dsh'),
+          TSX_TSCONFIG_PATH: join(REPO_ROOT, 'tsconfig.json'),
+        },
         stdio: ['ignore', 'pipe', 'pipe'],
       },
     )
     baseUrl = (await waitForReadyLine(child)).replace('0.0.0.0', '127.0.0.1')
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(baseUrl, { waitUntil: 'load' })
   }, 120_000)
@@ -440,17 +444,17 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '04-round-complete')
   }, 150_000)
 
-  it('4 view tabs: Chat / Trajectory / Waterfall all switch', async () => {
+  it('view tabs: Chat and Trajectory switch', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tabs'))
     await page.locator('button', { hasText: /Trajectory/i }).first().click()
     await screen(page, '05-trajectory-tab')
-    await page.locator('button', { hasText: /Waterfall/i }).first().click()
-    await screen(page, '06-waterfall-tab')
+    await page.getByLabel('Trajectory timeline').waitFor()
+    await expect.poll(() => page.getByRole('tab', { name: 'Waterfall' }).count()).toBe(0)
     await page.locator('button', { hasText: /^Chat$/i }).first().click()
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click leaves the details column collapsed', async () => {
+  it('5 bash differential rendering: tool row click leaves the default details column open', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -462,14 +466,14 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const toolRow = page.locator('[data-sample="bash-global"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
-    expect(await detailsTrack(page)).toBe(0)
+    expect(await detailsTrack(page)).toBe(360)
     await toolRow.click()
-    // Tool rows no longer drive layout.openDetails; the column stays closed.
-    expect(await detailsTrack(page)).toBe(0)
-    await screen(page, '09-details-closed')
+    // Tool rows no longer drive layout.openDetails; the default column stays open.
+    expect(await detailsTrack(page)).toBe(360)
+    await screen(page, '09-details-open')
   }, 150_000)
 
-  it('6 sidebar drag widens the column and persists across reload', async () => {
+  it('6 sidebar drag widens the column and resets across reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-drag'))
     const before = await firstTrack(page)
     const handle = page.locator('[class*="handle"]').first()
@@ -484,7 +488,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '10-sidebar-dragged')
     await page.reload({ waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    expect(await firstTrack(page)).toBe(after)
+    expect(await firstTrack(page)).toBe(before)
   })
 
   it('7 dark mode: the body attribute cascades the token sheets', async () => {

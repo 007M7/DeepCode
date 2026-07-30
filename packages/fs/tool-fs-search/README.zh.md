@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**面向模型的文件系统发现工具**（`glob`、`grep`）由 **bash 执行器 seam** 支持，而不是由 `ctx.fs` 提供方方法支持。加载时，本包探测 `command -v rg`，探测通过 `ctx.bash` 进行；如果执行器无法在其 `PATH` 上找到 ripgrep，就记录警告，并且不注册工具或提示词段。每次调用都会组装固定的 ripgrep 命令（所有模型控制的值都经过同一个包私有 shell 引用辅助函数），通过 `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` 作为普通前台工具调用运行，解析原始 `rg` 输出，并返回相对于工作目录的规范值。本包注入 `tools`、`systemPrompt` 和 `bash`，有意**不** 注入 `fs`；格式化结果 spill 为可选功能，因此机会性读取 `ctx.spillStore`，调用方式为 `ctx.get()`。
+**面向模型的文件系统发现工具**（`glob`、`grep`）由 **bash 执行器 seam** 支持，而不是由 `ctx.fs` 提供方方法支持。加载时，本包（package）探测 `command -v rg`，探测通过 `ctx.bash` 进行；如果执行器无法在其 `PATH` 上找到 ripgrep，就记录警告，并且不注册工具或提示词段。每次调用都会组装固定的 ripgrep 命令（所有模型控制的值都经过同一个包私有 shell 引用辅助函数），通过 `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` 作为普通前台工具调用运行，解析原始 `rg` 输出，并返回相对于工作目录的规范值。本包注入 `tools`、`systemPrompt` 和 `bash`，有意**不**注入 `fs`；格式化结果 spill 为可选功能，因此机会性读取 `ctx.spillStore`，调用方式为 `ctx.get()`。
 
 ```ts ignore-check
 // Default deployment: a bash executor whose PATH includes rg, then the discovery tools.
@@ -16,7 +16,7 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 ## 部署要求：rg 与共置的 bash/文件系统
 
-已挂载的 bash 执行器必须能在插件加载时解析 `rg`，其来源是执行器的 `PATH`；否则面向模型的工具 schema 中不会出现 `glob` 和 `grep`。返回路径会相对于解析后的 bash 工作目录显示（调用 agent（智能体）存在会话 cwd 时使用该值，否则使用执行器配置的默认值）；只有 bash 工作目录与文件系统根目录是同一工作区时，才能用 `read` 继续读取。v1 只记录这项共置要求，不执行运行时跨服务校验；远程或虚拟文件系统搜索需等待共享工作区契约或特定提供方的搜索后端。
+已挂载的 bash 执行器必须能在插件加载时解析 `rg`，其来源是执行器的 `PATH`；否则面向模型的工具 schema 中不会出现 `glob` 和 `grep`。返回路径会相对于解析后的 bash 工作目录显示（调用方 agent（智能体）有会话 cwd 时使用该 cwd，否则使用执行器配置的默认值）；只有 bash 工作目录与文件系统根目录是同一工作区时，才能用 `read` 继续读取。v1 只记录这项共置要求，不执行运行时跨服务校验；远程或虚拟文件系统搜索需等待共享工作区契约或特定提供方的搜索后端。
 
 ## 配置
 
@@ -34,14 +34,14 @@ await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录** 搜索根；省略时使用解析后的 bash 工作目录。每行返回一个路径，按修改时间排序。 |
-| `grep` | `pattern`、`path?`、`include?` | 按行解析 `rg --json`，避免按冒号拆分的歧义。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录** 目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
+| `glob` | `pattern`、`path?` | 运行 `rg --files --glob <pattern> --sort=modified --no-ignore --hidden`，并排除 VCS 元数据（`.git`、`.svn`、`.hg`、`.bzr`、`.jj`、`.sl`）。`path` 是可选的**目录**搜索根；省略时使用解析后的 bash 工作目录。每行返回一个路径，按修改时间排序。 |
+| `grep` | `pattern`、`path?`、`include?` | 按行解析 `rg --json`，避免按冒号拆分的歧义。`pattern` 是 ripgrep 正则表达式；`path` 是可选的**文件或目录**目标；`include` 是一个正向 glob 过滤器，前置拒绝逗号分隔列表或否定值（`!…`），但允许 `*.{ts,tsx}` 等花括号交替。返回按文件分组、形如 `Line N: <preview>` 的匹配。 |
 
 常规预算不进入面向模型的 schema（没有 `head_limit`/`offset`/`case_insensitive`/输出模式）：模型需要周边上下文时，用 `read` 读取匹配文件；需要后续结果时，遵循返回的 spill locator 检索提示。
 
 ## 两类预算、两类产物
 
-原始 `rg` stdout 是内部传输细节。每次搜索从 bash seam 请求 `stdoutMaxBytes: rawOutputMaxBytes`，且只解析完整保留的 stdout；如果执行器仍返回 `stdout.truncated`，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询。成功的 `glob` 在 `{ paths }` 中保留所有已取得路径；`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于 Native 渲染器。直接接口调用的逻辑结果超过内联上限时，后置政策会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为头部页面加 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
+原始 `rg` stdout 是内部传输细节。每次搜索从 bash seam 请求 `stdoutMaxBytes: rawOutputMaxBytes`，且只解析完整保留的 stdout；如果执行器仍返回 `stdout.truncated`，搜索会以 `SEARCH_RAW_OUTPUT_OVERFLOW` 失败，并要求模型缩小查询。成功的 `glob` 在 `{ paths }` 中保留所有已取得路径；`grep` 保留所有已取得的 `{ path, lineNumber, line }`，并将其存入 `{ matches }`。内联条目和每行预览上限只应用于原生渲染器。直接接口调用的逻辑结果超过内联上限时，后置策略会尽力通过 `ctx.spillStore.saveText()` 保存完整格式化预览，并只把呈现替换为头部页面加 locator。嵌套 Code 分派会跳过 spill，因为其完整规范值不会进入模型上下文。spill 缺失/失败时保留内联页面，并报告完整结果无法保存，绝不会成为 `isError`。
 
 ## 错误
 
@@ -117,7 +117,7 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 
 仅追加；新增可见内容位于可复用请求前缀之后，不会使现有 KV-cache 条目失效。
 
-## 已知限制与延期工作
+## 已知限制与暂缓事项
 
 - **搜索和文件访问没有共享工作区证明**：只有 bash 工作目录和文件系统根目录表示同一工作区时，返回路径才能继续读取；本包不执行运行时跨服务校验。
 - **Ripgrep 是部署依赖**：缺失 `rg` 可执行文件时，本包不注册工具或指导；可执行文件不兼容或注册后消失时，调用以 `SEARCH_FAILED` 失败。远程或虚拟文件系统需要共置执行器或其他搜索消费方。

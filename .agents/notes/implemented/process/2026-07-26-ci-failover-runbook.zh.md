@@ -14,7 +14,7 @@ Status: implemented
 
 ### 自有池是什么
 
-`vm-backup`：一台 64 核虚拟机，6 个常驻 systemd 管理的运行器实例。切换前先看 `serial / linux (self-hosted standby)` 最近一次运行：绿色 = 这套环境昨天刚被全量验证过。
+`vm-backup`：一台 64 核虚拟机，6 个常驻 systemd 管理的运行器实例。其镜像必须预装 Playwright Chromium 的 Linux 系统软件包；CI 会下载锁文件选定的浏览器，但绝不在这台持久化共享主机上运行 `apt`。切换前先看 `serial / linux (self-hosted standby)` 最近一次运行：其聚合流程包含浏览器回放，因此绿色热备同时验证常规容量和这项浏览器先决条件。
 
 ### 切换步骤（任何具备写权限的协作者，约 1 分钟，无需合并）
 

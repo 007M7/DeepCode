@@ -7,6 +7,7 @@
 
 import { z } from 'zod'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
@@ -18,6 +19,9 @@ import type { WorkspaceId } from './workspace.ts'
 
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
+
+/** InboxItemId: one brand cast after non-empty string validation. */
+export const inboxItemIdSchema = z.string().min(1) as unknown as z.ZodType<InboxItemId>
 
 /**
  * WorkspaceId: the workspace domain's one brand cast. Hosted here rather
@@ -72,6 +76,18 @@ export const sessionCreateRequestSchema = z.object({
 export const sessionCreateValueSchema = z.object({
   sessionId: sessionIdSchema,
 }) satisfies z.ZodType<Wire<ResponseValue<'session.create'>>>
+
+/** session.rename request payload (raw title; host-side normalization decides acceptance). */
+export const sessionRenameRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  title: z.string(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.rename'>>>
+
+/** session.rename response value (the normalized accepted title and its event seq). */
+export const sessionRenameValueSchema = z.object({
+  title: z.string().min(1),
+  seq: z.number().int().nonnegative(),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.rename'>>>
 
 /** session.history request payload (beforeSeq/maxMessages page backwards from the window tail). */
 export const sessionHistoryRequestSchema = z.object({
@@ -202,6 +218,21 @@ export const sessionPromptValueSchema = z.object({
   }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
 
+/** session.updateQueue request payload. */
+export const sessionUpdateQueueRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  itemId: inboxItemIdSchema,
+  action: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('edit'), content: z.array(contentBlockSchema) }),
+    z.object({ kind: z.literal('remove') }),
+  ]),
+}) as unknown as z.ZodType<RequestPayload<'session.updateQueue'>>
+
+/** session.updateQueue response value. */
+export const sessionUpdateQueueValueSchema = z.object({
+  accepted: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.updateQueue'>>>
+
 /** session.cancel request payload. */
 export const sessionCancelRequestSchema = z.object({
   sessionId: sessionIdSchema,
@@ -211,4 +242,3 @@ export const sessionCancelRequestSchema = z.object({
 export const sessionCancelValueSchema = z.object({
   accepted: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.cancel'>>>
-

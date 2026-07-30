@@ -51,6 +51,14 @@ export function apply(ctx: ClientContext): void {
     // the runtime's shared action (recent-Workspace projection inside).
     startSession: (workspaceId) => { ctx.workspaces.startSession(workspaceId) },
     open: (sessionId) => { ctx.sessions.open(sessionId) },
+    renameSession: async (sessionId, title) => {
+      // Row → session-face hop: rename is a per-session verb (ISession), not
+      // a list-service verb; the binding resolves any listed session.
+      const session = ctx.sessions.binding(sessionId)?.session
+      if (session === undefined) throw new Error(`unknown session "${sessionId}"`)
+      const result = await session.rename(title)
+      if (!result.ok) throw new Error(result.error.message)
+    },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },
     deleteWorkspace: async (workspaceId) => { await ctx.workspaces.delete(workspaceId) },
     insertSessionBefore: async (workspaceId, sessionId, beforeSessionId) => {

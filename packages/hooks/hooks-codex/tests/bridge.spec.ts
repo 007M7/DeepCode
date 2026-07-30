@@ -39,12 +39,13 @@ function writeHooks(dir: string, hooks: unknown): void {
   writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks }))
 }
 
-async function harness(dir: string, adapter: MockAdapter): Promise<Context> {
+async function harness(dir: string, adapter: MockAdapter, beforeHooks?: (ctx: Context) => void): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { timeoutMs: 10_000 })
+  beforeHooks?.(ctx)
   await ctx.plugin(HooksCodex, { configPath: join(dir, 'hooks.json'), model: 'test-model' })
   ctx.llm.registerAdapter(['mock'], adapter)
   return ctx
@@ -88,11 +89,11 @@ describe('hooks-codex bridge', () => {
 
   it('a Stop hook (exit 2) forces the turn to continue with the reason as steering', async () => {
     const dir = configDir()
-    // Block once with a marker; until the loop guard lands, an always-blocking
-    // hook would never let this test finish.
+    // Stop ignores its malformed matcher field. Block once with a marker;
+    // until the loop guard lands, an always-blocking hook would never finish.
     const marker = join(dir, 'fired')
     const cont = script(dir, 'cont.sh', `#!/usr/bin/env bash\nif [ -e "${marker}" ]; then exit 0; fi\ntouch "${marker}"\necho "keep going: address the goal" >&2\nexit 2\n`)
-    writeHooks(dir, { Stop: [{ hooks: [{ type: 'command', command: cont }] }] })
+    writeHooks(dir, { Stop: [{ matcher: '[', hooks: [{ type: 'command', command: cont }] }] })
 
     const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer after goal')])
     const ctx = await harness(dir, adapter)
@@ -149,6 +150,26 @@ describe('hooks-codex bridge', () => {
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
     expect(adapter.requests).toHaveLength(1)
+  })
+
+  it('an invalid regex matcher is reported and registers no hooks', async () => {
+    const dir = configDir()
+    writeHooks(dir, {
+      UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'exit 2' }] }],
+      PreToolUse: [{ matcher: '[', hooks: [{ type: 'command', command: 'exit 2' }] }],
+    })
+    const adapter = new MockAdapter([textResponse('ok')])
+    const warn = vi.fn()
+    const ctx = await harness(dir, adapter, (ctx) => { ctx.logger.warn = warn as never })
+    const agent = ctx.agentLoop.create(SessionId('invalid-codex-matcher'), { provider: 'mock', model: 'mock' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests).toHaveLength(1)
+    expect(events(agent).some(event => event.type === 'hook/invoked')).toBe(false)
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(
+      'invalid codex regex matcher "[" on event "PreToolUse"',
+    ))
   })
 
   it('disposing the bridge fiber removes its listeners (HMR safety)', async () => {

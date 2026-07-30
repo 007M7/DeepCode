@@ -25,6 +25,7 @@ function makeGoal(over: Partial<GoalSnapshot> = {}): GoalSnapshot {
 function makeActions() {
   return {
     onEdit: vi.fn<GoalBarActions['onEdit']>(() => Promise.resolve({ ok: true })),
+    onPause: vi.fn<GoalBarActions['onPause']>(() => Promise.resolve({ ok: true })),
     onResume: vi.fn<GoalBarActions['onResume']>(() => Promise.resolve({ ok: true })),
     onClear: vi.fn<GoalBarActions['onClear']>(() => Promise.resolve({ ok: true })),
   } satisfies GoalBarActions
@@ -101,6 +102,13 @@ describe('GoalBar', () => {
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(actions.onEdit).not.toHaveBeenCalled()
     expect(screen.getByRole('textbox', { name: 'Goal objective' })).toBeTruthy()
+  })
+
+  it('active goal: the pause action pauses', () => {
+    const actions = makeActions()
+    render(<GoalBar goal={makeGoal()} {...actions} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Pause goal' }))
+    expect(actions.onPause).toHaveBeenCalledTimes(1)
   })
 
   it('paused goal: "Paused Goal" with a resume action before edit', () => {
