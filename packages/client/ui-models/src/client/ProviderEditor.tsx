@@ -18,7 +18,7 @@ import type { CredentialView, IApiClient, SettingsNamespaceView, SettingsPathOpV
 import {
   deletePath, getPath, nodeAtPath, rehydrateSchema, setPath, validateDraft,
 } from '@deepseek-ai/dsh-client-schema-form'
-import { deriveKeyRef } from './store.ts'
+import { deriveKeyRef, messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
 
@@ -215,7 +215,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       // A transport failure (disconnect, a request the host refuses) rejects
       // rather than answering; without this the card would stay busy forever
       // with no error shown.
-      setFailure(error instanceof Error ? error.message : String(error))
+      setFailure(messageOf(error))
     } finally {
       setBusy(false)
     }

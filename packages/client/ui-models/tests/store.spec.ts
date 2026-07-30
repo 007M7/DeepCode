@@ -1,7 +1,7 @@
 /** Page-store join: directory × namespaces × credentials, with last-good rows on failure. */
 import { describe, expect, it } from 'vitest'
 import type { RpcResponse } from '@deepseek-ai/dsh-client-connection/client'
-import { ModelsSettingsStore } from '../src/client/store.ts'
+import { messageOf, ModelsSettingsStore } from '../src/client/store.ts'
 
 let nextRpc = 0
 function ok<T>(value: T): RpcResponse<T> {
@@ -225,5 +225,15 @@ describe('edge joins', () => {
     await first
     // The stale empty directory never overwrote the newer join.
     expect(store.store.getSnapshot().rows).toHaveLength(4)
+  })
+})
+
+describe('messageOf', () => {
+  it('reads an Error message, and stringifies anything else a rejection may carry', () => {
+    // The wire layer rejects with an Error, but a host or a runtime can reject
+    // with any value, and the page still has to render something.
+    expect(messageOf(new Error('connection lost'))).toBe('connection lost')
+    expect(messageOf('the host refused')).toBe('the host refused')
+    expect(messageOf(undefined)).toBe('undefined')
   })
 })

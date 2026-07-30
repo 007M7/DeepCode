@@ -12,6 +12,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { IApiClient, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
+import { messageOf } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
 import { ProviderEditor } from './ProviderEditor.tsx'
 import type { en } from './locales.ts'
@@ -68,7 +69,7 @@ export async function removeProviderProfile(
   } catch (error) {
     // The transport rejected rather than answering; the caller must be able
     // to say so instead of the row silently staying put.
-    return error instanceof Error ? error.message : String(error)
+    return messageOf(error)
   }
   if (!response.result.ok) return response.result.error.message
   await controller.load()

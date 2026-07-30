@@ -41,6 +41,17 @@ export interface ModelsSettingsState {
 }
 
 /**
+ * Human text for a rejected wire call. A transport failure rejects with an
+ * Error; a host or a runtime can reject with anything, and the page still has
+ * to say something.
+ * @param error - the rejection value.
+ * @returns the message to show.
+ */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
  * Derive the conventional credential reference for a provider route: the v1
  * page never asks for an environment-variable name, so a typed key stores
  * under this derived reference and the profile records it as `apiKeyEnv`.

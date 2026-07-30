@@ -409,6 +409,19 @@ describe('ModelsSection', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
+  it('keeps the card usable when the write rejects instead of answering', async () => {
+    // A transport failure (disconnect, or the 403 a non-loopback browser now
+    // gets on the whole configuration plane) rejects rather than returning a
+    // failed envelope: without a catch the card would stay busy forever.
+    await mountSection({ mutate: vi.fn(() => Promise.reject(new Error('connection lost'))) })
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>(en.baseUrl), { target: { value: 'https://next' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await screen.findByText('connection lost')
+    // Not stuck in `applying…`: the finally cleared busy, so Apply is live again.
+    expect(screen.getByText(en.apply)).toBeTruthy()
+  })
+
   it('surfaces a shadowed credential write on the card', async () => {
     await mountSection({
       set: vi.fn(() => Promise.resolve(fail('credentials: DEEPSEEK_API_KEY is shadowed by the read-only environment', 'credential-rejected'))),
@@ -555,6 +568,15 @@ describe('ModelsSection', () => {
     )
     expect(failure).toBe('read-only')
     expect(controller.store.getSnapshot().rows).toBe(before)
+  })
+
+  it('shows a failed removal on the page banner, including a non-Error rejection', async () => {
+    // The whole click path: the row's Remove button, the transport rejecting
+    // with a non-Error value, and the store surfacing it where a load failure
+    // would appear — rather than the row silently staying put.
+    await mountSection({ mutate: vi.fn(() => Promise.reject(new Error('the host refused'))) })
+    fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
+    await screen.findByText(`${en.loadFailed}: the host refused`)
   })
 
   it('reports a transport rejection instead of failing the removal silently', async () => {
