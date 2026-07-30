@@ -5,9 +5,9 @@ English | [中文](README.zh.md)
 The **model-facing filesystem discovery tools**—`glob`, `grep`—are backed by the **bash executor seam**, not by `ctx.fs` provider methods. At load, the package probes `command -v rg` through `ctx.bash`; if the executor cannot find ripgrep on its `PATH`, it logs a warning and registers no tools or prompt sections. Each call assembles a fixed ripgrep command (every model-controlled value through one package-private shell-quoting helper), runs it via `ctx.bash.resolve(request)` → `ctx.bash.run(spec)` as an ordinary foreground tool call, parses the raw `rg` output, and returns a workdir-relative canonical value. The package injects `tools`, `systemPrompt`, and `bash`—deliberately **not** `fs`; `ctx.spillStore` is read opportunistically with `ctx.get()` because formatted-result spill is optional.
 
 ```ts ignore-check
-// Default deployment: a bash executor whose PATH includes rg, then the discovery tools.
+// A deployment chooses how over-cap glob pages are selected.
 await ctx.plugin(LocalBashExecutor, { cwd: process.cwd() }) // @deepseek-ai/dsh-bash-local
-await ctx.plugin(ToolFsSearch)                              // this package — conditionally registers glob/grep
+await ctx.plugin(ToolFsSearch, { sampleOverCapGlobResults: false })
 // Optional: a spill backend makes capped results fully recoverable.
 await ctx.plugin(LocalSpillStore)                           // @deepseek-ai/dsh-spill-local
 ```
@@ -20,11 +20,12 @@ The mounted bash executor must be able to resolve `rg` from its `PATH` at plugin
 
 ## Config
 
-All keys are optional; the defaults are the shipped search caps.
+`sampleOverCapGlobResults` is required and has no fallback; deployments choose the over-cap ordering contract explicitly. The remaining keys are optional search caps with the defaults below.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `globMaxResults` | `100` | Max paths one `glob` call retains inline (matches Claude Code's `GlobTool` limit); later paths go to the formatted spill artifact. |
+| `sampleOverCapGlobResults` | none (required) | `true` samples an over-cap `glob` page across top-level entries; `false` keeps the modification-time-ordered head. When formatted spill succeeds, both modes preserve the complete sorted list in that artifact. |
+| `globMaxResults` | `100` | Max paths one `glob` call shows inline (matches Claude Code's `GlobTool` limit). A result within the cap remains complete and modification-time ordered. |
 | `grepMaxMatches` | `250` | Max flat matches one `grep` call retains inline (matches Claude Code's `GrepTool` `head_limit`); later matches go to the formatted spill artifact. |
 | `grepMaxLineBytes` | `2000` | Byte cap per matched-line preview; the cut preserves UTF-8 boundaries and is marked `(line truncated)`. |
 | `rawOutputMaxBytes` | `20000000` | Max complete raw `rg` stdout a search will parse (matches Claude Code's ripgrep raw buffer); larger raw output fails with `SEARCH_RAW_OUTPUT_OVERFLOW`. |
@@ -34,14 +35,14 @@ All keys are optional; the defaults are the shipped search caps.
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `glob` | `pattern`, `path?` | `rg --files --glob <pattern> --sort=modified --no-ignore --hidden` plus VCS metadata excludes (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`). `path` is an optional **directory** search root; omitted means the resolved bash workdir. Returns one path per line, modification-time ordered. |
+| `glob` | `pattern`, `path?` | `rg --files --glob <pattern> --sort=modified --no-ignore --hidden` plus VCS metadata excludes (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`). `path` is an optional **directory** search root; omitted means the resolved bash workdir. Returns one FILE path per line; `rg --files` never emits directory entries. The pattern keeps ripgrep semantics: without a `/` it matches the basename at any depth, so `*` matches the whole tree. Complete results stay modification-time ordered; over-cap presentation follows `sampleOverCapGlobResults`. |
 | `grep` | `pattern`, `path?`, `include?` | Line-oriented `rg --json` parse (no colon-splitting ambiguity). `pattern` is a ripgrep regex; `path` is an optional **file or directory** target; `include` is ONE positive glob filter — a comma-separated list or a negated (`!…`) value is rejected up front (brace alternation like `*.{ts,tsx}` is fine). Returns matches grouped by file as `Line N: <preview>`. |
 
 Routine budgets stay out of the model-facing schema (no `head_limit`/`offset`/`case_insensitive`/output modes): a model that needs surrounding context reads the matched file with `read`; one that needs later results follows the returned spill locator's retrieval hint.
 
 ## Two budgets, two artifacts
 
-Raw `rg` stdout is an internal transport detail. Each search requests `stdoutMaxBytes: rawOutputMaxBytes` from the bash seam and parses only complete retained stdout; if the executor still returns `stdout.truncated`, the search fails with `SEARCH_RAW_OUTPUT_OVERFLOW` and tells the model to narrow the query. A successful `glob` keeps every acquired path in `{ paths }`; `grep` keeps every acquired `{ path, lineNumber, line }` in `{ matches }`. Inline item and per-line preview caps apply only in the Native renderer. For a direct surface call with more logical results than the inline cap, post-policy best-effort saves the complete formatted preview through `ctx.spillStore.saveText()` and replaces only presentation with a head page plus locator. Nested Code dispatches skip that spill because their full canonical value does not enter model context. Missing/failed spill keeps the inline page and reports that the complete result could not be saved—never an `isError`.
+Raw `rg` stdout is an internal transport detail. Each search requests `stdoutMaxBytes: rawOutputMaxBytes` from the bash seam and parses only complete retained stdout; if the executor still returns `stdout.truncated`, the search fails with `SEARCH_RAW_OUTPUT_OVERFLOW` and tells the model to narrow the query. A successful `glob` keeps the displayed search root and every acquired path in `{ root, paths }`; when sampling is enabled, `root` lets the Native renderer group an explicit relative or absolute search path by entries beneath that root rather than by its workdir prefix. `grep` keeps every acquired `{ path, lineNumber, line }` in `{ matches }`. Inline item and per-line preview caps apply only in the Native renderer. For a direct surface call with more logical results than the inline cap, post-policy best-effort saves the complete formatted preview through `ctx.spillStore.saveText()` and replaces only presentation with the configured page plus locator. Nested Code dispatches skip that spill because their full canonical value does not enter model context. Missing/failed spill keeps the inline page and reports that the complete result could not be saved—never an `isError`.
 
 ## Errors
 
@@ -55,10 +56,16 @@ Search failures carry the package-owned `SearchError` (a `HarnessError` subclass
 
 After the load-time `rg` probe succeeds, every request in this plugin's registration scope contains the independently registered glob and grep guidance below. Agent-scoped tool restrictions can hide either schema without removing its prompt section.
 
-##### Glob guidance
+##### Glob guidance with `sampleOverCapGlobResults: true`
 
 ```markdown
-Use the glob tool — not shell find or ls — to discover files by path pattern. Results are sorted by modification time and include hidden and ignored files.
+Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one is sampled across top-level entries, so it spans the tree instead of one subtree.
+```
+
+##### Glob guidance with `sampleOverCapGlobResults: false`
+
+```markdown
+Use the glob tool — not shell find — to discover files by path pattern. A pattern with no "/" matches basenames at any depth, so "*" matches every file in the tree rather than its top level. Results are files only, never directories, and include hidden and ignored files: a result that fits comes back in modification-time order, while a larger one keeps the modification-time-ordered head.
 ```
 
 ##### Grep guidance
@@ -69,17 +76,17 @@ Use the grep tool — not shell grep or rg — to search file contents. Use read
 
 #### Token effect
 
-Fixed guidance cost per request while the tools are registered.
+Fixed guidance cost per request while the tools are registered; the required sampling choice selects one glob variant.
 
 #### KV Cache effect
 
-Prefix-stable while the plugin scope and guidance text are unchanged. Activation or disposal may invalidate reuse from this prompt section.
+Prefix-stable while the plugin scope, sampling choice, and guidance text are unchanged. Activation, disposal, or changing the choice may invalidate reuse from this prompt section.
 
 ### Tool schemas
 
 #### What the model sees
 
-The generated [`glob` and `grep` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs-search) after the load-time `rg` probe succeeds and while this surface is visible.
+The glob description states the configured over-cap ordering. The generated [`glob` and `grep` schemas](../../../docs/tool-catalog.md#deepseek-aidsh-tool-fs-search) use `sampleOverCapGlobResults: true`; schemas are visible only after the load-time `rg` probe succeeds.
 
 #### Token effect
 
@@ -93,7 +100,7 @@ Prefix-stable while tool visibility and definitions are unchanged. Registration 
 
 #### What the model sees
 
-`glob` returns one path per line; `grep` groups `Line <line>: <preview>` matches beneath each path. Empty searches return `No files found` or `No matches found`. A capped result ends with its omission count plus the spill locator and backend retrieval hint, or says the complete result could not be saved.
+`glob` returns one path per line; `grep` groups `Line <line>: <preview>` matches beneath each path. Empty searches return `No files found` or `No matches found`. A capped result ends with its omission count plus the spill locator and backend retrieval hint, or says the complete result could not be saved. With `sampleOverCapGlobResults: true`, an over-cap `glob` page takes paths round-robin across entries immediately beneath the actual search root, and the footer states the sampled basis and how many top-level entries it reached; when it cannot reach them all, the footer tells the model to narrow `path`. With `false`, the page is the modification-time-ordered head and keeps the plain capped-result footer. A result that fits inline is untouched, and a flat sampled result also keeps the plain footer because its sample equals the modification-time head. The spill artifact always holds the complete list in modification-time order.
 
 #### Token effect
 
@@ -122,3 +129,4 @@ Append-only; newly visible content follows the reusable request prefix and does 
 - **Search and file access have no shared-workspace proof** — returned paths are follow-up-readable only when the bash workdir and filesystem root denote the same workspace; the package performs no runtime cross-service validation.
 - **Ripgrep is a deployment dependency** — a missing `rg` executable makes the package register no tools or guidance; an incompatible executable or one that disappears after registration fails calls with `SEARCH_FAILED`. Remote or virtual filesystems need a co-located executor or another search consumer.
 - **The schemas expose one bounded page** — offset pagination, case-mode switches, alternate output modes, and provider-backed discovery remain outside this package; capped complete output requires a spill backend.
+- **Sampling, when enabled, groups by first path segment beneath the search root only** — an over-cap `glob` page balances across those top-level entries, so a result concentrated deeper (one busy directory inside an otherwise even tree) is still shown unevenly below that level; recursive balancing is deferred.
