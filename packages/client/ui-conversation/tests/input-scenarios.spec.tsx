@@ -135,6 +135,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     stop: vi.fn(),
     command: () => Promise.resolve(true),
     translateHint: (key: string) => key,
+    translateAccess: (key: string) => key,
     variant: 'composer',
   }
   const view = render(<InputBar {...barProps} />)

@@ -150,6 +150,7 @@ function mount(
           stop={stop}
           command={() => Promise.resolve(true)}
           translateHint={(key: string) => key}
+          translateAccess={(key: string) => key}
           renderSlot={(() => null) as InputBarProps['renderSlot']}
           {...bar}
         />

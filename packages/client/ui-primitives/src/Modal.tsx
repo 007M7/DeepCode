@@ -16,12 +16,13 @@ import css from './Modal.module.css'
  * @param props.description - optional supporting sentence under the title.
  * @param props.children - body (inputs, etc.).
  * @param props.footer - action row (Cancel / Create).
+ * @param props.contentClassName - optional class for a scrollable content region.
  * @param props.headless - render children directly in the card (no default
  * header/close/body chrome) for dialogs whose figma frame owns its own
  * header structure; mask, card, Escape, and aria-label remain.
  * @returns null when closed; otherwise the overlay tree.
  */
-export function Modal({ open, onClose, title, description, children, footer, className, headless = false }: {
+export function Modal({ open, onClose, title, description, children, footer, className, contentClassName, headless = false }: {
   open: boolean
   onClose: () => void
   title: string
@@ -29,6 +30,7 @@ export function Modal({ open, onClose, title, description, children, footer, cla
   children?: ReactNode
   footer?: ReactNode
   className?: string
+  contentClassName?: string
   headless?: boolean
 }) {
   useEffect(() => {
@@ -55,7 +57,7 @@ export function Modal({ open, onClose, title, description, children, footer, cla
           ? children
           : (
             <>
-              <div className={css.content}>
+              <div className={clsx(css.content, contentClassName)}>
                 <div className={css.header}>
                   <h2 className={css.title}>{title}</h2>
                   <button type="button" className={css.close} aria-label="Close" onClick={onClose}>

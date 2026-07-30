@@ -284,6 +284,8 @@ export interface ComposerBarInjected {
   command: ((line: string) => Promise<boolean>) | undefined
   /** Locale-aware hint translator for claimed command placeholders (session-independent — always present). */
   translateHint: (key: string) => string
+  /** Locale-aware copy for the Access control's Full access risk confirmation. */
+  translateAccess: (key: string) => string
   /**
    * Registrant hooks compartment: the renderer binds these to
    * useNotices/useLexicon (static absent sources without a session — hook

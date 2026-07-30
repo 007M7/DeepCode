@@ -33,7 +33,7 @@ export interface InputBarError {
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, command, translateHint, renderSlot, useNotices, useLexicon,
+  useSession, useInput, inputActions, keyboard, stop, command, translateHint, translateAccess, renderSlot, useNotices, useLexicon,
   useProjection, sessionId, variant, disabled: inert = false, placeholder, accessory, overlay, leftItems, rightItems, footer,
   onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
@@ -272,7 +272,7 @@ export function InputBar({
   // or while the command face is absent with the session).
   const accessSelect: ReactNode = command === undefined
     ? null
-    : <PermissionSelect value={permissions} locked={locked} command={command} />
+    : <PermissionSelect key={sessionId} value={permissions} locked={locked} command={command} t={translateAccess} />
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC

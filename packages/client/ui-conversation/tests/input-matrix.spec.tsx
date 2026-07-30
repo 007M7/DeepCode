@@ -49,6 +49,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     stop: vi.fn(),
     command: () => Promise.resolve(true),
     translateHint: (key: string) => key,
+    translateAccess: (key: string) => key,
     variant: 'composer',
   }
   return render(<InputBar {...props} />)
