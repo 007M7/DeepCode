@@ -16,7 +16,10 @@ export const UNGROUPED_LABEL = 'Ungrouped'
 /** One top-level session row in a group or the flat list. */
 export interface SessionNode {
   id: SessionId
+  /** Stored display title; the renderer substitutes the localized New Session label for blank rows. */
   title: string
+  /** The provisional blank session (renderer shows the localized New Session title). */
+  blank: boolean
   running: boolean
   updatedAt: number
 }
@@ -92,7 +95,11 @@ function sessionVisible(session: SessionSummary, current: SessionId | undefined)
   return !session.blank || session.id === current
 }
 
-/** A blank session is the selected Workspace's provisional New Session row. */
+/**
+ * A blank session is the selected Workspace's provisional New Session row;
+ * its canonical title never enters search (blank rows are query-excluded)
+ * and the renderer localizes its display label.
+ */
 function sessionTitle(session: SessionSummary): string {
   return session.blank ? 'New Session' : session.displayTitle
 }
@@ -150,6 +157,7 @@ function sessionNode(s: SessionSummary): SessionNode {
   return {
     id: s.id,
     title: sessionTitle(s),
+    blank: s.blank,
     running: s.running,
     updatedAt: s.updatedAt,
   }
@@ -214,6 +222,15 @@ export function deriveFlat(list: SessionListState): SessionNode[] {
   return rows.map(sessionNode)
 }
 
+/** Relative-time bucket of a session row's trailing label. */
+export type RelativeTimeUnit = 'now' | 'minutes' | 'hours' | 'days' | 'months' | 'years'
+
+/** Structured relative time: the bucket plus its magnitude (0 for 'now'). */
+export interface RelativeTime {
+  unit: RelativeTimeUnit
+  n: number
+}
+
 /**
  * Merge immediate title/Workspace substring matches with ranked Host content
  * matches. Local rows lead newest-first, content-only rows retain backend
@@ -251,7 +268,9 @@ export function deriveSearchResults(
   const local: SessionSummary[] = []
   for (const id of list.ids) {
     const summary = list.byId[id]
-    if (summary === undefined || !sessionVisible(summary, list.current)) continue
+    // Blank placeholders never match a query (their canonical title displays
+    // localized, so matching it would tie search to one language).
+    if (summary === undefined || summary.blank || !sessionVisible(summary, list.current)) continue
     if (
       sessionTitle(summary).toLowerCase().includes(q)
       || labelOf(summary).toLowerCase().includes(q)
@@ -271,7 +290,7 @@ export function deriveSearchResults(
   for (const summary of local) include(summary)
   for (const item of content.items) {
     const summary = list.byId[item.sessionId]
-    if (summary !== undefined && sessionVisible(summary, list.current)) include(summary)
+    if (summary !== undefined && !summary.blank && sessionVisible(summary, list.current)) include(summary)
   }
 
   return {
@@ -290,20 +309,21 @@ export function deriveSearchResults(
 }
 
 /**
- * Compact relative time for session rows ("now", "5min", "3h", "2d", "4mo", "1y").
+ * Compact relative time for session rows, as a structured bucket the
+ * renderer localizes ("now"/"5min"/"3h"/"2d"/"4mo"/"1y" in en).
  * @param updatedAt - epoch ms of the session's last activity.
  * @param now - current epoch ms (injected for pure rendering).
- * @returns the row's trailing time label.
+ * @returns the row's trailing time bucket and magnitude.
  */
-export function formatRelativeTime(updatedAt: number, now: number): string {
+export function relativeTime(updatedAt: number, now: number): RelativeTime {
   const MIN = 60_000
   const HOUR = 3_600_000
   const DAY = 86_400_000
   const diff = Math.max(0, now - updatedAt)
-  if (diff < MIN) return 'now'
-  if (diff < HOUR) return `${Math.floor(diff / MIN)}min`
-  if (diff < DAY) return `${Math.floor(diff / HOUR)}h`
-  if (diff < 30 * DAY) return `${Math.floor(diff / DAY)}d`
-  if (diff < 365 * DAY) return `${Math.floor(diff / (30 * DAY))}mo`
-  return `${Math.floor(diff / (365 * DAY))}y`
+  if (diff < MIN) return { unit: 'now', n: 0 }
+  if (diff < HOUR) return { unit: 'minutes', n: Math.floor(diff / MIN) }
+  if (diff < DAY) return { unit: 'hours', n: Math.floor(diff / HOUR) }
+  if (diff < 30 * DAY) return { unit: 'days', n: Math.floor(diff / DAY) }
+  if (diff < 365 * DAY) return { unit: 'months', n: Math.floor(diff / (30 * DAY)) }
+  return { unit: 'years', n: Math.floor(diff / (365 * DAY)) }
 }

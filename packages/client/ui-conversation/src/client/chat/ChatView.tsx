@@ -57,12 +57,13 @@ type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
  *  top-level call (same registrations, same fallback), nested by the parent.
  *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
  *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd }: {
+const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd, t }: {
   renderSlot: RenderToolRow
   node: CodeSubCall
   openFile: OpenFile
   selected: boolean
   cwd: string | undefined
+  t: ChatViewSlotProps['t']
 }) {
   const settled = 'kind' in node
   const toolName = settled ? node.call?.name ?? '' : node.name
@@ -73,7 +74,7 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, select
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
         entryKey: toolName,
-        fallback: <GenericToolCard {...owner} />,
+        fallback: <GenericToolCard {...owner} t={t} />,
       })}
     </div>
   )
@@ -85,7 +86,7 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, select
  *  renders its logged sub-dispatches as always-visible indented rows —
  *  each one the same keyed-slot dispatch as a native top-level call. */
 const CallRow = memo(function CallRow({
-  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd,
+  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd, t,
 }: {
   renderSlot: RenderToolRow
   callId: string
@@ -100,6 +101,7 @@ const CallRow = memo(function CallRow({
   selectedCallId?: string | undefined
   /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
+  t: ChatViewSlotProps['t']
 }) {
   const owner = useMemo(() => ({
     callId, toolName, block, openFile, cwd,
@@ -108,7 +110,7 @@ const CallRow = memo(function CallRow({
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
         entryKey: toolName,
-        fallback: <GenericToolCard {...owner} />,
+        fallback: <GenericToolCard {...owner} t={t} />,
       })}
       {subCalls !== undefined && subCalls.length > 0 && (
         <div className={css.subCalls} data-subcalls>
@@ -120,6 +122,7 @@ const CallRow = memo(function CallRow({
               openFile={openFile}
               selected={node.callId === selectedCallId}
               cwd={cwd}
+              t={t}
             />
           ))}
         </div>
@@ -129,7 +132,7 @@ const CallRow = memo(function CallRow({
 })
 
 /** Consecutive tool results as one step-run group (uniform 16px rhythm). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd }: {
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd, t }: {
   renderSlot: RenderToolRow
   results: readonly ToolResultNode[]
   openFile: OpenFile
@@ -139,6 +142,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
+  t: ChatViewSlotProps['t']
 }) {
   return (
     <div className={css.toolGroup}>
@@ -154,6 +158,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
           subCalls={codeDispatches.get(node.callId)}
           selectedCallId={selectedCallId}
           cwd={cwd}
+          t={t}
         />
       ))}
     </div>
@@ -163,16 +168,17 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
 /** One command lifecycle row: keyed dispatch on the command name with the
  *  generic card as the render-site fallback (zero registration required). A
  *  run-less cross-window node has no name and always lands on the fallback. */
-const CommandRow = memo(function CommandRow({ renderSlot, node }: {
+const CommandRow = memo(function CommandRow({ renderSlot, node, t }: {
   renderSlot: RenderToolRow
   node: CommandNode
+  t: ChatViewSlotProps['t']
 }) {
   const owner = useMemo(() => ({ node }), [node])
   return (
     <div className={css.callRow}>
       {renderSlot('conversation.chat.commandview', owner, {
         entryKey: node.name ?? '',
-        fallback: <GenericCommandCard {...owner} />,
+        fallback: <GenericCommandCard {...owner} t={t} />,
       })}
     </div>
   )
@@ -214,23 +220,24 @@ function TurnDots() {
 
 /** The streaming partial, isolated so chunk batches re-render only this tail.
  *  onGrow lets the scroll owner follow content the parent never re-renders for. */
-function StreamingTail({ useSession, onGrow }: {
+function StreamingTail({ useSession, onGrow, t }: {
   useSession: UseConversation
   onGrow: () => void
+  t: ChatViewSlotProps['t']
 }) {
   const partial = useSession(s => s.partial)
   useLayoutEffect(() => {
     onGrow()
   })
   if (partial === null) return null
-  return <AssistantMarkdown blocks={partial.blocks} streaming />
+  return <AssistantMarkdown blocks={partial.blocks} streaming t={t} />
 }
 
 /**
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, forkAt }: ChatViewSlotProps) {
+export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, forkAt, t }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
@@ -238,7 +245,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
   const openState = useSession(s => s.openState)
-  const openErrorMessage = useSession(s => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
+  const openError = useSession(s => s.openError)
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
@@ -368,6 +375,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           selectedCallId={inGroup ? selectedCallId : undefined}
           codeDispatches={codeDispatches}
           cwd={cwd}
+          t={t}
         />
       )
     }
@@ -382,32 +390,37 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           time={actionSeqs.has(node.seq) ? node.time : undefined}
           seq={node.seq}
           onFork={forkAt}
+          t={t}
         />
       )
     }
     if (node.kind === 'command') {
-      return <CommandRow key={item.key} renderSlot={renderSlot} node={node} />
+      return <CommandRow key={item.key} renderSlot={renderSlot} node={node} t={t} />
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
-    return <MessageItem key={item.key} node={node} onFork={forkAt} />
+    return <MessageItem key={item.key} node={node} onFork={forkAt} t={t} />
   }
 
   return (
     <div className={css.root}>
       <div ref={listRef} className={css.scroll}>
         <div className={css.column}>
-          {openState === 'loading' && <div className={css.hint}>载入历史…</div>}
-          {openState === 'error' && <div className={css.openError}>历史加载失败：{openErrorMessage}</div>}
+          {openState === 'loading' && <div className={css.hint}>{t('chat.loadingHistory')}</div>}
+          {openState === 'error' && openError !== null && (
+            <div className={css.openError}>
+              {t('chat.loadError', { message: openError.message, code: openError.code })}
+            </div>
+          )}
           {hasMore && (
             <div className={css.older}>
               <button type="button" disabled={loadingOlder} onClick={loadOlderAnchored}>
-                {loadingOlder ? '加载中…' : '加载更早'}
+                {loadingOlder ? t('loading') : t('chat.loadOlder')}
               </button>
             </div>
           )}
           {items.map(renderItem)}
-          <StreamingTail useSession={useSession} onGrow={onGrow} />
+          <StreamingTail useSession={useSession} onGrow={onGrow} t={t} />
           {runningCalls.length > 0 && (
             <div className={css.toolGroup}>
               {runningCalls.map(call => (
@@ -422,6 +435,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
                   subCalls={codeDispatches.get(call.callId)}
                   selectedCallId={selectedCallId}
                   cwd={cwd}
+                  t={t}
                 />
               ))}
             </div>
@@ -438,7 +452,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
             <button
               type="button"
               className={css.toBottom}
-              aria-label="回到底部"
+              aria-label={t('chat.toBottom')}
               onClick={() => {
                 const local = listRef.current
                 /* v8 ignore next -- ref-null guard: the button only renders alongside the mounted list. */

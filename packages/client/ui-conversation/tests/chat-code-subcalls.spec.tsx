@@ -137,7 +137,9 @@ async function bench(snapshot: ConversationSnapshot) {
   }
   ctx.provide('workspaces', workspaces)
   ctx.provide('layout', layout)
-  ctx.provide('locale', new LocaleService(ctx))
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
+  slots.installLocale(locale)
 
   slots.install(createSlotRenderer())
   slots.register({

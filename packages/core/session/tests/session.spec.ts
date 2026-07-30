@@ -403,6 +403,40 @@ describe('Session', () => {
     }
   })
 
+  it('round-trips adapter-default provenance and rejects invalid durable values', () => {
+    const valid = {
+      type: 'request/header',
+      seq: 0,
+      time: 1,
+      data: {
+        header: {
+          config: {
+            provider: 'mock',
+            model: 'model',
+            maxTokens: 256_000,
+          },
+          adapterDefaults: { maxTokens: true },
+        },
+        reason: 'initial',
+      },
+    } as const
+    expect(new Session(SessionId('adapter-defaults'), [valid]).events[0]).toEqual(valid)
+
+    for (const adapterDefaults of [
+      null,
+      [],
+      { unknown: true },
+      { maxTokens: false },
+      { reasoningEffort: true },
+    ]) {
+      const invalid = structuredClone(valid) as unknown as SessionEvent
+      if (invalid.type !== 'request/header') throw new Error('test fixture must be a request header')
+      invalid.data.header.adapterDefaults = adapterDefaults as never
+      expect(() => new Session(SessionId('invalid-adapter-defaults'), [invalid]))
+        .toThrow('seed request/header at index 0 has invalid adapterDefaults')
+    }
+  })
+
   it('isolates the log from mutation through a derived message (append-only contract)', () => {
     const session = new Session(SessionId('s4'))
     session.append('user/message', createUserMessage({

@@ -65,7 +65,9 @@ async function bench(nodes: ToolResultNode[]) {
   const runtime = await SlotTestRuntime.create()
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.provide('layout', layout)
-  runtime.provide('locale', new LocaleService(runtime.ctx))
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S' },
@@ -193,7 +195,9 @@ describe('registrant load-order seam', () => {
   it("suspends a registrant on inject: ['slots', 'conversation'] until the service (and the hole) exists", async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    runtime.provide('locale', new LocaleService(runtime.ctx))
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
 
     // Third-party posture, mounted BEFORE ui-conversation: real fiber inject

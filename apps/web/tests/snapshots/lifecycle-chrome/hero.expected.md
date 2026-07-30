@@ -34,6 +34,6 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 详情
-- button "关闭详情"
-- text: 点击消息流中的工具行查看详情
+- text: Details
+- button "Close details"
+- text: Click a tool row in the message flow to view its details

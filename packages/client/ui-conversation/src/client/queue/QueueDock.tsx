@@ -5,13 +5,14 @@
 // ../contract/slots.ts beside the other input-region slots.
 import type { Context } from 'cordis'
 import { useEffect, useId, useState } from 'react'
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronUpOutline14,
   IconCloseOutline16, IconEditOutline16, IconTrashOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { QueueAction, QueueItemId } from '../contract/queue.ts'
+import { NS } from '../locales.ts'
 import css from './QueueDock.module.css'
 
 /** Queue operations injected by the session-scoped registration. */
@@ -20,14 +21,14 @@ export interface QueueDockInjected {
   notify: (level: 'info' | 'error', text: string) => void
 }
 
-/** Full props of a dock entry: InputZone owner share + session standard kit + global seat. */
-export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDockInjected
+/** Full props of a dock entry: InputZone owner share + session standard kit + global seat + the locale seat. */
+export type QueueDockProps = PropsRuntime<'conversation.input.dock'> & QueueDockInjected & PropsLocale<'conversation'>
 
 /**
  * Queue strip: one item renders directly; multiple items default to a
  * collapsible count header; an empty queue renders nothing.
  */
-export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
+export function QueueDock({ useSession, updateQueue, notify, t }: QueueDockProps) {
   const queue = useSession(s => s.queue)
   const [editing, setEditing] = useState<{ id: QueueItemId; text: string } | null>(null)
   const [busy, setBusy] = useState<QueueItemId | null>(null)
@@ -67,7 +68,7 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
     if (await applyAction(
       editing.id,
       { kind: 'edit', content: [{ type: 'text', text: editing.text }] },
-      '编辑失败：这条消息可能已经开始发送。',
+      t('queue.editFailed'),
     )) setEditing(null)
   }
 
@@ -83,7 +84,7 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
             disabled={interactionActive}
             onClick={() => { setCollapsed(value => !value) }}
           >
-            <span className={css.count}>{queue.length} 条排队消息</span>
+            <span className={css.count}>{t('queue.count', { n: queue.length })}</span>
             <span className={css.chevron} aria-hidden>
               {expanded ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
             </span>
@@ -97,7 +98,7 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
                   <input
                     autoFocus
                     className={css.editor}
-                    aria-label="编辑排队消息"
+                    aria-label={t('queue.edit')}
                     value={editing.text}
                     onChange={(event) => { setEditing({ id: row.id, text: event.currentTarget.value }) }}
                     onKeyDown={(event) => {
@@ -120,8 +121,8 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
                       <button
                         type="button"
                         className={css.action}
-                        aria-label="保存排队消息"
-                        title="保存排队消息"
+                        aria-label={t('queue.save')}
+                        title={t('queue.save')}
                         disabled={busy !== null || editing.text.trim() === ''}
                         onClick={() => { void saveEdit() }}
                       >
@@ -130,8 +131,8 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
                       <button
                         type="button"
                         className={css.action}
-                        aria-label="取消编辑"
-                        title="取消编辑"
+                        aria-label={t('queue.cancelEdit')}
+                        title={t('queue.cancelEdit')}
                         disabled={busy !== null}
                         onClick={() => { setEditing(null) }}
                       >
@@ -144,8 +145,8 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
                       <button
                         type="button"
                         className={css.action}
-                        aria-label="编辑排队消息"
-                        title={row.text === null ? '包含非文本内容，暂不支持编辑' : '编辑排队消息'}
+                        aria-label={t('queue.edit')}
+                        title={row.text === null ? t('queue.edit.unsupported') : t('queue.edit')}
                         disabled={busy !== null || row.text === null}
                         onClick={() => {
                           if (row.text !== null) setEditing({ id: row.id, text: row.text })
@@ -156,14 +157,14 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
                       <button
                         type="button"
                         className={css.action}
-                        aria-label="删除排队消息"
-                        title="删除排队消息"
+                        aria-label={t('queue.remove')}
+                        title={t('queue.remove')}
                         disabled={busy !== null}
                         onClick={() => {
                           void applyAction(
                             row.id,
                             { kind: 'remove' },
-                            '删除失败：这条消息可能已经开始发送。',
+                            t('queue.removeFailed'),
                           )
                         }}
                       >
@@ -196,6 +197,7 @@ export const queueDockEntry = {
       name: 'conversation.input.dock',
       id: 'queue',
       order: 20,
+      locale: NS,
       inject: (sessionId: SessionId): QueueDockInjected => {
         const actx = ctx.sessions.scope(sessionId)
         if (actx === undefined) throw new Error(`queue dock: session "${sessionId}" resolved no scope`)

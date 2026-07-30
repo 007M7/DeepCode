@@ -1,4 +1,6 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -34,6 +36,7 @@ const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', im
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
+const deepseekDefaultsConfigPath = fileURLToPath(new URL('./fixtures/deepseek-defaults.cordis.yml', import.meta.url))
 const refreshing = process.env.DSH_SNAPSHOT === 'refresh'
 
 interface JsonObject {
@@ -43,6 +46,40 @@ interface JsonObject {
 interface PersistedLog {
   readonly content: string
   readonly header: JsonObject
+}
+
+interface DeepSeekDefaultsServer {
+  readonly url: string
+  readonly requests: JsonObject[]
+  close(): Promise<void>
+}
+
+/** Serve one deterministic DeepSeek-compatible response while retaining its request body. */
+async function deepseekDefaultsServer(): Promise<DeepSeekDefaultsServer> {
+  const requests: JsonObject[] = []
+  const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => { body += chunk })
+    request.on('end', () => {
+      requests.push(JSON.parse(body) as JsonObject)
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end([
+        'data: {"choices":[{"delta":{"content":"DEFAULTS_OK"}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+        'data: [DONE]',
+        '',
+      ].join('\n\n'))
+    })
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('DeepSeek defaults snapshot server has no port')
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    requests,
+    close: () => new Promise(resolve => server.close(() => { resolve() })),
+  }
 }
 
 function parseJsonl(content: string): JsonObject[] {
@@ -242,6 +279,57 @@ describe('headless stream-json snapshots', () => {
         },
       ]
     `)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('logs and sends the DeepSeek adapter maxTokens default through the one-shot app', async () => {
+    const server = await deepseekDefaultsServer()
+    try {
+      const result = await runLoaderSmoke({
+        label: 'DeepSeek adapter defaults headless stream-json snapshot',
+        tempDirPrefix: 'headless-snapshot-deepseek-defaults-',
+        binScript,
+        configPath: deepseekDefaultsConfigPath,
+        binArgs: [
+          '--config',
+          deepseekDefaultsConfigPath,
+          '--output-format',
+          'stream-json',
+          'return the deterministic response',
+        ],
+        tsconfigPath,
+        env: {
+          DSH_SNAPSHOT_BASE_URL: server.url,
+          NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+        },
+      })
+
+      expect(result.stderr).toBe('')
+      expect(server.requests).toHaveLength(1)
+      expect(server.requests[0]?.max_tokens).toBe(256_000)
+      const header = (parseJsonl(result.stdout)
+        .map(record => record.event)
+        .find((event): event is JsonObject => (
+          event !== null
+          && typeof event === 'object'
+          && !Array.isArray(event)
+          && 'type' in event
+          && event.type === 'request/header'
+        ))?.data as JsonObject | undefined)?.header as JsonObject | undefined
+      expect(header?.config).toMatchInlineSnapshot(`
+        {
+          "maxTokens": 256000,
+          "model": "deepseek-v4-flash",
+          "provider": "deepseek-official",
+          "reasoningEffort": "off",
+        }
+      `)
+      expect(header?.adapterDefaults).toEqual({
+        maxTokens: true,
+        reasoningEffort: true,
+      })
+    } finally {
+      await server.close()
+    }
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('replays the advanced toolchain through the one-shot app', async () => {
