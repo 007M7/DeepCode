@@ -191,7 +191,7 @@ describe('workspace browser rows', () => {
       // Card body: full title + relative time + running status.
       expect(screen.getAllByText('Hovered')).toHaveLength(2)
       expect(screen.getByText('1min ago')).toBeTruthy()
-      expect(screen.getByText('Running')).toBeTruthy()
+      expect(screen.getAllByText('Running')).toHaveLength(2)
       fireEvent.pointerLeave(wrapper)
       // Menu open (disabled=true) suppresses the card for the same hover.
       fireEvent.click(screen.getByRole('button', { name: 'Session actions for Hovered' }))
@@ -210,15 +210,20 @@ describe('workspace browser rows', () => {
         id: sid('approval'), title: 'Needs approval', children: [], hasChildren: false,
         expanded: false, waitingApproval: true, running: true, updatedAt: 0,
       }
-      render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
+      const view = render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onToggle={vi.fn()} />)
       const row = screen.getByRole('treeitem')
       expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
       expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
-
-      fireEvent.pointerEnter(row.parentElement as HTMLElement)
-      act(() => { vi.advanceTimersByTime(500) })
       expect(screen.getByText('Waiting for approval')).toBeTruthy()
+
+      view.rerender(<SessionNodeItem node={{ ...node, running: false }} depth={0} currentId={undefined} now={0}
+        onOpen={vi.fn()} onRename={vi.fn()} onToggle={vi.fn()} />)
+      expect(screen.getByRole('treeitem').querySelector('[data-state="warning"]')).toBeTruthy()
+
+      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getAllByText('Waiting for approval')).toHaveLength(2)
       expect(document.querySelectorAll('[data-state="warning"]')).toHaveLength(2)
     } finally {
       vi.useRealTimers()

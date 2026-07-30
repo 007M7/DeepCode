@@ -109,18 +109,6 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
   )
 }
 
-/**
- * One session subtree: the node's own 34px row (indent by depth, expand
- * twist when it has children, running dot, relative time) plus its visible
- * children, recursively — the component tree mirrors the derived tree.
- * @param props.node - derived session node.
- * @param props.depth - 0 = directly under the group header.
- * @param props.currentId - selected session id (row highlight).
- * @param props.now - epoch ms for relative-time formatting.
- * @param props.onOpen - open a session by id.
- * @param props.onToggle - unfold/fold a subtree by id.
- * @returns the node's row followed by its children.
- */
 /** Session status presentation; approval waiting outranks the underlying running state. */
 function sessionStatus(node: SessionNode): { state: 'warning' | 'ongoing' | 'done'; label: string } {
   if (node.waitingApproval) return { state: 'warning', label: 'Waiting for approval' }
@@ -167,6 +155,21 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
+/**
+ * One session subtree: the node's own 34px row (indent by depth, expand
+ * twist when it has children, status dot, relative time) plus its visible
+ * children, recursively — the component tree mirrors the derived tree.
+ * @param props.node - derived session node.
+ * @param props.depth - 0 = directly under the group header.
+ * @param props.currentId - selected session id (row highlight).
+ * @param props.now - epoch ms for relative-time formatting.
+ * @param props.onOpen - open a session by id.
+ * @param props.onRename - rename a session by id and current title.
+ * @param props.onToggle - unfold/fold a subtree by id.
+ * @param props.drag - optional root-row drag wiring.
+ * @param props.flat - omit tree indentation controls for a flat list.
+ * @returns the node's row followed by its children.
+ */
 export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename, onToggle, drag, flat = false }: {
   node: SessionNode
   depth: number
@@ -235,7 +238,14 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename,
           </button>
         )
         : null}
-      <span className={css.slot}>{(row.waitingApproval || row.running) && <StateDot state={status.state} />}</span>
+      <span className={css.slot}>
+        {status.state !== 'done' && (
+          <>
+            <StateDot state={status.state} />
+            <span className={css.visuallyHidden}>{status.label}</span>
+          </>
+        )}
+      </span>
       <span className={css.title}>{row.title}</span>
       <span className={css.time}>{formatRelativeTime(row.updatedAt, now)}</span>
       <span className={css.rowActions}>
