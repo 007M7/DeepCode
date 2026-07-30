@@ -33,6 +33,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     get acceptsNextStep() { return status === 'running' },
     ctx: new Context(),
     send: () => {},
+    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) {

@@ -1,8 +1,8 @@
-// Web e2e scenario: mid-turn steering, end to end. The composer locks while a
-// turn runs, so the product UI has no steering gesture yet — the steer is
-// POSTed from the page itself over the same same-origin /api transport the
-// client uses (TODO(web-steer-composer): drive this through a composer
-// gesture once one exists). Everything downstream is product: the gateway
+// Web e2e scenario: mid-turn steering, end to end. The product composer
+// deliberately exposes Queue only, so the steer is POSTed from the page
+// itself over the same same-origin /api transport the client uses.
+// TODO(web-steer-ui): Drive this through a dedicated steering interaction
+// once one exists. Everything downstream is product: the gateway
 // routes mode:'steer' to Agent.steer, the loop drains it at the step
 // boundary into a durable steering/message event, the SSE mux pushes it, and
 // the transcript renders the badged interjection bubble. The question
@@ -122,6 +122,8 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
       // blocks, alone. The DOM is stable here (no further SSE frames can
       // arrive until the question is answered), making this state capturable.
       expect(await page.getByText('插话').count()).toBe(0)
+      expect(await page.getByText(STEER, { exact: true }).count()).toBe(0)
+      expect(await page.getByRole('button', { name: '编辑排队消息' }).count()).toBe(0)
       const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(MID_EXPECTED, snapshot, MODE)
     }

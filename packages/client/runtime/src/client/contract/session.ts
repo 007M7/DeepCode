@@ -8,7 +8,9 @@
  * dispatch) stay on the class, invisible out here.
  */
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { RpcResult, SessionId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  InboxItemId, QueueAction, RpcResult, SessionId,
+} from '@deepseek-ai/dsh-client-connection/client'
 import type { ConversationSnapshot } from '../sessions/conversation.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -36,6 +38,13 @@ export interface ISession {
    * @returns acceptance, or the business error (also mirrored into snapshot.promptError).
    */
   prompt(content: ContentBlock[], mode: 'queue' | 'steer'): Promise<RpcResult<{ accepted: true }>>
+  /**
+   * Apply one mutation to a still-pending queue occurrence.
+   * @param itemId - agent-owned inbox occurrence identity.
+   * @param action - edit or remove operation.
+   * @returns acceptance, or a business/transport error.
+   */
+  updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
   /**
    * Cancel the running turn.
    * @returns acceptance, or the business error.
