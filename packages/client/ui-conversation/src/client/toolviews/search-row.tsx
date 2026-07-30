@@ -41,6 +41,27 @@ function stateStatus(state: ToolRowState): string | null {
 }
 
 /**
+ * A settled result's text, flattened from its content blocks, for the arm that
+ * shows a failure the search card cannot: grep/glob have no `presentResult` on
+ * an error result, so an errored search has no card, and the keyed row is not a
+ * details-panel target. Without this the failure — a bad pattern, a missing
+ * path, a nested run_code dispatch that returned no card — would read as a bare
+ * red dot with the model-facing error text nowhere on screen.
+ * @param block - the frozen call slice.
+ * @returns the result text, or null for a running call or an empty result.
+ */
+function errorText(block: ToolRowProps['block']): string | null {
+  if (!('kind' in block)) return null
+  const parts: string[] = []
+  for (const item of block.content) {
+    if (item.type === 'text') parts.push(item.text)
+  }
+  if (parts.length === 0 && block.error !== undefined) parts.push(`${block.error.name}: ${block.error.code}`)
+  const text = parts.join('\n')
+  return text === '' ? null : text
+}
+
+/**
  * Search row: icon + Search · {summary} in the shared ToolRow chrome, with the
  * completed search's card resident below it. The summary row is not a
  * details-panel control, so the card's copy, per-file collapse, and expand
@@ -51,6 +72,9 @@ export function SearchRow({ toolName, block }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const search = searchCardModel(block)
   const status = stateStatus(model.state)
+  // An errored search has no card (grep/glob return no presentResult on error);
+  // surface its result text so the failure is more than a red dot.
+  const failure = search === null && model.state === 'error' ? errorText(block) : null
   return (
     <div className={css.card}>
       <div className={css.root} data-variant="search" data-tool={toolName} data-state={model.state}>
@@ -65,6 +89,7 @@ export function SearchRow({ toolName, block }: ToolRowProps) {
       {search !== null && (
         <SearchBlock {...search.card} maxLines={CHAT_SEARCH_MAX_LINES} className={css.search} />
       )}
+      {failure !== null && <div className={css.failure}>{failure}</div>}
     </div>
   )
 }

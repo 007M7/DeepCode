@@ -184,6 +184,25 @@ describe('SearchRow keyed card', () => {
     expect(errorView.container.querySelector('[data-variant="search"]')?.getAttribute('data-state')).toBe('error')
   })
 
+  it('surfaces the result text when an errored search has no card', () => {
+    // grep/glob return no presentResult on error → no card; the row shows the
+    // model-facing error text instead of a bare red dot.
+    const view = render(<SearchRow {...rowProps(settledGrep({
+      isError: true, resultView: null,
+      content: [{ type: 'text', text: 'grep: invalid regular expression' }],
+    }), 'grep')} />)
+    expect(searchKindOf(view.container)).toBeNull()
+    expect(view.getByText('grep: invalid regular expression')).toBeTruthy()
+  })
+
+  it('falls back to the error name/code when an errored result has no text block', () => {
+    const view = render(<SearchRow {...rowProps(settledGrep({
+      isError: true, resultView: null, content: [],
+      error: { name: 'ToolError', code: 'timeout' },
+    }), 'grep')} />)
+    expect(view.getByText('ToolError: timeout')).toBeTruthy()
+  })
+
   it('shows the result view\'s replacement title instead of the args summary', () => {
     const view = render(<SearchRow {...rowProps(settledGrep({
       resultView: resultMatches({ title: '3 matches in 2 files' }),

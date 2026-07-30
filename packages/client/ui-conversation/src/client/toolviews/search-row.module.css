@@ -93,3 +93,14 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* The result text for an errored search, indented to the card's own column and
+   in the error tone, standing in for the search card the failure path does not
+   produce. */
+.failure {
+  margin: 4px 0 4px 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-state-error-primary);
+}
