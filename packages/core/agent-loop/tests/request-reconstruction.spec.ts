@@ -257,10 +257,6 @@ describe('request stability across the loop', () => {
         }
       }([])
       const ctx = await harness(adapter)
-      const errors: Error[] = []
-      ctx.on('agent/error', (_agent, _turn, _step, error) => {
-        if (error instanceof Error) errors.push(error)
-      })
       const agent = ctx.agentLoop.create(SessionId(`reasoning-${kind}`), {
         provider: 'mock',
         model: 'mock',
@@ -269,7 +265,9 @@ describe('request stability across the loop', () => {
       send(agent, 'go')
       await waitForIdle(ctx, agent)
 
-      expect(errors).toContain(failure)
+      expect(agent.session.events.findLast(event => event.type === 'turn/end')).toMatchObject({
+        data: { reason: { kind: 'error', error: failure.message } },
+      })
       expect(adapter.requests).toHaveLength(0)
     },
   )
@@ -316,19 +314,13 @@ describe('request stability across the loop', () => {
     send(agent, 'first')
     await waitForIdle(ctx, agent)
 
-    // A pre-step listener compacts turn 1's history before turn 2's step —
-    // the sanctioned surface rewrite, landing OUTSIDE the step.
-    const preStep = ctx.on('agent/step', () => {
-      preStep()
-      const session = agent.session
-      const nodes = session.surface.nodes
-      session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: '[summary of turn 1]' }],
-        source: { kind: 'plugin', plugin: 'test-compact' },
-      }), {
-        surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
-        sourceEventSeqs: [nodes[0]!, nodes[1]!],
-      })
+    const nodes = agent.session.surface.nodes
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '[summary of turn 1]' }],
+      source: { kind: 'plugin', plugin: 'test-compact' },
+    }), {
+      surfaceOp: { op: 'replace', start: nodes[0]!, end: nodes[1]! },
+      sourceEventSeqs: [nodes[0]!, nodes[1]!],
     })
 
     send(agent, 'second')
@@ -398,10 +390,6 @@ describe('request stability across the loop', () => {
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    const errors: Error[] = []
-    ctx.on('agent/error', (_agent, _turn, _step, error) => {
-      if (error instanceof Error) errors.push(error)
-    })
     ctx.on('llm/stream', (options, next) => {
       // The historical failure mode this design kills: a listener rewriting
       // request content in place. The freeze turns it into a loud error.
@@ -415,8 +403,10 @@ describe('request stability across the loop', () => {
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(errors).toHaveLength(1)
-    expect(errors[0]!.message).toMatch(/not extensible|frozen|read only|readonly/i)
+    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
+    expect(turnEnd).toMatchObject({ data: { reason: { kind: 'error' } } })
+    if (turnEnd?.type !== 'turn/end' || turnEnd.data.reason.kind !== 'error') throw new Error()
+    expect(turnEnd.data.reason.error).toMatch(/not extensible|frozen|read only|readonly/i)
   })
 
   it('a fresh loop instance over a seeded log anchors with a resume snapshot and stays cache-aligned', async () => {

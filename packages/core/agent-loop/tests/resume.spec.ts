@@ -540,9 +540,10 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await waitForIdle(ctx1, a1)
     a1.inject(createUserMessage({ content: [{ type: 'text', text: 'background task 42 finished' }], source: { kind: 'plugin', plugin: 'tool-bash' } }))
     await a1.whenIdle()
-    await ctx1.fiber.dispose()
+    await ctx1.sessions.flush(a1.session)
 
-    // Lifecycle 2: resume; the injected context is still in the derived history.
+    // Lifecycle 2: resume; the injected context is still pending and becomes
+    // model-visible when the next turn admits it.
     const adapter2 = new MockAdapter([textResponse('next')])
     const ctx2 = new Context()
     await ctx2.plugin(LlmService)
@@ -553,10 +554,17 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.plugin(AgentLoop, { agents: [] })
     await ctx2.plugin(SessionPersistenceJsonl, { root })
     ctx2.llm.registerAdapter(['mock'], adapter2)
+    const loaded = await ctx2.sessionPersistence.load(SessionId('inject-sess'))
+    expect(loaded.events.some(event => event.type === 'agent/inbox/spliced')).toBe(true)
+    expect(JSON.stringify(loaded.events)).toContain('background task 42 finished')
     const a2 = (await ctx2.agents.resume({ resumeSessionId: SessionId('inject-sess') })).agent
+    expect(JSON.stringify(a2.inbox.nextStep)).toContain('background task 42 finished')
+    a2.followup(createUserMessage({ content: [{ type: 'text', text: 'continue' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx2, a2)
     const flat = JSON.stringify(a2.session.deriveMessages())
     expect(flat).toContain('background task 42 finished')
     await ctx2.fiber.dispose()
+    await ctx1.fiber.dispose()
   })
 
   it('resume reloads a persisted session: history + turn numbering continue, no duplicate seqs', async () => {

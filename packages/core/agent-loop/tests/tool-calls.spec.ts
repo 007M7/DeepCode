@@ -648,10 +648,6 @@ describe('tool-call scheduler: failure quiescence', () => {
       ? new Promise((_resolve, reject) => { rejectFirst = reject })
       : dispatch(exec).then(() => { throw drainedError })
     const agent = ctx.agentLoop.create(SessionId('scheduler-failure'), { provider: 'mock', model: 'mock' })
-    const errors: unknown[] = []
-    ctx.on('agent/error', (subject, _turn, _step, error) => {
-      if (subject === agent) errors.push(error)
-    })
     let idle = false
     const idlePromise = waitForIdle(ctx, agent).then(() => { idle = true })
 
@@ -664,15 +660,16 @@ describe('tool-call scheduler: failure quiescence', () => {
 
     const startedBeforeDrain = [...gated.started]
     const idleBeforeDrain = idle
-    const errorsBeforeDrain = [...errors]
+    const turnEndBeforeDrain = events(agent).find(event => event.type === 'turn/end')
     for (const id of gated.pending()) gated.release(id)
     await idlePromise
 
     expect(startedBeforeDrain).toEqual(['2'])
     expect(idleBeforeDrain).toBe(false)
-    expect(errorsBeforeDrain).toEqual([])
+    expect(turnEndBeforeDrain).toBeUndefined()
     expect(gated.pending()).toEqual([])
-    expect(errors).toEqual([schedulerError])
-    expect(errors[0]).toBe(schedulerError)
+    expect(events(agent).findLast(event => event.type === 'turn/end')).toMatchObject({
+      data: { reason: { kind: 'error', error: schedulerError.message } },
+    })
   })
 })

@@ -32,6 +32,7 @@ interface RoundAttempt extends RoundIdentity {
   readonly messageId: MessageId
   readonly content: ContentBlock[]
   phase: 'queued' | 'admitted'
+  cancelled: boolean
   stale: boolean
 }
 
@@ -124,6 +125,12 @@ export function apply(ctx: Context): void {
     }
   }
 
+  /** Remove only this driver's still-pending reservation. */
+  function cancelReservation(agent: Agent, attempt: RoundAttempt): void {
+    const index = agent.inbox.nextTurn.findIndex(message => message.id === attempt.messageId)
+    if (index >= 0) agent.inbox.splice('next-turn', index, 1, [], 'canceled')
+  }
+
   /** Process admitted work at quiescence, then reserve at most one next round. */
   async function drive(state: DriverState): Promise<void> {
     const { agent } = state
@@ -175,6 +182,7 @@ export function apply(ctx: Context): void {
       messageId: message.id,
       content,
       phase: 'queued',
+      cancelled: false,
       stale: false,
     }
     state.attempt = reservation
@@ -252,7 +260,8 @@ export function apply(ctx: Context): void {
         state.competingQueued = false
         const attempt = state.attempt
         const goal = currentGoal(state)
-        if (attempt?.phase === 'queued' && goal?.phase === 'active' && goal.activation === 'armed') {
+        if ((attempt?.phase === 'queued' || attempt?.cancelled)
+          && goal?.phase === 'active' && goal.activation === 'armed') {
           state.attempt = undefined
           try {
             ctx.goals.pause(agent, goalRef(goal))
@@ -292,16 +301,8 @@ export function apply(ctx: Context): void {
           return
         case 'turn/end':
           if (event.data.reason.kind !== 'aborted') return
-          {
-            const goal = currentGoal(state)
-            if (goal?.phase !== 'active' || goal.activation !== 'armed') return
-            try {
-              ctx.goals.pause(agent, goalRef(goal))
-            } catch (error: unknown) {
-              ctx.logger.warn(`goal-session: could not pause cancelled goal for agent "${agent.id}": ${renderThrown(error)}`)
-              disarm(state)
-            }
-          }
+          if (state.attempt?.phase === 'admitted') state.attempt.cancelled = true
+          else disarm(state)
           return
         default:
           return
@@ -324,7 +325,7 @@ export function apply(ctx: Context): void {
       && source.round === goal.roundsStarted + 1
     }
 
-    ctx.on('agent/prompt-submit', async (agent, messages, _signal, next): Promise<PromptDecision> => {
+    ctx.on('agent/prompt-submit', async (agent, messages, signal, next): Promise<PromptDecision> => {
       const submitted = messages.find(message => isGoalRoundSource(message.source))
       if (submitted === undefined) return next()
       const { content, source } = submitted
@@ -342,14 +343,16 @@ export function apply(ctx: Context): void {
         if (attempt !== undefined && sameRound(source, attempt)) {
           attempt.stale = true
           state.attempt = undefined
+          cancelReservation(agent, attempt)
         }
         requestDrive(state)
-        return { kind: 'block', reason: STALE_ROUND_REASON }
+        return { kind: 'block', reason: STALE_ROUND_REASON, keepInbox: true }
       }
       let decision: PromptDecision
       try {
         decision = await next()
       } catch (error: unknown) {
+        if (signal.aborted) throw error
         // A throwing downstream hook drops the whole admission: the loop
         // returns to idle without a turn, so a still-queued reservation would
         // starve every later drive pass. Clear it and let the driver
@@ -357,10 +360,12 @@ export function apply(ctx: Context): void {
         const attempt = state.attempt
         if (attempt !== undefined && sameRound(source, attempt) && attempt.phase === 'queued') {
           state.attempt = undefined
+          cancelReservation(agent, attempt)
           requestDrive(state)
         }
         throw error
       }
+      if (signal.aborted) return decision
       if (decision.kind === 'block') {
         const attempt = state.attempt
         if (attempt !== undefined && sameRound(source, attempt)) state.attempt = undefined
@@ -386,9 +391,10 @@ export function apply(ctx: Context): void {
         if (attempt !== undefined && sameRound(source, attempt)) {
           attempt.stale = true
           state.attempt = undefined
+          cancelReservation(agent, attempt)
         }
         requestDrive(state)
-        return { kind: 'block', reason: STALE_ROUND_REASON }
+        return { kind: 'block', reason: STALE_ROUND_REASON, keepInbox: true }
       }
       return decision
     })
@@ -410,6 +416,9 @@ export function apply(ctx: Context): void {
         const attempt = state.attempt
         if (attempt !== undefined) {
           attempt.stale = true
+          if (attempt.phase === 'admitted' && state.agent.status === 'running') {
+            state.agent.cancel({ kind: 'parent' })
+          }
         }
         if (state.run !== undefined) waits.push(state.run)
       }

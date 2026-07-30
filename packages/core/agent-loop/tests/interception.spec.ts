@@ -119,7 +119,7 @@ describe('agent/prompt-submit', () => {
     await idle
 
     expect(observed).toHaveLength(1)
-    expect(observed[0]).toBe(input)
+    expect(observed[0]).not.toBe(input)
     expect(observed[0]).toMatchObject({
       content: [{ type: 'text', text: 'accepted text' }],
       source: { kind: 'plugin', plugin: 'accepted source' },
@@ -237,7 +237,10 @@ describe('agent/prompt-submit', () => {
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
     let claimed: UserMessage[] = []
+    let firstAdmission = true
     ctx.on('agent/prompt-submit', async (_agent, messages) => {
+      if (!firstAdmission) return { kind: 'allow', messages }
+      firstAdmission = false
       claimed = messages
       entered.resolve(undefined)
       return decision.promise
@@ -271,21 +274,24 @@ describe('agent/prompt-submit', () => {
       'turn/start',
       'user/message',
       'user/message',
-      'steering/message',
+      'user/message',
     ])
     expect(staged[1]?.type === 'user/message' && staged[1].data.content)
       .toEqual([{ type: 'text', text: 'admitted prompt' }])
     expect(staged[2]?.type === 'user/message' && staged[2].data.content)
       .toEqual([{ type: 'text', text: 'attached context' }])
-    expect(staged[3]?.type === 'steering/message' && staged[3].data.message.content)
+    expect(staged[3]?.type === 'user/message' && staged[3].data.content)
       .toEqual([{ type: 'text', text: 'admission steering' }])
-    const request = JSON.stringify(adapter.requests[0]?.messages)
-    expect(request).toContain('admitted prompt')
-    expect(request).toContain('attached context')
-    expect(request).toContain('admission steering')
+    const firstRequest = JSON.stringify(adapter.requests[0]?.messages)
+    expect(firstRequest).toContain('admitted prompt')
+    expect(firstRequest).not.toContain('attached context')
+    expect(firstRequest).not.toContain('admission steering')
+    const nextRequest = JSON.stringify(adapter.requests[1]?.messages)
+    expect(nextRequest).toContain('attached context')
+    expect(nextRequest).toContain('admission steering')
   })
 
-  it('keeps admission-time outbox input staged when admission is blocked', async () => {
+  it('cancels admission-time input when admission is blocked', async () => {
     const adapter = new MockAdapter([textResponse('retried')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('blocked-admission-outbox'), { provider: 'mock', model: 'mock' })
@@ -307,8 +313,8 @@ describe('agent/prompt-submit', () => {
     decision.resolve({ kind: 'block', reason: 'policy' })
     await blockedIdle
 
-    expect(agent.inbox.nextStep).toHaveLength(2)
-    expect(events(agent)).toEqual([])
+    expect(agent.inbox.nextStep).toHaveLength(0)
+    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
     expect(adapter.requests).toEqual([])
 
     disposeBlock()
@@ -317,17 +323,13 @@ describe('agent/prompt-submit', () => {
 
     const staged = events(agent).filter(event =>
       event.type === 'user/message' || event.type === 'steering/message')
-    expect(staged.map(event => event.type)).toEqual([
-      'user/message',
-      'steering/message',
-      'user/message',
-    ])
+    expect(staged.map(event => event.type)).toEqual(['user/message'])
     expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('blocked prompt')
-    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged context')
-    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged steering')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('staged context')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('staged steering')
   })
 
-  it('orders rejected-admission outbox input before a later admitted prompt', async () => {
+  it('cancels later queued work when an admission is blocked', async () => {
     const adapter = new MockAdapter([textResponse('continued')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('rejected-admission-order'), {
@@ -361,23 +363,12 @@ describe('agent/prompt-submit', () => {
     send(agent, 'later prompt')
     await idle
 
-    const staged = events(agent).filter(event =>
-      event.type === 'turn/start' || event.type === 'user/message' || event.type === 'steering/message')
-    expect(staged.map(event => event.type)).toEqual([
-      'turn/start',
-      'user/message',
-      'steering/message',
-      'user/message',
-    ])
-    expect(staged[1]?.type === 'user/message' && staged[1].data.content)
-      .toEqual([{ type: 'text', text: 'earlier state change' }])
-    expect(staged[2]?.type === 'steering/message' && staged[2].data.message.content)
-      .toEqual([{ type: 'text', text: 'earlier steering' }])
-    expect(staged[3]?.type === 'user/message' && staged[3].data.content)
-      .toEqual([{ type: 'text', text: 'later prompt' }])
+    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+    expect(agent.inbox.hasPending).toBe(false)
+    expect(adapter.requests).toEqual([])
   })
 
-  it('commits context-only injection when admission closes without a turn', async () => {
+  it('cancels context-only injection when admission closes without a turn', async () => {
     const adapter = new MockAdapter([])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('blocked-admission-context'), { provider: 'mock', model: 'mock' })
@@ -399,51 +390,31 @@ describe('agent/prompt-submit', () => {
     await idle
 
     const log = events(agent)
-    expect(log.map(event => event.type)).toEqual(['user/message'])
-    expect(log[0]?.type === 'user/message' && log[0].data.content)
-      .toEqual([{ type: 'text', text: 'independent context' }])
+    expect(log.some(event => event.type === 'user/message')).toBe(false)
+    expect(agent.inbox.hasPending).toBe(false)
     expect(adapter.requests).toEqual([])
   })
 
-  it('retains rejected-admission context when its idle append fails', async () => {
-    const adapter = new MockAdapter([textResponse('retried')])
+  it('leaves inbox state unchanged when its durable append fails', async () => {
+    const adapter = new MockAdapter([])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('blocked-admission-append-failure'), {
       provider: 'mock',
       model: 'mock',
     })
-    const warned = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
     vi.spyOn(agent.session, 'append').mockImplementationOnce(() => {
       throw new Error('append unavailable')
     })
-    const entered = Promise.withResolvers<undefined>()
-    const decision = Promise.withResolvers<PromptDecision>()
-    const disposeBlock = ctx.on('agent/prompt-submit', async () => {
-      entered.resolve(undefined)
-      return decision.promise
-    })
 
-    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'blocked prompt' }], source: { kind: 'user' } }))
-    await entered.promise
-    agent.inject(createUserMessage({
-      content: [{ type: 'text', text: 'retained context' }],
-      source: { kind: 'plugin', plugin: 'test' },
-    }))
-    decision.resolve({ kind: 'block', reason: 'policy' })
-    await agent.whenIdle()
-
+    expect(() => {
+      send(agent, 'blocked prompt')
+    }).toThrow('append unavailable')
     expect(events(agent)).toEqual([])
-    expect(warned).toHaveBeenCalledWith(expect.stringContaining('append unavailable'))
-
-    disposeBlock()
-    send(agent, 'resume')
-    await waitForIdle(ctx, agent)
-
-    expect(events(agent).some(event => event.type === 'user/message'
-      && JSON.stringify(event.data.content).includes('retained context'))).toBe(true)
+    expect(agent.inbox.hasPending).toBe(false)
+    expect(agent.status).toBe('idle')
   })
 
-  it('adjacent blocked and allowed prompts keep independent turn outcomes', async () => {
+  it('a blocked prompt cancels adjacent queued prompts', async () => {
     const adapter = new MockAdapter([textResponse('ran once')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -457,22 +428,18 @@ describe('agent/prompt-submit', () => {
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
 
-    // The rejected admission is dropped; the allowed prompt owns the only turn.
     send(agent, 'secret')
     send(agent, 'safe')
     await waitForIdle(ctx, agent)
 
     const log = events(agent)
-    // The allowed prompt became a user/message and drove exactly one model call.
-    const userMsgs = log.filter(e => e.type === 'user/message')
-    expect(userMsgs).toHaveLength(1)
-    expect(userMsgs[0]?.type === 'user/message' && userMsgs[0].data.content).toEqual([{ type: 'text', text: 'safe' }])
-    expect(adapter.requests.length).toBeGreaterThanOrEqual(1)
-    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(reasons).toEqual([{ kind: 'completed' }])
+    expect(log.filter(e => e.type === 'user/message')).toHaveLength(0)
+    expect(adapter.requests).toHaveLength(0)
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(0)
+    expect(reasons).toEqual([])
   })
 
-  it('a throwing prompt-submit listener drops that admission while an adjacent message survives', async () => {
+  it('a throwing prompt-submit listener reports the driver error and retains adjacent work', async () => {
     const adapter = new MockAdapter([textResponse('after')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -497,14 +464,14 @@ describe('agent/prompt-submit', () => {
     send(agent, 'first')
     send(agent, 'second')
     await idle
-    expect(errors).toEqual([])
+    expect(errors).toEqual([expect.objectContaining({ message: 'prompt hook broke' })])
     const log = events(agent)
-    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(1)
-    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(1)
-    expect(reasons).toEqual([{ kind: 'completed' }])
+    expect(log.filter(e => e.type === 'turn/start')).toHaveLength(0)
+    expect(log.filter(e => e.type === 'turn/end')).toHaveLength(0)
+    expect(reasons).toEqual([])
     expect(statuses).toEqual(['running', 'idle'])
-    expect(adapter.requests).toHaveLength(1)
-    expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('second')
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.inbox.nextTurn).toHaveLength(2)
   })
 })
 
