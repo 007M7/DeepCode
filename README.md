@@ -2,68 +2,102 @@
 
 English | [中文](README.zh.md)
 
-DeepSeek Harness is an open-source, plugin-native runtime for coding agents. This repository ships both the composable SDK and `dsh`, a working agent assembled from the same packages.
+DeepSeek Harness (`dsh`) is an open-source coding agent built on the DeepSeek Harness SDK.
 
-**Mission.** Build capable agent products without hard-wiring product choices into one loop. Models, tools, policy, storage, context, interfaces, and even the loop are [Cordis plugins](docs/architecture.md); the session log is the authoritative record from which model history, persistence, replay, queries, telemetry, and UIs derive.
+It uses an architecture where **everything is a plugin**.
 
 ## Before you begin, thank you
 
-Thank you for taking the time to try DeepSeek Harness.
+Thank you for making time to try DeepSeek Harness.
 
-This version is for internal testing only. Overall, it is still far from complete and nowhere near what we want to deliver. Some features are unfinished, and some parts will feel rough. What we learn from real use may also lead us to rethink the designs we have today.
+This version is still in internal testing. Some features remain unfinished, and parts of the experience may feel rough.
 
-We will keep working carefully on it, and we sincerely want direct feedback—especially about the moments when it fails, confuses you, or gets in your way. If it does not help you, or makes your work harder, please leave a message in our WeCom group and tell us plainly.
+“As one cuts and files, as one carves and polishes.” Products grow through repeated encounters with real use and candid feedback. The problems you uncover in practice may lead us to re-examine, or even discard, existing designs.
 
-> **Pre-release notice:** Package APIs, configuration, and persisted formats may change without compatibility shims until the first tagged release.
+We especially want to hear about moments of failure, confusion, or friction. If DeepSeek Harness does not help—or instead makes your work harder—please leave a message in our WeCom group and tell us about your experience. Every report will help us refine it.
 
-## Start in one command
+## Install
+
+Install `dsh` with one command:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
 ```
 
-The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm`, prompts for a DeepSeek API key, and launches the TUI in the current directory. It keeps managed checkouts under `~/.dsh/source`; run the same command again to update. [`scripts/install.sh`](scripts/install.sh) documents alternate locations and non-interactive options.
+The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, and prompts for a DeepSeek API key.
 
-## Choose a surface
+The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
 
-| Surface | Entry point |
-|---|---|
-| Full-screen TUI | `dsh` |
-| Browser UI | `pnpm run demo:web` from a source checkout, or `dsh web` from a built checkout |
-| One-shot headless task | `pnpm run demo:headless "summarize this workspace"`, or `dsh -p "summarize this workspace"` from a built checkout |
-| ACP automation server | `pnpm run demo:acp` from a source checkout |
-| Python / JSON-RPC SDK | [`python/`](python/README.md) with its bundled runtime |
+## Use DeepSeek Harness
 
-The one-line installer launches the source-running TUI without a build. The `dsh web` and `dsh -p` entries additionally need the frontend and client bundles from `pnpm run build`; `pnpm run demo:web` performs that build itself. The TUI, Web, and headless entries use the invoking directory as the workspace. See the [`dsh` CLI contract](apps/cli/README.md) for configuration, resume, provider, and workspace details; the [examples](examples/README.md) show the thinner ACP, JSON-RPC, Code Mode, and self-referential compositions.
+### Web UI
 
-## What ships
-
-Capabilities are selected by composition. The repository's shipped plugins cover:
-
-- **Coding:** filesystem read/write/edit and search, shell and persistent PTY execution, LSP navigation, web search/fetch, reusable skills, and model-written Code Mode programs.
-- **Orchestration:** subagents, background tasks, worker-thread workflows, same-session goals, plan state, todos, and user questions.
-- **Operations:** workspace sandboxing and approvals, session persistence/resume/fork/query, compaction and spill, projections, titles, and OpenTelemetry export.
-
-Anything visible to the model must be reconstructable from the session log. That makes alternate UIs, persistence backends, replay, and operational tooling consumers of one event stream instead of parallel sources of truth.
-
-## Extend the harness
-
-A swappable capability normally separates its interface, implementation, and consumer. Add or replace a provider behind a service such as `ctx.llm`, `ctx.fs`, `ctx.pty`, `ctx.web`, or `ctx.subagents`; register model-facing behavior through `ctx.tools`; attach policy and request shaping through typed events; compose the result in `cordis.yml` without forking the agent loop.
-
-Start with the [first-plugin guide](docs/user/develop/basic/index.md) and [extension cookbook](docs/cookbook/extension-cookbook.md). Use the [architecture](docs/architecture.md) for the system map, the generated [capability graph](docs/capability-seams.md) for current service relationships, and the [package map](packages/README.md) when you need ownership details.
-
-## Develop
+For the recommended local interface, build the frontend after installation and after each update, then start the Web UI. Resolve the running checkout from the `dsh` launcher so the command holds regardless of which staging worktree is current (the launcher resolves through the stable `current` symlink):
 
 ```sh
-pnpm install
-pnpm run demo:tui
+dsh_bin=$(cd "$(dirname "$(command -v dsh)")" && pwd -P)/$(basename "$(command -v dsh)")
+while [ -L "$dsh_bin" ]; do
+  link=$(readlink "$dsh_bin")
+  case $link in /*) dsh_bin=$link ;; *) dsh_bin=$(cd "$(dirname "$dsh_bin")" && cd "$(dirname "$link")" && pwd -P)/$(basename "$link") ;; esac
+done
+dsh_dir=$(cd "$(dirname "$dsh_bin")/.." && pwd -P)
+pnpm --dir "$dsh_dir" run build && pnpm --dir "$dsh_dir" run build:web
+dsh web
 ```
 
-Set `DEEPSEEK_API_KEY` in the environment or root `.env`. The [development guide](docs/development.md) owns setup and validation; read the [architecture](docs/architecture.md) before changing `packages/`, and follow [AGENTS.md](AGENTS.md) when working in this repository.
+The Web UI is served at `http://127.0.0.1:3080` by default.
+
+### TUI
+
+Start the full-screen terminal interface:
+
+```sh
+dsh
+```
+
+### Headless
+
+Run one task, print the final answer, and exit:
+
+```sh
+dsh -p "summarize this workspace"
+```
+
+### Automation and SDKs
+
+From a source checkout, start the ACP automation server:
+
+```sh
+pnpm run demo:acp
+```
+
+The [Python SDK](python/README.md) drives a bundled JSON-RPC runtime. The [examples](examples/README.md) cover the runnable TUI, headless, ACP, JSON-RPC, Code Mode, and self-referential compositions.
+
+## Why DeepSeek Harness
+
+Built-in capabilities cover file reading, editing, and search; shell and persistent PTY execution; reusable skills; task tracking, goals, plans, todos, and background tasks; subagents and workflows; sandboxing and approvals; persistent, resumable, forkable, and queryable sessions; LSP and web access; context compaction; and telemetry. Each composition selects the subset appropriate to its surface. The TUI also includes Plan Mode.
+
+- **Everything is a plugin.** Models, tools, policies, storage, context management, and interfaces are composable [Cordis plugins](docs/user/develop/basic/index.md), so deployments can extend or replace behavior without forking the agent loop. See the [architecture](docs/architecture.md) for the underlying design.
+- **Runs are reconstructable.** Anything visible to the model is logged in the authoritative session stream; persistence, resume/fork/query, replay, telemetry, and UIs derive from the same events. See the [session-log architecture](docs/architecture.md#session-log).
+- **Code Mode (opt-in).** It exposes a `run_code` tool and a generated TypeScript SDK; only program output re-enters model context. See [Code Mode](packages/core/tools/README.md#code-mode).
+- **Self-referential Cordis tools are opt-in.** They let the agent inspect its live runtime and mount or unmount plugins while it runs. See the [Cordis tools](packages/cordis/tool-cordis/README.md).
 
 ## Community
 
-Follow <a href="https://x.com/Deepseekharness">DeepSeek Harness on X</a> for project updates.
+Follow <a href="https://x.com/Deepseekharness">DeepSeek Harness on Twitter</a> for project updates.
+
+## Development
+
+```sh
+pnpm install
+pnpm run test:coverage
+```
+
+Start with the [development guide](docs/development.md) and read the [architecture](docs/architecture.md) before changing packages.
+
+For agents, follow [AGENTS.md](AGENTS.md).
+
+DeepSeek Harness is currently pre-release.
 
 ## License
 

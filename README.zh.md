@@ -2,68 +2,106 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 是一个面向 coding agent（智能体）的开源、插件原生运行时。本仓库同时提供可组合的 SDK，以及由同一组包（package）组装而成、可直接运行的 agent `dsh`。
+DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 coding agent（编程智能体）。
 
-**使命。** 构建能力强大的 agent 产品，而不把产品选择硬编码到单一循环中。模型、工具、策略、存储、上下文、接口，乃至循环本身，都是 [Cordis 插件](docs/architecture.md)；会话日志是权威记录，模型历史、持久化、回放、查询、遥测和 UI 均从中派生。
+它采用了**一切皆插件**的架构。
 
 ## 使用前，想先说声谢谢
 
-感谢你愿意花时间试用 DeepSeek Harness。
+感谢您愿意拨冗试用 DeepSeek Harness。
 
-目前版本仅供内测，整体完成度不高，也远没有达到我们想交付的样子。有些功能还没做完，有些地方用起来会很粗糙。真实使用中暴露出来的问题，也可能让我们推翻现在的设计。
+目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验难免粗粝。
 
-我们会继续认真打磨，也真诚希望听到直接的反馈——尤其是那些失败、困惑或不顺手的时刻。如果它没有帮到你，或者反而给工作添了麻烦，可以在企业微信群中留言，向我们反馈。
+“如切如磋，如琢如磨。”产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中暴露的问题，也可能促使我们重新审视，甚至推翻已有的设计。
 
-> **预发布说明：** 在首个带标签的版本发布之前，包 API、配置和持久化格式可能直接变更，不提供兼容层。
+我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未能帮到您，甚至反而为工作平添了麻烦，请在企业微信群中留言，将使用感受告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
 
-## 一条命令开始
+## 安装
+
+使用一条命令安装 `dsh`：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
 ```
 
-安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，可代为安装 `pnpm`，会提示输入 DeepSeek API 密钥，并在当前目录启动 TUI。它把受管检出放在 `~/.dsh/source` 下；再次运行同一命令即可更新。其他安装位置和非交互选项见 [`scripts/install.sh`](scripts/install.sh)。
+安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥。
 
-## 选择使用方式
+安装器会把所有检出都放在 `~/.dsh/source` 下：master 克隆位于 `~/.dsh/source/master`，每次安装的 staging 检出是一个 git worktree `~/.dsh/source/staging-<时间戳>`。稳定符号链接 `~/.dsh/source/current` 指向当前生效的 staging worktree，`~/.local/bin` 中的 `dsh` 链接到 `current/bin/dsh`，因此升级只需重指一个符号链接，PATH 上的 `dsh` 从不移动。再次运行该命令会基于更新后的 master 新增一个 staging worktree，并把 `current` 重指到它。其他安装位置和选项见 [`scripts/install.sh`](scripts/install.sh)。
 
-| 使用方式 | 入口 |
-|---|---|
-| 全屏 TUI | `dsh` |
-| 浏览器 UI | 在源码检出中运行 `pnpm run demo:web`，或在已构建的检出中运行 `dsh web` |
-| 一次性无头任务 | 运行 `pnpm run demo:headless "summarize this workspace"`，或在已构建的检出中运行 `dsh -p "summarize this workspace"` |
-| ACP（Agent Client Protocol）自动化服务器 | 在源码检出中运行 `pnpm run demo:acp` |
-| Python / JSON-RPC SDK | [`python/`](python/README.md) 及其自带的运行时 |
+## 使用 DeepSeek Harness
 
-一行安装命令可直接启动从源码运行的 TUI，无需构建。`dsh web` 和 `dsh -p` 入口还需要先通过 `pnpm run build` 生成前端与客户端构建产物；`pnpm run demo:web` 会自行执行该构建。TUI、Web 和无头入口都把调用命令时的目录用作工作区。配置、会话恢复、提供方及工作区细节见 [`dsh` CLI（命令行界面）契约](apps/cli/README.md)；[示例](examples/README.md)展示了更精简的 ACP、JSON-RPC、Code Mode 和自指组合。
+### Web UI
 
-## 当前提供的能力
+推荐在本地使用 Web UI。安装完成后以及每次更新后，请先构建前端，再启动 Web UI。通过 `dsh` 启动器解析当前运行的检出，这样无论当前是哪个 staging worktree，命令都成立（启动器会经由稳定的 `current` 符号链接解析）：
 
-能力由组合决定。本仓库交付的插件涵盖：
+```sh
+dsh_bin=$(cd "$(dirname "$(command -v dsh)")" && pwd -P)/$(basename "$(command -v dsh)")
+while [ -L "$dsh_bin" ]; do
+  link=$(readlink "$dsh_bin")
+  case $link in /*) dsh_bin=$link ;; *) dsh_bin=$(cd "$(dirname "$dsh_bin")" && cd "$(dirname "$link")" && pwd -P)/$(basename "$link") ;; esac
+done
+dsh_dir=$(cd "$(dirname "$dsh_bin")/.." && pwd -P)
+pnpm --dir "$dsh_dir" run build && pnpm --dir "$dsh_dir" run build:web
+dsh web
+```
 
-- **编程：** 文件系统读写、编辑与搜索，shell 和持久 PTY 执行，LSP 导航，Web 搜索与抓取，可复用 skill（技能），以及由模型编写的 Code Mode 程序。
-- **编排：** subagent、后台任务、工作线程工作流、同一会话内的目标、计划状态、待办事项，以及向用户提问。
-- **运维：** 工作区沙箱与审批、会话持久化／恢复／fork／查询、压缩（compaction）与 spill、投影、标题，以及 OpenTelemetry 导出。
+Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
 
-凡是模型可见的内容，都必须能从会话日志中重建。这样一来，不同 UI、持久化后端、回放和运维工具都成为同一事件流的消费方，而不是彼此并行的真源。
+### TUI
 
-## 扩展 harness
+启动全屏终端界面：
 
-一项可替换能力通常会将接口、实现和消费方彼此分离。你可以为 `ctx.llm`、`ctx.fs`、`ctx.pty`、`ctx.web` 或 `ctx.subagents` 等服务添加或替换提供方；通过 `ctx.tools` 注册面向模型的行为；通过类型化事件挂接策略和请求整形；再在 `cordis.yml` 中组合这些部分，无需 fork agent loop（智能体循环）。
+```sh
+dsh
+```
 
-从[第一个插件指南](docs/user/develop/basic/index.md)和[扩展实操手册](docs/cookbook/extension-cookbook.md)开始。需要系统图时查看[架构](docs/architecture.md)，需要当前服务关系时查看生成的[能力图](docs/capability-seams.md)，需要所有权细节时查看[包图](packages/README.md)。
+### Headless
+
+运行一项任务，打印最终答案后退出：
+
+```sh
+dsh -p "summarize this workspace"
+```
+
+### 自动化与 SDK
+
+从源码检出中启动 ACP（Agent Client Protocol）自动化服务器：
+
+```sh
+pnpm run demo:acp
+```
+
+[Python SDK](python/README.md) 驱动随附的 JSON-RPC 运行时。[示例](examples/README.md)涵盖可运行的 TUI、headless、ACP、JSON-RPC、Code Mode 和自指组合。
+
+## 为什么选择 DeepSeek Harness
+
+内置功能涵盖文件读取、编辑与搜索、shell 和持久 PTY 执行、可复用 skill（技能）、任务跟踪、目标、计划、待办事项与后台任务、subagent 与工作流、沙箱与审批、可持久化、恢复、fork 与查询的会话、LSP 与 Web 访问、上下文压缩（context compaction），以及遥测。每个组合只选用适合其使用方式的能力子集。TUI 还包含 Plan Mode。
+
+- **一切皆插件。** 模型、工具、策略、存储、上下文管理和界面均可组合为 [Cordis 插件](docs/user/develop/basic/index.md)，部署方无需 fork agent loop（智能体循环）即可扩展或替换行为。底层设计见[架构文档](docs/architecture.md)。
+- **运行可重建。** 凡是模型可见的内容，都会记录在权威会话流中；持久化、恢复／fork／查询、回放、遥测和 UI 均从同一组事件派生。参见[会话日志架构](docs/architecture.md#session-log)。
+- **Code Mode（需显式启用）。** 它会提供 `run_code` 工具和生成的 TypeScript SDK，只有程序输出会重新进入模型上下文。参见 [Code Mode](packages/core/tools/README.md#code-mode)。
+- **自指 Cordis 工具需显式启用。** 这些工具可让 agent 检查自身的实时运行时，并在运行中挂载或卸载插件。参见 [Cordis 工具](packages/cordis/tool-cordis/README.md)。
+
+## 社区
+
+扫描二维码，或打开 <a href="https://wj.qq.com/s2/27234598/03eb/">DeepSeek Harness 微信社区申请页面</a> 申请加入。
+
+<p>
+  <img src="assets/community-wecom-survey.png" alt="DeepSeek Harness 微信社区二维码" width="240">
+</p>
 
 ## 开发
 
 ```sh
 pnpm install
-pnpm run demo:tui
+pnpm run test:coverage
 ```
 
-将 `DEEPSEEK_API_KEY` 设置在环境变量或根目录 `.env` 中。环境搭建和验证由[开发指南](docs/development.md)统一说明；修改 `packages/` 前请阅读[架构](docs/architecture.md)，在本仓库工作时请遵循 [AGENTS.md](AGENTS.md)。
+请先阅读[开发指南](docs/development.md)；修改包之前，请阅读[架构文档](docs/architecture.md)。
 
-## 社区
+面向 agent：遵循 [AGENTS.md](AGENTS.md)。
 
-前往 <a href="https://wj.qq.com/s2/27234598/03eb/">DeepSeek Harness 微信社区</a>关注项目动态。
+DeepSeek Harness 目前处于预发布阶段。
 
 ## 许可证
 
