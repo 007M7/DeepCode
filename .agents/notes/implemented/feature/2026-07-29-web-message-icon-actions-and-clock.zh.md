@@ -10,13 +10,17 @@ Web 聊天的用户气泡已有复制／分支／编辑 IconActions，但没有�
 
 ## 决策
 
-**用户气泡在既有 IconActions 行前追加感知日期的本地时钟；已定稿的 assistant 节点在正文下追加带 `margin-top: 16px` 的复制／分支／时钟；两边都在下一个本地午夜重新格式化。**
+**用户气泡在既有 IconActions 行前追加感知日期的本地时钟；已定稿的 assistant *内容*节点（非空 text 块）在正文下追加带 `margin-top: 16px` 的复制／分支／时钟；两边只要挂载就保持可见，并在下一个本地午夜重新格式化。**
 
-两边都通过 `formatMessageClock` 格式化 `node.time`：同一日历日 → `HH:mm`，同年更早 → `M月D日 HH:mm`，跨年 → `YYYY年M月D日 HH:mm`。`useCalendarDay` 是组件本地的日刻度（定时到下一个本地午夜），因此 memo 行在日历日变化时会重渲染，且不新增框架 hook。`MessageItem` 把标签放在复制之前（figma `388:20051`）。`AssistantMarkdown` 把它放在分支之后（figma `43:32997`），且仅在 `streaming` 为 false 且已知事件时间时渲染；流式尾部省略该行。复制写入拼接后的 text 块。分支仍是 chrome stub。具备 hover 能力的指针在 hover／focus-within 前保持两条 footer 透明。剪贴板写入与时钟辅助函数放在 `message-chrome.ts`。组装面由 `apps/web/tests/message-actions.e2e.ts`（冷 seed 历史 + aria golden）钉住；aria 归一化把每种时钟形态折叠为 `{{clock}}`。
+两边都通过 `formatMessageClock` 格式化 `node.time`：同一日历日 → `HH:mm`，同年更早 → `M月D日 HH:mm`，跨年 → `YYYY年M月D日 HH:mm`。`useCalendarDay` 是组件本地的日刻度（定时到下一个本地午夜），因此 memo 行在日历日变化时会重渲染，且不新增框架 hook。`MessageItem` 把标签放在复制之前（figma `388:20051`）。`AssistantMarkdown` 把它放在分支之后（figma `43:32997`），且仅在 `streaming` 为 false、已知事件时间、且节点含非空 text 内容时渲染；纯 Think 节点与流式尾部省略该行。复制写入拼接后的 text 块。分支仍是 chrome stub。剪贴板写入与时钟辅助函数放在 `message-chrome.ts`。组装面由 `apps/web/tests/message-actions.e2e.ts`（冷 seed 历史 + aria golden）钉住；aria 归一化把每种时钟形态折叠为 `{{clock}}`。
 
 ## 曾考虑的方案
 
 **在流式过程中展示 assistant IconActions。** 否决：需求是输出完成后才展示该行；中途 chrome 会闪烁，并诱使复制半截回答。
+
+**给每个已定稿 assistant 节点（含纯 Think）都挂 IconActions。** 否决：没有 text 内容时复制没有可写内容，且在每一步／Think 下重复 chrome 会打乱流程；只有内容输出拥有该座位。
+
+**在具备 hover 能力的指针上用 hover 才揭示操作行。** 否决：行一旦存在就应保持可发现；用 opacity 隐藏容易漏看，且需要父级 hover 选择器重复挂载门控。
 
 **把分支接到真实的会话 fork。** 本次否决：与已归档的[用户 IconActions 笔记](../../archived/feature/2026-07-27-user-message-icon-actions.md)同一理由——变更路径尚未规定；按钮只预留设计座位。
 
@@ -24,4 +28,4 @@ Web 聊天的用户气泡已有复制／分支／编辑 IconActions，但没有�
 
 ## 后果
 
-已定稿的 assistant 回答立刻暴露复制与事件时钟；分支仍为 stub。用户与 assistant 时钟共用同一套跨天／跨年加宽规则，并在午夜后无需消息变更即可刷新。逐消息分页仍是包 README 中的暂缓 footer 座位。包级测试钉住三种时钟形态与午夜加宽；Web e2e 场景钉住组装后的 IconActions chrome。
+已定稿的 assistant 内容回答在行挂载后立刻暴露复制与事件时钟；纯 Think 节点不带 chrome；分支仍为 stub。用户与 assistant 时钟共用同一套跨天／跨年加宽规则，并在午夜后无需消息变更即可刷新。逐消息分页仍是包 README 中的暂缓 footer 座位。包级测试钉住三种时钟形态、午夜加宽与 assistant 仅内容门控；Web e2e 场景钉住组装后的 IconActions chrome。
