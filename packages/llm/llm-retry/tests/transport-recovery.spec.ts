@@ -110,8 +110,8 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
   })
 
   it.each([
-    ['stream_disconnect', 0] as const,
-    ['partial_disconnect', 2] as const,
+    ['stream_disconnect', 1] as const,
+    ['partial_disconnect', 3] as const,
   ])('retries %s without committing failed chunks', async (behavior, failedChunkCount) => {
     const server = await start([behavior, 'success'], {
       apiKey: 'mock-key',
@@ -130,8 +130,11 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
 
     expect(server.requests).toHaveLength(2)
     expect(server.requests[0]?.body).toEqual(server.requests[1]?.body)
+    const retryEvent = agent.session.events.find(event => event.type === 'llm/retry')
     expect(agent.session.events.filter(event =>
-      event.type === 'assistant/chunk' && event.data.turn === 1,
+      event.type === 'assistant/chunk'
+      && retryEvent !== undefined
+      && event.seq < retryEvent.seq,
     )).toHaveLength(failedChunkCount)
     expect(agent.session.events.filter(event => event.type === 'assistant/message')
       .map(event => [event.data.turn, event.data.step]))
@@ -185,12 +188,12 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     expect(server.requests).toHaveLength(1)
     expect(agent.session.events.filter(event =>
       event.type === 'assistant/chunk' && event.data.turn === 1,
-    )).toHaveLength(2)
+    )).toHaveLength(3)
     expect(agent.session.events.some(event => event.type === 'assistant/message')).toBe(false)
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', failure: { code: 'STREAM_CLOSED' } } },
+      data: { reason: { kind: 'error', error: { code: 'STREAM_CLOSED' } } },
     })
   })
 
@@ -232,7 +235,7 @@ describe('bounded retry through the real DeepSeek HTTP/SSE adapter', () => {
     expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(2)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', failure: { code: 'TRANSPORT' } } },
+      data: { reason: { kind: 'error', error: { code: 'TRANSPORT' } } },
     })
   })
 })

@@ -277,14 +277,21 @@ describe('provider-routed retry policy', () => {
     await vi.advanceTimersByTimeAsync(500)
     await idle
 
+    const retryEvent = agent.session.events.find(event => event.type === 'llm/retry')
     const failedChunks = agent.session.events.filter(event =>
-      event.type === 'assistant/chunk' && event.data.turn === 1 && event.data.step === 1,
+      event.type === 'assistant/chunk'
+      && retryEvent !== undefined
+      && event.seq < retryEvent.seq,
     )
-    expect(failedChunks).toHaveLength(6)
-    expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => ({
+    expect(failedChunks).toHaveLength(7)
+    const assistantMessages = agent.session.events.filter(event => event.type === 'assistant/message')
+    expect(assistantMessages.map(event => ({
       turn: event.data.turn,
       step: event.data.step,
     }))).toEqual([{ turn: 1, step: 1 }])
+    expect(failedChunks.every(event =>
+      !assistantMessages[0]?.sourceEventSeqs?.includes(event.seq),
+    )).toBe(true)
     expect(agent.session.events.some(event => event.type === 'tool/call')).toBe(false)
     expect(toolExecutions).toBe(0)
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
@@ -325,7 +332,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(event => event.type === 'llm/retry')).toHaveLength(2)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', failure: { message: 'busy three', code: 'SERVER' } } },
+      data: { reason: { kind: 'error', error: { message: 'busy three', code: 'SERVER' } } },
     })
   })
 
@@ -438,7 +445,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.some(event => event.type === 'llm/retry')).toBe(false)
     expect(agent.session.events.at(-1)).toMatchObject({
       type: 'turn/end',
-      data: { reason: { kind: 'error', failure: { code: 'NO_ADAPTER' } } },
+      data: { reason: { kind: 'error', error: { code: 'NO_ADAPTER' } } },
     })
   })
 
