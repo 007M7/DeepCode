@@ -111,6 +111,12 @@ function rowButton(item: HTMLElement): HTMLButtonElement {
 }
 
 describe('DirectoryBrowser', () => {
+  it('renders nothing and launches no listing while initially closed', () => {
+    const b = mount({ open: false })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(b.listDirectory).not.toHaveBeenCalled()
+  })
+
   it('opens at the Host home as one wide column, hides hidden entries, and roots the crumbs at Home', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
@@ -335,9 +341,16 @@ describe('DirectoryBrowser', () => {
       fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
       fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
       fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+      // The target can consume most of the outer scan's silence window.
+      await act(async () => { vi.advanceTimersByTime(250) })
       await act(async () => { settlers.get(DOCS)!(listingFor(DOCS)) })
+      // Its parent leg gets a fresh silence window. Crossing the original
+      // scan's 300ms deadline therefore cannot flash the indicator during the
+      // bounded landing wait.
+      await act(async () => { vi.advanceTimersByTime(199) })
+      expect(screen.queryByText('browser.loading')).toBeNull()
       // The parent leg outlives PARENT_LEG_WAIT_MS: the target lands alone.
-      await act(async () => { vi.advanceTimersByTime(200) })
+      await act(async () => { vi.advanceTimersByTime(1) })
       expect(columns()).toHaveLength(1)
       expect(screen.getByRole('listitem').textContent).toBe('harness')
       expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
@@ -412,6 +425,34 @@ describe('DirectoryBrowser', () => {
       expect(screen.queryByText('browser.loading')).toBeNull()
       expect(screen.queryByText('browser.truncated')).toBeNull()
       expect(columns()).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restarts the silence window when a row pick supersedes a pending scan', async () => {
+    vi.useFakeTimers()
+    try {
+      const pending: ((value: DirectoryListing) => void)[] = []
+      const listDirectory = vi.fn((path?: string, _signal?: AbortSignal) => {
+        if (path === undefined) return Promise.resolve(listingFor(path))
+        return new Promise<DirectoryListing>((resolve) => { pending.push(resolve) })
+      })
+      mount({ listDirectory })
+      await act(async () => {})
+      const documents = rowButton(screen.getByRole('listitem'))
+      fireEvent.click(documents)
+      await act(async () => { vi.advanceTimersByTime(300) })
+      expect(screen.getByText('browser.loading')).toBeTruthy()
+      // The same row remains actionable while its preview is pending. A second
+      // pick starts a new listing without a false `loading` edge.
+      fireEvent.click(documents)
+      expect(screen.queryByText('browser.loading')).toBeNull()
+      await act(async () => { vi.advanceTimersByTime(299) })
+      expect(screen.queryByText('browser.loading')).toBeNull()
+      await act(async () => { vi.advanceTimersByTime(1) })
+      expect(screen.getByText('browser.loading')).toBeTruthy()
+      await act(async () => { pending.at(-1)!(listingFor(DOCS)) })
     } finally {
       vi.useRealTimers()
     }

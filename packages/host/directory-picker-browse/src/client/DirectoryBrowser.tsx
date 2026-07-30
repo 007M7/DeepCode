@@ -186,10 +186,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [selected, setSelected] = useState<DirectoryEntry | null>(null)
   const [child, setChild] = useState<DirectoryListing | null>(null)
   const [loading, setLoading] = useState(false)
-  // Derived from `loading` by the slow-scan effect below: true only once a
-  // scan has been in flight for SLOW_SCAN_DELAY_MS, so fast listings never
-  // render the indicator at all.
+  // Derived from `loading` and `scanWindow` by the slow-scan effect below:
+  // true only once the current listing call has been in flight for
+  // SLOW_SCAN_DELAY_MS, so fast listings never render the indicator at all.
   const [slowScan, setSlowScan] = useState(false)
+  // Every listing call owns a fresh silence window. `loading` may stay true
+  // across a superseding row pick or across a navigation's target and parent
+  // legs, so its boolean edge cannot identify the start of each scan.
+  const [scanWindow, setScanWindow] = useState(0)
   const [error, setError] = useState<string | null>(null)
   // Path-edit state: null = breadcrumb mode; a string = the draft being typed.
   const [pathDraft, setPathDraft] = useState<string | null>(null)
@@ -233,13 +237,20 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     return ++requestSeq.current
   }, [])
 
+  /** Hide any prior indicator and start a fresh silence window for one listing call. */
+  const restartSlowScanWindow = useCallback((): void => {
+    setSlowScan(false)
+    setScanWindow(value => value + 1)
+  }, [])
+
   /** Launch one listing under a fresh controller so a later supersession can abort it. */
   const launchListing = useCallback((path: string | undefined): { seq: number; scan: Promise<DirectoryListing> } => {
     const seq = supersede()
     const controller = new AbortController()
     scanController.current = controller
+    restartSlowScanWindow()
     return { seq, scan: listDirectory(path, controller.signal) }
-  }, [supersede, listDirectory])
+  }, [supersede, restartSlowScanWindow, listDirectory])
 
   /**
    * Launch a follow-up listing under the CURRENT supersession seq: a newer
@@ -248,8 +259,9 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const continueScan = useCallback((path: string): Promise<DirectoryListing> => {
     const controller = new AbortController()
     scanController.current = controller
+    restartSlowScanWindow()
     return listDirectory(path, controller.signal)
-  }, [listDirectory])
+  }, [restartSlowScanWindow, listDirectory])
 
   /**
    * Replace the whole view with a freshly navigated level. Away from the
@@ -474,9 +486,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     })
   }
 
-  // The slow-scan gate for the loading indicator: arm a timer when a scan
-  // starts, retire it (and the indicator) the moment loading ends. A settle
-  // inside the window means the swap happened with nothing shown.
+  // The slow-scan gate for the loading indicator: each listing call restarts
+  // the timer even when a superseding scan or a navigation's parent leg keeps
+  // `loading` continuously true. A settle inside its own window means the swap
+  // happened with nothing shown.
   useEffect(() => {
     if (!loading) {
       setSlowScan(false)
@@ -484,7 +497,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     }
     const timer = window.setTimeout(() => { setSlowScan(true) }, SLOW_SCAN_DELAY_MS)
     return () => { window.clearTimeout(timer) }
-  }, [loading])
+  }, [loading, scanWindow])
 
   // After the hooks: a closed dialog renders nothing and evaluates no copy.
   const crumbSource = child ?? parent
