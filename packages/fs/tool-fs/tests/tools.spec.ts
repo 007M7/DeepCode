@@ -534,7 +534,7 @@ describe('tool-owned presentation (pure presentCall)', () => {
 
   it('read: completed presentation declines errors and non-single-text content', async () => {
     const envelope = '<path>/tmp/a.txt</path>\n<type>file</type>\n<content>\nbody\n</content>'
-    const meta = { path: '/tmp/a.txt', lines: [{ number: 1, text: 'body' }], totalLines: 1 }
+    const meta = { path: '/tmp/a.txt', offset: 1, lines: [{ number: 1, text: 'body' }], totalLines: 1 }
     expect(await presentResult('read', { file_path: 'a.txt' }, {
       content: [{ type: 'text', text: envelope }],
       isError: true,
