@@ -55,6 +55,9 @@ while time.monotonic() < deadline:
                 os.write(fd, action["send"].encode())
         else:
             os.write(fd, action["send"].encode())
+            if "signalAfterMs" in action:
+                time.sleep(action["signalAfterMs"] / 1000)
+                os.kill(pid, signal.SIGTERM)
         action_index += 1
     waited, candidate = os.waitpid(pid, os.WNOHANG)
     if waited == pid:
@@ -76,7 +79,14 @@ if actual_exit != int(expected_exit):
 
 /** One terminal input or workspace mutation performed after its marker renders. */
 type TuiPtyAction =
-  | { readonly waitFor: string; readonly occurrence?: number; readonly send: string; readonly delayMs?: number }
+  | {
+    readonly waitFor: string
+    readonly occurrence?: number
+    readonly send: string
+    readonly delayMs?: number
+    /** Terminate the process this many milliseconds after sending input. */
+    readonly signalAfterMs?: number
+  }
   | { readonly waitFor: string; readonly occurrence?: number; readonly signal: 'SIGTERM'; readonly delayMs?: number }
   | {
     readonly waitFor: string
@@ -205,8 +215,14 @@ async function runWindowsPtySmoke(
             else setTimeout(() => { terminal.write(input) }, action.delayMs)
           }
         } else {
-          if (action.delayMs === undefined) terminal.write(action.send)
-          else setTimeout(() => { terminal.write(action.send) }, action.delayMs)
+          const send = (): void => {
+            terminal.write(action.send)
+            if (action.signalAfterMs !== undefined) {
+              setTimeout(() => { terminal.kill('SIGTERM') }, action.signalAfterMs)
+            }
+          }
+          if (action.delayMs === undefined) send()
+          else setTimeout(send, action.delayMs)
         }
         actionIndex += 1
       }

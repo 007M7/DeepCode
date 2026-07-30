@@ -25,7 +25,7 @@ const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 // needs no config argument at all; these are the overlays under test.
 const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
-const firstRunSnapshots = fileURLToPath(new URL('./snapshots/tui-first-run-welcome/', import.meta.url))
+const firstRunSnapshots = fileURLToPath(new URL('./tui-first-run-snapshots/', import.meta.url))
 const synchronizedFrameEnd = '\x1b[?2026l'
 
 /**
@@ -166,7 +166,24 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & {
 
 const firstRunCopy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE]
 
-/** Project the first synchronized PTY frame containing `marker` into the stable terminal snapshot format. */
+/** Keep only the overlay rows, excluding platform-specific scrollback and the underlying TUI. */
+function overlaySnapshot(snapshot: string, columns: number, rows: number): string {
+  const blocks: string[][] = []
+  for (const line of snapshot.split('\n')) {
+    if (/^\d+(?:-\d+)?~?\| /u.test(line)) blocks.push([line])
+    else if (line.startsWith('  style ') && blocks.length > 0) blocks.at(-1)?.push(line)
+  }
+  const first = blocks.findIndex(block => block[0]?.includes('╭') === true)
+  const last = blocks.findIndex((block, index) => index >= first && block[0]?.includes('╰') === true)
+  if (first < 0 || last < first) throw new Error('first-run PTY snapshot has no complete overlay frame')
+  const overlay = blocks.slice(first, last + 1).flatMap((block, index) => [
+    block[0]!.replace(/^\d+(?:-\d+)?(~)?\|/u, `${String(index)}$1|`),
+    ...block.slice(1),
+  ])
+  return [`overlay ${String(columns)}x${String(rows)} rows=${String(last - first + 1)}`, ...overlay, ''].join('\n')
+}
+
+/** Project the first synchronized PTY frame containing `marker` into an overlay-only snapshot. */
 async function firstRunFrameSnapshot(
   output: string,
   marker: string,
@@ -180,9 +197,7 @@ async function firstRunFrameSnapshot(
   const terminal = new HeadlessTerminal(columns, rows)
   try {
     terminal.write(output.slice(0, frameEnd + synchronizedFrameEnd.length))
-    return (await terminal.snapshot())
-      .replace(/main-session-[0-9a-f-]{36}/gu, 'main-session-{{uuid}}')
-      .replace(/\/[^"\s]*dsh-tui-welcome-\d+-[A-Za-z0-9]+/gu, '/tmp/dsh-tui-welcome')
+    return overlaySnapshot(await terminal.snapshot(), columns, rows)
   } finally {
     await terminal.dispose()
   }
@@ -212,10 +227,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       columns,
       rows: 30,
       actions: [
-        { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
-        columns >= 120
-          ? { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 }
-          : { waitFor: 'main-session-', occurrence: 2, signal: 'SIGTERM' },
+        { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
       ],
       inspect: async (cwd) => {
         expect(await hasTuiFirstRunWelcomeAcknowledgement(join(cwd, '.dsh'))).toBe(true)
@@ -244,8 +256,12 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       rows: 12,
       actions: [
         { waitFor: firstRunCopy.paragraphs[0]!, send: '\x1b[F' },
-        { waitFor: '企业微信群', send: '\r' },
-        { waitFor: 'main-session-', occurrence: 2, signal: 'SIGTERM' },
+        {
+          waitFor: `Enter  ${firstRunCopy.continueLabel}`,
+          occurrence: 2,
+          send: '\r',
+          signalAfterMs: 2_000,
+        },
       ],
     })
     await expect(await firstRunFrameSnapshot(output, firstRunCopy.paragraphs[0]!, 60, 12))
@@ -268,8 +284,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         showFirstRunWelcome: true,
         expectedExitCode: process.platform === 'win32' ? 0 : -15,
         actions: [
-          { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
-          { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 },
+          { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
         ],
       })
       expect(first).toContain(firstRunCopy.title)
@@ -314,8 +329,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         showFirstRunWelcome: true,
         expectedExitCode: -15,
         actions: [
-          { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
-          { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 },
+          { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
         ],
       })
       expect(next).toContain(firstRunCopy.paragraphs[0])
@@ -515,8 +529,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
         originalLineCount = before.split('\n').filter(Boolean).length
       },
       actions: [
-        { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
-        { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 },
+        { waitFor: `Enter  ${firstRunCopy.continueLabel}`, send: '\r', signalAfterMs: 2_000 },
       ],
       inspect: async (cwd) => {
         const after = await readFile(logPath(

@@ -1,0 +1,90 @@
+overlay 60x30 rows=27
+0| "╭──────────────────────────────────────────────────────────╮"
+  style 0-59 dim
+1| "│                         ▄▄▄▄▄▄   ▄▄                      │"
+  style 0-0 dim
+  style 23-36 fg=blue
+  style 59-59 dim
+2| "│                     ▄████████▄ ▀████▀                    │"
+  style 0-0 dim
+  style 21-38 fg=blue
+  style 59-59 dim
+3| "│                     █▀▀▀▀███████▄██▀                     │"
+  style 0-0 dim
+  style 22-37 fg=blue
+  style 59-59 dim
+4| "│                     █▄    ▀███ ▀███                      │"
+  style 0-0 dim
+  style 22-36 fg=blue
+  style 59-59 dim
+5| "│                      ▀█▄     ▀█████                      │"
+  style 0-0 dim
+  style 23-36 fg=blue
+  style 59-59 dim
+6| "│                       ▀█▄▄ █▄▄▀███▄                      │"
+  style 0-0 dim
+  style 23-36 fg=blue
+  style 59-59 dim
+7| "│                            ▀▀▀▀▀▀                        │"
+  style 0-0 dim
+  style 25-34 fg=blue
+  style 59-59 dim
+8| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+9| "│                     DeepSeek Harness                     │"
+  style 0-0 dim
+  style 22-37 fg=blue bold
+  style 59-59 dim
+10| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+11| "│ 感谢您愿意拨冗试用 DeepSeek Harness。                    │"
+  style 0-0 dim
+  style 59-59 dim
+12| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+13| "│ 目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验 │"
+  style 0-0 dim
+  style 59-59 dim
+14| "│ 难免粗粝。                                               │"
+  style 0-0 dim
+  style 59-59 dim
+15| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+16| "│ “如切如磋，如琢如磨。”                                   │"
+  style 0-0 dim
+  style 2-23 bold
+  style 59-59 dim
+17| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+18| "│ 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实 │"
+  style 0-0 dim
+  style 59-59 dim
+19| "│ 使用中暴露的问题，也可能促使我们重新审视，甚至推翻已有的 │"
+  style 0-0 dim
+  style 59-59 dim
+20| "│ 设计。                                                   │"
+  style 0-0 dim
+  style 59-59 dim
+21| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+22| "│ 我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未能 │"
+  style 0-0 dim
+  style 59-59 dim
+23| "├──────────────────────────────────────────────────────────┤"
+  style 0-59 dim
+24| "│                       Enter  继续                        │"
+  style 0-0 dim
+  style 24-34 fg=bright-magenta bold
+  style 59-59 dim
+25| "│                         ↑/↓ 滚动 ↓                       │"
+  style 0-0 dim
+  style 24-35 dim
+  style 59-59 dim
+26| "╰──────────────────────────────────────────────────────────╯"
+  style 0-59 dim
