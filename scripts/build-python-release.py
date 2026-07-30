@@ -24,6 +24,10 @@ PLATFORMS = {
 }
 
 
+def runtime_suffixes(executable_name: str) -> tuple[str, ...]:
+    return ("", "-spawn-helper") if "-macos-" in executable_name else ("",)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", choices=("sdk", "runtime"), required=True)
@@ -132,17 +136,12 @@ def stage_sdk(destination: Path, version: str) -> None:
 
 
 def stage_runtime(destination: Path, version: str, executable: Path, executable_name: str) -> None:
-    if not executable.is_file():
-        raise FileNotFoundError(f"runtime executable does not exist: {executable}")
-    if executable.stat().st_mode & stat.S_IXUSR == 0:
-        raise PermissionError(f"runtime executable is not executable: {executable}")
     copy_package(ROOT / "python" / "sdk-runtime", destination)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    destination_executable = runtime_dir / executable_name
-    shutil.copyfile(executable, destination_executable)
-    destination_executable.chmod(executable.stat().st_mode & 0o777)
+    for suffix in runtime_suffixes(executable_name):
+        shutil.copy2(Path(f"{executable}{suffix}"), runtime_dir / f"{executable_name}{suffix}")
 
 
 def verify_wheel(
@@ -161,16 +160,21 @@ def verify_wheel(
             raise RuntimeError(f"{wheel} has wrong WHEEL tags: {wheel_metadata.get_all('Tag')}")
         if metadata.get("Version") != version:
             raise RuntimeError(f"{wheel} has version {metadata.get('Version')}, expected {version}")
-        executables = [name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name]
+        runtime_files = [
+            name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name
+        ]
         if package == "runtime":
             assert platform is not None
-            if len(executables) != 1 or not executables[0].endswith(f"/runtime/{platform[1]}"):
-                raise RuntimeError(f"{wheel} must contain exactly {platform[1]}, found {executables}")
-            mode = archive.getinfo(executables[0]).external_attr >> 16
-            if mode & stat.S_IXUSR == 0:
-                raise RuntimeError(f"{wheel} runtime executable lost its executable bit")
-        elif executables:
-            raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {executables}")
+            expected_files = [f"{platform[1]}{suffix}" for suffix in runtime_suffixes(platform[1])]
+            found_files = sorted(Path(name).name for name in runtime_files)
+            if found_files != expected_files:
+                raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
+            for runtime_file in runtime_files:
+                mode = archive.getinfo(runtime_file).external_attr >> 16
+                if mode & stat.S_IXUSR == 0:
+                    raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {runtime_file}")
+        elif runtime_files:
+            raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":
             requirements = metadata.get_all("Requires-Dist") or []
             expected_requirement = f"deepseek-harness-runtime-bin=={version}"

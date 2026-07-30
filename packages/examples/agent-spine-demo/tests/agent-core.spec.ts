@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
+import { renderPrompt, TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -654,9 +654,27 @@ describe('dsh-agent-spine-demo bundle', () => {
     await ctx.fiber.dispose()
   })
 
+  it('can omit the bundled bash tool and Harness identity for a compatibility deployment', async () => {
+    const ctx = await mount({
+      includeHarnessIdentity: false,
+      persona: 'You are a helpful software engineer assistant.',
+      workspaceContext: false,
+      skills: { enabled: false },
+      toolBash: false,
+      toolTasks: false,
+    }, true)
+
+    expect(ctx.tools.schemas()).toEqual([])
+    expect(renderPrompt(await ctx.systemPrompt.assemble()))
+      .toBe('You are a helpful software engineer assistant.')
+
+    await ctx.fiber.dispose()
+  })
+
   it('picks shared spine config without leaking front-door fields', () => {
     const appConfig = {
       model: 'front-door-only',
+      includeHarnessIdentity: false,
       persona: 'You are merged.',
       toolOrder: ['zulu'],
       tools: { mode: 'native' as const },
@@ -670,6 +688,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     }
 
     expect(agentCore.pickSpineConfig(appConfig)).toEqual({
+      includeHarnessIdentity: appConfig.includeHarnessIdentity,
       persona: appConfig.persona,
       toolOrder: appConfig.toolOrder,
       tools: appConfig.tools,
