@@ -83,6 +83,31 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('15 tok')).toBeTruthy()
   })
 
+  it('keeps long thinking collapsed until the user asks to render it', () => {
+    const thinking = 'private chain '.repeat(1_000)
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'message',
+          text: 'private chain…',
+          thinkingDetail: thinking,
+          timeSeconds: 1,
+        }],
+      }],
+    }]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
+    const toggle = screen.getByRole('button', { name: 'Thinking ...' })
+    expect(screen.queryByText(thinking)).toBeNull()
+
+    fireEvent.click(toggle)
+    expect(toggle.parentElement?.textContent?.length).toBeGreaterThan(thinking.length)
+  })
+
   it('keeps raw HTML tags in a Markdown-derived context preview', () => {
     const html = [
       '<background-task-complete id="trajectory-ui-watch">',

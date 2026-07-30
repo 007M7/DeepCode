@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
-  extractMarkdownPlainText,
   IconChevronRightOutline14,
   IconSettingsOutline16,
   IconSparkle16,
@@ -20,7 +19,7 @@ import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
 } from './trajectory-record.ts'
 import { formatElapsedSeconds } from './trajectory-record.ts'
-import type { TrajectoryTurnModel } from './layout.ts'
+import { trajectoryPreviewText, type TrajectoryTurnModel } from './layout.ts'
 import css from './TrajectoryTable.module.css'
 
 const KIND_LABEL: Record<TrajectoryCellKind, string> = {
@@ -801,13 +800,13 @@ function detailTabs(record: TableRecord): readonly DetailTabItem[] {
 
 function recordDisplayText(cell: TrajectoryCellProps): string {
   if (isToolCallOnly(cell)) return ''
+  if (cell.text !== '') return cell.text
   const markdown = cell.kind === 'user' || cell.kind === 'context'
     ? cell.inputDetail
     : cell.kind === 'message'
       ? cell.outputDetail ?? cell.thinkingDetail
       : undefined
-  if (!markdown) return cell.text
-  return extractMarkdownPlainText(markdown).replace(/\s+/g, ' ').trim()
+  return markdown === undefined ? '' : trajectoryPreviewText(markdown)
 }
 
 function toolCallTextParts(
@@ -1502,7 +1501,7 @@ export function TrajectoryTable({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [selectedRequest, setSelectedRequest] = useState<SelectedRequest | null>(null)
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
-  const [thinkingExpanded, setThinkingExpanded] = useState(true)
+  const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const [detailsWidth, setDetailsWidth] = useState<number | null>(null)
   const [toolRequestOffset, setToolRequestOffset] = useState<number | null>(null)
   const detailsResizeDrag = useRef<DetailsResizeDrag | null>(null)

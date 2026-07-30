@@ -66,6 +66,9 @@ interface TurnBucket {
   groups: LaidGroup[]
 }
 
+const PREVIEW_SOURCE_CHARACTERS = 2_048
+const PREVIEW_OUTPUT_CHARACTERS = 512
+
 type InputNode = Extract<
   ConversationSnapshot['nodes'][number],
   { kind: 'user' | 'steering' | 'context' }
@@ -126,6 +129,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     nodes, partial, runningCalls, requests = [], callSchemas, codeDispatches,
   } = input
   const resultByCall = indexResults(nodes)
+  const emittedCallIds = indexAssistantCallIds(nodes)
   const callStartById = new Map<string, number>()
   for (const result of resultByCall.values()) {
     const startedAt = finiteTime(result.callTime)
@@ -353,7 +357,7 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (node.kind === 'tool-result') {
-      if (!callEmittedInAssistant(nodes, node.callId)) {
+      if (!emittedCallIds.has(node.callId)) {
         const toolName = node.call?.name
         const laidList: LaidCell[] = [{
           absTime: finiteTime(node.callTime ?? node.time),
@@ -764,12 +768,15 @@ function indexResults(nodes: ConversationSnapshot['nodes']): Map<string, ToolRes
   return map
 }
 
-function callEmittedInAssistant(nodes: ConversationSnapshot['nodes'], callId: string): boolean {
+function indexAssistantCallIds(nodes: ConversationSnapshot['nodes']): ReadonlySet<string> {
+  const ids = new Set<string>()
   for (const node of nodes) {
     if (node.kind !== 'assistant') continue
-    if (node.blocks.some(b => b.kind === 'tool-call' && b.callId === callId)) return true
+    for (const block of node.blocks) {
+      if (block.kind === 'tool-call') ids.add(block.callId)
+    }
   }
-  return false
+  return ids
 }
 
 function collectCallIds(
@@ -849,7 +856,7 @@ function expandSubCalls(
 }
 
 function summarizeCall(name: string, argsRaw: string): string {
-  const args = argsRaw.replace(/\s+/g, ' ').trim()
+  const args = trajectoryPreviewText(argsRaw)
   if (args === '') return name
   return `${name} · ${args}`
 }
@@ -907,5 +914,26 @@ function summarizeContent(content: readonly { type: string; text?: string }[]): 
 }
 
 function summarizeText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim()
+  return trajectoryPreviewText(text)
+}
+
+/**
+ * Build a bounded one-line ledger preview without parsing the complete Markdown document.
+ * Full source remains on the cell for the inspector.
+ * @param text - Untrusted message, reasoning, payload, or result text.
+ * @returns A compact preview capped independently from the retained source.
+ */
+export function trajectoryPreviewText(text: string): string {
+  const source = text.slice(0, PREVIEW_SOURCE_CHARACTERS)
+  const compact = source
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/(^|\s)(?:#{1,6}|[-+*>])\s+/g, '$1')
+    .replace(/[*_~`]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const preview = compact.slice(0, PREVIEW_OUTPUT_CHARACTERS).trimEnd()
+  return source.length < text.length || preview.length < compact.length
+    ? `${preview}…`
+    : preview
 }
