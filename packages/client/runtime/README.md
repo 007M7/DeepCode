@@ -30,7 +30,7 @@ SlotsService gives the renderer separate bare observables for `useSessions` and 
 
 ## Session forking
 
-`ISessions.fork({sessionId, atSeq?})` resolves only after the child summary is locally addressable, carrying source lineage and cwd with `blank: false`; callers choose whether to open it. A `workspace-attach-failed` response still identifies a child already published by the Host, so `SessionManager` reconciles that partial success before `SessionForkError` reaches the caller instead of making a retry create a duplicate child.
+`ISessions.fork({sessionId, atSeq?, increaseTitle?})` resolves only after the child summary is locally addressable, carrying source lineage and cwd with `blank: false`; callers choose whether to open it. With `increaseTitle: true`, the client renames the child from the source session's persisted title: a trailing `(N)` or `（N）` is incremented without changing bracket style, while any other title gets ` (1)` appended; the rename is skipped when the source has no persisted title, and a rename failure rejects the promise but leaves the created child in place. This option is not sent in the Host fork request. A `workspace-attach-failed` response still identifies a child already published by the Host, so `SessionManager` reconciles that partial success before `SessionForkError` reaches the caller instead of making a retry create a duplicate child.
 
 ## Session model selection
 

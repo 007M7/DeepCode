@@ -2,6 +2,6 @@
   - treeitem "Ungrouped 3 sessions" [expanded]:
     - img
     - text: Ungrouped 3 sessions
-  - treeitem "Use the read tool twice now" [selected]
-  - treeitem "Use the read tool twice now"
+  - treeitem "Use the read tool twice (2) now" [selected]
+  - treeitem "Use the read tool twice (1) now"
   - treeitem "Use the read tool twice 1min"

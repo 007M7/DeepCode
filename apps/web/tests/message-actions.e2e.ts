@@ -106,9 +106,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     ).toBe(1)
     // The row action owns a distinct ui-workspace injection from the message
     // action above, so exercise both through the loaded app before capture.
-    const sourceRow = page.locator('[role="treeitem"]')
-      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
-      .last()
+    const sourceRow = page.locator('[role="treeitem"][aria-selected="true"]')
     const rowBox = await sourceRow.boundingBox()
     if (rowBox === null) throw new Error('fork source row has no layout box')
     const actionButton = sourceRow.locator('button[aria-label^="Session actions for "]')

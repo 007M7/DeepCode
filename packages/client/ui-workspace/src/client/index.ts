@@ -60,10 +60,10 @@ export function apply(ctx: ClientContext): void {
       if (!result.ok) throw new Error(result.error.message)
     },
     forkSession: (sessionId) => {
-      ctx.sessions.fork({ sessionId })
+      ctx.sessions.fork({ sessionId, increaseTitle: true })
         .then((childId) => { ctx.sessions.open(childId) })
         .catch(() => {
-          // Fork failure keeps the list untouched (composer-stop posture).
+          // Fork or child-rename failure keeps the current selection.
         })
     },
     renameWorkspace: async (workspaceId, title) => { await ctx.workspaces.rename(workspaceId, title) },

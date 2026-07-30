@@ -395,10 +395,10 @@ export class TestSessions implements ISessions {
   /**
    * Recorded fork stub: no child materializes (benches asserting the full
    * fork flow drive the production service; this face only proves the call).
-   * @param opts - source session id and optional cut anchor.
+   * @param opts - source session id, optional cut anchor, and client title policy.
    * @returns the source id (no child record is created).
    */
-  fork(opts: { sessionId: SessionId; atSeq?: number }): Promise<SessionId> {
+  fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
     this.calls.push({ method: 'fork', args: [opts] })
     return Promise.resolve(opts.sessionId)
   }
