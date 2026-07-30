@@ -61,8 +61,8 @@ export function webSnapshotMode(): WebSnapshotMode {
 }
 
 /** The shipped composition under test: apps/cli's shared base and web overlay. */
-const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/base.cordis.yml')
-const WEB_OVERLAY_PATH = join(REPO_ROOT, 'apps/cli/web.cordis.yml')
+const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/config/base.cordis.yml')
+const WEB_OVERLAY_PATH = join(REPO_ROOT, 'apps/cli/config/web.cordis.yml')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
