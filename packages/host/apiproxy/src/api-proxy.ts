@@ -21,7 +21,7 @@ import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-se
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceNameConflictError,
+  WorkspaceMoveInvalidError, WorkspaceNameConflictError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
@@ -1582,7 +1582,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     workspace: {
       list(request) {
-        return Promise.resolve(ok(request, { items: ctx.workspace.list().map(workspaceView) }))
+        return Promise.resolve(ok(request, {
+          items: ctx.workspace.list().map(workspaceView),
+          archivedSessionIds: [...ctx.workspace.archivedSessionIds],
+        }))
       },
 
       // Exactly one of path/name arrives (schema refine). Existing-folder
@@ -1697,6 +1700,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         return ok(request, { workspace: workspaceView(workspace) })
+      },
+
+      async archiveSession(request) {
+        const { sessionId } = request.payload
+        try {
+          await ctx.workspace.archiveSession(sessionId)
+        } catch (error: unknown) {
+          // Only the registry's unknown-session rejection is the business
+          // code; storage/durability failures propagate as internal errors.
+          if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+          return err(request, {
+            code: 'session-not-found',
+            message: error.message,
+            details: { sessionId },
+          })
+        }
+        return ok(request, { archivedSessionIds: [...ctx.workspace.archivedSessionIds] })
       },
     },
 
@@ -2109,6 +2129,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const committedWorkspaceIds = new Set(
           ctx.workspace.list().map(workspace => String(workspace.id)),
         )
+        // Frame-dedup baseline, same posture as committedWorkspaceIds: the
+        // stream opens against the current set; workspace.list re-baselines
+        // reconnecting clients, so only later changes need frames.
+        let archivedSessionIds = ctx.workspace.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
@@ -2144,6 +2168,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 }
                 committedWorkspaceIds.add(workspaceId)
                 queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
+              }
+              if (state.archivedSessionIds.length !== archivedSessionIds.length
+                || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {
+                archivedSessionIds = state.archivedSessionIds
+                queue.push(frame({
+                  type: 'host/archived-sessions-changed',
+                  archivedSessionIds: [...state.archivedSessionIds],
+                }))
               }
               return
             }
