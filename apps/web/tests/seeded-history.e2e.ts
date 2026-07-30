@@ -163,9 +163,12 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await page.getByRole('button', { name: 'Access mode, current: Danger Full Access' }).click()
     await page.getByRole('menuitem', { name: 'Workspace Write' }).click()
     await page.getByRole('button', { name: 'Access mode, current: Workspace Write' }).waitFor({ timeout: 10_000 })
-    await expect.poll(() => page.getByText('preset workspace-write', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
-    expect(await page.getByText('permission', { exact: true }).count()).toBe(1)
-    expect(await page.getByText('/permission workspace-write', { exact: true }).count()).toBe(0)
+    // Scoped to the row itself, so unrelated page text that happens to read
+    // `permission` (a future resident slash menu) cannot satisfy or break it.
+    const row = page.locator('[data-variant="others"]').filter({ hasText: 'preset workspace-write' })
+    await expect.poll(() => row.count(), { timeout: 10_000 }).toBe(1)
+    expect(await row.getByText('permission', { exact: true }).count()).toBe(1)
+    expect(await row.getByText('/permission workspace-write', { exact: true }).count()).toBe(0)
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)

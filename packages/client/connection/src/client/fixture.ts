@@ -1333,7 +1333,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
             const current = permissionSelectOf(logOf(id)).currentValue
             append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `current preset ${current} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else if (spec === undefined) {
-            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown permission preset ${JSON.stringify(preset)} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown preset "${preset}" (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else {
             if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
             append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })

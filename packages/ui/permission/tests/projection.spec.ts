@@ -110,7 +110,13 @@ describe('/permission command', () => {
     const { ctx, session } = await harness()
     const agent = await agentFor(ctx, session)
     const execution = await ctx.commands.execute(agent, '/permission yolo', new AbortController().signal)
-    expect(execution?.result).toMatchObject({ kind: 'error' })
+    // The error text carries the same no-self-labelling rule as the success
+    // texts: `permission · unknown preset "yolo" (…)`, not `unknown permission
+    // preset`, which the row's own title already says.
+    expect(execution?.result).toEqual({
+      kind: 'error',
+      text: 'unknown preset "yolo" (available: workspace-write, danger-full-access)',
+    })
     expect(session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done')).toHaveLength(0)
   })
 })
