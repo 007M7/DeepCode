@@ -73,7 +73,8 @@ describe('ui-theme apply', () => {
     const { instance, face } = faceOf(b.slots)
     // The inject-time re-sync sealed the init window: the mirror is current.
     expect(instance.getSnapshot().preference).toBe('dark')
-    expect(face.t('appearance.dark')).toBe('深色')
+    // Copy rides the standard locale seat: the entry declares the namespace.
+    expect(b.slots.entries(SLOT).find(e => e.component === AppearanceRow)!.locale).toBe(SETTINGS_NS)
 
     face.setTheme('system')
     expect(theme.getTheme().preference).toBe('system')
