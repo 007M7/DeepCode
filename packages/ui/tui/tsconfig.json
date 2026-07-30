@@ -54,6 +54,9 @@
       "path": "../commands"
     },
     {
+      "path": "../../compact/compact"
+    },
+    {
       "path": "../../skill/skill"
     },
     {

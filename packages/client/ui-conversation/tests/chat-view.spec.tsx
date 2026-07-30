@@ -94,6 +94,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const openDetails = vi.fn<(t: SelectionTarget) => void>()
   const openFile = vi.fn<(path: string) => void>()
   const loadOlder = vi.fn()
+  const forkAt = vi.fn()
   // Selection rides the REAL chat store (same construction path as
   // production; the view reads it through the PropsStore useStore share).
   // renderSlot stub renders the render-site fallback (an empty keyed ledger:
@@ -120,9 +121,10 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     openDetails,
     openFile,
     loadOlder,
+    forkAt,
   }
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
-  return { set, ChatView, props, openDetails, openFile, loadOlder, setSelection }
+  return { set, ChatView, props, openDetails, openFile, loadOlder, forkAt, setSelection }
 }
 
 describe('chat-flow derivation', () => {
@@ -192,6 +194,16 @@ describe('ChatView', () => {
     expect(view.getByText('running tools')).toBeTruthy()
     expect(view.getAllByText('Bash')).toHaveLength(2)
     expect(view.getByText('run a')).toBeTruthy()
+  })
+
+  it('forks from both user and finalized assistant message actions at their event seq', () => {
+    const h = makeHarness({ nodes: [user(1, 'question'), assistant(2, 'answer')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const buttons = view.getAllByRole('button', { name: '在新对话中分支' })
+    expect(buttons).toHaveLength(2)
+    fireEvent.click(buttons[0]!)
+    fireEvent.click(buttons[1]!)
+    expect(h.forkAt.mock.calls).toEqual([[1], [2]])
   })
 
   it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {
