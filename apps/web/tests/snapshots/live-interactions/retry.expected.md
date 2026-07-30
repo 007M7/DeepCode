@@ -11,7 +11,10 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
+- button "上下文注入":
+  - img
+  - img
+  - text: 上下文注入
 - group:
   - status: 已重试模型请求（1/2） · {{duration}}
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
