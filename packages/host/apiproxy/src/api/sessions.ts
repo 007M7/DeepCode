@@ -5,6 +5,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
@@ -124,10 +125,19 @@ export interface SessionModels {
   failures: ModelCatalogFailure[]
 }
 
+/** A client-requested mutation of one still-pending queue item. */
+export type QueueAction =
+  | { kind: 'edit'; content: ContentBlock[] }
+  | { kind: 'remove' }
+
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
-  /** Persisted file mtime. */
+  /**
+   * Last activity. Attached: the last non-`session/end-seed` event, since a
+   * pickup is not activity. Cold: the log's mtime, or `createdAt` for a backend
+   * with no per-session file (README Known Limitations covers the skew).
+   */
   updatedAt: number
   /** Status of the attached agent; always false for cold (unattached) sessions. */
   running: boolean
@@ -228,6 +238,12 @@ export interface SessionsApi {
    */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
+
+  /**
+   * Edits or removes one pending queued occurrence.
+   */
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
+  Promise<RpcResponse<{ accepted: true }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>

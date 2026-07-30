@@ -59,6 +59,20 @@ describe('agent loop', () => {
     },
   )
 
+  it('seeds a valid AgentOptions.maxTokens into the first model request', async () => {
+    const adapter = new MockAdapter([textResponse('bounded')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(
+      SessionId('valid-max-tokens'),
+      { provider: 'mock', model: 'mock', maxTokens: 256 },
+    )
+
+    send(agent, 'use the configured output limit')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]?.maxTokens).toBe(256)
+  })
+
   it('runs a simple turn: queued message → model → idle, with ordered events', async () => {
     const adapter = new MockAdapter([textResponse('hello there')])
     const ctx = await harness(adapter)
@@ -1207,8 +1221,9 @@ describe('agent loop', () => {
 
     const replayed = ctx.sessions.create(SessionId('replayed'), { seed: [...agent.session.events] })
     expect(replayed.deriveMessages()).toEqual(agent.session.deriveMessages())
-    // event-by-event identity of types
-    expect(replayed.events.map(e => e.type)).toEqual(
+    // event-by-event identity of types over the inherited prefix
+    expect(replayed.events.slice(0, agent.session.seq).map(e => e.type)).toEqual(
       agent.session.events.map(e => e.type))
+    expect(replayed.events.at(-1)?.type).toBe('session/end-seed')
   })
 })

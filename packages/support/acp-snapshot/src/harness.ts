@@ -156,6 +156,13 @@ export interface RunOptions {
    */
   workspaceDir?: string
   /**
+   * Optional final workspace preparation, run after {@link workspaceDir} is
+   * copied and before the agent starts. This is for fixtures that cannot be
+   * represented portably in Git (for example, a POSIX-only filename that is
+   * invalid on Windows); ordinary seeded files belong in `workspaceDir`.
+   */
+  prepareWorkspace?: (cwd: string) => void | Promise<void>
+  /**
    * Parent directory for the generated session cwd. Defaults to
    * `os.tmpdir()`. A scenario that must distinguish its workspace from the
    * sandbox's always-writable temporary roots can place the generated child
@@ -221,6 +228,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     if (opts.workspaceDir !== undefined && existsSync(opts.workspaceDir)) {
       await cp(opts.workspaceDir, cwd, { recursive: true })
     }
+    await opts.prepareWorkspace?.(cwd)
     const env: NodeJS.ProcessEnv = {
       ...opts.env,
       DSH_SNAPSHOT: opts.mode,

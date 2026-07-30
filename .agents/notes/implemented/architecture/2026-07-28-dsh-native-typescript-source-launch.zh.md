@@ -20,9 +20,9 @@ Cordis 配置还引入了另一条解析边界。`cordis.yml` 中的 bare plugin
 
 `scripts/tspath-loader.ts` 只注册一个模块 resolve hook。设置 `TSX_TSCONFIG_PATH` 时，它会使用该路径（相对路径从调用方的 cwd 解析），否则读取根 `tsconfig.json`；`TsconfigPathsResolver` 使用仓库已有的 TypeScript 开发工具沿该配置的 `extends` 链解析，按 tsconfig 规则选择精确或 wildcard `paths` 条目，并将命中的 workspace bare specifier 映射到 `.ts`/`.mts`/`.cts` 源文件或目录 index 文件。代码转换始终只由 Node 负责。该源码专用 loader 不属于构建后的 CLI，`apps/cli` 也不会把 `typescript` 声明为运行时依赖。
 
-只有当目标包是最近 package manifest 的自身名称或其已声明的运行时依赖时，源码 import 才会重定向。Cordis Loader 使用配置目录 URL 作为 import parent；此时 resolver 会向上查找声明该插件的 workspace manifest。因此，`examples/tui-agent/cordis.yml` 的依赖由 `examples/package.json` 持有，`apps/cli/cordis.yml` 的依赖由 `apps/cli/package.json` 持有。未命中 tsconfig paths、引用未声明依赖或不是 bare specifier 的说明符全部交回 Node 默认解析。
+只有当目标包是最近 package manifest 的自身名称或其已声明的运行时依赖时，源码 import 才会重定向。Cordis Loader 使用配置目录 URL 作为 import parent；此时 resolver 会向上查找声明该插件的 workspace manifest。因此，已交付的 `apps/cli/config/base.cordis.yml` 及其界面覆盖层所需依赖由 `apps/cli/package.json` 持有。未命中 tsconfig paths、引用未声明依赖或不是 bare specifier 的说明符全部交回 Node 默认解析。
 
-`verify-cordis-config` 对这两个解析方 manifest 执行单向完整性检查：配置中的每个 bare plugin package 都必须出现在对应 manifest 的 `dependencies` 中，manifest 可以包含该配置未引用的额外依赖。根 `AGENTS.md` 将同步更新配置和依赖定为常驻规则。
+`verify-cordis-config` 对该解析方 manifest 执行单向完整性检查：配置中的每个 bare plugin package 都必须出现在对应 manifest 的 `dependencies` 中，manifest 可以包含该配置未引用的额外依赖。根 `AGENTS.md` 将同步更新配置和依赖定为常驻规则。
 
 Loader 完成结算后，共享的 `dsh-app-boot` 会检查每个已启用但没有 fiber 的 entry，并以 `plugin(s) failed to load: ...; Cordis startup failed because these plugin(s) could not be resolved` 拒绝启动，同时列出全部加载失败的插件。该诊断位于应用层，不改变 vendor 中 Loader 的启动行为。
 

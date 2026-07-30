@@ -29,9 +29,20 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 const SID = 's1' as SessionId
 
-afterEach(cleanup)
+/** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 beforeEach(() => {
   localStorage.clear()
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
 const TODOS: TodoItem[] = [
@@ -97,7 +108,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     const view = runtime.renderRoot()
 
     // Keyed toolview registration took the row (summary derived from args).
-    const row = view.container.querySelector('[data-sample="todo-row"]')
+    const row = view.container.querySelector('[data-tool="todo_write"]')
     expect(row).not.toBeNull()
     expect(row!.textContent).toContain('1/3 已完成 · 实现 fixture 样本')
 
@@ -117,7 +128,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     await waitFor(() => {
       expect(view.container.querySelector('[data-testid="todo-panel"]')).toBeNull()
     })
-    expect(view.container.querySelector('[data-sample="todo-row"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-tool="todo_write"]')).not.toBeNull()
     await runtime.dispose()
   })
 })

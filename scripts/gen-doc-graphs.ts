@@ -605,11 +605,11 @@ function stripYamlScalar(value: string): string {
 const APP_EXAMPLES = [
   {
     id: 'tui',
-    rel: 'examples/tui-agent/composition.md',
+    rel: 'apps/cli/composition.md',
     title: 'TUI Agent App Composition',
-    label: 'examples/tui-agent',
-    config: 'examples/tui-agent/cordis.yml',
-    summary: 'The TUI agent combines the real DeepSeek adapter, coding tools, compaction, subagents, and workflows with the full-screen terminal app package.',
+    label: 'apps/cli/config',
+    config: 'apps/cli/config/base.cordis.yml',
+    summary: 'The TUI surface combines the shared CLI base with its surface overlay and full-screen terminal package.',
   },
   {
     id: 'headless',
@@ -618,14 +618,6 @@ const APP_EXAMPLES = [
     label: 'examples/headless-agent',
     config: 'examples/headless-agent/cordis.yml',
     summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
-  },
-  {
-    id: 'cordis',
-    rel: 'examples/cordis-agent/composition.md',
-    title: 'Cordis Agent App Composition',
-    label: 'examples/cordis-agent',
-    config: 'examples/cordis-agent/cordis.yml',
-    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its current-process runtime and mount or unmount in-memory temporary Plugins.',
   },
   {
     id: 'acp',

@@ -1,29 +1,25 @@
-/* GoalBar: the goal strip docked above the composer card. The dock mirrors
-   InputBar's horizontal geometry (32px side padding, 776px centered cap)
-   plus the mock's 12px inset, so the bar's edges land 12px inside the
-   composer card's edges in both the capped and the squeezed regimes. The
-   negative bottom margin eats InputBar's 8px top padding and tucks the
-   bar's square bottom edge 2px under the composer card's top edge (the
-   card, later in DOM order, paints over it). All states share one fixed
-   38px height so switching between them never resizes the strip. */
+/* GoalBar: the first standalone card in the composer context stack (Figma
+   9:939). Its 752px column matches Todo and the Queue panel. */
 
 .dock {
+  box-sizing: border-box;
+  width: 100%;
   padding: 0 44px;
 }
 
 .bar {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
-  box-sizing: border-box;
+  gap: 10px;
+  width: 100%;
   max-width: 752px;
-  height: 38px;
-  margin: 0 auto -10px;
-  padding: 0 14px;
-  border-radius: 14px 14px 0 0;
-  /* Translucent hover gray doubles as the mock's #F5F6F7 over the white
-     base and lifts the strip off the composer card in dark mode. */
-  background: var(--dsw-alias-interactive-bg-hover);
+  height: 36px;
+  margin: 0 auto;
+  padding: 4px 5px 4px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 14px;
+  background: var(--dsw-specific-tip);
 }
 
 .sparkle {
@@ -36,8 +32,8 @@
   flex: none;
   font-size: 13px;
   line-height: 20px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary-dimmed);
 }
 
 .objective {
@@ -46,7 +42,7 @@
   overflow: hidden;
   font-size: 13px;
   line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-primary-dimmed);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -91,7 +87,7 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: none;
 }
 
@@ -99,11 +95,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: var(--dsw-alias-label-tertiary);
   cursor: pointer;
