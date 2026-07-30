@@ -18,7 +18,7 @@ import { Service } from 'cordis'
 import type { Context } from 'cordis'
 import { SlotCore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
-  OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
+  LocaleFace, OwnerOf, SlotEntryDef, SlotMap, SlotRenderer, SlotRendererHost,
   SlotScope, SlotSpec, StoreDecl, StoredEntry, StoreInstanceLike,
 } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -70,6 +70,8 @@ interface ErasedRegisterOptions {
   select?: (owner: never) => unknown
   /** Chain-slot explicit ordering override (ascending; registration order otherwise). */
   priority?: number
+  /** Declared dictionary namespace (the renderer synthesizes the `t` seat from it). */
+  locale?: string
   registrant?: string
 }
 
@@ -82,6 +84,7 @@ export class SlotsService extends Service {
   /** Store-instance axis: handle -> mounted scope, refcount, resolved instances. */
   private readonly _stores = new Map<EngineStoreHandle, StoreAxisRecord>()
   private _renderer: SlotRenderer | undefined
+  private _locale: LocaleFace | undefined
   private _host: SlotRendererHost | undefined
 
   /**
@@ -125,6 +128,23 @@ export class SlotsService extends Service {
         if (this._renderer === renderer) this._renderer = undefined
       }
     }, 'slots.install()')
+  }
+
+  /**
+   * Install the locale face backing the `t` standard seat (the locale
+   * plugin's product; same boot-once discipline as the renderer install).
+   * Runs through the caller's ctx.effect, so the installing fiber's unload
+   * uninstalls the face.
+   * @param face - namespace binder + revision observable.
+   */
+  installLocale(face: LocaleFace): void {
+    if (this._locale !== undefined) throw new Error('locale face already installed (installLocale() is boot-once)')
+    this.ctx.effect(() => {
+      this._locale = face
+      return () => {
+        if (this._locale === face) this._locale = undefined
+      }
+    }, 'slots.installLocale()')
   }
 
   /**
@@ -246,6 +266,12 @@ export class SlotsService extends Service {
     if (workspaces === undefined) {
       throw new Error("renderSlot('root') before the workspaces service mounted — boot order puts runtime apply first")
     }
+    // `locale` is a live getter: the face installs (and, under HMR, swaps)
+    // on the locale plugin's own fiber lifetime, while this host object is
+    // built once — a captured value would strand renders on a dead face. The
+    // alias is required: `this` inside the getter is the host literal.
+    // oxlint-disable-next-line typescript/no-this-alias
+    const service = this
     this._host = {
       subscribe: (key, fn) => this._core.subscribe(key, fn),
       getVersion: key => this._core.getVersion(key),
@@ -259,6 +285,7 @@ export class SlotsService extends Service {
         provideInfo: sessions.currentProvideInfo,
       },
       workspaces: { list: workspaces.list },
+      get locale() { return service._locale },
     }
     return this._host
   }
