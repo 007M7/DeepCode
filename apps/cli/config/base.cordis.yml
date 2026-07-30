@@ -156,9 +156,6 @@
 - id: command-compact
   name: '@deepseek-ai/dsh-command-compact'
 
-# Expose fresh-child `spawn` and completed-prefix `fork` through independent
-# in-process backends. Each tool instance needs a distinct `toolName`; the registry
-# rejects duplicates. These leaves follow the app because it provides `ctx.agents` and `ctx.tools`.
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 

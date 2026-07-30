@@ -116,6 +116,37 @@ describe('inspectRequests', () => {
     }
   })
 
+  it('interrupts an orphaned compaction at end-seed before projecting a new attempt', () => {
+    const snapshot = inspectRequests(entriesOf([
+      at(0, 'compact/start', { turn: null }),
+      at(1, 'session/end-seed', {}),
+      at(2, 'compact/start', { turn: null }),
+      at(3, 'compact/summary', {
+        summary: [{ type: 'text', text: 'replacement summary' }],
+        provider: 'fake',
+        model: 'compact-model',
+      }),
+      at(4, 'compact/end', { turn: null }),
+    ]))
+
+    expect(snapshot.requests).toMatchObject([
+      {
+        purpose: 'compaction',
+        startSeq: 0,
+        status: 'error',
+        completedAt: 1_700_000_000_001,
+        error: 'Compaction was interrupted before completion.',
+      },
+      {
+        purpose: 'compaction',
+        startSeq: 2,
+        status: 'complete',
+        completedAt: 1_700_000_000_004,
+        summary: [{ type: 'text', text: 'replacement summary' }],
+      },
+    ])
+  })
+
   it('captures schemas for nested tool dispatches from the active request header', () => {
     const snapshot = inspectRequests(entriesOf([
       at(0, 'request/header', {

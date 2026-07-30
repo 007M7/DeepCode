@@ -506,7 +506,7 @@ abstract compactRegion( start: number, end: number, agent: CompactAgentContext, 
 
 Types: [CompactionResult](../core-data-structures/compaction.md) · [CompactionTrigger](../core-data-structures/compaction.md)
 
-Source: [`packages/compact/compact/src/index.ts:76`](../../packages/compact/compact/src/index.ts)
+Source: [`packages/compact/compact/src/index.ts:80`](../../packages/compact/compact/src/index.ts)
 
 ## `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
 

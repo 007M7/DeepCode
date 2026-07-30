@@ -24,13 +24,17 @@ export type CompactionTrigger = 'pressure' | 'context-overflow'
 /** Expected failure classes for an explicit idle-session compaction request. */
 export type ManualCompactionErrorCode = 'busy' | 'changed' | 'summary' | 'commit' | 'persistence'
 
-/** Expected manual-compaction failure suitable for a direct human-command result. */
+/**
+ * Expected manual-compaction failure suitable for a direct human-command result.
+ * Shared durable-lock entry assertions may also throw the `busy` subtype from
+ * automatic compaction paths.
+ */
 export class ManualCompactionError extends Error {
   override readonly name = 'ManualCompactionError'
 
   /**
-   * Create one classified manual-compaction failure.
-   * @param code - stable failure class for a human-command consumer.
+   * Create one classified compaction failure.
+   * @param code - stable failure class; `busy` may originate from any compaction entry path.
    * @param message - backend diagnostic retained as the Error message.
    * @param options - optional original failure.
    */

@@ -367,6 +367,15 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
     }
 
     const type = sourceEvent.type as string
+    if (type === 'session/end-seed' && activeCompaction !== undefined) {
+      updateCompaction(activeCompaction, {
+        completedAt: sourceEvent.time,
+        status: 'error',
+        error: 'Compaction was interrupted before completion.',
+      })
+      activeCompaction = undefined
+      continue
+    }
     if (type === 'compact/start') {
       const event = sourceEvent as unknown as CompactionStartEvent
       activeCompaction = requests.length

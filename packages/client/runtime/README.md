@@ -28,7 +28,7 @@ Because the projection is log-ordered, the node array is seq-monotonic by constr
 
 ## Request inspection
 
-`SessionHistoryInspection.requests` is one chronological, purpose-discriminated provider-request stream. Assistant requests always carry their numeric `turn` and `step`; compaction requests carry `step: 0` and a `turn` owner that may be `null`. That null owner means a manual compaction ran standalone between turns, not that it belongs to either adjacent turn.
+`SessionHistoryInspection.requests` is one chronological, purpose-discriminated provider-request stream. Assistant requests always carry their numeric `turn` and `step`; compaction requests carry `step: 0` and a `turn` owner that may be `null`. That null owner means a manual compaction ran standalone between turns, not that it belongs to either adjacent turn. A `session/end-seed` boundary closes an unmatched compaction request as an error at the boundary time with `Compaction was interrupted before completion.`; a later start projects as an independent request instead of overwriting the orphan.
 
 ## Code Mode sub-dispatch index
 

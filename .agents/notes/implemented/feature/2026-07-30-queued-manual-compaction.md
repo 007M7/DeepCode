@@ -20,6 +20,8 @@ This note extends the [compaction capability seam](2026-06-18-compaction-capabil
 
 `@deepseek-ai/dsh-command-compact` registers one argument-free human command through `ctx.commands`. It calls the third abstract `CompactService` operation, `compactNow(agent, signal)`, and maps the closed `ManualCompactionError` taxonomy (`busy | changed | summary | commit | persistence`) to direct UI results. `command/run` and `command/done` preserve the command lifecycle without entering model history or consuming a model-loop turn.
 
+The command plugin tracks each real handler promise independently of the command executor's abort-aware wait. Its composite lifecycle effect unregisters `/compact` before asynchronously draining handlers that already started, so root teardown reaches quiescence only after backend close and flush work settles.
+
 The seam's `ManualCompactAgentContext` adds only `reserveTurnAdmission()` to the session and routing facts compaction already needs. Retention, balancing, summarization, marker ordering, replacement, and durability remain backend responsibilities.
 
 ### Idle turn admission is synchronously reservable
@@ -67,6 +69,8 @@ Tail scanning finds the current turn, unmatched compaction start, and newest `se
 
 The compaction invariant uses the same transition logic during seed replay: `session/end-seed` clears an open historical trace. The boundary need not publish live from the constructor for this case; replay is the load-bearing path.
 
+The client request projection closes an unmatched compaction request as interrupted at the `session/end-seed` time and clears its active index. A later `compact/start` therefore creates an independent request instead of leaving or overwriting a permanently running orphan.
+
 Once a transaction has appended its start, every later failure makes one closing attempt. A failed close leaves the unmatched start deliberately visible and blocking, and no flush is attempted. A closed manual attempt is flushed even when it reports an expected failure. Cancellation retains exact-reason precedence after required close and flush cleanup.
 
 ### Reference implementation boundaries
@@ -95,7 +99,7 @@ That reference also carried client-side replacement-anchor machinery to preserve
 
 Agent-loop tests cover same-tick right of way, preserved IDs and FIFO lifecycle, waking and quiet queued work, idempotent release, `whenIdle()`, cancellation, and teardown. Compact tests cover standalone and numbered invariant ownership, end-seed replay, live versus stale orphans, re-entrant listeners, selected-span drift, commit and close failures, flush ordering, exact cancellation causes, raw output and usage preservation, and automatic/manual mutual exclusion.
 
-The command package pins registration, Loader composition, argument rejection, exact success/failure text, cancellation, and absence from model history. The `queued-manual-compact` terminal snapshot drives real keystrokes through the assembled TUI: `/help` discovers the command, a held summary admits a queued prompt and immediate injection, `turn: null` markers and the flush precede the queued prompt turn, command lifecycle stays log-only, and the derived order is checkpoint → injection → queued prompt.
+The command package pins registration, Loader composition, argument rejection, exact success/failure text, cancellation, absence from model history, and disposal waiting across separate close and flush boundaries after an abort stops the executor from awaiting the handler. The client runtime projection test pins end-seed interruption followed by an independent completed attempt. The `queued-manual-compact` terminal snapshot drives real keystrokes through the assembled TUI: `/help` discovers the command, a held summary admits a queued prompt and immediate injection, `turn: null` markers and the flush precede the queued prompt turn, command lifecycle stays log-only, and the derived order is checkpoint → injection → queued prompt.
 
 ## Consequences
 
