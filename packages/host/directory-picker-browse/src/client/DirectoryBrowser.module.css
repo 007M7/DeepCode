@@ -159,19 +159,6 @@
   padding: 16px 16px 16px 24px;
 }
 
-/* The slow-scan indicator floats over the content's bottom-left on the card
- * background instead of occupying a row: a scan must never shift the
- * columns' height, and the stale view keeps rendering beneath it (it only
- * appears at all once a scan outlives SLOW_SCAN_DELAY_MS). */
-.loadingFloat {
-  position: absolute;
-  left: 24px;
-  bottom: 8px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2);
-}
-
 /* Columns split the row evenly around the divider (a solo column takes the
  * whole row); 256px is the floor below which the row scrolls (scrollbar
  * hidden, the effect pins the child pane into view) instead of squeezing
@@ -265,6 +252,23 @@
 
 .error {
   color: var(--dsw-alias-state-error-primary);
+}
+
+/* The slow-scan indicator floats over the content's bottom-RIGHT corner on
+ * the card background instead of occupying a row: a scan must never shift
+ * the columns' height, and the stale view keeps rendering beneath it (it
+ * only appears at all once a scan outlives SLOW_SCAN_DELAY_MS). Right,
+ * not left: the truncated/error status rows flow at the bottom LEFT and
+ * stay on screen through a scan, so the opposite corner keeps both
+ * legible. After .status in the cascade — the element carries both
+ * classes and this padding must win the same-specificity race. */
+.loadingFloat {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 /* Footer: l3 separator on top, symmetric padding so the row sits vertically
