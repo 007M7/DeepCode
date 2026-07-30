@@ -282,7 +282,7 @@ export class PtyService extends Service {
    * @param reason - diagnostic cleanup reason.
    * @returns true for a newly closed session, false when the same close is already in flight.
    */
-  async kill(owner: Agent, id: PtySessionId, reason = 'model request'): Promise<boolean> {
+  async kill(owner: Agent, id: PtySessionId, reason: string = 'model request'): Promise<boolean> {
     const record = this.expectOwned(owner, id)
     if (record.closing !== undefined) {
       await record.closing

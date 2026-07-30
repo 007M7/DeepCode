@@ -601,7 +601,7 @@ function backscanGoal(log: readonly SessionEvent[]): FxGoalProjection | null {
     const source = event.data?.source
     if (source?.kind !== 'goal' || source.round !== 0) continue
     const change = source.change
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     if (change === undefined || change.kind !== 'goal/change') continue
     if (change.operation === 'clear') return null
     return { goal: change.goal, roundsStarted: change.roundsStarted, createdAt: change.createdAt, updatedAt: change.updatedAt }

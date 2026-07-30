@@ -238,6 +238,20 @@ export class TestSessions implements ISessions {
   }
 
   /**
+   * Update a session's list row (the wire-echo stand-in: title settles,
+   * running flips — components subscribed via useSessions re-render).
+   * @param id - session id.
+   * @param patch - summary fields to merge over the row.
+   */
+  async updateSummary(id: string, patch: Partial<Omit<SessionSummary, 'id'>>): Promise<void> {
+    const record = this.require(id)
+    record.summary = { ...record.summary, ...patch }
+    await this.stabilize(() => {
+      this.list.update((draft) => { draft.byId[id as SessionId] = record.summary })
+    })
+  }
+
+  /**
    * Switch the current selection (undefined = the no-session empty state).
    * @param id - session id to select, or undefined to clear.
    */

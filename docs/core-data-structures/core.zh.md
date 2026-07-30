@@ -485,7 +485,10 @@ type AgentCancelCause =
 `Agent` 是覆盖公开活跃 agent 契约的接口。具体驱动器拥有 `followup`/`steer`/`inject` 别名方法，并将它们经由 `send` 的（`target` × `wakeup`）矩阵路由。
 
 ```ts type-equiv
-/** Public live-agent handle with aliases over the unified delivery primitive. */
+/**
+ * Public live-agent handle with aliases over the unified delivery primitive.
+ * @typert object
+ */
 interface Agent {
   /** The single identity shared with {@link session}. */
   readonly id: SessionId
