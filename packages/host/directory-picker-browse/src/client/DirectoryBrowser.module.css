@@ -13,6 +13,12 @@
   height: min(500px, calc(100dvh - 32px));
   padding: 0;
   gap: 0;
+  /* The Modal card is an l2 surface and the columns below scroll on it:
+   * rebind the scrollbar indirection to the elevation pair here, on the
+   * surface, so it inherits down to whichever descendant scrolls (the
+   * rebinding contract in ui-theme styles/scrollbar.css). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 /* Card-scope wrapper hosting the path editor's Escape and focus-leave
