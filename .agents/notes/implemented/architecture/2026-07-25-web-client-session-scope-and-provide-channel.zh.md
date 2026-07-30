@@ -90,10 +90,10 @@ session slot 组件「自己拿 session 数据」的唯一供数路径。插件�
 slot scope 是闭集 `root | session-maybe | session`：
 
 - `root` 只拿全局标准件，不接收 session 身份或供数。
-- `session-maybe` 跟随 current session，但组件实例不因 id 有无或切换而换 key；无 session 时 `sessionId`、`useSession`/`useInput` 的选择结果及 `inputActions` 均可缺省。根部无 key 的 `SessionMaybeProvider` 通过订阅 runtime 的原子 `currentProvide` 投影驱动这条更新——选择移动与 provider 名册变化经同一 source 发布，current id 不变时的名册变化也会重发已挂载 bundle，而不是把 entry 困在过期的 hook/prop 形状上——`SessionMaybeProvideInfo` 靠静态键表在无 session 时仍保留完整 hook/prop 形状。
+- `session-maybe` 以**收养（adoption）身份语义**跟随 current session（唯一行为——不存在「永久保持实例」模式）：空态出生的化身在**第一个** session 到来时保持 React 实例（空壳收养它——不重挂，DOM 存活）；此后行为与严格 session entry 完全一致——切到不同 session 重挂，跌回无 session 也重挂为崭新的空态化身（之后再次收养）。因此组件本地的 per-session 状态**由构造保证**随切换清零；需要活过切换的状态必须住 session 绑定的源（machine、store、hooks）。无 session 时 `sessionId`、`useSession`/`useInput` 的选择结果及 `inputActions` 均可缺省。根部无 key 的 `SessionMaybeProvider` 通过订阅 runtime 的原子 `currentProvide` 投影驱动这条更新——选择移动与 provider 名册变化经同一 source 发布，current id 不变时的名册变化也会重发已挂载 bundle，而不是把 entry 困在过期的 hook/prop 形状上——`SessionMaybeProvideInfo` 靠静态键表在无 session 时仍保留完整 hook/prop 形状；逐 entry 的收养记账（化身计数 key）住在 renderer 的 `SessionMaybeEntry`。
 - `session` 保证 `sessionId`、所有 hook source 与 props 均存在；每个严格 entry 的错误边界以 `sessionId` 为 key，切换 session 会重建该 entry 及其 session store。
 
-`conversation` 是 `session-maybe` 的常驻外壳：`ConversationRoot`、HeroShell、Workspace picker、composer stack 与 overlay chain 的 fallback 外框在无 session → blank session 的切换中保持 React 实例；`conversation.session` 只承载严格 session 的 header/view，composer 与各输入 slot 也保持严格 `session`。无 session 时 composer stack 直接放纯展示的 `DisabledInputBar`，session 出现后把输入体换成严格绑定的 InputBar；textarea 允许重建，Hero 与布局骨架不重建。blank → engaging/active 仍在同一严格 session subtree 内，InputBar 不因 phase 翻转而重建。
+`conversation` 是 `session-maybe` 的常驻外壳：`ConversationRoot`、HeroShell、Workspace picker、composer stack 与 overlay chain 的 fallback 外框在无 session → blank session 的切换中保持 React 实例；`conversation.session` 只承载严格 session 的 header/view。composer bar（`conversation.composer.bar`）本身即为 `session-maybe`：无 session 时以惰性态渲染（machine face 缺席、`disabled` owner prop），session 出现后同一实例（含 textarea）转为 live；其余输入 slot 保持严格 `session`，在此之前不分发任何条目。blank → engaging/active 的 InputBar 不因 phase 翻转而重建。
 
 - runtime 内建第一条：`'session'` hook——`useSession` 本身走同一机制，无特判。
 - Concurrent 纪律：渲染平面只从 hooks 格读（uSES 一致性保证）；props 格回调只在事件 handler 空间用；描述符解析 render-safe（幂等缓存、废弃渲染残留由 prune 收尸）。
