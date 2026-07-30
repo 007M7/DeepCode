@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HoverCard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { POINTER_GRACE_MS } from '../src/pointer-grace.ts'
 
 afterEach(cleanup)
 beforeEach(() => { vi.useFakeTimers() })
@@ -54,16 +55,45 @@ describe('HoverCard', () => {
     expect(screen.queryByText('card body')).toBeNull()
   })
 
-  it('pointerleave closes an open card immediately; re-enter restarts the dwell', () => {
+  it('pointerleave closes an open card a grace later; re-enter after that restarts the dwell', () => {
     const { wrapper } = mount()
     fireEvent.pointerEnter(wrapper)
     act(() => { vi.advanceTimersByTime(500) })
     expect(screen.getByText('card body')).toBeTruthy()
     fireEvent.pointerLeave(wrapper)
+    act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS - 1) })
+    expect(screen.getByText('card body')).toBeTruthy()
+    act(() => { vi.advanceTimersByTime(1) })
     expect(screen.queryByText('card body')).toBeNull()
     fireEvent.pointerEnter(wrapper)
     act(() => { vi.advanceTimersByTime(500) })
     expect(screen.getByText('card body')).toBeTruthy()
+  })
+
+  it('reaching the card inside the grace keeps it open without restarting the dwell', () => {
+    // The portaled card is a React child of the wrapper, so the pointer
+    // arriving on it re-enters the wrapper — the gesture the 8px anchor gap
+    // used to make impossible.
+    const { wrapper } = mount()
+    fireEvent.pointerEnter(wrapper)
+    act(() => { vi.advanceTimersByTime(500) })
+    fireEvent.pointerLeave(wrapper)
+    act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS - 50) })
+    fireEvent.pointerEnter(wrapper)
+    act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS * 10) })
+    expect(screen.getByText('card body')).toBeTruthy()
+  })
+
+  it('re-entering while open does not queue a second dwell', () => {
+    const { wrapper } = mount()
+    fireEvent.pointerEnter(wrapper)
+    act(() => { vi.advanceTimersByTime(500) })
+    fireEvent.pointerEnter(wrapper)
+    fireEvent.pointerLeave(wrapper)
+    act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS) })
+    // A dwell restarted by the redundant enter would reopen the card here.
+    act(() => { vi.advanceTimersByTime(500) })
+    expect(screen.queryByText('card body')).toBeNull()
   })
 
   it('a press inside the anchor dismisses the card without waiting for disabled', () => {
@@ -135,6 +165,7 @@ describe('HoverCard', () => {
     expect(card.style.left).toBe('308px')
     expect(card.style.top).toBe('90px')
     fireEvent.pointerLeave(wrapper)
+    act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS) })
     expect(screen.queryByText('card body')).toBeNull()
   })
 

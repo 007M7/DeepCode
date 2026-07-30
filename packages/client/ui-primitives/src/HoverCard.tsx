@@ -1,18 +1,24 @@
 // HoverCard: delayed hover-preview card portaled to document.body.
 // Same portal mechanics as Menu: the wrapper span supplies the anchor rect,
 // the card is fixed-positioned at its right edge and repositions on
-// scroll/resize while open. Display-only — the card ignores pointer events
-// and closes the instant the pointer leaves the anchor (no close delay).
+// scroll/resize while open. The card is reachable: it takes pointer events,
+// and leaving the anchor only arms a grace-delayed close, so the pointer can
+// cross the 8px gap and settle on the card to read a clipped path or title.
+// The portaled card is a React child of the wrapper, so React's enter/leave
+// traversal already treats it as inside — one pair of wrapper handlers covers
+// anchor and card alike.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { usePointerGrace } from './pointer-grace.ts'
 import css from './HoverCard.module.css'
 
 /**
  * Render an anchor with a hover-triggered preview card.
  * @param props.anchor - the hover target (rendered in place inside a wrapper span).
- * @param props.content - card content (display-only, no pointer interaction).
+ * @param props.content - card content; the pointer may rest on it, so it is
+ * readable and selectable, but it carries no dismissal affordance of its own.
  * @param props.openDelayMs - hover dwell before the card shows (default 500).
  * @param props.disabled - suppress opening; turning true closes an open card.
  * @returns anchor wrapper with the conditional portaled card.
@@ -29,6 +35,8 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
+  const { arm: armClose, cancel: cancelClose } = usePointerGrace(() => { setOpen(false) })
+
   const clearTimer = () => {
     if (timerRef.current !== null) {
       clearTimeout(timerRef.current)
@@ -40,8 +48,9 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
   useEffect(() => {
     if (!disabled) return
     clearTimer()
+    cancelClose()
     setOpen(false)
-  }, [disabled])
+  }, [disabled, cancelClose])
 
   useEffect(() => clearTimer, [])
 
@@ -91,17 +100,22 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
       className={css.root}
       onPointerEnter={() => {
         if (disabled) return
+        // Coming back inside during the grace (the gap, or the card itself)
+        // keeps the current card rather than restarting the dwell.
+        cancelClose()
+        if (open) return
         clearTimer()
         timerRef.current = setTimeout(() => { setOpen(true) }, openDelayMs)
       }}
       onPointerLeave={() => {
         clearTimer()
-        setOpen(false)
+        armClose()
       }}
       // Any press inside the anchor (row click, menu trigger) dismisses the
       // card immediately, without waiting for the owner to flip `disabled`.
       onPointerDownCapture={() => {
         clearTimer()
+        cancelClose()
         setOpen(false)
       }}
     >
