@@ -502,7 +502,10 @@ export class ToolCardComponent implements Component {
       // rather than under the dim result-output color.
       return { prelude: [...hunks, footer], lines: [] }
     }
-    const content = view.content ?? this.result?.content
+    // The web card carries no `content` copy, so a `web` result view falls back
+    // to the raw result content here (`view.card === 'generic'` narrows the union,
+    // mirroring line 392).
+    const content = (view.card === 'generic' ? view.content : undefined) ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
     // The presenter title headlines the body now that the header is a fixed

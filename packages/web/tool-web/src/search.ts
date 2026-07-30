@@ -88,36 +88,27 @@ export function presentSearchCall(args: { query: string }): GenericCallView {
  * The `web_search` tool's private `tool/result` `meta` payload: the structured
  * sources, the optional provider answer, and the truncation flag. Attached
  * opaquely (as `JsonValue`) on the tool result and persisted with the session
- * log, so `presentResult` reproduces the search card on replay. The render text
- * is lossy — its markdown source list collapses each source's title, snippet,
- * and date into one free-text line labelled by title OR hostname — so reparsing
- * that text cannot recover the per-source fields; this projection is the only
- * faithful route to them.
+ * log, so `presentResult` reproduces the search card on replay. This projection
+ * is the only faithful route to the per-source fields, which the lossy render
+ * text cannot carry (the owning rationale is the web-result-card Agent Note).
  */
 export interface WebSearchMeta {
   /** The faithful structured sources, in result order. */
   sources: WebSource[]
-  /** True when the tool cut the source list to its result cap. */
+  /** True when the seam cut the source list to honor the result cap. */
   truncated: boolean
   /** The provider-generated answer text, when any. */
   answer?: string
-}
-
-/** The `web_search` canonical output value projected into presentation meta. */
-type WebSearchValue = {
-  content?: string
-  sources: readonly WebSource[]
-  truncated: boolean
 }
 
 /**
  * Project a validated `web_search` output value into its replayable
  * presentation meta ({@link WebSearchMeta} as opaque JSON).
  *
- * @param value - the canonical `web_search` output value.
+ * @param value - the canonical `web_search` output value (the seam's result shape).
  * @returns the structured sources, the truncation flag, and the answer when present.
  */
-export function searchMetaFromValue(value: WebSearchValue): JsonValue {
+export function searchMetaFromValue(value: WebSearchResult): JsonValue {
   return {
     sources: value.sources.map(source => ({
       url: source.url,
@@ -163,24 +154,27 @@ export function searchMetaFromResult(meta: unknown): WebSearchMeta | undefined {
 
 /**
  * Completed-call presentation: a `web` search card carrying the faithful
- * structured sources from `meta` alongside the model-facing text as fallback
- * content.
+ * structured sources from `meta`. It sets no `content` copy — a UI without the
+ * `web` capability falls back to the raw `tool/result` content, which is the
+ * same text (see the web-result-card Agent Note).
  *
+ * @param args - the raw tool arguments; `query` becomes the result-state title so
+ *   a window-truncated replay that dropped the call head still has one.
  * @param result - the final model-facing tool result; `meta` carries the sources.
  * @returns the search result view, or `undefined` (generic card) on failure or
  *   malformed meta.
  */
-export function presentSearchResult(result: ToolResult): WebSearchResultView | undefined {
+export function presentSearchResult(args: { query: string }, result: ToolResult): WebSearchResultView | undefined {
   if (result.isError) return undefined
   const meta = searchMetaFromResult(result.meta)
   if (meta === undefined) return undefined
   return {
     card: 'web',
     kind: 'search',
+    title: args.query,
     sources: meta.sources,
     truncated: meta.truncated,
     ...meta.answer !== undefined ? { answer: meta.answer } : {},
-    content: result.content,
   }
 }
 
@@ -254,6 +248,6 @@ export function applyWebSearchTool(ctx: Context, maxResults: number, timeoutMs: 
       }
     },
     presentCall: presentSearchCall,
-    presentResult: (_args, result) => presentSearchResult(result),
+    presentResult: (args, result) => presentSearchResult(args, result),
   }))
 }
