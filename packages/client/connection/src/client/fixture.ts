@@ -397,7 +397,7 @@ function presentResult(name: string, argsRaw: string, resultText: string): ToolR
   // so `call.card` alone does not distinguish it from edit/write.
   if (name === 'read') {
     return {
-      card: 'read', path: READ_SAMPLE_PATH, lines: READ_SAMPLE_LINES,
+      card: 'read', path: READ_SAMPLE_PATH, offset: READ_SAMPLE_FIRST_LINE, lines: READ_SAMPLE_LINES,
       totalLines: READ_SAMPLE_TOTAL, lang: 'ts', content: text(resultText),
     }
   }

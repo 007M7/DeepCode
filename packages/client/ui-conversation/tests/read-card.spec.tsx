@@ -46,7 +46,7 @@ const sampleLines = [
 
 /** The read tool's own result view for a settled file read. */
 const resultRead = (over?: Partial<Extract<ToolResultView, { card: 'read' }>>): ToolResultView => ({
-  card: 'read', path: 'src/a.ts', lines: sampleLines, totalLines: 180, lang: 'ts', ...over,
+  card: 'read', path: 'src/a.ts', offset: 41, lines: sampleLines, totalLines: 180, lang: 'ts', ...over,
 })
 
 const running = (over?: Partial<RunningToolCall>): RunningToolCall => ({
