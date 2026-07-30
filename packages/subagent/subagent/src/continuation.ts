@@ -156,11 +156,22 @@ interface Activation {
   poke: PromiseWithResolvers<void>
 }
 
+/** Inputs shared by fresh and resumed Activation materialization. */
+interface MaterializeInputs {
+  childId: SessionId
+  provider: string
+  parent: Agent
+  /** Creation inputs; absent for a cold resume, which loads the persisted session. */
+  create?: { seed: readonly SessionEvent[]; meta: NonNullable<CreateAgentOptions['meta']> }
+  agentOptions: AgentOptions
+  composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
+  signal: AbortSignal
+}
+
 /**
  * Read one Activation's current disposal transaction. This indirection exists
- * because a mutable field read inside a long-lived closure narrows to its
- * last-seen value, which would flatten these genuine runtime checks to
- * constants.
+ * because TypeScript would otherwise narrow repeated reads of the mutable field
+ * inside a long-lived closure to constants instead of re-reading runtime state.
  * @param activation - the Activation to inspect.
  * @returns the in-flight or settled disposal, or `undefined` while resident.
  */
@@ -206,6 +217,8 @@ class ChildLock {
 export class SubagentContinuationManager {
   /** Child session id → its live Activation. Process-local, never durable. */
   private activations = new Map<SessionId, Activation>()
+  /** Materializations admitted before drain, tracked through publication or rollback. */
+  private readonly materializations = new Set<Promise<void>>()
   private readonly locks = new ChildLock()
   /** Structural Cordis owner of every Activation handle. */
   private readonly ownerCtx: Context
@@ -332,7 +345,6 @@ export class SubagentContinuationManager {
         if (activation.disposal !== undefined) {
           return activation.disposal.then(() => undefined, () => undefined)
         }
-        this.authorizeLive(parent, activation)
         return this.submitAdmitted(activation, content, options.source, parent, options.signal)
       })
       /* v8 ignore start -- only the lost-cutoff arm above returns undefined, so only that
@@ -345,17 +357,20 @@ export class SubagentContinuationManager {
   }
 
   /**
-   * Dispose every live Activation forest child-first and await all handles.
-   * Sibling branches drain independently: one failure is recorded but never
-   * prevents the remaining handles from being attempted, and the aggregate
-   * rejects only after every branch settles.
-   * @returns once every snapshotted Activation released its handle.
+   * Close admission, await every already-admitted materialization through
+   * publication or rollback, then dispose the stable live Activation forest
+   * child-first. Sibling branches drain independently: one failure is recorded
+   * but never prevents the remaining handles from being attempted, and the
+   * aggregate rejects only after every branch settles.
+   * @returns once materialization is quiescent and every live Activation released its handle.
    * @throws an aggregate error when any branch failed to release.
    */
   async drain(): Promise<void> {
-    // Close admission synchronously before the first await, so no new creation,
-    // cold resume, or delivery can race the snapshot below.
+    // Close admission synchronously before the first await. Materializations
+    // already past that cutoff remain tracked until their handle is installed
+    // or rollback completes, producing a stable forest for the later snapshot.
     this.draining = true
+    await Promise.all([...this.materializations])
     // Snapshot roots after closing admission: a root is an Activation no live
     // Activation owns, so disposing roots recurses child-first into the forest.
     const owned = new Set<SessionId>()
@@ -489,16 +504,22 @@ export class SubagentContinuationManager {
    * a continuation-managed parent. Rejection leaves no Activation, no handle,
    * and no ownership membership.
    */
-  private async materialize(inputs: {
-    childId: SessionId
-    provider: string
-    parent: Agent
-    /** Creation inputs; absent for a cold resume, which loads the persisted session. */
-    create?: { seed: readonly SessionEvent[]; meta: NonNullable<CreateAgentOptions['meta']> }
-    agentOptions: AgentOptions
-    composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
-    signal: AbortSignal
-  }): Promise<Activation> {
+  private materialize(inputs: MaterializeInputs): Promise<Activation> {
+    this.assertAdmitting()
+    const settled = Promise.withResolvers<void>()
+    this.materializations.add(settled.promise)
+    return this.materializeTracked(inputs).finally(() => {
+      this.materializations.delete(settled.promise)
+      settled.resolve()
+    })
+  }
+
+  /**
+   * Perform one tracked materialization. The caller keeps the drain barrier
+   * registered until this either returns a resident Activation or finishes
+   * rollback.
+   */
+  private async materializeTracked(inputs: MaterializeInputs): Promise<Activation> {
     const { childId, provider, parent } = inputs
     // No id pre-check here: the child lock serializes each durable child, both
     // callers reach this only after confirming no Activation exists, and
@@ -673,19 +694,12 @@ export class SubagentContinuationManager {
         'ACTIVATION_CLOSING',
       )
     }
-    return this.submit(activation, content, source, parent)
-  }
-
-  /**
-   * Authorize delivery to a live Activation. A parent must be the exact live
-   * direct parent recorded in the child's durable header.
-   */
-  private authorizeLive(parent: Agent, activation: Activation): void {
     this.authorizeLineage(
       parent,
       activation.childId,
       activation.handle.agent.session.header.parentSession,
     )
+    return this.submit(activation, content, source, parent)
   }
 
   /**

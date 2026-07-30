@@ -691,6 +691,29 @@ describe('continuable durability and teardown', () => {
     expect(ctx.agents.list()).toEqual([parent])
   })
 
+  it('waits for a published materialization to finish rollback before drain resolves', async () => {
+    const { ctx, parent } = await setup([])
+    const order: string[] = []
+    const drains: Promise<void>[] = []
+    ctx.on('agent/created', (child) => {
+      if (child === parent) return
+      const draining = ctx.subagents.drainContinuable().then(() => { order.push('drain') })
+      drains.push(draining)
+    })
+    ctx.on('agent/disposed', (child) => {
+      if (child !== parent) order.push('disposed')
+    })
+
+    // `agent/created` runs after registry publication but before materialize()
+    // receives the handle and installs the Activation.
+    await expect(ctx.subagents.startContinuable(startSpec(parent)))
+      .rejects.toMatchObject({ code: 'DRAINING' })
+    await Promise.all(drains)
+
+    expect(order).toEqual(['disposed', 'drain'])
+    expect(ctx.agents.list()).toEqual([parent])
+  })
+
   it('admits a live follow-up before a later drain can begin disposal', async () => {
     const hold = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
@@ -739,6 +762,80 @@ describe('continuable durability and teardown', () => {
 })
 
 describe('continuable review regressions', () => {
+  it('rechecks exact parent liveness after cold-resume materialization', async () => {
+    const { ctx } = await setup([textResponse('first')])
+    const parentId = SessionId('replaceable-parent')
+    const originalParent = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    const started = await ctx.subagents.startContinuable(startSpec(originalParent.agent))
+    await waitNoActivation(ctx, started.childId)
+
+    const manager = (ctx.subagents as unknown as {
+      continuations: { ownerCtx: Context }
+    }).continuations
+    const ownerAgents = manager.ownerCtx.agents
+    const originalResume = ownerAgents.resume.bind(ownerAgents)
+    const resumed = Promise.withResolvers<undefined>()
+    const releaseResume = Promise.withResolvers<undefined>()
+    const resumeSpy = vi.spyOn(ownerAgents, 'resume').mockImplementation(async (options) => {
+      const handle = await originalResume(options)
+      resumed.resolve(undefined)
+      await releaseResume.promise
+      return handle
+    })
+
+    const delivery = followup(
+      ctx,
+      originalParent.agent,
+      started.childId,
+      message('must not cross parent replacement'),
+    )
+    await resumed.promise
+    await originalParent.dispose()
+    const replacement = await ctx.agents.create({
+      sessionId: parentId,
+      agentOptions: { provider: 'mock', model: 'mock' },
+    })
+    releaseResume.resolve(undefined)
+
+    await expect(delivery).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    resumeSpy.mockRestore()
+    await waitNoActivation(ctx, started.childId)
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(hasUserText(loaded.events, 'must not cross parent replacement')).toBe(false)
+    await replacement.dispose()
+  })
+
+  it('clears the accepted reservation when Agent.followup throws', async () => {
+    const hold = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const child = ctx.agents.get(started.childId)!
+    const manager = (ctx.subagents as unknown as {
+      continuations: {
+        activations: Map<SessionId, { accepted: Set<MessageId> }>
+      }
+    }).continuations
+    const activation = manager.activations.get(started.childId)!
+    const realFollowup = child.followup.bind(child)
+    child.followup = () => {
+      throw new Error('synthetic inbox failure')
+    }
+
+    await expect(followup(ctx, parent, started.childId, message('throws')))
+      .rejects.toThrow(/synthetic inbox failure/)
+    expect(activation.accepted.size).toBe(0)
+
+    child.followup = realFollowup
+    const drained = ctx.subagents.drainContinuable()
+    hold.resolve(undefined)
+    await drained
+  })
+
   it('reports the child\'s own terminal reason, not teardown success', async () => {
     // The child hits its token ceiling; teardown still succeeds.
     const { ctx, parent } = await setupWith(new MockAdapter([

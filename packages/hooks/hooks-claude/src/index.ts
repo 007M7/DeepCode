@@ -120,7 +120,8 @@ export function apply(ctx: Context, config: Config): void {
   const detached = createDetachedRuns()
   // Only the start edge guarantees registry access. Retain each local child
   // through its paired end so stop hooks keep the session workspace after the
-  // handle unregisters the agent.
+  // handle unregisters the agent. Every retained entry relies on that paired
+  // end; a producer that can omit it must provide another release edge.
   const subagentChildren = new Map<SubagentRunId, Agent>()
   ctx.effect(() => () => detached.drain(), 'hooks-claude: drain detached hook runs')
 
