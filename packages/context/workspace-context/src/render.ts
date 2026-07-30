@@ -59,15 +59,12 @@ function truncateUtf8(value: string, maxBytes: number): string {
   return truncated
 }
 
-function escapeInstructionContent(content: string): string {
-  // TODO(instruction-frame-paths): apply the same delimiter neutralization to
-  // every interpolated path and scope; repository-controlled names can
-  // otherwise close the plugin-owned system-reminder frame.
-  return content.replaceAll(SYSTEM_REMINDER_CLOSE, '<\\/system-reminder>')
+function escapeInstructionFrameBody(body: string): string {
+  return body.replaceAll(SYSTEM_REMINDER_CLOSE, '<\\/system-reminder>')
 }
 
 function sectionText(file: LoadedInstructionFile): string {
-  return `Instructions from: ${file.displayPath}\n\n${escapeInstructionContent(file.content)}`
+  return `Instructions from: ${file.displayPath}\n\n${file.content}`
 }
 
 /** Directory component that identifies the single user-global instruction scope. */
@@ -136,7 +133,7 @@ function additionalSectionText(file: LoadedInstructionFile): string {
     '',
     `These instructions apply to work under \`${scope}\`. Use them as guidance when relevant; more specific instructions take precedence. They do not override system, developer, or direct user instructions.`,
     '',
-    escapeInstructionContent(file.content),
+    file.content,
   ].join('\n')
 }
 
@@ -153,7 +150,7 @@ function changedSectionText(item: ChangeRenderItem): string {
     '',
     'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
     '',
-    escapeInstructionContent(file.content),
+    file.content,
   ].join('\n')
 }
 
@@ -214,7 +211,7 @@ function buildInstructionText(
   // producer's content (the pattern a future `meta`-driven renderer would
   // generalize — see the deferred note in
   // ../../../../.agents/notes/implemented/simplification/2026-07-20-unwrap-injected-content-envelopes.md).
-  return [SYSTEM_REMINDER_OPEN, body.join('\n\n'), SYSTEM_REMINDER_CLOSE].join('\n')
+  return [SYSTEM_REMINDER_OPEN, escapeInstructionFrameBody(body.join('\n\n')), SYSTEM_REMINDER_CLOSE].join('\n')
 }
 
 function withTruncatedContent(file: LoadedInstructionFile, includedBytes: number): LoadedInstructionFile {
@@ -285,8 +282,10 @@ function renderInstructionContext(
     originalBytes: byteLength(mostSpecific.content),
     includedBytes: 0,
   }]
-  const compactNotice = markerText(maxBytes, omitted, truncated)
-  const compactWithHeading = [compactNotice, style.section(withTruncatedContent(mostSpecific, 0))].join('\n\n')
+  const compactNotice = escapeInstructionFrameBody(markerText(maxBytes, omitted, truncated))
+  const compactWithHeading = escapeInstructionFrameBody(
+    [compactNotice, style.section(withTruncatedContent(mostSpecific, 0))].join('\n\n'),
+  )
   if (byteLength(compactWithHeading) <= maxBytes) return { text: compactWithHeading, omitted, truncated }
   const text = byteLength(compactNotice) <= maxBytes ? compactNotice : truncateUtf8(compactNotice, maxBytes)
   return { text, omitted, truncated }
