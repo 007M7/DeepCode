@@ -2101,7 +2101,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ReadResultView',
-    declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    lines: ReadFileLine[];\n    totalLines: number;\n    lang?: string;\n    content?: ContentBlock[];\n}',
+    declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    offset: number;\n    lines: ReadFileLine[];\n    totalLines: number;\n    lang?: string;\n    content?: ContentBlock[];\n}',
   },
   {
     name: 'ReasoningBlock',

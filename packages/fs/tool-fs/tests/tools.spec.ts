@@ -329,6 +329,7 @@ describe('read tool', () => {
     // The extension drives the lang hint; the window rides on persisted meta.
     expect(result.meta).toEqual({
       path: '/abs/a.ts',
+      offset: 1,
       lines: [{ number: 1, text: 'const x = 1' }, { number: 2, text: 'const y = 2' }],
       totalLines: 2,
       lang: 'ts',
@@ -337,6 +338,7 @@ describe('read tool', () => {
     expect(view).toEqual({
       card: 'read',
       path: '/abs/a.ts',
+      offset: 1,
       lines: [{ number: 1, text: 'const x = 1' }, { number: 2, text: 'const y = 2' }],
       totalLines: 2,
       lang: 'ts',
@@ -349,7 +351,7 @@ describe('read tool', () => {
     fs.files.set('key:notes', 'plain')
     const result = await call(ctx, 'read', { file_path: 'notes' })
     if (result.isError) throw new Error('expected read success')
-    expect(result.meta).toEqual({ path: '/abs/notes', lines: [{ number: 1, text: 'plain' }], totalLines: 1 })
+    expect(result.meta).toEqual({ path: '/abs/notes', offset: 1, lines: [{ number: 1, text: 'plain' }], totalLines: 1 })
   })
 })
 
@@ -485,7 +487,7 @@ describe('tool-owned presentation (pure presentCall)', () => {
     // The structured line data rides on persisted meta (the raw output object is
     // not on the wire); presentResult narrows it and appends the stripped text as
     // the no-capability `content` fallback.
-    const meta = { path: '/tmp/a.ts', lines: [{ number: 1, text: 'hello' }], totalLines: 1, lang: 'ts' }
+    const meta = { path: '/tmp/a.ts', offset: 1, lines: [{ number: 1, text: 'hello' }], totalLines: 1, lang: 'ts' }
     expect(await presentResult('read', { file_path: 'a.ts' }, {
       content: [{ type: 'text', text: '<path>/tmp/a.ts</path>\n<type>file</type>\n<content>\n1: hello\n\n(End of file - total 1 lines)\n</content>' }],
       isError: false,
@@ -493,6 +495,7 @@ describe('tool-owned presentation (pure presentCall)', () => {
     })).toEqual({
       card: 'read',
       path: '/tmp/a.ts',
+      offset: 1,
       lines: [{ number: 1, text: 'hello' }],
       totalLines: 1,
       lang: 'ts',
@@ -502,10 +505,11 @@ describe('tool-owned presentation (pure presentCall)', () => {
     expect(await presentResult('read', { file_path: 'notes' }, {
       content: [{ type: 'text', text: '<path>/tmp/notes</path>\n<type>file</type>\n<content>\nbody\n</content>' }],
       isError: false,
-      meta: { path: '/tmp/notes', lines: [{ number: 1, text: 'body' }], totalLines: 1 },
+      meta: { path: '/tmp/notes', offset: 1, lines: [{ number: 1, text: 'body' }], totalLines: 1 },
     })).toEqual({
       card: 'read',
       path: '/tmp/notes',
+      offset: 1,
       lines: [{ number: 1, text: 'body' }],
       totalLines: 1,
       content: [{ type: 'text', text: 'body' }],

@@ -207,6 +207,12 @@ export interface ReadResultView {
   title?: string
   /** The read file's path (the model-facing path; the bridge relativizes it). */
   path: string
+  /**
+   * The 1-based first line the window requested, preserved even when `lines` is
+   * empty (a byte cap below the first selected line yields an empty window) so a
+   * UI knows where the window starts and where a continuation resumes.
+   */
+  offset: number
   /** The returned window's lines, in file order, each keeping its file line number. */
   lines: ReadFileLine[]
   /** Exact total line count in the file, so a UI can show a "showing N of M" affordance. */
