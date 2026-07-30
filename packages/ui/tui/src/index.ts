@@ -182,8 +182,6 @@ declare module 'cordis' {
     tuiGoodbyeMessage: string | undefined
     /** Skill the launcher wants auto-invoked as the fresh session's first turn; absent leaves it to the user. */
     tuiInitialSkill: string | undefined
-    /** Launcher-owned session-store root the app bundle defaults to; absent keeps the bundle's project-local default. */
-    launcherSessionsRoot: string | undefined
   }
 }
 
@@ -227,16 +225,6 @@ export const TUI_GOODBYE_MESSAGE_KEY = 'tuiGoodbyeMessage'
  * re-fires on a resumed one. Absent leaves the first turn to the user.
  */
 export const INITIAL_SKILL_KEY = 'tuiInitialSkill'
-
-/**
- * Context key a launcher sets before any Loader entry mounts
- * (`ctx.provide(SESSIONS_ROOT_KEY, root)`) to supply its session-store root as
- * the app bundle's default persistence root. Shared-store policy (one store
- * across every cwd) belongs to the launcher — the dsh CLI resolves it under the
- * Harness home — never to a plugin; a bundle without this slot keeps its own
- * project-local default, and an explicit `persistenceRoot` config still wins.
- */
-export const SESSIONS_ROOT_KEY = 'launcherSessionsRoot'
 
 /**
  * Optional terminal-local interaction service provided by one mounted TUI.

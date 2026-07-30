@@ -67,14 +67,10 @@
         apiKey: !!js process.env.ANTHROPIC_API_KEY
         baseURL: !!js process.env.ANTHROPIC_BASE_URL
 
-# The session store root is the launcher's policy, not a plugin's: `dsh` shares
-# one store under the Harness home across every cwd, so `/resume` spans
-# workspaces. Without a launcher the project-local fallback keeps
-# an embedder's sessions beside its project.
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
-    root: !!js launcherSessionsRoot ?? './.sessions'
+    root: !!js path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'sessions')
 
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'

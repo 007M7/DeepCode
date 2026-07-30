@@ -31,7 +31,7 @@ import {
   loadPersonalPatches,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
 import { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
@@ -39,7 +39,6 @@ import type { Context } from 'cordis'
 import {
   INITIAL_SKILL_KEY,
   MAIN_SESSION_ID_KEY,
-  SESSIONS_ROOT_KEY,
   TUI_GOODBYE_MESSAGE_KEY,
   type MainSessionIdentity,
   type TuiResumeHost,
@@ -64,18 +63,6 @@ const SESSION_QUERY_DB = `session-query-${String(process.pid)}-${randomUUID()}.d
 // from this bin's location so it holds however `dsh` is launched (a PATH
 // symlink, an arbitrary cwd). The agent is told where its own source lives.
 const SOURCE_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
-
-/**
- * The value `dsh` provides on the {@link SESSIONS_ROOT_KEY} boot slot: its
- * shared session-store root, `sessions` under the Harness home. Shared-store
- * policy is the launcher's alone — the app bundle treats the slot as opaque and
- * keeps a project-local fallback, so only `dsh` decides that sessions are
- * shared across working directories (making `/resume` span every workspace).
- * @returns the absolute session-store root this launcher shares.
- */
-export function launcherSessionsRoot(): string {
-  return resolveSessionsRoot()
-}
 
 /* v8 ignore start -- composition over the unit-tested dsh-app-boot helpers;
    the CLI PTY smoke drives this path end to end, personal overlay included */
@@ -238,7 +225,6 @@ export async function runTui(
       // Shared-store policy is the launcher's: sessions live in one root under
       // the Harness home across every cwd, so /resume sees every workspace.
       // The bundle treats the slot as opaque.
-      hostCtx.provide(SESSIONS_ROOT_KEY, launcherSessionsRoot())
       // The agent-loop row reads this to bind `main`, and the tui row reads the
       // same id, so a personal overlay repointing the model route cannot drop
       // the session identity or desynchronise the two.

@@ -4,12 +4,10 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_DSH_HOME_DISPLAY,
   DSH_HOME_DIR_NAME,
-  SESSIONS_DIR_NAME,
   defaultDshHome,
   dshHomeDisplay,
   expandHomePath,
   resolveDshHome,
-  resolveSessionsRoot,
 } from '@deepseek-ai/dsh-paths'
 
 describe('dsh path helpers', () => {
@@ -38,15 +36,6 @@ describe('dsh path helpers', () => {
   it('treats an empty or whitespace-only DSH_HOME as unset', () => {
     expect(resolveDshHome(undefined, { DSH_HOME: '' })).toBe(defaultDshHome())
     expect(resolveDshHome(undefined, { DSH_HOME: '   ' })).toBe(defaultDshHome())
-  })
-
-  it('resolves the session store under the home it was given, by the same precedence', () => {
-    expect(SESSIONS_DIR_NAME).toBe('sessions')
-    expect(resolveSessionsRoot('/tmp/explicit-dsh', { DSH_HOME: '~/env-dsh' }))
-      .toBe(join(resolve('/tmp/explicit-dsh'), 'sessions'))
-    expect(resolveSessionsRoot(undefined, { DSH_HOME: '~/env-dsh' }))
-      .toBe(join(homedir(), 'env-dsh', 'sessions'))
-    expect(resolveSessionsRoot(undefined, {})).toBe(join(defaultDshHome(), 'sessions'))
   })
 
   it('labels a resolved home by whether it is the default root', () => {

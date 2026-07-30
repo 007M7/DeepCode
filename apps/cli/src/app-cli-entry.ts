@@ -16,7 +16,7 @@ import type { FiberState } from 'cordis'
 import type { PatchOptions } from '@cordisjs/plugin-include'
 import yaml from 'js-yaml'
 import { boot, installFailLoud, loadEnv, loadOverlayPatches, loadPersonalPatches } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome, resolveSessionsRoot } from '@deepseek-ai/dsh-paths'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 // Empty type import carries the httpServer Context merge for the port read below.
 import type {} from '@deepseek-ai/dsh-host-webserver'
 
@@ -189,11 +189,6 @@ export class AppCLIEntry {
       overrides.set(entryId, bag)
     }
 
-    // Source 0: computed engineering defaults. The session store is the one
-    // shared root every dsh surface resolves, so history follows the user across
-    // working directories instead of splitting per project. The profile
-    // (Source 1) overwrites this same field via last-write-wins in put().
-    put('session-persistence-jsonl', 'root', resolveSessionsRoot())
 
     // Source 1: profile json (missing file = empty; unmapped key = loud).
     for (const [key, value] of Object.entries(this.readProfile())) {
