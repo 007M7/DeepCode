@@ -31,7 +31,7 @@ with DeepSeekHarness(
 
 `provider` 用于选择当前 Cordis 组合已注册的提供方路由；`model` 是该适配器解析的模型 ID。`max_tokens` 是可选的正整数，用于限制根 agent 及其进程内后代每次请求的输出 token；省略时由提供方默认值控制。压缩摘要继续使用压缩插件单独配置的上限。内置默认组合注册 `deepseek`。自定义组合可以挂载 `llm-pi-ai`，在其中配置各提供方的凭据与端点，再选择 pi-ai 已安装目录中的任意提供方/模型组合。
 
-`HarnessClient` 会在运行时进程的生命周期内保留已发现的 subagent（子 agent）祖先关系。每次执行 `Session.run()` 时，`TurnResult.notifications` 与 `on_notification` 会按线上的原始顺序收到根会话及所有已知后代的通知，其中包括嵌套 subagent 的生命周期与会话事件。`TurnResult.events` 仍只保存根会话的完整事件流，`TurnResult.final_response` 则取该会话最后一个 `assistant/message` 的文本内容，因此后代消息不会覆盖根会话回复。
+`HarnessClient` 会在运行时进程的生命周期内保留已发现的 subagent（子 agent）祖先关系。每次执行 `Session.run()` 时，`TurnResult.notifications` 与 `on_notification` 会按协议传输顺序收到根会话及所有已知后代的通知，其中包括嵌套 subagent 的生命周期事件与会话事件。`TurnResult.events` 仍只保存根会话的完整事件流，`TurnResult.final_response` 则取该会话最后一个 `assistant/message` 的文本内容，因此后代消息不会覆盖根会话回复。
 
 同样的行为也可以通过 `DSH_CORDIS_CONFIG` 为运行时子进程选定。注入逻辑位于 `HarnessClient.start()`，因此底层客户端的默认启动也具有此行为：当启动解析到内置运行时，且 `cordis` 与非空的 `DSH_CORDIS_CONFIG` 均未设置时（运行时把空值视为缺省，注入检查与之一致），使用内置的默认配置；显式给出 `runtime_bin`、`bridge_bin` 或 `launch_args_override` 则完全禁用注入。运行时载体（生产用 exe 与仅限开发的 `node` 闭包）及其获取方式见 [sdk-runtime README](../sdk-runtime/README.md)。
 

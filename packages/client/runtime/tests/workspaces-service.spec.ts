@@ -286,3 +286,78 @@ describe('WorkspacesService', () => {
     await expect(workspaces.delete(wid('ghost'))).rejects.toThrow(/workspace-not-found: gone/)
   })
 })
+
+describe('startInitialSelection', () => {
+  function bench() {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionsService(ctx, api)
+    const workspaces = new WorkspacesService(ctx, api, sessions)
+    return { api, sessions, workspaces }
+  }
+
+  it('connects the recent Workspace blank session once baselines are ready and opens it', async () => {
+    const b = bench()
+    const stop = b.workspaces.startInitialSelection()
+    // Nothing happens before both baselines land.
+    expect(b.api.callsOf('session.create')).toHaveLength(0)
+
+    b.api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('recent', [], '2026-01-02T00:00:00.000Z')] as never[],
+    }))
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-new') }))
+    await b.workspaces.refresh()
+    await b.sessions.refresh()
+    // Store notifications and the connect round trip are microtask-batched.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(b.api.callsOf('session.create')).toEqual([{ workspaceId: 'recent' }])
+    expect(b.sessions.list.getSnapshot().current).toBe('s-new')
+    stop()
+  })
+
+  it('stays idle when a session is already current or no recent Workspace exists', async () => {
+    const withCurrent = bench()
+    withCurrent.api.onList = () => Promise.resolve(ok({
+      items: [{ sessionId: sid('s1'), updatedAt: 1, running: false, blank: false }] as never[],
+    }))
+    await withCurrent.sessions.refresh()
+    withCurrent.sessions.open(sid('s1'))
+    withCurrent.api.onWorkspaceList = () => Promise.resolve(ok({ items: [workspace('w1', [sid('s1')])] as never[] }))
+    const stopCurrent = withCurrent.workspaces.startInitialSelection()
+    await withCurrent.workspaces.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(withCurrent.api.callsOf('session.create')).toHaveLength(0)
+    stopCurrent()
+
+    const noRecent = bench()
+    const stopEmpty = noRecent.workspaces.startInitialSelection()
+    await noRecent.workspaces.refresh()
+    await noRecent.sessions.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(noRecent.api.callsOf('session.create')).toHaveLength(0)
+    expect(() => noRecent.workspaces.startInitialSelection()).toThrow(/already started/)
+    stopEmpty()
+  })
+
+  it('a failed connect returns to waiting and retries on the next list change', async () => {
+    const b = bench()
+    b.api.onWorkspaceList = () => Promise.resolve(ok({
+      items: [workspace('recent', [], '2026-01-02T00:00:00.000Z')] as never[],
+    }))
+    b.api.onCreate = () => Promise.resolve(err({ code: 'internal', message: 'attach exploded', details: {} }))
+    const stop = b.workspaces.startInitialSelection()
+    await b.workspaces.refresh()
+    await b.sessions.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(b.api.callsOf('session.create')).toHaveLength(1)
+    expect(b.sessions.list.getSnapshot().current).toBeUndefined()
+
+    // Recovery: the next workspace-list change re-runs the reconcile.
+    b.api.onCreate = () => Promise.resolve(ok({ sessionId: sid('s-retry') }))
+    await b.workspaces.refresh()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(b.api.callsOf('session.create')).toHaveLength(2)
+    expect(b.sessions.list.getSnapshot().current).toBe('s-retry')
+    stop()
+  })
+})

@@ -46,6 +46,7 @@ function scriptedApi(overrides: {
       selectModel: r => ok(r, {
         selected: { provider: r.payload.provider, model: r.payload.model },
       }),
+      rename: r => ok(r, { title: 'renamed', seq: 0 }),
       prompt: r => ok(r, { accepted: true as const }),
       cancel: r => ok(r, { accepted: true as const }),
       ...overrides.sessions,

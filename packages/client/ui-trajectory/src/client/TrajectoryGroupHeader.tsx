@@ -5,7 +5,7 @@ import css from './TrajectoryGroupHeader.module.css'
 export interface TrajectoryGroupHeaderProps {
   /** Group title (`Message`, `Step 1`, …). */
   title: string
-  /** Secondary summary (`49s`, `2.2s skill`, …). */
+  /** Secondary summary (`49 s`, `2.2 s skill`, …). */
   description?: string
 }
 

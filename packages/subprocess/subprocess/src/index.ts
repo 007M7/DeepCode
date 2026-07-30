@@ -37,7 +37,7 @@ export type {
  * deliberately supplied entry survives because explicit env layers merge
  * after the scrub.
  */
-export const SENSITIVE_ENV_PATTERN = /KEY|SECRET|TOKEN/i
+export const SENSITIVE_ENV_PATTERN = /KEY|PASSWORD|SECRET|TOKEN/i
 
 /**
  * The ambient parent environment minus credential-shaped names and minus all
