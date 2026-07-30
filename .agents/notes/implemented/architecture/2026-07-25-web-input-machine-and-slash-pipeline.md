@@ -101,7 +101,7 @@ skill/@subagent references skip the placeholder + occurrence identity chain — 
 - `conversation.input.dock` — the stacked strip above the input (QueueDock's read-only queue list lands here), ordered by `order`.
 - `conversation.composer.dock` — the stats band on the composer's top edge.
 - `conversation.input.left` / `conversation.input.right` — the tool-row left and right regions.
-- `conversation.input.plan` / `conversation.input.model` (single) — the tool row's two named control seats; the bar passes only `locked` (owner props), each stays empty until its owning plugin registers, no placeholder fallback.
+- `conversation.input.plan` / `conversation.input.model` (single) — the tool row's two named control seats; the bar passes only `locked` (owner props), each stays empty until its owning plugin registers, no placeholder fallback. The plan seat stays empty while inactive because the shared Command source owns entry; an effective plan target renders the warn-state `Plan ×` status button, whose only action is `/plan off`.
 - `conversation.hero.workspace` (root scope) — the Workspace picker shared by the no-session and blank Hero; a pick reuses or creates the target blank session through `connectWorkspace`, moving the draft where necessary before switching current.
 
 ### Testing discipline
@@ -122,6 +122,7 @@ The state machine's entire behavior is covered by pure-JS unit tests (event sequ
 | Space adjudication also claiming execute-kind commands | The misfire defense: after a space the whole line is an ordinary prompt; irreversible side effects keep explicit entry points only |
 | A generic tokenPattern decoration mechanism | Structured occurrence records replace pattern scanning |
 | A placeholder select resident in the tool row | Named seats stay empty until registration; a placeholder clashing with the real implementation is two sources of truth |
+| An always-visible Plan on/off toggle | The shared Command source already owns entry; a second entry point turns a status seat into redundant mode chrome |
 | A second plus-menu component/controller, or an Add/File group above Command | It would duplicate async candidates, keyboard highlight, focus retention, and pick state; the plus control is only a source-filtered launcher for the existing MenuView, and this scope has no file capability |
 | All references through U+FFFC chips (the pre-Decision-21 line) | Plain text + derived decoration carries zero identity state; the literal text IS the model projection, sparing undo/clipboard any special cases; the chip chain is kept for scenarios needing indivisible atomicity |
 

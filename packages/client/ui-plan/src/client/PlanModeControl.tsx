@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { IconCloseFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the ui-conversation SlotMap merge (the input.plan seat and
 // its {locked} owner share).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -11,16 +12,14 @@ export type PlanChipProps =
   PropsRuntime<'conversation.input.plan'> & InjectFace<PlanChipInjected>
 
 /**
- * Plan-mode toggle over the host-computed `plan` projection. The chip renders
- * whenever the capability is present and reflects the effective target as its
- * pressed state (`pending ? !active : active` — a folded host value, not
- * client optimism, so an arriving frame corrects it). Clicking executes
- * /plan or /plan off toward the opposite target.
+ * Plan-mode status over the host-computed `plan` projection. The chip renders
+ * only while the effective target is plan mode (`pending ? !active : active`
+ * — a folded host value, not client optimism) and executes /plan off.
  */
-export function PlanChip({ useProjection, locked, setPlanMode }: PlanChipProps) {
+export function PlanChip({ useProjection, locked, exitPlanMode }: PlanChipProps) {
   const plan = useProjection('plan')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<{ text: string; detail: string } | null>(null)
+  const [leaving, setLeaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const aliveRef = useRef(true)
 
   useEffect(() => {
@@ -30,25 +29,21 @@ export function PlanChip({ useProjection, locked, setPlanMode }: PlanChipProps) 
     }
   }, [])
 
-  // Absent capability (no plan-mode host plugin / no session yet): no seat
-  // content — without the capability there is nothing to toggle.
   if (plan === undefined) return null
   const target = plan.pending ? !plan.active : plan.active
+  if (!target) return null
 
-  const toggle = (): void => {
-    // No busy/locked guard: both disable the button, so no click arrives.
-    const on = !target
-    const failText = on ? '进入 plan mode 失败' : '退出 plan mode 失败'
-    setBusy(true)
+  const off = (): void => {
+    setLeaving(true)
     setError(null)
-    void setPlanMode(on).then((failure) => {
+    void exitPlanMode().then((failure) => {
       if (!aliveRef.current) return
-      setBusy(false)
-      setError(failure === null ? null : { text: failText, detail: failure })
+      setLeaving(false)
+      setError(failure)
     }, (reason: unknown) => {
       if (!aliveRef.current) return
-      setBusy(false)
-      setError({ text: failText, detail: reason instanceof Error ? reason.message : String(reason) })
+      setLeaving(false)
+      setError(reason instanceof Error ? reason.message : String(reason))
     })
   }
 
@@ -57,17 +52,17 @@ export function PlanChip({ useProjection, locked, setPlanMode }: PlanChipProps) 
       <button
         type="button"
         className={css.chip}
-        aria-pressed={target}
-        aria-label={target ? 'Plan mode on, press to turn off' : 'Plan mode off, press to turn on'}
-        title={target
-          ? 'Plan mode on — click to turn off (/plan off)'
-          : 'Plan mode off — click to turn on (/plan)'}
-        disabled={locked || busy}
-        onClick={toggle}
+        aria-label="Plan mode on, press to turn off"
+        title="Plan mode on — click to turn off (/plan off)"
+        disabled={locked || leaving}
+        onClick={off}
       >
-        Plan { target ? 'on' : 'off' }
+        Plan
+        <span className={css.close} aria-hidden>
+          <IconCloseFill14 size={12} />
+        </span>
       </button>
-      {error !== null && <span className={css.error} role="status" title={error.detail}>{error.text}</span>}
+      {error !== null && <span className={css.error} role="status" title={error}>退出 plan mode 失败</span>}
     </span>
   )
 }

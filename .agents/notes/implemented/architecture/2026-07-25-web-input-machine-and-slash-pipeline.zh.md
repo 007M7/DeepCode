@@ -101,7 +101,7 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 - `conversation.input.dock`——输入上方堆叠条（QueueDock 的队列只读列表落此），order 定序。
 - `conversation.composer.dock`——composer 上沿统计带。
 - `conversation.input.left` / `conversation.input.right`——工具行左右区。
-- `conversation.input.plan` / `conversation.input.model`（single）——工具行两具名控制位；bar 只传 `locked`（owner props），空到 owning 插件注册为止，无占位 fallback。
+- `conversation.input.plan` / `conversation.input.model`（single）——工具行两具名控制位；bar 只传 `locked`（owner props），空到 owning 插件注册为止，无占位 fallback。plan seat 未激活时保持为空，因为入口归共享 Command source 所有；有效 plan 目标会渲染 warn 状态的 `Plan ×` 状态按钮，其唯一动作是 `/plan off`。
 - `conversation.hero.workspace`（root scope）——无 session / blank Hero 共用的 Workspace picker；pick 经 `connectWorkspace` 复用或创建目标 blank session，必要时搬运 draft 后切 current。
 
 ### 测试纪律
@@ -122,6 +122,7 @@ skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把
 | 空格裁决也认领即执行型命令 | 误触发防线：空格后整行是普通 prompt；不可逆副作用只留显式入口 |
 | 通用 tokenPattern 装饰机制 | 结构化 occurrence 记录取代模式扫描 |
 | 占位 select 常驻工具行 | 具名坑位空到注册为止；占位件与真实现冲突时是双真相源 |
+| 始终可见的 Plan 开／关切换 | 入口已归共享 Command source 所有；第二个入口会把状态 seat 变成冗余的 mode chrome |
 | 第二套加号菜单组件／controller，或在 Command 上方增加 Add/File 分组 | 这会重复异步候选、键盘高亮、焦点保留与 pick 状态；加号控件只是既有 MenuView 按 source 过滤的 launcher，且此 scope 没有文件能力 |
 | 引用一律走 U+FFFC chip（决策 21 前旧线） | 纯文本 + 派生装饰零身份状态；原文即模型投影，undo/剪贴板免特判；chip 链保留给需要不可分原子性的场景 |
 
