@@ -43,6 +43,8 @@ const RETRY_CONFIG = fileURLToPath(new URL('../retry.cordis.yml', import.meta.ur
 const SESSION_TITLE_CONFIG = fileURLToPath(new URL('../session-title.cordis.yml', import.meta.url))
 const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
+const FS_SEARCH_CONFIG = fileURLToPath(new URL('./fs-search.cordis.yml', import.meta.url))
+const FS_SEARCH_BIN = fileURLToPath(new URL('./fixtures/fs-search-bin', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
 
@@ -146,6 +148,19 @@ const SCENARIOS: Scenario[] = [
     name: 'workspace-edit',
     hasModelTurn: true,
     recorded: true,
+  },
+  // The real Loader/app/bash path executes a deterministic rg stand-in at the
+  // external-process seam, pinning over-cap glob sampling without depending on
+  // a host-installed ripgrep binary.
+  {
+    name: 'fs-glob-sampling',
+    hasModelTurn: true,
+    recorded: false,
+    pinsHeader: true,
+    headerClass: 'fs-search',
+    configPath: FS_SEARCH_CONFIG,
+    env: { PATH: `${FS_SEARCH_BIN}:${process.env.PATH ?? ''}` },
+    posixOnly: true,
   },
   { name: 'fs-read', hasModelTurn: true, recorded: true },
   { name: 'fs-write', hasModelTurn: true, recorded: true },
