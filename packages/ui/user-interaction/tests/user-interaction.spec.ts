@@ -83,4 +83,63 @@ describe('UserInteractionService', () => {
       .rejects.toMatchObject({ name: 'UserInteractionError', code: 'EMPTY_QUESTIONS' })
     expect(p.ask).not.toHaveBeenCalled()
   })
+
+  it('rejects an intent whose approve label names none of its own options', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+    const question = { id: 'plan-review', question: 'Approve?', detail: '# Plan' }
+
+    // A wrong label among offered options, and no options offered at all.
+    for (const options of [[{ label: 'Approve' }], undefined]) {
+      await expect(ctx.userInteraction.ask({
+        questions: [{
+          ...question,
+          ...(options === undefined ? {} : { options }),
+          intent: { kind: 'plan-review', approve: 'Ship it' },
+        }],
+      })).rejects.toMatchObject({ name: 'UserInteractionError', code: 'BAD_INTENT' })
+    }
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('rejects a plan-review intent on a question carrying no plan to review', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+
+    // Detail IS the plan for this intent, so a UI honouring it would ask the
+    // user to approve something they cannot see.
+    await expect(ctx.userInteraction.ask({
+      questions: [{
+        id: 'plan-review', question: 'Approve?',
+        options: [{ label: 'Approve' }, { label: 'Keep planning' }],
+        intent: { kind: 'plan-review', approve: 'Approve' },
+      }],
+    })).rejects.toMatchObject({ name: 'UserInteractionError', code: 'BAD_INTENT' })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
+  it('passes an intent through once its approve label names an offered option', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserInteractionService)
+    const p = provider('Approve')
+    ctx.userInteraction.registerProvider(p)
+    const intent = { kind: 'plan-review', approve: 'Approve' } as const
+
+    const result = await ctx.userInteraction.ask({
+      questions: [
+        { id: 'plain', question: 'Proceed?' },
+        {
+          id: 'plan-review', question: 'Approve?', detail: '# Plan',
+          options: [{ label: 'Approve' }, { label: 'Keep planning' }], intent,
+        },
+      ],
+    })
+
+    expect(result.answers).toEqual([{ id: 'plain', selected: ['Approve'] }])
+    expect(p.seen[0]?.questions[1]?.intent).toEqual(intent)
+  })
 })

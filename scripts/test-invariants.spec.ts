@@ -61,7 +61,8 @@ describe('global test invariant host', () => {
       return () => {}
     })
     const fakeContext = { invariants: { register } } as unknown as Context
-    for (const [rawPath, companion] of Object.entries(testInvariantCompanions)) {
+    for (const [rawPath, load] of Object.entries(testInvariantCompanions)) {
+      const companion = await load()
       const path = rawPath.replace(/^\.\.\//, '')
       expect(companion.default, path).toBeUndefined()
       const unwrapped = loader.unwrapExports(companion) as typeof companion

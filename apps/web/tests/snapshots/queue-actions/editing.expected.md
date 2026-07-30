@@ -12,6 +12,7 @@
 - button "编辑":
   - img
 - paragraph: partial
+- button "2 条排队消息" [disabled] [expanded]
 - list:
   - listitem:
     - text: Queue item to remove
