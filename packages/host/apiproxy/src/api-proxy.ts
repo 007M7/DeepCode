@@ -9,11 +9,11 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxItem, InboxItemId,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
@@ -44,6 +44,14 @@ import type {} from '@deepseek-ai/dsh-skill'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsDescriptor, SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+// Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
+import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
+import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
+// Side-effect type import: resolves the `approval/request` waterfall and
+// `ctx.get('approval')` without a value dependency on the seam (optional composition).
+import type {} from '@deepseek-ai/dsh-user-approval'
+import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -51,7 +59,7 @@ import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-interaction'
 import { UserInteractionError } from '@deepseek-ai/dsh-user-interaction'
-import { pickNativeDirectory } from './native-directory-picker.ts'
+import { DirectoryPickerError } from '@deepseek-ai/dsh-host-directory-picker'
 import { openNativePath } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
@@ -210,9 +218,9 @@ class FrameQueue<F> {
 }
 
 /**
- * Server-side frame mint: pure pushes get a fresh rpcId per frame (stable ids
- * for answerable frames belong to the approval/question registry, absent in
- * this minimal version).
+ * Server-side frame mint: pure pushes get a fresh rpcId per frame (answerable
+ * frames — approval/question requested — mint their stable id in their
+ * pending registries instead).
  */
 function frame<F>(payload: F): RpcRequest<F> {
   return { rpcId: RpcId(randomUUID()), payload }
@@ -277,6 +285,14 @@ async function summarizeCold(persistence: SessionPersistence, meta: SessionHeade
   }
 }
 
+/** Map a browse-primitive failure onto the wire error vocabulary (unknown throws stay internal). */
+function directoryError(error: unknown): RpcError {
+  if (error instanceof DirectoryPickerError) {
+    return { code: error.code, message: error.message, details: { path: error.path } }
+  }
+  return { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} }
+}
+
 /** Resolved Host routing and project-directory defaults consumed by the API implementation. */
 export interface ApiProxyDefaults {
   provider: string
@@ -285,14 +301,42 @@ export interface ApiProxyDefaults {
   cwd: string
   /** Parent directory for name-created workspaces. */
   workspaceRoot: string
-  /** Native single-directory picker; injectable for carrier tests. */
-  pickDirectory?: (signal: AbortSignal) => Promise<string | null>
   /** Native open-with-default-application; injectable for carrier tests. */
   openPath?: (path: string, signal: AbortSignal) => Promise<void>
 }
 
 /** The tool/call payload fields the presenter path reads. */
 interface ToolCallData { callId: string; name: string; arguments: string }
+/**
+ * One outstanding approval question: the stable server-request id, the frame
+ * material replayed to late mux subscribers, and the resolver that settles the
+ * answerer's promise back into `ctx.approval`.
+ */
+interface PendingApproval {
+  rpcId: RpcId
+  sessionId: SessionId
+  approvalId: ApprovalRequestId
+  toolName: string
+  callId?: CallId
+  reason?: string
+  resolve(outcome: ApprovalOutcome): void
+}
+
+/** Project a pending entry into its answerable mux frame (initial push and mux-open replay share it). */
+function requestedFrame(pending: PendingApproval): RpcRequest<MuxFrame> {
+  return {
+    rpcId: pending.rpcId,
+    payload: {
+      type: 'approval/requested',
+      sessionId: pending.sessionId,
+      approvalId: pending.approvalId,
+      toolName: pending.toolName,
+      ...pending.callId === undefined ? {} : { callId: pending.callId },
+      ...pending.reason === undefined ? {} : { reason: pending.reason },
+    },
+  }
+}
+
 /** One host-owned question wait, addressed by the stable server-request id. */
 interface PendingQuestion {
   rpcId: RpcId
@@ -492,6 +536,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   /** Serializes path ownership checks with record creation across spellings. */
   let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
+  const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
 
   /**
@@ -545,46 +590,106 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   })
 
   /**
-   * Per-session inbox occurrence mirror serving the mux-open queue snapshot
+   * Per-session queued-occurrence mirror serving the mux-open queue snapshot
    * (the same refresh-recovery baseline as pending questions). Each terminal
-   * inbox event retires one matching occurrence, so repeated sends of the same
+   * queue event retires one matching occurrence, so repeated sends of the same
    * identified message remain visible until every occurrence is claimed.
    */
-  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean }[]>()
+  const queuedMirror = new Map<SessionId, InboxItem[]>()
+  type UnseenQueueEvent =
+    | { readonly kind: 'update'; readonly item: InboxItem }
+    | { readonly kind: 'terminal' }
+  const unseenQueueEvents = new Map<SessionId, Map<InboxItemId, UnseenQueueEvent>>()
+  const rememberUnseen = (sessionId: SessionId, itemId: InboxItemId, event: UnseenQueueEvent): void => {
+    let events = unseenQueueEvents.get(sessionId)
+    if (events === undefined) {
+      events = new Map()
+      unseenQueueEvents.set(sessionId, events)
+    }
+    events.set(itemId, event)
+    // Only synchronous re-entrancy may deliver a mutation before its outer
+    // enqueue observer. Drop unmatched protocol-invalid observations instead
+    // of retaining process-local ids indefinitely.
+    queueMicrotask(() => {
+      const current = unseenQueueEvents.get(sessionId)
+      if (current?.get(itemId) !== event) return
+      current.delete(itemId)
+      if (current.size === 0) unseenQueueEvents.delete(sessionId)
+    })
+  }
+  const takeUnseen = (sessionId: SessionId, itemId: InboxItemId): UnseenQueueEvent | undefined => {
+    const events = unseenQueueEvents.get(sessionId)
+    const event = events?.get(itemId)
+    if (event === undefined) return undefined
+    events?.delete(itemId)
+    if (events?.size === 0) unseenQueueEvents.delete(sessionId)
+    return event
+  }
+  const publishQueue = (sessionId: SessionId): void => {
+    const items = queuedMirror.get(sessionId) ?? []
+    broadcast({
+      type: 'session/queue',
+      sessionId,
+      items: items.map(item => ({
+        id: item.id,
+        message: item.message,
+      })),
+    })
+  }
   ctx.effect(() => {
-    const retire = (agent: Agent, id: MessageId, placement?: InboxPlacement): void => {
+    const retire = (agent: Agent, item: InboxItem): boolean => {
       const entries = queuedMirror.get(agent.id)
-      if (entries === undefined) return
-      const index = entries.findIndex(entry =>
-        entry.message.id === id
-        && (placement === undefined || entry.steering === (placement === 'steering')))
-      if (index !== -1) entries.splice(index, 1)
+      if (entries === undefined) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      const index = entries.findIndex(entry => entry.id === item.id)
+      if (index === -1) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      entries.splice(index, 1)
       if (entries.length === 0) queuedMirror.delete(agent.id)
+      return true
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
+        if (item.placement !== 'queued') return
+        const unseen = takeUnseen(agent.id, item.id)
+        if (unseen?.kind === 'terminal') return
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
           entries = []
           queuedMirror.set(agent.id, entries)
         }
-        const steering = placement === 'steering'
-        entries.push({ message, steering })
-        broadcast({
-          type: 'session/queued',
-          sessionId: agent.id,
-          message,
-          steering,
-        })
+        entries.push(unseen?.kind === 'update' ? unseen.item : item)
+        publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage, placement) => {
-        retire(agent, message.id, placement)
+      ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem) => {
+        const entries = queuedMirror.get(agent.id)
+        if (entries === undefined) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        const index = entries.findIndex(entry => entry.id === item.id)
+        if (index === -1) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        entries.splice(index, 1, item)
+        publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
-        for (const message of messages) retire(agent, message.id)
+      ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
+        if (retire(agent, item)) publishQueue(agent.id)
+      }),
+      ctx.on('agent/inbox/discard', (agent: Agent, items: InboxItem[]) => {
+        let changed = false
+        for (const item of items) changed = retire(agent, item) || changed
+        if (changed) publishQueue(agent.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
+        unseenQueueEvents.delete(session.id)
       }),
     ]
     return () => { for (const dispose of disposers) dispose() }
@@ -639,6 +744,90 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         'web user-interaction provider was disposed', 'ASK_ABORTED'))
     }
   }, 'api-proxy: user-interaction provider')
+
+  // --- Approval pending registry ------------------------------------------
+  // The proxy is the approval channel for every agent this host owns: an ask
+  // through `ctx.approval` becomes an answerable server-request on the mux
+  // stream (stable rpcId), settled by POST /api/respond. The entry survives
+  // client disconnects — mux-open replays still-pending requested frames with
+  // the same rpcId (the refresh-recovery baseline) — and withdraws on the
+  // ask's own abort signal (turn cancel), pushing `cancelled` to subscribers.
+  if (ctx.get('approval') !== undefined) {
+    // Teardown parity with the question provider above: a gateway disposed
+    // while approvals are pending settles every entry as 'cancelled' (the
+    // service's fail-closed vocabulary), so no ask promise dangles past the
+    // proxy's lifetime and subscribers see the withdrawal.
+    ctx.effect(() => () => {
+      for (const pending of [...pendingApprovals.values()]) pending.resolve('cancelled')
+    }, 'api-proxy: approval registry teardown')
+    ctx.on('approval/request', (req, next) => {
+      // Dispatch rides a microtask behind the service's own signal check: an
+      // abort landing in that window would register the abort listener AFTER
+      // the signal fired — never invoked, entry pending forever, zombie frame
+      // on every mux replay. Settle synchronously instead of publishing.
+      if (req.signal?.aborted === true) return Promise.resolve<ApprovalOutcome>('cancelled')
+      // The audit pair `approval/asked` is already appended by the service
+      // before dispatch, but dispatch rides a microtask: parallel tool calls
+      // can append several asked events before any answerer runs. THIS
+      // request's event is therefore the newest asked event that is still
+      // undecided, unclaimed by another pending entry, and — when the ask
+      // names a call — carries the same callId.
+      const events = req.agent.session.events
+      const claimed = new Set<ApprovalRequestId>()
+      for (const entry of pendingApprovals.values()) claimed.add(entry.approvalId)
+      const decided = new Set<ApprovalRequestId>()
+      let approvalId: ApprovalRequestId | undefined
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        const event = events[i] as SessionEvent
+        if (event.type === 'approval/decided') {
+          decided.add(event.data.id)
+        } else if (event.type === 'approval/asked') {
+          if (decided.has(event.data.id) || claimed.has(event.data.id)) continue
+          // Symmetric pairing: a callId-bearing ask only takes its own call's
+          // record, and a callId-less ask only takes a callId-less record —
+          // so neither shape can steal the other's audit id under parallel
+          // asks. (Today every producer — the tool executor — passes callId;
+          // the callId-less arm guards any future non-tool asker.)
+          if ((req.callId ?? null) !== (event.data.callId ?? null)) continue
+          approvalId = event.data.id
+          break
+        }
+      }
+      // No asked event means the request bypassed the service's audit path —
+      // not this channel's question; delegate to the fail-closed default.
+      if (approvalId === undefined) return next()
+      const id = approvalId
+      return new Promise<ApprovalOutcome>((resolve) => {
+        const settle = (outcome: ApprovalOutcome): void => {
+          /* v8 ignore next 3 -- defensive double-settle guard: respond() routes
+             through the pending table (a settled id is not-pending before it can
+             re-settle) and the first settle removes the abort listener, so no
+             reachable path settles twice; kept against future settle callers. */
+          if (!pendingApprovals.delete(pending.rpcId)) return
+          req.signal?.removeEventListener('abort', onAbort)
+          broadcast({ type: 'approval/resolved', sessionId: pending.sessionId, approvalId: id, outcome })
+          // A cancelled ask was already settled by the service's own signal
+          // race, which discards this late resolution; resolving is a no-op
+          // there and keeps this promise from dangling forever.
+          resolve(outcome)
+        }
+        const onAbort = (): void => { settle('cancelled') }
+        const pending: PendingApproval = {
+          rpcId: RpcId(randomUUID()),
+          sessionId: req.agent.session.id,
+          approvalId: id,
+          toolName: req.toolName,
+          ...req.callId === undefined ? {} : { callId: req.callId },
+          ...req.reason === undefined ? {} : { reason: req.reason },
+          resolve: settle,
+        }
+        pendingApprovals.set(pending.rpcId, pending)
+        req.signal?.addEventListener('abort', onAbort, { once: true })
+        const envelope = requestedFrame(pending)
+        for (const queue of muxQueues) queue.push(envelope)
+      })
+    })
+  }
 
   /**
    * Gate the cold path on the store: an id absent from it, or naming a legacy
@@ -1005,6 +1194,36 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async rename(request) {
+        const { sessionId, title } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const titles = ctx.get('sessionTitle')
+        if (titles === undefined) {
+          return err(request, { code: 'internal', message: 'renaming is unavailable: this deployment mounts no session-title service', details: {} })
+        }
+        try {
+          const accepted = titles.rename(found.agent.session, title)
+          return ok(request, { title: accepted.title, seq: accepted.eventSeq })
+        } catch (error: unknown) {
+          // Only the input's fault maps to title-invalid (the message is
+          // product-user-visible in the rename dialog); liveness and disposal
+          // races are deployment trouble, not a bad title.
+          if (error instanceof SessionTitleInvalidError) {
+            return err(request, {
+              code: 'title-invalid',
+              message: error.message,
+              details: { sessionId },
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `failed to rename session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+      },
+
       async prompt(request) {
         const { sessionId, mode, content } = request.payload
         const found = await agentFor(sessionId)
@@ -1021,6 +1240,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
         }
         return ok(request, { accepted: true as const })
+      },
+
+      updateQueue(request) {
+        const { sessionId, itemId, action } = request.payload
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
+          return Promise.resolve(err(request, {
+            code: 'queue-item-not-found',
+            message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        return Promise.resolve(ok(request, { accepted: true as const }))
       },
 
       cancel(request) {
@@ -1173,8 +1405,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       },
 
       async pickDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'native') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.pickDirectory needs the native capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
         try {
-          const path = await (defaults.pickDirectory ?? pickNativeDirectory)(signal)
+          const path = await capability.pick(signal)
           return ok(request, { path })
         } catch (error: unknown) {
           if (signal.aborted) {
@@ -1189,6 +1429,45 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             message: `directory picker failed: ${error instanceof Error ? error.message : String(error)}`,
             details: {},
           })
+        }
+      },
+
+      async listDirectory(request, signal) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.listDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          // The carrier's signal follows the caller: a disconnect or timeout
+          // stops the backend's directory scan instead of outliving it.
+          return ok(request, await capability.list(request.payload.path, signal))
+        } catch (error: unknown) {
+          // An abort is the caller's own timeout/disconnect, not a server
+          // failure — same code pickDirectory and command.execute report.
+          if (signal.aborted) {
+            return err(request, { code: 'cancelled', message: 'directory listing was aborted', details: {} })
+          }
+          return err(request, directoryError(error))
+        }
+      },
+
+      async createDirectory(request) {
+        const capability = ctx.directoryPicker.capability()
+        if (capability.kind !== 'browse') {
+          return err(request, {
+            code: 'directory-picker-unavailable',
+            message: `host.createDirectory needs the browse capability; the composed picker serves "${capability.kind}"`,
+            details: { capability: capability.kind },
+          })
+        }
+        try {
+          return ok(request, { path: await capability.createDirectory(request.payload.path, request.payload.name) })
+        } catch (error: unknown) {
+          return err(request, directoryError(error))
         }
       },
 
@@ -1334,7 +1613,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
         try {
-          const skills = await skillRegistry.list({ cwd })
+          const skills = (await skillRegistry.list({ cwd }))
+            .filter(skill => skill.invocation.modelInvocable && skill.invocation.userInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,
@@ -1459,18 +1739,21 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             },
           })
         }
+        // Refresh recovery: still-pending approval questions replay with their
+        // stable rpcId so a reconnecting client can still answer them.
+        for (const pending of pendingApprovals.values()) queue.push(requestedFrame(pending))
         // Queue snapshot baseline (pendingQuestions precedent): frames replayed
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
-        for (const [sessionId, entries] of queuedMirror) {
-          for (const entry of entries) {
-            queue.push(frame({
-              type: 'session/queued',
-              sessionId,
-              message: entry.message,
-              steering: entry.steering,
-            }))
-          }
+        for (const [sessionId, items] of queuedMirror) {
+          queue.push(frame({
+            type: 'session/queue',
+            sessionId,
+            items: items.map(item => ({
+              id: item.id,
+              message: item.message,
+            })),
+          }))
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
@@ -1585,6 +1868,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     respond(message: ClientResponse): Promise<RpcReceipt> {
+      // Route by the echoed rpcId (the wire correlation): approvals first,
+      // then questions — the two registries share one id space of UUIDs.
+      const approval = pendingApprovals.get(message.rpcId)
+      if (approval !== undefined) {
+        if (!message.result.ok) return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        const parsed = approvalResponsePayloadSchema.safeParse(message.result.value)
+        // The payload's audit correlation must match the entry the rpcId routed
+        // to — a mismatched answer is malformed, not merely late.
+        if (!parsed.success || parsed.data.approvalId !== approval.approvalId || parsed.data.sessionId !== approval.sessionId) {
+          return Promise.resolve({ accepted: false, reason: 'bad-response' })
+        }
+        approval.resolve(parsed.data.outcome)
+        return Promise.resolve({ accepted: true })
+      }
       const pending = pendingQuestions.get(message.rpcId)
       if (pending === undefined) return Promise.resolve({ accepted: false, reason: 'not-pending' })
       if (!message.result.ok) {

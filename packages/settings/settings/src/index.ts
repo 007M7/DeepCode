@@ -48,6 +48,8 @@ export interface SettingsRegisterOptions<T> {
 
 /** One registered namespace as surfaced to configuration UIs. */
 export interface SettingsDescriptor {
+  // TODO(settings-namespace-vocabulary): Rename `ns` to `namespace` across the
+  // public seam, provider contract, implementations, tests, and consumers.
   /** The registered namespace. */
   ns: SettingsNamespace
   /** Serialized schemastery schema (`schema.toJSON()`). */
@@ -84,20 +86,24 @@ export interface SettingsScope<T> {
   /**
    * Observe committed changes to this namespace's resolved value. Invocations
    * of one callback run asynchronously, one at a time, in commit order; a
-   * rejection is contained and logged like a sync throw.
+   * rejection is contained and logged like a sync throw. After the disposer
+   * returns, no further invocation starts — one already queued is skipped;
+   * one already started still settles, and service disposal waits for it.
    * @param callback - invoked after each commit with the next and previous values.
    * @returns the disposer removing this observer.
    */
   watch(callback: (next: T, prev: T) => void | Promise<void>): () => void
   /**
    * Merge a partial patch into this namespace's user layer and persist it.
-   * @param patch - plain-object patch over the user section.
+   * @param patch - plain-object patch over the user section; JSON-shaped data
+   * only (non-JSON values reject with their path before anything persists).
    */
   update(patch: object): Promise<void>
   /**
    * Replace this namespace's user section wholesale; absent keys re-inherit
    * the composition `base` and schema defaults (`replace({})` resets all).
-   * @param section - the complete next user section.
+   * @param section - the complete next user section; JSON-shaped data only,
+   * as for {@link update}.
    */
   replace(section: object): Promise<void>
 }
@@ -112,6 +118,11 @@ declare module 'cordis' {
      * Committed change to one registered namespace's resolved value. Emitted
      * after the provider persisted (for `update`) or published (`provider`)
      * the change; never emitted when the resolved value is deep-equal.
+     * Listener failures are contained and logged — a sync throw and an async
+     * rejection alike — except `INVARIANT`-coded failures, which rethrow
+     * after every listener ran; that rethrow reaches the emitter only from
+     * synchronous listeners, so invariant checks on this event must not be
+     * async functions.
      * @param ns - the namespace whose resolved value changed.
      * @param next - the new resolved value.
      * @param prev - the previous resolved value.
@@ -151,17 +162,78 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null
 }
 
+/** Human label for a value rejected by the JSON-shape boundary (numbers reject inline). */
+function describeRejected(value: unknown): string {
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'object' && value !== null) {
+    const proto = Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null
+    const name = proto?.constructor?.name
+    return name === undefined || name === 'Object' ? 'a non-plain object' : `a ${name}`
+  }
+  return `a ${typeof value}`
+}
+
+/**
+ * Detach one write input in a single walk that doubles as the durable-boundary
+ * shape check: only JSON data (plain objects, arrays, strings, finite numbers,
+ * booleans, `null`) may reach a provider document. `structuredClone` alone
+ * would admit Dates, Maps, BigInts, and cycles that YAML/JSON storage then
+ * silently distorts on the reload round-trip. `undefined` entries in objects
+ * are skipped — the same sparse-patch semantics as {@link mergeLayers} — while
+ * an `undefined` array entry is rejected rather than coerced.
+ * @param root - plain-object write input (caller-checked).
+ * @param reject - builds the boundary error from a value label and its `$`-rooted path.
+ * @returns the detached JSON-shaped clone.
+ */
+function cloneJsonShaped(
+  root: Record<string, unknown>,
+  reject: (label: string, path: string) => TypeError,
+): Record<string, unknown> {
+  const visiting = new WeakSet<object>()
+  const clone = (value: unknown, path: string): unknown => {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) throw reject('a non-finite number', path)
+      return value
+    }
+    if (Array.isArray(value)) {
+      if (visiting.has(value)) throw reject('a circular reference', path)
+      visiting.add(value)
+      const entries = value.map((entry, index) => clone(entry, `${path}[${index}]`))
+      // Un-mark on exit so one object referenced twice without a cycle passes.
+      visiting.delete(value)
+      return entries
+    }
+    if (isPlainObject(value)) {
+      if (visiting.has(value)) throw reject('a circular reference', path)
+      visiting.add(value)
+      // TODO(settings-json-properties): Use property-safe construction here and
+      // in mergeLayers so valid JSON keys such as "__proto__" remain own data.
+      const out: Record<string, unknown> = {}
+      for (const [key, entry] of Object.entries(value)) {
+        if (entry === undefined) continue
+        out[key] = clone(entry, `${path}.${key}`)
+      }
+      visiting.delete(value)
+      return out
+    }
+    throw reject(describeRejected(value), path)
+  }
+  return clone(root, '$') as Record<string, unknown>
+}
+
 /**
  * Layer `over` onto `under`: plain objects merge recursively, every other
- * value (arrays included) replaces the lower layer wholesale, and `undefined`
- * entries in `over` are ignored so a sparse patch cannot erase lower keys.
+ * value (arrays included) replaces the lower layer wholesale. `over` never
+ * carries `undefined` entries — sections come from parsed documents and write
+ * snapshots pass {@link cloneJsonShaped}, which strips them so a sparse patch
+ * cannot erase lower keys.
  */
 function mergeLayers(under: unknown, over: unknown): unknown {
   if (over === undefined) return under
   if (!isPlainObject(under) || !isPlainObject(over)) return over
   const merged: Record<string, unknown> = { ...under }
   for (const [key, value] of Object.entries(over)) {
-    if (value === undefined) continue
     merged[key] = key in merged ? mergeLayers(merged[key], value) : value
   }
   return merged
@@ -179,6 +251,8 @@ interface SettingsWatcher {
   callback: (next: never, prev: never) => void | Promise<void>
   /** Settled tail: invocations of this callback run one at a time, in commit order. */
   tail: Promise<void>
+  /** Cleared by the disposer: a queued invocation checks this before starting. */
+  active: boolean
 }
 
 /** One live namespace registration owned by a registrant fiber. */
@@ -203,6 +277,8 @@ export abstract class Settings extends Service {
   private document: Record<string, unknown> = {}
   /** Per-namespace write chains; settled tails, so a failure never poisons the queue. */
   private readonly writeQueues = new Map<SettingsNamespace, Promise<unknown>>()
+  /** In-flight watcher invocation segments, drained by the dispose teardown. */
+  private readonly pendingTails = new Set<Promise<void>>()
   /** Set at service dispose: refuse new writes while queued ones drain. */
   private stopped = false
 
@@ -223,10 +299,12 @@ export abstract class Settings extends Service {
    */
   async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
     yield async () => {
-      // Teardown: refuse new writes, then wait until every queued write chain
-      // settles so disposal completes only once storage is quiescent.
+      // Teardown: refuse new writes and new watcher starts, then wait until
+      // every queued write chain and every started watcher invocation settles
+      // so disposal completes only once storage and observers are quiescent.
+      // Invocations queued but not yet started skip via the stopped check.
       this.stopped = true
-      await Promise.allSettled([...this.writeQueues.values()])
+      await Promise.allSettled([...this.writeQueues.values(), ...this.pendingTails])
     }
     this.publish(await this.load())
   }
@@ -271,14 +349,19 @@ export abstract class Settings extends Service {
     }
     this.ctx.effect(() => {
       this.registrations.set(ns, registration)
+      // TODO(settings-registration-quiescence): Deactivate every watcher and await
+      // its tail on disposal so callbacks cannot outlive the registrant fiber.
       return () => this.registrations.delete(ns)
     }, `settings.register(${JSON.stringify(String(ns))})`)
     return {
       get: () => registration.resolved as T,
       watch: (callback) => {
-        const watcher: SettingsWatcher = { callback: callback, tail: Promise.resolve() }
+        const watcher: SettingsWatcher = { callback: callback, tail: Promise.resolve(), active: true }
         registration.watchers.add(watcher)
-        return () => registration.watchers.delete(watcher)
+        return () => {
+          watcher.active = false
+          registration.watchers.delete(watcher)
+        }
       },
       update: patch => this.update(ns, patch),
       replace: section => this.replace(ns, section),
@@ -377,13 +460,10 @@ export abstract class Settings extends Service {
       throw new TypeError(`settings ${verb} for "${ns}" must be a plain object`)
     }
     // Snapshot at call time: the queue must never read a caller-owned object
-    // the caller may keep mutating while the write waits its turn.
-    let snapshot: Record<string, unknown>
-    try {
-      snapshot = structuredClone(input)
-    } catch {
-      throw new TypeError(`settings ${verb} for "${ns}" must be JSON-shaped (structured-cloneable) data`)
-    }
+    // the caller may keep mutating while the write waits its turn. The same
+    // walk is the JSON-shape boundary check (see cloneJsonShaped).
+    const snapshot = cloneJsonShaped(input, (label, path) =>
+      new TypeError(`settings ${verb} for "${ns}" must be JSON-shaped data (found ${label} at ${path})`))
     const previous = this.writeQueues.get(ns) ?? Promise.resolve()
     // Chain past a failed predecessor: one rejected write must not poison the
     // namespace queue for every later caller.
@@ -403,6 +483,8 @@ export abstract class Settings extends Service {
       // only when this registration is still the namespace owner — a fiber
       // disposed (or replaced) mid-persist must not receive the notification.
       this.document[ns] = section
+      // TODO(settings-replacement-resync): Re-resolve any replacement registration
+      // from this persisted section so an old in-flight write cannot leave it stale.
       if (this.registrations.get(ns) === registration && !this.isStopped()) {
         this.commit(registration, next, 'update')
       }
@@ -459,11 +541,20 @@ export abstract class Settings extends Service {
       // Serialize per watcher: invocations of one callback run one at a time
       // in commit order, so a slow stale invocation can never apply after a
       // newer one. Sync throws and async rejections land in the same handler.
-      watcher.tail = watcher.tail
-        .then(() => watcher.callback(next as never, prev as never))
+      // The activity check runs when the queued invocation would start, so a
+      // disposer (or service stop) that ran while it waited prevents the
+      // start entirely; started invocations drain at service dispose.
+      const segment = watcher.tail
+        .then(() => {
+          if (!watcher.active || this.isStopped()) return
+          return watcher.callback(next as never, prev as never)
+        })
         .then(() => undefined, (error: unknown) => {
           this.warnWatcherFailure(registration.ns, error)
         })
+      watcher.tail = segment
+      this.pendingTails.add(segment)
+      void segment.then(() => this.pendingTails.delete(segment))
     }
     // Fan the event out one listener at a time (the plain emit stops at the
     // first throwing listener, starving the rest). Invariant violations are
@@ -474,14 +565,21 @@ export abstract class Settings extends Service {
     const args = ['settings/updated', registration.ns, next, prev, source]
     for (const listener of this.ctx.events.dispatch('emit', args) as Array<(...listenerArgs: unknown[]) => unknown>) {
       try {
-        listener(registration.ns, next, prev, source)
+        const returned = listener(registration.ns, next, prev, source)
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          // An emit listener may still be an async function; its rejection
+          // cannot reach the synchronous INVARIANT rethrow below, so it is
+          // contained here instead of becoming an unhandled rejection.
+          void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+            this.warnListenerFailure(registration.ns, error)
+          })
+        }
       } catch (error) {
         if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
           invariantFailure ??= error
           continue
         }
-        this.ctx.logger.warn('settings: a settings/updated listener for "%s" failed', registration.ns)
-        this.ctx.logger.warn(error)
+        this.warnListenerFailure(registration.ns, error)
       }
     }
     if (invariantFailure !== undefined) throw invariantFailure as Error
@@ -492,6 +590,26 @@ export abstract class Settings extends Service {
     this.ctx.logger.warn('settings: watcher for "%s" failed', ns)
     this.ctx.logger.warn(error)
   }
+
+  /** Contained-listener diagnostic shared by the sync and async failure paths. */
+  private warnListenerFailure(ns: SettingsNamespace, error: unknown): void {
+    this.ctx.logger.warn('settings: a settings/updated listener for "%s" failed', ns)
+    this.ctx.logger.warn(error)
+  }
+}
+
+/**
+ * Value mirror of the `FiberState` members {@link isUnloading} compares
+ * against: a const enum has no runtime object to import, and the value is
+ * needed at runtime (same rationale as the CLI boot driver's mirror).
+ */
+const FIBER_DISPOSED = 4
+const FIBER_UNLOADING = 5
+
+/** Whether the consumer's own fiber is tearing down (not just losing the settings service). */
+function isUnloading(ctx: Context): boolean {
+  const state: number = ctx.fiber.state
+  return state === FIBER_UNLOADING || state === FIBER_DISPOSED
 }
 
 /** Hooks a consumer hands to {@link installSettingsSection}. */
@@ -534,6 +652,13 @@ export function installSettingsSection<T>(
     const scope = sctx.settings.register(ns, schema, { base: entry })
     hooks.setSource(() => scope.get())
     sctx.effect(() => () => {
+      // This disposer runs for two different reasons. A settings provider
+      // detaching leaves the consumer running, so it must fall back to its
+      // composition entry and re-judge what it derived. The consumer's own
+      // unload runs it too — and there `onChange` would re-register routes
+      // and touch resources the teardown is releasing, so the fallback is
+      // pointless and the notification actively harmful.
+      if (isUnloading(ctx)) return
       hooks.setSource(() => entry)
       hooks.onChange()
     })

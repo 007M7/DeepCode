@@ -69,16 +69,18 @@ describe('locale apply', () => {
     // An event ahead of any inject hits the unbound-actions arm.
     locale.setLocale('en')
 
-    const { instance, face } = faceOf(b.slots)
+    const { entry, instance, face } = faceOf(b.slots)
     // The inject-time re-sync sealed the init window: the mirror is current.
     expect(instance.getSnapshot().active).toBe('en')
     expect(instance.getSnapshot().options.map(o => o.id)).toEqual(['zh', 'en'])
-    expect(face.t('language.title')).toBe('Language')
+    // Copy rides the standard locale seat: the entry declares the namespace.
+    expect(entry.locale).toBe(SETTINGS_NS)
+    expect(locale.bind(SETTINGS_NS)('language.title')).toBe('Language')
 
     face.setLocale('zh')
     expect(locale.getLocale().active).toBe('zh')
     expect(instance.getSnapshot().active).toBe('zh')
-    expect(face.t('language.title')).toBe('语言')
+    expect(locale.bind(SETTINGS_NS)('language.title')).toBe('语言')
   })
 
   it('recovers after an HMR collapse of the declaring entry (stale disposer must not block)', async () => {

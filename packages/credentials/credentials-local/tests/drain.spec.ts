@@ -6,11 +6,15 @@ import { join } from 'node:path'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '../src/index.ts'
 
-// The atomic write is the only asynchronous hold point inside a queued write;
-// gating it makes the dispose-versus-queued-write race fully deterministic.
-vi.mock('@deepseek-ai/dsh-atomic-write', () => {
+// The atomic write is the gated asynchronous hold point inside a queued
+// write; gating it makes the dispose-versus-queued-write race fully
+// deterministic. The lock helper passes through so the gated operation still
+// runs inside its real acquire/release cycle.
+vi.mock('@deepseek-ai/dsh-atomic-write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@deepseek-ai/dsh-atomic-write')>()
   let gate: Promise<void> = Promise.resolve()
   return {
+    ...actual,
     writeFileAtomic: vi.fn(() => gate),
     __setGate: (next: Promise<void>) => {
       gate = next

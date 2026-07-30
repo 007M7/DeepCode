@@ -33,6 +33,11 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
+      "symbol": "AdapterRegistrationHandle",
+      "source": "packages/llm/llm/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
       "symbol": "LlmProviderInfo",
       "source": "packages/llm/llm/src/types.ts"
     },
@@ -94,6 +99,21 @@
     {
       "doc": "docs/core-data-structures/core.md",
       "symbol": "InboxPlacement",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxItem",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxAction",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "InboxActionResult",
       "source": "packages/core/agent/src/types.ts"
     },
     {
@@ -966,7 +986,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillInvocationPolicy",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillSummary",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillCatalogSnapshot",
       "source": "packages/skill/skill/src/index.ts"
     },
     {
@@ -991,7 +1021,17 @@
     },
     {
       "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderObservation",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
       "symbol": "SkillProvider",
+      "source": "packages/skill/skill/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/skills.md",
+      "symbol": "SkillProviderControl",
       "source": "packages/skill/skill/src/index.ts"
     },
     {

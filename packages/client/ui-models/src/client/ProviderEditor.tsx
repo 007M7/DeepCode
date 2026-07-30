@@ -199,7 +199,72 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   }
 
   const keyLocked = keyState?.writable === false
-  const effortField = layout === 'unknown' ? undefined : EFFORT_FIELD[layout]
+
+  /**
+   * The curated fields of one known adapter family. Taking the narrowed
+   * family as a parameter is what makes `EFFORT_FIELD` total here: an
+   * unknown namespace never reaches this body.
+   */
+  const curatedFields = (family: 'deepseek' | 'pi-ai'): ReactNode => {
+    const effortField = EFFORT_FIELD[family]
+    return (
+      <>
+        <div className={styles['field']}>
+          <span className={styles['fieldLabel']}>{t('keyInput')}</span>
+          <input
+            className={styles['input']}
+            type="password"
+            autoComplete="off"
+            value={keyDraft}
+            placeholder={keyLocked
+              ? t('keyEnvLocked')
+              : keyState?.configured === true ? t('keyStored') : t('keyPlaceholder')}
+            aria-label={t('keyInput')}
+            disabled={disabled || keyLocked}
+            onChange={(event) => { setKeyDraft(event.target.value) }}
+          />
+        </div>
+        <details className={styles['customized']}>
+          <summary className={styles['customizedSummary']}>{t('customized')}</summary>
+          <div className={styles['customizedBody']}>
+            <div className={styles['field']}>
+              <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
+              <input
+                className={styles['input']}
+                type="text"
+                value={stringAt(draft, 'baseURL') ?? ''}
+                placeholder={family === 'deepseek'
+                  ? DEEPSEEK_PUBLIC_BASE_URL
+                  : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
+                aria-label={t('baseUrl')}
+                disabled={disabled}
+                onChange={(event) => {
+                  setField('baseURL', event.target.value === '' ? undefined : event.target.value)
+                }}
+              />
+            </div>
+            <div className={styles['field']}>
+              <span className={styles['fieldLabel']}>{t('effort')}</span>
+              <select
+                className={styles['input']}
+                value={stringAt(draft, effortField) ?? ''}
+                aria-label={t('effort')}
+                disabled={disabled}
+                onChange={(event) => {
+                  setField(effortField, event.target.value === '' ? undefined : event.target.value)
+                }}
+              >
+                <option value="">{t('effortInherit')}</option>
+                {EFFORT_CHOICES[family].map(choice => (
+                  <option key={choice} value={choice}>{choice}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </details>
+      </>
+    )
+  }
 
   return (
     <div className={styles['editor']}>
@@ -215,68 +280,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
         )}
       {layout === 'unknown'
         ? <p className={styles['advancedHint']}>{`${t('advancedHint')} (${namespace.ns})`}</p>
-        : (
-          <>
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('keyInput')}</span>
-              <input
-                className={styles['input']}
-                type="password"
-                autoComplete="off"
-                value={keyDraft}
-                placeholder={keyLocked
-                  ? t('keyEnvLocked')
-                  : keyState?.configured === true ? t('keyStored') : t('keyPlaceholder')}
-                aria-label={t('keyInput')}
-                disabled={disabled || keyLocked}
-                onChange={(event) => { setKeyDraft(event.target.value) }}
-              />
-            </div>
-            <details className={styles['customized']}>
-              <summary className={styles['customizedSummary']}>{t('customized')}</summary>
-              <div className={styles['customizedBody']}>
-                <div className={styles['field']}>
-                  <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
-                  <input
-                    className={styles['input']}
-                    type="text"
-                    value={stringAt(draft, 'baseURL') ?? ''}
-                    placeholder={layout === 'deepseek'
-                      ? DEEPSEEK_PUBLIC_BASE_URL
-                      : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
-                    aria-label={t('baseUrl')}
-                    disabled={disabled}
-                    onChange={(event) => {
-                      setField('baseURL', event.target.value === '' ? undefined : event.target.value)
-                    }}
-                  />
-                </div>
-                {/* v8 ignore next -- EFFORT_FIELD is total over non-unknown layouts; the check only narrows the type */}
-                {effortField !== undefined
-                  ? (
-                    <div className={styles['field']}>
-                      <span className={styles['fieldLabel']}>{t('effort')}</span>
-                      <select
-                        className={styles['input']}
-                        value={stringAt(draft, effortField) ?? ''}
-                        aria-label={t('effort')}
-                        disabled={disabled}
-                        onChange={(event) => {
-                          setField(effortField, event.target.value === '' ? undefined : event.target.value)
-                        }}
-                      >
-                        <option value="">{t('effortInherit')}</option>
-                        {EFFORT_CHOICES[layout].map(choice => (
-                          <option key={choice} value={choice}>{choice}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )
-                  : null}
-              </div>
-            </details>
-          </>
-        )}
+        : curatedFields(layout)}
       {failure !== undefined ? <p className={styles['error']}>{failure}</p> : null}
       <div className={styles['editorActions']}>
         <button

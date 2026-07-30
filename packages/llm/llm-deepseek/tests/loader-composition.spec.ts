@@ -41,12 +41,15 @@ afterEach(async () => {
 })
 
 async function loadComposition(
-  options: { withDynamic: boolean; baseURL: string },
+  options: { withDynamic: boolean; baseURL: string; reuseRoot?: string },
 ): Promise<{ ctx: Context; settingsPath: string; envPath: string }> {
-  root = await mkdtemp(join(tmpdir(), 'dsh-llm-composition-'))
+  // A reused root is the restart case: the same harness home, its documents
+  // exactly as the previous process left them.
+  const fresh = options.reuseRoot === undefined
+  root = options.reuseRoot ?? await mkdtemp(join(tmpdir(), 'dsh-llm-composition-'))
   const settingsPath = join(root, 'settings.yaml')
   const envPath = join(root, '.env')
-  if (options.withDynamic) {
+  if (options.withDynamic && fresh) {
     await writeFile(settingsPath, '# personal settings\n')
     await writeFile(envPath, 'DEEPSEEK_API_KEY=boot-key\n')
   }
@@ -127,6 +130,35 @@ describe('llm-deepseek real dynamic composition', () => {
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(serverA.requests).toHaveLength(1)
     expect(serverB.headers[0]?.authorization).toBe('Bearer rotated-key')
+  })
+
+  it('keeps a stored key writable and rotatable across a real restart', async () => {
+    // No ambient DEEPSEEK_API_KEY: the shipped surfaces no longer hoist
+    // $DSH_HOME/.env into process.env, so a stored key must stay file-sourced.
+    vi.stubEnv('DEEPSEEK_API_KEY', '')
+    const first = await mockServer([{ kind: 'sse', events: textEvents }])
+    const second = await mockServer([{ kind: 'sse', events: textEvents }])
+    const boot = await loadComposition({ withDynamic: true, baseURL: first.url })
+    const home = root!
+    await boot.ctx.get('credentials')!.set(KEY_REF, 'stored-by-ui')
+    expect(await boot.ctx.get('credentials')!.describe(KEY_REF))
+      .toEqual({ configured: true, source: 'file', writable: true })
+    await assemble(boot.ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(first.headers[0]?.authorization).toBe('Bearer stored-by-ui')
+    await boot.ctx.fiber.dispose()
+    context = undefined
+
+    // Restart over the same harness home.
+    const restarted = await loadComposition({ withDynamic: true, baseURL: second.url, reuseRoot: home })
+    const credentials = restarted.ctx.get('credentials')!
+    // The stored key is still the provider's own writable file entry — not a
+    // read-only launch override, which is what hoisting it would have made it.
+    expect(await credentials.resolve(KEY_REF)).toEqual({ value: 'stored-by-ui', source: 'file' })
+    expect(await credentials.describe(KEY_REF)).toEqual({ configured: true, source: 'file', writable: true })
+    // Rotation still works after the restart, and the next request uses it.
+    await credentials.set(KEY_REF, 'rotated-after-restart')
+    await assemble(restarted.ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(second.headers[0]?.authorization).toBe('Bearer rotated-after-restart')
   })
 
   it('boots the same adapter without settings or credentials entries on entry config alone', async () => {

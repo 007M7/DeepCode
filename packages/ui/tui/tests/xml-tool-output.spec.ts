@@ -8,6 +8,7 @@ const render = (source: string, limit = 4, expanded = false): string[] | undefin
   text => text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu, control =>
     `\\x${control.charCodeAt(0).toString(16).padStart(2, '0')}`),
   text => `[label]${text}[/label]`,
+  text => `[body]${text}[/body]`,
   count => `  … +${count} lines`,
 )
 
@@ -22,29 +23,37 @@ describe('unknown-tool XML rendering', () => {
   </content>
 </result>`)).toEqual([
       '[label]result[/label]',
-      '  [label]path:[/label] /tmp/a.txt',
-      '  [label]type:[/label] file',
+      '  [label]path:[/label] [body]/tmp/a.txt[/body]',
+      '  [label]type:[/label] [body]file[/body]',
       '  [label]content[/label]',
-      '    [label]line (number="1"):[/label] hello',
-      '    [label]line (number="2"):[/label] world',
+      '    [label]line (number="1"):[/label] [body]hello[/body]',
+      '    [label]line (number="2"):[/label] [body]world[/body]',
     ])
   })
 
   it('renders root text, CDATA, empty elements, and multiline nested text', () => {
     expect(render('  <result>\nfirst\nsecond\n</result>  ')).toEqual([
       '[label]result[/label]',
-      '  first',
-      '  second',
+      '  [body]first[/body]',
+      '  [body]second[/body]',
     ])
     expect(render('<result>\nfirst\nsecond\n</result>', 1, true)).toEqual([
       '[label]result[/label]',
-      '  first',
-      '  second',
+      '  [body]first[/body]',
+      '  [body]second[/body]',
     ])
     expect(render('<result><value><![CDATA[literal <xml>]]></value><empty /></result>')).toEqual([
       '[label]result[/label]',
-      '  [label]value:[/label] literal <xml>',
+      '  [label]value:[/label] [body]literal <xml>[/body]',
       '  [label]empty[/label]',
+    ])
+    // An interior blank line stays the empty string: styling it would emit an
+    // escape-only row, which reads as a stray indented blank rather than a gap.
+    expect(render('<result>\nfirst\n\nsecond\n</result>', 4, true)).toEqual([
+      '[label]result[/label]',
+      '  [body]first[/body]',
+      '',
+      '  [body]second[/body]',
     ])
   })
 
@@ -53,13 +62,13 @@ describe('unknown-tool XML rendering', () => {
     expect(render(xml, 3)).toEqual([
       '[label]result[/label]',
       '  [label]first[/label]',
-      '    a',
+      '    [body]a[/body]',
       '  … +4 lines',
-      '    f',
+      '    [body]f[/body]',
       '  [label]second[/label]',
-      '    g',
+      '    [body]g[/body]',
       '  … +4 lines',
-      '    l',
+      '    [body]l[/body]',
     ])
     expect(render(xml, 3, true)).toHaveLength(15)
   })
@@ -68,10 +77,10 @@ describe('unknown-tool XML rendering', () => {
     const xml = `<result>${Array.from({ length: 8 }, (_, index) => `<item>${index}</item>`).join('')}</result>`
     expect(render(xml, 3)).toEqual([
       '[label]result[/label]',
-      '  [label]item:[/label] 0',
-      '  [label]item:[/label] 1',
+      '  [label]item:[/label] [body]0[/body]',
+      '  [label]item:[/label] [body]1[/body]',
       '  … +5 lines',
-      '  [label]item:[/label] 7',
+      '  [label]item:[/label] [body]7[/body]',
     ])
     expect(render(xml, 3, true)).toHaveLength(9)
   })
@@ -79,11 +88,11 @@ describe('unknown-tool XML rendering', () => {
   it('escapes control characters expanded from character references', () => {
     expect(render('<result attr="a&#155;b">tab&#9;csi&#155;</result>')).toEqual([
       '[label]result (attr="a\\\\x9bb")[/label]',
-      '  tab\\x09csi\\x9b',
+      '  [body]tab\\x09csi\\x9b[/body]',
     ])
     expect(render('<result><value><![CDATA[del\u007f]]></value></result>')).toEqual([
       '[label]result[/label]',
-      '  [label]value:[/label] del\\x7f',
+      '  [label]value:[/label] [body]del\\x7f[/body]',
     ])
   })
 

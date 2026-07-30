@@ -217,11 +217,12 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('loads a local skill via /skill: and delivers its body to the model as a user turn', async () => {
-    // The whole manual-invocation path in one keyless boot: `ctx.get('skills')`
+    // The whole user-only invocation path in one keyless boot: `ctx.get('skills')`
     // resolves in the shipped tree, the client-side `/skill:` command parses,
-    // the local provider loads `scripted-skill` from the agents home, and the
-    // rendered `<skill name="…">` block reaches the model — proven by the
-    // scripted adapter echoing the fixture's body marker only when it arrives.
+    // and the local provider admits a model-disabled skill by the omitted
+    // `user-invocable` default. The rendered `<skill name="…">` block reaches
+    // the model — proven by the scripted adapter echoing the fixture's body
+    // marker only when it arrives.
     const output = await smoke({
       label: 'tui-agent skill',
       tempDirPrefix: 'tui-agent-skill-',
@@ -232,6 +233,7 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
             '---',
             'name: scripted-skill',
             'description: Keyless PTY proof that the skill command loads a local skill into the conversation.',
+            'disable-model-invocation: true',
             '---',
             '',
             'SCRIPTED SKILL BODY MARKER',
@@ -247,6 +249,36 @@ describe('tui-agent keyless smoke (real Loader tree in a PTY)', () => {
     })
     expect(output).not.toContain('[instructions]')
     expect(output).toContain('Scripted skill body received.')
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('adds a watched local skill to live /skill: autocomplete without restarting', async () => {
+    const skill = [
+      '---',
+      'name: hot-added-skill',
+      'description: HOT_ADDED_COMPLETION_MARKER',
+      '---',
+      '',
+      'Hot-added body.',
+      '',
+    ].join('\n')
+    const output = await smoke({
+      label: 'tui-agent hot-added skill autocomplete',
+      tempDirPrefix: 'tui-agent-hot-skill-',
+      configPath: scriptedConfigPath,
+      actions: [
+        {
+          waitFor: 'scripted TUI ready.',
+          writeFile: {
+            path: '.agents/skills/hot-added-skill/SKILL.md',
+            content: skill,
+          },
+          send: '/skill:hot',
+        },
+        { waitFor: 'HOT_ADDED_COMPLETION_MARKER', send: '\x03/exit\r' },
+      ],
+    })
+    expect(output).toContain('HOT_ADDED_COMPLETION_MARKER')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
@@ -323,18 +355,23 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
-  it('applies the personal overlay: config.yaml patches the tree and .env feeds its !!js', async () => {
-    // The whole personal-config chain in one boot: the personal .env supplies
-    // the variable, config.yaml patches the tui-agent entry with a `!!js`
-    // reference to it, and the banner renders the patched welcome verbatim.
+  it('applies the personal overlay: config.yaml patches the tree, the invoking directory\'s .env feeds its !!js, and the home .env stays out of the environment', async () => {
+    // The whole personal-config chain in one boot, plus the environment layer
+    // it deliberately excludes. The single `!!js` expression prefers the
+    // personal variable, so the patched welcome can only render the project
+    // value when the harness home's .env — the credential store of
+    // `dsh-credentials-local` — is NOT hoisted into `process.env`; hoisting it
+    // would make every stored key read as a read-only launch override on the
+    // next run and hand it to every subprocess the agent starts.
     const output = await smoke({
       label: 'dsh personal overlay',
       tempDirPrefix: 'dsh-personal-overlay-',
       binScript: dshBinScript,
       configArgs: [],
       prepare: seedWorkspace({
+        workspace: { '.env': 'DSH_PROJECT_WELCOME=PROJECT OVERLAY READY.\n' },
         personal: {
-          '.env': 'DSH_PERSONAL_WELCOME=PERSONAL OVERLAY READY.\n',
+          '.env': 'DSH_PERSONAL_WELCOME=HOME ENV LEAKED.\n',
           'config.yaml': [
             '- id: tui-agent',
             "  name: '@deepseek-ai/dsh-tui-demo'",
@@ -342,14 +379,15 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
             '    provider: deepseek-official',
             '    model: deepseek-v4-flash',
             '    workspaceContext: false',
-            '    welcome: !!js process.env.DSH_PERSONAL_WELCOME',
+            '    welcome: !!js process.env.DSH_PERSONAL_WELCOME ?? process.env.DSH_PROJECT_WELCOME',
             '',
           ].join('\n'),
         },
       }),
-      actions: [{ waitFor: 'PERSONAL OVERLAY READY.', send: '/exit\r' }],
+      actions: [{ waitFor: 'PROJECT OVERLAY READY.', send: '/exit\r' }],
     })
-    expect(output).toContain('PERSONAL OVERLAY READY.')
+    expect(output).toContain('PROJECT OVERLAY READY.')
+    expect(output).not.toContain('HOME ENV LEAKED.')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 

@@ -28,6 +28,7 @@
     "tests/steering.e2e.ts",
     "tests/navigation-panes.e2e.ts",
     "tests/lifecycle-chrome.e2e.ts",
+    "tests/details-session-lifecycle.e2e.ts",
     "tests/settings-chrome.e2e.ts",
     "tests/models-settings.e2e.ts",
     "tests/onboarding-deepseek-config.e2e.ts",
@@ -36,7 +37,10 @@
     "tests/seeded-history.e2e.ts",
     "tests/sidebar-scrollbar.e2e.ts",
     "tests/code-mode-round.e2e.ts",
-    "tests/cordis-tool-round.e2e.ts"
+    "tests/cordis-tool-round.e2e.ts",
+    "tests/message-actions.e2e.ts",
+    "tests/queue-actions.e2e.ts",
+    "tests/skill-invocation-policy.e2e.ts"
   ],
   "references": [
     {

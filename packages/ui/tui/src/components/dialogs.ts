@@ -205,7 +205,7 @@ export class StatusCardComponent implements Component {
       if (groupIndex > 0) body.push('')
       for (const [label, value] of group) {
         const plainLabel = truncateToWidth(`${label}:`, labelWidth, '')
-        const prefix = ` ${this.palette.muted(plainLabel.padEnd(labelWidth))}  `
+        const prefix = ` ${this.palette.dim(plainLabel.padEnd(labelWidth))}  `
         const continuation = ' '.repeat(1 + labelWidth + 2)
         const valueWidth = Math.max(1, innerWidth - visibleWidth(prefix))
         const wrapped = wrapTextWithAnsi(value, valueWidth)
@@ -281,9 +281,10 @@ export function renderDialog(
   return lines
 }
 
-/** Keyboard model selector rendered as a bordered overlay, with per-model reasoning-effort cycling. */
+/** Keyboard model selector rendered as a bordered overlay, with a filter box and per-model reasoning-effort cycling. */
 export class ModelDialog implements Component {
-  private readonly list: SelectList
+  private list: SelectList
+  private readonly filter = new Input()
   private readonly items: Map<string, SelectItem>
   private readonly choices: Map<string, ModelChoice>
   private readonly efforts: Map<string, ReasoningEffortId | undefined>
@@ -292,10 +293,10 @@ export class ModelDialog implements Component {
   constructor(
     choices: readonly ModelChoice[],
     current: AgentLlmTarget | undefined,
-    maxVisible: number,
+    private readonly maxVisible: number,
     private readonly palette: Palette,
-    done: (selection: ModelDialogSelection) => void,
-    cancel: () => void,
+    private readonly done: (selection: ModelDialogSelection) => void,
+    private readonly cancel: () => void,
   ) {
     this.items = new Map()
     this.choices = new Map()
@@ -317,18 +318,38 @@ export class ModelDialog implements Component {
         description: this.describeChoice(choice, isCurrent),
       })
     }
-    this.list = new SelectList([...this.items.values()], maxVisible, dialogSelectTheme(palette))
-    const currentIndex = current === undefined
-      ? 0
-      : choices.findIndex(choice => choice.provider === current.provider && choice.model === current.model)
-    this.list.setSelectedIndex(currentIndex)
-    this.list.onSelect = (item) => {
-      const selected = choices.find(choice => targetLabel(choice) === item.value)
-      /* v8 ignore next -- SelectList only returns values built from `choices`. */
-      if (selected === undefined) return
-      done({ choice: selected, reasoningEffort: this.efforts.get(item.value) })
-    }
-    this.list.onCancel = cancel
+    this.list = this.buildList(this.currentValue)
+  }
+
+  /** Build a SelectList over the currently filtered items, selecting `selectValue` when present. */
+  private buildList(selectValue: string | undefined): SelectList {
+    const items = this.filteredItems()
+    const list = new SelectList(items, this.maxVisible, dialogSelectTheme(this.palette))
+    const index = selectValue === undefined ? 0 : items.findIndex(item => item.value === selectValue)
+    list.setSelectedIndex(Math.max(0, index))
+    list.onSelect = (item) => { this.confirm(item) }
+    list.onCancel = this.cancel
+    return list
+  }
+
+  /** Items matching the filter box, as a case-insensitive substring over the label, model name, and description. */
+  private filteredItems(): SelectItem[] {
+    const query = this.filter.getValue().trim().toLocaleLowerCase()
+    if (query === '') return [...this.items.values()]
+    return [...this.items.values()].filter((item) => {
+      const choice = this.choices.get(item.value)
+      /* v8 ignore next -- items and choices share the same keys. */
+      if (choice === undefined) return false
+      return [item.value, choice.modelName, choice.description ?? '']
+        .some(field => field.toLocaleLowerCase().includes(query))
+    })
+  }
+
+  private confirm(item: SelectItem): void {
+    const selected = this.choices.get(item.value)
+    /* v8 ignore next -- SelectList only returns values built from `choices`. */
+    if (selected === undefined) return
+    this.done({ choice: selected, reasoningEffort: this.efforts.get(item.value) })
   }
 
   private describeChoice(choice: ModelChoice, isCurrent: boolean): string {
@@ -362,24 +383,50 @@ export class ModelDialog implements Component {
   }
 
   invalidate(): void {
+    this.filter.invalidate()
     this.list.invalidate()
   }
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.shift(Key.tab))) {
       this.cycleReasoningEffort()
-    } else {
+    } else if (matchesKey(data, Key.escape)) {
+      if (this.filter.getValue() === '') this.cancel()
+      else {
+        this.filter.setValue('')
+        this.list = this.buildList(undefined)
+      }
+    } else if (
+      matchesKey(data, Key.up)
+      || matchesKey(data, Key.down)
+      || matchesKey(data, Key.enter)
+    ) {
       this.list.handleInput(data)
+    } else {
+      const previous = this.filter.getValue()
+      this.filter.focused = true
+      this.filter.handleInput(data)
+      if (this.filter.getValue() !== previous) {
+        const selected = this.list.getSelectedItem()
+        this.list = this.buildList(selected?.value)
+      }
     }
     this.invalidate()
   }
 
   render(width: number): string[] {
     const innerWidth = Math.max(1, width - 4)
+    this.filter.focused = true
+    const results = this.filteredItems()
+    const filterContent = truncateToWidth(this.filter.render(innerWidth).join(''), innerWidth, '')
     return renderDialog('Select model', [
-      ...this.list.render(innerWidth),
+      filterContent,
       '',
-      this.palette.dim('↑/↓ navigate • Shift+Tab reasoning • Enter select • Esc cancel'),
+      ...results.length === 0
+        ? [this.palette.dim('  No models match the filter')]
+        : this.list.render(innerWidth),
+      '',
+      this.palette.dim('type to filter • ↑/↓ move • Shift+Tab reasoning • Enter select • Esc'),
     ], width, this.palette)
   }
 }
@@ -396,6 +443,10 @@ export interface ResumeCandidate {
   title: string
   lastActivityAt: number
   lastTurn: string
+  /** Whether the session's workspace is the one the current session runs in, which selects the picker scope that lists it. */
+  currentWorkspace: boolean
+  /** The session's own workspace as a prompt-style label; the all-workspaces scope shows it per row. */
+  workspaceLabel: string
   route?: ResumeRoute
   goalPhase?: GoalPhase
   disabledReason?: string
@@ -429,12 +480,15 @@ function resumeRoute(snapshot: SessionLogSnapshot): ResumeRoute | undefined {
 
 /**
  * Build one resume selector row from a record and its log snapshot, deriving the
- * title, route, goal phase, and any reason the session cannot be resumed here.
+ * title, route, goal phase, workspace scope, and any reason the session cannot
+ * be resumed here. A workspace other than the current one is a scope, not a
+ * disabled reason: resuming it hands the process off into that directory.
  * @param record - The session record.
  * @param snapshot - The session's log snapshot.
  * @param currentId - The current session id.
- * @param cwd - The current workspace directory.
+ * @param cwd - The CURRENT session's workspace, which decides the picker scope this row falls in.
  * @param availableProviders - Providers registered in this runtime.
+ * @param formatWorkspace - Renders THIS record's own cwd as its prompt-style label.
  * @returns The summarized resume candidate.
  */
 export function summarizeResumeCandidate(
@@ -443,6 +497,7 @@ export function summarizeResumeCandidate(
   currentId: SessionId,
   cwd: string | undefined,
   availableProviders: ReadonlySet<string>,
+  formatWorkspace: (cwd: string | undefined) => string,
 ): ResumeCandidate {
   const title = foldSessionTitle(snapshot.events)?.title ?? 'Untitled session'
   const route = resumeRoute(snapshot)
@@ -450,7 +505,7 @@ export function summarizeResumeCandidate(
   let disabledReason: string | undefined
   if (record.header.id === currentId) disabledReason = 'current session'
   else if (record.live) disabledReason = 'session is already live in this runtime'
-  else if (record.header.cwd !== cwd) disabledReason = 'different workspace'
+  else if (record.header.cwd === undefined) disabledReason = 'session has no recorded workspace'
   else if (route !== undefined && !availableProviders.has(route.provider)) {
     disabledReason = `session is complete, but route is currently unavailable (${route.provider}/${route.model})`
   }
@@ -459,6 +514,8 @@ export function summarizeResumeCandidate(
     title,
     lastActivityAt: snapshot.events.at(-1)?.time ?? snapshot.session.createdAt,
     lastTurn: resumeTurnLabel(snapshot),
+    currentWorkspace: record.header.cwd === cwd,
+    workspaceLabel: formatWorkspace(record.header.cwd),
     ...route === undefined ? {} : { route },
     /* v8 ignore next -- goal-bearing resume records are covered by the goal/session integration surface. */
     ...foldedGoal === undefined ? {} : { goalPhase: foldedGoal.phase },
@@ -466,12 +523,23 @@ export function summarizeResumeCandidate(
   }
 }
 
-/** Full-viewport keyboard selector over detached, preflighted resume summaries. */
+/** Which workspaces the resume picker currently lists. */
+export type ResumeScope = 'workspace' | 'all'
+
+/**
+ * Full-viewport keyboard selector over detached, preflighted resume summaries.
+ *
+ * Two scopes over one candidate set: `workspace` (the default) lists only the
+ * current session's workspace, `all` lists every workspace and labels each row
+ * with its own. Tab toggles between them; the search query and selection reset
+ * on a scope change so the highlighted row always belongs to the visible list.
+ */
 export class ResumePicker implements Component, Focusable {
   private readonly search = new Input()
   private pasteBuffer: string | undefined
   private selectedIndex = 0
   private error = ''
+  private scope: ResumeScope = 'workspace'
   focused = false
 
   constructor(
@@ -488,15 +556,29 @@ export class ResumePicker implements Component, Focusable {
     this.search.invalidate()
   }
 
+  /** Candidates in the active scope, before the search query narrows them. */
+  private scoped(): ResumeCandidate[] {
+    return this.scope === 'all'
+      ? [...this.candidates]
+      : this.candidates.filter(candidate => candidate.currentWorkspace)
+  }
+
   private filtered(): ResumeCandidate[] {
     const query = this.search.getValue().trim().toLocaleLowerCase()
-    if (query === '') return [...this.candidates]
-    return this.candidates.filter(candidate => candidate.title.toLocaleLowerCase().includes(query)
-      || candidate.record.header.id.toLocaleLowerCase().includes(query))
+    const scoped = this.scoped()
+    if (query === '') return scoped
+    // The workspace label only distinguishes rows once it is on screen, so it
+    // joins the searchable text exactly in the scope that shows it.
+    return scoped.filter(candidate => candidate.title.toLocaleLowerCase().includes(query)
+      || candidate.record.header.id.toLocaleLowerCase().includes(query)
+      || (this.scope === 'all' && candidate.workspaceLabel.toLocaleLowerCase().includes(query)))
   }
 
   private visibleCandidateCount(): number {
-    const candidateBudget = Math.max(1, Math.floor((Math.max(1, this.viewportRows()) - 13) / 4))
+    // The all-workspaces scope adds a per-row workspace line, so a row costs
+    // one more terminal row there than in the single-workspace scope.
+    const rowHeight = this.scope === 'all' ? 5 : 4
+    const candidateBudget = Math.max(1, Math.floor((Math.max(1, this.viewportRows()) - 13) / rowHeight))
     return Math.min(this.maxVisible, candidateBudget)
   }
 
@@ -553,6 +635,11 @@ export class ResumePicker implements Component, Focusable {
         Math.max(0, filtered.length - 1),
         this.selectedIndex + this.visibleCandidateCount(),
       )
+    } else if (matchesKey(data, Key.tab)) {
+      this.scope = this.scope === 'workspace' ? 'all' : 'workspace'
+      this.search.setValue('')
+      this.selectedIndex = 0
+      this.error = ''
     } else if (matchesKey(data, Key.enter)) {
       const selected = filtered[this.selectedIndex]
       if (selected === undefined) this.error = 'No session matches this search.'
@@ -568,6 +655,21 @@ export class ResumePicker implements Component, Focusable {
       }
     }
     this.invalidate()
+  }
+
+  /**
+   * The scope line under the search box: the active scope with the current
+   * workspace it means, and the inactive scope with the count Tab would reveal.
+   */
+  private renderScopeLine(): string {
+    const inWorkspace = this.candidates.filter(candidate => candidate.currentWorkspace).length
+    const active = this.scope === 'workspace'
+      ? `this workspace ${displayText(this.workspaceLabel)}`
+      : `all workspaces (${this.candidates.length})`
+    const other = this.scope === 'workspace'
+      ? `all workspaces (${this.candidates.length})`
+      : `this workspace (${inWorkspace})`
+    return `${this.palette.accent(active)}${this.palette.dim(`  ⇥ ${other}`)}`
   }
 
   render(width: number): string[] {
@@ -594,7 +696,7 @@ export class ResumePicker implements Component, Focusable {
       `${indent}${this.palette.dim('│')} ${clippedSearch}${' '.repeat(Math.max(0, searchInnerWidth - visibleWidth(clippedSearch)))} ${this.palette.dim('│')}`,
       `${indent}${this.palette.dim(`╰${'─'.repeat(Math.max(0, contentWidth - 2))}╯`)}`,
       '',
-      `${indent}${this.palette.muted(displayText(this.workspaceLabel))}`,
+      `${indent}${this.renderScopeLine()}`,
       '',
     )
 
@@ -620,8 +722,13 @@ export class ResumePicker implements Component, Focusable {
       const route = candidate.route === undefined ? 'route unavailable' : `${candidate.route.provider}/${candidate.route.model}`
       /* v8 ignore next -- only goal-bearing resume records add this integration-owned suffix. */
       const goal = candidate.goalPhase === undefined ? '' : ` · goal ${candidate.goalPhase}`
-      push(this.palette.muted(`  ${new Date(candidate.lastActivityAt).toISOString()} · ${candidate.lastTurn} · ${route}${goal}`))
+      push(this.palette.dim(`  ${new Date(candidate.lastActivityAt).toISOString()} · ${candidate.lastTurn} · ${route}${goal}`))
       push(this.palette.dim(`  ${status} · ${displayText(candidate.record.header.id)}`))
+      // Only the all-workspaces scope mixes directories, so the per-row
+      // workspace is redundant in the scope that already names one.
+      if (this.scope === 'all') {
+        push(this.palette.dim(`  workspace ${displayText(candidate.workspaceLabel)}`))
+      }
       if (candidate.disabledReason !== undefined) {
         push(this.palette.warning(`  unavailable: ${displayText(candidate.disabledReason)}`))
       }
@@ -632,7 +739,7 @@ export class ResumePicker implements Component, Focusable {
       push(this.palette.error(displayText(this.error)))
     }
 
-    const footer = `${indent}${this.palette.dim('Type to search  •  ↑/↓ navigate  •  Enter resume  •  Esc clear/cancel')}`
+    const footer = `${indent}${this.palette.dim('Type to search  •  ↑/↓ navigate  •  Tab scope  •  Enter resume  •  Esc clear/cancel')}`
     while (lines.length < height - 2) lines.push('')
     lines.push(footer, '')
     return lines.slice(0, height)
@@ -720,7 +827,7 @@ export class QuestionDialog implements Component, Focusable {
     const innerWidth = Math.max(1, width - 4)
     const header = `Question ${this.position}/${this.total} (${this.unanswered} unanswered)${this.question.header === undefined ? '' : ` · ${displayText(this.question.header)}`}`
     const lines = [
-      this.palette.muted(header),
+      this.palette.dim(header),
       ...wrapTextWithAnsi(this.palette.text(displayText(this.question.question)), innerWidth),
     ]
     const push = (line: string): void => { lines.push(line) }
@@ -764,7 +871,7 @@ export class QuestionDialog implements Component, Focusable {
           : left
         const description = option.description === undefined
           ? ''
-          : `${' '.repeat(Math.max(1, descriptionColumn - visibleWidth(left)))}${this.palette.muted(displayText(option.description))}`
+          : `${' '.repeat(Math.max(1, descriptionColumn - visibleWidth(left)))}${this.palette.dim(displayText(option.description))}`
         push(`${leftStyled}${description}`)
       }
       if (options.length > this.maxVisible) push(this.palette.dim(`${this.selectedIndex + 1}/${options.length}`))

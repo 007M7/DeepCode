@@ -78,6 +78,9 @@ const REPLAY_SCENARIOS: Scenario[] = [
     env: { DSH_PERMISSION_MODE: 'never' },
     configPath: AGENT.configPath,
     workspaceParent: tmpdir(),
+    prepareWorkspace: (cwd) => {
+      writeFileSync(join(cwd, 'seed.txt'), 'prepared at runtime')
+    },
   },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },

@@ -16,7 +16,6 @@ import z from 'schemastery'
 import { LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
@@ -32,6 +31,8 @@ export const inject = ['llm']
 
 const NS = settingsNamespace('llm-deepseek')
 const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
+/** The single provider route this plugin owns. */
+const PROVIDER = 'deepseek-official'
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
   { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 256_000 },
@@ -89,11 +90,13 @@ export const Config: z<Config> = z.object({
 /** Public API default; the internal endpoint comes from $DEEPSEEK_BASE_URL. */
 export const PUBLIC_BASE_URL = 'https://api.deepseek.com'
 
-/** Connection facts plus the plugin-consumed credential reference. */
-export interface ResolvedDeepSeekOptions extends DeepSeekConnectionOptions {
-  /** Reference resolved per request when no literal key is configured. */
-  apiKeyEnv: CredentialRef
-}
+/**
+ * One resolution's complete request facts. Connection and credential facts
+ * are one value on purpose: a snapshot the resolver rejects keeps the whole
+ * previous generation, so a request can never pair a stale endpoint with a
+ * newer key.
+ */
+export type ResolvedDeepSeekOptions = DeepSeekConnectionOptions
 
 /** Resolve, validate, and detach the advisory model catalog. */
 function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): DeepSeekCatalogModel[] {
@@ -147,6 +150,7 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
     )
   }
   return {
+    ...config.apiKey !== undefined && config.apiKey.length > 0 ? { apiKey: config.apiKey } : {},
     apiKeyEnv: credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV),
     baseURL: config.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? PUBLIC_BASE_URL,
     defaults: {
@@ -187,10 +191,11 @@ export function apply(ctx: Context, config: Config): void {
   }
   options()
 
-  const resolveApiKey = async (): Promise<string> => {
-    const raw = current()
-    if (raw.apiKey !== undefined && raw.apiKey.length > 0) return raw.apiKey
-    const ref = options().apiKeyEnv
+  const resolveApiKey = async (connection: ResolvedDeepSeekOptions): Promise<string> => {
+    // Every credential fact comes from the caller's snapshot, so a rejected
+    // settings generation cannot leak its key onto the previous endpoint.
+    if (connection.apiKey !== undefined) return connection.apiKey
+    const ref = connection.apiKeyEnv
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
@@ -202,19 +207,20 @@ export function apply(ctx: Context, config: Config): void {
       if (ambient !== undefined && ambient.length > 0) return ambient
     }
     throw new LlmError(
-      'llm-deepseek: no API key for provider route "deepseek-official"; set the llm-deepseek "apiKey" setting,'
-      + ` store ${ref} with the credentials service, or export ${ref}`,
+      `llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials`
+      + ` service (the web Models page writes it), export ${ref} in the launching environment, or — as a`
+      + ' last resort — set a literal "apiKey" in the llm-deepseek settings section',
       'MISSING_CREDENTIAL',
     )
   }
 
   const adapter = new DeepSeekAdapter({ options, resolveApiKey })
   ctx.llm.registerConfigurableProviders([
-    { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
+    { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
   ])
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below.
-  let disposeRoute = ctx.llm.registerAdapter(['deepseek-official'], adapter)
+  let disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
   let registeredPolicy = options().retryPolicy
   const ensureRegistrationFacts = (): void => {
     const policy = options().retryPolicy
@@ -223,16 +229,9 @@ export function apply(ctx: Context, config: Config): void {
     // fact per-request resolution cannot refresh: swap the registration in one
     // synchronous section (same adapter instance, no NO_ADAPTER window).
     disposeRoute()
-    disposeRoute = ctx.llm.registerAdapter(['deepseek-official'], adapter)
+    disposeRoute = ctx.llm.registerAdapter([PROVIDER], adapter)
     registeredPolicy = policy
   }
-
-  void resolveApiKey().then(() => undefined, () => {
-    // Expected on a first boot with dynamic sources: the route stays
-    // registered (the catalog is browsable) and each request fails with the
-    // actionable MISSING_CREDENTIAL message until a key arrives.
-    ctx.logger.warn('llm-deepseek: no API key resolved yet for route "deepseek-official"; requests will fail until one is configured')
-  })
 
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source) => {

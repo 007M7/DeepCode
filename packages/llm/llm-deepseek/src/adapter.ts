@@ -17,6 +17,7 @@ import type {
   ResolvedRetryPolicy,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { serializeRequest } from './serialize.ts'
 import type { RequestDefaults } from './serialize.ts'
@@ -45,6 +46,14 @@ export interface DeepSeekCatalogModel {
 export interface DeepSeekConnectionOptions {
   /** Endpoint base; `/chat/completions` is appended. */
   baseURL: string
+  /**
+   * Literal API key of this same resolution, when the configuration carried
+   * one. Travelling with the endpoint is the point: a request can never pair
+   * one generation's URL with another generation's secret.
+   */
+  apiKey?: string
+  /** Credential reference of this same resolution, resolved per request when no literal key exists. */
+  apiKeyEnv: CredentialRef
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults: RequestDefaults
   /** Positive context capacity used when the selected model has no exact value. */
@@ -62,11 +71,12 @@ export interface DeepSeekAdapterOptions {
   /** Current validated connection facts; called once per operation. */
   options: () => DeepSeekConnectionOptions
   /**
-   * Resolve the bearer token for one request; called once per stream call and
-   * frozen for that call. Throws `LlmError` `MISSING_CREDENTIAL` when no key
-   * is available anywhere.
+   * Resolve the bearer token for the connection facts of one request. The
+   * snapshot is passed in — never re-read — so the key can only ever come
+   * from the same resolution as the endpoint it is sent to. Throws `LlmError`
+   * `MISSING_CREDENTIAL` when no key is available anywhere.
    */
-  resolveApiKey: () => Promise<string>
+  resolveApiKey: (connection: DeepSeekConnectionOptions) => Promise<string>
 }
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
@@ -189,8 +199,10 @@ export class DeepSeekAdapter extends LlmAdapter {
     // One resolution per stream call: connection facts and the credential
     // freeze here and hold for this whole request, so an in-flight stream
     // never observes a configuration change and the next call re-resolves.
+    // The key resolves *from this snapshot*, so an endpoint and the secret
+    // sent to it can never come from different configuration generations.
     const connection = this.config.options()
-    const apiKey = await this.config.resolveApiKey()
+    const apiKey = await this.config.resolveApiKey(connection)
     const consumer = new AbortController()
     const upstream = options.signal === undefined
       ? consumer.signal

@@ -32,6 +32,9 @@ class ObservedStateGate {
    * the write/edit prior-observation policy.
    */
   private owner(actor: object | undefined): object | undefined {
+    // tsgolint treats object as assignable to weak FsPolicyExec, while tsc still requires the structural cast for property access.
+    // See the analyzer-divergence consequence in .agents/notes/implemented/process/2026-07-29-oxlint-linter.md.
+    // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- The analyzers disagree on this weak type.
     return (actor as FsPolicyExec | undefined)?.agent?.session
   }
 

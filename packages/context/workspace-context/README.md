@@ -42,7 +42,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 </system-reminder>
 ```
 
-A same-file edit starts with `Updated instructions from: <path>` and says to use the new content instead of the previously loaded content. When a candidate disappears or becomes a per-directory duplicate of an earlier candidate, the message is `Instructions removed: <path>` followed by `The previously loaded instructions from this file no longer apply.` Literal `</system-reminder>` text inside an instruction file is escaped so file content cannot close the plugin-owned frame.
+A same-file edit starts with `Updated instructions from: <path>` and says to use the new content instead of the previously loaded content. When a candidate disappears or becomes a per-directory duplicate of an earlier candidate, the message is `Instructions removed: <path>` followed by `The previously loaded instructions from this file no longer apply.` Literal `</system-reminder>` text anywhere in instruction content or model-visible path, scope, and budget metadata is escaped so repository-controlled text cannot close the plugin-owned frame.
 
 The plugin owns the complete `<system-reminder>` framing, and every injected `user/message` reaches the model verbatim with no core wrapper.
 

@@ -9,10 +9,10 @@
 - `register(ns, schema, { base?, applies? })` — 返回 owner 的 `SettingsScope`（`get`/`watch`/`update`）。注册是调用方插件 fiber 上的 effect：dispose 该 fiber 即移除 namespace 及其观察者。schema 拒绝的存量分节会使注册本身失败；重复 namespace 立即报错。
 - `describe(options?)` — 每个 namespace 一条描述（`schema.toJSON()` 信封、解析值、分离出的 `base`/`user` 层、`applies`），供配置界面使用；字段出现在 `user` 中即标记其被用户覆盖。`describe({ redactSecrets: true })` 从每一层剥离 `role('secret')` 字段，并附加 `secrets` 槽位列表（`{ path, set }`）；每个 wire 面都必须传入它，纯遍历器 `redactSecrets(schema, value)` 已导出，供其他 wire 使用。
 - `get(ns)` — 解析值；未注册时为 `undefined`。
-- `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经 provider 持久化后提交。校验失败在持久化前拒绝；只读 provider（`writable: false`）拒绝一切写入。同一 namespace 的写入按调用顺序串行。
+- `update(ns, patch)` — 把普通对象 patch 深合并进用户分节（绝不合并进 `base`），校验解析候选值，经 provider 持久化后提交。patch 必须是 JSON 形状的数据：Date、Map、BigInt、非有限数或循环引用会在任何内容持久化前带着以 `$` 为根的路径拒绝（YAML/JSON 存储在重载时会静默扭曲这类值）。校验失败在持久化前拒绝；只读 provider（`writable: false`）拒绝一切写入。同一 namespace 的写入按调用顺序串行。
 - `replace(ns, section)` — 整体替换用户分节：merge 表达不了的删除/重置路径（`replace({})` 重新继承 `base` 与 schema 默认值）。
-- 解析值是深冻结快照。每次提交后观察者收到 `(next, prev)`：同一回调的调用异步、逐次、按提交顺序执行（慢的旧调用绝不会覆盖更新的结果），异常——同步抛出与异步拒绝——均被隔离。`settings/updated` 事件逐 listener 扇出，一个抛错的 listener 不会饿死其余 listener。
-- 服务卸载先拒绝新写入并排干全部排队写入后才完成；registrant fiber 在写入途中被 dispose 时，该写入仍到达存储，但不向任何人提交或通知。
+- 解析值是深冻结快照。每次提交后观察者收到 `(next, prev)`：同一回调的调用异步、逐次、按提交顺序执行（慢的旧调用绝不会覆盖更新的结果），异常——同步抛出与异步拒绝——均被隔离。watch 的 disposer 返回后不再启动新的调用（已排队的那一次会被跳过）；已启动的调用仍会结算。`settings/updated` 事件逐 listener 扇出，一个抛错的 listener 不会饿死其余 listener；异步 listener 的拒绝会被隔离并记入日志，这正是 `INVARIANT` 编码的失败只从同步 listener 重新抛出的原因。
+- 服务卸载先拒绝新写入与观察者调用的启动，再排干全部排队写入与已启动的观察者调用后才完成；registrant fiber 在写入途中被 dispose 时，该写入仍到达存储，但不向任何人提交或通知。
 
 ## Provider 契约
 
@@ -33,4 +33,4 @@
 ## Known Limitations and Deferred Work
 
 - **单一用户层** — 解析只认识 schema 默认值、一个组合 `base` 与一个用户文档；尚无 project/managed 分层或按值溯源。
-- **跨进程并发由 provider 定义** — seam 仅在进程内按 namespace 串行化写入；跨进程并发按 provider 行为收敛（本地文件 provider 为后写胜出）。
+- **跨进程并发由 provider 定义** — seam 仅在进程内按 namespace 串行化写入；跨进程并发按 provider 行为收敛（本地文件 provider 在写锁下读-改-写，因此 namespace 在并发写入者下不会丢失，同 namespace 冲突按后写胜出解决）。
