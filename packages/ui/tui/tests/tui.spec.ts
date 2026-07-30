@@ -3349,14 +3349,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('/model alpha/shared')
     result.terminal.send('\r')
     await vi.waitFor(() => {
-      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: provider default.')
+      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: Default.')
     })
     result.terminal.send('/model')
     result.terminal.send('\r')
     await vi.waitFor(() => {
       expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Select model')
     })
-    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — provider default')
+    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — Default')
     result.terminal.send('\x1b[Z')
     await tick()
     expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — Standard')
@@ -3375,10 +3375,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Ultra — current')
     result.terminal.send('\x1b[Z')
     await tick()
-    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — provider default')
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Default')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Reasoning effort: provider default.')
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Reasoning effort: Default.')
     const explicitResetSeed: LlmCallConfig = {
       provider: 'beta',
       model: 'b1',
