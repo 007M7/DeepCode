@@ -1,12 +1,10 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Use the ask_user_question tool to" [disabled]
-    - text: · 1 turns
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop.
+- text: Use the ask_user_question tool to ask me exactly one question with id "checkpoint", question "Ready to continue?", header "Checkpoint", and options labeled "Yes" and "No". After I answer, reply with one short sentence acknowledging my answer and stop. {{clock}}
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -16,11 +14,17 @@
 - button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
+  - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- button
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]} 等待回答（1 题）"
-- button "▸ 问题内容"
-- text: 请在原客户端处理（web 端作答后续里程碑提供） cache hit 98% · 7,946 tokens · 1 turns · 1 steps
+- button "复制":
+  - img
+- button "在新对话中分支":
+  - img
+- text: {{clock}}
+- button:
+  - img
+  - img
+- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]} cache hit 98% · 7,946 tokens · 1 turns · 1 steps"
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]

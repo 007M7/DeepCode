@@ -13,14 +13,15 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 export function extractSessionEventText(event: SessionEvent): string {
   switch (event.type) {
     case 'user/message':
+      return contentText(event.data.content)
     case 'assistant/message':
     case 'steering/message':
-      return contentText(event.data.content)
+      return contentText(event.data.message.content)
     case 'tool/call':
       return joinText([event.data.name, event.data.arguments])
     case 'tool/result':
       return joinText([
-        contentText(event.data.content),
+        contentText(event.data.message.content),
         event.data.error?.name ?? '',
         event.data.error?.code ?? '',
       ])

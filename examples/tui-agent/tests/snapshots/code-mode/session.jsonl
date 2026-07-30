@@ -1,4 +1,4 @@
-{"type":"session","version":0,"id":"main-session","createdAt":1785014512062,"cwd":"/tmp/dsh-tui-snapshot-code-mode-7FNsKO"}
+{"type":"session","version":0,"id":"main-session","createdAt":1785014512062,"cwd":"{{cwd}}"}
 {"type":"turn/start","seq":0,"time":1785014512139,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":1,"time":1785014512140,"data":{"content":[{"type":"text","text":"Using ONE run_code program: call the bash tool twice — exactly `echo CODE_ONE` then exactly `echo CODE_TWO`. Inside that same program, console.log exactly `captured output`, then return the two outputs joined with a plus sign. Reply with that joined string only and stop."}],"source":{"kind":"user"}},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":1785014512146,"data":{"title":"Using ONE run_code program: call","messageSeqs":[1],"source":{"kind":"fallback"}}}

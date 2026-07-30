@@ -28,7 +28,7 @@
 | `ctx.llm` | [`llm/`](../packages/llm/README.md) | 适配器注册表和模型流式调用 |
 | `ctx.tokenMeter` | [`llm/token-meter`](../packages/llm/token-meter/README.md) | 感知回放的单实例请求压力与表面压力 |
 | `ctx.bash` | [`bash/`](../packages/bash/README.md) | 前台和后台命令执行 |
-| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 供 bash 执行器、LSP host 与 ACP subagent 后端使用的受管子进程树 |
+| `ctx.subprocess` | [`subprocess/`](../packages/subprocess/README.md) | 供 bash、LSP 与 ACP subagent 后端使用的受管子进程树 |
 | `ctx.pty` | [`pty/`](../packages/pty/README.md) | 按 owner 隔离的持久化终端会话 |
 | `ctx.sandbox` | [`sandbox/`](../packages/sandbox/README.md) | 通过 argv 包装和逐调用策略限制同一执行环境内的进程 |
 | `ctx.sandboxPolicy` | [`sandbox/`](../packages/sandbox/README.md) | 共享沙箱策略归属点 |
@@ -44,8 +44,10 @@
 | `ctx.workflows` | [`workflow/`](../packages/workflow/README.md) | 脚本驱动的多 agent 编排 |
 | `ctx.goals` | [`goal/`](../packages/goal/README.md) | 持久化的同会话目标 |
 | `ctx.sessionPersistence` | [`session-persistence/`](../packages/session-persistence/README.md) | 会话日志的持久化存储 |
-| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 实时优先的精确检索／过滤／追踪接口、SQLite 全文搜索后端、经工作区授权的模型工具 |
+| `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 基于 SQLite 全文搜索的实时优先精确检索／过滤／追踪、经工作区授权的模型工具 |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题和单个可选异步提供方 |
+| `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI 宿主目录选取（`native`／`browse` 交互） |
+| `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | 生成的包反射和实时 Zod schema 的运行时注册表 |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 
 ## 事件
@@ -96,10 +98,10 @@ forever:
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
-        exclusive -> one-call barrier
-        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
-        each model-order result -> ordered tools/post-execute -> 'tool/result'
+        exclusive -> barrier
+        parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
+        start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        model-order result -> ordered tools/post-execute -> 'tool/result'
       drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn
@@ -145,7 +147,7 @@ idle inject:
 
 持久性由插件负责。后端会尽快排空同步的 `session/event` 通知。`session/flush` 屏障位于每次请求与顶层工具分发之前，并在 `turn/end` 之后、处理另一个已排队轮次或观察到空闲状态之前执行。`SessionPersistence` 直接存储 `SessionEvent`，并将元数据存入 `SessionHeader`；JSONL 默认采用带校验和的 Zstandard，SQLite 遵循同一契约（[决策](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)）。
 
-`ctx.sessions.appendOutOfBand()` 会把插件所属的纯日志事件加入开放轮次，或创建一个平衡且已刷写的零步骤轮次。`session/title` 按后写覆盖方式折叠，并携带源 seq 和来源信息；其即时回退标题和唯一可选异步提供方都不会延迟响应。fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
+纯日志事件可以位于轮次之间。事件所有方通过 `Session` 追加，仅为持久性而刷写。`session/title` 依赖尽快持久化与生命周期排空。最新标题按后写覆盖并携带来源信息；回退与提供方工作绝不会延迟响应。这类记录可作为 fork 边界，因此 fork 会继承标题（[决策](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)）。
 
 ### 模型内容
 

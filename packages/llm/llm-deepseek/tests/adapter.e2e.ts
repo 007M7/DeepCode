@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { CallId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, CallId, ReasoningEffortId , createMessage } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
@@ -29,7 +29,10 @@ afterEach(async () => {
 })
 
 function ask(text: string): Message[] {
-  return [{ role: 'user', content: [{ type: 'text', text }] }]
+  return [createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
 }
 
 function textOf(result: AssembledResult): string {
@@ -101,15 +104,18 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
         reasoningEffort: ReasoningEffortId(effort),
         messages: [
           ...ask('What is the weather in Paris right now? Use the get_weather tool.'),
-          { role: 'assistant', content: first.message.content },
-          {
-            role: 'user',
+          createMessage({
+            role: 'assistant', content: first.message.content,
+            source: { kind: 'plugin', plugin: 'test' },
+          }),
+          createUserMessage({
             content: [{
               type: 'tool-result',
               toolCallId: CallId(call!.id),
               content: [{ type: 'text', text: 'Sunny, 22°C' }],
             }],
-          },
+            source: { kind: 'plugin', plugin: 'test' },
+          }),
         ],
         tools: [weatherTool],
         maxTokens: 2000,

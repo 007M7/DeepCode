@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { stat } from 'node:fs/promises'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
@@ -70,10 +71,10 @@ describe('session.search', () => {
   it('searches only list-visible ids and current conversation-message events', async () => {
     const ctx = await baseContext()
     const live = ctx.sessions.create(sid('live'), { meta: header('live', '/live') })
-    live.append('user/message', {
+    live.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'live text' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     const cold = header('cold', '/cold')
     const legacy = header('legacy', null)
     ctx.provide('sessionPersistence', {

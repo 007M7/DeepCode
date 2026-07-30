@@ -1,5 +1,8 @@
-/* Chat flow: block gap 16 between narration/bubbles/tool groups (figma);
-   tool rows inside a group gap 10. Input padding cap rides the skeleton. */
+/* Chat flow: one 16px rhythm everywhere — between blocks (prose <-> tool
+   runs) via the column gap and between consecutive tool rows via the group
+   gap. Input padding cap rides the skeleton. Under
+   `[data-conversation-scroll]` the column host owns overflow and this view
+   is ordinary flow (see ConversationRoot active-phase rules). */
 
 .root {
   position: relative;
@@ -16,6 +19,18 @@
   padding: 16px 24px;
 }
 
+:global([data-conversation-scroll]) .root {
+  flex: 0 0 auto;
+  min-height: auto;
+  height: auto;
+}
+
+:global([data-conversation-scroll]) .scroll {
+  overflow: visible;
+  flex: 0 0 auto;
+  min-height: auto;
+}
+
 /* Message column: 736px fixed width, centered on the same axis as the
    input box; the scroller itself stays full-bleed. */
 .column {
@@ -30,7 +45,7 @@
 .toolGroup {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
 }
 
 .callRow {
@@ -49,6 +64,35 @@
   margin: 4px 0 2px 22px;
   padding-left: 8px;
   border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+/* Turn loader: one row of four 2.5px pixels (StateDot blue) chasing left to
+   right with a stepped trail — flat keyframe holds, no tweening. Phase
+   offsets come from per-rect animation-delay (index * -250ms) set inline
+   by the component. */
+.turnDots {
+  align-self: flex-start;
+  flex: none;
+  display: flex;
+  align-items: center;
+  /* One message line box: the dots center inside the text line height. */
+  height: 26px;
+  /* Same pin as StateDot: ongoing blue has no alias token (business-primary
+     is the 500 step, not this 450). */
+  color: var(--dsw-static-deepseek-450);
+}
+
+.turnDotCell {
+  fill: currentColor;
+  opacity: 0.15;
+  animation: dsh-turn-dots-chase 1s infinite;
+}
+
+@keyframes dsh-turn-dots-chase {
+  0%, 24.9% { opacity: 1; }
+  25%, 49.9% { opacity: 0.6; }
+  50%, 74.9% { opacity: 0.35; }
+  75%, 100% { opacity: 0.15; }
 }
 
 .hint {
@@ -83,16 +127,34 @@
   opacity: 0.6;
 }
 
-/* Back-to-bottom: 34px circular icon button at the column's right edge. */
-.toBottom {
-  position: absolute;
-  right: max(24px, calc((100% - 736px) / 2));
+/* Back-to-bottom: zero-height sticky slot so the control does not extend
+   scrollHeight; the button translates up into the viewport. Under the
+   conversation host, clearance sits above the sticky composer stack. */
+.toBottomSlot {
+  position: sticky;
   bottom: 16px;
-  width: 34px;
-  height: 34px;
+  /* Above the sticky composer (z-index 7) so the control stays clickable and
+     visible over the input card. */
+  z-index: 8;
+  height: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding-right: max(0px, calc((100% - 736px) / 2));
+  pointer-events: none;
+}
+
+:global([data-conversation-scroll]) .toBottomSlot {
+  /* Clears the sticky composer stack (stats + docks + input card). */
+  bottom: 168px;
+}
+
+.toBottom {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-top: -34px;
   padding: 0;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 100px;
@@ -100,6 +162,7 @@
   background: var(--dsw-alias-button-floating-fill);
   box-shadow: var(--dsw-shadow-lv2);
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .toBottom:hover {

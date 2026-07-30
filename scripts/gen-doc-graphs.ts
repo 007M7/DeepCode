@@ -8,7 +8,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
-import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import { projectCordisCatalog } from '@deepseek-ai/dsh-typert-generator'
+import { CORDIS_CATALOG_POLICY } from './gen-cordis-catalog.ts'
+import type { EventEntry, ServiceEntry } from '@deepseek-ai/dsh-typert-generator'
 import {
   collectPackageGraph,
   escapeMermaidLabel as escLabel,
@@ -58,6 +60,7 @@ const GROUP_ORDER = [
   'util',
   'llm',
   'core',
+  'typert',
   'goal',
   'process',
   'bash',
@@ -127,6 +130,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['session', 'agent', 'scope', 'agent-loop'],
     note: 'Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures.',
+  },
+  {
+    key: 'typert',
+    pkg: 'typert-registry',
+    title: 'Runtime type registry',
+    mode: 'core',
+    consumers: ['typert-loader'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
   },
   {
     key: 'sessionPersistence',
@@ -235,6 +246,22 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['tui'],
     note: 'Plugins register direct human commands; TUI consumes the effective per-agent catalog without sending invocations to the model.',
+  },
+  {
+    key: 'sessionProjections',
+    pkg: 'session-projection',
+    title: 'Session projection units',
+    mode: 'core',
+    consumers: ['tool-todo', 'session-title', 'host-apiproxy'],
+    note: 'Domains register state-driven fold units; the eager drive keeps per-session watermark states and api-proxy serves baselines and pushes changed values.',
+  },
+  {
+    key: 'sessionProjectionCache',
+    pkg: 'session-projection-cache',
+    title: 'Persisted projection cache',
+    mode: 'core',
+    consumers: ['host-apiproxy'],
+    note: 'Durably checkpoints projection unit states per session (throttled + turn/end/detach mandatory points) and serves the cold-read ladder: cache row + persistence tail replay, so listings never load full logs.',
   },
   {
     key: 'tui',
@@ -409,6 +436,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The backend saves oversized tool text and returns a model-facing locator plus retrieval hint; spill-policy is the tools/post-execute consumer that decides when to spill.',
   },
   {
+    key: 'directoryPicker',
+    pkg: 'directory-picker',
+    title: 'Workspace-directory picking seam',
+    mode: 'seam',
+    implementations: ['directory-picker-native', 'directory-picker-browse'],
+    consumers: ['apiproxy'],
+    note: 'Discriminated interaction capability: the native backend opens one OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; dual-face backends fill ui-workspace directory-flow slots from their browser halves (no wire advertisement).',
+  },
+  {
     key: 'httpServer',
     pkg: 'webserver',
     title: 'HTTP route registration',
@@ -482,8 +518,8 @@ function tableCell(value: string): string {
   return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 }
 
-function assertServiceRolesComplete(): void {
-  const discovered = new Set(collectServices().map(service => service.key))
+function assertServiceRolesComplete(services: readonly ServiceEntry[]): void {
+  const discovered = new Set(services.map(service => service.key))
   const classified = new Set(SERVICE_ROLES.map(role => role.key))
   const missing = [...discovered].filter(key => !classified.has(key)).sort()
   const stale = [...classified].filter(key => !discovered.has(key)).sort()
@@ -495,8 +531,8 @@ function assertServiceRolesComplete(): void {
   }
 }
 
-function renderCapabilitySeams(pkgs: Pkg[]): string {
-  assertServiceRolesComplete()
+function renderCapabilitySeams(pkgs: Pkg[], services: readonly ServiceEntry[]): string {
+  assertServiceRolesComplete(services)
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard'
   const nodes = new Map<string, string>()
@@ -945,8 +981,7 @@ function listenerPackages(listeners: Set<string>, pkgsByShort: Map<string, Pkg>)
   return [...listeners].sort().map(pkg => pkgLink(pkgsByShort.get(pkg), pkg)).join(', ')
 }
 
-function renderEventRelations(pkgs: Pkg[]): string {
-  const events = collectEvents()
+function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): string {
   const relations = collectEventRelations()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
@@ -1135,10 +1170,11 @@ function renderToolPipeline(): string {
 
 function renderDocs(): GraphDoc[] {
   const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
+  const { model } = projectCordisCatalog(root, CORDIS_CATALOG_POLICY)
   const docs: GraphDoc[] = [
-    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
+    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs, model.services) },
     ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),
-    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
+    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs, model.events) },
     { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
   ]

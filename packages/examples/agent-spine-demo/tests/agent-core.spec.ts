@@ -8,9 +8,12 @@ import { TOOL_ORDER_REST } from '@deepseek-ai/dsh-system-prompt'
 import * as agentCore from '../src/index.ts'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
+  createUserMessage,
   CallId,
   LlmAdapter,
   LlmError,
@@ -165,10 +168,10 @@ describe('dsh-agent-spine-demo bundle', () => {
       turn: 1,
       trigger: { kind: 'message', source: { kind: 'user' } },
     })
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'One two three four' }],
       source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await new Promise(resolve => setTimeout(resolve, 0))
 
     expect(ctx.sessionTitle.get(session)?.title).toBe('One')
@@ -235,7 +238,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       agentOptions: { provider: 'mock', model: 'mock' },
     })
 
-    handle.agent.followup({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'recover' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, handle.agent)
 
     expect(adapter.requests).toBe(2)
@@ -335,7 +338,7 @@ describe('dsh-agent-spine-demo bundle', () => {
       })
       const agent = handle.agent
 
-      agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
       const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
@@ -364,10 +367,15 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
-      expect(adapter.requests[0]?.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }])
+      expect(adapter.requests[0]?.messages).toEqual([{
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'user' },
+      }])
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {
@@ -397,6 +405,142 @@ describe('dsh-agent-spine-demo bundle', () => {
     expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['custom-skill'])
     expect(JSON.stringify(await composePrefix(ctx, '/tmp'))).toContain('- `custom-skill`: Cus...')
     await ctx.fiber.dispose()
+  })
+
+  it('snapshots a created project skill through catalog refresh and progressive loading', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-'))
+    const home = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-skill-refresh-home-'))
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      const skillPath = '.agents/skills/hot-skill/SKILL.md'
+      const skillSource = '---\nname: hot-skill\ndescription: Hot-added skill\n---\n\nUse the freshly loaded body.\n'
+      const adapter = new MockAdapter([
+        toolCallResponse('mkdir-skill', 'bash', {
+          command: 'mkdir -p .agents/skills/hot-skill',
+          description: 'Create the project skill directory',
+        }),
+        toolCallResponse('write-skill', 'write', {
+          file_path: skillPath,
+          content: skillSource,
+        }),
+        toolCallResponse('load-skill', 'skill', { name: 'hot-skill' }),
+        textResponse('SKILL_REFRESH_OK'),
+      ])
+      const ctx = await mount({
+        workspaceContext: false,
+        skills: {
+          local: {
+            dshHome: join(home, '.dsh'),
+            agentsHome: join(home, '.agents'),
+            watchStabilityThresholdMs: 20,
+            watchPollIntervalMs: 10,
+          },
+        },
+      })
+      await ctx.plugin(LocalBashExecutor, {})
+      await ctx.plugin(LocalFileSystem, { cwd: root })
+      await ctx.plugin(ToolFs)
+      ctx.llm.registerAdapter(['mock'], adapter)
+      const handle = await ctx.agents.create({
+        sessionId: SessionId('skill-refresh-session'),
+        meta: { cwd: root },
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+
+      handle.agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'Create and load the project skill.' }],
+        source: { kind: 'user' },
+      }))
+      await waitForIdle(ctx, handle.agent)
+
+      expect(adapter.requests).toHaveLength(4)
+      expect(adapter.requests.slice(0, 2).map(request => request.messages.map(messageText).join('\n')))
+        .toEqual([
+          expect.not.stringContaining('hot-skill'),
+          expect.not.stringContaining('hot-skill'),
+        ])
+      const catalogRequest = adapter.requests[2]?.messages.map(messageText).join('\n')
+      expect(catalogRequest).toContain('The following skills are available in this session:')
+      expect(catalogRequest).toContain('- `hot-skill`: Hot-added skill')
+      const loadedRequest = JSON.stringify(adapter.requests[3]?.messages)
+      expect(loadedRequest).toContain('<skill_instructions>')
+      expect(loadedRequest).toContain('Use the freshly loaded body.')
+
+      const transcript = handle.agent.session.events.flatMap<Record<string, unknown>>((event) => {
+        if (event.type === 'user/message'
+          && event.data.source.kind === 'plugin'
+          && event.data.source.plugin === 'dsh-tool-skill') {
+          return [{
+            type: event.type,
+            source: event.data.source,
+            text: event.data.content.map(block => block.type === 'text' ? block.text : '').join('\n'),
+          }]
+        }
+        if (event.type === 'tool/result'
+          && ['write-skill', 'load-skill'].includes(event.data.message.source.callId)) {
+          const result = event.data.message.content[0]
+          return [{
+            type: event.type,
+            callId: event.data.message.source.callId,
+            isError: result.isError,
+            text: result.content.map(block => block.type === 'text' ? block.text : '').join('\n')
+              .replaceAll(root, '{{cwd}}'),
+          }]
+        }
+        return []
+      })
+      expect(transcript).toMatchInlineSnapshot(`
+        [
+          {
+            "callId": "write-skill",
+            "isError": false,
+            "text": "<path>{{cwd}}/.agents/skills/hot-skill/SKILL.md</path>
+        <type>file</type>
+        <content>
+        Created file
+        </content>",
+            "type": "tool/result",
+          },
+          {
+            "source": {
+              "kind": "plugin",
+              "plugin": "dsh-tool-skill",
+            },
+            "text": "<system-reminder>
+        A skill is a reusable set of task-specific instructions. The following skills are available in this session:
+
+        <available_skills>
+        - \`hot-skill\`: Hot-added skill
+        </available_skills>
+
+        If the user names a skill, or the task clearly matches a skill's description, call the \`skill\` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.
+        </system-reminder>",
+            "type": "user/message",
+          },
+          {
+            "callId": "load-skill",
+            "isError": false,
+            "text": "<skill_content name="hot-skill">
+        <skill_resources>
+        Base directory for this skill: {{cwd}}/.agents/skills/hot-skill
+        Resolve relative paths mentioned by this skill against the base directory before using them. Load referenced resources only as needed.
+        </skill_resources>
+
+        <skill_instructions>
+        Use the freshly loaded body.
+        </skill_instructions>
+        </skill_content>",
+            "type": "tool/result",
+          },
+        ]
+      `)
+
+      await handle.dispose()
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
   })
 
   it('shares top-level dshHome between local skills and the managed bash environment', async () => {
@@ -454,7 +598,7 @@ describe('dsh-agent-spine-demo bundle', () => {
         agentOptions: { provider: 'mock', model: 'mock' },
       })
 
-      handle.agent.followup({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } })
+      handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
       expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')

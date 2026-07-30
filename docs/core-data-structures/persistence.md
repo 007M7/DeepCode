@@ -12,7 +12,7 @@ The seam is a textbook [capability seam](../../.agents/notes/implemented/archite
 
 ## Crash recovery preserves an interrupted turn
 
-A backend that reloads a log crashed mid-turn finds an open `turn/start` with no `turn/end`. It does **not** truncate — a single turn can be huge in a long-horizon task (many steps, large tool output), and those events were durably appended before the crash. Instead it closes the orphaned turn with a synthetic `turn/end { reason: { kind: 'interrupted' } }`, keeping the log balanced and the turn-enclosure invariant intact. `interrupted` is the one `TurnEndReason` no loop emits (see [session.md](session.md#why-a-turn-ended-turnendreasonmap)).
+A backend that reloads a log crashed mid-turn finds an open `turn/start` with no `turn/end`. It does **not** truncate — a single turn can be huge in a long-horizon task (many steps, large tool output), and those events were durably appended before the crash. Instead it closes the orphaned turn with a synthetic `turn/end { reason: { kind: 'interrupted' } }`, keeping the interrupted execution balanced without changing any standalone events before or after it. `interrupted` is the one `TurnEndReason` no loop emits (see [session.md](session.md#why-a-turn-ended-turnendreasonmap)).
 
 Repair applies only to cold sessions. For a live id, `SessionPersistence.load(id)` snapshots the in-memory log, waits until that snapshot is durable, and returns it with the stored header only when balanced; an open live turn rejects rather than receiving synthetic interruption boundaries. A coordinator-backed cold load reserves the id across backend reads and repair writes, so concurrent publication of a same-id live session rejects and rolls back. HMR also adopts a live prefix without closing its active turn.
 
@@ -77,7 +77,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions` — seeding and metadata
 
-Creating a `Session` through the store takes a `seed` (replay/fork an existing event log) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
+Creating a `Session` through the store takes a `seed` (initial replay or fork history) and `meta` (the storage-level fields the store folds into a `SessionHeader`). The store fills in `version`/`id` and defaults `createdAt`; the caller supplies the validated absolute `cwd`, the `parentSession` lineage, the `seedLength` seed boundary, the `delegationDepth`, and — only when reconstructing a persisted session — the original `createdAt` to preserve it.
 
 ```ts type-equiv
 /**
@@ -86,7 +86,7 @@ Creating a `Session` through the store takes a `seed` (replay/fork an existing e
  * store folds into a {@link SessionHeader}.
  */
 interface CreateSessionOptions {
-  /** Events to seed the new session with (replay/fork). */
+  /** Initial replay or fork history supplied at construction. */
   readonly seed?: readonly SessionEvent[]
   /**
    * Storage metadata read once before publication. `seedLength` is explicit

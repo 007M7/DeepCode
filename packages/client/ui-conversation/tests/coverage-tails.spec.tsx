@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// PendingCard question arm, bash sample state dots, the node-half empty
+// bash sample state dots, the node-half empty
 // apply, and AssistantMarkdown reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,13 +8,10 @@ import { cleanup, render } from '@testing-library/react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RunningToolCall, SessionId, SessionListState, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
-import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { apply as nodeApply } from '../src/index.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { ToolRow } from '../src/client/chat/ToolRow.tsx'
-import { PendingCard } from '../src/client/chat/PendingCard.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
 
@@ -31,13 +28,6 @@ describe('tails', () => {
     )
     expect(view.queryByTestId('icon')).toBeNull()
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
-  })
-
-  it('PendingCard renders the question arm with its count', () => {
-    const view = render(
-      <PendingCard item={new PendingWait('question', RpcId('r1'), 's1' as SessionId, { questions: [{}, {}] } as PendingWait<'question'>['payload'], vi.fn())} />,
-    )
-    expect(view.getByText(/等待回答（2 题）/)).toBeTruthy()
   })
 
   it('AssistantMarkdown renders reasoning as a Think row and unknown blocks as JSON fallback', () => {
@@ -60,6 +50,20 @@ describe('tails', () => {
     expect(stopped.getByText('已停止')).toBeTruthy()
   })
 
+  it('AssistantMarkdown skips the root shell when only tool-call heads remain', () => {
+    // Tool heads are drawn by ChatView's tool groups; an empty root between
+    // groups is layout noise (no text, no pulse, no interrupted marker).
+    const empty = render(
+      <AssistantMarkdown
+        blocks={[{ kind: 'tool-call', callId: 'c', name: 'todo_write', argsRaw: '{}' }]}
+        streaming={false}
+      />,
+    )
+    expect(empty.container.firstChild).toBeNull()
+    const blank = render(<AssistantMarkdown blocks={[]} streaming={false} />)
+    expect(blank.container.firstChild).toBeNull()
+  })
+
   it('a settled others-variant row renders the sparkle icon in the leading slot', () => {
     const settled: ToolResultNode = {
       kind: 'tool-result', seq: 2, time: 2_000, callId: 'c5',
@@ -68,7 +72,7 @@ describe('tails', () => {
       content: [], isError: false, callView: null, resultView: null,
     }
     const props: ToolRowOwnerProps = {
-      callId: 'c5', toolName: 'todo_write', block: settled, openDetails: vi.fn(),
+      callId: 'c5', toolName: 'todo_write', block: settled, openFile: vi.fn(),
     }
     const view = render(<GenericToolCard {...props} />)
     // Settled ok state keeps the variant icon (sparkle) instead of a StateDot.
@@ -76,16 +80,16 @@ describe('tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('BashRow shows StateDot chrome for running/error/stopped (root session arm)', () => {
+  it('BashRow carries data-state for running (row sweep) and StateDots for error/stopped (root session arm)', () => {
     const sid = 'root-1' as SessionId
     const list = createSnapshotStore<SessionListState>({
       ids: [sid],
-      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, blank: false, updatedAt: 0 } },
+      byId: { [sid]: { id: sid, title: 'r', displayTitle: 'r', running: false, waitingApproval: false, blank: false, updatedAt: 0 } },
       current: undefined,
       phase: 'ready',
     })
     const props = (block: RunningToolCall | ToolResultNode) => ({
-      callId: 'c1', toolName: 'bash', block, openDetails: vi.fn(),
+      callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
       sessionId: sid, useSessions: bindSnapshotSelector(list),
     } as unknown as ToolRowProps)
 

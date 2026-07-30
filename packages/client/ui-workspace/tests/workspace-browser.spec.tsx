@@ -15,7 +15,7 @@ beforeEach(() => { localStorage.clear() })
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
 const summary = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
-  id: sid(id), displayTitle: id, running: false, blank: false, updatedAt, ...overrides,
+  id: sid(id), displayTitle: id, running: false, waitingApproval: false, blank: false, updatedAt, ...overrides,
 })
 const sessionState = (items: readonly SessionSummary[], overrides: Partial<SessionListState> = {}): SessionListState => ({
   ids: items.map(item => item.id),
@@ -57,11 +57,13 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     open: vi.fn(),
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
+    renameSession: vi.fn(async () => {}),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
-    pickDirectory: vi.fn(async () => null),
+    useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
+    renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
     ...overrides,
   }
   const view = render(<WorkspaceBrowser {...props} />)
@@ -442,25 +444,21 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
-  it('rail create-workspace expands the shell and opens the picker; wide toggles in place', () => {
+  it('rail create-workspace toggles the create-only picker in place, without expanding', () => {
     const expandSidebar = vi.fn()
-    const b = mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
+    mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
-    expect(expandSidebar).toHaveBeenCalledTimes(1)
-    rerender(b, { wide: true })
-    // The picker menu is open (anchored on the ＋); picking starts a session.
-    fireEvent.click(screen.getByRole('menuitem', { name: 'alpha' }))
-    expect(b.props.startSession).toHaveBeenCalledWith(wid('alpha'))
-    expect(screen.queryByRole('menu')).toBeNull()
-    // Wide toggle: open and close without expand requests.
-    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
-    expect(screen.getByRole('menu')).toBeTruthy()
+    expect(expandSidebar).not.toHaveBeenCalled()
+    // createOnly: existing workspaces are not listed, only the create actions.
+    expect(screen.queryByRole('menuitem', { name: 'alpha' })).toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Open local folder…' })).toBeTruthy()
+    // Toggle: open and close in place.
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
     expect(screen.queryByRole('menu')).toBeNull()
-    expect(expandSidebar).toHaveBeenCalledTimes(1)
 
     // Escape closes the picker through its own onClose.
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }))
+    expect(screen.getByRole('menu')).toBeTruthy()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
   })

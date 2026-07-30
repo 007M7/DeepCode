@@ -1,12 +1,10 @@
 - banner:
   - navigation "Session hierarchy":
     - button "Reply with a one-sentence description" [disabled]
-    - text: · 1 turns
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
-- text: Reply with a one-sentence description of event sourcing, then stop.
+- text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "复制":
   - img
 - button "在新对话中分支":
@@ -17,9 +15,11 @@
 - textbox "Message the agent"
 - button "Add attachment":
   - img
+- text: Danger Full Access
 - combobox "Access mode":
-  - option "Read-only" [selected]
-  - option "Read-write"
+  - option "Read Only"
+  - option "Workspace Write"
+  - option "Danger Full Access" [selected]
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

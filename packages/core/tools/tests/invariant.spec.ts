@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import SessionStore from '@deepseek-ai/dsh-session'
 import type { ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import * as ToolsInvariant from '@deepseek-ai/dsh-tools/invariant'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -10,6 +11,7 @@ const testToolSignal = new AbortController().signal
 
 async function setup(): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(SessionStore)
   await ctx.plugin(InvariantService)
   await ctx.plugin(ToolsInvariant)
   return ctx
@@ -84,5 +86,51 @@ describe('tool-pipeline invariants', () => {
 
     const anonymous = Object.freeze(execution({ name: '' }))
     expect(() => { emitResult(ctx, anonymous, outcome()) }).toThrow(/non-empty name and callId/)
+  })
+
+  it('requires code-dispatch records to be turn-enclosed', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    const data = {
+      parentCallId: CallId('parent'),
+      subCallId: CallId('child'),
+      name: 'echo',
+      arguments: {},
+    }
+    expect(() => session.append('tool/code-dispatch-start', data)).toThrow(/outside any open turn/)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    expect(() => session.append('tool/code-dispatch-start', data)).not.toThrow()
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  })
+
+  it('replays enclosed code-dispatch records on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    session.append('tool/code-dispatch', {
+      parentCallId: CallId('parent'),
+      subCallId: CallId('child'),
+      name: 'echo',
+      arguments: {},
+      isError: false,
+      content: [{ type: 'text', text: 'ok' }],
+    })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(ToolsInvariant).then(() => undefined)).resolves.toBeUndefined()
+  })
+
+  it('rejects an unenclosed code-dispatch record on late registration', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    ctx.sessions.create().append('tool/code-dispatch-start', {
+      parentCallId: CallId('parent'),
+      subCallId: CallId('child'),
+      name: 'echo',
+      arguments: {},
+    })
+    await ctx.plugin(InvariantService)
+    await expect(ctx.plugin(ToolsInvariant).then(() => undefined)).rejects.toThrow(/outside any open turn/)
   })
 })

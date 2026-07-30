@@ -9,7 +9,7 @@
  * with the last holding entry, session instances cleared (with persisted
  * state) on scope death.
  */
-/* eslint-disable @typescript-eslint/no-redundant-type-constituents --
+/* oxlint-disable typescript/no-redundant-type-constituents --
  * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap only
  * holds this package's 'root' row in this compilation unit, but consumers
  * merge keys in; the rule fires on the narrow-map view, not on real
@@ -246,13 +246,6 @@ export class SlotsService extends Service {
     if (workspaces === undefined) {
       throw new Error("renderSlot('root') before the workspaces service mounted — boot order puts runtime apply first")
     }
-    // Identity-stable view: current rides the list snapshot (arbitrated), but
-    // the provider consumes it as its own observable; one cached object keeps
-    // the renderer's per-source hook cache stable.
-    const current = {
-      getSnapshot: () => sessions.list.getSnapshot().current as string | undefined,
-      subscribe: (fn: () => void) => sessions.list.subscribe(fn),
-    }
     this._host = {
       subscribe: (key, fn) => this._core.subscribe(key, fn),
       getVersion: key => this._core.getVersion(key),
@@ -263,9 +256,7 @@ export class SlotsService extends Service {
         entry.store === undefined ? undefined : this.resolveStore(entry.store as unknown as EngineStoreHandle, scopeKey),
       sessions: {
         list: sessions.list,
-        current,
-        provideInfo: id => sessions.provideInfo(id),
-        maybeProvideInfo: id => sessions.maybeProvideInfo(id),
+        provideInfo: sessions.currentProvideInfo,
       },
       workspaces: { list: workspaces.list },
     }
@@ -319,6 +310,6 @@ export class SlotsService extends Service {
     // The core's overloads proved the shares; the implementation works on
     // the erased view (same pattern as the core's own implementation arm).
     const options = rawOptions as ErasedRegisterOptions
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return this.ctx.effect(() => this['_register'](options, component), 'slots.register()')
   }

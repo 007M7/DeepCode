@@ -37,7 +37,7 @@ package.json 不变式（由 `pnpm run constraints` / `scripts/check-workspace-c
 
 `packages/client/*` 包改为 extends `tsconfig.base.client.json`（而非 `tsconfig.base.json`）；client 插件包还需在 package.json 声明 `dshClient`、导出 `./client`、调用共享 tsdown preset（`packages/client/tsdown.client.ts`）——client 侧见 [packages/client/AGENTS.md](../../packages/client/AGENTS.md)。
 
-以下内容由 glob 或包 manifest 发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`vitest.config.ts`、`eslint.config.mjs`、`scripts/check-workspace-constraints.ts`。
+以下内容由 glob 或包 manifest 发现机制自动覆盖，无需手动编辑：根 `package.json` workspaces、`scripts/publint-all.ts`、`tsdown.config.ts`、`vitest.config.ts`、`.oxlintrc.json`、`scripts/check-workspace-constraints.ts`。
 
 ## 3. 确定包拓扑
 

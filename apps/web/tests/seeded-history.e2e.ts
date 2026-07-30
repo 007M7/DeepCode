@@ -71,6 +71,35 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await recordFixture(scaffold, sessionId, SEED)
   }, 200_000)
 
+  it.skipIf(MODE === 'record')('serves the projections baseline on the real composition tail page', async () => {
+    // Composition regression tripwire: the projection registry must be a row
+    // in the SHIPPED cordis.yml — with it absent every domain unit's optional
+    // injection stays silent and this block disappears (no titles/todos on
+    // the web), while fixture-level suites stay green. Assert through the
+    // real HTTP wire against the booted real host.
+    const response = await fetch(`${scaffold.baseUrl}/api/session.history`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'client-request', rpcId: 'seeded-projections', method: 'session.history',
+        payload: { sessionId: SEED_ID },
+      }),
+    })
+    expect(response.ok).toBe(true)
+    const body = await response.json() as {
+      result: { ok: boolean; value?: { projections?: { asOfSeq: number; values: Record<string, unknown> } } }
+    }
+    expect(body.result.ok).toBe(true)
+    const projections = body.result.value?.projections
+    expect(projections).toBeDefined()
+    expect(projections?.asOfSeq).toBeGreaterThanOrEqual(0)
+    // The seed carries a session/title event: the title unit must serve it.
+    expect(typeof projections?.values.title).toBe('string')
+    // tool-todo is composed but the seed has no todo/write: whole-value null,
+    // key PRESENT (absence would mean the unit never registered).
+    expect(projections?.values).toHaveProperty('todos', null)
+  })
+
   it.skipIf(MODE === 'record')('lists the seeded session cold and renders its history from the log', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-history'))
     // The sidebar tree collapses workspace groups by default: click the group
@@ -103,21 +132,19 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
   })
 
-  it.skipIf(MODE === 'record')('expands and collapses a tool row rebuilt from the cold log', async () => {
+  it.skipIf(MODE === 'record')('file-path tool rows rebuilt from the cold log stay details-inert', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-toolrow'))
-    // Interaction over cold-resumed history: read rows are expand-in-place
-    // rows (rowExpands routes the click to toggleExpand, not openDetails), so
-    // the gesture under test is the inline fold over log-rebuilt content.
-    // Runs after the golden capture; still zero model calls.
-    const row = page.locator('[data-variant] [data-clickable][role="button"]').first()
-    await row.waitFor({ timeout: 10_000 })
-    expect(await row.getAttribute('aria-expanded')).toBe('false')
-    await row.click()
-    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('true')
-    // The expanded body renders the recorded tool result (a.txt's contents).
-    await expect.poll(() => page.getByText('alpha', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
-    await row.click()
-    await expect.poll(() => row.getAttribute('aria-expanded'), { timeout: 5_000 }).toBe('false')
+    // Interaction over cold-resumed history: read summaries are host-open
+    // file links (not expand-in-place / not details). Runs after the golden
+    // capture; still zero model calls.
+    const fileLink = page.locator('[data-variant="read"] button').first()
+    await fileLink.waitFor({ timeout: 10_000 })
+    const frame = page.locator('[style*="grid-template-columns"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).toBeNull()
+    await fileLink.click()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
+    // Path label survives from the recorded args (a.txt).
+    await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {

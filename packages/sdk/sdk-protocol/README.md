@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delimited JSON-RPC 2.0 transport class plus the named request, result, and notification types both wire ends speak. The server side is the [`dsh-jsonrpc`](../../ui/jsonrpc/README.md) plugin; clients are [`dsh-sdk-client`](../sdk-client/README.md) (TypeScript) and the [Python SDK](../../../python/README.md) (which mirrors these shapes but does not import them). A pure library — no plugin, no Config, no registration.
+The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delimited JSON-RPC 2.0 transport class plus the named request, result, and notification types both wire ends speak. The package root enumerates the protocol consumer interface; source modules are not exported as deep imports. The server side is the [`dsh-jsonrpc`](../../ui/jsonrpc/README.md) plugin; clients are [`dsh-sdk-client`](../sdk-client/README.md) (TypeScript) and the [Python SDK](../../../python/README.md) (which mirrors these shapes but does not import them). A pure library — no plugin, no Config, no registration.
 
 ## Transport
 
@@ -22,7 +22,7 @@ The shared wire protocol for the DeepSeek Harness SDK runtime: one newline-delim
 | server→client | `subagent.started` | `SubagentStartedNotification` |
 | server→client | `subagent.finished` | `SubagentFinishedNotification` (in-process runs only) |
 
-`HarnessSdkRequestMap` and `HarnessSdkNotificationMap` index these by method name. The notification payload types depend on `SessionEvent` (`dsh-session`), `ContentBlock` (`dsh-llm`), and `SubagentStopReason` (`dsh-subagent`) — the protocol streams full session-log envelopes, so the session vocabulary is part of the wire contract. `serverInfo.name` stays the wire-stable `deepseek-harness-sdk-runtime`.
+`HarnessSdkRequestMap` and `HarnessSdkNotificationMap` index these by method name. `InitializeParams.maxTokens` is an optional positive safe integer that caps each conversation-model output for SDK-created agents and their in-process descendants; omission leaves the provider default in control. The notification payload types depend on `SessionEvent` (`dsh-session`), `ContentBlock` (`dsh-llm`), and `SubagentStopReason` (`dsh-subagent`) — the protocol streams full session-log envelopes, so the session vocabulary is part of the wire contract. `serverInfo.name` stays the wire-stable `deepseek-harness-sdk-runtime`.
 
 ## Model Experience
 

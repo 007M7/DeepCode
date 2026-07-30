@@ -512,6 +512,18 @@ export const IconPlayOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** ic_ds_pause_outline_16 */
+export const IconPauseOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M14.1448 8.00024C14.1448 4.60644 11.394 1.85563 8.00024 1.85563C4.60644 1.85563 1.85563 4.60644 1.85563 8.00024C1.85563 11.394 4.60644 14.1448 8.00024 14.1448C11.394 14.1448 14.1448 11.394 14.1448 8.00024ZM15.5112 8.00024C15.5112 12.1482 12.1482 15.5112 8.00024 15.5112C3.85226 15.5112 0.489258 12.1482 0.489258 8.00024C0.489258 3.85226 3.85226 0.489258 8.00024 0.489258C12.1482 0.489258 15.5112 3.85226 15.5112 8.00024Z"
+      fill="currentColor"
+    />
+    <path d="M7.14244 5.14258V10.8569H5.71387V5.14258H7.14244Z" fill="currentColor" />
+    <path d="M10.286 5.14258V10.8569H8.85742V5.14258H10.286Z" fill="currentColor" />
+  </svg>
+)
+
 /** ic_ds_fullscreen_outline_16 */
 export const IconFullscreenOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -653,6 +665,16 @@ export const IconDataOutline16 = ({ size = 16, className }: IconProps) => (
   </svg>
 )
 
+/** ic_checklist_outline_16 (figma extract): two rings + two list bars. */
+export const IconChecklistOutline16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path transform="translate(1.736 2.0752)" d="M12.5279 8.64648V9.92617H6.48105V8.64648H12.5279Z" fill="currentColor" />
+    <path transform="translate(1.736 2.0752)" d="M12.5279 1.92275V3.20244H6.48105V1.92275H12.5279Z" fill="currentColor" />
+    <path transform="translate(1.736 2.0752)" d="M3.84531 9.28623C3.84525 8.57774 3.271 8.00342 2.5625 8.00342C1.85405 8.00348 1.27975 8.57778 1.27969 9.28623C1.27969 9.99474 1.85401 10.569 2.5625 10.569C3.27105 10.569 3.84531 9.99478 3.84531 9.28623ZM5.12578 9.28623C5.12578 10.7017 3.97797 11.8495 2.5625 11.8495C1.14709 11.8494 0 10.7017 0 9.28623C6.59755e-05 7.87086 1.14713 6.7238 2.5625 6.72373C3.97793 6.72373 5.12572 7.87082 5.12578 9.28623Z" fill="currentColor" />
+    <path transform="translate(1.736 2.0752)" d="M3.84551 2.5625C3.84549 1.85402 3.27118 1.27969 2.5627 1.27969C1.85422 1.2797 1.2799 1.85403 1.27988 2.5625C1.27988 3.27098 1.85422 3.8453 2.5627 3.84531C3.27119 3.84531 3.84551 3.27099 3.84551 2.5625ZM5.1252 2.5625C5.1252 3.97792 3.97811 5.125 2.5627 5.125C1.14729 5.12499 0.000195313 3.97791 0.000195313 2.5625C0.000208508 1.1471 1.1473 1.31957e-05 2.5627 0C3.9781 0 5.12518 1.1471 5.1252 2.5625Z" fill="currentColor" />
+  </svg>
+)
+
 /** ic_ds_List_Pen_outline_16 */
 export const IconListPenOutline16 = ({ size = 16, className }: IconProps) => (
   <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -668,5 +690,16 @@ export const IconListPenOutline16 = ({ size = 16, className }: IconProps) => (
       d="M8.24493 13.3711L7.49015 14.8806C7.40148 15.058 7.58961 15.2461 7.76695 15.1574L9.27651 14.4027L14.6147 9.09934L13.5832 8.06775L8.24493 13.3711Z"
       fill="currentColor"
     />
+  </svg>
+)
+
+/** sparkle_16 (Others tool-row / goal strip leading glyph; hand-authored three-star
+ *  approximation — the figma 43:31850 glyph is an SF Symbols "sparkles" text glyph,
+ *  not extractable as vector data) */
+export const IconSparkle16 = ({ size = 16, className }: IconProps) => (
+  <svg width={size} height={size} className={className} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M6.1 3.1Q6.6 7.8 11.3 8.3Q6.6 8.8 6.1 13.5Q5.6 8.8 0.9 8.3Q5.6 7.8 6.1 3.1Z" fill="currentColor" />
+    <path d="M11.9 1Q12.2 3.7 14.9 4Q12.2 4.3 11.9 7Q11.6 4.3 8.9 4Q11.6 3.7 11.9 1Z" fill="currentColor" />
+    <path d="M12.5 9.4Q12.7 11.4 14.7 11.6Q12.7 11.8 12.5 13.8Q12.3 11.8 10.3 11.6Q12.3 11.4 12.5 9.4Z" fill="currentColor" />
   </svg>
 )

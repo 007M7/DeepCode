@@ -1,6 +1,6 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmService, { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionTitleService, { type SessionTitleProvider } from '@deepseek-ai/dsh-session-title'
@@ -61,17 +61,17 @@ describe('first-message LLM title provider', () => {
     await ctx.plugin(providerPlugin, LLM_CONFIG)
     const session = ctx.sessions.create(SessionId('first-plugin'))
     session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
-    const first = session.append('user/message', {
+    const first = session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'first input' }], source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
     await settle()
     session.append('request/header', {
       header: { config: { provider: 'main', model: 'main-model' } }, reason: 'initial',
     })
     await settle()
-    session.append('user/message', {
+    session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'second input must be ignored' }], source: { kind: 'user' },
-    }, { surfaceOp: 'append' })
+    }), { surfaceOp: 'append' })
 
     await ctx.sessionTitle.refresh(session)
 

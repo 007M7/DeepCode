@@ -3,14 +3,32 @@
 // substructures keep their references (the React.memo premise). callId/approvalId stay plain
 // string here (narrow to real brands when convenient).
 
+import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
   RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
-
 export type { TodoItem }
+
+/** Request configuration recorded for one provider call. */
+export interface AssistantRequestConfig {
+  provider: string
+  model: string
+  purpose?: string
+  thinking?: string
+  reasoningEffort?: string
+  temperature?: number
+  maxTokens?: number
+  stop?: readonly string[]
+}
+
+/** Stable provider/model identity reported for one completed request. */
+export interface AssistantProvenanceView {
+  provider: string
+  model: string
+}
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -53,6 +71,16 @@ export interface UserMessageNode {
   source: unknown
 }
 
+/** Recorded boundaries used to derive assistant latency and throughput. */
+export interface AssistantTiming {
+  /** Matching step/start timestamp, or null when it is outside the current event window. */
+  stepStartTime: number | null
+  /** First non-empty text/reasoning/tool delta timestamp, or null when no token delta was recorded. */
+  firstTokenTime: number | null
+  /** Final assistant/message timestamp. */
+  completedTime: number
+}
+
 /** A finalized (or interruption-frozen) assistant message. */
 export interface AssistantMessageNode {
   kind: 'assistant'
@@ -63,6 +91,10 @@ export interface AssistantMessageNode {
   step: number
   blocks: readonly AssistantBlock[]
   usage?: unknown
+  provenance?: AssistantProvenanceView
+  requestConfig?: AssistantRequestConfig
+  /** Timing derived from the recorded step/chunk/message event sequence. */
+  timing?: AssistantTiming
   /** Frozen partial of an aborted turn (no finalize ever arrives): rendered with a 已停止 marker.
    *  Synthetic seq (fractional, derived from the turn/end seq) keeps it ordered inside the flow. */
   interrupted?: true
@@ -120,6 +152,31 @@ export interface UnknownSurfaceNode {
   data: unknown
 }
 
+/**
+ * One slash-command lifecycle folded from the log-only `command/run` /
+ * `command/done` pair (paired by commandId, mirroring tool call↔result).
+ * Log-only events never enter the surface fold, so the FoldAdapter indexes
+ * them separately and merges the nodes into the flow by seq. A window cut
+ * between the pair soft-falls like tool pairs: a done with no in-window run
+ * still builds a node (name/args null), and a run with no done renders as
+ * still executing.
+ */
+export interface CommandNode {
+  kind: 'command'
+  /** Seq of the command/run event; the done event's seq when only the done is in-window. */
+  seq: number
+  /** Unix epoch ms of the anchoring event. */
+  time: number
+  /** Pairing id minted by the host executor. */
+  commandId: CommandId
+  /** Command name (run payload's structured field); null when the run fell outside the window. */
+  name: string | null
+  /** Verbatim rawInput after the name, separator whitespace included (run payload); null when the run fell outside the window. */
+  args: string | null
+  /** Settlement outcome (done payload); null while the command is still executing. */
+  outcome: { kind: 'success' | 'error'; text?: string } | null
+}
+
 /** Finalized conversation node union (kind discriminates; seq is the React key). */
 export type ConversationNode =
   | UserMessageNode
@@ -127,6 +184,7 @@ export type ConversationNode =
   | SteeringMessageNode
   | ContextMessageNode
   | ToolResultNode
+  | CommandNode
   | UnknownSurfaceNode
 
 /**
@@ -243,7 +301,4 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
-  /** Current whole-list `todo/write` projection — the tail page's full-log value, then each live
-   *  write (last write wins); empty = the log holds no plan. */
-  todos: readonly TodoItem[]
 }

@@ -6,11 +6,10 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import { BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, BlockAssembler, deepFreeze } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
-  appendSessionTitleOutOfBand,
   normalizeSessionTitle,
   SessionTitleProviderId,
 } from '@deepseek-ai/dsh-session-title'
@@ -42,10 +41,6 @@ declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     /** Log-only pre-dispatch record of one session-title model request. */
     'session/title-llm-request': SessionTitleLlmRequestEventData
-  }
-
-  interface OutOfBandSessionEventMap {
-    'session/title-llm-request': true
   }
 }
 
@@ -248,10 +243,10 @@ export async function generateSessionTitleWithLlm(
     throw new Error(`session-title-llm: input is ${inputBytes} bytes, exceeding maxInputBytes ${config.maxInputBytes}`)
   }
   const route = resolveRoute(config, request)
-  const messages: Message[] = [{
-    role: 'user',
+  const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: framedInput }],
-  }]
+    source: { kind: 'plugin', plugin: 'dsh-session-title-llm' },
+  })]
   const system = systemPrompt(config)
   using callDeadline = deadline(request.signal, config.timeoutMs, SESSION_TITLE_TIMEOUT_CODE)
   const options: GenerateOptions = deepFreeze({
@@ -264,14 +259,14 @@ export async function generateSessionTitleWithLlm(
     purpose: 'session-title',
     signal: callDeadline.signal,
   })
-  await appendSessionTitleOutOfBand(ctx, request.session, 'session/title-llm-request', {
+  request.session.append('session/title-llm-request', {
     titleProvider,
     messageSeqs: selectedMessages.map(message => message.seq),
     route,
     system,
     messages,
     maxTokens: config.maxOutputTokens,
-  }, callDeadline.signal)
+  })
   callDeadline.signal.throwIfAborted()
   const assembler = new BlockAssembler()
   for await (const chunk of ctx.llm.stream(options)) {
@@ -281,7 +276,7 @@ export async function generateSessionTitleWithLlm(
   callDeadline.signal.throwIfAborted()
   const terminalError = finishError(assembler.finish)
   if (terminalError !== undefined) throw terminalError
-  const blocks = assembler.message().content
+  const blocks = assembler.blocks()
   if (blocks.some(block => block.type === 'tool-call')) {
     throw new Error('session-title-llm: title output must contain text only')
   }

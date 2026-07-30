@@ -62,8 +62,8 @@ occurrence 表与 chip 三投影：
 
 对"命令"零知识的触发/菜单/pick 管线：
 
-- service 只有 source 注册表（`SlashSource{trigger: '/'|'@', name, candidates, onPick, matchSpace?, matchEnter?}`；(trigger,name) 唯一、注册序 = 组序 = 轮询序）与 `sessionOf(sctx)`。实现 match 钩子即参与空格/回车裁决的声明；管线按注册序轮询，首个非 undefined 应答胜出，无人认领落 default sink。matchSpace 同步（空格在击键中触发，只许热缓存）；matchEnter 异步（可 await 源自身预热，预热失败即 reject）。
-- controller 持有唯一权威 hit（含 span；菜单关闭后为 Space 保留）、per-session menu store、候选 fetch generation、键盘仲裁（combobox 模式：焦点始终在 textarea，↑↓/Enter/Escape 拦截且全程过 IME composition 守卫，唯一例外 Shift+Enter 无条件先行）、pick 编排（outcome → 自派 bail 事件）；每个 session scope 出生时对 source roster 做一次 `warm(projection)`，projection 在该 scope 内只有稳定的 sessionId，无 published/能力跃迁；scope disposer 拆除 controller。
+- service 只有 source 注册表（`SlashSource{trigger: '/'|'@', name, order?, candidates, onPick, matchSpace?, matchEnter?}`；(trigger,name) 唯一；可选 `order` 对 roster 排序——越小越靠前、默认 0、同值保持注册序——排序后的 roster 同时是组序与轮询序）与 `sessionOf(sctx)`。实现 match 钩子即参与空格/回车裁决的声明；管线按 roster 序轮询，首个非 undefined 应答胜出，无人认领落 default sink。matchSpace 同步（空格在击键中触发，只许热缓存）；matchEnter 异步（可 await 源自身预热，预热失败即 reject）。
+- controller 持有唯一权威 hit（含 span；菜单关闭后为 Space 保留）、per-session menu store、候选 fetch generation、键盘仲裁（combobox 模式：焦点始终在 textarea，↑↓/Enter/Escape 拦截且全程过 IME composition 守卫，唯一例外 Shift+Enter 无条件先行）、pick 编排（outcome → 自派 bail 事件）；`dismiss()` 动词支撑 MenuView 注入的 `onDismiss`（指针落在菜单与所在 composer 卡片之外即关闭菜单；MenuView 还经 `slash.menu` locale 命名空间本地化组标题，并经 ui-primitives 的 `useAnchoredMaxHeight` 把高度收敛到 composer 上方的视口空间）；每个 session scope 出生时对 source roster 做一次 `warm(projection)`，projection 在该 scope 内只有稳定的 sessionId，无 published/能力跃迁；scope disposer 拆除 controller。
 - 触发检测词边界（`user@host`、URL `/` 永不触发）、守卫分档（plain：`/` 到处 + `@` 行内 / claimed：`/` 抑制、`@` 活 / frozen：全无）为冻结纯核。
 
 ### hub / facade：常驻外壳与严格 session 输入体
@@ -81,10 +81,10 @@ occurrence 表与 chip 三投影：
 skill/@subagent 引用不走占位符 + occurrence 身份链——pick 直接把 `/name ` `@name ` 原文插进 draft，chip 视觉纯派生：
 
 - PickOutcome 增 `{text}` arm；新 scoped bail 事件 `slash/input-insert-text` `{text, span}`（与另三个同契约：draftRev CAS、返回 true ⟺ 实际改写）；facade.insertText 走 setDraft 拼接，机器零改动。
-- source 可选 `lexicon?(session)` 钩子：同步热快照名录，`undefined` = 数据未热——零装饰、永不触发 fetch（渲染路径保持同步无副作用）；controller 聚合为 `lexicon()` 公面。
+- source 可选 `lexicon?(session)` 钩子：同步热快照名录，`undefined` = 数据未热——零装饰、永不触发 fetch（渲染路径保持同步无副作用）；配对的可选 `subscribeLexicon?(session, listener)` 钩子是名录在 warm 之后仍会变化（目录 settle、子代生灭）时的失效通道。controller 把各名录聚合进自己的 `lexicon` snapshot store（每次 source 通知重拉）；scope 出生后才注册的 source 由 service 广播给活 controller，补 warm 并并入名录。
 - `decorations.scanTextRefs`：词边界扫描 draft（行首/空白后的 `/name`、`@name`，`x/name` 永不命中）对照名录，命中即 `.textRef` mark（backdrop 纯 range 高亮，同 hlToken）；编辑破坏匹配形状下次扫描自然消失。
 - 发送即原文（不再 `<skill>` 序列化）；气泡侧 MessageItem 双形状装饰（legacy `<skill>` 标签 + 纯文本 token）。
-- 旧 occurrence/paste/serialize 链全部保留在盘未删（additive；删除另成将来一刀）。已知局限维持现状：粘贴/冷启动时 lexicon 未热不装饰，输 `/` 开一次菜单后才亮。
+- 旧 occurrence/paste/serialize 链全部保留在盘未删（additive；删除另成将来一刀）。装饰响应性：InputBar 以 uSES 订阅 shell 的 lexicon source，scope 出生预热后才 settle 的名录会直接点亮已有 draft token，无需菜单交互或无关重渲染。
 
 ### per-session 供数贡献与键盘私面
 

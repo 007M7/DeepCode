@@ -262,6 +262,30 @@ describe('worktree-local Lefthook installer', () => {
     expect(readFileSync(legacyHook, 'utf8')).toBe('#!/bin/sh\n# legacy hook\n')
   })
 
+  it('replaces the owned hook path Git copies into a newly added worktree', async () => {
+    const fixture = createFixture()
+    const mainInstall = await runInstaller(fixture, fixture.main)
+    expect(mainInstall.status, mainInstall.stderr).toBe(0)
+    const mainHooks = hooksPath(fixture, fixture.main)
+    const mainHookBefore = readFileSync(join(mainHooks, 'pre-commit'), 'utf8')
+    const lateLinked = join(fixture.container, 'late-linked')
+    git(fixture, fixture.main, ['worktree', 'add', '-b', 'late-linked', lateLinked])
+    write(join(lateLinked, 'lefthook.yml'), 'late-linked-worktree-config\n')
+    installFakeLefthook(lateLinked)
+    expect(git(fixture, lateLinked, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe(mainHooks)
+
+    const linkedInstall = await runInstaller(fixture, lateLinked)
+
+    expect(linkedInstall.status, linkedInstall.stderr).toBe(0)
+    const linkedHooks = hooksPath(fixture, lateLinked)
+    expect(linkedHooks).not.toBe(mainHooks)
+    expect(git(fixture, lateLinked, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe(linkedHooks)
+    expect(readFileSync(join(linkedHooks, 'pre-commit'), 'utf8')).toContain(
+      '# config=late-linked-worktree-config',
+    )
+    expect(readFileSync(join(mainHooks, 'pre-commit'), 'utf8')).toBe(mainHookBefore)
+  })
+
   it('serializes concurrent installs and keeps repeated output stable', async () => {
     const fixture = createFixture()
     const delayed = { DSH_TEST_LEFTHOOK_DELAY_MS: '150' }
@@ -507,6 +531,30 @@ describe('worktree-local Lefthook installer', () => {
     })
     expect(explicitWorktreePath.status).toBe(1)
     expect(git(fixture, fixture.linked, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe('linked-custom-hooks')
+  })
+
+  it('does not trust an ownership marker outside a registered worktree hook path', async () => {
+    const fixture = createFixture()
+    const mainInstall = await runInstaller(fixture, fixture.main)
+    expect(mainInstall.status, mainInstall.stderr).toBe(0)
+    const externalHooks = join(fixture.container, 'external-owned-hooks')
+    write(
+      join(externalHooks, '.dsh-lefthook-owned'),
+      `${JSON.stringify({
+        version: 1,
+        owner: 'deepseek-harness worktree-local lefthook hooks',
+        hooksPath: externalHooks,
+      })}\n`,
+      0o600,
+    )
+    git(fixture, fixture.linked, ['config', '--worktree', 'core.hooksPath', externalHooks])
+
+    const result = await runInstaller(fixture, fixture.linked)
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('worktree-scoped core.hooksPath')
+    expect(git(fixture, fixture.linked, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe(externalHooks)
+    expect(existsSync(hooksPath(fixture, fixture.linked))).toBe(false)
   })
 
   it('refuses to activate a sibling worktree dormant hook path', async () => {

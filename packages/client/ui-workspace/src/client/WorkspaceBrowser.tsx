@@ -107,12 +107,14 @@ type SessionTreeProps = Pick<
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
+  /** Open the browser-owned session rename dialog. */
+  onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
   useSessions, startSession, open, workspaces,
-  onRenameRequest, onDeleteRequest, insertSessionBefore,
+  onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -207,6 +209,7 @@ function SessionTree({
                   currentId={current}
                   now={now}
                   onOpen={open}
+                  onRename={onSessionRename}
                   onToggle={(id) => { setExpandedSessions(l => toggled(l, id)) }}
                   drag={dragProps}
                 />
@@ -221,7 +224,7 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open }: Pick<SessionTreeProps, 'useSessions' | 'open'>) {
+function FlatList({ useSessions, open, onSessionRename }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'onSessionRename'>) {
   const list = useSessions(s => s)
   const rows = useMemo(() => deriveFlat(list), [list])
   const now = Date.now()
@@ -239,6 +242,7 @@ function FlatList({ useSessions, open }: Pick<SessionTreeProps, 'useSessions' | 
             currentId={list.current}
             now={now}
             onOpen={open}
+            onRename={onSessionRename}
             /* v8 ignore next -- required-prop filler: flat rows render no twist, so it never fires. */
             onToggle={() => {}}
             flat
@@ -331,13 +335,15 @@ export function WorkspaceBrowser({
   actions,
   startSession,
   open,
+  renameSession,
   renameWorkspace,
   deleteWorkspace,
   insertSessionBefore,
   createWorkspace,
   searchSessions,
   searchResultLimit,
-  pickDirectory,
+  useDirectoryFlow,
+  renderSlot,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const groupBy = useStore(s => s.groupBy)
@@ -356,6 +362,7 @@ export function WorkspaceBrowser({
   // states; the menu anchors on this button).
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
+  const composingRef = useRef(false)
 
   // Rail search = expand + land in the search box: the flag arms before the
   // expand request; once the shell flips wide the input mounts and takes focus.
@@ -435,6 +442,39 @@ export function WorkspaceBrowser({
     })
   }
 
+  // Session rename dialog (same browser-owned pattern as workspace rename;
+  // sessions have no client-side name-conflict rule — the host normalizes).
+  // Unlike workspace rename, an unchanged title is NOT blocked: confirming
+  // the current automatic title is the gesture that pins it.
+  const [sessionRenameTarget, setSessionRenameTarget] = useState<{ sessionId: SessionNode['id']; currentTitle: string } | null>(null)
+  const [sessionRenameDraft, setSessionRenameDraft] = useState('')
+  const [sessionRenaming, setSessionRenaming] = useState(false)
+  const [sessionRenameError, setSessionRenameError] = useState<string | null>(null)
+  const sessionRenameTrimmed = sessionRenameDraft.trim()
+  const sessionRenameBlocked = sessionRenaming || sessionRenameTrimmed === '' || sessionRenameTarget === null
+  const closeSessionRename = () => {
+    if (sessionRenaming) return
+    setSessionRenameTarget(null)
+    setSessionRenameError(null)
+  }
+  const confirmSessionRename = () => {
+    if (sessionRenameBlocked) return
+    setSessionRenaming(true)
+    setSessionRenameError(null)
+    renameSession(sessionRenameTarget.sessionId, sessionRenameTrimmed).then(() => {
+      setSessionRenaming(false)
+      setSessionRenameTarget(null)
+    }).catch((reason: unknown) => {
+      setSessionRenaming(false)
+      setSessionRenameError(reason instanceof Error ? reason.message : String(reason))
+    })
+  }
+  const onSessionRename = (sessionId: SessionNode['id'], currentTitle: string) => {
+    setSessionRenameTarget({ sessionId, currentTitle })
+    setSessionRenameDraft(currentTitle)
+    setSessionRenameError(null)
+  }
+
   // Delete dialog is separate from the row so a successful removal can
   // unmount that row without tearing down the in-flight confirmation state.
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
@@ -486,7 +526,6 @@ export function WorkspaceBrowser({
             className={css.iconButton}
             aria-label="Create workspace"
             onClick={() => {
-              if (!wide) expandSidebar()
               setWsPickerOpen(v => !v)
             }}
           >
@@ -499,7 +538,10 @@ export function WorkspaceBrowser({
           anchorRef={wsPlusRef}
           useWorkspaces={useWorkspaces}
           createWorkspace={createWorkspace}
-          pickDirectory={pickDirectory}
+          useDirectoryFlow={useDirectoryFlow}
+          renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
+          createOnly
+          side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
             startSession(workspaceId)
@@ -560,10 +602,11 @@ export function WorkspaceBrowser({
             />
           )
           : groupBy === 'flat'
-            ? <FlatList useSessions={useSessions} open={open} />
+            ? <FlatList useSessions={useSessions} open={open} onSessionRename={onSessionRename} />
             : (
               <SessionTree
                 useSessions={useSessions}
+                onSessionRename={onSessionRename}
                 workspaces={workspaces}
                 startSession={startSession}
                 open={open}
@@ -598,9 +641,12 @@ export function WorkspaceBrowser({
           aria-label="Workspace name"
           autoFocus
           disabled={renaming}
+          onFocus={(e) => { e.target.select() }}
           onChange={(e) => { setRenameDraft(e.target.value); setRenameError(null) }}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !composingRef.current) {
               e.preventDefault()
               confirmRename()
             }
@@ -610,6 +656,37 @@ export function WorkspaceBrowser({
           <div className={css.renameError} role="alert">A workspace named “{renameTrimmed}” already exists.</div>
         )}
         {renameError !== null && <div className={css.renameError} role="alert">{renameError}</div>}
+      </Modal>
+
+      <Modal
+        open={sessionRenameTarget !== null}
+        onClose={closeSessionRename}
+        title="Rename session"
+        footer={(
+          <>
+            <Button variant="outline" disabled={sessionRenaming} onClick={closeSessionRename}>Cancel</Button>
+            <Button variant="primary" disabled={sessionRenameBlocked} onClick={confirmSessionRename}>Rename</Button>
+          </>
+        )}
+      >
+        <input
+          className={css.renameInput}
+          value={sessionRenameDraft}
+          aria-label="Session name"
+          autoFocus
+          disabled={sessionRenaming}
+          onFocus={(e) => { e.target.select() }}
+          onChange={(e) => { setSessionRenameDraft(e.target.value); setSessionRenameError(null) }}
+          onCompositionStart={() => { composingRef.current = true }}
+          onCompositionEnd={() => { composingRef.current = false }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !composingRef.current) {
+              e.preventDefault()
+              confirmSessionRename()
+            }
+          }}
+        />
+        {sessionRenameError !== null && <div className={css.renameError} role="alert">{sessionRenameError}</div>}
       </Modal>
       <Modal
         open={deleteTarget !== null}

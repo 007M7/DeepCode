@@ -87,6 +87,13 @@
   box-shadow: var(--dsw-shadow-lv2);
   font-size: 16px;
   line-height: 24px;
+  /* Elevated surface in dark, same as the menus: the textarea inside scrolls
+     once the composer hits its height cap, so the thumb takes the l2 pair.
+     Declared on the card because the elevation belongs to the surface, and the
+     custom properties inherit down to the textarea that actually scrolls (see
+     ui-theme styles/scrollbar.css for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .accessory {
@@ -118,20 +125,18 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  color: transparent;
+  color: var(--dsw-alias-label-primary);
   pointer-events: none;
 }
 
 .hlToken {
-  border-radius: 4px;
-  /* GOAL 稿 amber token emphasis (state warn pair; glyphs stay the textarea's). */
-  background: var(--dsw-alias-state-warn-tertiary);
-  color: transparent;
+  background-color: transparent;
+  color: var(--dsw-alias-state-warn-label);
 }
 
 .hlSegment {
   border-radius: 4px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  background-color: transparent;
   color: transparent;
 }
 
@@ -163,7 +168,7 @@
   border: none;
   outline: none;
   background: transparent;
-  color: var(--dsw-alias-label-primary);
+  color: transparent;
   /* Business blue, not brand-primary: that token resolves to ink in this sheet. */
   caret-color: var(--dsw-alias-state-business-primary);
 }
@@ -171,6 +176,10 @@
 .input,
 .mirror,
 .backdrop {
+  /* Textareas default to content-box (unlike buttons/inputs): without this the
+     width:100% textarea gains its padding OUTSIDE the card and text runs past
+     the right padding — and wraps 28px later than the mirror/backdrop layers. */
+  box-sizing: border-box;
   /* figma .InputText 34:10434: pl 16 / pr 12 / pt 4. Backdrop MUST share these
      metrics or the highlight ranges drift off the glyphs. */
   padding: 4px 12px 0 16px;
@@ -306,25 +315,20 @@
   border: none;
   border-radius: 999px;
   background: var(--dsw-alias-button-info-fill);
-  color: var(--dsw-alias-label-primary-foreground);
+  /* Static white, not the foreground token: the arrow stays white on the blue
+     fill in both themes (design 34:10465). */
+  color: #fff;
   cursor: pointer;
+  transition: background-color 100ms ease;
 }
 
-.primary:hover {
+.primary:hover:not(:disabled) {
   background: var(--dsw-alias-button-info-hover);
 }
 
 .primary:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-/* Stop state: same slot, dimmed brand fill — the running-state send-key
-   replacement is a design gap filled by us (figma gives no stop form). */
-.stopping,
-.stopping:hover {
-  background: var(--dsw-alias-button-primary-dimmed);
-  color: var(--dsw-alias-label-primary);
 }
 
 .retry {
@@ -342,25 +346,13 @@
    draft's own glyphs — advance untouched, so the two layers cannot drift.
    Chip family colors; clone keeps rounded ends on soft-wrap fragments. */
 .textRef {
-  color: transparent;
   background-color: transparent;
+  color: var(--dsw-alias-state-business-primary);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  position: relative;
 }
 .textRef:after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-
-  width: 100%;
-  height: 100%;
-
-  border-radius: 6px;
-  background: rgba(97, 135, 216, 0.22);
-  transform: translate(-2px, -1px);
-  padding: 2px 4px;
+  display: none;
 }
 
 /* Reference chip: rendered in the backdrop at the placeholder offset. Hard

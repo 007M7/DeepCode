@@ -1,0 +1,306 @@
+/* Directory-browser dialog (figma 813-23126 family). The shared Modal renders
+ * headless here — mask, card, Escape only — and this module owns the figma
+ * frame: 600×420 card (viewport-clamped), header (title + crumbs, l3 separator),
+ * the one-or-two-column Miller content, and the bordered footer. */
+
+/* Doubled class beats Modal's own .dialog regardless of stylesheet order. */
+/* Short viewports clamp the card: header/footer are flex-none and the
+ * columns scroll, so shrinking the height keeps Open/Cancel reachable
+ * instead of clipping them below a fixed overlay. */
+.dialog.dialog {
+  width: min(600px, 100%);
+  height: min(420px, calc(100dvh - 32px));
+  padding: 0;
+  gap: 0;
+}
+
+/* Header block: pl24 pr14 pt22 pb12, 8px between title row and crumb row. */
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+  padding: 22px 14px 12px 24px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+}
+
+.title {
+  display: flex;
+  align-items: flex-end;
+  min-height: 28px;
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 510;
+  color: var(--dsw-alias-label-primary);
+}
+
+.crumbBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+}
+
+/* Deep chains scroll inside the trail (the effect pins the tail into view)
+ * so the edit zone to the right never leaves the bar. */
+/* The Miller columns keep their own row so a status/error line below never
+ * competes with the fixed column widths for horizontal space. */
+/* A narrow viewport shrinks the dialog below two fixed panes; the row
+ * scrolls horizontally (the effect pins the child pane into view) so
+ * descent never hides behind the Modal's clipping. */
+.millerRow {
+  display: flex;
+  align-items: stretch;
+  flex: 1 1 0;
+  min-height: 0;
+  gap: 20px;
+  overflow-x: auto;
+}
+
+.crumbTrail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.crumbSeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-width: 0;
+}
+
+.crumb {
+  border: none;
+  background: transparent;
+  padding: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.crumb:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.crumbChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The empty remainder of the bar: invisible, but a real click target that
+ * flips the bar into path-edit mode. */
+.crumbEditZone {
+  flex: 1 0 34px;
+  min-width: 34px;
+  align-self: stretch;
+  border: none;
+  background: transparent;
+  cursor: text;
+}
+
+.pathInput {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Miller content: pt16 px24; columns are 256 wide (or full width solo) with
+ * the hairline divider centered between them; each column scrolls alone. */
+.content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 16px 24px 0;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 256px;
+  flex: none;
+  overflow-y: auto;
+}
+
+.columnWide {
+  width: 100%;
+  flex: 1 1 0;
+}
+
+.divider {
+  flex: none;
+  width: 1px;
+  background: var(--dsw-alias-border-l3);
+}
+
+.rowSeat {
+  display: flex;
+  flex: none;
+}
+
+.row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  flex: none;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* Selection: pill fill + the open-folder glyph in the info accent. */
+.rowSelected,
+.rowSelected:hover {
+  background: var(--dsw-alias-interactive-bg-active, var(--dsw-alias-interactive-bg-hover));
+}
+
+.rowIcon {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.rowIconSelected {
+  flex: none;
+  color: var(--dsw-alias-button-info-fill);
+}
+
+.rowName {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rowChevron {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.status,
+.error {
+  padding: 4px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.status {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* Footer: l3 separator on top, pt12 px24, New-folder pinned left; the fixed
+ * card leaves the figma 28px below the 36px buttons. */
+.footerBar {
+  display: flex;
+  align-items: center;
+  /* Narrow viewports wrap the confirm/cancel pair onto their own row
+   * instead of clipping Open past the card's hidden overflow. */
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: none;
+  padding: 12px 24px 28px;
+  border-top: 1px solid var(--dsw-alias-border-l3);
+}
+
+.footerGap {
+  flex: 1 1 0;
+}
+
+.footerAction {
+  min-width: 72px;
+}
+
+/* Nested create dialog (figma 813:23278): a small centered card. */
+.createDialog.createDialog {
+  width: min(380px, 100%);
+  padding: 0;
+  gap: 0;
+}
+
+.createBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 24px 20px;
+}
+
+.createTitle {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 510;
+  color: var(--dsw-alias-label-primary);
+}
+
+.createIn {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.createInput {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 7px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 22px;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.createInput::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+.createActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

@@ -16,6 +16,7 @@ import {
   visibleWidth,
 } from '@earendil-works/pi-tui'
 import type { Session } from '@deepseek-ai/dsh-session'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 /** Editor that shows a placeholder without making it editable content. */
 export class HintEditor extends Editor {
@@ -65,13 +66,10 @@ export function formatCwd(cwd: string | undefined): string {
  */
 export function gitBranch(cwd: string): string | undefined {
   try {
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => !/(?:KEY|SECRET|TOKEN)/iu.test(name)),
-    )
     const branch = execFileSync('git', ['branch', '--show-current'], {
       cwd,
       encoding: 'utf8',
-      env,
+      env: scrubbedParentEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 1_000,
     }).trim()
@@ -101,7 +99,7 @@ export function activeToolCallIds(session: Session, active: ReadonlySet<number>)
   const ids = new Set<string>()
   for (const event of session.events) {
     if (event.type !== 'assistant/message' || !active.has(event.seq)) continue
-    for (const block of event.data.content) {
+    for (const block of event.data.message.content) {
       if (block.type === 'tool-call') ids.add(block.id)
     }
   }

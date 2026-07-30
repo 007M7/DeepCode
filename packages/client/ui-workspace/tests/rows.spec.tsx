@@ -87,7 +87,8 @@ describe('workspace browser rows', () => {
     const onOpen = vi.fn()
     const onToggle = vi.fn()
     const view = render(
-      <SessionNodeItem node={parent} depth={0} currentId={parent.id} now={0} onOpen={onOpen} onToggle={onToggle} />,
+      <SessionNodeItem node={parent} depth={0} currentId={parent.id} now={0} onOpen={onOpen}
+        onRename={vi.fn()} onToggle={onToggle} />,
     )
 
     const parentRow = screen.getByText('Parent').closest('[role="treeitem"]')!
@@ -107,7 +108,8 @@ describe('workspace browser rows', () => {
     view.rerender(
       <SessionNodeItem
         node={{ ...parent, children: [], expanded: false, running: false }}
-        depth={1} currentId={undefined} now={0} onOpen={onOpen} onToggle={onToggle}
+        depth={1} currentId={undefined} now={0} onOpen={onOpen}
+        onRename={vi.fn()} onToggle={onToggle}
       />,
     )
     expect(screen.getByRole('button', { name: 'Expand' })).toBeTruthy()
@@ -154,19 +156,29 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('button', { name: /Workspace actions/ })).toBeNull()
   })
 
-  it('session row menu opens without opening the session and closes on selection', () => {
+  it('session row menu opens without opening the session and dispatches rename', () => {
     const onOpen = vi.fn()
+    const onRename = vi.fn()
     const node: SessionNode = {
       id: sid('s1'), title: 'One', children: [], hasChildren: false,
       expanded: false, running: false, updatedAt: 0,
     }
-    render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={onOpen} onToggle={vi.fn()} />)
+    render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={onOpen}
+      onRename={onRename} onToggle={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Session actions for One' }))
     expect(onOpen).not.toHaveBeenCalled()
     expect(screen.getByRole('menuitem', { name: 'Delete session' }).className).toMatch(/danger/)
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Fork session' }))
+    // Rename dispatches with the current display title (dialog prefill).
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }))
     expect(screen.queryByRole('menu')).toBeNull()
+    expect(onRename).toHaveBeenCalledWith(node.id, 'One')
     expect(onOpen).not.toHaveBeenCalled()
+    // Fork and Delete stay visual-only.
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions for One' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Fork session' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Session actions for One' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete session' }))
+    expect(onRename).toHaveBeenCalledOnce()
     // Escape closes without selecting (Menu onClose path).
     fireEvent.click(screen.getByRole('button', { name: 'Session actions for One' }))
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -178,7 +190,8 @@ describe('workspace browser rows', () => {
       id: sid('p'), title: 'Parent', children: [], hasChildren: true,
       expanded: false, running: false, updatedAt: 0,
     }
-    render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()} onToggle={vi.fn()} flat />)
+    render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
+      onRename={vi.fn()} onToggle={vi.fn()} flat />)
     expect(screen.queryByRole('button', { name: 'Expand' })).toBeNull()
   })
 
@@ -189,7 +202,8 @@ describe('workspace browser rows', () => {
         id: sid('s1'), title: 'Hovered', children: [], hasChildren: false,
         expanded: false, running: true, updatedAt: 0,
       }
-      render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={60_000} onOpen={vi.fn()} onToggle={vi.fn()} />)
+      render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={60_000} onOpen={vi.fn()}
+        onRename={vi.fn()} onToggle={vi.fn()} />)
       const wrapper = screen.getByRole('treeitem').parentElement as HTMLElement
       fireEvent.pointerEnter(wrapper)
       act(() => { vi.advanceTimersByTime(500) })
@@ -215,7 +229,8 @@ describe('workspace browser rows', () => {
         id: sid('s1'), title: 'Quiet', children: [], hasChildren: false,
         expanded: false, running: false, updatedAt: 0,
       }
-      render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()} onToggle={vi.fn()} />)
+      render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onToggle={vi.fn()} />)
       fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(500) })
       expect(screen.getByText('Idle')).toBeTruthy()
@@ -232,7 +247,8 @@ describe('workspace browser rows', () => {
     }
     const inactive = dragProps()
     const { rerender } = render(
-      <SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()} onToggle={vi.fn()} drag={inactive} />,
+      <SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onToggle={vi.fn()} drag={inactive} />,
     )
     const row = screen.getByRole('treeitem')
     stubRect(row)
@@ -249,7 +265,8 @@ describe('workspace browser rows', () => {
 
     const active = dragProps({ active: true, marker: 'before' })
     rerender(
-      <SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()} onToggle={vi.fn()} drag={active} />,
+      <SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onToggle={vi.fn()} drag={active} />,
     )
     stubRect(screen.getByRole('treeitem'))
     // Top half hovers/drops 'before'; bottom half 'after' (row mid = 117).
@@ -262,7 +279,8 @@ describe('workspace browser rows', () => {
 
     const after = dragProps({ active: true, marker: 'after' })
     rerender(
-      <SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()} onToggle={vi.fn()} drag={after} />,
+      <SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onToggle={vi.fn()} drag={after} />,
     )
     expect(screen.getByRole('treeitem').className).toMatch(/dropAfter/)
   })

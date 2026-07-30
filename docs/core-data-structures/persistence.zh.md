@@ -12,7 +12,7 @@
 
 ## 崩溃恢复保留被中断的轮次
 
-后端重新加载一个在轮次中途崩溃的日志时，会发现一个已打开的 `turn/start` 却没有 `turn/end`。它**不会**截断日志：在长周期任务中，单个轮次可能非常庞大（许多步骤、大量工具输出），而这些事件在崩溃前已被持久追加。后端改为用一个合成的 `turn/end { reason: { kind: 'interrupted' } }` 关闭这个遗留轮次，保持日志平衡与轮次闭合不变式。`interrupted` 是唯一一个不由循环发出的 `TurnEndReason`（见 [session.md](session.md#why-a-turn-ended-turnendreasonmap)）。
+后端重新加载一个在轮次中途崩溃的日志时，会发现一个已打开的 `turn/start` 却没有 `turn/end`。它**不会**截断日志：在长周期任务中，单个轮次可能非常庞大（许多步骤、大量工具输出），而这些事件在崩溃前已被持久追加。后端改为用一个合成的 `turn/end { reason: { kind: 'interrupted' } }` 关闭这个遗留轮次，在不改变其前后任何独立事件的情况下配平被中断的执行。`interrupted` 是唯一一个不由循环发出的 `TurnEndReason`（见 [session.md](session.md#why-a-turn-ended-turnendreasonmap)）。
 
 修复仅适用于冷会话。对于活跃 id，`SessionPersistence.load(id)` 会对内存日志拍摄快照，等待该快照完成持久化，并且只在日志平衡时连同已存储的 header 返回；若活跃轮次仍未闭合，则拒绝操作，而不是添加合成的中断边界。由协调器管理的冷加载会在后端读取和修复写入期间占用该 id，因此并发发布同 id 的活跃会话会被拒绝并回滚。HMR 也会接管活跃前缀，而不会关闭其中正在进行的轮次。
 
@@ -77,7 +77,7 @@ interface SessionHeader {
 
 ## `CreateSessionOptions`：seed 与元数据
 
-通过 store 创建 `Session` 时会接收 `seed`（回放/fork 现有事件日志）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、`delegationDepth`，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。
+通过 store 创建 `Session` 时会接收 `seed`（初始回放或 fork 历史）与 `meta`（store 折叠进 `SessionHeader` 的存储层字段）。store 填充 `version`/`id` 并为 `createdAt` 提供默认值；调用方提供已校验的绝对 `cwd`、`parentSession` 谱系、`seedLength` 种子边界、`delegationDepth`，以及——仅在重建已持久化会话时——需要保留的原始 `createdAt`。
 
 ```ts type-equiv
 /**
@@ -86,7 +86,7 @@ interface SessionHeader {
  * store folds into a {@link SessionHeader}.
  */
 interface CreateSessionOptions {
-  /** Events to seed the new session with (replay/fork). */
+  /** Initial replay or fork history supplied at construction. */
   readonly seed?: readonly SessionEvent[]
   /**
    * Storage metadata read once before publication. `seedLength` is explicit

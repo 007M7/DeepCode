@@ -1,16 +1,23 @@
 /** The default composer body: the 'conversation.composer.bar' slot entry
  * (decision 20). Machine state arrives through the standard provide channel
  * (useInput + inputActions); the keyboard/DOM command face and stop arrive
- * through this entry's own inject; layout-phase inputs (variant, placeholder,
+ * through this entry's own inject, whose hooks compartment binds
+ * useNotices/useLexicon; layout-phase inputs (variant, placeholder,
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the `plan` projection key merge (the TodoDock posture — the
+// composer reads a host-computed value; the domain owns the key).
+import type {} from '@deepseek-ai/dsh-plan-mode/client'
+// Type-only: the `goal` projection key merge (hint disambiguation).
+import type {} from '@deepseek-ai/dsh-goal/client'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
+import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
 
 /** Prompt failure surface (derived from promptError). */
@@ -21,24 +28,21 @@ export interface InputBarError {
 
 export type InputBarProps = ComposerBarProps
 
-const READONLY_OPTIONS: readonly { id: string; label: string }[] = [
-  { id: 'readonly', label: 'Read-only' },
-  { id: 'readwrite', label: 'Read-write' },
-]
-
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, stop, renderSlot,
+  useSession, useInput, inputActions, keyboard, stop, command, translateHint, renderSlot, useNotices, useLexicon, useProjection,
   variant, placeholder, accessory, overlay, leftItems, rightItems, onAdd, addLabel = 'Add attachment',
 }: InputBarProps) {
   const input = useInput(s => s)
-  const noticeStore = keyboard.notices
-  const notice = useSyncExternalStore(
-    (fn: () => void) => noticeStore.subscribe(fn),
-    () => noticeStore.getSnapshot(),
-  )
+  const notice = useNotices(s => s)
+  const lexicon = useLexicon(s => s)
   const promptError = useSession(s => s.promptError)
   const running = useSession(s => s.running)
   const disabled = useSession(s => s.removed)
+  // Plan mode swaps the textarea placeholder (the projection is the folded
+  // host value; owner-prop placeholders — hero, session-unavailable — win).
+  const planActive = useProjection('plan', plan => plan !== undefined && (plan.pending ? !plan.active : plan.active))
+  // Absent (undefined: no frame yet) and cleared (null) both mean no goal.
+  const hasGoal = useProjection('goal', goal => goal != null)
   // Prompt failures are ordinary failures (no create/attach transaction
   // exists anymore): the strip renders promptError, the draft stays in the
   // machine, and the user resubmits.
@@ -60,9 +64,9 @@ export function InputBar({
     }, 10)
   }
 
-  // Placeholder chrome: Access selection stays local until its seam lands
-  // (plan/model are real seats now — the named single slots below).
-  const [readonlyId, setReadonlyId] = useState('readonly')
+  // The Access seat's data: the host-computed permissions projection
+  // (undefined = capability absent → the chip renders nothing).
+  const permissions = useProjection('permissions')
 
   // Queue cut 1: running input stays free; locked = session disabled only.
   // The transient machine locks (adjudicating pending / submitting) render
@@ -75,12 +79,33 @@ export function InputBar({
     if (!locked) inputRef.current?.focus()
   }, [locked])
 
+  // Active conversation scrollport: chain the wheel. While the textarea (capped
+  // at 14 lines with overflow-y:auto) can still move in this direction, keep
+  // the native scroll; only at its own edge forward delta to the host so a
+  // short draft never traps the gesture and a long draft stays scrollable.
+  // Hero mounts have no host and keep native wheel scrolling.
+  useEffect(() => {
+    const el = inputRef.current
+    if (el === null) return
+    const onWheel = (e: WheelEvent): void => {
+      const host = el.closest('[data-conversation-scroll]')
+      if (!(host instanceof HTMLElement) || e.deltaY === 0) return
+      const atTop = el.scrollTop <= 0
+      const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+      if ((e.deltaY < 0 && !atTop) || (e.deltaY > 0 && !atEnd)) return
+      e.preventDefault()
+      host.scrollTop += e.deltaY
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => { el.removeEventListener('wheel', onWheel) }
+  }, [])
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Shift+Enter is the native newline UNCONDITIONALLY — decided before the
     // IME guard so a composition-closing Shift+Enter still breaks the line.
     if (e.key === 'Enter' && e.shiftKey) return
     // keyCode 229 is the legacy IME-composition signal engines emit without isComposing.
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
+    // oxlint-disable-next-line typescript/no-deprecated
     const composing = composingRef.current || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       if (keyboard.arbitrate(e.key === 'ArrowUp' ? 'up' : 'down', composing) === 'consumed') e.preventDefault()
@@ -140,8 +165,8 @@ export function InputBar({
     if (machineBusy) return // submitting is the read-only span; adjudicating holds the pending lock
     const next = e.target.value
     keyboard.setDraft(next)
-    // selectionStart is number|null in lib.dom; the eslint program narrows it.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    // selectionStart is number|null in lib.dom; the type-aware lint program narrows it.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     keyboard.track(next, e.target.selectionStart ?? next.length)
   }
 
@@ -153,13 +178,13 @@ export function InputBar({
   // too (one char = one step). Mouse selection of a chip is handled in the
   // backdrop click handler below. Undo/redo must NOT reach the browser: the
   // machine owns the transaction log.
-  // selectionStart/End are number|null in lib.dom; the eslint program narrows them.
-  /* eslint-disable @typescript-eslint/no-unnecessary-condition */
+  // selectionStart/End are number|null in lib.dom; the type-aware lint program narrows them.
+  /* oxlint-disable typescript/no-unnecessary-condition */
   const selectionOf = (el: HTMLTextAreaElement) => ({
     start: el.selectionStart ?? 0,
     end: el.selectionEnd ?? el.selectionStart ?? 0,
   })
-  /* eslint-enable @typescript-eslint/no-unnecessary-condition */
+  /* oxlint-enable typescript/no-unnecessary-condition */
 
   const onCopyOrCut = (e: React.ClipboardEvent<HTMLTextAreaElement>, cut: boolean): void => {
     const el = e.currentTarget
@@ -225,26 +250,17 @@ export function InputBar({
     if (!empty && !disabled && !machineBusy) inputActions.submit('queue')
   }
 
-  // Access placeholder select (the one remaining local-chrome control).
+  // The Access seat: the projection-fed permission chip (renders nothing
+  // while the permissions key is absent — permission-less host or Draft).
   const accessSelect: ReactNode = (
-    <select
-      className={css.select}
-      aria-label="Access mode"
-      value={readonlyId}
-      disabled={locked}
-      onChange={(e: ChangeEvent<HTMLSelectElement>) => { setReadonlyId(e.target.value) }}
-    >
-      {READONLY_OPTIONS.map(opt => (
-        <option key={opt.id} value={opt.id}>{opt.label}</option>
-      ))}
-    </select>
+    <PermissionSelect value={permissions} locked={locked} command={command} />
   )
 
   // Mirror-layer decorations: a visible backdrop with transparent text. The
   // claim token highlights through behind the textarea glyphs; each U+FFFC
   // placeholder renders as a chip (the textarea's own glyph is invisible, the
   // backdrop chip supplies the visual); the claim hint is ghost text.
-  const deco = deriveDecorations(input, keyboard.lexicon())
+  const deco = deriveDecorations(input, lexicon)
   const backdrop: ReactNode[] = []
   {
     // Segment boundaries: the token range end, every chip offset, and every
@@ -305,7 +321,12 @@ export function InputBar({
     }
     pushPlain(draft.length)
     if (deco.hint !== null) {
-      backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{deco.hint}</span>)
+      // Claim tokens are shaped `/name ` (trailing space); trim to the bare name.
+      const commandName = input.claim?.token.slice(1).trim() ?? ''
+      const hintKey = commandName === 'goal' && hasGoal ? 'goal.active' : commandName
+      const translated = translateHint(hintKey)
+      const displayHint = translated !== hintKey ? translated : deco.hint
+      backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
   }
 
@@ -321,7 +342,7 @@ export function InputBar({
           {notice.text}
         </div>
       )}
-      <div className={css.card}>
+      <div className={css.card} data-composer-card>
         {overlay !== undefined && <div className={css.overlayAnchor}>{overlay}</div>}
         {accessory !== undefined && <div className={css.accessory}>{accessory}</div>}
         {/* Mirror-div auto-grow: the hidden mirror renders draft+'\n' and stretches the wrapper
@@ -336,7 +357,9 @@ export function InputBar({
             disabled={locked}
             readOnly={machineBusy}
             data-phase={input.phase}
-            placeholder={placeholder ?? (disabled ? 'Session unavailable' : 'Message the agent')}
+            placeholder={placeholder ?? (disabled
+              ? 'Session unavailable'
+              : planActive ? translateHint('placeholder.plan') : translateHint('placeholder.default'))}
             rows={2}
             onChange={onChange}
             onKeyDown={onKeyDown}
@@ -363,18 +386,18 @@ export function InputBar({
               <IconPlusOutline16 size={14} />
             </button>
             <div className={css.modes}>
-              {renderSlot('conversation.input.plan', { locked })}
               {accessSelect}
+              {renderSlot('conversation.input.plan', { locked })}
             </div>
             {leftItems}
           </div>
           <div className={css.trailing}>
             {rightItems}
             {renderSlot('conversation.input.model', { locked })}
-            {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />}
+            {/* {machineBusy && <span className={css.pending} data-input-pending aria-label="处理中" />} */}
             <button
               type="button"
-              className={clsx(css.primary, running && css.stopping)}
+              className={css.primary}
               aria-label={primaryLabel}
               title={primaryLabel}
               disabled={!running && (empty || disabled || machineBusy)}
@@ -383,11 +406,11 @@ export function InputBar({
             >
               {running ? (
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
+                  <rect x="3" y="3" width="10" height="10" rx="3" fill="currentColor" />
                 </svg>
               ) : (
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <path d="M8 13V3.8M8 3.8L3.8 8M8 3.8L12.2 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  <path d="M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z" fill="currentColor" />
                 </svg>
               )}
             </button>

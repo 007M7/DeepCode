@@ -28,8 +28,8 @@ Status: implemented
 
 ### 引用源（只见投影 + 自家 apply 闭包的 root ctx）
 
-- **ui-skill**：`skill.list({sessionId})` 按会话寻址（host 从会话 header 解析项目根）；目录缓存按 sessionId 键控 single-flight，`warm` 钩子出生预热、`connection/reset` 全清。pick 产出 text outcome（`/name ` 原文，决策 21）；`lexicon` 从 CatalogFetch 的 settled 快照给名录（未热 `undefined`）。无 match 钩子（引用不进命令裁决）。skill 引用以原文随普通 prompt 走（命令平面之外；tool-skill 不变，session-prefix 目录提供协作关联）。
-- **ui-subagent**：候选零 RPC（sessions.list 快照按 parentId/running 过滤）；pick 产出 text outcome（`@name ` 原文）；`lexicon` 同快照派生（模型侧表示待业务立项）。
+- **ui-skill**：`skill.list({sessionId})` 按会话寻址（host 从会话 header 解析项目根）；目录缓存按 sessionId 键控 single-flight，`warm` 钩子出生预热、`connection/reset` 全清。pick 产出 text outcome（`/name ` 原文，决策 21）；`lexicon` 从 CatalogFetch 的 settled 快照给名录（未热 `undefined`），`subscribeLexicon` 在 settle 与失效时按会话通知监听者。无 match 钩子（引用不进命令裁决）。skill 引用以原文随普通 prompt 走（命令平面之外；tool-skill 不变，session-prefix 目录提供协作关联）。
+- **ui-subagent**：候选零 RPC（sessions.list 快照按 parentId/running 过滤）；pick 产出 text outcome（`@name ` 原文）；`lexicon` 同快照派生，`subscribeLexicon` 转发 list store 的变更通道（模型侧表示待业务立项）。
 
 ### fixture 命令路由与装配
 

@@ -27,9 +27,12 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '../contract/store.ts'
 import { createSnapshotStore } from '../contract/store.ts'
+import type { SessionFace } from '../contract/session.ts'
+import type { ISessions } from '../contract/sessions.ts'
 import { createScope, scopeOf as scopeTagOf } from '../agents/scope.ts'
 import { SessionManager } from './manager.ts'
 import type { SessionListPhase, SessionSearchResultItem } from './manager.ts'
+import { SessionProvideChannel } from './provide.ts'
 import type { Session } from './session.ts'
 
 /** Session list row projected from the host list RPC plus live stream increments. */
@@ -42,6 +45,8 @@ export interface SessionSummary {
   cwd?: string
   parentId?: SessionId
   running: boolean
+  /** An approval question is pending on this session (sidebar amber-dot state). */
+  waitingApproval: boolean
   /**
    * Empty-log bit (host summary derivation mirror). New Session reuses a blank
    * one targeting the same workspace. Filtering stays with the consumer: the
@@ -84,7 +89,8 @@ export class SessionCreateError extends Error {
 /** Session assembly handle for SessionProvider/inject factories (identity-stable per session). */
 export interface SessionBinding {
   readonly sessionId: SessionId
-  readonly session: Session
+  /** The outward session face only — feature code never sees the concrete class. */
+  readonly session: SessionFace
   readonly ctx: Context
 }
 
@@ -124,6 +130,8 @@ interface ScopeRecord {
   fiber: Fiber
   ctx: Context
   binding: SessionBinding
+  /** The concrete Session for runtime-internal entry points (staging open()); the binding carries only the outward face. */
+  session: Session
   /** Render-layer standard-props bundle (identity-stable per scope; the renderer's per-info caches key off it). */
   provideInfo: SessionProvideInfo
 }
@@ -151,7 +159,7 @@ export interface SessionProvideDescriptor {
 }
 
 /** Root sessions service: list store, current selection, object-layer manager, scope tree, bindings, ancestry. */
-export class SessionsService {
+export class SessionsService implements ISessions {
   /**
    * The wire schema's own result bound, re-exposed for presentation plugins as
    * injected data. Not per-connection state: the `session.search` response
@@ -163,6 +171,13 @@ export class SessionsService {
   readonly list: SnapshotStore<SessionListState>
   /** The object-layer instance cluster and frame dispatch entry. */
   private readonly manager: SessionManager
+  /**
+   * Atomic current-session provide projection: selection changes and
+   * provider-roster changes publish through this one source (the renderer
+   * host's `sessions.provide` feed), so a roster change under a stable
+   * current id republishes the bundle instead of stranding mounted entries.
+   */
+  readonly currentProvideInfo: HostObservable<SessionMaybeProvideInfo>
 
   /**
    * Persisted selection cell (the durable half of `list.current`). Private on
@@ -175,10 +190,8 @@ export class SessionsService {
   private readonly selection: SnapshotStore<{ sessionId?: SessionId }>
 
   private readonly scopes = new Map<SessionId, ScopeRecord>()
-  /** Registered per-session standard-props providers, in registration order. */
-  private readonly providers: SessionProvideDescriptor[] = []
-  /** Static no-session projection, rebuilt only when the provider roster changes. */
-  private maybeInfo: SessionMaybeProvideInfo
+  /** The provide channel (roster, materialization rules, current projection) — shared with the test runtime's double. */
+  private readonly provideChannel: SessionProvideChannel
   /**
    * The staged session id — follows `list.current` exactly, holding its last
    * defined value across masked gaps (a transiently absent selection blanks
@@ -213,14 +226,20 @@ export class SessionsService {
     // dedicated code path. Safe to run synchronously inside the store notify:
     // the follower writes no list state — session.open()'s synchronous prefix
     // touches only session-side state and its own microtask-batched notifier.
-    this.list.subscribe(() => { this.followCurrent() })
-    // The runtime's own contribution comes first: useSession rides the same
-    // provide channel every plugin uses (no renderer special case).
-    this.providers.push({
-      hooks: ['session'],
-      resolve: binding => ({ hooks: { session: binding.session } }),
+    // The current-provide projection follows the same current writes.
+    this.list.subscribe(() => {
+      this.followCurrent()
+      this.provideChannel.publishCurrent()
     })
-    this.maybeInfo = this.materializeMaybeProvideInfo()
+    this.provideChannel = new SessionProvideChannel({
+      rebuildBundles: () => {
+        for (const record of this.scopes.values()) {
+          record.provideInfo = this.provideChannel.materializeInfo(record.binding)
+        }
+      },
+      resolveCurrent: () => this.maybeProvideInfo(this.list.getSnapshot().current),
+    })
+    this.currentProvideInfo = this.provideChannel.currentProvideInfo
     rootCtx.reflect.provide('sessions', this, undefined)
   }
 
@@ -235,74 +254,10 @@ export class SessionsService {
    * @returns disposer removing the provider (already-materialized bundles keep their members until their scope drops).
    */
   provide(descriptor: SessionProvideDescriptor): () => void {
-    this.providers.push(descriptor)
     // Scopes may already exist (boot order: the list lands and resolves
-    // scopes before later plugins register) — their bundles must include
-    // every provider by first render, so re-materialize on roster change.
-    this.rematerializeProvideBundles()
-    return () => {
-      const at = this.providers.indexOf(descriptor)
-      if (at >= 0) this.providers.splice(at, 1)
-      this.rematerializeProvideBundles()
-    }
-  }
-
-  /** Rebuild every live scope's standard-props bundle after a provider roster change. */
-  private rematerializeProvideBundles(): void {
-    this.maybeInfo = this.materializeMaybeProvideInfo()
-    for (const record of this.scopes.values()) {
-      record.provideInfo = this.materializeProvideInfo(record.binding)
-    }
-  }
-
-  /** Build the static no-session kit and reject duplicate declared names. */
-  private materializeMaybeProvideInfo(): SessionMaybeProvideInfo {
-    const hooks: Record<string, undefined> = {}
-    const props: Record<string, undefined> = {}
-    for (const descriptor of this.providers) {
-      for (const name of descriptor.hooks ?? []) {
-        if (Object.hasOwn(hooks, name)) throw new Error(`sessions.provide: duplicate hook "${name}"`)
-        hooks[name] = undefined
-      }
-      for (const name of descriptor.props ?? []) {
-        if (Object.hasOwn(props, name)) throw new Error(`sessions.provide: duplicate prop "${name}"`)
-        props[name] = undefined
-      }
-    }
-    return { sessionId: undefined, hooks, props }
-  }
-
-  /** Materialize the standard-props bundle for one session (fails loud on duplicate member names). */
-  private materializeProvideInfo(binding: SessionBinding): SessionProvideInfo {
-    const hooks: Record<string, HostObservable<unknown>> = {}
-    const props: Record<string, unknown> = {}
-    for (const descriptor of this.providers) {
-      const contribution = descriptor.resolve(binding)
-      const contributedHooks = contribution.hooks ?? {}
-      const contributedProps = contribution.props ?? {}
-      for (const name of Object.keys(contributedHooks)) {
-        if (!(descriptor.hooks ?? []).includes(name)) {
-          throw new Error(`sessions.provide: undeclared hook "${name}"`)
-        }
-      }
-      for (const name of Object.keys(contributedProps)) {
-        if (!(descriptor.props ?? []).includes(name)) {
-          throw new Error(`sessions.provide: undeclared prop "${name}"`)
-        }
-      }
-      for (const name of descriptor.hooks ?? []) {
-        const source = contributedHooks[name]
-        if (source === undefined) throw new Error(`sessions.provide: missing hook "${name}"`)
-        if (Object.hasOwn(hooks, name)) throw new Error(`sessions.provide: duplicate hook "${name}"`)
-        hooks[name] = source
-      }
-      for (const name of descriptor.props ?? []) {
-        if (!Object.hasOwn(contributedProps, name)) throw new Error(`sessions.provide: missing prop "${name}"`)
-        if (Object.hasOwn(props, name)) throw new Error(`sessions.provide: duplicate prop "${name}"`)
-        props[name] = contributedProps[name]
-      }
-    }
-    return { sessionId: binding.sessionId, hooks, props }
+    // scopes before later plugins register) — the channel rebuilds their
+    // bundles through the host hooks so every provider lands by first render.
+    return this.provideChannel.provide(descriptor)
   }
 
   /**
@@ -368,6 +323,11 @@ export class SessionsService {
     this.manager.handleConnected()
   }
 
+  /** Drop generation-scoped live interaction state the moment a connection generation dies. */
+  handleDisconnected(): void {
+    this.manager.handleDisconnected()
+  }
+
   /**
    * Create a session on the host. Resolution guarantee: by the time the
    * promise resolves, the created session is in the list store and
@@ -414,9 +374,9 @@ export class SessionsService {
    * `agent.session`). Same service-method seam as
    * {@link SessionsService.scopeOf}.
    * @param ctx - an Agent-scoped context.
-   * @returns the Session, or undefined when the ctx is untagged or its scope was pruned.
+   * @returns the session face, or undefined when the ctx is untagged or its scope was pruned.
    */
-  sessionOf(ctx: Context): Session | undefined {
+  sessionOf(ctx: Context): SessionFace | undefined {
     const id = scopeTagOf(ctx)
     if (id === undefined) return undefined
     return this.scopes.get(id)?.binding.session
@@ -433,26 +393,22 @@ export class SessionsService {
   }
 
   /**
-   * Resolve the render-layer standard-props bundle (SessionProvider's feed
-   * through the renderer host; ctx never enters the render layer). Pure
-   * resolution — render-safe: SessionProvider calls this during render, so no
-   * staging, no window side effects (StrictMode double-invokes and concurrent
-   * discarded passes must stay free).
-   * @param id - session id.
-   * @returns the provide info, or undefined for a session neither listed nor already scoped.
+   * Resolve one session's render-layer standard-props bundle (ctx never
+   * enters the render layer; the renderer subscribes to
+   * {@link SessionsService.currentProvideInfo}). Pure resolution — render-safe:
+   * no staging, no window side effects (StrictMode double-invokes and
+   * concurrent discarded passes must stay free).
    */
-  provideInfo(id: string): SessionProvideInfo | undefined {
+  private provideInfo(id: string): SessionProvideInfo | undefined {
     return this.resolve(id as SessionId)?.provideInfo
   }
 
   /**
    * Resolve the current-session-optional standard kit. Unknown or absent ids
    * return the static no-session projection rather than removing hook props.
-   * @param id - current session id, when selected.
-   * @returns a definite or no-session provide bundle.
    */
-  maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
-    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.maybeInfo
+  private maybeProvideInfo(id: string | undefined): SessionMaybeProvideInfo {
+    return (id === undefined ? undefined : this.provideInfo(id)) ?? this.provideChannel.maybeInfo
   }
 
   /**
@@ -476,7 +432,7 @@ export class SessionsService {
      * validates and the projection masks absent selections), so resolve
      * cannot miss; kept so a future current writer cannot crash the notify. */
     if (record !== undefined) {
-      void record.binding.session.open()
+      void record.session.open()
     }
   }
 
@@ -519,8 +475,9 @@ export class SessionsService {
       fiber,
       ctx,
       binding,
+      session,
       // Sources are bare observables; React binds selector hooks at its own seam.
-      provideInfo: this.materializeProvideInfo(binding),
+      provideInfo: this.provideChannel.materializeInfo(binding),
     }
     this.scopes.set(id, record)
     return record
@@ -542,6 +499,7 @@ export class SessionsService {
         id: entry.sessionId,
         displayTitle: displayTitleOf(entry.title, entry.cwd, entry.sessionId),
         running: entry.running,
+        waitingApproval: entry.waitingApproval,
         blank: entry.blank,
         updatedAt: entry.updatedAt,
         ...(entry.title !== undefined ? { title: entry.title } : {}),
@@ -587,7 +545,7 @@ export class SessionsService {
     void record.fiber.dispose()
     // Release the Session's dispatch point with the scope it belongs to (a
     // surviving instance — the live Intent — rebinds when resolve re-mints).
-    record.binding.session.unbindScope()
+    record.session.unbindScope()
     // Optional lookup: slots and sessions are sibling services with no
     // declared dependency; a slots-less boot (object-layer tests) skips.
     this.rootCtx.get('slots')?.pruneStoreScope(id)

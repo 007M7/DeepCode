@@ -14,7 +14,6 @@ async function bench() {
     path: 'name' in input ? `/projects/${input.name}` : input.path,
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
-  const pickDirectory = vi.fn(async () => '/tmp/picked')
   const startSession = vi.fn()
   const rename = vi.fn(async () => ({}))
   const insertSessionBefore = vi.fn(async () => ({}))
@@ -25,14 +24,13 @@ async function bench() {
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
   }))
   ctx.provide('workspaces', {
-    create, pickDirectory, startSession, rename, insertSessionBefore,
+    create, startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear, search, searchResultLimit: 20 } as never)
   return {
     ctx,
     slots: ctx.get('slots') as SlotsService,
     create,
-    pickDirectory,
     startSession,
     rename,
     insertSessionBefore,
@@ -95,14 +93,35 @@ describe('ui-workspace apply', () => {
     expect(b.insertSessionBefore).toHaveBeenCalledWith('ws', 's1', 's2')
     await browser.createWorkspace({ name: 'project' })
     expect(b.create).toHaveBeenCalledWith({ name: 'project' })
-    await browser.pickDirectory()
-    expect(b.pickDirectory).toHaveBeenCalledOnce()
 
     const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
     await picker.createWorkspace({ path: '/tmp/project' })
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/project' })
-    await picker.pickDirectory()
-    expect(b.pickDirectory).toHaveBeenCalledTimes(2)
+  })
+
+  it('declares the two directory-flow holes and reports their occupancy per surface', async () => {
+    const b = await bench()
+    declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    // Registration declared the child holes (declaration = render authorization).
+    expect(b.slots.spec('sidebar.workspaces.directoryFlow')).toMatchObject({ kind: 'single' })
+    expect(b.slots.spec('conversation.hero.workspace.directoryFlow')).toMatchObject({ kind: 'single' })
+
+    const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
+    const picker = (b.slots.entries('conversation.hero.workspace')[0]!.inject as () => WorkspacePickerInjected)()
+    expect(browser.hooks.directoryFlow.getSnapshot()).toBe(false)
+    expect(picker.hooks.directoryFlow.getSnapshot()).toBe(false)
+    // A flow occupant flips exactly its own surface, and the source notifies.
+    const notified = vi.fn()
+    const unsubscribe = browser.hooks.directoryFlow.subscribe(notified)
+    const dispose = b.slots.register({ name: 'sidebar.workspaces.directoryFlow' } as never, () => null)
+    expect(browser.hooks.directoryFlow.getSnapshot()).toBe(true)
+    expect(picker.hooks.directoryFlow.getSnapshot()).toBe(false)
+    await Promise.resolve()
+    expect(notified).toHaveBeenCalled()
+    dispose()
+    expect(browser.hooks.directoryFlow.getSnapshot()).toBe(false)
+    unsubscribe()
   })
 
   it('rejects the browser search callback on a runtime business error', async () => {

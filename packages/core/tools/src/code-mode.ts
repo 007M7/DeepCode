@@ -43,7 +43,7 @@ declare module '@deepseek-ai/dsh-session' {
      * Log-only: `deriveMessages()` ignores it, so sub-calls never re-enter
      * model context; persistence and UIs get every call. Appended inside the
      * parent `run_code`'s execution (the bridge drains in-flight dispatches
-     * before returning), so the turn-enclosure invariant holds by
+     * before returning), so its execution-enclosure relation holds by
      * construction.
      */
     'tool/code-dispatch': { parentCallId: CallId; subCallId: CallId; name: string; arguments: unknown; isError: boolean; content: ContentBlock[] }

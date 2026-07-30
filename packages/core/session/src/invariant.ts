@@ -66,8 +66,8 @@ function validateEvent(
   let nextStep = trace.nextStep
   let pendingCalls: SessionTraceTransition['pendingCalls'] = { kind: 'none' }
 
-  // Model input may be appended between turns without running the model.
-  // Merge-extensible package events remain turn-enclosed by default.
+  // Context and plugin-owned log-only events may be appended between model
+  // executions. Core execution events retain their explicit turn relations.
   switch (event.type) {
     case 'turn/start': {
       if (trace.openTurn !== null) {
@@ -134,21 +134,27 @@ function validateEvent(
         break
       }
       requireOpenStep(trace, 'tool/result', event.data.turn, event.data.step, fail)
-      const syntheticNotStarted = event.data.isError && event.data.error?.code === TOOL_NOT_STARTED
-      if (!trace.pendingCalls.has(event.data.callId) && !syntheticNotStarted) {
-        fail(`tool/result for ${event.data.callId} with no prior tool/call in this step`)
+      const callId = event.data.message.source.callId
+      const syntheticNotStarted = event.data.message.content[0].isError === true && event.data.error?.code === TOOL_NOT_STARTED
+      if (!trace.pendingCalls.has(callId) && !syntheticNotStarted) {
+        fail(`tool/result for ${callId} with no prior tool/call in this step`)
       }
-      pendingCalls = { kind: 'delete', callId: event.data.callId }
+      pendingCalls = { kind: 'delete', callId }
       break
     }
     case 'user/message':
       break
-    default: {
+    case 'steering/message':
+    case 'todo/write':
+    case 'request/header': {
       if (trace.openTurn === null) {
-        fail(`${event.type} appended outside any open turn (every event must be turn-enclosed)`)
+        fail(`${event.type} appended outside any open turn (core execution events must be turn-enclosed)`)
       }
       break
     }
+    default:
+      // Merge-extensible event relations belong to their owning plugin.
+      break
   }
   return {
     scalars: { lastSeq: event.seq, openTurn, openStep, nextTurn, nextStep },

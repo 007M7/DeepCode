@@ -138,6 +138,8 @@ export interface SlashSource {
   readonly trigger: TriggerChar
   /** Menu group label; unique per trigger — duplicate registration throws. */
   readonly name: string
+  /** Menu group display order (lower = higher in the list; default 0). */
+  readonly order?: number
   candidates(session: ClientSessionContext, req: CandidateRequest): Promise<readonly SlashCandidate[]>
   /** Every pick lands here; claim/insert outcomes are executed by the pipeline via the scoped input events. */
   onPick(pick: SlashPick): PickOutcome
@@ -165,6 +167,16 @@ export interface SlashSource {
    * (the render path must stay synchronous and side-effect free).
    */
   lexicon?(session: ClientSessionContext): readonly string[] | undefined
+  /**
+   * Subscribe to changes of this source's {@link SlashSource.lexicon} answer
+   * for one session (backing data settled, invalidated, or refreshed). The
+   * controller re-polls lexicon on each notification; a source whose roll
+   * never changes after warm omits the hook.
+   * @param session - stable session projection.
+   * @param listener - invalidation callback.
+   * @returns unsubscribe.
+   */
+  subscribeLexicon?(session: ClientSessionContext, listener: () => void): () => void
   /** Reference codec; required for sources producing insert outcomes. */
   readonly codec?: ReferenceCodec
 }
