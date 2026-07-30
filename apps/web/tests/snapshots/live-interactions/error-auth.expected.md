@@ -12,7 +12,7 @@
 - button "编辑":
   - img
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "Plan mode off, press to turn on": Plan off

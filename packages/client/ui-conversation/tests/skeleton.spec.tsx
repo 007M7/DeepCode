@@ -145,8 +145,10 @@ function mount(
           useInput={useInput}
           inputActions={inputActions}
           keyboard={wiring}
+          toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
+          useMenuLauncher={bindSnapshotSelector(createSnapshotStore<string | null>(null))}
           stop={stop}
           command={() => Promise.resolve(true)}
           translateHint={(key: string) => key}

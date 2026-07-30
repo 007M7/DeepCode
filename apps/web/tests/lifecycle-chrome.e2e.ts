@@ -25,6 +25,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/lifecycle-chrome', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 const HERO_EXPECTED = join(SNAPSHOT_DIR, 'hero.expected.md')
+const COMMAND_MENU_EXPECTED = join(SNAPSHOT_DIR, 'command-menu.expected.md')
 // Post-reload golden: the same settled conversation rebuilt purely from
 // persistence + history — byte-equal rendering is exactly the recovery claim.
 const RELOADED_EXPECTED = join(SNAPSHOT_DIR, 'reloaded.expected.md')
@@ -54,6 +55,34 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
   afterAll(async () => {
     await browser?.close()
     await scaffold?.close()
+  })
+
+  it.skipIf(MODE === 'record')('opens the shared slash menu from plus with only Command candidates', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-command-menu-launcher'))
+    const launcher = page.getByRole('button', { name: 'Commands' })
+    await launcher.click()
+    const menu = page.getByRole('listbox', { name: 'Trigger suggestions' })
+    await menu.waitFor({ timeout: 10_000 })
+    const snapshot = await captureStableAria(page, '[role="listbox"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(COMMAND_MENU_EXPECTED, snapshot, MODE)
+    expect(snapshot).toContain('text: Commands')
+    expect(snapshot).not.toContain('text: Skills')
+    expect(snapshot).not.toContain('text: Subagents')
+    const launchedBox = await menu.boundingBox()
+    await page.locator('textarea').first().press('Escape')
+    await expect.poll(() => menu.count()).toBe(0)
+    const input = page.locator('textarea').first()
+    await input.fill('/')
+    await menu.waitFor({ timeout: 10_000 })
+    const typedBox = await menu.boundingBox()
+    expect(launchedBox).not.toBeNull()
+    expect(typedBox).not.toBeNull()
+    expect(Math.abs(launchedBox!.x - typedBox!.x)).toBeLessThan(1)
+    expect(Math.abs(
+      launchedBox!.y + launchedBox!.height - typedBox!.y - typedBox!.height,
+    )).toBeLessThan(1)
+    await input.fill('')
+    await expect.poll(() => menu.count()).toBe(0)
   })
 
   it('sends the first prompt from the empty-state hero (all modes)', async () => {
@@ -152,6 +181,8 @@ describe('web e2e: lifecycle & chrome (workspace flow / reload / dark mode)', ()
 
   it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'hero.expected.md', 'reloaded.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, [
+      'session.jsonl', 'command-menu.expected.md', 'hero.expected.md', 'reloaded.expected.md',
+    ])
   })
 })

@@ -26,7 +26,7 @@
   - text: workspace
   - img
 - textbox "Describe what you want to build"
-- button "Add attachment":
+- button "Commands":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "Plan mode off, press to turn on": Plan off
