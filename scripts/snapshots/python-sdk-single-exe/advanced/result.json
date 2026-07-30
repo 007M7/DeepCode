@@ -30,7 +30,9 @@
         ],
         "source": {
           "kind": "user"
-        }
+        },
+        "role": "user",
+        "id": "{{messageId}}"
       },
       "surfaceOp": "append"
     },
@@ -70,20 +72,15 @@
           },
           "system": "{{system}}",
           "tools": [
-            "bash",
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
             "run_code",
-            "skill",
             "subagent",
             "task_kill",
             "task_list",
             "task_output",
             "workflow"
-          ],
-          "messagePrefix": [
-            "{{messagePrefix}}"
           ]
         },
         "reason": "initial"
@@ -176,17 +173,22 @@
       "data": {
         "turn": 1,
         "step": 1,
-        "content": [
-          {
-            "type": "tool-call",
-            "id": "advanced-mount",
-            "name": "cordis_mount",
-            "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
-          }
-        ],
-        "provenance": {
-          "provider": "deepseek",
-          "model": "smoke-model"
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "id": "advanced-mount",
+              "name": "cordis_mount",
+              "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek",
+            "model": "smoke-model"
+          },
+          "id": "{{messageId}}"
         },
         "usage": {
           "inputTokens": 3,
@@ -221,14 +223,27 @@
       "data": {
         "turn": 1,
         "step": 1,
-        "callId": "advanced-mount",
-        "content": [
-          {
-            "type": "text",
-            "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
-          }
-        ],
-        "isError": false
+        "message": {
+          "source": {
+            "kind": "tool",
+            "callId": "advanced-mount"
+          },
+          "content": [
+            {
+              "type": "tool-result",
+              "toolCallId": "advanced-mount",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
+                }
+              ],
+              "isError": false
+            }
+          ],
+          "role": "user",
+          "id": "{{messageId}}"
+        }
       },
       "sourceEventSeqs": [
         11
@@ -266,21 +281,16 @@
           },
           "system": "{{system}}",
           "tools": [
-            "bash",
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
             "run_code",
-            "skill",
             "snapshot_double",
             "subagent",
             "task_kill",
             "task_list",
             "task_output",
             "workflow"
-          ],
-          "messagePrefix": [
-            "{{messagePrefix}}"
           ]
         },
         "reason": "change"
@@ -373,17 +383,22 @@
       "data": {
         "turn": 1,
         "step": 2,
-        "content": [
-          {
-            "type": "tool-call",
-            "id": "advanced-code",
-            "name": "run_code",
-            "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
-          }
-        ],
-        "provenance": {
-          "provider": "deepseek",
-          "model": "smoke-model"
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "id": "advanced-code",
+              "name": "run_code",
+              "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek",
+            "model": "smoke-model"
+          },
+          "id": "{{messageId}}"
         },
         "usage": {
           "inputTokens": 3,
@@ -451,14 +466,27 @@
       "data": {
         "turn": 1,
         "step": 2,
-        "callId": "advanced-code",
-        "content": [
-          {
-            "type": "text",
-            "text": "42"
-          }
-        ],
-        "isError": false
+        "message": {
+          "source": {
+            "kind": "tool",
+            "callId": "advanced-code"
+          },
+          "content": [
+            {
+              "type": "tool-result",
+              "toolCallId": "advanced-code",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "42"
+                }
+              ],
+              "isError": false
+            }
+          ],
+          "role": "user",
+          "id": "{{messageId}}"
+        }
       },
       "sourceEventSeqs": [
         22
@@ -570,17 +598,22 @@
       "data": {
         "turn": 1,
         "step": 3,
-        "content": [
-          {
-            "type": "tool-call",
-            "id": "advanced-direct-child",
-            "name": "subagent",
-            "arguments": "{\"description\": \"Check direct child\", \"prompt\": \"Reply with exactly DIRECT_CHILD_OK and nothing else.\"}"
-          }
-        ],
-        "provenance": {
-          "provider": "deepseek",
-          "model": "smoke-model"
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "id": "advanced-direct-child",
+              "name": "subagent",
+              "arguments": "{\"description\": \"Check direct child\", \"prompt\": \"Reply with exactly DIRECT_CHILD_OK and nothing else.\"}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek",
+            "model": "smoke-model"
+          },
+          "id": "{{messageId}}"
         },
         "usage": {
           "inputTokens": 3,
@@ -615,14 +648,27 @@
       "data": {
         "turn": 1,
         "step": 3,
-        "callId": "advanced-direct-child",
-        "content": [
-          {
-            "type": "text",
-            "text": "DIRECT_CHILD_OK"
-          }
-        ],
-        "isError": false
+        "message": {
+          "source": {
+            "kind": "tool",
+            "callId": "advanced-direct-child"
+          },
+          "content": [
+            {
+              "type": "tool-result",
+              "toolCallId": "advanced-direct-child",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "DIRECT_CHILD_OK"
+                }
+              ],
+              "isError": false
+            }
+          ],
+          "role": "user",
+          "id": "{{messageId}}"
+        }
       },
       "sourceEventSeqs": [
         34
@@ -734,17 +780,22 @@
       "data": {
         "turn": 1,
         "step": 4,
-        "content": [
-          {
-            "type": "tool-call",
-            "id": "advanced-workflow",
-            "name": "workflow",
-            "arguments": "{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"
-          }
-        ],
-        "provenance": {
-          "provider": "deepseek",
-          "model": "smoke-model"
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "id": "advanced-workflow",
+              "name": "workflow",
+              "arguments": "{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek",
+            "model": "smoke-model"
+          },
+          "id": "{{messageId}}"
         },
         "usage": {
           "inputTokens": 3,
@@ -779,14 +830,27 @@
       "data": {
         "turn": 1,
         "step": 4,
-        "callId": "advanced-workflow",
-        "content": [
-          {
-            "type": "text",
-            "text": "workflow \"advanced-exe-snapshot\" completed (1 agent).\nReturn value:\n{\n  \"reply\": \"WORKFLOW_CHILD_OK\"\n}"
-          }
-        ],
-        "isError": false
+        "message": {
+          "source": {
+            "kind": "tool",
+            "callId": "advanced-workflow"
+          },
+          "content": [
+            {
+              "type": "tool-result",
+              "toolCallId": "advanced-workflow",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "workflow \"advanced-exe-snapshot\" completed (1 agent).\nReturn value:\n{\n  \"reply\": \"WORKFLOW_CHILD_OK\"\n}"
+                }
+              ],
+              "isError": false
+            }
+          ],
+          "role": "user",
+          "id": "{{messageId}}"
+        }
       },
       "sourceEventSeqs": [
         44
@@ -898,17 +962,22 @@
       "data": {
         "turn": 1,
         "step": 5,
-        "content": [
-          {
-            "type": "tool-call",
-            "id": "advanced-unmount",
-            "name": "cordis_unmount",
-            "arguments": "{\"id\": \"dyn-1\"}"
-          }
-        ],
-        "provenance": {
-          "provider": "deepseek",
-          "model": "smoke-model"
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "id": "advanced-unmount",
+              "name": "cordis_unmount",
+              "arguments": "{\"id\": \"dyn-1\"}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek",
+            "model": "smoke-model"
+          },
+          "id": "{{messageId}}"
         },
         "usage": {
           "inputTokens": 3,
@@ -943,14 +1012,27 @@
       "data": {
         "turn": 1,
         "step": 5,
-        "callId": "advanced-unmount",
-        "content": [
-          {
-            "type": "text",
-            "text": "Temporary Plugin dyn-1 was unmounted and removed."
-          }
-        ],
-        "isError": false
+        "message": {
+          "source": {
+            "kind": "tool",
+            "callId": "advanced-unmount"
+          },
+          "content": [
+            {
+              "type": "tool-result",
+              "toolCallId": "advanced-unmount",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Temporary Plugin dyn-1 was unmounted and removed."
+                }
+              ],
+              "isError": false
+            }
+          ],
+          "role": "user",
+          "id": "{{messageId}}"
+        }
       },
       "sourceEventSeqs": [
         54
@@ -988,20 +1070,15 @@
           },
           "system": "{{system}}",
           "tools": [
-            "bash",
             "cordis_inspect",
             "cordis_mount",
             "cordis_unmount",
             "run_code",
-            "skill",
             "subagent",
             "task_kill",
             "task_list",
             "task_output",
             "workflow"
-          ],
-          "messagePrefix": [
-            "{{messagePrefix}}"
           ]
         },
         "reason": "change"
@@ -1090,15 +1167,20 @@
       "data": {
         "turn": 1,
         "step": 6,
-        "content": [
-          {
-            "type": "text",
-            "text": "ADVANCED_EXECUTABLE_OK"
-          }
-        ],
-        "provenance": {
-          "provider": "deepseek",
-          "model": "smoke-model"
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "ADVANCED_EXECUTABLE_OK"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "deepseek",
+            "model": "smoke-model"
+          },
+          "id": "{{messageId}}"
         },
         "usage": {
           "inputTokens": 3,
@@ -1173,7 +1255,9 @@
             ],
             "source": {
               "kind": "user"
-            }
+            },
+            "role": "user",
+            "id": "{{messageId}}"
           },
           "surfaceOp": "append"
         }
@@ -1231,20 +1315,15 @@
               },
               "system": "{{system}}",
               "tools": [
-                "bash",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
                 "run_code",
-                "skill",
                 "subagent",
                 "task_kill",
                 "task_list",
                 "task_output",
                 "workflow"
-              ],
-              "messagePrefix": [
-                "{{messagePrefix}}"
               ]
             },
             "reason": "initial"
@@ -1373,17 +1452,22 @@
           "data": {
             "turn": 1,
             "step": 1,
-            "content": [
-              {
-                "type": "tool-call",
-                "id": "advanced-mount",
-                "name": "cordis_mount",
-                "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool-call",
+                  "id": "advanced-mount",
+                  "name": "cordis_mount",
+                  "arguments": "{\"code\": \"return (ctx) => {\\n  harness.registerTool(ctx, harness.defineTool({\\n    name: 'snapshot_double',\\n    description: 'Double a number for executable snapshot verification.',\\n    parameters: { value: { type: 'number', required: true } },\\n    output: {\\n      schema: { type: 'number' },\\n      render(_args, value) {\\n        return [{ type: 'text', text: String(value) }]\\n      }\\n    },\\n    async execute(args) {\\n      return args.value * 2\\n    }\\n  }))\\n}\\n\"}"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
@@ -1430,14 +1514,27 @@
           "data": {
             "turn": 1,
             "step": 1,
-            "callId": "advanced-mount",
-            "content": [
-              {
-                "type": "text",
-                "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
-              }
-            ],
-            "isError": false
+            "message": {
+              "source": {
+                "kind": "tool",
+                "callId": "advanced-mount"
+              },
+              "content": [
+                {
+                  "type": "tool-result",
+                  "toolCallId": "advanced-mount",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Temporary Plugin dyn-1 is running (plugin \"<anonymous>\"; available until unmounted or DSH restarts)."
+                    }
+                  ],
+                  "isError": false
+                }
+              ],
+              "role": "user",
+              "id": "{{messageId}}"
+            }
           },
           "sourceEventSeqs": [
             11
@@ -1493,21 +1590,16 @@
               },
               "system": "{{system}}",
               "tools": [
-                "bash",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
                 "run_code",
-                "skill",
                 "snapshot_double",
                 "subagent",
                 "task_kill",
                 "task_list",
                 "task_output",
                 "workflow"
-              ],
-              "messagePrefix": [
-                "{{messagePrefix}}"
               ]
             },
             "reason": "change"
@@ -1636,17 +1728,22 @@
           "data": {
             "turn": 1,
             "step": 2,
-            "content": [
-              {
-                "type": "tool-call",
-                "id": "advanced-code",
-                "name": "run_code",
-                "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool-call",
+                  "id": "advanced-code",
+                  "name": "run_code",
+                  "arguments": "{\"code\": \"return await tools.snapshot_double({ value: 21 })\", \"description\": \"Run the temporary Plugin tool\"}"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
@@ -1738,14 +1835,27 @@
           "data": {
             "turn": 1,
             "step": 2,
-            "callId": "advanced-code",
-            "content": [
-              {
-                "type": "text",
-                "text": "42"
-              }
-            ],
-            "isError": false
+            "message": {
+              "source": {
+                "kind": "tool",
+                "callId": "advanced-code"
+              },
+              "content": [
+                {
+                  "type": "tool-result",
+                  "toolCallId": "advanced-code",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "42"
+                    }
+                  ],
+                  "isError": false
+                }
+              ],
+              "role": "user",
+              "id": "{{messageId}}"
+            }
           },
           "sourceEventSeqs": [
             22
@@ -1905,17 +2015,22 @@
           "data": {
             "turn": 1,
             "step": 3,
-            "content": [
-              {
-                "type": "tool-call",
-                "id": "advanced-direct-child",
-                "name": "subagent",
-                "arguments": "{\"description\": \"Check direct child\", \"prompt\": \"Reply with exactly DIRECT_CHILD_OK and nothing else.\"}"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool-call",
+                  "id": "advanced-direct-child",
+                  "name": "subagent",
+                  "arguments": "{\"description\": \"Check direct child\", \"prompt\": \"Reply with exactly DIRECT_CHILD_OK and nothing else.\"}"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
@@ -1995,7 +2110,9 @@
             ],
             "source": {
               "kind": "user"
-            }
+            },
+            "role": "user",
+            "id": "{{messageId}}"
           },
           "surfaceOp": "append"
         }
@@ -2053,21 +2170,16 @@
               },
               "system": "{{system}}",
               "tools": [
-                "bash",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
                 "run_code",
-                "skill",
                 "snapshot_double",
                 "subagent",
                 "task_kill",
                 "task_list",
                 "task_output",
                 "workflow"
-              ],
-              "messagePrefix": [
-                "{{messagePrefix}}"
               ]
             },
             "reason": "initial"
@@ -2192,15 +2304,20 @@
           "data": {
             "turn": 1,
             "step": 1,
-            "content": [
-              {
-                "type": "text",
-                "text": "DIRECT_CHILD_OK"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "DIRECT_CHILD_OK"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
@@ -2278,14 +2395,27 @@
           "data": {
             "turn": 1,
             "step": 3,
-            "callId": "advanced-direct-child",
-            "content": [
-              {
-                "type": "text",
-                "text": "DIRECT_CHILD_OK"
-              }
-            ],
-            "isError": false
+            "message": {
+              "source": {
+                "kind": "tool",
+                "callId": "advanced-direct-child"
+              },
+              "content": [
+                {
+                  "type": "tool-result",
+                  "toolCallId": "advanced-direct-child",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "DIRECT_CHILD_OK"
+                    }
+                  ],
+                  "isError": false
+                }
+              ],
+              "role": "user",
+              "id": "{{messageId}}"
+            }
           },
           "sourceEventSeqs": [
             34
@@ -2445,17 +2575,22 @@
           "data": {
             "turn": 1,
             "step": 4,
-            "content": [
-              {
-                "type": "tool-call",
-                "id": "advanced-workflow",
-                "name": "workflow",
-                "arguments": "{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool-call",
+                  "id": "advanced-workflow",
+                  "name": "workflow",
+                  "arguments": "{\"script\": \"phase('Delegate')\\nconst reply = await agent('Reply with exactly WORKFLOW_CHILD_OK and nothing else.', { label: 'workflow-child' })\\nreturn { reply }\", \"meta\": {\"name\": \"advanced-exe-snapshot\", \"description\": \"exercise one packaged workflow child\"}}"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
@@ -2535,7 +2670,9 @@
             ],
             "source": {
               "kind": "user"
-            }
+            },
+            "role": "user",
+            "id": "{{messageId}}"
           },
           "surfaceOp": "append"
         }
@@ -2593,21 +2730,16 @@
               },
               "system": "{{system}}",
               "tools": [
-                "bash",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
                 "run_code",
-                "skill",
                 "snapshot_double",
                 "subagent",
                 "task_kill",
                 "task_list",
                 "task_output",
                 "workflow"
-              ],
-              "messagePrefix": [
-                "{{messagePrefix}}"
               ]
             },
             "reason": "initial"
@@ -2732,15 +2864,20 @@
           "data": {
             "turn": 1,
             "step": 1,
-            "content": [
-              {
-                "type": "text",
-                "text": "WORKFLOW_CHILD_OK"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "WORKFLOW_CHILD_OK"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
@@ -2818,14 +2955,27 @@
           "data": {
             "turn": 1,
             "step": 4,
-            "callId": "advanced-workflow",
-            "content": [
-              {
-                "type": "text",
-                "text": "workflow \"advanced-exe-snapshot\" completed (1 agent).\nReturn value:\n{\n  \"reply\": \"WORKFLOW_CHILD_OK\"\n}"
-              }
-            ],
-            "isError": false
+            "message": {
+              "source": {
+                "kind": "tool",
+                "callId": "advanced-workflow"
+              },
+              "content": [
+                {
+                  "type": "tool-result",
+                  "toolCallId": "advanced-workflow",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "workflow \"advanced-exe-snapshot\" completed (1 agent).\nReturn value:\n{\n  \"reply\": \"WORKFLOW_CHILD_OK\"\n}"
+                    }
+                  ],
+                  "isError": false
+                }
+              ],
+              "role": "user",
+              "id": "{{messageId}}"
+            }
           },
           "sourceEventSeqs": [
             44
@@ -2985,17 +3135,22 @@
           "data": {
             "turn": 1,
             "step": 5,
-            "content": [
-              {
-                "type": "tool-call",
-                "id": "advanced-unmount",
-                "name": "cordis_unmount",
-                "arguments": "{\"id\": \"dyn-1\"}"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "tool-call",
+                  "id": "advanced-unmount",
+                  "name": "cordis_unmount",
+                  "arguments": "{\"id\": \"dyn-1\"}"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
@@ -3042,14 +3197,27 @@
           "data": {
             "turn": 1,
             "step": 5,
-            "callId": "advanced-unmount",
-            "content": [
-              {
-                "type": "text",
-                "text": "Temporary Plugin dyn-1 was unmounted and removed."
-              }
-            ],
-            "isError": false
+            "message": {
+              "source": {
+                "kind": "tool",
+                "callId": "advanced-unmount"
+              },
+              "content": [
+                {
+                  "type": "tool-result",
+                  "toolCallId": "advanced-unmount",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Temporary Plugin dyn-1 was unmounted and removed."
+                    }
+                  ],
+                  "isError": false
+                }
+              ],
+              "role": "user",
+              "id": "{{messageId}}"
+            }
           },
           "sourceEventSeqs": [
             54
@@ -3105,20 +3273,15 @@
               },
               "system": "{{system}}",
               "tools": [
-                "bash",
                 "cordis_inspect",
                 "cordis_mount",
                 "cordis_unmount",
                 "run_code",
-                "skill",
                 "subagent",
                 "task_kill",
                 "task_list",
                 "task_output",
                 "workflow"
-              ],
-              "messagePrefix": [
-                "{{messagePrefix}}"
               ]
             },
             "reason": "change"
@@ -3243,15 +3406,20 @@
           "data": {
             "turn": 1,
             "step": 6,
-            "content": [
-              {
-                "type": "text",
-                "text": "ADVANCED_EXECUTABLE_OK"
-              }
-            ],
-            "provenance": {
-              "provider": "deepseek",
-              "model": "smoke-model"
+            "message": {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "ADVANCED_EXECUTABLE_OK"
+                }
+              ],
+              "source": {
+                "kind": "model",
+                "provider": "deepseek",
+                "model": "smoke-model"
+              },
+              "id": "{{messageId}}"
             },
             "usage": {
               "inputTokens": 3,
