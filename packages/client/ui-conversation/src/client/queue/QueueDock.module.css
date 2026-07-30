@@ -1,7 +1,6 @@
 /* Neutral stacked strip above the input (queue rows are informational, not a warn state). */
 
 .dock {
-  margin: 6px 0;
   padding: 8px 12px;
   border: 1px solid var(--dsw-alias-separator-primary);
   border-radius: 10px;
