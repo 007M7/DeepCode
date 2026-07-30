@@ -10,13 +10,13 @@
 # The scripted adapter replaces the DeepSeek one: no key, no network. A patch's
 # `name` is an assertion rather than a replacement, so the base row is disabled
 # and the adapter inserted. Relative specifiers resolve against the INCLUDED
-# file's directory (apps/cli), because the include moves baseUrl to that tree.
+# file's directory (apps/cli/config), because the include moves baseUrl there.
 - id: llm-deepseek
   disabled: true
 
 - insert:
     - id: scripted-llm
-      name: './tests/fixtures/tui-scripted-llm.ts'
+      name: '../tests/fixtures/tui-scripted-llm.ts'
 
 - id: agent-loop
   config:

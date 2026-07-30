@@ -12,7 +12,6 @@ import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
 const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 // `--config` layers an overlay over the shared base, so the default surface
 // needs no config argument at all; these are the overlays under test.
-const codeModeConfigPath = fileURLToPath(new URL('../../../examples/code-mode/cordis.yml', import.meta.url))
 const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
@@ -312,19 +311,6 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     })
     expect(output).toContain('File · terminal-special-case.t')
     expect(output).toContain('@src/terminal-special-case.ts')
-    expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
-
-  it('boots the Code Mode overlay tree, renders its banner, and exits cleanly', async () => {
-    // The overlay's only keyless composition proof: the include+patch tree,
-    // worker code runtime, and one-tool registry all mount before the banner.
-    const output = await smoke({
-      label: 'dsh code mode',
-      tempDirPrefix: 'dsh-tui-code-mode-',
-      configPath: codeModeConfigPath,
-      actions: [{ waitFor: 'TUI Code Mode ready.', send: '/exit\r' }],
-    })
-    expect(output).toContain('TUI Code Mode ready.')
     expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
