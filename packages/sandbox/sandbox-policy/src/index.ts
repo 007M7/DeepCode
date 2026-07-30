@@ -3,6 +3,9 @@
  * deployment's sandbox fallbacks plus per-session resolution: the file-effect
  * {@link SandboxMode}, the `workspace-write` root, and the override kit (the
  * `sandbox/mode` event, its fold, and its write path, from `./session-mode.ts`).
+ * Before each agent request, the owner also renders the resolved policy as the
+ * `sandbox:policy` system section; request headers therefore reconstruct the
+ * same mode and roots the enforcing consumers resolve.
  *
  * Both enforcing capability families read the SAME policy here: the sandboxed
  * bash executor (`@deepseek-ai/dsh-bash-sandbox`) and the sandboxed filesystem
@@ -17,8 +20,10 @@
 import { resolve as resolvePath } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import type {} from '@deepseek-ai/dsh-agent'
+import { canonicalPath, writableRoots, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { Session } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { effectiveSandboxMode } from './session-mode.ts'
 
 export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-mode.ts'
@@ -26,6 +31,23 @@ export { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from './session-m
 /** Resolve filesystem identity before lexical normalization can erase symlink-sensitive components. */
 function resolveWorkspaceRoot(path: string): string {
   return resolvePath(canonicalPath(path))
+}
+
+/** Render the current file-effect policy without claiming host or backend capabilities. */
+function renderPolicyContext(policy: SandboxExecutionPolicy): string {
+  switch (policy.mode) {
+    case 'read-only':
+      return 'Current DSH file sandbox policy: read-only. Ordinary file writes, edits, and file-mutating shell effects are denied; required sinks such as `/dev/null` may remain writable. Host OS permissions and sandbox-backend availability may restrict operations further. This policy does not govern network or process access.'
+    case 'workspace-write':
+      return `Current DSH file sandbox policy: workspace-write. File writes, edits, and file-mutating shell effects are limited to these canonical writable roots: ${writableRoots(policy).map(root => JSON.stringify(root)).join(', ')}. Host OS permissions and sandbox-backend availability may restrict operations further. This policy does not govern network or process access.`
+    case 'danger-full-access':
+      return 'Current DSH file sandbox policy: danger-full-access. The DSH file sandbox does not restrict file operations. Host OS permissions and other policies still apply. This policy does not govern network or process access.'
+    /* v8 ignore next 4 -- SandboxMode is a typed same-process closed union; this branch is only the static exhaustiveness guard. */
+    default: {
+      const mode: never = policy.mode
+      throw new Error(`unreachable sandbox mode: ${String(mode)}`)
+    }
+  }
 }
 
 declare module 'cordis' {
@@ -61,9 +83,9 @@ export interface SandboxPolicyRequest {
 
 /**
  * The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment
- * default mode and fallback workspace root. Tool layers call {@link resolve}
- * for each execution so a session's mode log and immutable cwd travel together
- * to every enforcing capability.
+ * default mode, fallback workspace root, and current request-time policy
+ * section. Tool layers call {@link resolve} for each execution so a session's
+ * mode log and immutable cwd travel together to every enforcing capability.
  */
 export class SandboxPolicyService extends Service {
   // Inline schema call: the config catalog walks `static Config` statically.
@@ -86,6 +108,17 @@ export class SandboxPolicyService extends Service {
     // the process cwd is real branching, resolved absolute either way.
     this.defaultMode = config.mode as SandboxMode
     this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
+
+    ctx.inject(['systemPrompt'], (scope: Context) => {
+      scope.systemPrompt.section({
+        name: 'sandbox:policy',
+        order: 110,
+        text: (context) => {
+          const session = context.agent?.session
+          return session === undefined ? '' : renderPolicyContext(this.resolve({ session }))
+        },
+      })
+    })
   }
 
   /**
