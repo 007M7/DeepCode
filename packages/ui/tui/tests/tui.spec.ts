@@ -3897,8 +3897,9 @@ describe('skill slash command', () => {
       source: 'runtime',
       content: 'Dynamic body.',
     })
-    await tick()
-    expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+    })
 
     result.terminal.send('\x03')
     disposeSkill()

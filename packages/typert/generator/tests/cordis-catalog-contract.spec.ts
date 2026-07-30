@@ -27,6 +27,9 @@ const TEST_POLICY: CordisCatalogPolicy = {
   inheritedServices: [],
 }
 
+// Cold TypeScript program creation can exceed Vitest's 5s default under aggregate coverage load.
+const COLD_PROGRAM_TIMEOUT = { timeout: 15_000 }
+
 function collectEvents(root: string): EventEntry[] {
   return collectEventsWithPolicy(root, TEST_POLICY)
 }
@@ -126,7 +129,7 @@ afterEach(() => {
 })
 
 describe('gen-cordis-catalog collectEvents', () => {
-  it('extracts a well-formed event with its @mode and JSDoc', () => {
+  it('extracts a well-formed event with its @mode and JSDoc', COLD_PROGRAM_TIMEOUT, () => {
     const events = collectEvents(make(
       '    /**\n     * A thing happened.\n     * @param id - which thing.\n     * @mode emit\n     */\n    \'fix/happened\'(id: string): void',
     ))
