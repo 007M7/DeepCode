@@ -1,6 +1,7 @@
 import { createUserMessage, createMessage } from '@deepseek-ai/dsh-llm'
 import { realpathSync } from 'node:fs'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -8,12 +9,24 @@ import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 import { packChunkRuns, SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { logPath, toHeaderLine } from '../../../packages/session-persistence/session-persistence-jsonl/src/format.ts'
 import { runTuiPtySmoke, type TuiPtySmokeOptions } from './pty-harness.ts'
+import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-terminal.ts'
+import {
+  acknowledgeTuiFirstRunWelcome,
+  hasTuiFirstRunWelcomeAcknowledgement,
+} from '../src/tui-first-run-welcome.ts'
+import {
+  TUI_FIRST_RUN_WELCOME_NOTICE_COPY,
+  TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE,
+} from '../src/tui-first-run-welcome-copy.ts'
+import { TUI_FIRST_RUN_WELCOME_WHALE } from '../src/tui-first-run-welcome-art.ts'
 
 const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 // `--config` layers an overlay over the shared base, so the default surface
 // needs no config argument at all; these are the overlays under test.
 const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis.yml', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
+const firstRunSnapshots = fileURLToPath(new URL('./snapshots/tui-first-run-welcome/', import.meta.url))
+const synchronizedFrameEnd = '\x1b[?2026l'
 
 /**
  * Seed the isolated process workspace: ordinary files land in `cwd`, personal
@@ -125,16 +138,52 @@ async function readLoggedRequestContext(cwd: string): Promise<LoggedRequestConte
  * `tui.cordis.yml`, with no flags) or `configPath` (an overlay layered over that
  * same base through `--config`).
  */
-function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Promise<string> {
+function smoke(overrides: Partial<TuiPtySmokeOptions> & {
+  label: string
+  showFirstRunWelcome?: boolean
+}): Promise<string> {
+  const { showFirstRunWelcome = false, prepare, ...options } = overrides
   return runTuiPtySmoke({
     tempDirPrefix: 'dsh-tui-smoke-',
     binScript: dshBinScript,
     tsconfigPath,
-    env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
+    env: {
+      DEEPSEEK_API_KEY: 'keyless-tui-no-call',
+      LANG: 'en_US.UTF-8',
+      LC_ALL: 'en_US.UTF-8',
+      LC_CTYPE: 'en_US.UTF-8',
+      TERM: 'xterm-256color',
+    },
     // Artifact CI builds and smokes concurrently on a contended runner.
     ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? { timeoutMs: 60_000 } : {}),
-    ...overrides,
+    ...options,
+    prepare: async (cwd) => {
+      if (!showFirstRunWelcome) await acknowledgeTuiFirstRunWelcome(join(cwd, '.dsh'))
+      await prepare?.(cwd)
+    },
   })
+}
+
+const firstRunCopy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE]
+
+/** Project the first synchronized PTY frame containing `marker` into the stable terminal snapshot format. */
+async function firstRunFrameSnapshot(
+  output: string,
+  marker: string,
+  columns: number,
+  rows: number,
+): Promise<string> {
+  const markerIndex = output.indexOf(marker)
+  if (markerIndex < 0) throw new Error(`first-run PTY output has no marker ${JSON.stringify(marker)}`)
+  const frameEnd = output.indexOf(synchronizedFrameEnd, markerIndex)
+  if (frameEnd < 0) throw new Error(`first-run PTY output has no complete frame after ${JSON.stringify(marker)}`)
+  const terminal = new HeadlessTerminal(columns, rows)
+  try {
+    terminal.write(output.slice(0, frameEnd + synchronizedFrameEnd.length))
+    return await terminal.snapshot()
+  } finally {
+    await terminal.dispose()
+  }
 }
 
 // The scripted conversation switches to the pro model first: the scripted
@@ -146,6 +195,94 @@ const SELECT_PRO_MODEL = [
 ] as const
 
 describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
+  it.each([
+    { columns: 60, tier: 'minimal' },
+    { columns: 80, tier: 'compact' },
+    { columns: 120, tier: 'full' },
+    { columns: 160, tier: 'full' },
+  ] as const)('renders and acknowledges the $tier first-run composition at $columns columns', async ({ columns, tier }) => {
+    const output = await smoke({
+      label: `dsh first-run welcome ${String(columns)} columns`,
+      tempDirPrefix: `dsh-tui-welcome-${String(columns)}-`,
+      configPath: scriptedConfigPath,
+      showFirstRunWelcome: true,
+      columns,
+      rows: 30,
+      actions: [
+        { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
+        { waitFor: 'scripted TUI ready.', occurrence: 2, send: '/exit\r' },
+      ],
+      inspect: async (cwd) => {
+        expect(await hasTuiFirstRunWelcomeAcknowledgement(join(cwd, '.dsh'))).toBe(true)
+        const entries = await readdir(join(cwd, '.sessions'), { recursive: true })
+        const logs = entries.filter(name => name.endsWith('.jsonl'))
+        for (const log of logs) {
+          const stored = await readFile(join(cwd, '.sessions', log), 'utf8')
+          expect(stored).not.toContain(firstRunCopy.paragraphs[0])
+        }
+      },
+    })
+    await expect(await firstRunFrameSnapshot(output, firstRunCopy.paragraphs[0]!, columns, 30))
+      .toMatchFileSnapshot(join(firstRunSnapshots, `${String(columns)}-columns.expected.txt`))
+    expect(output).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+    expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
+    expect(output).toContain('\u001B[?2004l')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('keeps prose and Enter reachable in a low-height real PTY after dropping the whale', async () => {
+    const output = await smoke({
+      label: 'dsh low-height first-run welcome',
+      tempDirPrefix: 'dsh-tui-welcome-low-',
+      configPath: scriptedConfigPath,
+      showFirstRunWelcome: true,
+      columns: 60,
+      rows: 12,
+      actions: [
+        { waitFor: firstRunCopy.paragraphs[0]!, send: '\x1b[F' },
+        { waitFor: '企业微信群', send: '\r' },
+        { waitFor: 'scripted TUI ready.', occurrence: 2, send: '/exit\r' },
+      ],
+    })
+    await expect(await firstRunFrameSnapshot(output, firstRunCopy.paragraphs[0]!, 60, 12))
+      .toMatchFileSnapshot(join(firstRunSnapshots, '60-columns-low-height.expected.txt'))
+    expect(output).toContain(firstRunCopy.title)
+    expect(output).toContain(firstRunCopy.paragraphs[0])
+    expect(output).toContain('企业微信群')
+    expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
+    expect(output).not.toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.unicode[0]!.trim())
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('shows once and skips the second launch under the same DSH_HOME', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-welcome-twice-'))
+    try {
+      const first = await smoke({
+        label: 'dsh first welcome launch',
+        tempDirPrefix: 'unused-',
+        cwd,
+        configPath: scriptedConfigPath,
+        showFirstRunWelcome: true,
+        actions: [
+          { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
+          { waitFor: 'scripted TUI ready.', occurrence: 2, send: '/exit\r' },
+        ],
+      })
+      expect(first).toContain(firstRunCopy.title)
+
+      const second = await smoke({
+        label: 'dsh second welcome launch',
+        tempDirPrefix: 'unused-',
+        cwd,
+        configPath: scriptedConfigPath,
+        showFirstRunWelcome: true,
+        actions: [{ waitFor: 'main-session-', send: '/exit\r', delayMs: 1_500 }],
+      })
+      expect(second).not.toContain(firstRunCopy.paragraphs[0])
+      expect(second).not.toContain(`Enter  ${firstRunCopy.continueLabel}`)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('boots pi-tui, sweeps the borderless banner in, enters plan mode, and restores the terminal', async () => {
     // With no configured welcome the borderless banner sweeps in left-to-right;
     // the detail line's session id (`main-session-<uuid>`) renders only once
@@ -317,6 +454,51 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
 })
 
 describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
+  it('shows the terminal-local notice over a resumed session without changing its log', async () => {
+    let originalLineCount = 0
+    const output = await smoke({
+      label: 'dsh first-run notice on resume',
+      tempDirPrefix: 'dsh-tui-welcome-resume-',
+      binScript: dshBinScript,
+      configArgs: ['--resume', 'resume-target', '--config', scriptedConfigPath],
+      showFirstRunWelcome: true,
+      prepare: async (cwd) => {
+        await seedResumeSession(cwd)
+        const before = await readFile(logPath(
+          join(cwd, '.sessions'),
+          realpathSync.native(cwd),
+          SessionId('resume-target'),
+          'none',
+        ), 'utf8')
+        originalLineCount = before.split('\n').filter(Boolean).length
+      },
+      actions: [
+        { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
+        { waitFor: 'resume-target', occurrence: 2, send: '/exit\r' },
+      ],
+      inspect: async (cwd) => {
+        const after = await readFile(logPath(
+          join(cwd, '.sessions'),
+          realpathSync.native(cwd),
+          SessionId('resume-target'),
+          'none',
+        ), 'utf8')
+        expect(after).not.toContain(firstRunCopy.paragraphs[0])
+        const appended = after.split('\n').filter(Boolean).slice(originalLineCount)
+          .map(line => JSON.parse(line) as SessionEvent)
+        expect(appended.map(event => event.type)).toEqual([
+          'session/end-seed',
+          'command/run',
+          'command/done',
+        ])
+        expect(appended).not.toContainEqual(expect.objectContaining({ type: 'user/message' }))
+        expect(appended).not.toContainEqual(expect.objectContaining({ type: 'turn/start' }))
+      },
+    })
+    expect(output).toContain(firstRunCopy.paragraphs[0])
+    expect(output).toContain('Resume selector design — DeepSeek Harness')
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('exec-replaces the TUI for /resume and restores the same session state', async () => {
     const output = await smoke({
       label: 'dsh in-place resume',

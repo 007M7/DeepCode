@@ -43,6 +43,16 @@ import {
   type MainSessionIdentity,
   type TuiResumeHost,
 } from '@deepseek-ai/dsh-tui'
+import {
+  apply as applyTuiFirstRunWelcome,
+  hasTuiFirstRunWelcomeAcknowledgement,
+  inject as tuiFirstRunWelcomeInject,
+  name as tuiFirstRunWelcomeName,
+  needsTuiFirstRunWelcomeAsciiArt,
+} from './tui-first-run-welcome.ts'
+import {
+  TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+} from './tui-first-run-welcome-copy.ts'
 
 const NAME = 'dsh'
 
@@ -126,7 +136,12 @@ export async function runTui(
   installFailLoud(NAME)
   // The bin already loaded the invoking directory's .env; the personal .env
   // only fills what is still unset (process.loadEnvFile never overrides).
-  loadEnv(NAME, resolveDshHome())
+  const dshHome = resolveDshHome()
+  loadEnv(NAME, dshHome)
+  const showFirstRunWelcome = !await hasTuiFirstRunWelcomeAcknowledgement(
+    dshHome,
+    TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+  )
   // Both .env layers are loaded, so switching the workspace here cannot alter
   // environment precedence. The cwd IS the workspace seam: the shipped config
   // resolves the session cwd and the HMR watch root from it, so one chdir moves
@@ -200,7 +215,7 @@ export async function runTui(
   const patches = replaceTree ? [] : [
     ...loadOverlayPatches(NAME, TUI_OVERLAY),
     ...resolvedConfig === undefined
-      ? loadPersonalPatches(NAME) ?? []
+      ? loadPersonalPatches(NAME, dshHome) ?? []
       : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
   ]
   const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
@@ -241,5 +256,15 @@ export async function runTui(
   )
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
+  if (showFirstRunWelcome && ctx.get('tui') !== undefined) {
+    await ctx.plugin({
+      name: tuiFirstRunWelcomeName,
+      inject: tuiFirstRunWelcomeInject,
+      apply: applyTuiFirstRunWelcome,
+    }, {
+      dshHome,
+      asciiArt: needsTuiFirstRunWelcomeAsciiArt(),
+    })
+  }
 }
 /* v8 ignore stop */

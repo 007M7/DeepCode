@@ -1,0 +1,100 @@
+terminal 60x30 buffer=normal length=34 base=4 viewport=4
+lifecycle started=0 stopped=0 progress=inactive
+title ""
+cursor visible column=0 viewportRow=29 bufferRow=33
+viewport
+4| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-magenta bold
+  style 10-16 bold
+5| " ╭────────────────────────────────────────────────────────╮ "
+  style 1-58 dim
+6| " │                        ▄▄▄▄▄▄   ▄▄                     │ "
+  style 1-1 dim
+  style 23-36 fg=blue
+  style 58-58 dim
+7| " │                    ▄████████▄ ▀████▀                   │ "
+  style 1-1 dim
+  style 21-38 fg=blue
+  style 58-58 dim
+8| "/│                    █▀▀▀▀███████▄██▀                    │h"
+  style 0-0 fg=bright-magenta bold
+  style 1-1 dim
+  style 22-37 fg=blue
+  style 58-58 dim
+  style 59-59 fg=bright-magenta bold
+9| " │                    █▄    ▀███ ▀███                     │ "
+  style 1-1 dim
+  style 22-36 fg=blue
+  style 58-58 dim
+10| " │                     ▀█▄     ▀█████                     │ "
+  style 1-1 dim
+  style 23-36 fg=blue
+  style 58-58 dim
+11| " │                      ▀█▄▄ █▄▄▀███▄                     │ "
+  style 1-1 dim
+  style 23-36 fg=blue
+  style 58-58 dim
+12| " │                           ▀▀▀▀▀▀                       │ "
+  style 1-1 dim
+  style 25-34 fg=blue
+  style 58-58 dim
+13| " │                                                        │ "
+  style 1-1 dim
+  style 58-58 dim
+14| " │                    DeepSeek Harness                    │ "
+  style 1-1 dim
+  style 22-37 fg=blue bold
+  style 58-58 dim
+15| " │                                                        │ "
+  style 1-1 dim
+  style 58-58 dim
+16| " │ 感谢您愿意拨冗试用 DeepSeek Harness。                  │ "
+  style 1-1 dim
+  style 58-58 dim
+17| " │                                                        │ "
+  style 1-1 dim
+  style 58-58 dim
+18| " │ 目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体 │ "
+  style 1-1 dim
+  style 58-58 dim
+19| " │ 验难免粗粝。                                           │ "
+  style 1-1 dim
+  style 58-58 dim
+20| " │                                                        │ "
+  style 1-1 dim
+  style 58-58 dim
+21| " │ “如切如磋，如琢如磨。”                                 │ "
+  style 1-1 dim
+  style 3-24 bold
+  style 58-58 dim
+22| " │                                                        │ "
+  style 1-1 dim
+  style 58-58 dim
+23| " │ 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真 │ "
+  style 1-1 dim
+  style 58-58 dim
+24| " │ 实使用中暴露的问题，也可能促使我们重新审视，甚至推翻已 │ "
+  style 1-1 dim
+  style 58-58 dim
+25| " │ 有的设计。                                             │ "
+  style 1-1 dim
+  style 58-58 dim
+26| " │                                                        │ "
+  style 1-1 dim
+  style 58-58 dim
+27| " │ 我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未 │ "
+  style 1-1 dim
+  style 58-58 dim
+28| " ├────────────────────────────────────────────────────────┤ "
+  style 1-58 dim
+29| " │                      Enter  继续                       │ "
+  style 1-1 dim
+  style 24-34 fg=bright-magenta bold
+  style 58-58 dim
+30| " │                        ↑/↓ 滚动 ↓                      │ "
+  style 1-1 dim
+  style 24-35 dim
+  style 58-58 dim
+31| " ╰────────────────────────────────────────────────────────╯ "
+  style 1-58 dim
+32-33| <blank>

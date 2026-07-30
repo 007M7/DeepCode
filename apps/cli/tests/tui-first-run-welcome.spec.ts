@@ -1,0 +1,189 @@
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { visibleWidth } from '@earendil-works/pi-tui'
+import type { TuiOverlayHost, TuiTheme } from '@deepseek-ai/dsh-tui'
+import {
+  acknowledgeTuiFirstRunWelcome,
+  hasTuiFirstRunWelcomeAcknowledgement,
+  TuiFirstRunWelcomeComponent,
+  tuiFirstRunWelcomeAcknowledgementPath,
+  tuiFirstRunWelcomeArtTier,
+} from '../src/tui-first-run-welcome.ts'
+import {
+  TUI_FIRST_RUN_WELCOME_NOTICE_COPY,
+  TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE,
+  TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+} from '../src/tui-first-run-welcome-copy.ts'
+import { TUI_FIRST_RUN_WELCOME_WHALE } from '../src/tui-first-run-welcome-art.ts'
+
+const identityTheme: TuiTheme = Object.freeze({
+  text: (value: string) => value,
+  brand: (value: string) => value,
+  dim: (value: string) => value,
+  accent: (value: string) => value,
+  success: (value: string) => value,
+  warning: (value: string) => value,
+  error: (value: string) => value,
+  bold: (value: string) => value,
+})
+
+function hostFixture(rows: number): {
+  host: TuiOverlayHost
+  closed: () => boolean
+  invalidations: () => number
+} {
+  let closed = false
+  let invalidations = 0
+  const controller = new AbortController()
+  return {
+    host: Object.freeze({
+      signal: controller.signal,
+      viewport: Object.freeze({ columns: 160, rows }),
+      theme: identityTheme,
+      display: (value: string) => value,
+      invalidate: () => { invalidations += 1 },
+      close: () => { closed = true },
+    }),
+    closed: () => closed,
+    invalidations: () => invalidations,
+  }
+}
+
+const copy = TUI_FIRST_RUN_WELCOME_NOTICE_COPY[TUI_FIRST_RUN_WELCOME_NOTICE_LOCALE]
+const temporaryHomes: string[] = []
+
+function withoutWhitespace(value: string): string {
+  return value.replace(/\s/gu, '')
+}
+
+async function temporaryHome(prefix: string): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), prefix))
+  temporaryHomes.push(home)
+  return home
+}
+
+afterEach(async () => {
+  await Promise.all(temporaryHomes.splice(0).map(home => rm(home, { recursive: true, force: true })))
+})
+
+describe('TUI first-run welcome acknowledgement', () => {
+  it('publishes one immutable per-version marker safely across concurrent acknowledgements', async () => {
+    const home = await temporaryHome('dsh-tui-welcome-ack-')
+    expect(await hasTuiFirstRunWelcomeAcknowledgement(home)).toBe(false)
+
+    await Promise.all(Array.from({ length: 8 }, () => acknowledgeTuiFirstRunWelcome(home)))
+
+    expect(await hasTuiFirstRunWelcomeAcknowledgement(home)).toBe(true)
+    const info = await stat(tuiFirstRunWelcomeAcknowledgementPath(home, TUI_FIRST_RUN_WELCOME_NOTICE_VERSION))
+    expect(info.isFile()).toBe(true)
+    if (process.platform !== 'win32') expect(info.mode & 0o777).toBe(0o600)
+  })
+
+  it('treats a notice-version bump as a new one-time acknowledgement', async () => {
+    const home = await temporaryHome('dsh-tui-welcome-version-')
+    await acknowledgeTuiFirstRunWelcome(home)
+    const nextVersion = TUI_FIRST_RUN_WELCOME_NOTICE_VERSION + 1
+
+    expect(await hasTuiFirstRunWelcomeAcknowledgement(home, nextVersion)).toBe(false)
+    await acknowledgeTuiFirstRunWelcome(home, nextVersion)
+    expect(await hasTuiFirstRunWelcomeAcknowledgement(home, nextVersion)).toBe(true)
+  })
+
+  it('rejects a malformed marker instead of silently acknowledging it', async () => {
+    const home = await temporaryHome('dsh-tui-welcome-malformed-')
+    await mkdir(tuiFirstRunWelcomeAcknowledgementPath(home, TUI_FIRST_RUN_WELCOME_NOTICE_VERSION), {
+      recursive: true,
+    })
+    await expect(hasTuiFirstRunWelcomeAcknowledgement(home)).rejects.toThrow('is not a file')
+  })
+})
+
+describe('TUI first-run welcome composition', () => {
+  it('pins the supplied official icon and exact Chinese copy at their owner boundaries', async () => {
+    const icon = (await readFile(new URL('../assets/deepseek-color.svg', import.meta.url), 'utf8')).trimEnd()
+    expect(createHash('sha256').update(icon).digest('hex'))
+      .toBe('deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439')
+    expect(createHash('sha256').update(copy.paragraphs.join('\n')).digest('hex'))
+      .toBe('c75e395999f572ee231688ef70d5b7f553de3809b57ce8160b4406bd7650f2ec')
+  })
+
+  it.each([
+    { columns: 60, inner: 50, rows: 30, tier: 'minimal' },
+    { columns: 80, inner: 68, rows: 30, tier: 'compact' },
+    { columns: 120, inner: 104, rows: 30, tier: 'full' },
+    { columns: 160, inner: 140, rows: 30, tier: 'full' },
+  ] as const)('renders the $tier composition at $columns columns without overdraw', ({ inner, rows, tier }) => {
+    const fixture = hostFixture(rows)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {})
+    const renderWidth = inner + 4
+    const lines = component.render(renderWidth)
+
+    expect(tuiFirstRunWelcomeArtTier(inner, rows)).toBe(tier)
+    expect(lines.every(line => visibleWidth(line) <= renderWidth)).toBe(true)
+    expect(lines.join('\n')).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
+    expect(lines.join('\n')).toContain(`Enter  ${copy.continueLabel}`)
+    expect(lines).toHaveLength(Math.floor(rows * 0.9))
+  })
+
+  it('drops the whale at low height while keeping prose, scrolling, and Enter reachable', () => {
+    const fixture = hostFixture(10)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {})
+    const initial = component.render(54).join('\n')
+    expect(tuiFirstRunWelcomeArtTier(50, 10)).toBeUndefined()
+    expect(initial).toContain(copy.paragraphs[0])
+    expect(initial).toContain(`Enter  ${copy.continueLabel}`)
+
+    component.handleInput('\x1b[F')
+    const end = component.render(54).join('\n')
+    expect(withoutWhitespace(end)).toContain(withoutWhitespace(copy.paragraphs.at(-1)!.slice(-10)))
+    expect(end).toContain(`Enter  ${copy.continueLabel}`)
+  })
+
+  it('renders the bit-equivalent ASCII icon fallback for an explicitly non-Unicode terminal', () => {
+    const fixture = hostFixture(30)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {}, true)
+    const rendered = component.render(72).join('\n')
+    expect(rendered).toContain(TUI_FIRST_RUN_WELCOME_WHALE.compact.ascii[0]!.trim())
+    expect(rendered).not.toMatch(/[▀▄█]/u)
+  })
+
+  it('ignores Escape and acknowledges only Enter before closing', async () => {
+    const fixture = hostFixture(30)
+    const acknowledge = vi.fn(async () => {})
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, acknowledge)
+    component.render(72)
+
+    component.handleInput('\x1b')
+    await Promise.resolve()
+    expect(acknowledge).not.toHaveBeenCalled()
+    expect(fixture.closed()).toBe(false)
+
+    component.handleInput('\r')
+    await vi.waitFor(() => { expect(fixture.closed()).toBe(true) })
+    expect(acknowledge).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the overlay open after a persistence failure and lets Enter retry', async () => {
+    const fixture = hostFixture(30)
+    let attempts = 0
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, async () => {
+      attempts += 1
+      if (attempts === 1) throw new Error('disk unavailable')
+    })
+    component.render(72)
+
+    component.handleInput('\r')
+    await vi.waitFor(() => {
+      expect(component.render(72).join('\n')).toContain(copy.saveError)
+    })
+    expect(fixture.closed()).toBe(false)
+
+    component.handleInput('\r')
+    await vi.waitFor(() => { expect(fixture.closed()).toBe(true) })
+    expect(attempts).toBe(2)
+    expect(fixture.invalidations()).toBeGreaterThanOrEqual(3)
+  })
+})

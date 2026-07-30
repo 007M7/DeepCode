@@ -6,11 +6,11 @@ import { execa } from 'execa'
 import { resolveExampleLaunch, type ExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 const POSIX_PTY_DRIVER = String.raw`
-import errno, json, os, pty, select, signal, sys, time
-node, launch_args_json, launch_env_json, cwd, actions_json, expected_exit, timeout_seconds = sys.argv[1:]
+import errno, fcntl, json, os, pty, select, signal, struct, sys, termios, time
+node, launch_args_json, launch_env_json, cwd, actions_json, expected_exit, timeout_seconds, columns, rows = sys.argv[1:]
 env = os.environ.copy()
 env.update(json.loads(launch_env_json))
-env.update({"COLUMNS": "100", "LINES": "30"})
+env.update({"COLUMNS": columns, "LINES": rows})
 # Deterministic banner: a developer shell's COLORTERM=truecolor would switch the
 # banner to the per-letter gradient (one SGR per letter), breaking literal
 # DEEPSEEK assertions. The gradient path has its own unit and snapshot coverage.
@@ -20,6 +20,7 @@ pid, fd = pty.fork()
 if pid == 0:
     os.chdir(cwd)
     os.execvpe(node, [node, *json.loads(launch_args_json)], env)
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(rows), int(columns), 0, 0))
 
 output = bytearray()
 action_index = 0
@@ -36,8 +37,13 @@ while time.monotonic() < deadline:
             chunk = b""
         if chunk:
             output.extend(chunk)
-    while action_index < len(actions) and actions[action_index]["waitFor"].encode() in output:
+    while action_index < len(actions):
+        marker = actions[action_index]["waitFor"].encode()
+        if output.count(marker) < actions[action_index].get("occurrence", 1):
+            break
         action = actions[action_index]
+        if action.get("delayMs", 0) > 0:
+            time.sleep(action["delayMs"] / 1000)
         if "writeFile" in action:
             target = os.path.join(cwd, action["writeFile"]["path"])
             os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -68,11 +74,13 @@ if actual_exit != int(expected_exit):
 
 /** One terminal input or workspace mutation performed after its marker renders. */
 type TuiPtyAction =
-  | { readonly waitFor: string; readonly send: string }
+  | { readonly waitFor: string; readonly occurrence?: number; readonly send: string; readonly delayMs?: number }
   | {
     readonly waitFor: string
+    readonly occurrence?: number
     readonly writeFile: { readonly path: string; readonly content: string }
     readonly send?: string
+    readonly delayMs?: number
   }
 
 /** Inputs for a keyless real-Loader TUI process smoke. */
@@ -89,6 +97,12 @@ export interface TuiPtySmokeOptions {
   readonly env?: Readonly<NodeJS.ProcessEnv>
   readonly expectedExitCode?: number
   readonly timeoutMs?: number
+  /** Existing isolated workspace to reuse; when omitted the harness creates and removes one. */
+  readonly cwd?: string
+  /** Pseudo-terminal columns; defaults to 100. */
+  readonly columns?: number
+  /** Pseudo-terminal rows; defaults to 30. */
+  readonly rows?: number
   /** Seed the isolated workspace (`cwd`, with `$DSH_HOME` at `.dsh` and the agents home at `.agents`) before launch. */
   readonly prepare?: (cwd: string) => Promise<void>
   /** Inspect the workspace after a passing run, before the temp dir is removed. */
@@ -119,6 +133,8 @@ async function runPosixPtySmoke(
     JSON.stringify(options.actions ?? []),
     String(options.expectedExitCode ?? 0),
     String(timeoutMs / 1_000),
+    String(options.columns ?? 100),
+    String(options.rows ?? 30),
   ], {
     stdin: 'ignore',
     timeout: timeoutMs + 5_000,
@@ -150,8 +166,8 @@ async function runWindowsPtySmoke(
     let timedOut = false
     const terminal = pty.spawn(launch.command, launch.args, {
       name: 'xterm-256color',
-      cols: 100,
-      rows: 30,
+      cols: options.columns ?? 100,
+      rows: options.rows ?? 30,
       cwd,
       env: definedEnv({
         ...process.env,
@@ -159,8 +175,8 @@ async function runWindowsPtySmoke(
         // Match the POSIX driver: no COLORTERM, so the banner never takes the
         // truecolor gradient path under a developer's shell.
         COLORTERM: undefined,
-        COLUMNS: '100',
-        LINES: '30',
+        COLUMNS: String(options.columns ?? 100),
+        LINES: String(options.rows ?? 30),
       }),
     })
     const timer = setTimeout(() => {
@@ -169,16 +185,23 @@ async function runWindowsPtySmoke(
     }, timeoutMs)
     terminal.onData((chunk) => {
       output += chunk
-      while (actionIndex < actions.length && output.includes(actions[actionIndex]!.waitFor)) {
+      while (
+        actionIndex < actions.length
+        && output.split(actions[actionIndex]!.waitFor).length - 1 >= (actions[actionIndex]!.occurrence ?? 1)
+      ) {
         const action = actions[actionIndex]!
         if ('writeFile' in action) {
           const target = join(cwd, action.writeFile.path)
           mkdirSync(dirname(target), { recursive: true })
           writeFileSync(target, action.writeFile.content)
           const input = action.send
-          if (input !== undefined) terminal.write(input)
+          if (input !== undefined) {
+            if (action.delayMs === undefined) terminal.write(input)
+            else setTimeout(() => { terminal.write(input) }, action.delayMs)
+          }
         } else {
-          terminal.write(action.send)
+          if (action.delayMs === undefined) terminal.write(action.send)
+          else setTimeout(() => { terminal.write(action.send) }, action.delayMs)
         }
         actionIndex += 1
       }
@@ -205,7 +228,8 @@ async function runWindowsPtySmoke(
  * @returns complete pseudo-terminal output.
  */
 export async function runTuiPtySmoke(options: TuiPtySmokeOptions): Promise<string> {
-  const cwd = await mkdtemp(join(tmpdir(), options.tempDirPrefix))
+  const ownedCwd = options.cwd === undefined
+  const cwd = options.cwd ?? await mkdtemp(join(tmpdir(), options.tempDirPrefix))
   const timeoutMs = options.timeoutMs ?? 25_000
   try {
     await options.prepare?.(cwd)
@@ -231,6 +255,6 @@ export async function runTuiPtySmoke(options: TuiPtySmokeOptions): Promise<strin
     await options.inspect?.(cwd)
     return output
   } finally {
-    await rm(cwd, { recursive: true, force: true })
+    if (ownedCwd) await rm(cwd, { recursive: true, force: true })
   }
 }

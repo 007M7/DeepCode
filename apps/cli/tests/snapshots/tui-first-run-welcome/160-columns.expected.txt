@@ -1,0 +1,106 @@
+terminal 160x30 buffer=normal length=32 base=2 viewport=2
+lifecycle started=0 stopped=0 progress=inactive
+title ""
+cursor visible column=0 viewportRow=29 bufferRow=31
+viewport
+2| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-magenta bold
+  style 10-16 bold
+3| " ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮ "
+  style 1-158 dim
+4| " │                                    ▄                                                        DeepSeek Harness                                               │ "
+  style 1-1 dim
+  style 11-38 fg=blue
+  style 95-110 fg=blue bold
+  style 158-158 dim
+5| " │               ▄▄▄▄▄▄▄▄▄▄███▀      ██▄                                                                                                                      │ "
+  style 1-1 dim
+  style 10-39 fg=blue
+  style 158-158 dim
+6| "/│       ▄███████████████▄      ████▄  ▄▄▄▄██     感谢您愿意拨冗试用 DeepSeek Harness。                                                                       │ "
+  style 0-0 fg=bright-magenta bold
+  style 1-1 dim
+  style 5-44 fg=blue
+  style 158-158 dim
+7| " │     ▄███████████████████▄    ████████████▀                                                                                                                 │ "
+  style 1-1 dim
+  style 5-44 fg=blue
+  style 158-158 dim
+8| " │    ▄██████████████████████▄   ▀█████████▀      目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验难免粗粝。                                          │ "
+  style 1-1 dim
+  style 5-43 fg=blue
+  style 158-158 dim
+9| " │     ▄███▀█████████████████████▄   ████▀▀                                                                                                                   │ "
+  style 1-1 dim
+  style 7-42 fg=blue
+  style 158-158 dim
+10| " │      ███       ▀▀█████████▀▀▀█████████▀        “如切如磋，如琢如磨。”                                                                                      │ "
+  style 1-1 dim
+  style 8-41 fg=blue
+  style 50-71 bold
+  style 158-158 dim
+11| " │      ███          ▀███████▀█  ▀███████                                                                                                                     │ "
+  style 1-1 dim
+  style 8-40 fg=blue
+  style 158-158 dim
+12| " │      ███▄           ▀███████▄  ▀█████▀         产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中暴露的问题，也可能促使我们重新审视，甚至推翻  │ "
+  style 1-1 dim
+  style 8-40 fg=blue
+  style 158-158 dim
+13| " │       ▀███             ▀██████████████         已有的设计。                                                                                                │ "
+  style 1-1 dim
+  style 9-40 fg=blue
+  style 158-158 dim
+14| " │        ▀███▄            ▀███████████▀                                                                                                                      │ "
+  style 1-1 dim
+  style 9-39 fg=blue
+  style 158-158 dim
+15| " │          ▀███▄      ▄▄▄    ▀████████▀          我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未能帮到您，甚至反而为工作平添了麻烦，请在企业微信群中  │ "
+  style 1-1 dim
+  style 10-39 fg=blue
+  style 158-158 dim
+16| " │            █████▄    ███▄▄   ▀█████▄▄          留言，将使用感受告诉我们。每一条反馈，都会帮助我们把它打磨得更好。                                          │ "
+  style 1-1 dim
+  style 10-39 fg=blue
+  style 158-158 dim
+17| " │             ▀█████████████▄▄▄▄█▀█████▀                                                                                                                     │ "
+  style 1-1 dim
+  style 9-40 fg=blue
+  style 158-158 dim
+18| " │                   ▀▀███████████▀▀                                                                                                                          │ "
+  style 1-1 dim
+  style 13-35 fg=blue
+  style 158-158 dim
+19| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+20| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+21| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+22| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+23| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+24| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+25| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+26| " ├────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤ "
+  style 1-158 dim
+27| " │                                                                        Enter  继续                                                                         │ "
+  style 1-1 dim
+  style 74-84 fg=bright-magenta bold
+  style 158-158 dim
+28| " │                                                                                                                                                            │ "
+  style 1-1 dim
+  style 158-158 dim
+29| " ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯ "
+  style 1-158 dim
+30-31| <blank>
