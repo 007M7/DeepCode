@@ -78,9 +78,15 @@ type StubMode =
   | 'empty-read'
   | 'stalled-read'
   | 'exit'
+  | 'signal-exit'
+  | 'unknown-exit'
   | 'wait-for-abort'
+  | 'end-on-abort'
   | 'idle-then-normal'
   | 'large'
+  | 'nonzero'
+  | 'torn-status'
+  | 'finish-torn-status'
   | 'end-only'
   | 'init-exit'
   | 'init-timeout'
@@ -117,11 +123,16 @@ class StubPtySession implements PtyBackendSession {
       return this.operation(Promise.resolve(this.result(this.motd, 'stdin_read')))
     }
     if (this.mode === 'send-error') throw new Error('stub send failed')
-    if (this.mode === 'wait-for-abort') {
+    if (this.mode === 'wait-for-abort' || this.mode === 'end-on-abort') {
       const done = new Promise<ReturnType<StubPtySession['result']>>((resolve) => {
         request.signal?.addEventListener('abort', () => {
-          this.scrollback += 'partial output'
-          resolve(this.result('partial output', 'stdin_read'))
+          const start = /__DSH_PERSISTENT_BASH_START_[^_]+(?:-[^_]+)*__/.exec(request.text)?.[0]
+          const end = /__DSH_PERSISTENT_BASH_END_[^:]+:/.exec(request.text)?.[0]
+          const output = this.mode === 'end-on-abort'
+            ? `${start ?? ''}\ninterrupted\n${end ?? ''}130\n${this.motd}`
+            : 'partial output'
+          this.scrollback += output
+          resolve(this.result(output, 'stdin_read'))
         }, { once: true })
       })
       return this.operation(done)
@@ -152,18 +163,36 @@ class StubPtySession implements PtyBackendSession {
     this.pendingText = ''
     const start = /__DSH_PERSISTENT_BASH_START_[^_]+(?:-[^_]+)*__/.exec(sent)?.[0]
     const end = /__DSH_PERSISTENT_BASH_END_[^:]+:/.exec(sent)?.[0]
+    if (this.mode === 'torn-status') {
+      const output = `${start ?? ''}\nhello from stub\n${end ?? ''}`
+      this.scrollback += output
+      this.mode = 'finish-torn-status'
+      return this.operation(Promise.resolve(this.result(output, 'inferred_idle')))
+    }
+    if (this.mode === 'finish-torn-status') {
+      const output = `7\n${this.motd}`
+      this.scrollback += output
+      return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
+    }
     if (this.mode === 'end-only') {
       const output = `recovered output\n${end ?? ''}0\n${this.motd}`
       this.scrollback += output
       return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
     }
-    const commandOutput = this.mode === 'large' ? 'x'.repeat(100) : 'hello from stub'
-    const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}0\n${this.motd}`
+    const commandOutput = this.mode === 'large'
+      ? 'x'.repeat(100)
+      : this.mode === 'nonzero' ? '' : 'hello from stub'
+    const exitCode = this.mode === 'nonzero' ? 7 : 0
+    const output = `${start ?? ''}\n${commandOutput}\n${end ?? ''}${exitCode}\n${this.motd}`
     this.scrollback += output
-    if (this.mode === 'exit') {
+    if (this.mode === 'exit' || this.mode === 'signal-exit' || this.mode === 'unknown-exit') {
       const exitedOutput = `${start ?? ''}\nhello from stub\n`
       this.scrollback = this.scrollback.slice(0, -output.length) + exitedOutput
-      this.statusValue = { kind: 'exited', exitCode: 0, signal: null }
+      this.statusValue = this.mode === 'signal-exit'
+        ? { kind: 'exited', exitCode: null, signal: 'SIGTERM' }
+        : this.mode === 'exit'
+          ? { kind: 'exited', exitCode: 9, signal: null }
+          : { kind: 'exited', exitCode: null, signal: null }
       return this.operation(Promise.resolve(this.result(exitedOutput, 'session_exit')))
     }
     return this.operation(Promise.resolve(this.result(output, 'stdin_read')))
@@ -247,7 +276,7 @@ async function setup(
 
 describe('tool-bash-persistent', () => {
   it('registers a configurable schema and reuses one owner shell', async () => {
-    const { ctx, owner, stub } = await setup({
+    const { ctx, owner, stub, fiber } = await setup({
       backendType: 'stub',
       description: 'deployment-specific persistent shell',
     })
@@ -269,6 +298,10 @@ describe('tool-bash-persistent', () => {
     const ownerWithoutCwd = agent(ctx, undefined)
     expect(text(await call(ctx, ownerWithoutCwd, 'pwd'))).toBe('hello from stub')
     expect(stub.sessions).toHaveLength(2)
+
+    await fiber.dispose()
+    expect(ctx.tools.schemas()).toEqual([])
+    expect(ctx.tools.get('bash')).toBeUndefined()
   })
 
   it('handles inferred idle, prompt fallback, shell exit, clipping, and cleanup', async () => {
@@ -303,19 +336,48 @@ describe('tool-bash-persistent', () => {
     session.mode = 'large'
     expect(text(await call(ctx, owner, 'large'))).toContain('<response clipped>')
 
+    session.mode = 'nonzero'
+    expect(text(await call(ctx, owner, 'false'))).toBe('[exit code: 7]')
+
     session.mode = 'exit'
     const exited = text(await call(ctx, owner, 'exit'))
     expect(exited).toContain('hello from')
+    expect(exited).toContain('[shell exited: code 9]')
+    expect(exited).not.toContain('[exit code: 9]')
     expect(exited).toContain('next bash call starts from the workspace')
     expect(session.closed).toContain('persistent bash shell exited')
 
     await call(ctx, owner, 'new shell')
     expect(stub.sessions).toHaveLength(2)
+    const replacement = stub.sessions[1]!
+    replacement.mode = 'signal-exit'
+    expect(text(await call(ctx, owner, 'kill shell')))
+      .toContain('[shell killed by signal: SIGTERM]')
+
+    await call(ctx, owner, 'another shell')
+    expect(stub.sessions).toHaveLength(3)
     const externallyClosed = ctx.pty.list(owner)[0]?.sessionId
     expect(externallyClosed).toBeDefined()
     await ctx.pty.kill(owner, externallyClosed!, 'external cleanup')
     await fiber.dispose()
-    expect(stub.sessions[1]?.closed).toEqual(['external cleanup'])
+    expect(stub.sessions[2]?.closed).toEqual(['external cleanup'])
+  })
+
+  it('waits for status digits after a torn completion marker', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub', maxOutputChars: 1_000 })
+    await call(ctx, owner, 'warm up')
+    stub.sessions[0]!.mode = 'torn-status'
+    stub.sessions[0]!.scrollback = ''
+
+    expect(text(await call(ctx, owner, 'torn status'))).toBe('hello from stub\n[exit code: 7]')
+  })
+
+  it('reports a shell exit when the backend has no code or signal', async () => {
+    const { ctx, owner, stub } = await setup({ backendType: 'stub' })
+    await call(ctx, owner, 'warm up')
+    stub.sessions[0]!.mode = 'unknown-exit'
+
+    expect(text(await call(ctx, owner, 'exit without status'))).toContain('[shell exited]')
   })
 
   it('marks a short missing-prefix result and tolerates exhausted scrollback pages', async () => {
@@ -372,22 +434,25 @@ describe('tool-bash-persistent', () => {
     expect(stub.sessions[0]?.closed).toContain('persistent bash command timed out')
   })
 
-  it('cancels in-flight work, resets the shell, and releases a queued call', async () => {
-    const { ctx, owner, stub } = await setup({ backendType: 'stub', timeoutMs: 5_000 })
-    await call(ctx, owner, 'warm up')
-    stub.sessions[0]!.mode = 'wait-for-abort'
-    const controller = new AbortController()
-    const cancelled = call(ctx, owner, 'hang', controller.signal)
-    const queued = call(ctx, owner, 'after cancellation')
-    setTimeout(() => {
-      controller.abort(new Error('caller stopped'))
-    }, 5)
+  it.each(['wait-for-abort', 'end-on-abort'] as const)(
+    'cancels %s work, resets the shell, and releases a queued call',
+    async (mode) => {
+      const { ctx, owner, stub } = await setup({ backendType: 'stub', timeoutMs: 5_000 })
+      await call(ctx, owner, 'warm up')
+      stub.sessions[0]!.mode = mode
+      const controller = new AbortController()
+      const cancelled = call(ctx, owner, 'hang', controller.signal)
+      const queued = call(ctx, owner, 'after cancellation')
+      setTimeout(() => {
+        controller.abort(new Error('caller stopped'))
+      }, 5)
 
-    expect((await cancelled).isError).toBe(true)
-    expect(text(await queued)).toBe('hello from stub')
-    expect(stub.sessions[0]?.closed).toContain('persistent bash command aborted')
-    expect(stub.sessions).toHaveLength(2)
-  })
+      expect((await cancelled).isError).toBe(true)
+      expect(text(await queued)).toBe('hello from stub')
+      expect(stub.sessions[0]?.closed).toContain('persistent bash command aborted')
+      expect(stub.sessions).toHaveLength(2)
+    },
+  )
 
   it.each(['init-exit', 'init-timeout'] as const)(
     'fails initialization and closes the unusable shell for %s',

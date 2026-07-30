@@ -33,8 +33,8 @@ Pass the config path through the Python SDK's `cordis` option or `DSH_CORDIS_CON
 - owner-scoped persistent `bash`
 - `str_replace_editor` with `view`, `create`, `str_replace`, and `insert`
 
-It composes the real local PTY, filesystem intent policy, and session sandbox policy. The keyless behavior snapshot drives the shipped JSON-RPC runtime through both tools and proves that shell cwd/environment survive across calls:
+It composes the real local PTY, filesystem intent policy, and session sandbox policy. The keyless SDK snapshot drives the shipped JSON-RPC runtime through both tools, proves that shell cwd/environment survive across calls, and pins the notification stream, turn result, and persisted JSONL:
 
 ```bash
-pnpm exec vitest run examples/jsonrpc-agent/tests/persistent-tools.snapshot.spec.ts
+pnpm exec vitest run --config vitest.snapshot.config.ts -t persistent-tools
 ```

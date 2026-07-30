@@ -10,7 +10,7 @@ Model-facing `bash(command)` backed by one owner-scoped `ctx.pty` shell. The pac
 |---|---:|---|
 | `backendType` | `shell` | Registered PTY backend used for each Agent shell. |
 | `timeoutMs` | `300000` | Wall-clock limit for one command; timeout closes the shell. |
-| `maxOutputChars` | `16000` | Prefix characters retained before the clipping notice. |
+| `maxOutputChars` | `16000` | Maximum retained command-output characters; fixed diagnostics are added afterward. |
 | `description` | Persistent-shell description | Model-facing environment contract. |
 
 ## Model Experience
@@ -33,11 +33,11 @@ Prefix-stable while the configured description and schema remain unchanged.
 
 #### What the model sees
 
-Commands share one shell per Agent, so cwd, exported variables, activated environments, functions, and background jobs persist across calls. Results exclude private completion markers and the shell prompt. Long output keeps the earliest retained prefix plus a clipping notice. If the PTY has already dropped that prefix, the result says so explicitly instead of presenting a tail as complete output. Timeout returns bounded partial output, closes the uncertain shell, and tells the model that the next call starts fresh.
+Commands share one shell per Agent, so cwd, exported variables, activated environments, functions, and background jobs persist across calls. Results exclude private completion markers and the shell prompt. A nonzero wrapped command appends `[exit code: N]`; a shell that exits before reporting that status instead appends `[shell exited: code N]`, `[shell killed by signal: SIG]`, or `[shell exited]` when the backend supplies neither, then resets and tells the model that the next call starts fresh. Long output keeps the earliest retained prefix plus a clipping notice. If the PTY has already dropped that prefix, the result says so explicitly instead of presenting a tail as complete output. Timeout returns bounded partial output, closes the uncertain shell, and reports the reset.
 
 #### Token effect
 
-Data-dependent and bounded by `maxOutputChars` plus the fixed clipping notice.
+Data-dependent. `maxOutputChars` bounds retained command output; fixed clipping, lost-prefix, status, timeout, and reset diagnostics can extend the result.
 
 #### KV Cache effect
 
@@ -46,5 +46,5 @@ Append-only tool results follow the reusable request prefix.
 ## Known Limitations and Deferred Work
 
 - The tool requires an owning Agent and a real PTY backend.
-- Explicit `exit`, timeout, or cancellation discards shell state; the next call starts a fresh shell.
+- Explicit `exit` and timeout discard shell state. Cancellation also resets and discards the result, even when a complete status marker is already observable; the next call starts a fresh shell.
 - Environment facts such as network access and package mirrors belong in the configured `description`, not this package's default.

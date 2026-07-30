@@ -13,7 +13,6 @@ _PLATFORMS = {
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
     "macos-arm64": ("macosx_11_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
 }
-_SPAWN_HELPER_SUFFIX = "-spawn-helper"
 
 
 def _host_platform_tag() -> str:
@@ -48,23 +47,17 @@ class RuntimeBuildHook(BuildHookInterface):
         expected_executable = matches[0][1]
         runtime_dir = Path(self.root) / "src" / "deepseek_harness_runtime" / "runtime"
         runtime_files = sorted(runtime_dir.glob("dsh-jsonrpc-agent-pkg-*") if runtime_dir.is_dir() else [])
-        executables = [path for path in runtime_files if not path.name.endswith(_SPAWN_HELPER_SUFFIX)]
-        helpers = [path for path in runtime_files if path.name.endswith(_SPAWN_HELPER_SUFFIX)]
-        if [path.name for path in executables] != [expected_executable]:
-            found = ", ".join(path.name for path in executables) or "none"
+        expected_files = [expected_executable]
+        if "-macos-" in expected_executable:
+            expected_files.append(f"{expected_executable}-spawn-helper")
+        found_files = [path.name for path in runtime_files]
+        if found_files != expected_files:
             raise RuntimeError(
-                f"runtime wheel {platform_tag} must contain only {expected_executable}; found {found}"
+                f"runtime wheel {platform_tag} payload must be {expected_files}; found {found_files}"
             )
-        expected_helper = f"{expected_executable}{_SPAWN_HELPER_SUFFIX}"
-        if [path.name for path in helpers] != [expected_helper]:
-            found = ", ".join(path.name for path in helpers) or "none"
-            raise RuntimeError(
-                f"runtime wheel {platform_tag} must contain only {expected_helper}; found {found}"
-            )
-        for executable in [executables[0], helpers[0]]:
+        for executable in runtime_files:
             if executable.stat().st_mode & stat.S_IXUSR == 0:
                 raise RuntimeError(f"runtime executable is not executable: {executable}")
-
         build_data["pure_python"] = False
         build_data["infer_tag"] = False
         build_data["tag"] = f"py3-none-{platform_tag}"

@@ -35,23 +35,6 @@ function maybeTruncate(content: string, maxOutputChars: number): string {
     : content.slice(0, maxOutputChars) + TRUNCATED_MESSAGE
 }
 
-function expandTabs(content: string, tabSize = 8): string {
-  let column = 0
-  let result = ''
-  for (const character of content) {
-    if (character === '\t') {
-      const spaces = tabSize - (column % tabSize)
-      result += ' '.repeat(spaces)
-      column += spaces
-      continue
-    }
-    result += character
-    if (character === '\n' || character === '\r') column = 0
-    else column += 1
-  }
-  return result
-}
-
 function codepointCompare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
@@ -105,16 +88,13 @@ class MutationPolicy {
 async function resolveTarget(
   ctx: Context,
   path: string,
-  requireAbsolutePath: boolean,
-  exec: ToolRunContext,
-  workspaceRoot?: string,
+  signal: AbortSignal,
 ): Promise<FsTarget> {
   if (path.trim().length === 0) throw new Error('path must be a non-empty string')
-  if (requireAbsolutePath && !isAbsolute(path)) {
+  if (!isAbsolute(path)) {
     throw new Error(`The path ${path} is not an absolute path, it should start with \`/\`. Maybe you meant /${path}?`)
   }
-  const cwd = exec.agent?.session.header.cwd ?? workspaceRoot
-  return ctx.fs.resolve(path, cwd === undefined ? { signal: exec.signal } : { cwd, signal: exec.signal })
+  return ctx.fs.resolve(path, { signal })
 }
 
 async function statExisting(
@@ -195,9 +175,9 @@ function formatFileView(
       : allLines.slice(initialLine - 1, finalLine)
     prompt += ` with view_range=[${initialLine}, ${finalLine}]`
   }
-  const numbered = expandTabs(lines
-    .map((line, index) => `${String(initialLine + index).padStart(6, ' ')}\t${line}`)
-    .join('\n'))
+  const numbered = lines
+    .map((line, index) => `${String(initialLine + index).padStart(6, ' ')}  ${line}`)
+    .join('\n')
   return maybeTruncate(`${prompt}:\n${numbered}\n`, maxOutputChars)
 }
 
@@ -237,10 +217,9 @@ async function viewPath(
   path: string,
   viewRange: number[] | undefined,
   maxOutputChars: number,
-  requireAbsolutePath: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec)
+  const target = await resolveTarget(ctx, path, exec.signal)
   const info = await statExisting(ctx, target, 'view', exec)
   if (info.type === 'directory') {
     if (viewRange !== undefined) {
@@ -261,12 +240,11 @@ async function createFile(
   policy: MutationPolicy,
   path: string,
   fileText: string | undefined,
-  requireAbsolutePath: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
   const content = requiredForCommand(fileText, 'file_text', 'create')
   const sandboxPolicy = policy.resolve(exec)
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec, sandboxPolicy?.workspaceRoot)
+  const target = await resolveTarget(ctx, path, exec.signal)
   if (await ctx.fs.stat(target, exec.signal) !== undefined) {
     throw new Error(`File already exists at: ${target.displayPath}. Cannot overwrite files using command \`create\`.`)
   }
@@ -298,24 +276,21 @@ async function replaceInFile(
   path: string,
   oldStr: string | undefined,
   newStr: string | undefined,
-  requireAbsolutePath: boolean,
-  expandTabsOnMutation: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
   const sandboxPolicy = policy.resolve(exec)
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec, sandboxPolicy?.workspaceRoot)
+  const target = await resolveTarget(ctx, path, exec.signal)
   const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
-  const rawOldValue = requiredForCommand(oldStr, 'old_str', 'str_replace', false)
-  const oldValue = expandTabsOnMutation ? expandTabs(rawOldValue) : rawOldValue
-  const newValue = expandTabsOnMutation ? expandTabs(newStr ?? '') : newStr ?? ''
+  const oldValue = requiredForCommand(oldStr, 'old_str', 'str_replace', false)
+  const newValue = newStr ?? ''
   const info = await statExisting(ctx, target, 'str_replace', exec)
   if (info.type !== 'file') {
     throw new FsError(`cannot edit "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
-  const rawBefore = await ctx.fs.readText(target, exec.signal)
-  const before = expandTabsOnMutation ? expandTabs(rawBefore) : rawBefore
+  const before = await ctx.fs.readText(target, exec.signal)
   const offsets = matchOffsets(before, oldValue)
-  if (offsets.length === 0) {
+  const offset = offsets[0]
+  if (offset === undefined) {
     throw new FsError(
       `No replacement was performed, old_str \`${oldValue}\` did not appear verbatim in ${target.displayPath}.`,
       'FS_EDIT_NOT_FOUND',
@@ -330,23 +305,15 @@ async function replaceInFile(
   }
   let outcome
   try {
-    outcome = expandTabsOnMutation
-      ? await ctx.fs.writeText(
-        target,
-        before.replace(oldValue, newValue),
-        intent === undefined
-          ? { kind: 'replaceIfVersion', version: info.version }
-          : { kind: 'replaceIfVersion', version: intent.version },
-        exec.signal,
-        sandboxPolicy,
-      )
-      : await ctx.fs.editText(
-        target,
-        { oldString: oldValue, newString: newValue, replaceAll: false },
-        intent ?? { version: info.version },
-        exec.signal,
-        sandboxPolicy,
-      )
+    outcome = await ctx.fs.writeText(
+      target,
+      before.slice(0, offset) + newValue + before.slice(offset + oldValue.length),
+      intent === undefined
+        ? { kind: 'replaceIfVersion', version: info.version }
+        : { kind: 'replaceIfVersion', version: intent.version },
+      exec.signal,
+      sandboxPolicy,
+    )
   } catch (error: unknown) {
     throw policy.mapError(error, sandboxPolicy)
   }
@@ -360,22 +327,18 @@ async function insertInFile(
   path: string,
   insertLine: number | undefined,
   newStr: string | undefined,
-  requireAbsolutePath: boolean,
-  expandTabsOnMutation: boolean,
   exec: ToolRunContext,
 ): Promise<string> {
   if (insertLine === undefined) throw new Error('Parameter `insert_line` is required for command: insert')
-  const rawValue = requiredForCommand(newStr, 'new_str', 'insert')
-  const value = expandTabsOnMutation ? expandTabs(rawValue) : rawValue
+  const value = requiredForCommand(newStr, 'new_str', 'insert')
   const sandboxPolicy = policy.resolve(exec)
-  const target = await resolveTarget(ctx, path, requireAbsolutePath, exec, sandboxPolicy?.workspaceRoot)
+  const target = await resolveTarget(ctx, path, exec.signal)
   const intent = await ctx.waterfall('fs/edit-intent', target, exec, () => undefined)
   const info = await statExisting(ctx, target, 'insert', exec)
   if (info.type !== 'file') {
     throw new FsError(`cannot insert into "${target.displayPath}": not a regular file`, 'FS_NOT_REGULAR_FILE')
   }
-  const rawBefore = await ctx.fs.readText(target, exec.signal)
-  const before = expandTabsOnMutation ? expandTabs(rawBefore) : rawBefore
+  const before = await ctx.fs.readText(target, exec.signal)
   const lines = before.split('\n')
   if (!Number.isInteger(insertLine) || insertLine < 0 || insertLine > lines.length) {
     throw new Error(
@@ -403,8 +366,6 @@ async function insertInFile(
 interface ResolvedConfig {
   maxOutputChars: number
   description: string
-  requireAbsolutePath: boolean
-  expandTabsOnMutation: boolean
 }
 
 function presentEditorCall(args: {
@@ -501,9 +462,9 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
     async execute(args, exec) {
       switch (args.command) {
         case 'view':
-          return viewPath(ctx, args.path, args.view_range, config.maxOutputChars, config.requireAbsolutePath, exec)
+          return viewPath(ctx, args.path, args.view_range, config.maxOutputChars, exec)
         case 'create':
-          return createFile(ctx, policy, args.path, args.file_text, config.requireAbsolutePath, exec)
+          return createFile(ctx, policy, args.path, args.file_text, exec)
         case 'str_replace':
           return replaceInFile(
             ctx,
@@ -511,8 +472,6 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
             args.path,
             args.old_str,
             args.new_str,
-            config.requireAbsolutePath,
-            config.expandTabsOnMutation,
             exec,
           )
         case 'insert':
@@ -522,8 +481,6 @@ function registerStrReplaceEditor(ctx: Context, config: ResolvedConfig): void {
             args.path,
             args.insert_line,
             args.new_str,
-            config.requireAbsolutePath,
-            config.expandTabsOnMutation,
             exec,
           )
       }
@@ -541,18 +498,12 @@ export interface Config {
   maxOutputChars?: number
   /** Model-facing tool description. */
   description?: string
-  /** Require local absolute paths like the canonical editor contract (default true). */
-  requireAbsolutePath?: boolean
-  /** Expand tabs across the full file before each mutation, matching the canonical editor (default true). */
-  expandTabsOnMutation?: boolean
 }
 
 /** Runtime configuration schema for the string-replacement editor tool. */
 export const Config: z<Config> = z.object({
   maxOutputChars: z.number().default(16_000),
   description: z.string().default(DEFAULT_DESCRIPTION),
-  requireAbsolutePath: z.boolean().default(true),
-  expandTabsOnMutation: z.boolean().default(true),
 })
 
 /** Register one `str_replace_editor` tool over `ctx.fs`. */
@@ -560,8 +511,6 @@ export function apply(ctx: Context, config: Config): void {
   const resolved: ResolvedConfig = {
     maxOutputChars: config.maxOutputChars ?? 16_000,
     description: config.description ?? DEFAULT_DESCRIPTION,
-    requireAbsolutePath: config.requireAbsolutePath ?? true,
-    expandTabsOnMutation: config.expandTabsOnMutation ?? true,
   }
   if (!Number.isSafeInteger(resolved.maxOutputChars) || resolved.maxOutputChars <= 0) {
     throw new Error('tool-str-replace-editor: maxOutputChars must be a positive safe integer')

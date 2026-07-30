@@ -78,13 +78,13 @@ async function setup(
     await ctx.plugin(SandboxedFileSystem, { cwd: root })
   }
   if (options.fsPolicy === true) await ctx.plugin(FsPolicy)
-  await ctx.plugin(ToolStrReplaceEditor, config)
-  return { ctx, root, owner: agent(ctx, root) }
+  const fiber = await ctx.plugin(ToolStrReplaceEditor, config)
+  return { ctx, root, fiber, owner: agent(ctx, root) }
 }
 
 describe('tool-str-replace-editor', () => {
   it('registers the standalone schema and configurable description', async () => {
-    const { ctx } = await setup({ description: 'custom editor description' })
+    const { ctx, fiber } = await setup({ description: 'custom editor description' })
     const schema = ctx.tools.schemas()[0]
     expect(ctx.tools.schemas().map(item => item.name)).toEqual(['str_replace_editor'])
     expect(schema?.description).toBe('custom editor description')
@@ -147,6 +147,10 @@ describe('tool-str-replace-editor', () => {
     })).toMatchObject({
       locations: [{ path: '/workspace/a.txt' }],
     })
+
+    await fiber.dispose()
+    expect(ctx.tools.schemas()).toEqual([])
+    expect(ctx.tools.get('str_replace_editor')).toBeUndefined()
   })
 
   it('creates, views, replaces, and inserts with the canonical model-facing output', async () => {
@@ -188,6 +192,21 @@ describe('tool-str-replace-editor', () => {
       new_str: 'between',
     }))).toBe(`The file ${sample} has been edited successfully.`)
     expect(await readFile(sample, 'utf8')).toBe('one\nbetween\n\nthree\n')
+  })
+
+  it('writes replacement text literally', async () => {
+    const { ctx, root, owner } = await setup()
+    const sample = join(root, 'literal.txt')
+    const replacement = "$&|$`|$'|$$"
+    await writeFile(sample, 'before OLD after')
+
+    expect((await call(ctx, owner, {
+      command: 'str_replace',
+      path: sample,
+      old_str: 'OLD',
+      new_str: replacement,
+    })).isError).toBe(false)
+    expect(await readFile(sample, 'utf8')).toBe(`before ${replacement} after`)
   })
 
   it('lists visible entries to depth two and clips at the configured view limit', async () => {
@@ -316,6 +335,16 @@ describe('tool-str-replace-editor', () => {
     expect(text(repeatedMultiline))
       .toContain('Multiple occurrences of old_str `alpha\nbeta` in lines [1, 4]')
 
+    const mixedEol = join(root, 'mixed-eol.txt')
+    await writeFile(mixedEol, 'alpha\r\nbeta\nmiddle\nalpha\nbeta')
+    expect((await call(ctx, owner, {
+      command: 'str_replace',
+      path: mixedEol,
+      old_str: 'alpha\r\nbeta',
+      new_str: 'replaced',
+    })).isError).toBe(false)
+    expect(await readFile(mixedEol, 'utf8')).toBe('replaced\nmiddle\nalpha\nbeta')
+
     const relative = await call(ctx, owner, { command: 'view', path: 'ambiguous.txt' })
     expect(relative.isError).toBe(true)
     expect(text(relative)).toContain('is not an absolute path')
@@ -378,13 +407,6 @@ describe('tool-str-replace-editor', () => {
     })).error).toMatchObject({ info: { code: 'FS_NOT_REGULAR_FILE' } })
   })
 
-  it('can opt into session-relative paths for non-canonical deployments', async () => {
-    const { ctx, root, owner } = await setup({ requireAbsolutePath: false })
-    await writeFile(join(root, 'relative.txt'), 'relative')
-    expect(text(await call(ctx, owner, { command: 'view', path: 'relative.txt' })))
-      .toContain("Here's the content of")
-  })
-
   it('delegates read-before-edit decisions to fs-policy', async () => {
     const { ctx, root, owner } = await setup({}, { fsPolicy: true })
     const existing = join(root, 'existing.txt')
@@ -444,15 +466,17 @@ describe('tool-str-replace-editor', () => {
     expect(ownerless.error).toMatchObject({ info: { code: 'FS_SANDBOX_DENIED' } })
   })
 
-  it('can preserve tabs outside the edited region', async () => {
-    const { ctx, root, owner } = await setup({ expandTabsOnMutation: false })
+  it('preserves tabs outside the edited region', async () => {
+    const { ctx, root, owner } = await setup()
     const path = join(root, 'Makefile')
     await writeFile(path, 'target:\n\told\nremove\n')
+    expect(text(await call(ctx, owner, { command: 'view', path })))
+      .toContain('     2  \told')
     await call(ctx, owner, {
       command: 'str_replace',
       path,
-      old_str: 'old',
-      new_str: 'new',
+      old_str: '\told',
+      new_str: '\tnew',
     })
     await call(ctx, owner, {
       command: 'str_replace',
@@ -487,9 +511,10 @@ describe('tool-str-replace-editor', () => {
     const { ctx, root, owner } = await setup()
     const path = join(root, 'backend-error.txt')
     await writeFile(path, 'old\n')
-    ctx.fs.writeText = async () => {
+    const failWrite = async (): Promise<never> => {
       throw new Error('backend write failed')
     }
+    ctx.fs.writeText = failWrite
 
     const replace = await call(ctx, owner, {
       command: 'str_replace',

@@ -22,7 +22,10 @@ PLATFORMS = {
     "linux-arm64": ("manylinux_2_28_aarch64", "dsh-jsonrpc-agent-pkg-linux-arm64"),
     "macos-arm64": ("macosx_11_0_arm64", "dsh-jsonrpc-agent-pkg-macos-arm64"),
 }
-SPAWN_HELPER_SUFFIX = "-spawn-helper"
+
+
+def runtime_suffixes(executable_name: str) -> tuple[str, ...]:
+    return ("", "-spawn-helper") if "-macos-" in executable_name else ("",)
 
 
 def main() -> None:
@@ -133,25 +136,12 @@ def stage_sdk(destination: Path, version: str) -> None:
 
 
 def stage_runtime(destination: Path, version: str, executable: Path, executable_name: str) -> None:
-    if not executable.is_file():
-        raise FileNotFoundError(f"runtime executable does not exist: {executable}")
-    if executable.stat().st_mode & stat.S_IXUSR == 0:
-        raise PermissionError(f"runtime executable is not executable: {executable}")
-    spawn_helper = Path(f"{executable}{SPAWN_HELPER_SUFFIX}")
-    if not spawn_helper.is_file():
-        raise FileNotFoundError(f"runtime spawn helper does not exist: {spawn_helper}")
-    if spawn_helper.stat().st_mode & stat.S_IXUSR == 0:
-        raise PermissionError(f"runtime spawn helper is not executable: {spawn_helper}")
     copy_package(ROOT / "python" / "sdk-runtime", destination)
     rewrite_version(destination / "pyproject.toml", version)
     runtime_dir = destination / "src" / "deepseek_harness_runtime" / "runtime"
     runtime_dir.mkdir(parents=True, exist_ok=True)
-    destination_executable = runtime_dir / executable_name
-    shutil.copyfile(executable, destination_executable)
-    destination_executable.chmod(executable.stat().st_mode & 0o777)
-    destination_helper = runtime_dir / f"{executable_name}{SPAWN_HELPER_SUFFIX}"
-    shutil.copyfile(spawn_helper, destination_helper)
-    destination_helper.chmod(spawn_helper.stat().st_mode & 0o777)
+    for suffix in runtime_suffixes(executable_name):
+        shutil.copy2(Path(f"{executable}{suffix}"), runtime_dir / f"{executable_name}{suffix}")
 
 
 def verify_wheel(
@@ -173,19 +163,16 @@ def verify_wheel(
         runtime_files = [
             name for name in archive.namelist() if "/runtime/dsh-jsonrpc-agent-pkg-" in name
         ]
-        helpers = [name for name in runtime_files if name.endswith(SPAWN_HELPER_SUFFIX)]
-        executables = [name for name in runtime_files if not name.endswith(SPAWN_HELPER_SUFFIX)]
         if package == "runtime":
             assert platform is not None
-            if len(executables) != 1 or not executables[0].endswith(f"/runtime/{platform[1]}"):
-                raise RuntimeError(f"{wheel} must contain exactly {platform[1]}, found {executables}")
-            expected_helper = f"{platform[1]}{SPAWN_HELPER_SUFFIX}"
-            if len(helpers) != 1 or not helpers[0].endswith(f"/runtime/{expected_helper}"):
-                raise RuntimeError(f"{wheel} must contain exactly {expected_helper}, found {helpers}")
-            for executable in [executables[0], helpers[0]]:
-                mode = archive.getinfo(executable).external_attr >> 16
+            expected_files = [f"{platform[1]}{suffix}" for suffix in runtime_suffixes(platform[1])]
+            found_files = sorted(Path(name).name for name in runtime_files)
+            if found_files != expected_files:
+                raise RuntimeError(f"{wheel} runtime payload must be {expected_files}, found {found_files}")
+            for runtime_file in runtime_files:
+                mode = archive.getinfo(runtime_file).external_attr >> 16
                 if mode & stat.S_IXUSR == 0:
-                    raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {executable}")
+                    raise RuntimeError(f"{wheel} runtime executable lost its executable bit: {runtime_file}")
         elif runtime_files:
             raise RuntimeError(f"SDK wheel unexpectedly contains runtime executables: {runtime_files}")
         if package == "sdk":

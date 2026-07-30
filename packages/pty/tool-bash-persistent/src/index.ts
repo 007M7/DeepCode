@@ -11,6 +11,7 @@ import type { PtyReadResult, PtySendResult, PtySessionId } from '@deepseek-ai/ds
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
+// TODO: Replace the file-search advice; arbitrary command output need not come from a searchable file.
 const TRUNCATED_MESSAGE = '<response clipped><NOTE>To save on context only part of this file has been shown to you. You should retry this tool after you have searched inside the file with `grep -n` in order to find the line numbers of what you are looking for.</NOTE>'
 const LOST_PREFIX_MESSAGE = '<response clipped><NOTE>The beginning of this command output was dropped by the terminal scrollback limit. The following text is the earliest retained output.</NOTE>\n'
 const SHELL_RESET_MESSAGE = 'The persistent bash shell was reset; the next bash call starts from the workspace with a fresh current directory and environment.'
@@ -43,6 +44,7 @@ interface RetainedOutput {
 interface CapturedOutput {
   text: string
   incomplete: boolean
+  exitCode?: number
 }
 
 interface PersistentShells {
@@ -91,14 +93,17 @@ function stripPrompt(text: string): string {
 function commandOutput(
   snapshot: RetainedOutput,
   marker: CommandMarkers,
-): CapturedOutput {
+): CapturedOutput | undefined {
   const text = snapshot.text
   const end = text.lastIndexOf(marker.end)
+  const status = /^(\d+)\r?\n/.exec(text.slice(end + marker.end.length))?.[1]
+  if (status === undefined) return undefined
   const startMarker = text.lastIndexOf(marker.start, end)
   const start = startMarker < 0 ? 0 : startMarker + marker.start.length
   return {
     text: stripPrompt(text.slice(start, end).replace(/^\r?\n/, '')),
     incomplete: startMarker < 0,
+    exitCode: Number(status),
   }
 }
 
@@ -165,9 +170,31 @@ function retainedScrollback(
 
 function renderCaptured(output: CapturedOutput, maxOutputChars: number): string {
   const rendered = maybeTruncate(output.text, maxOutputChars, output.incomplete)
-  return output.incomplete && output.text.length > 0
+  const withPrefix = output.incomplete && output.text.length > 0
     ? LOST_PREFIX_MESSAGE + rendered
     : rendered
+  const marker = output.exitCode !== undefined && output.exitCode !== 0
+    ? `[exit code: ${output.exitCode}]`
+    : undefined
+  return appendStatusMarker(withPrefix, marker)
+}
+
+function appendStatusMarker(content: string, marker: string | undefined): string {
+  if (marker === undefined) return content
+  return content.length === 0 ? marker : `${content}\n${marker}`
+}
+
+function renderShellExitStatus(
+  content: string,
+  exitCode: number | null,
+  signal: NodeJS.Signals | null,
+): string {
+  const marker = signal !== null
+    ? `[shell killed by signal: ${signal}]`
+    : exitCode !== null
+      ? `[shell exited: code ${exitCode}]`
+      : '[shell exited]'
+  return appendStatusMarker(content, marker)
 }
 
 function persistentShells(ctx: Context, config: ResolvedConfig): PersistentShells {
@@ -286,26 +313,31 @@ async function executeCommand(
       )
       await shells.reset(owner, 'persistent bash command timed out')
       return [
+        // TODO: Report a timeout only; this signal does not establish an OOM.
         `Your command timed out after ${Math.round(timedOut.timeoutMs / 1000)} seconds or experienced an OOM error. Below is partial output:`,
         partial,
         SHELL_RESET_MESSAGE,
       ].join('\n')
     }
+    if (commandDeadline.signal.aborted) {
+      await shells.reset(owner, 'persistent bash command aborted')
+      commandDeadline.signal.throwIfAborted()
+    }
     if (latest.text.includes(marker.end)) {
       const complete = commandOutput(retainedScrollback(ctx, owner, id, latest), marker)
-      return renderCaptured(complete, config.maxOutputChars)
+      if (complete !== undefined) return renderCaptured(complete, config.maxOutputChars)
     }
     if (result.sessionStatus.kind === 'exited') {
       const snapshot = retainedScrollback(ctx, owner, id, latest)
       await shells.reset(owner, 'persistent bash shell exited')
       return [
-        renderCaptured(partialOutput(snapshot, marker, fallback, fallbackTruncated), config.maxOutputChars),
+        renderShellExitStatus(
+          renderCaptured(partialOutput(snapshot, marker, fallback, fallbackTruncated), config.maxOutputChars),
+          result.sessionStatus.exitCode,
+          result.sessionStatus.signal,
+        ),
         SHELL_RESET_MESSAGE,
       ].filter(part => part.length > 0).join('\n')
-    }
-    if (commandDeadline.signal.aborted) {
-      await shells.reset(owner, 'persistent bash command aborted')
-      commandDeadline.signal.throwIfAborted()
     }
     if (promptCompleted(result)) {
       const snapshot = retainedScrollback(ctx, owner, id, latest)

@@ -15,8 +15,9 @@ export const name = 'tool-bash-persistent-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the tool adapter owns no independent durable state;
- * PTY ownership and filesystem mutation relations stay with their services.
+ * No runtime invariant: the adapter's private owner-to-shell cache has no
+ * observable event or data relation. Lifecycle tests prove its cleanup without
+ * adding a public surface solely for an invariant.
  */
 const install: InvariantInstaller = () => {}
 

@@ -10,12 +10,10 @@ Standalone model-facing `str_replace_editor` over `ctx.fs`. It can be composed w
 |---|---:|---|
 | `maxOutputChars` | `16000` | Prefix characters retained for file and directory views. |
 | `description` | Editor command guide | Model-facing tool description. |
-| `requireAbsolutePath` | `true` | Reject relative paths; disable only for deployments with a deliberate session-cwd contract. |
-| `expandTabsOnMutation` | `true` | Preserve the canonical Claude SWE behavior that expands tabs across the whole file before replace/insert. Set `false` for atomic literal replacement that preserves unrelated tabs. |
 
 ## Tool
 
-The schema provides `view`, `create`, `str_replace`, and `insert`. File views use one-based line numbers; directory views omit hidden, dependency, and Python-cache entries and descend two levels. Replacement requires one unique literal match and reports errors only in the public `old_str` vocabulary. Insert follows the selected zero-based insertion boundary without adding an implicit trailing newline.
+The schema provides `view`, `create`, `str_replace`, and `insert` over absolute paths. File views use one-based line numbers and preserve content tabs, so displayed text remains valid literal replacement input; directory views omit hidden, dependency, and Python-cache entries and descend two levels. Replacement requires one unique literal match and reports errors only in the public `old_str` vocabulary. Insert follows the selected zero-based insertion boundary without adding an implicit trailing newline. Mutations preserve tabs outside the requested edit.
 
 ## Model Experience
 
@@ -51,5 +49,4 @@ Append-only tool results follow the reusable request prefix.
 
 - Operations target UTF-8 text; binary files are unsupported.
 - `str_replace` intentionally rejects zero or multiple matches and has no `replace_all` argument.
-- Canonical mode (`expandTabsOnMutation: true`) expands tabs in the entire file before replacement or insertion, including lines outside the edited region. Set it to `false` for Makefiles and other tab-sensitive files.
 - Every mutation goes through `fs/write-intent` or `fs/edit-intent`, resolves the current session sandbox policy, and delegates enforcement to the mounted filesystem and policy plugins.
