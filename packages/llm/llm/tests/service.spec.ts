@@ -1381,4 +1381,32 @@ describe('LlmService', () => {
     disposeAgain()
     expect(ctx.llm.listProviders()).toEqual([])
   })
+
+  it('refuses to replace routes on a registration that was already released', async () => {
+    // The leak this prevents: the effect's disposer has run, so a route added
+    // afterwards would sit in the registry with nothing left to release it.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    const handle = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    handle()
+    expect(() => { handle.replace(['leaked']) })
+      .toThrow(/disposed adapter registration cannot replace its routes/)
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('still allows an empty route set on a live registration', async () => {
+    // `replace([])` is the settings-section-emptied case: legal, and it must
+    // not be mistaken for disposal by the guard above.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    const handle = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    handle.replace([])
+    expect(ctx.llm.listProviders()).toEqual([])
+    handle.replace(['m2'])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm2', name: 'm2' }])
+    handle()
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
 })

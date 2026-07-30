@@ -27,6 +27,8 @@ const goalScenarioDir = join(snapshotsDir, 'goal-tools')
 const goalConfigPath = fileURLToPath(new URL('../goal.cordis.snapshot.yml', import.meta.url))
 const retryScenarioDir = join(snapshotsDir, 'provider-retry')
 const retryConfigPath = fileURLToPath(new URL('../retry.cordis.snapshot.yml', import.meta.url))
+const credentialsScenarioDir = join(snapshotsDir, 'missing-credential')
+const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snapshot.yml', import.meta.url))
 const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
@@ -163,6 +165,40 @@ describe('headless stream-json snapshots', () => {
     })
 
     expect(result.stderr).toBe('')
+    const normalized = normalizeHeadlessStream(result.stdout, runCwd)
+    if (refreshing) await writeFile(streamExpected, normalized)
+    expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it('surfaces actionable missing-credential guidance through the one-shot app', async () => {
+    const streamExpected = join(credentialsScenarioDir, 'stream-json.expected.jsonl')
+    let runCwd = ''
+    const result = await runLoaderSmoke({
+      label: 'missing-credential headless stream-json snapshot',
+      tempDirPrefix: 'headless-snapshot-missing-credential-',
+      binScript,
+      configPath: credentialsConfigPath,
+      binArgs: ['--config', credentialsConfigPath, '--output-format', 'stream-json', 'say pong'],
+      tsconfigPath,
+      env: {
+        // First-run posture: no key in the environment, none under ./.dsh.
+        DEEPSEEK_API_KEY: '',
+        DEEPSEEK_BASE_URL: '',
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
+      },
+      // The designed failure surface: the one-shot app reports the failed turn.
+      expectedExitCode: 1,
+      prepare: (cwd) => { runCwd = cwd },
+    })
+
+    // The guidance leads with the credential store — the path that keeps the
+    // secret out of configuration files — and offers a literal key last.
+    expect(result.stderr).toBe(
+      'dsh-cli-demo: turn 1 failed at step 1: llm-deepseek: no API key for provider route "deepseek";'
+      + ' store DEEPSEEK_API_KEY through the credentials service (the web Models page writes it),'
+      + ' export DEEPSEEK_API_KEY in the launching environment, or — as a last resort — set a literal'
+      + ' "apiKey" in the llm-deepseek settings section\n',
+    )
     const normalized = normalizeHeadlessStream(result.stdout, runCwd)
     if (refreshing) await writeFile(streamExpected, normalized)
     expect(normalized).toBe(await readFile(streamExpected, 'utf8'))
