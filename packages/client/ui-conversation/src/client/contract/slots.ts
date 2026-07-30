@@ -1,7 +1,7 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
 import type {
-  InjectFace, MaybeSnapshotSelectorHook, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
+  InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -282,8 +282,6 @@ export interface ComposerBarInjected {
    * Resolves admission: false = rejected/unmatched/transport failure.
    */
   command: ((line: string) => Promise<boolean>) | undefined
-  /** Locale-aware hint translator for claimed command placeholders (session-independent — always present). */
-  translateHint: (key: string) => string
   /**
    * Registrant hooks compartment: the renderer binds these to
    * useNotices/useLexicon (static absent sources without a session — hook
@@ -306,11 +304,12 @@ export interface InputControlOwnerProps {
   locked: boolean
 }
 
-/** Full composer-bar component props: standard kit & owner share & control-seat render share & injected share (hooks compartment bound). */
+/** Full composer-bar props: standard kit & owner share & control-seat render share & injected share (hooks bound) & locale seat. */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
   & PropsRenderSlots<'conversation.input.plan' | 'conversation.input.model'>
   & InjectFace<ComposerBarInjected>
+  & PropsLocale<'conversation'>
 
 /**
  * Composer chain currency: what ConversationRoot dispatches at its
@@ -325,7 +324,8 @@ export interface ComposerChainProps {
 
 /**
  * Full conversation-slot component props: runtime & child-render (view ring
- * + composer chain/bar + input-region + hero picker slots) & store & injected shares.
+ * + composer chain/bar + input-region + hero picker slots) & store & injected
+ * shares & the locale seat.
  */
 export type ConversationSlotProps =
   PropsRuntime<'conversation'> & PropsRenderSlots<
@@ -336,13 +336,15 @@ export type ConversationSlotProps =
     | 'conversation.hero.workspace'
   >
   & ConversationInjected
+  & PropsLocale<'conversation'>
 
-/** Full strict-session content props: per-session store, view ring, and callbacks. */
+/** Full strict-session content props: per-session store, view ring, callbacks, and the locale seat. */
 export type ConversationSessionSlotProps =
   PropsRuntime<'conversation.session'>
   & PropsRenderSlots<'conversation.view'>
   & PropsStore<ChatStore>
   & ConversationSessionInjected
+  & PropsLocale<'conversation'>
 
 /** The pending approval carrier the owner dispatches into the composer chain. */
 export type ApprovalWait = PendingWait<'approval'>
@@ -400,11 +402,13 @@ export class PendingApproval {
 /**
  * Full approval-composer props: the framework runtime share (chain currency +
  * session/global standard kit) plus the chain `matched` share — the entry's
- * selector result, already narrowed to the approval carrier. No injected
- * share: the carrier plus the domain face above carry the whole behavior
- * surface; the paired command line derives from useSession in-component.
+ * selector result, already narrowed to the approval carrier — plus the
+ * standard locale seat. No injected share: the carrier plus the domain face
+ * above carry the whole behavior surface; the paired command line derives
+ * from useSession in-component.
  */
-export type ApprovalComposerProps = PropsRuntime<'conversation.composer'> & { matched: ApprovalWait }
+export type ApprovalComposerProps =
+  PropsRuntime<'conversation.composer'> & { matched: ApprovalWait } & PropsLocale<'conversation'>
 
 /**
  * Injected share of the chat view entry: the two callbacks whose targets live
@@ -423,10 +427,10 @@ export interface ChatViewInjected {
   forkAt: (seq: number) => void
 }
 
-/** Full chat-view component props: runtime share & the declared toolview/commandview holes' render share & store share & injected share. */
+/** Full chat-view component props: runtime & the declared toolview/commandview holes' render share & store & injected & locale seat. */
 export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'> & PropsRenderSlots<'conversation.chat.toolview' | 'conversation.chat.commandview'>
-  & PropsStore<ChatStore> & ChatViewInjected
+  & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /**
  * Injected share of the details slot: the panel is otherwise a pure reader of
@@ -437,8 +441,8 @@ export interface DetailsInjected {
   closeDetails: () => void
 }
 
-/** Full details-slot component props: selection arrives through the shared store, call material through useSession. */
-export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected
+/** Full details-slot component props: selection rides the shared store, call material useSession; copy the locale seat. */
+export type DetailsSlotProps = PropsRuntime<'details'> & PropsStore<ChatStore> & DetailsInjected & PropsLocale<'conversation'>
 
 /** Owner share common to the hero / New-Session Workspace pickers. */
 export interface EmptyWorkspaceOwnerProps {

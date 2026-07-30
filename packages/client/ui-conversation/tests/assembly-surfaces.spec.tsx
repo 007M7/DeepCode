@@ -82,7 +82,9 @@ const LAYOUT_CHILDREN = {
 async function bench(nodes: ToolResultNode[], opts?: { blank?: boolean }) {
   const runtime = await SlotTestRuntime.create()
   runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-  runtime.provide('locale', new LocaleService(runtime.ctx))
+  const locale = new LocaleService(runtime.ctx)
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
   await runtime.sessions.add({
     id: SID,
     summary: { title: 'S', displayTitle: 'S', cwd: '/proj' },
@@ -116,7 +118,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
     // (default-collapsed: the header summary shows; rows appear on expand).
     const panel = view.container.querySelector('[data-testid="todo-panel"]')
     expect(panel).not.toBeNull()
-    expect(panel!.textContent).toContain('1/3 tasks · 1 in progress')
+    expect(panel!.textContent).toContain('1/3 项任务 · 1 项进行中')
     fireEvent.click(panel!.querySelector('button')!)
     expect([...panel!.querySelectorAll('li')].map(li => li.getAttribute('data-status')))
       .toEqual(['completed', 'in_progress', 'pending'])
@@ -162,7 +164,9 @@ describe('resident composer', () => {
   it('renders the locked view state while no session exists at all', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    runtime.provide('locale', new LocaleService(runtime.ctx))
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     await runtime.root.declare(LAYOUT_CHILDREN, AppRoot)
     await runtime.mount({ inject: [...inject], apply })
     const view = runtime.renderRoot()
@@ -171,7 +175,7 @@ describe('resident composer', () => {
     const textarea = view.container.querySelector('textarea')
     expect(textarea).not.toBeNull()
     expect(textarea!.disabled).toBe(true)
-    expect(view.getByRole('button', { name: 'Choose workspace' })).toBeTruthy()
+    expect(view.getByRole('button', { name: '选择工作区' })).toBeTruthy()
     await runtime.dispose()
   })
 
@@ -204,7 +208,9 @@ describe('prompt rejection through the assembled composer', () => {
   it('renders the promptError alert strip and keeps the draft in the machine', async () => {
     const runtime = await SlotTestRuntime.create()
     runtime.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
-    runtime.provide('locale', new LocaleService(runtime.ctx))
+    const locale = new LocaleService(runtime.ctx)
+    runtime.provide('locale', locale)
+    runtime.slots.installLocale(locale)
     const prompt = vi.fn<ISession['prompt']>(async () => ({
       ok: false, error: { code: 'agent-busy', message: 'prompt rejected before acceptance', details: { reason: 'busy' } },
     }))
@@ -245,7 +251,7 @@ describe('title projection across assembled surfaces', () => {
     const runtime = await bench([])
     const view = runtime.renderRoot()
     // The strict session header breadcrumb reads useSessions ancestry.
-    const crumb = within(view.container.querySelector('[aria-label="Session hierarchy"]') as HTMLElement)
+    const crumb = within(view.container.querySelector('[aria-label="会话层级"]') as HTMLElement)
     expect(crumb.getByText('S')).toBeTruthy()
 
     await runtime.sessions.updateSummary(SID, { displayTitle: '修订标题', title: '修订标题' })

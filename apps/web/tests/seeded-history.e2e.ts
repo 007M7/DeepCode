@@ -147,7 +147,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
         }],
       },
     }))
-    await page.getByRole('button', { name: '上下文注入' }).waitFor({ timeout: 10_000 })
+    await page.getByRole('button', { name: 'Context injection' }).waitFor({ timeout: 10_000 })
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the historical conversation aria golden', async () => {
@@ -165,7 +165,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
 
   it.skipIf(MODE === 'record')('matches the Figma context disclosure geometry', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-context-injection'))
-    const disclosure = page.getByRole('button', { name: '上下文注入' })
+    const disclosure = page.getByRole('button', { name: 'Context injection' })
     expect(await disclosure.getAttribute('aria-expanded')).toBe('false')
     const collapsedIcon = disclosure.locator('svg').first()
     const collapsedIconBox = await collapsedIcon.boundingBox()
