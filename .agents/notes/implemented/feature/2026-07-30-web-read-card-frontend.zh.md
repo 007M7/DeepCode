@@ -20,11 +20,17 @@ Status: implemented
 
 整行折叠/展开（把每个工具调用默认折叠）是一个单独的后续改动，它会一次性翻转每张常驻卡片；本 note 的卡片是常驻的，与它旁边的终端卡片一致。
 
+**读取卡片的语法按需 lazy 加载，只有 boot 三种保持 eager。** `highlight.ts` 是 `ui-primitives` 在每次 Web 启动都加载的平台 seed，其预热会无条件构建 shiki 单例。读取卡片的 `langFromPath` 提示覆盖完整的源码/配置/标记扩展集（python、rust、yaml、html……）；把它们全部 eager 注册会给启动 chunk 增加约 1.6 MB 的语法模块、并把它们的同步初始化摊给每个会话，包括从不打开读取卡片的会话。因此只有每个会话本就渲染的三种语法 —— TypeScript、shell、JSON（markdown 围栏与 `run_code` 语言）—— 在 boot 时加载。每种读取卡片扩展语法置于 `LAZY_GRAMMARS` 中一个动态 `import()` 之后，以其别名解析到的语法 id 为键。对某个 lazy 语言首次调用 `highlightLines`/`highlightToHtml` 时，`ensureGrammar` 启动 import（仅一次）并返回未就绪，于是卡片该帧渲染纯文本；import 解析后用 `loadLanguageSync` 注册该语法、递增一个加载计数、并通知订阅者。`ReadBlock` 与 `CodeBlock` 通过 `useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount)` 订阅，因此语法就绪的那一刻卡片就重渲染带上高亮。未知/缺省语言仍同步返回 undefined（纯文本，绝不报错）。
+
+**空窗口的复制控件被隐藏，与 `TerminalBlock` 对齐。** 成功读取一个空文件会返回 `lines: []`、`totalLines: 0`，且 `presentResult` 仍投出 `card: 'read'`，因此空窗口分支是可达的 —— 读取卡片并非如早前草稿所假设的对空结果不可达。故 `ReadBlock` 在 `lines` 为空时隐藏复制控件，正如 `TerminalBlock` 对空输出隐藏复制，使按钮绝不会用空字符串清空剪贴板。
+
 ## Alternatives considered
 
 **给 `CodeBlock` 加一个可选行号栏和 `startLine`。** 拒绝：这会把读取专属的行号栏、窗口计数提示和高度上限强加给共享 `CodeBlock` 的每个 markdown 围栏和 `run_code` 程序体，对那些调用者毫无好处。真正共享的界面是 shiki 语法单例，两个 block 都通过 `highlight.ts` 复用它；围绕它的外壳各不相同（读取有行号栏和窗口提示，围栏两者都没有），因此第二个小 primitive 是正确的切分 —— 正如 `TerminalBlock` 是基于同一套 token 的第二个 primitive，而不是 `CodeBlock` 的一种模式。
 
 **复用 `highlightToHtml`，用 CSS counter 注入行号。** 拒绝：shiki 产出的单 `<pre>` HTML 没有可供行号栏挂上文件行号的逐行边界（窗口读取的行号从大于 1 处开始，不是简单的 CSS counter 自增），而从 HTML 里把行号解析回来又很脆弱。`codeToTokens` 直接给出逐行 token 结构。
+
+**在 boot 预热里 eager 注册所有读取卡片语法。** 拒绝：这会给每次 Web 启动摊上约 1.6 MB 语法模块及其同步初始化，只为一张多数会话从不打开的卡片。lazy 路径的代价是某个语言首次被读取时的一帧纯文本，随后在语法加载的重渲染里高亮；boot 代价只为每个会话本就渲染的三种语法付出。
 
 ## Consequences
 
@@ -34,11 +40,11 @@ Web 聊天里的读取行现在常驻承载文件内容，是相对纯摘要行�
 
 ## Testing
 
-`packages/client/ui-primitives/tests/read-block.spec.tsx` 固定 primitive 与 token 路径：`highlightLines` 的逐行 css-variables 运行、它对尾部终止行的丢弃与真正空白末行的情形、以及它对未知/缺省语言返回 `undefined`；还有 `ReadBlock` 的带行号行保留文件自身编号、高亮与纯文本两条内容分支、横幅（标签、语言、仅当读取是窗口时的计数提示）、头/尾高度上限及其 `aria-expanded` 切换、以及复制控件在接受与拒绝两条剪贴板路径上写入窗口原始文本。`ReadBlock.tsx` 与 `highlight.ts` 均保持每文件 100% 覆盖（后者由本 spec 加上覆盖 `highlightToHtml` 的 `code-block.spec.tsx` 共同达成）。
+`packages/client/ui-primitives/tests/read-block.spec.tsx` 固定 primitive 与 token 路径：`highlightLines` 的逐行 css-variables 运行、它对尾部终止行的丢弃与真正空白末行的情形、它对未知/缺省语言返回 `undefined`、以及它的 lazy 路径（lazy 语法首次触碰返回纯文本，import 注册且订阅者触发后再高亮）；还有 `ReadBlock` 的带行号行保留文件自身编号、高亮与纯文本两条内容分支、横幅（标签、语言、仅当读取是窗口时的计数提示）、头/尾高度上限及其 `aria-expanded` 切换、复制控件在接受与拒绝两条剪贴板路径上写入窗口原始文本、以及空窗口分支隐藏复制控件。`code-block.spec.tsx` 覆盖 `highlightToHtml`，含它对每种读取卡片语法的 lazy 路径（每个动态 import thunk 各触碰一次）。`ReadBlock.tsx`、`highlight.ts`（及 `CodeBlock.tsx`）在这两个 spec 上均保持每文件 100% 覆盖。
 
 `packages/client/ui-conversation/tests/read-card.spec.tsx` 固定每个渲染点的接线：`readCardModel` 的派生与每条 null 分支（运行中读取、无视图、通用视图、未知卡片）、结果标题替换化简后的路径、路径相对工作区的化简、冻结行数组的复制而非别名；`GenericToolCard` 回退中与 keyed `ReadRow` 中的常驻卡片（外加其路径链接打开宿主、其 running/error/stopped 状态、以及其 `read` 键注册）；还有面板 Output 区段以全高渲染读取卡片同时保留 JSON Input 区段，含运行中读取占位与非读取摊平 pre 两条分支。该文件位于覆盖 `exclude` 列表（`ui-conversation/src/*`），因此不承受门槛压力。
 
-fixture（`packages/client/connection/src/client/fixture.ts`）增加 turn 66，一次 `read` 调用，其结果视图是窗口读取（行号从文件行 41 起、`totalLines` 180、`ts` 提示），使内置启动快照和实时 `?fixture` 服务器展示带行号、高亮和计数提示的读取卡片。它命名为 `read` 以驱动 keyed `ReadRow`；渲染点回退行已由 turn 64 的 `run_code` 样例中的读取子派发覆盖。它排在 todo turn（现为 67）之前，与终端样例同因：常驻计划在下一次 `turn/start` 退场。
+fixture（`packages/client/connection/src/client/fixture.ts`）增加 turn 66，一次 `read` 调用，其结果视图是窗口读取（行号从文件行 41 起、`totalLines` 180、`ts` 提示），使内置启动快照和实时 `?fixture` 服务器展示带行号、高亮和计数提示的读取卡片。它命名为 `read` 以驱动 keyed `ReadRow`。turn 64 的 `run_code` 样例中的嵌套读取子派发并不驱动渲染点回退读取卡片：`session.ts` 把它们折叠为 `resultView: null`，因此它们只覆盖回退行的通用行形状，而非回退行内的读取卡片；回退行读取卡片由 `read-card.spec.tsx` 的 `web_fetch` 用例钉住。turn 66 排在 todo turn（现为 67）之前，与终端样例同因：常驻计划在下一次 `turn/start` 退场。
 
 ## Related
 

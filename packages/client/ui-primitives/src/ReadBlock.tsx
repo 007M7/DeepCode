@@ -9,10 +9,15 @@
 // two cards collapse a long body at the same place. Colors resolve through
 // --shiki-*/--dsw-* tokens.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { writeClipboard } from './clipboard.ts'
-import { highlightLines, type HighlightSpan } from './markdown/highlight.ts'
+import {
+  grammarLoadCount,
+  highlightLines,
+  subscribeGrammarLoaded,
+  type HighlightSpan,
+} from './markdown/highlight.ts'
 import css from './ReadBlock.module.css'
 
 /**
@@ -75,9 +80,14 @@ export function ReadBlock({
   // Highlighting the whole window in one call (not line by line) keeps grammar
   // context across lines — a multi-line string or comment stays one construct.
   const raw = useMemo(() => lines.map(line => line.text).join('\n'), [lines])
+  // Re-render when a lazy grammar finishes loading, so a read card that showed
+  // plain text while its language's grammar imported picks up highlighting. The
+  // snapshot value is opaque; only its change across renders drives the memo.
+  const loaded = useSyncExternalStore(subscribeGrammarLoaded, grammarLoadCount, grammarLoadCount)
   // Per-line highlighted runs aligned 1:1 with `lines`; undefined for an
-  // unknown/absent language, when every line renders as bare text.
-  const highlighted = useMemo(() => highlightLines(raw, lang), [raw, lang])
+  // unknown/absent (or not-yet-loaded) language, when every line renders as
+  // bare text.
+  const highlighted = useMemo(() => highlightLines(raw, lang), [raw, lang, loaded])
   const [expanded, setExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -131,16 +141,15 @@ export function ReadBlock({
             <span className={css.count}>{`显示 ${lines.length} / ${totalLines} 行`}</span>
           )}
           <span className={css.lang}>{lang ?? ''}</span>
-          {/* No empty-window guard around the copy control, unlike TerminalBlock
-              (which hides copy on empty output): a read card is reached only for
-              a settled read whose result view declares `card:'read'`, and the
-              read tool projects that view solely for a parsed envelope with a
-              line window. An empty or non-envelope result falls back to the
-              generic card upstream (readCardModel returns null), so `lines` is
-              never empty here — the branch TerminalBlock needs cannot arise. */}
-          <button type="button" className={css.copyButton} onClick={onCopy}>
-            {copied ? '复制成功' : '复制'}
-          </button>
+          {/* Hide copy on an empty window, matching TerminalBlock's empty-output
+              guard: a successful read of an empty file returns lines: [] with
+              card:'read', so this branch is reachable, and copying then would
+              wipe the clipboard with an empty string. */}
+          {lines.length > 0 && (
+            <button type="button" className={css.copyButton} onClick={onCopy}>
+              {copied ? '复制成功' : '复制'}
+            </button>
+          )}
         </div>
       </div>
       <div className={css.body}>

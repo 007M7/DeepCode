@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { DEFAULT_READ_MAX_LINES, ReadBlock, type ReadBlockLine } from '../src/index.ts'
-import { highlightLines } from '../src/markdown/highlight.ts'
+import { grammarLoadCount, highlightLines, subscribeGrammarLoaded } from '../src/markdown/highlight.ts'
 
 afterEach(cleanup)
 
@@ -70,6 +70,25 @@ describe('highlightLines', () => {
   it('returns undefined for an unknown or absent language', () => {
     expect(highlightLines('x', 'cobol')).toBeUndefined()
     expect(highlightLines('x', undefined)).toBeUndefined()
+  })
+
+  it('loads a lazy grammar on first use: plain first, highlighted after it registers', async () => {
+    // A boot grammar (ts) is ready synchronously; a lazy grammar (python) is
+    // not, so the first call renders plain and imports the grammar, and a
+    // subscriber fires once it registers, after which the same call highlights.
+    let notified = 0
+    const stop = subscribeGrammarLoaded(() => { notified += 1 })
+    // First touch: grammar not loaded yet, so plain fallback while it imports.
+    expect(highlightLines('def f(): pass', 'py')).toBeUndefined()
+    // The import + loadLanguageSync resolve on a microtask; wait for the notify.
+    await vi.waitFor(() => { expect(notified).toBeGreaterThan(0) })
+    expect(grammarLoadCount()).toBeGreaterThan(0)
+    const result = highlightLines('def f(): pass', 'py')
+    expect(result).not.toBeUndefined()
+    // `def` is a python keyword and carries a --shiki-* color once highlighted.
+    const keyword = result!.flat().find(span => span.text === 'def')
+    expect(keyword?.style?.color).toContain('var(--shiki-')
+    stop()
   })
 })
 
@@ -211,5 +230,12 @@ describe('ReadBlock copy', () => {
   it('merges className onto the wrapper', () => {
     const view = render(<ReadBlock className="x" label="a" lines={lines(1)} totalLines={1} />)
     expect(view.container.firstElementChild?.classList.contains('x')).toBe(true)
+  })
+
+  it('hides the copy control for an empty window so it cannot wipe the clipboard', () => {
+    // A successful read of an empty file settles to lines: [] with card:'read',
+    // so this branch is reachable; copying then would clear the clipboard.
+    const view = render(<ReadBlock label="empty.ts" lines={[]} totalLines={0} />)
+    expect(view.queryByRole('button', { name: '复制' })).toBeNull()
   })
 })
