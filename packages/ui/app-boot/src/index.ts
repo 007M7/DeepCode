@@ -160,16 +160,46 @@ export interface FailLoudProcess {
   exit(code: number): void
 }
 
+// Loader rc.5 derives and drops a rejected promise after a fiber fails. Keep
+// exact reasons already folded into the boot diagnostic visible through the
+// next process rejection checkpoint so the process guard can coalesce them.
+const assembledActivationRejections = new Map<unknown, number>()
+
+function retainAssembledRejection(reason: unknown): void {
+  assembledActivationRejections.set(reason, (assembledActivationRejections.get(reason) ?? 0) + 1)
+}
+
+function releaseAssembledRejection(reason: unknown): void {
+  const count = assembledActivationRejections.get(reason)
+  if (count === undefined || count === 1) {
+    assembledActivationRejections.delete(reason)
+  } else {
+    assembledActivationRejections.set(reason, count - 1)
+  }
+}
+
+async function observeLoaderRejectionCheckpoint(reasons: readonly unknown[]): Promise<void> {
+  for (const reason of reasons) retainAssembledRejection(reason)
+  try {
+    await new Promise<void>(resolve => setImmediate(resolve))
+  } finally {
+    for (const reason of reasons) releaseAssembledRejection(reason)
+  }
+}
+
 /**
  * Install before boot to turn a late unhandled plugin-init rejection into one
- * labelled stderr diagnostic and `exit(1)`. Stdout remains untouched for ACP;
- * the returned function removes the handler.
+ * labelled stderr diagnostic and `exit(1)`. A rejection already included by
+ * {@link assertEntriesActivated} is ignored during its process checkpoint;
+ * every other rejection remains fatal. Stdout remains untouched for ACP; the
+ * returned function removes the handler.
  * @param binName - the diagnostic prefix on the fatal-failure line.
  * @param proc - the process slice to register on; tests inject a fake.
  * @returns the uninstaller that removes the rejection handler.
  */
 export function installFailLoud(binName: string, proc: FailLoudProcess = process): () => void {
   const handler = (err: unknown): void => {
+    if (assembledActivationRejections.has(err)) return
     proc.stderr.write(`${binName}: fatal load failure: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`)
     proc.exit(1)
   }
@@ -212,17 +242,20 @@ function formatActivationError(error: unknown): string {
  * @param ctx - the settled context whose Loader entries to audit.
  * @param binName - the diagnostic prefix on the thrown error.
  * @returns nothing when every enabled entry is active.
- * @throws when an entry failed to import, rejected during activation, or did not become active.
+ * @throws after one process rejection checkpoint when an entry failed to
+ * import, rejected during activation, or did not become active.
  */
 export async function assertEntriesActivated(ctx: Context, binName: string): Promise<void> {
   assertEntriesLoaded(ctx, binName)
   const failures: string[] = []
+  const rejectionReasons: unknown[] = []
   for (const entry of ctx.loader.entries()) {
     const fiber = entry.fiber
     if (fiber === undefined || entry.disabled) continue
     try {
       await fiber.await()
     } catch (error) {
+      rejectionReasons.push(error)
       failures.push(`${entry.options.name}: ${formatActivationError(error)}`)
       continue
     }
@@ -237,6 +270,9 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
     }
   }
   if (failures.length > 0) {
+    if (rejectionReasons.length > 0) {
+      await observeLoaderRejectionCheckpoint(rejectionReasons)
+    }
     const noun = failures.length === 1 ? 'entry' : 'entries'
     throw new Error(`${binName}: ${String(failures.length)} ${noun} did not activate\n${failures.join('\n')}`)
   }
@@ -250,11 +286,13 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
  * bootstrap include is therefore statically imported and mounted as the
  * `cordis:include` builtin, loading through the ambient module pipeline
  * (vite/tsx/plain ESM) while the included tree's own specifiers stay
- * config-relative. A missing fiber rejects here; a later init rejection is
- * rethrown with its original stack by {@link assertEntriesActivated}; later
- * unhandled rejections remain covered by {@link installFailLoud}. Built bins
- * need the Loader's native helper for bare plugin specifiers; relative
- * specifiers do not.
+ * config-relative. The package build embeds Include while leaving Loader
+ * external, so the built include tree and host share one Loader peer. A
+ * missing fiber rejects here; a later init rejection is rethrown with its
+ * original stack by {@link assertEntriesActivated}; later unhandled
+ * rejections remain covered by {@link installFailLoud}. Built bins need the
+ * Loader's native helper for bare plugin specifiers; relative specifiers do
+ * not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).

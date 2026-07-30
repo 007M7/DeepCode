@@ -170,29 +170,17 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 
 describe('headless stream-json snapshots', () => {
   it('prints the original Loader activation error through the assembled one-shot app', async () => {
-    const label = 'headless startup activation error snapshot'
-    let failure: unknown
-    try {
-      await runLoaderSmoke({
-        label,
-        tempDirPrefix: 'headless-snapshot-startup-error-',
-        binScript,
-        configPath: startupFailureConfigPath,
-        binArgs: ['--config', startupFailureConfigPath, '--output-format', 'stream-json', 'unreachable task'],
-        tsconfigPath,
-      })
-    } catch (error) {
-      failure = error
-    }
-    expect(failure).toBeInstanceOf(Error)
-    const message = (failure as Error).message
-    const prefix = `${label} exited 1. stdout:\n`
-    const stderrMarker = '\nstderr:\n'
-    expect(message.startsWith(prefix)).toBe(true)
-    const stderrAt = message.indexOf(stderrMarker, prefix.length)
-    expect(stderrAt).toBeGreaterThanOrEqual(prefix.length)
-    expect(message.slice(prefix.length, stderrAt)).toBe('')
-    await expect(message.slice(stderrAt + stderrMarker.length)).toMatchFileSnapshot(startupFailureExpected)
+    const result = await runLoaderSmoke({
+      label: 'headless startup activation error snapshot',
+      tempDirPrefix: 'headless-snapshot-startup-error-',
+      binScript,
+      configPath: startupFailureConfigPath,
+      binArgs: ['--config', startupFailureConfigPath, '--output-format', 'stream-json', 'unreachable task'],
+      tsconfigPath,
+      expectedExitCode: 1,
+    })
+    expect(result.stdout).toBe('')
+    await expect(result.stderr).toMatchFileSnapshot(startupFailureExpected)
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('retries a transient provider failure through the one-shot app', async () => {

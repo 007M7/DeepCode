@@ -17,9 +17,9 @@
 | `addHarnessSourceSection(ctx, sourceRoot)` | 添加全局 `harness:source` 提示词段落（顺序紧随 harness 身份、位于 persona 之前），告知 agent（智能体）自身源代码 checkout 的磁盘路径；如果已启动树没有此项服务，则不执行操作并返回 `undefined`。这里的服务是 `systemPrompt`；该段落注册到它的 fiber，因此开发环境 HMR（热模块替换）重新加载系统提示词后，它会消失直至下次启动 |
 | `HARNESS_SOURCE_SECTION` | `'harness:source'` 段落名称，供 `addHarnessSourceSection` 注册使用 |
 
-Loader 树结算不会向调用方传播两类故障，因此需要分别保护。插件导入失败会留下没有 fiber 的配置项，`assertEntriesLoaded` 将其转换为 `boot()` rejection，并列出每个未解析插件。插件回调或配置失败则会留下失败的 fiber，因为 `loader.await()` 只结算生命周期任务，不传播该错误；`assertEntriesActivated` 会显式等待该 fiber，并把原始错误堆栈写入启动 rejection。`installFailLoud` 继续作为进程级保护，处理启动后逃逸的 rejection。
+Loader 树结算不会向调用方传播两类故障，因此需要分别保护。插件导入失败会留下没有 fiber 的配置项，`assertEntriesLoaded` 将其转换为 `boot()` rejection，并列出每个未解析插件。插件回调或配置失败则会留下失败的 fiber，因为 `loader.await()` 只结算生命周期任务，不传播该错误；`assertEntriesActivated` 会显式等待该 fiber，并把原始错误堆栈写入启动 rejection。抛出错误前，审计会通过一个进程级检查点标记这些 rejection 的确切原因，从而让 `installFailLoud` 将 Loader 的重复通知合并为一次，而所有无关的未处理 rejection 仍然致命。
 
-配置中的裸插件 specifier（`@deepseek-ai/dsh-*`、npm 包（package））通过 Cordis Loader 的内部模块 loader 解析。仓库 bin 会安装 Loader 的可选 peer `node-addon-require-builtin`；外部调用方必须提供该组件，或者把插件安装到普通 Node import 解析可以找到的位置。相对 specifier 无需原生 helper，并以配置目录为基准解析。`dsh` 源码启动器还会将 manifest（元数据清单）声明的 workspace 包映射到其 TypeScript 源码；其配置门禁要求每个 TUI／Web 裸插件都出现在解析所用 manifest 的 `dependencies` 中。bin 的子进程冒烟测试覆盖内部 loader 路径，而本包的单元测试套件会在进程内使用相对 specifier 配置驱动 `boot()`。
+配置中的裸插件 specifier（`@deepseek-ai/dsh-*`、npm 包（package））通过 Cordis Loader 的内部模块 loader 解析。仓库 bin 会安装 Loader 的可选 peer `node-addon-require-builtin`；外部调用方必须提供该组件，或者把插件安装到普通 Node import 解析可以找到的位置。相对 specifier 无需原生 helper，并以配置目录为基准解析。构建后的 `dsh-app-boot` 产物内嵌静态挂载的 Include 实现，但仍将 Loader 保持为外部依赖，因此 include 树与 host 会绑定到同一个 Loader peer。`dsh` 源码启动器还会将 manifest（元数据清单）声明的 workspace 包映射到其 TypeScript 源码；其配置门禁要求每个 TUI／Web 裸插件都出现在解析所用 manifest 的 `dependencies` 中。bin 的子进程冒烟测试覆盖内部 loader 路径，而本包的单元测试套件会在进程内使用相对 specifier 配置驱动 `boot()`。
 
 此包不包含 loader 钩子，也不提供开发模式接口。[`dsh` 应用](../../../apps/cli/README.md)持有自己的 Node 源码启动钩子，并在启动序列中使用这些 helper；构建后的消费方仍使用普通 Node 包解析。
 

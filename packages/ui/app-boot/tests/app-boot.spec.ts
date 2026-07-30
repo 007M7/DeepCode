@@ -135,6 +135,33 @@ describe('installFailLoud', () => {
     uninstallReal()
     expect(process.listenerCount('unhandledRejection')).toBe(before)
   })
+
+  it('does not report an activation rejection shared by entries in the boot audit', async () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc)
+    const error = new Error('assembled activation failure')
+    const audit = assertEntriesActivated({
+      loader: {
+        entries: () => ['broken-a', 'broken-b'].map(name => ({
+          options: { name },
+          fiber: {
+            state: 3,
+            inject: {},
+            ctx: { get: () => undefined },
+            await: async () => { throw error },
+          },
+        })),
+      },
+    } as unknown as Context, NAME)
+    await Promise.resolve()
+    await Promise.resolve()
+    proc.handlers[0]!(error)
+    expect(proc.written).toEqual([])
+    expect(proc.exits).toEqual([])
+    await expect(audit).rejects.toThrow('assembled activation failure')
+    proc.handlers[0]!(error)
+    expect(proc.exits).toEqual([1])
+  })
 })
 
 describe('assertEntriesLoaded', () => {
@@ -298,20 +325,6 @@ describe('boot', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
-  })
-
-  it('reports an activation error from a real Loader fiber instead of its numeric state', async () => {
-    const dir = tmp()
-    writeFileSync(join(dir, 'broken.mjs'), 'export function apply() { throw new Error("real activation failure") }\n')
-    writeFileSync(join(dir, 'cordis.yml'), '- id: broken\n  name: ./broken.mjs\n')
-    let thrown: unknown
-    try {
-      await boot(NAME, join(dir, 'cordis.yml'))
-    } catch (error) {
-      thrown = error
-    }
-    expect(String(thrown)).toContain(`${NAME}: 1 entry did not activate\n./broken.mjs: Error: real activation failure`)
-    expect(String(thrown)).not.toContain('fiber state 3')
   })
 
   it('reports a pending real Loader fiber and the service unresolved in its own context', async () => {
