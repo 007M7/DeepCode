@@ -238,6 +238,21 @@ export interface SessionsApi {
    * one — carried for future rendering; the state change is the feedback). A usage/state error is an
    * RPC error with code command-error; an unrecognized name is an RPC error with code unknown-command.
    */
+  /**
+   * Forks a new session from a completed-turn prefix of the source. `atSeq`
+   * anchors the cut: the boundary is the first `turn/end` at or after it
+   * (a message's fork button passes the message seq, so the fork includes
+   * that whole turn); a boundary past the log end, or an omitted `atSeq`,
+   * falls back to the source's last completed turn. An in-log anchor whose
+   * turn is still open fails with `fork-unavailable` instead of clipping to
+   * an earlier turn. The child inherits the source cwd, latest logged model
+   * target, workspace attachment, and `parentSessionId` lineage; the seed
+   * prefix carries the source title.
+   */
+  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
+  Promise<RpcResponse<{ sessionId: SessionId }>>
+
+  /** Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer. */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 

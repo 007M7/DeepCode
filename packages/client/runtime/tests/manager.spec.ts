@@ -277,6 +277,23 @@ describe('remaining branches', () => {
     expect(manager.getListSnapshot().items[0]).not.toHaveProperty('cwd')
   })
 
+  it('reconciles a fork child published before workspace attachment fails', async () => {
+    const api = new FakeApiClient()
+    api.onFork = () => Promise.resolve(err({
+      code: 'workspace-attach-failed',
+      message: 'forked but unattached',
+      details: { sessionId: S2, workspaceId: 'w1' },
+    } as never))
+    const manager = new SessionManager(api)
+    const result = await manager.fork({ sessionId: S1 })
+    expect(result).toMatchObject({ ok: false, error: { code: 'workspace-attach-failed' } })
+    expect(manager.getListSnapshot().items).toEqual([expect.objectContaining({
+      sessionId: S2,
+      parentSessionId: S1,
+      blank: false,
+    })])
+  })
+
   it('reconciles a preallocated id after an ordinary transport failure', async () => {
     const api = new FakeApiClient()
     api.onCreate = () => Promise.reject(new Error('response lost'))
