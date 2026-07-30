@@ -107,11 +107,32 @@ describe('MessageItem arms', () => {
     expect(view.queryByRole('button', { name: '复制' })).toBeNull()
   })
 
-  it('context and unknown nodes render their JSON rows', () => {
-    const ctxView = render(
+  it('context nodes render a title-only tool row that expands the injected text without labels', () => {
+    const view = render(
+      <MessageItem node={{
+        kind: 'context', seq: 3, source: null,
+        content: [{ type: 'text', text: 'memory line one\nsecond line' }] as never,
+      } as never}
+      />,
+    )
+    const row = view.getByRole('button', { name: /上下文注入/ })
+    // Title-only collapsed row: the injected text stays behind the expand.
+    expect(view.queryByText(/memory line one/)).toBeNull()
+    fireEvent.click(row)
+    expect(view.getByText(/second line/)).toBeTruthy()
+    // Label-less card: the injection is ambient context, not a call's IN payload.
+    expect(view.queryByText('IN')).toBeNull()
+  })
+
+  it('a context node without pure text expands to the full JSON payload', () => {
+    const view = render(
       <MessageItem node={{ kind: 'context', seq: 3, content: [], source: null } as never} />,
     )
-    expect(ctxView.getByText(/上下文注入/)).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: /上下文注入/ }))
+    expect(view.getByText(/"source": null/)).toBeTruthy()
+  })
+
+  it('unknown nodes render their JSON rows', () => {
     const unknownView = render(
       <MessageItem node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )

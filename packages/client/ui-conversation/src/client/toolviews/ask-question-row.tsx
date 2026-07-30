@@ -1,7 +1,7 @@
 // ask_user_question toolview: question-flavored summary row replacing the
 // generic "Tool call" card, registered into the keyed
 // 'conversation.chat.toolview' hole like todo-row. The row composes ToolRow
-// (chrome, running sweep, leading expansion) and swaps in the interaction
+// (chrome, running sweep, whole-row expand) and swaps in the interaction
 // outcome — `waiting` while pending, answered-count once settled, `cancelled`
 // when the user dismissed the whole set — because the questions themselves
 // render in the composer takeover.
@@ -37,8 +37,9 @@ function answeredSummary(text: string): string | null {
   return `${answered}/${answers.length} answered`
 }
 
-/** One-line question-interaction row (leading toggle expands the raw args). */
-export function AskQuestionRow({ toolName, block }: ToolRowProps) {
+/** One-line question-interaction row (the whole row toggles the call's
+ *  Input/Output sections, ToolRow's unified expand). */
+export function AskQuestionRow({ toolName, block, inspect }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   // Composer verdicts settle the call as specific UserInteractionErrors
   // (apiproxy ask_user_question handler): 'ASK_CANCELLED' is the user's own
@@ -68,7 +69,9 @@ export function AskQuestionRow({ toolName, block }: ToolRowProps) {
       title="Ask question"
       summary={summary}
       body={model.body}
+      output={model.output}
       state={state}
+      inspect={inspect}
     />
   )
 }

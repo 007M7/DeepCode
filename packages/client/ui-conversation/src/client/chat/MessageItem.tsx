@@ -1,16 +1,19 @@
 // MessageItem: the four simple node kinds — user bubble (right-aligned, with
 // clock + copy / branch / edit IconActions), steering (badged bubble), context
-// injection and unknown-surface JSON rows. Props are frozen node slices off
-// the snapshot cache; memo holds across streaming because unchanged nodes
-// keep their references.
+// injection (a ToolRow-chromed collapsible row: the injection reads as "the
+// harness read something into context", so it borrows the read variant's icon
+// and the IN-card expanded body) and unknown-surface JSON rows. Props are
+// frozen node slices off the snapshot cache; memo holds across streaming
+// because unchanged nodes keep their references.
 
 import { memo } from 'react'
 import type { ReactNode } from 'react'
 import type {
   ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconBrowseOutline16, JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
 import { MessageIconActions } from './MessageIconActions.tsx'
+import { ToolRow } from './ToolRow.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
@@ -92,12 +95,29 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
         </div>
       )
     }
-    case 'context':
+    case 'context': {
+      // Pure-text injections show their text; anything with non-text blocks
+      // (or nothing at all) keeps the full JSON payload so no material is lost.
+      // Title-only collapsed row (no summary), label-less expanded card: the
+      // injection is ambient context, not a call's input.
+      const { text, rest } = contentText(node.content)
+      const body = rest.length === 0 && text !== ''
+        ? text
+        : JSON.stringify({ content: node.content, source: node.source }, null, 2)
       return (
         <div className={css.contextRow}>
-          <JsonBlock label="上下文注入" payload={{ content: node.content, source: node.source }} />
+          <ToolRow
+            variant="read"
+            icon={<IconBrowseOutline16 size={14} />}
+            title="上下文注入"
+            summary=""
+            body={body}
+            plainBody
+            state="ok"
+          />
         </div>
       )
+    }
     default:
       return (
         <div className={css.contextRow}>

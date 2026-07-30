@@ -12,17 +12,6 @@ import type { TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
 import { resolveToolPath, type ToolCallBlock } from './tool-call-model.ts'
 
 /**
- * Output lines the chat row's expanded terminal body shows before collapsing
- * the middle — half the primitive's own default, which the details panel
- * keeps. A chat row is a summary surface inside the message flow: the flow
- * must stay scannable across many calls, while the details panel is the
- * single-call reading surface. A design constant of this UI's row geometry,
- * not a deployment choice, so it is fixed here rather than a plugin Config
- * field.
- */
-export const CHAT_TERMINAL_MAX_LINES = 8
-
-/**
  * The {@link TerminalBlock} props this derivation owns. Picked off the
  * primitive's props so the two stay in step; `home` is absent because the web
  * client has no home path for the session host (a cwd renders as its last
@@ -42,6 +31,20 @@ export interface TerminalCardModel {
    * a row then keeps its args-derived summary.
    */
   description: string | undefined
+}
+
+/**
+ * True when a settled terminal card reports a failing exit — a non-zero code
+ * or a terminating signal. The bash tool settles a failing command as a
+ * completed call (`isError` stays false: the exit status is result data), so
+ * this is the collapsed row's only failure signal; without it the red exit
+ * pill would be visible only after expanding the card.
+ * @param model - a derived terminal card.
+ * @returns whether the card's exit status is a failure.
+ */
+export function terminalFailed(model: TerminalCardModel): boolean {
+  const { exitCode, signal, running } = model.card
+  return running !== true && ((exitCode !== undefined && exitCode !== 0) || signal !== undefined)
 }
 
 /**

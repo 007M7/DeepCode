@@ -1,10 +1,10 @@
 // todo_write toolview: plan-flavored summary row replacing the generic
 // "Tool call" card, registered into the keyed 'conversation.chat.toolview'
 // hole like the bash sample (a product registration, not a sample). The row
-// composes ToolRow (chrome, running sweep, leading expansion) and swaps in a
+// composes ToolRow (chrome, running sweep, whole-row expand) and swaps in a
 // summary of the written list (counts + active item) from the call args; the
 // durable list itself renders in the TodoPanel above the composer, so the
-// row stays one line.
+// row stays one line until expanded.
 
 import { IconChecklistOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { Context } from 'cordis'
@@ -40,10 +40,11 @@ function summarize(argsRaw: string): string | null {
     : head
 }
 
-/** One-line plan update row (leading toggle expands the raw args). Non-ok
- *  execution states keep the shared row's dot semantics — a cancelled call
- *  wrote no todo/write, so it must not read as a completed update. */
-export function TodoRow({ toolName, block }: ToolRowProps) {
+/** One-line plan update row (the whole row toggles the call's Input/Output
+ *  sections, ToolRow's unified expand). Non-ok execution states keep the
+ *  shared row's dot semantics — a cancelled call wrote no todo/write, so it
+ *  must not read as a completed update. */
+export function TodoRow({ toolName, block, inspect }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const argsRaw = ('kind' in block ? block.call?.argsRaw : block.argsRaw) ?? ''
   const summary = summarize(argsRaw) ?? model.summary
@@ -55,7 +56,10 @@ export function TodoRow({ toolName, block }: ToolRowProps) {
       title="更新任务清单"
       summary={summary}
       body={model.body}
+      output={model.output}
+      errorSummary={model.errorSummary}
       state={model.state}
+      inspect={inspect}
     />
   )
 }

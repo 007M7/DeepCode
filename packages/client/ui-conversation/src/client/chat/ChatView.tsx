@@ -46,6 +46,8 @@ function scrollerOf(from: HTMLElement): HTMLElement {
 
 type OpenFile = (path: string) => void
 
+type InspectCall = (callId: string) => void
+
 /** The declared toolview hole's render share (stable framework binding, passed through memoized rows). */
 type RenderToolRow = ChatViewSlotProps['renderSlot']
 
@@ -57,18 +59,20 @@ type UseConversation = SnapshotSelectorHook<ConversationSnapshot>
  *  top-level call (same registrations, same fallback), nested by the parent.
  *  A started-but-unsettled sub-call arrives as the RunningToolCall shape and
  *  renders the running state exactly as a native in-flight row. */
-const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd }: {
+const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, selected, cwd, inspectCall }: {
   renderSlot: RenderToolRow
   node: CodeSubCall
   openFile: OpenFile
   selected: boolean
   cwd: string | undefined
+  inspectCall: InspectCall
 }) {
   const settled = 'kind' in node
   const toolName = settled ? node.call?.name ?? '' : node.name
   const owner = useMemo(() => ({
     callId: node.callId, toolName, block: node, openFile, cwd,
-  }), [node, toolName, openFile, cwd])
+    inspect: () => { inspectCall(node.callId) },
+  }), [node, toolName, openFile, cwd, inspectCall])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -85,7 +89,7 @@ const SubCallRow = memo(function SubCallRow({ renderSlot, node, openFile, select
  *  renders its logged sub-dispatches as always-visible indented rows —
  *  each one the same keyed-slot dispatch as a native top-level call. */
 const CallRow = memo(function CallRow({
-  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd,
+  renderSlot, callId, toolName, block, openFile, selected, subCalls, selectedCallId, cwd, inspectCall,
 }: {
   renderSlot: RenderToolRow
   callId: string
@@ -100,10 +104,12 @@ const CallRow = memo(function CallRow({
   selectedCallId?: string | undefined
   /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
+  inspectCall: InspectCall
 }) {
   const owner = useMemo(() => ({
     callId, toolName, block, openFile, cwd,
-  }), [callId, toolName, block, openFile, cwd])
+    inspect: () => { inspectCall(callId) },
+  }), [callId, toolName, block, openFile, cwd, inspectCall])
   return (
     <div className={css.callRow} data-selected={selected || undefined}>
       {renderSlot('conversation.chat.toolview', owner, {
@@ -120,6 +126,7 @@ const CallRow = memo(function CallRow({
               openFile={openFile}
               selected={node.callId === selectedCallId}
               cwd={cwd}
+              inspectCall={inspectCall}
             />
           ))}
         </div>
@@ -129,7 +136,7 @@ const CallRow = memo(function CallRow({
 })
 
 /** Consecutive tool results as one step-run group (uniform 16px rhythm). */
-const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd }: {
+const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selectedCallId, codeDispatches, cwd, inspectCall }: {
   renderSlot: RenderToolRow
   results: readonly ToolResultNode[]
   openFile: OpenFile
@@ -139,6 +146,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   /** Session workspace root for path-relative summaries. */
   cwd: string | undefined
+  inspectCall: InspectCall
 }) {
   return (
     <div className={css.toolGroup}>
@@ -154,6 +162,7 @@ const ToolGroup = memo(function ToolGroup({ renderSlot, results, openFile, selec
           subCalls={codeDispatches.get(node.callId)}
           selectedCallId={selectedCallId}
           cwd={cwd}
+          inspectCall={inspectCall}
         />
       ))}
     </div>
@@ -230,7 +239,9 @@ function StreamingTail({ useSession, onGrow }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder }: ChatViewSlotProps) {
+export function ChatView({
+  useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, inspectCall, chatScroll,
+}: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
@@ -274,10 +285,20 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     /* v8 ignore next -- ref-null guard: React attaches the ref before layout effects run. */
     if (local === null) return
     const el = scrollerOf(local)
-    // Open completed: jump to the bottom once.
+    // Open completed: jump to the bottom once — unless a scroll position
+    // survives from a previous mount (view-tab switch away and back), which
+    // is restored instead of snapping the reader back to the floor.
     if (openState === 'open' && !openedRef.current) {
       openedRef.current = true
-      toBottom(el)
+      const saved = chatScroll.read()
+      if (saved === null) {
+        toBottom(el)
+      } else {
+        el.scrollTop = saved
+        const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
+        atBottomRef.current = isAtBottom
+        setAtBottom(isAtBottom)
+      }
       firstSeqRef.current = firstSeq
       lastKeyRef.current = lastKey
       followSigRef.current = followSig
@@ -315,6 +336,9 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_THRESHOLD + 1
     atBottomRef.current = isAtBottom
     setAtBottom(isAtBottom)
+    // Continuous save (unmount happens after ref detach, so saving there is
+    // too late); pinned-to-bottom clears so a remount keeps following.
+    chatScroll.save(isAtBottom ? null : el.scrollTop)
   }
 
   // Bind scroll to the resolved scrollport (host or local) once per mount.
@@ -365,6 +389,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           selectedCallId={inGroup ? selectedCallId : undefined}
           codeDispatches={codeDispatches}
           cwd={cwd}
+          inspectCall={inspectCall}
         />
       )
     }
@@ -417,6 +442,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
                   subCalls={codeDispatches.get(call.callId)}
                   selectedCallId={selectedCallId}
                   cwd={cwd}
+                  inspectCall={inspectCall}
                 />
               ))}
             </div>
