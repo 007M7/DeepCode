@@ -77,11 +77,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * The default composer body: a single slot rendered as the composer
      * chain's fallback (decision 20 — a real entry, not a chain rider, so a
      * takeover election hides rather than unmounts it and the textarea DOM
-     * survives). InputBar registers here from this package's apply; its
-     * machine state arrives through the standard provide channel (useInput +
-     * inputActions), the keyboard command face through its own inject.
+     * survives). Session-maybe: the bar stays mounted across the
+     * no-session/session transition — the no-workspace hero renders the SAME
+     * textarea DOM disabled instead of a parallel inert tree — with the
+     * machine hooks absent until a session is current. InputBar registers
+     * here from this package's apply; its machine state arrives through the
+     * standard provide channel (useInput + inputActions), the keyboard
+     * command face through its own inject.
      */
-    'conversation.composer.bar': { kind: 'single'; scope: 'session'; owner: ComposerBarOwnerProps }
+    'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe'; owner: ComposerBarOwnerProps }
     /**
      * The Plan-mode status seat in the composer tool row (left group,
      * right of the access-mode control). Declared by the composer-bar
@@ -244,6 +248,12 @@ export interface ConversationSessionInjected {
 export interface ComposerBarOwnerProps {
   /** Hero = empty-state centered card; composer = resident bottom bar. */
   variant: 'hero' | 'composer'
+  /**
+   * Inert no-workspace state: the bar renders its normal DOM fully disabled
+   * (textarea, add, send) so the workspace pick transitions in place instead
+   * of swapping component trees.
+   */
+  disabled?: boolean
   placeholder?: string
   /** Optional content rendered above the textarea. */
   accessory?: ReactNode
@@ -261,19 +271,24 @@ export interface ComposerBarOwnerProps {
 
 /** Injected share of the composer-bar entry (package-internal faces). */
 export interface ComposerBarInjected {
-  /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane). */
-  keyboard: ComposerKeyboard
-  /** Cancel the in-flight turn. */
-  stop: () => void
+  /** The InputBar-exclusive keyboard/DOM command face (decision 20 private plane); absent with the session. */
+  keyboard: ComposerKeyboard | undefined
+  /** Cancel the in-flight turn; absent with the session. */
+  stop: (() => void) | undefined
   /**
    * Submit one slash-command line against this session's agent (the chrome
-   * controls' write path — the permission chip submits `/permission <preset>`).
+   * controls' write path — the permission chip submits `/permission <preset>`);
+   * absent with the session.
    * Resolves admission: false = rejected/unmatched/transport failure.
    */
-  command: (line: string) => Promise<boolean>
-  /** Locale-aware hint translator for claimed command placeholders. */
+  command: ((line: string) => Promise<boolean>) | undefined
+  /** Locale-aware hint translator for claimed command placeholders (session-independent — always present). */
   translateHint: (key: string) => string
-  /** Registrant hooks compartment: the renderer binds these to useNotices/useLexicon. */
+  /**
+   * Registrant hooks compartment: the renderer binds these to
+   * useNotices/useLexicon (static absent sources without a session — hook
+   * order stays constant).
+   */
   hooks: {
     /** Latest surfaced notice (null after none; seq keys re-render of repeats). */
     notices: ObservableSnapshot<InputNotice | null>

@@ -180,7 +180,9 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     // current selection while it moves into Ungrouped.
     const groupRow = page.locator('[role="treeitem"]').filter({ hasText: workspace.title }).first()
     await groupRow.waitFor({ timeout: 10_000 })
-    const groupSection = groupRow.locator('..')
+    // The header row is wrapped by its HoverCard anchor span, so the section
+    // is the nearest groupSection ancestor, not the immediate parent.
+    const groupSection = groupRow.locator('xpath=ancestor::*[contains(@class, "groupSection")][1]')
     if (await groupSection.locator('[role="treeitem"]').count() < 2) await groupRow.click()
     await expect.poll(
       () => groupSection.locator('[role="treeitem"]').count(),
