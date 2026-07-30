@@ -20,6 +20,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/queue-actions', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
+const COLLAPSED_EXPECTED = join(SNAPSHOT_DIR, 'collapsed.expected.md')
 const EDITING_EXPECTED = join(SNAPSHOT_DIR, 'editing.expected.md')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const MODE = webSnapshotMode()
@@ -80,6 +81,16 @@ describe('web e2e: queue row actions', () => {
       await input.fill(text)
       await input.press('Enter')
     }
+    const queueHeader = page.getByRole('button', { name: '2 条排队消息' })
+    await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
+      .toBe('false')
+    const collapsedSnapshot = await captureStableAria(
+      page,
+      '[class*="centerCol"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(COLLAPSED_EXPECTED, collapsedSnapshot, MODE)
+    await queueHeader.click()
     await expect.poll(
       () => page.getByRole('button', { name: '删除排队消息' }).count(),
       { timeout: 10_000 },
@@ -112,6 +123,9 @@ describe('web e2e: queue row actions', () => {
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps its snapshot inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['editing.expected.md', 'ui.expected.md'])
+    await assertFixtureInventory(
+      SNAPSHOT_DIR,
+      ['collapsed.expected.md', 'editing.expected.md', 'ui.expected.md'],
+    )
   })
 })
