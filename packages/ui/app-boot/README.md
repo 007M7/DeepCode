@@ -10,9 +10,10 @@ Shared boot glue for the app bins ([`dsh`](../../../apps/cli/README.md), [`dsh-c
 | `loadEnv(binName, dir?, warn?)` | Load the gitignored `.env` (Node `process.loadEnvFile`); absent file is fine, an unloadable one warns a single labelled line (default: stderr) |
 | `installFailLoud(binName, proc?)` | Turn a post-`boot()` unhandled Loader rejection into one labelled stderr line + `exit(1)`; returns the uninstaller (for tests) |
 | `assertEntriesLoaded(ctx, binName)` | Throw when a settled tree holds an enabled entry with no fiber, reporting every unresolved plugin name as a Cordis startup failure |
+| `assertEntriesActive(ctx, binName)` | Throw when a settled enabled fiber is not ACTIVE, including missing injected services for PENDING entries |
 | `loadPersonalPatches(binName, dir?)` | Parse the optional `config.yaml` in the Harness home (default [`resolveDshHome()`](../../util/paths/README.md): `$DSH_HOME`, else `~/.dsh`) — a top-level YAML array of include `PatchOptions` (id-targeted config overrides, `insert` lists, `!!js` allowed); absent file → `undefined`, an unreadable/unparsable/non-array file throws |
-| `boot(binName, absoluteConfigPath, patches?, prepare?)` | Create the root context, run optional host preparation before plugins mount (e.g. `ctx.provide(RESUME_SESSION_ID_KEY, id)`), then mount the Loader/include tree, await it, assert entries loaded, and return the root context |
-| `RESUME_SESSION_ID_KEY` | Context key a bin sets through `boot`'s `prepare` hook to hand a resume session id to the booted config; the config reads it as the bare identifier `resumeSessionId` in a `!!js` expression, so resuming needs no environment variable |
+| `loadOverlayPatches(binName, file)` | Parse a required patch-list file with the same shape as personal config; read or parse failures throw a labelled error |
+| `boot(binName, absoluteConfigPath, patches?, prepare?)` | Create the root context, install Loader, run optional host preparation before config-tree entries mount (`prepare` may use Loader and provide launcher-owned context slots such as [`MAIN_SESSION_ID_KEY`](../tui/README.md)), then mount and await the include tree, assert entries loaded and ACTIVE, and return the root context |
 | `addHarnessSourceSection(ctx, sourceRoot)` | Add a global `harness:source` prompt section (ordered just after the harness identity, before the persona) telling the agent the on-disk path to its own source checkout; a no-op returning `undefined` when the booted tree has no `systemPrompt` service. The section is registered against that service's fiber, so a dev HMR reload of the system prompt drops it until the next boot |
 | `HARNESS_SOURCE_SECTION` | The `'harness:source'` section name `addHarnessSourceSection` registers under |
 
@@ -24,10 +25,10 @@ This package carries no loader hooks and no dev-mode surface. The [`dsh` app](..
 
 ## Personal config
 
-A developer's machine-local preferences live outside every repository in the Harness home (default `~/.dsh`, overridable via `$DSH_HOME`; the single root [`resolveDshHome`](../../util/paths/README.md) resolves), consumed by the `dsh` CLI's TUI surface ([`apps/cli`](../../../apps/cli/README.md)); the demo bins boot their committed trees verbatim. Two optional files:
+A developer's machine-local preferences live outside every repository in the Harness home (default `~/.dsh`, overridable via `$DSH_HOME`; the single root [`resolveDshHome`](../../util/paths/README.md) resolves), consumed by the official `dsh` surfaces ([`apps/cli`](../../../apps/cli/README.md)); the demo bins boot their committed trees verbatim. Two optional files:
 
 - **`.env`** — loaded after the invoking directory's `.env`; `process.loadEnvFile` never overrides, so precedence is ambient environment > project `.env` > personal `.env`.
-- **`config.yaml`** — loader overlay patches applied over the shipped default config, with the same semantics as an include entry's `patches` (the committed Code Mode overlay is the template): an id-targeted patch replaces the named entry's whole `config` (restate unchanged fields), `insert` adds entries, and `!!js` expressions interpolate at mount — so a personal `apiKey` can reference the personal `.env`. A patch naming an entry id absent from the booted tree is skipped with a loader warning. An empty or comments-only file throws (it parses to nothing, not to a list); disable the overlay with `[]` or by deleting the file.
+- **`config.yaml`** — loader overlay patches applied over the shipped default config, with the same semantics as the shipped surface overlays: an id-targeted patch replaces the named entry's whole `config` (restate unchanged fields), `insert` adds entries, and `!!js` expressions interpolate at mount — so a personal `apiKey` can reference the personal `.env`. A patch naming an entry id absent from the booted tree is a silent no-op. An empty or comments-only file throws (it parses to nothing, not to a list); disable the overlay with `[]` or by deleting the file.
 
 Subprocess test launchers point `DSH_HOME` at an isolated per-test directory so a developer's personal overlay can never leak into fixtures.
 
@@ -45,4 +46,3 @@ No direct invalidation from `boot()`; a consumer that calls `addHarnessSourceSec
 - **Snapshot replay swapping is basename-specific** — only a config ending in `cordis.yml` or `cordis.yaml` maps to the sibling `cordis.snapshot.yml`; custom config names require caller-managed selection.
 - **Environment loading is cwd-scoped and optional** — the helper loads one `.env` file and warns on failure; it does not search parents, merge profiles, or validate required variables.
 - **Personal config is patch-shaped** — an id-targeted patch replaces the entry's whole `config` rather than deep-merging, so a personal override restates the base fields it keeps.
-- **Personal patches see only the booted file's own entries** — an overlay leaf that reaches its base through a nested include entry (the Code Mode configs) resolves personal patch ids against the overlay's top-level entries, not the included subtree.

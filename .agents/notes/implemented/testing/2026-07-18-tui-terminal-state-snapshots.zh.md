@@ -21,7 +21,7 @@ TUI 覆盖分为四个互补层次：
 3. `examples/tui-agent/tests/tui.snapshot.ts` 通过生产 agent loop 和真实工具回放已提交的 JSONL 会话日志，再比较生成的语义终端状态。
 4. `examples/tui-agent/tests/tui-keyless-smoke.e2e.ts` 在 PTY 中启动真实 Loader 组合，驱动一段经过流式输出和 `ask_user_question` 的脚本化会话，并验证启动、输入、退出、失败报告和终端恢复。
 
-可运行 TUI 在 `examples/tui-agent` 中拥有独立叶节点，与 Headless 和 ACP 叶节点并列。它直接拥有交互式 coding 后端与工具，并加载 `@deepseek-ai/dsh-tui-demo`；TUI 快照和 PTY 测试也归属这个叶节点。[移除重复 agent 的决策](../simplification/2026-07-20-remove-stdio-and-echo-agents.md)负责此次整合。
+可运行 TUI 就是交付的 `apps/cli` 组合：共享的 `base.cordis.yml` 加 `tui.cordis.yml` overlay，后者拥有交互式 coding 后端、工具与前端入口。TUI 快照和 PTY 测试位于 `apps/cli/tests/`。[移除重复 agent 的决策](../simplification/2026-07-20-remove-stdio-and-echo-agents.md)负责此次整合。
 
 ### 已录制会话回放
 

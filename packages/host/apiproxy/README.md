@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model, workspaceRoot?}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves. The shipped core composition lives in [`apps/cli/cordis.yml`](../../../apps/cli/cordis.yml).
+The API gateway every client shape shares: the TS contract (`src/api/`, zero Node dependencies, importable from the browser), the fetch carrier pair (`src/fetch/`: `toFetchHandler` on the host side, `AbstractApiClient` plus platform subclasses on the client side), and the host-side implementation (`src/api-proxy.ts`: `createApiProxy` plus the default-exported `ApiProxyService` gateway plugin — config `{provider, model, workspaceRoot?}`, provides `ctx.apiProxy`). Transport-agnostic by design: this package registers no routes; carriers (HTTP today, IPC later) wrap `ctx.apiProxy` themselves. The shipped core composition lives in [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml).
 
 ## Contract layer (`/api`)
 
