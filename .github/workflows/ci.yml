@@ -120,8 +120,9 @@ jobs:
       # across six always-on runner instances, and the timing-sensitive
       # process suites have documented aggregate-contention failures.
       # 8 × 6 instances = 48 workers worst case on 64 cores.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '24' }}
-      DSH_GATE_CONCURRENCY: '8'
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '8' }}
+      DSH_GATE_CONCURRENCY: '3'
+      NODE_OPTIONS: '--max-old-space-size=8192'
     steps:
       - uses: actions/checkout@v6
         with:
