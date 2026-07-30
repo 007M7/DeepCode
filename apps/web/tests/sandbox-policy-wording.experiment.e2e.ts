@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
 import { REPO_ROOT } from './support.ts'
 
@@ -221,12 +222,16 @@ describe.skipIf(!ENABLED || !process.env.DEEPSEEK_API_KEY)('sandbox-policy wordi
         const prompt = samplePrompt(family, path, expected)
         try {
           const created = await rpc<{ sessionId: string }>(scaffold, 'session.create', {})
-          const command = await rpc<{ accepted: true; command?: { kind: 'success'; text?: string } }>(scaffold, 'session.prompt', {
+          await rpc<{ accepted: true }>(scaffold, 'session.prompt', {
             sessionId: created.sessionId,
             mode: 'queue',
             content: [{ type: 'text', text: '/permission read-only' }],
           })
-          if (command.command?.kind !== 'success') throw new Error('read-only permission command did not complete')
+          const configured = scaffold.ctx.agents.get(SessionId(created.sessionId))
+          const configuredMode = configured?.session.events.findLast(event => event.type === 'sandbox/mode')
+          if (configuredMode?.type !== 'sandbox/mode' || configuredMode.data.mode !== 'read-only') {
+            throw new Error('read-only permission command did not commit sandbox/mode')
+          }
           const settled = scaffold.whenTurnSettled(180_000)
           await rpc<{ accepted: true }>(scaffold, 'session.prompt', {
             sessionId: created.sessionId,
