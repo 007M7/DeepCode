@@ -40,6 +40,17 @@ export interface ModelsSettingsState {
   namespaces: ReadonlyMap<string, SettingsNamespaceView>
 }
 
+/**
+ * Derive the conventional credential reference for a provider route: the v1
+ * page never asks for an environment-variable name, so a typed key stores
+ * under this derived reference and the profile records it as `apiKeyEnv`.
+ * @param provider - provider route id (e.g. `anthropic`, `minimax-cn`).
+ * @returns the derived reference name (e.g. `MINIMAX_CN_API_KEY`).
+ */
+export function deriveKeyRef(provider: string): string {
+  return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
+}
+
 /** The credential reference a resolved profile names (its `apiKeyEnv` field). */
 function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonly string[]): string | undefined {
   if (namespace === undefined) return undefined

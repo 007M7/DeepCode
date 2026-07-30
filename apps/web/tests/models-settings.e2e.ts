@@ -1,10 +1,14 @@
 // Web e2e scenario: the Models settings page end to end through the real
-// wire — the dormant pi-ai directory renders as the add vocabulary, adding a
-// provider writes the settings document and registers the route live (the
-// row's 已启用 badge is the topology invalidation landing), and the key input
-// stores a credential write-only into the harness home's .env. Zero model
-// calls: configuration is pure settings/credentials/llm-domain traffic, so
-// there is no fixture and a stray stream would fail loud on the open seam.
+// wire — the add card offers the dormant pi-ai catalog, typing an API key
+// stores it write-only under the derived reference (`MINIMAX_CN_API_KEY`)
+// while the settings document records only that reference, and the saved
+// route registers live (the row's 已启用 badge is the topology invalidation
+// landing). The customized-settings fold writes the curated reasoning field
+// as a merge patch. Zero model calls: configuration is pure
+// settings/credentials/llm-domain traffic, so there is no fixture and a
+// stray stream would fail loud on the open seam. The provider under test is
+// minimax-cn so a developer's real ANTHROPIC/OPENAI environment keys can
+// never shadow the derived reference.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -42,7 +46,7 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await scaffold?.close()
   })
 
-  it('renders the dormant directory as the add vocabulary', async () => {
+  it('opens the add card over the dormant directory vocabulary', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-empty'))
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
@@ -50,60 +54,59 @@ describe('web e2e: Models settings page configures a dormant provider', () => {
     await dialog.getByRole('button', { name: '模型' }).click()
     await dialog.getByText('填入各提供方的 API 密钥即可使用其模型。').waitFor({ timeout: 10_000 })
     // The dormant pi-ai adapter contributes its whole installed catalog; no
-    // provider is configured yet, so the page is one add-select.
-    const add = dialog.getByLabel('添加提供方')
+    // provider is configured yet, so the page is one add button.
+    const add = dialog.getByRole('button', { name: '+ 添加提供方' })
     await add.waitFor({ timeout: 10_000 })
-    // The select renders before the directory join settles; poll until the
-    // dormant catalog landed.
-    await expect.poll(async () => add.locator('option').count(), { timeout: 10_000 }).toBeGreaterThan(30)
-    const options = await add.locator('option').allTextContents()
+    // The button enables once the dormant catalog lands in the join.
+    await expect.poll(async () => add.isEnabled(), { timeout: 10_000 }).toBe(true)
+    await add.click()
+    const pick = dialog.getByLabel('提供方')
+    await pick.waitFor({ timeout: 10_000 })
+    await expect.poll(async () => pick.locator('option').count(), { timeout: 10_000 }).toBeGreaterThan(30)
+    const options = await pick.locator('option').allTextContents()
     expect(options).toContain('anthropic')
-    expect(options).toContain('openai')
+    expect(options).toContain('minimax-cn')
+    await pick.selectOption('minimax-cn')
+    await dialog.getByLabel('API 密钥').waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EMPTY_EXPECTED, snapshot, MODE)
   }, 60_000)
 
-  it('adds a provider through the schema-driven editor and the route registers live', async () => {
+  it('stores the key under the derived reference and the route registers live', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-models-add'))
     const dialog = page.getByRole('dialog', { name: '设置' })
-    await dialog.getByLabel('添加提供方').selectOption('anthropic')
-    // The editor is the real pi-ai profile schema rendered field by field;
-    // the credential-reference control is the role-tagged override.
-    const ref = dialog.getByLabel('API 密钥环境变量')
-    await ref.waitFor({ timeout: 10_000 })
-    // A test-owned reference name keeps this hermetic: a developer's real
-    // ANTHROPIC_API_KEY in the process environment must not flip the badge.
-    await ref.fill('E2E_ANTHROPIC_KEY')
+    await dialog.getByLabel('API 密钥').fill('sk-e2e-minimax')
     await dialog.getByRole('button', { name: '保存', exact: true }).click()
-    // The write lands in settings.yaml, the dormant route registers, the
-    // topology frame invalidates the page, and the reloaded join shows the
-    // row live with its credential still missing.
-    const row = dialog.getByText('anthropic', { exact: true }).first()
+    // The profile lands in settings.yaml with only the derived reference, the
+    // key value lands in the harness home's .env, the dormant route
+    // registers, and the topology frame invalidates the page into the row.
+    const row = dialog.getByText('minimax-cn', { exact: true }).first()
     await row.waitFor({ timeout: 10_000 })
     await dialog.getByText('已启用').waitFor({ timeout: 10_000 })
-    await dialog.getByText('缺少密钥').waitFor({ timeout: 10_000 })
     const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
-    expect(document).toContain('llm-pi-ai:')
-    expect(document).toContain('anthropic:')
-    expect(document).toContain('apiKeyEnv: E2E_ANTHROPIC_KEY')
+    expect(document).toContain('minimax-cn:')
+    expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
+    expect(document).not.toContain('sk-e2e-minimax')
+    const stored = await readFile(join(scaffold.harnessHome, '.env'), 'utf8')
+    expect(stored).toContain('MINIMAX_CN_API_KEY=sk-e2e-minimax')
+    expect(await page.content()).not.toContain('sk-e2e-minimax')
   }, 60_000)
 
-  it('stores the API key write-only and the badge flips configured', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-key'))
+  it('applies a customized-settings field as a merge patch', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-models-customized'))
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.getByRole('button', { name: '编辑' }).click()
-    const key = dialog.getByLabel('API 密钥', { exact: true })
-    await key.waitFor({ timeout: 10_000 })
-    await key.fill('sk-ant-e2e-test')
-    await dialog.getByRole('button', { name: '保存密钥' }).click()
-    await dialog.getByText('已配置', { exact: true }).waitFor({ timeout: 10_000 })
-    // The value went to the harness home's .env — and nowhere in the DOM.
-    const stored = await readFile(join(scaffold.harnessHome, '.env'), 'utf8')
-    expect(stored).toContain('E2E_ANTHROPIC_KEY=sk-ant-e2e-test')
-    expect(await page.content()).not.toContain('sk-ant-e2e-test')
-    await dialog.getByRole('button', { name: '取消' }).click()
-    // The row badge converges from the credentials invalidation.
-    await expect.poll(async () => dialog.getByText('缺少密钥').count(), { timeout: 10_000 }).toBe(0)
+    await dialog.getByText('自定义设置').click()
+    const effort = dialog.getByLabel('推理强度')
+    await effort.waitFor({ timeout: 10_000 })
+    await effort.selectOption('high')
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    // The editor closes back to the row; the fold's write merged into the
+    // stored profile beside the reference.
+    await expect.poll(async () => dialog.getByLabel('推理强度').count(), { timeout: 10_000 }).toBe(0)
+    const document = await readFile(join(scaffold.harnessHome, 'settings.yaml'), 'utf8')
+    expect(document).toContain('reasoning: high')
+    expect(document).toContain('apiKeyEnv: MINIMAX_CN_API_KEY')
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(CONFIGURED_EXPECTED, snapshot, MODE)
     await page.keyboard.press('Escape')

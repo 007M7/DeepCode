@@ -13,8 +13,8 @@
   - heading "模型" [level=2]
   - paragraph: 填入各提供方的 API 密钥即可使用其模型。
   - list
-  - combobox "添加提供方":
-    - option "+ 添加提供方" [selected]
+  - text: 提供方
+  - combobox "提供方":
     - option "amazon-bedrock"
     - option "ant-ling"
     - option "anthropic"
@@ -31,7 +31,7 @@
     - option "huggingface"
     - option "kimi-coding"
     - option "minimax"
-    - option "minimax-cn"
+    - option "minimax-cn" [selected]
     - option "mistral"
     - option "moonshotai"
     - option "moonshotai-cn"
@@ -52,3 +52,9 @@
     - option "xiaomi-token-plan-sgp"
     - option "zai"
     - option "zai-coding-cn"
+  - text: API 密钥
+  - textbox "API 密钥":
+    - /placeholder: 输入 API 密钥
+  - group: 自定义设置
+  - button "取消"
+  - button "保存"

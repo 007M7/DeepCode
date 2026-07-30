@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
-/** Section, editor, and credential-control behavior over a scripted wire face. */
+/** Section, setup-card, and hand-written editor behavior over a scripted wire face. */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import Schema from 'schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
-import { ModelsSection, removeProviderProfile } from '../src/client/ModelsSection.tsx'
+import { ModelsSection, needsSetup, removeProviderProfile } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected } from '../src/client/ModelsSection.tsx'
-import { ModelsSettingsStore } from '../src/client/store.ts'
+import { removedAny } from '../src/client/ProviderEditor.tsx'
+import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
+import type { ProviderRow } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -20,6 +22,7 @@ const PiAiConfig = Schema.object({
     apiKey: Schema.string().role('secret'),
     apiKeyEnv: Schema.string().role('credential-ref'),
     baseURL: Schema.string(),
+    reasoning: Schema.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     headers: Schema.dict(Schema.string()),
   })),
 })
@@ -27,8 +30,8 @@ const PiAiConfig = Schema.object({
 const DeepSeekConfig = Schema.object({
   apiKey: Schema.string().role('secret'),
   apiKeyEnv: Schema.string().role('credential-ref'),
-  baseURL: Schema.string(),
-  label: Schema.string().required(),
+  baseURL: Schema.string().pattern(/^https:\/\//),
+  reasoningEffort: Schema.union(['off', 'high', 'max']),
 })
 
 function wireNamespaces(): SettingsNamespaceView[] {
@@ -36,10 +39,20 @@ function wireNamespaces(): SettingsNamespaceView[] {
     {
       ns: 'llm-deepseek',
       schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as unknown,
-      value: { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base' },
-      base: { baseURL: 'https://base' },
+      value: { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base', reasoningEffort: 'high' },
+      base: {},
+      user: { reasoningEffort: 'high' },
       applies: 'live',
       secrets: [{ path: ['apiKey'], set: false }],
+    },
+    {
+      ns: 'llm-plain',
+      schema: JSON.parse(JSON.stringify(Schema.object({
+        profiles: Schema.dict(Schema.object({ note: Schema.string() })),
+      }).toJSON())) as unknown,
+      value: {},
+      applies: 'live',
+      secrets: [],
     },
     {
       ns: 'llm-pi-ai',
@@ -68,8 +81,8 @@ function scriptedFace(overrides: {
   replace?: ReturnType<typeof vi.fn>
   set?: ReturnType<typeof vi.fn>
 } = {}) {
-  const update = overrides.update ?? vi.fn(() => Promise.resolve(ok(wireNamespaces()[1])))
-  const replace = overrides.replace ?? vi.fn(() => Promise.resolve(ok(wireNamespaces()[1])))
+  const update = overrides.update ?? vi.fn(() => Promise.resolve(ok(wireNamespaces()[2])))
+  const replace = overrides.replace ?? vi.fn(() => Promise.resolve(ok(wireNamespaces()[2])))
   const set = overrides.set ?? vi.fn(() => Promise.resolve(ok({})))
   const face = {
     llm: {
@@ -80,6 +93,7 @@ function scriptedFace(overrides: {
           { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
           { provider: 'zombie', displayName: 'zombie', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'zombie'], active: false },
           { provider: 'broken', displayName: 'broken', settingsNs: 'llm-pi-ai', settingsPath: ['nope', 'x'], active: false },
+          { provider: 'plain', displayName: 'plain', settingsNs: 'llm-plain', settingsPath: ['profiles', 'plain'], active: false },
         ],
       }))),
       models: vi.fn(() => Promise.resolve(ok({ groups: [], failures: [] }))),
@@ -121,88 +135,242 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
 }
 
 describe('ModelsSection', () => {
-  it('renders configured rows with status badges and the add vocabulary', async () => {
+  it('renders the unkeyed whole-section provider as an open setup card beside the rows', async () => {
     await mountSection()
+    // DeepSeek has no configured credential and no stored apiKey → setup card.
     expect(screen.getByText('DeepSeek')).toBeTruthy()
+    expect(screen.getByLabelText(en.keyInput)).toBeTruthy()
+    // Configured pi-ai profiles render as rows with liveness badges only.
     expect(screen.getByText('openai')).toBeTruthy()
-    expect(screen.queryByText('anthropic', { selector: 'span' })).toBeNull()
-    expect(screen.getAllByText(en.active)).toHaveLength(2)
-    // A configured profile whose route did not register renders dormant.
+    expect(screen.getAllByText(en.active)).toHaveLength(1)
     expect(screen.getByText(en.dormant)).toBeTruthy()
-    expect(screen.getByText(en.keyMissing)).toBeTruthy()
-    const add = screen.getByLabelText<HTMLSelectElement>(en.add)
-    expect([...add.options].map(option => option.value)).toEqual(['', 'anthropic', 'broken'])
-    expect(screen.getAllByText(en.remove)).toHaveLength(2)
+    expect(screen.getByText(`+ ${en.add}`)).toBeTruthy()
   })
 
-  it('opens the editor, applies an edit as a merge patch, and reloads', async () => {
-    const { update, face } = await mountSection()
-    fireEvent.click(screen.getAllByText(en.edit)[1] as HTMLElement)
-    const baseURL = await screen.findByDisplayValue('https://proxy')
-    fireEvent.change(baseURL, { target: { value: 'https://next' } })
+  it('turns the setup card into a row once the credential reports configured', async () => {
+    const { face } = await mountSection()
+    face.credentials.describe.mockImplementation((payload: { refs: string[] }) => Promise.resolve(ok({
+      credentials: Object.fromEntries(payload.refs.map(ref => [ref, { configured: true, writable: true }])),
+    })))
+    const controller = new ModelsSettingsStore(face as unknown as WireFace)
+    await controller.load()
+    cleanup()
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={face as never}
+      t={t}
+    />)
+    // Now a row with an Edit button, not an open card.
+    expect(screen.getAllByText(en.edit).length).toBeGreaterThan(1)
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+  })
+
+  it('decides setup need from the credential state and the stored apiKey slot', () => {
+    const namespace = wireNamespaces()[0] as SettingsNamespaceView
+    const entry = { provider: 'p', displayName: 'p', settingsNs: 'llm-deepseek', settingsPath: [], active: true }
+    const row = (credential: ProviderRow['credential']): ProviderRow =>
+      ({ entry, configured: true, removable: false, apiKeyEnv: 'X', credential })
+    expect(needsSetup(row(undefined), namespace)).toBe(true)
+    expect(needsSetup(row({ configured: true, writable: true }), namespace)).toBe(false)
+    const stored: SettingsNamespaceView = { ...namespace, secrets: [{ path: ['apiKey'], set: true }] }
+    expect(needsSetup(row(undefined), stored)).toBe(false)
+    const nested = { ...row(undefined), entry: { ...entry, settingsPath: ['providers', 'x'] } }
+    expect(needsSetup(nested, namespace)).toBe(false)
+  })
+
+  it('derives conventional credential references from route ids', () => {
+    expect(deriveKeyRef('anthropic')).toBe('ANTHROPIC_API_KEY')
+    expect(deriveKeyRef('minimax-cn')).toBe('MINIMAX_CN_API_KEY')
+  })
+
+  it('detects removals at any draft depth', () => {
+    expect(removedAny({ a: { b: 1, c: 2 } }, { a: { b: 1 } })).toBe(true)
+    expect(removedAny({ a: { b: 1 } }, { a: { b: 2 }, d: 3 })).toBe(false)
+    expect(removedAny(undefined, {})).toBe(false)
+  })
+
+  it('stores a typed key write-only from the setup card without touching settings', async () => {
+    const { set, update, face } = await mountSection()
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    fireEvent.change(key, { target: { value: 'sk-live' } })
     fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
-    expect(update.mock.calls[0]?.[0]).toEqual({
-      ns: 'llm-pi-ai',
-      patch: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://next', headers: { 'X-Team': 'a' } } } },
-    })
+    await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-live' }) })
+    expect(update).not.toHaveBeenCalled()
     await waitFor(() => { expect(face.settings.describe.mock.calls.length).toBeGreaterThan(1) })
   })
 
-  it('applies a field reset through replace so the removal lands', async () => {
+  it('applies customized deepseek fields as a merge patch', async () => {
+    const { update } = await mountSection({
+      update: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
+    expect(baseURL.placeholder).toBe('https://base')
+    fireEvent.change(baseURL, { target: { value: 'https://next2' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
+    expect(update.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      patch: { reasoningEffort: 'high', baseURL: 'https://next2' },
+    })
+  })
+
+  it('clears an inherited override through replace so the removal lands', async () => {
     const { replace, update } = await mountSection()
-    fireEvent.click(screen.getAllByText(en.edit)[1] as HTMLElement)
-    const baseURL = await screen.findByDisplayValue('https://proxy')
-    fireEvent.change(baseURL, { target: { value: '' } })
+    fireEvent.click(screen.getByText(en.customized))
+    const effort = screen.getByLabelText<HTMLSelectElement>(en.effort)
+    expect(effort.value).toBe('high')
+    fireEvent.change(effort, { target: { value: '' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(replace).toHaveBeenCalledTimes(1) })
     expect(update).not.toHaveBeenCalled()
-    expect(replace.mock.calls[0]?.[0]).toEqual({
-      ns: 'llm-pi-ai',
-      section: { providers: { openai: { apiKeyEnv: 'OPENAI_API_KEY', headers: { 'X-Team': 'a' } }, zombie: {} } },
-    })
+    expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-deepseek', section: {} })
   })
 
-  it('lands a nested removal (dict entry) through replace', async () => {
-    const { replace } = await mountSection()
-    fireEvent.click(screen.getAllByText(en.edit)[1] as HTMLElement)
-    await screen.findByDisplayValue('https://proxy')
-    // Row deletion says "Delete"; the only "Remove" inside the open editor
-    // is schema-form's headers-dict row control.
-    fireEvent.click(screen.getAllByText(en.removeLabel)[0] as HTMLElement)
-    fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(replace).toHaveBeenCalledTimes(1) })
-    const section = (replace.mock.calls[0]?.[0] as { section: { providers: { openai: { headers?: unknown } } } }).section
-    expect(section.providers.openai.headers).toEqual({})
+  it('falls back to the provider-default placeholder and clears typed input back to inherited', async () => {
+    const { face } = scriptedFace()
+    const bare: SettingsNamespaceView = {
+      ns: 'llm-deepseek',
+      schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as unknown,
+      value: {},
+      applies: 'live',
+      secrets: [],
+    }
+    const { ProviderEditor } = await import('../src/client/ProviderEditor.tsx')
+    render(<ProviderEditor
+      provider="deepseek-official"
+      displayName="DeepSeek"
+      namespace={bare}
+      settingsPath={[]}
+      api={face as never}
+      t={t}
+      readOnly={false}
+      onClose={() => {}}
+    />)
+    fireEvent.click(screen.getByText(en.customized))
+    const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
+    expect(baseURL.placeholder).toBe(en.baseUrlDefault)
+    fireEvent.change(baseURL, { target: { value: 'https://x' } })
+    expect(baseURL.value).toBe('https://x')
+    fireEvent.change(baseURL, { target: { value: '' } })
+    expect(baseURL.value).toBe('')
   })
 
-  it('surfaces a rejected apply inside the editor', async () => {
-    const { update } = await mountSection({
-      update: vi.fn(() => Promise.resolve(fail('llm-pi-ai: unknown pi-ai provider "bogus"'))),
-    })
-    fireEvent.click(screen.getAllByText(en.edit)[1] as HTMLElement)
-    const baseURL = await screen.findByDisplayValue('https://proxy')
-    fireEvent.change(baseURL, { target: { value: 'https://next' } })
-    fireEvent.click(screen.getByText(en.apply))
-    await screen.findByText('llm-pi-ai: unknown pi-ai provider "bogus"')
-    expect(update).toHaveBeenCalledTimes(1)
-  })
-
-  it('adds a dormant provider through the add select and merges its profile in', async () => {
+  it('rejects an invalid draft before writing', async () => {
     const { update } = await mountSection()
-    fireEvent.change(screen.getByLabelText(en.add), { target: { value: 'anthropic' } })
-    const ref = await screen.findByLabelText<HTMLInputElement>(en.credentialRef)
-    // No reference yet, so the write-only key input stays hidden until one exists.
-    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
-    fireEvent.change(ref, { target: { value: 'ANTHROPIC_API_KEY' } })
-    const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    expect(key.placeholder).toBe(en.keyPlaceholder)
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.change(screen.getByLabelText(en.baseUrl), { target: { value: 'not-a-url' } })
     fireEvent.click(screen.getByText(en.apply))
+    await screen.findByText(/baseURL/)
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('edits a pi-ai profile with the curated fields only', async () => {
+    const { update } = await mountSection()
+    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
+    // The configured credential shows as the stored placeholder.
+    const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
+    const editorKey = keys[keys.length - 1] as HTMLInputElement
+    await waitFor(() => { expect(editorKey.placeholder).toBe(en.keyStored) })
+    // No Base URL for pi-ai; the only one on the page is the setup card's.
+    fireEvent.click(screen.getAllByText(en.customized)[1] as HTMLElement)
+    expect(screen.getAllByLabelText(en.baseUrl)).toHaveLength(1)
+    const effort = screen.getAllByLabelText<HTMLSelectElement>(en.effort)
+    fireEvent.change(effort[effort.length - 1] as HTMLSelectElement, { target: { value: 'xhigh' } })
+    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
+    expect(update.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-pi-ai',
+      patch: {
+        providers: {
+          openai: { apiKeyEnv: 'OPENAI_API_KEY', baseURL: 'https://proxy', headers: { 'X-Team': 'a' }, reasoning: 'xhigh' },
+        },
+      },
+    })
+  })
+
+  it('adds a dormant provider with a derived reference and stores its key', async () => {
+    const { update, set } = await mountSection()
+    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
+    expect([...pick.options].map(option => option.value)).toEqual(['anthropic', 'broken', 'plain'])
+    expect(pick.value).toBe('anthropic')
+    const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
+    const addKey = keys[keys.length - 1] as HTMLInputElement
+    fireEvent.change(addKey, { target: { value: 'sk-ant' } })
+    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
     await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
     expect(update.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-pi-ai',
       patch: { providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY' } } },
     })
+    await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'ANTHROPIC_API_KEY', value: 'sk-ant' }) })
+  })
+
+  it('switches the add card target and degrades unknown or broken targets loudly', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
+    fireEvent.change(pick, { target: { value: 'broken' } })
+    await screen.findByText(/unresolvable settings path/)
+    fireEvent.change(pick, { target: { value: 'plain' } })
+    await waitFor(() => {
+      expect(screen.getAllByText(content => content.includes(en.advancedHint)).length).toBeGreaterThan(0)
+    })
+    // The hint-only card cannot apply anything.
+    const applies = screen.getAllByText<HTMLButtonElement>(en.apply)
+    expect((applies[applies.length - 1] as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
+  })
+
+  it('surfaces a rejected settings write and never stores the key after it', async () => {
+    const { set } = await mountSection({
+      update: vi.fn(() => Promise.resolve(fail('llm-pi-ai: unknown pi-ai provider "bogus"'))),
+    })
+    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    await screen.findByLabelText(en.provider)
+    const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
+    fireEvent.change(keys[keys.length - 1] as HTMLInputElement, { target: { value: 'sk-x' } })
+    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    await screen.findByText(/unknown pi-ai provider/)
+    expect(set).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a shadowed credential write on the card', async () => {
+    await mountSection({
+      set: vi.fn(() => Promise.resolve(fail('credentials: DEEPSEEK_API_KEY is shadowed by the read-only environment', 'credential-rejected'))),
+    })
+    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
+    fireEvent.change(key, { target: { value: 'sk-live' } })
+    fireEvent.click(screen.getByText(en.apply))
+    await screen.findByText(/shadowed by the read-only environment/)
+  })
+
+  it('locks the key input when the launch environment provides the credential', async () => {
+    const { face } = await mountSection()
+    face.credentials.describe.mockImplementation((payload: { refs: string[] }) => Promise.resolve(ok({
+      credentials: Object.fromEntries(payload.refs.map(ref => [ref, {
+        configured: ref === 'OPENAI_API_KEY', source: 'env', writable: false,
+      }])),
+    })))
+    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
+    const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
+    const editorKey = keys[keys.length - 1] as HTMLInputElement
+    await waitFor(() => { expect(editorKey.placeholder).toBe(en.keyEnvLocked) })
+    expect(editorKey.disabled).toBe(true)
+  })
+
+  it('keeps a failed credential describe silent and the input usable', async () => {
+    const { face, set } = await mountSection()
+    face.credentials.describe.mockImplementation(() => Promise.resolve(fail('down', 'internal')) as never)
+    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
+    const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
+    const editorKey = keys[keys.length - 1] as HTMLInputElement
+    expect(editorKey.placeholder).toBe(en.keyPlaceholder)
+    fireEvent.change(editorKey, { target: { value: 'sk-live' } })
+    fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
+    await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })
   })
 
   it('removes a user-added provider through replace', async () => {
@@ -210,68 +378,6 @@ describe('ModelsSection', () => {
     fireEvent.click(screen.getAllByText(en.remove)[0] as HTMLElement)
     await waitFor(() => { expect(replace).toHaveBeenCalledTimes(1) })
     expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-pi-ai', section: { providers: { zombie: {} } } })
-  })
-
-  it('reports an unresolvable settings path instead of a blank editor', async () => {
-    await mountSection()
-    fireEvent.change(screen.getByLabelText(en.add), { target: { value: 'broken' } })
-    await screen.findByText(/unresolvable settings path/)
-  })
-
-  it('clears the credential reference back to inherited from the control', async () => {
-    const { update } = await mountSection()
-    fireEvent.click(screen.getAllByText(en.edit)[1] as HTMLElement)
-    const ref = await screen.findByLabelText<HTMLInputElement>(en.credentialRef)
-    expect(ref.value).toBe('OPENAI_API_KEY')
-    fireEvent.change(ref, { target: { value: '' } })
-    fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(update).toHaveBeenCalledTimes(0) })
-    // Dropping the reference is a removal, so it lands through replace.
-  })
-
-  it('shows the env-shadowed credential badge and hides the key input', async () => {
-    const { face } = await mountSection()
-    face.credentials.describe.mockImplementation(() => Promise.resolve(ok({
-      credentials: { OPENAI_API_KEY: { configured: true, source: 'env', writable: false } },
-    })))
-    fireEvent.click(screen.getAllByText(en.edit)[1] as HTMLElement)
-    await screen.findByText(content => content.includes(en.credentialFromEnv))
-    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
-  })
-
-  it('renders no badge while the credential domain fails, and keeps a failed post-save describe quiet', async () => {
-    const { face, set } = await mountSection()
-    face.credentials.describe.mockImplementation(() => Promise.resolve(fail('down', 'internal')) as never)
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
-    const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    expect(screen.queryByText(en.credentialConfigured)).toBeNull()
-    expect(screen.queryByText(en.credentialMissing)).toBeNull()
-    fireEvent.change(key, { target: { value: 'sk-live' } })
-    fireEvent.click(screen.getByText(en.keySave))
-    await waitFor(() => { expect(set).toHaveBeenCalledTimes(1) })
-    expect(key).toBeTruthy()
-  })
-
-  it('stores a credential value write-only and refreshes its badge', async () => {
-    const { set, face } = await mountSection()
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
-    const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    fireEvent.change(key, { target: { value: 'sk-live' } })
-    fireEvent.click(screen.getByText(en.keySave))
-    await waitFor(() => { expect(set).toHaveBeenCalledWith({ ref: 'DEEPSEEK_API_KEY', value: 'sk-live' }) })
-    await waitFor(() => { expect(face.credentials.describe.mock.calls.length).toBeGreaterThan(1) })
-    expect(key.value).toBe('')
-  })
-
-  it('surfaces a shadowed credential write on the control', async () => {
-    await mountSection({
-      set: vi.fn(() => Promise.resolve(fail('credentials: DEEPSEEK_API_KEY is shadowed by the read-only environment', 'credential-rejected'))),
-    })
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
-    const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
-    fireEvent.change(key, { target: { value: 'sk-live' } })
-    fireEvent.click(screen.getByText(en.keySave))
-    await screen.findByText(/shadowed by the read-only environment/)
   })
 
   it('renders the load failure with a retry control', async () => {
@@ -307,56 +413,30 @@ describe('ModelsSection', () => {
     />)
     expect(screen.getByText(en.readOnly)).toBeTruthy()
     expect(screen.getAllByText<HTMLButtonElement>(en.remove).every(button => button.disabled)).toBe(true)
+    expect(screen.getByText<HTMLButtonElement>(`+ ${en.add}`).disabled).toBe(true)
   })
 
-  it('toggles the editor closed on a second edit click and on cancel', async () => {
+  it('toggles the row editor closed on a second edit click and on cancel', async () => {
     const { update } = await mountSection()
-    const edit = screen.getAllByText(en.edit)[1] as HTMLElement
+    const edit = screen.getAllByText(en.edit)[0] as HTMLElement
     fireEvent.click(edit)
-    await screen.findByDisplayValue('https://proxy')
+    await waitFor(() => { expect(screen.getAllByLabelText(en.keyInput).length).toBe(2) })
     fireEvent.click(edit)
-    expect(screen.queryByDisplayValue('https://proxy')).toBeNull()
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
     fireEvent.click(edit)
-    await screen.findByDisplayValue('https://proxy')
-    fireEvent.click(screen.getByText(en.cancel))
-    expect(screen.queryByDisplayValue('https://proxy')).toBeNull()
+    await waitFor(() => { expect(screen.getAllByLabelText(en.keyInput).length).toBe(2) })
+    fireEvent.click(screen.getAllByText(en.cancel)[1] as HTMLElement)
+    expect(screen.getAllByLabelText(en.keyInput)).toHaveLength(1)
     expect(update).not.toHaveBeenCalled()
   })
 
-  it('ignores the placeholder option of the add select', async () => {
+  it('cancels the add card back to the add button', async () => {
     await mountSection()
-    fireEvent.change(screen.getByLabelText(en.add), { target: { value: '' } })
-    expect(screen.queryByText(en.apply)).toBeNull()
-  })
-
-  it('applies a whole-section namespace (path []) as a direct patch', async () => {
-    const { update } = await mountSection({
-      update: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
-    })
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
-    await screen.findByLabelText(en.credentialRef)
-    const label = screen.getByPlaceholderText<HTMLInputElement>(/label|Default/i) ?? undefined
-    const labelInput = screen.getAllByRole('textbox').find(input =>
-      (input as HTMLInputElement).type === 'text'
-      && input.closest('div')?.previousElementSibling?.textContent?.includes('label') === true)
-    const target = labelInput ?? screen.getAllByRole('textbox').at(-1)
-    fireEvent.change(target as Element, { target: { value: 'Mine' } })
-    fireEvent.click(screen.getByText(en.apply))
-    await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
-    const payload = update.mock.calls[0]?.[0] as { ns: string; patch: Record<string, unknown> }
-    expect(payload.ns).toBe('llm-deepseek')
-    expect(payload.patch['label']).toBe('Mine')
-    expect(label ?? true).toBeTruthy()
-  })
-
-  it('rejects a section-level invalid draft before writing', async () => {
-    const { update } = await mountSection()
-    fireEvent.click(screen.getAllByText(en.edit)[0] as HTMLElement)
-    await screen.findByLabelText(en.credentialRef)
-    fireEvent.click(screen.getByText(en.apply))
-    // schemastery names the missing required field in its failure text.
-    await screen.findByText(/required/)
-    expect(update).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    await screen.findByLabelText(en.provider)
+    fireEvent.click(screen.getAllByText(en.cancel)[1] as HTMLElement)
+    await screen.findByText(`+ ${en.add}`)
+    expect(screen.queryByLabelText(en.provider)).toBeNull()
   })
 
   it('loads on first render of an idle controller', async () => {
@@ -373,14 +453,14 @@ describe('ModelsSection', () => {
 
   it('removes against a namespace with no user layer as an empty-section replace', async () => {
     const { face, replace, controller } = await mountSection()
-    const namespace = controller.store.getSnapshot().namespaces.get('llm-deepseek')
+    const namespace = controller.store.getSnapshot().namespaces.get('llm-plain')
     await removeProviderProfile(
       face as unknown as Parameters<typeof removeProviderProfile>[0],
       controller,
-      { settingsNs: 'llm-deepseek', settingsPath: ['ghost-profile'] },
+      { settingsNs: 'llm-plain', settingsPath: ['ghost-profile'] },
       namespace as NonNullable<typeof namespace>,
     )
-    expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-deepseek', section: {} })
+    expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-plain', section: {} })
   })
 
   it('keeps the snapshot untouched when a removal write is refused', async () => {

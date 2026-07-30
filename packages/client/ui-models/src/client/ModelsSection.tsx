@@ -1,7 +1,9 @@
 /**
  * Models settings section: the provider rows joined from the configurable
  * directory, settings namespaces, and credential states, with one editor
- * card at a time (edit an existing provider or add a dormant one). Every
+ * card at a time. A whole-section provider without a configured key (the
+ * unconfigured DeepSeek posture) renders as its open setup card instead of a
+ * row; the add flow is a card carrying the dormant-provider select. Every
  * mutation writes through the wire; the page re-renders from the pushed
  * invalidations or the post-apply reload.
  */
@@ -22,7 +24,7 @@ export interface ModelsSectionInjected {
   controller: ModelsSettingsStore
   /** uSES subscription hook bound to the store. */
   useSnapshot: SnapshotSelectorHook<ModelsSettingsState>
-  /** Wire faces the editor and credential control write through. */
+  /** Wire faces the editor writes through. */
   api: Pick<IApiClient, 'settings' | 'credentials'>
   /** Section copy. */
   t: (key: keyof typeof en) => string
@@ -37,6 +39,7 @@ export type ModelsSectionProps = Partial<ModelsSectionInjected>
 /** The editor target: an existing row or a dormant directory entry. */
 interface EditorTarget {
   provider: string
+  displayName: string
   settingsNs: string
   settingsPath: readonly string[]
 }
@@ -62,17 +65,28 @@ export async function removeProviderProfile(
   if (response.result.ok) await controller.load()
 }
 
-function StatusBadges({ row, t }: { row: ProviderRow; t: ModelsSectionInjected['t'] }): ReactNode {
-  return (
-    <span className={styles['badges']}>
-      {row.entry.active
-        ? <span className={styles['badgeOk']}>{t('active')}</span>
-        : <span className={styles['badgeMuted']}>{t('dormant')}</span>}
-      {row.credential !== undefined && !row.credential.configured
-        ? <span className={styles['badgeWarn']}>{t('keyMissing')}</span>
-        : null}
-    </span>
-  )
+/**
+ * Whether a whole-section provider still needs its first key: nothing marks
+ * the credential configured and no literal `apiKey` is stored, so the page
+ * opens the setup card instead of showing a row.
+ * @param row - the joined provider row.
+ * @param namespace - the owning namespace view.
+ * @returns whether to render the setup card.
+ */
+export function needsSetup(row: ProviderRow, namespace: SettingsNamespaceView): boolean {
+  if (row.entry.settingsPath.length > 0) return false
+  if (row.credential?.configured === true) return false
+  return !namespace.secrets.some(secret =>
+    secret.set && secret.path.length === 1 && secret.path[0] === 'apiKey')
+}
+
+function targetOf(row: ProviderRow): EditorTarget {
+  return {
+    provider: row.entry.provider,
+    displayName: row.entry.displayName,
+    settingsNs: row.entry.settingsNs,
+    settingsPath: row.entry.settingsPath,
+  }
 }
 
 /**
@@ -124,20 +138,38 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
       {!state.writable && state.status === 'ready' ? <p className={styles['notice']}>{t('readOnly')}</p> : null}
       <ul className={styles['rows']}>
         {configured.map((row) => {
-          const target: EditorTarget = {
-            provider: row.entry.provider,
-            settingsNs: row.entry.settingsNs,
-            settingsPath: row.entry.settingsPath,
-          }
-          const open = !adding && editing?.provider === row.entry.provider
+          const target = targetOf(row)
           const namespace = state.namespaces.get(target.settingsNs)
           /* v8 ignore next -- the join marks a row configured only when its namespace resolved */
           if (namespace === undefined) return null
+          if (needsSetup(row, namespace)) {
+            // First-run posture: the provider exists but has no key — the
+            // setup card IS its presence on the page.
+            return (
+              <li key={row.entry.provider} className={styles['setupCard']}>
+                <ProviderEditor
+                  provider={target.provider}
+                  displayName={target.displayName}
+                  namespace={namespace}
+                  settingsPath={target.settingsPath}
+                  api={api}
+                  t={t}
+                  readOnly={!state.writable}
+                  onClose={closeEditor}
+                />
+              </li>
+            )
+          }
+          const open = !adding && editing?.provider === row.entry.provider
           return (
             <li key={row.entry.provider} className={styles['rowCard']}>
               <div className={styles['rowHead']}>
                 <span className={styles['rowName']}>{row.entry.displayName}</span>
-                <StatusBadges row={row} t={t} />
+                <span className={styles['badges']}>
+                  {row.entry.active
+                    ? <span className={styles['badgeOk']}>{t('active')}</span>
+                    : <span className={styles['badgeMuted']}>{t('dormant')}</span>}
+                </span>
                 <span className={styles['rowActions']}>
                   <button
                     type="button"
@@ -164,6 +196,7 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 ? (
                   <ProviderEditor
                     provider={target.provider}
+                    displayName={target.displayName}
                     namespace={namespace}
                     settingsPath={target.settingsPath}
                     api={api}
@@ -180,38 +213,54 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
       <div className={styles['addBlock']}>
         {addTarget !== undefined && addNamespace !== undefined
           ? (
-            <ProviderEditor
-              provider={addTarget.provider}
-              namespace={addNamespace}
-              settingsPath={addTarget.settingsPath}
-              api={api}
-              t={t}
-              readOnly={!state.writable}
-              onClose={closeEditor}
-            />
+            <div className={styles['addCard']}>
+              <div className={styles['field']}>
+                <span className={styles['fieldLabel']}>{t('provider')}</span>
+                <select
+                  className={styles['input']}
+                  value={addTarget.provider}
+                  aria-label={t('provider')}
+                  onChange={(event) => {
+                    const row = addable.find(candidate => candidate.entry.provider === event.target.value)
+                    /* v8 ignore next -- the select only lists addable rows */
+                    if (row === undefined) return
+                    setEditing(targetOf(row))
+                  }}
+                >
+                  {addable.map(row => (
+                    <option key={row.entry.provider} value={row.entry.provider}>{row.entry.displayName}</option>
+                  ))}
+                </select>
+              </div>
+              <ProviderEditor
+                key={addTarget.provider}
+                provider={addTarget.provider}
+                displayName={addTarget.displayName}
+                hideTitle
+                namespace={addNamespace}
+                settingsPath={addTarget.settingsPath}
+                api={api}
+                t={t}
+                readOnly={!state.writable}
+                onClose={closeEditor}
+              />
+            </div>
           )
           : (
-            <select
-              className={styles['addSelect']}
-              value=""
+            <button
+              type="button"
+              className={styles['addButton']}
               disabled={addable.length === 0 || !state.writable}
-              aria-label={t('add')}
-              onChange={(event) => {
-                const row = addable.find(candidate => candidate.entry.provider === event.target.value)
-                if (row === undefined) return
+              onClick={() => {
+                const first = addable[0]
+                /* v8 ignore next -- the button is disabled while nothing is addable */
+                if (first === undefined) return
                 setAdding(true)
-                setEditing({
-                  provider: row.entry.provider,
-                  settingsNs: row.entry.settingsNs,
-                  settingsPath: row.entry.settingsPath,
-                })
+                setEditing(targetOf(first))
               }}
             >
-              <option value="">{`+ ${t('add')}`}</option>
-              {addable.map(row => (
-                <option key={row.entry.provider} value={row.entry.provider}>{row.entry.displayName}</option>
-              ))}
-            </select>
+              {`+ ${t('add')}`}
+            </button>
           )}
       </div>
     </div>
