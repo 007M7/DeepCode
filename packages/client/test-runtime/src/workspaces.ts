@@ -199,8 +199,11 @@ export class TestWorkspaces implements IWorkspaces {
       await (stub(sessionId) as Promise<void>)
       return
     }
+    // Built outside the draft: reading a Set through an immer draft needs
+    // the MapSet plugin, while assigning a fresh Set does not.
+    const next = new Set([...this.list.getSnapshot().archivedSessionIds, sessionId])
     await this.update((draft) => {
-      draft.archivedSessionIds = new Set([...draft.archivedSessionIds, sessionId])
+      draft.archivedSessionIds = next
     })
   }
 }
