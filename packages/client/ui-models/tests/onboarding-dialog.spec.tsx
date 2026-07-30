@@ -24,37 +24,53 @@ function fail<T>(message: string): RpcResponse<T> {
 
 function harness(options: {
   provider?: boolean
+  providerActive?: boolean
+  settingsNamespace?: boolean
+  apiKeyEnv?: string | null
   literal?: boolean
   configured?: () => boolean
   credential?: { source?: string; writable: boolean }
   describeFailure?: string
+  settingsWritable?: boolean
+  providersRejectOnce?: boolean
 } = {}) {
   let fileConfigured = false
+  let rejectProviders = options.providersRejectOnce === true
   const configured = options.configured ?? (() => fileConfigured)
   const face = {
     llm: {
-      providers: () => Promise.resolve(ok({
-        providers: options.provider === false
-          ? []
-          : [{
-            provider: 'deepseek-official',
-            displayName: 'DeepSeek',
-            settingsNs: 'llm-deepseek',
-            settingsPath: [],
-            active: true,
-          }],
-      })),
+      providers: () => {
+        if (rejectProviders) {
+          rejectProviders = false
+          return Promise.reject(new Error('provider transport unavailable'))
+        }
+        return Promise.resolve(ok({
+          providers: options.provider === false
+            ? []
+            : [{
+              provider: 'deepseek-official',
+              displayName: 'DeepSeek',
+              settingsNs: 'llm-deepseek',
+              settingsPath: [],
+              active: options.providerActive ?? true,
+            }],
+        }))
+      },
     },
     settings: {
       describe: () => Promise.resolve(ok({
-        writable: true,
-        namespaces: [{
-          ns: 'llm-deepseek',
-          schema: {},
-          value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
-          applies: 'live' as const,
-          secrets: [{ path: ['apiKey'], set: options.literal === true }],
-        }],
+        writable: options.settingsWritable ?? true,
+        namespaces: options.settingsNamespace === false
+          ? []
+          : [{
+            ns: 'llm-deepseek',
+            schema: {},
+            value: options.apiKeyEnv === null
+              ? {}
+              : { apiKeyEnv: options.apiKeyEnv ?? 'DEEPSEEK_API_KEY' },
+            applies: 'live' as const,
+            secrets: [{ path: ['apiKey'], set: options.literal === true }],
+          }],
       })),
     },
     credentials: {
@@ -94,7 +110,9 @@ describe('DeepSeekOnboardingDialog', () => {
     render(<DeepSeekOnboardingDialog {...h.props} />)
     expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
     expect(screen.getByText(en.onboardingDescription)).toBeTruthy()
-    expect(screen.getByRole('button', { name: en.onboardingGoToSettings })).toBeTruthy()
+    const action = screen.getByRole('button', { name: en.onboardingGoToSettings })
+    expect(action).toBeTruthy()
+    expect(document.activeElement).toBe(action)
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 
@@ -125,11 +143,38 @@ describe('DeepSeekOnboardingDialog', () => {
     expect(h.openSection).toHaveBeenCalledWith('models')
   })
 
-  it('uses the general diagnostic for a missing read-only credential', async () => {
-    const h = harness({ credential: { writable: false } })
+  it('explains read-only credential and settings deployments', async () => {
+    for (const h of [
+      harness({ credential: { writable: false } }),
+      harness({ settingsWritable: false }),
+    ]) {
+      const view = render(<DeepSeekOnboardingDialog {...h.props} />)
+      await screen.findByRole('dialog', { name: en.onboardingUnavailableTitle })
+      expect(screen.getByText(en.onboardingReadOnly)).toBeTruthy()
+      view.unmount()
+    }
+  })
+
+  it('distinguishes an initial transport failure from deployment misconfiguration', async () => {
+    const h = harness({ providersRejectOnce: true })
     render(<DeepSeekOnboardingDialog {...h.props} />)
     await screen.findByRole('dialog', { name: en.onboardingUnavailableTitle })
-    expect(screen.getByText(en.onboardingConfigurationUnavailable)).toBeTruthy()
+    expect(screen.getByText(en.onboardingLoadFailed)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.onboardingGoToSettings }))
+    expect(h.openSection).toHaveBeenCalledWith('models')
+  })
+
+  it('uses the configuration diagnostic for inactive or unresolvable adapters', async () => {
+    for (const h of [
+      harness({ providerActive: false }),
+      harness({ settingsNamespace: false }),
+      harness({ apiKeyEnv: null }),
+    ]) {
+      const view = render(<DeepSeekOnboardingDialog {...h.props} />)
+      await screen.findByRole('dialog', { name: en.onboardingUnavailableTitle })
+      expect(screen.getByText(en.onboardingConfigurationUnavailable)).toBeTruthy()
+      view.unmount()
+    }
   })
 
   it('skips an absent adapter and already-configured literal or environment credentials', async () => {

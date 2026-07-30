@@ -1535,7 +1535,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     },
     settings: {
       // Only the resolved DeepSeek address needed by first-run readiness is
-      // represented here; real schema-driven forms ride the HTTP transport.
+      // represented here. Fixture-backed journeys do not open its Models
+      // editor; real schema-driven forms ride the HTTP transport.
       describe: request => ok(request, {
         writable: true,
         namespaces: [{

@@ -16,7 +16,7 @@ The [web configuration plane](../architecture/2026-07-30-web-config-plane.md) ma
 
 **The prompt routes to the one credential editor.** A mounted, active adapter with a resolved, writable, unconfigured reference presents one action that opens Settings on Models. The existing DeepSeek setup card there exclusively owns the password input, `credentials.set({ref, value})`, write failures, and post-write refresh; the onboarding overlay never holds or submits a secret. An unavailable settings or credential capability keeps its deployment diagnostic and routes to the same page, while an absent adapter remains skipped because navigation cannot mount a Cordis plugin.
 
-**Unavailable capability states stay honest.** An absent configurable-provider entry suppresses the form because it cannot repair the composition. A present provider whose settings or credential capability cannot be resolved renders an actionable deployment diagnostic. Cancel dismisses the overlay for the current mounted surface and writes no completion fact. Settings, credential, provider-topology, and connection invalidations all refresh the shared join, so an external credential update closes an open prompt without a reload.
+**Unavailable states stay honest.** An absent configurable-provider entry suppresses the prompt because navigation cannot repair the composition. A present provider whose settings or credential capability cannot be resolved renders an actionable deployment diagnostic; a failed initial join names the connection problem and leads to the Models retry surface. Configure later dismisses the overlay for the current mounted surface and writes no completion fact. Settings, credential, provider-topology, and connection invalidations all refresh the shared join, so an external credential update closes an open prompt without a reload.
 
 ## Alternatives considered
 
@@ -26,7 +26,7 @@ The [web configuration plane](../architecture/2026-07-30-web-config-plane.md) ma
 
 **Writing the API key into provider settings** — rejected because a literal secret would enter the settings mutation path and whole-section replacement cannot safely reconstruct redacted values. Credential storage is already the product seam and supplies immediate invalidation.
 
-**Showing the same key form when `llm-deepseek` is absent** — rejected because success would only store an unused environment reference; the browser has no supported operation that mounts the missing Cordis plugin.
+**Showing the prompt when `llm-deepseek` is absent** — rejected because browser navigation has no supported operation that mounts the missing Cordis plugin.
 
 ## Consequences
 

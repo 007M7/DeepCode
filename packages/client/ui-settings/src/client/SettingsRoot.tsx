@@ -5,7 +5,9 @@
  * close label, sections) arrives from registrants through slots; accessible
  * names resolve to that content (trigger: its own text; dialog:
  * aria-labelledby the title node; close: visually-hidden slot text). Modal
- * open state and the active section id are component-local viewing state.
+ * open state and the active section id are component-local viewing state;
+ * the onboarding slot receives the sessions-derived empty-Hero fact and a
+ * private callback that opens one registered section.
  */
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import clsx from 'clsx'

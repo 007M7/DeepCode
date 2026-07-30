@@ -32,8 +32,10 @@ export const en = {
   onboardingGoToSettings: 'Go to settings',
   onboardingLater: 'Configure later',
   onboardingUnavailableTitle: 'DeepSeek setup is unavailable',
-  onboardingCredentialsUnavailable: 'This deployment does not expose writable credential storage. Mount @deepseek-ai/dsh-credentials-local, then retry.',
-  onboardingConfigurationUnavailable: 'The live DeepSeek configuration capability cannot be resolved here. Check the deployment composition, then retry.',
+  onboardingLoadFailed: 'DeepSeek configuration could not be loaded. Check the connection and try again in Models.',
+  onboardingCredentialsUnavailable: 'Credential storage is unavailable in this deployment. Check the deployment configuration.',
+  onboardingReadOnly: 'This deployment does not allow the DeepSeek API key to be changed here. Ask an administrator to provide the credential.',
+  onboardingConfigurationUnavailable: 'DeepSeek configuration is unavailable in this deployment. Check the deployment composition.',
 }
 
 /** Chinese strings (same keys as {@link en}). */
@@ -68,6 +70,8 @@ export const zh: typeof en = {
   onboardingGoToSettings: '前往配置',
   onboardingLater: '稍后配置',
   onboardingUnavailableTitle: '无法在此配置 DeepSeek',
-  onboardingCredentialsUnavailable: '当前部署没有可写的凭据存储。请挂载 @deepseek-ai/dsh-credentials-local 后重试。',
-  onboardingConfigurationUnavailable: '无法在此解析 DeepSeek 的实时配置能力。请检查部署组合后重试。',
+  onboardingLoadFailed: '无法加载 DeepSeek 配置。请检查连接，然后在模型设置中重试。',
+  onboardingCredentialsUnavailable: '当前部署无法使用凭据存储。请检查部署配置。',
+  onboardingReadOnly: '当前部署不允许在此修改 DeepSeek API 密钥。请联系管理员提供凭据。',
+  onboardingConfigurationUnavailable: '当前部署无法使用 DeepSeek 配置。请检查部署组合。',
 }

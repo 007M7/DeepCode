@@ -180,17 +180,18 @@ export class ModelsSettingsStore {
 export type DeepSeekReadiness =
   | { kind: 'loading' }
   | { kind: 'adapter-absent' }
-  | { kind: 'configured'; source: 'literal' | 'credential'; ref?: string; credential?: CredentialView }
+  | { kind: 'configured' }
   | { kind: 'credential-missing' }
   | {
     kind: 'unavailable'
     reason:
+      | 'load-failed'
       | 'provider-inactive'
       | 'settings-unavailable'
       | 'credential-ref-unavailable'
       | 'credentials-unavailable'
+      | 'settings-read-only'
       | 'credential-read-only'
-    message: string
   }
 
 /**
@@ -207,8 +208,7 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
   if (state.status === 'error') {
     return {
       kind: 'unavailable',
-      reason: 'settings-unavailable',
-      message: state.error ?? 'provider/settings describe failed',
+      reason: 'load-failed',
     }
   }
   const row = state.rows.find(candidate => candidate.entry.provider === 'deepseek-official')
@@ -217,51 +217,46 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
     return {
       kind: 'unavailable',
       reason: 'provider-inactive',
-      message: 'the deepseek-official route is not active',
     }
   }
   if (!row.configured) {
     return {
       kind: 'unavailable',
       reason: 'settings-unavailable',
-      message: `settings namespace "${row.entry.settingsNs}" did not resolve the provider profile`,
     }
   }
-  if (row.literalApiKeyConfigured) return { kind: 'configured', source: 'literal' }
+  if (row.literalApiKeyConfigured) return { kind: 'configured' }
   if (row.apiKeyEnv === undefined) {
     return {
       kind: 'unavailable',
       reason: 'credential-ref-unavailable',
-      message: 'the resolved DeepSeek settings do not name an apiKeyEnv credential reference',
     }
   }
   if (state.credentialError !== null) {
     return {
       kind: 'unavailable',
       reason: 'credentials-unavailable',
-      message: state.credentialError,
     }
   }
   if (row.credential === undefined) {
     return {
       kind: 'unavailable',
       reason: 'credentials-unavailable',
-      message: `credential reference "${row.apiKeyEnv}" was not described`,
     }
   }
   if (row.credential.configured) {
+    return { kind: 'configured' }
+  }
+  if (!state.writable) {
     return {
-      kind: 'configured',
-      source: 'credential',
-      ref: row.apiKeyEnv,
-      credential: row.credential,
+      kind: 'unavailable',
+      reason: 'settings-read-only',
     }
   }
   if (!row.credential.writable) {
     return {
       kind: 'unavailable',
       reason: 'credential-read-only',
-      message: `credential reference "${row.apiKeyEnv}" is missing and read-only`,
     }
   }
   return { kind: 'credential-missing' }

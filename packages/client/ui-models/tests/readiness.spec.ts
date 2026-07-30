@@ -50,59 +50,48 @@ describe('deepSeekReadiness', () => {
   it('accepts file and process-environment credentials without prompting', () => {
     expect(deepSeekReadiness(state({
       rows: [row({ credential: { configured: true, source: 'file', writable: true } })],
-    }))).toMatchObject({
-      kind: 'configured',
-      source: 'credential',
-      ref: 'DEEPSEEK_API_KEY',
-      credential: { source: 'file', writable: true },
-    })
+    }))).toEqual({ kind: 'configured' })
     expect(deepSeekReadiness(state({
       rows: [row({ credential: { configured: true, source: 'env', writable: false } })],
-    }))).toMatchObject({
-      kind: 'configured',
-      source: 'credential',
-      credential: { source: 'env', writable: false },
-    })
+    }))).toEqual({ kind: 'configured' })
   })
 
   it('accepts the redacted literal-key sidecar before judging the credential domain', () => {
     expect(deepSeekReadiness(state({
       credentialError: 'credentials service absent',
       rows: [row({ literalApiKeyConfigured: true, credential: undefined })],
-    }))).toEqual({ kind: 'configured', source: 'literal' })
+    }))).toEqual({ kind: 'configured' })
   })
 
   it('turns missing capabilities and inconsistent descriptors into diagnostics', () => {
     expect(deepSeekReadiness(state({ status: 'error', error: 'settings down' }))).toEqual({
       kind: 'unavailable',
-      reason: 'settings-unavailable',
-      message: 'settings down',
-    })
-    expect(deepSeekReadiness(state({ status: 'error', error: null }))).toMatchObject({
-      kind: 'unavailable',
-      reason: 'settings-unavailable',
+      reason: 'load-failed',
     })
     expect(deepSeekReadiness(state({
       rows: [row({ entry: { ...row().entry, active: false } })],
-    }))).toMatchObject({ kind: 'unavailable', reason: 'provider-inactive' })
+    }))).toEqual({ kind: 'unavailable', reason: 'provider-inactive' })
     expect(deepSeekReadiness(state({
       rows: [row({ configured: false })],
-    }))).toMatchObject({ kind: 'unavailable', reason: 'settings-unavailable' })
+    }))).toEqual({ kind: 'unavailable', reason: 'settings-unavailable' })
     expect(deepSeekReadiness(state({
       rows: [row({ apiKeyEnv: undefined })],
-    }))).toMatchObject({ kind: 'unavailable', reason: 'credential-ref-unavailable' })
+    }))).toEqual({ kind: 'unavailable', reason: 'credential-ref-unavailable' })
     expect(deepSeekReadiness(state({
       credentialError: 'credentials service is absent',
-    }))).toMatchObject({
+    }))).toEqual({
       kind: 'unavailable',
       reason: 'credentials-unavailable',
-      message: 'credentials service is absent',
     })
     expect(deepSeekReadiness(state({
       rows: [row({ credential: undefined })],
-    }))).toMatchObject({ kind: 'unavailable', reason: 'credentials-unavailable' })
+    }))).toEqual({ kind: 'unavailable', reason: 'credentials-unavailable' })
     expect(deepSeekReadiness(state({
       rows: [row({ credential: { configured: false, writable: false } })],
-    }))).toMatchObject({ kind: 'unavailable', reason: 'credential-read-only' })
+    }))).toEqual({ kind: 'unavailable', reason: 'credential-read-only' })
+    expect(deepSeekReadiness(state({ writable: false }))).toEqual({
+      kind: 'unavailable',
+      reason: 'settings-read-only',
+    })
   })
 })

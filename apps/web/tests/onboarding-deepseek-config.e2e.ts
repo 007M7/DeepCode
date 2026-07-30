@@ -85,7 +85,7 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it.skipIf(MODE === 'record')('keeps the fixture inventory closed', async () => {
+  it('keeps the fixture inventory closed', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, ['missing.expected.md'])
   })
 })
