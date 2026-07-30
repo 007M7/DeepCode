@@ -65,6 +65,10 @@
   font: var(--dsw-font-xs-13);
 }
 
+.expandItem {
+  list-style: none;
+}
+
 .expand {
   display: block;
   width: 100%;

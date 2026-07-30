@@ -66,10 +66,7 @@ export function WebRow({ toolName, block }: ToolRowProps) {
         <span className={css.summary}>{model.summary}</span>
       </div>
       {web !== null && (
-        <WebBlock
-          {...(web.kind === 'search' ? { ...web, maxSources: CHAT_WEB_MAX_SOURCES } : web)}
-          className={css.web}
-        />
+        <WebBlock {...web} maxSources={CHAT_WEB_MAX_SOURCES} className={css.web} />
       )}
     </div>
   )

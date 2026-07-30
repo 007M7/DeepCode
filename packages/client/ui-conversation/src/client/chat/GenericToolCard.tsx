@@ -56,10 +56,7 @@ export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwner
   return (
     <div className={css.card}>
       {row}
-      <WebBlock
-        {...(web.kind === 'search' ? { ...web, maxSources: CHAT_WEB_MAX_SOURCES } : web)}
-        className={css.web}
-      />
+      <WebBlock {...web} maxSources={CHAT_WEB_MAX_SOURCES} className={css.web} />
     </div>
   )
 }

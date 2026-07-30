@@ -48,6 +48,16 @@ describe('WebBlock search card', () => {
     expect(view.getByText('empty.example.net')).toBeTruthy()
   })
 
+  it('labels a source by the raw url when it parses to an empty hostname', () => {
+    // file:/data:/javascript: URLs parse but have no hostname; the label must
+    // fall back to the raw URL so it is never blank (and the link stays plain
+    // text since the protocol is not http(s)).
+    const view = render(<WebBlock kind="search" truncated={false} sources={[
+      { url: 'file:///etc/passwd' },
+    ]} />)
+    expect(view.getByText('file:///etc/passwd')).toBeTruthy()
+  })
+
   it('renders a source as a safe external anchor for an http(s) url', () => {
     const view = render(<WebBlock kind="search" truncated={false} sources={[
       { url: 'https://example.com/a', title: 'Titled' },
@@ -117,6 +127,23 @@ describe('WebBlock search card', () => {
 
     fireEvent.click(collapse)
     expect(view.container.querySelectorAll('[class^="_source_"]')).toHaveLength(4)
+  })
+
+  it('numbers a collapsed tail by each source original position, not its visible slot', () => {
+    // maxSources 4 over 10 sources: the tail is sources 8 and 9, which must read
+    // as citations 9 and 10 (via <li value>), not renumbered 3 and 4.
+    const view = render(<WebBlock kind="search" sources={sources(10)} truncated={false} maxSources={4} />)
+    const items = [...view.container.querySelectorAll('li[class^="_source_"]')]
+    expect(items.map(li => li.getAttribute('value'))).toEqual(['1', '2', '9', '10'])
+  })
+
+  it('keeps the expander out of the ordered-list numbering', () => {
+    // The expander is a marker-less <li>, so it is valid inside <ol> and does not
+    // consume a citation number between the head and tail sources.
+    const view = render(<WebBlock kind="search" sources={sources(10)} truncated={false} maxSources={4} />)
+    const ol = view.container.querySelector('ol')!
+    // Every direct child is an <li> (no bare <button> child — invalid HTML).
+    expect([...ol.children].every(child => child.tagName === 'LI')).toBe(true)
   })
 
   it('renders the head slice alone when the cap leaves no tail', () => {

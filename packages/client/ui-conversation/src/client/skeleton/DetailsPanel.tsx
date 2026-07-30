@@ -152,8 +152,20 @@ function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | u
   }
   const web = webCardModel(material.block)
   // Full source-list allowance here (the panel is the single-call reading
-  // surface); the chat rows cap it at CHAT_WEB_MAX_SOURCES.
-  if (web !== null) return <WebBlock {...web} className={css.web} />
+  // surface); the chat rows cap it at CHAT_WEB_MAX_SOURCES. The card is a
+  // summary — a web_fetch card shows only the URL and status — so the details
+  // panel also renders the flattened result content below it (the fetched body,
+  // the search answer + source markdown), which the card does not carry.
+  if (web !== null) {
+    const settled = 'kind' in material.block ? material.block : null
+    const body = settled === null ? '' : renderResult(settled)
+    return (
+      <>
+        <WebBlock {...web} className={css.web} />
+        {body !== '' && <pre className={css.code}>{body}</pre>}
+      </>
+    )
+  }
   // A settled call always carries the result node the flattened form needs;
   // the running shape has no result to flatten.
   if (!('kind' in material.block)) return <div className={css.empty}>运行中…</div>

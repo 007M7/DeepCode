@@ -152,8 +152,9 @@ interface WebSourceFixture {
  * The structured `web_search` result view for fixture turn 66, authored inline
  * because this client-side fixture cannot import the web tool that projects it.
  * The sources exercise the citation list's features: a titled source with a
- * snippet and a date, a source with no title (its hostname labels the link), and
- * a source with a snippet but no date. `truncated` marks the capped indicator.
+ * snippet and a date, a source with no title (its hostname labels the link) and
+ * a snippet but no date, and a source with a title and a date but no snippet.
+ * `truncated` marks the capped indicator.
  */
 const WEB_SEARCH_RESULT: { answer: string; sources: WebSourceFixture[]; truncated: boolean } = {
   answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',

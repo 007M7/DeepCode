@@ -5,12 +5,13 @@
 // none, with the snippet and publication date below it), and a `fetch` shows a
 // compact retrieval summary (the linked final URL and its HTTP status). Both
 // mark a capped retrieval. Every link is a same-origin-safe external anchor:
-// only http(s) URLs become anchors (target/rel set), the same protocol allowlist
-// MarkdownText applies to untrusted assistant-authored links; an unparseable or
-// non-http URL renders as plain text. Geometry, radius, and fonts mirror
-// CodeBlock/TerminalBlock so a web card reads as one family with them; a long
-// source list caps at maxSources with a head/tail collapse using the same
-// arithmetic as TerminalBlock's output cap.
+// only http(s) URLs become anchors (target/rel set) — the http(s) subset of the
+// allowlist MarkdownText applies to untrusted assistant-authored links (it also
+// permits mailto, excluded here); an unparseable or non-http URL renders as
+// plain text. Geometry, radius, and fonts mirror CodeBlock/TerminalBlock so a
+// web card reads as one family with them; a long source list caps at maxSources
+// with a head/tail collapse using the same arithmetic as TerminalBlock's output
+// cap.
 
 import { useCallback, useState } from 'react'
 import clsx from 'clsx'
@@ -64,6 +65,13 @@ export interface WebFetchBlockProps {
   statusCode: number
   /** True when the provider or the output cap cut the fetched content. */
   truncated: boolean
+  /**
+   * Accepted and ignored, so both card kinds take one uniform prop set (a fetch
+   * card has no source list to cap) — the same way TerminalBlock accepts one
+   * `maxLines` across its arms. Lets a render site spread `maxSources` onto
+   * either kind without a per-kind conditional.
+   */
+  maxSources?: number | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
 }
@@ -72,10 +80,12 @@ export interface WebFetchBlockProps {
 export type WebBlockProps = WebSearchBlockProps | WebFetchBlockProps
 
 /**
- * The URL to link to, or undefined when the URL must render as plain text. The
- * allowlist is MarkdownText's own for untrusted links: only http(s) becomes a
- * navigable external anchor, so a `javascript:`/`data:`/`file:` URL or an
- * unparseable string never reaches the DOM as an href.
+ * The URL to link to, or undefined when the URL must render as plain text. Only
+ * http(s) becomes a navigable external anchor, so a `javascript:`/`data:`/`file:`
+ * URL or an unparseable string never reaches the DOM as an href. This is the
+ * http(s) subset of the allowlist MarkdownText applies to untrusted links —
+ * MarkdownText also permits `mailto:`, deliberately excluded here since a
+ * retrieval URL is never a mail address.
  * @param url - the source or fetch URL, from tool result content.
  * @returns the href to use, or undefined for plain text.
  */
@@ -90,7 +100,9 @@ function safeHref(url: string): string | undefined {
 
 /**
  * The link's visible label: the title when the provider gave one, otherwise the
- * URL's hostname, falling back to the raw URL when it does not parse.
+ * URL's hostname, falling back to the raw URL when it does not parse OR parses
+ * to an empty hostname (a `file:`/`data:`/`javascript:` URL), so a label is
+ * never blank.
  * @param url - the source URL.
  * @param title - the provider title, if any.
  * @returns the label text.
@@ -98,7 +110,8 @@ function safeHref(url: string): string | undefined {
 function linkLabel(url: string, title: string | undefined): string {
   if (title !== undefined && title !== '') return title
   try {
-    return new URL(url).hostname
+    const { hostname } = new URL(url)
+    return hostname === '' ? url : hostname
   } catch {
     return url
   }
@@ -123,13 +136,17 @@ function SafeLink({ url, label, className }: { url: string; label: string; class
 }
 
 /**
- * One source row in a search card: the safe link plus its snippet and date.
+ * One source row in a search card: the safe link plus its snippet and date. The
+ * `<li value>` pins the source's original 1-based position, so a collapsed list
+ * whose tail is drawn after the head still numbers each source by its real
+ * citation index rather than by its position in the visible subset.
  * @param props.source - the source to render.
+ * @param props.ordinal - the source's 1-based position in the full list.
  * @returns the source list item.
  */
-function SourceItem({ source }: { source: WebSourceView }) {
+function SourceItem({ source, ordinal }: { source: WebSourceView; ordinal: number }) {
   return (
-    <li className={css.source}>
+    <li className={css.source} value={ordinal}>
       <SafeLink url={source.url} label={linkLabel(source.url, source.title)} className={css.sourceLink} />
       {source.snippet !== undefined && source.snippet !== '' && (
         <div className={css.snippet}>{source.snippet}</div>
@@ -163,19 +180,27 @@ function WebSearchBlock({ answer, sources, truncated, maxSources = DEFAULT_WEB_M
         <div className={css.answer}><MarkdownText text={answer} /></div>
       )}
       <ol className={css.sources}>
-        {head.map((source, index) => <SourceItem key={index} source={source} />)}
+        {head.map((source, index) => <SourceItem key={index} source={source} ordinal={index + 1} />)}
         {hidden > 0 && (
-          <button
-            type="button"
-            className={css.expand}
-            aria-expanded={expanded}
-            aria-label={expanded ? '收起来源' : `展开其余 ${hidden} 条来源`}
-            onClick={onToggle}
-          >
-            {expanded ? '收起' : `… 其余 ${hidden} 条来源`}
-          </button>
+          <li className={css.expandItem}>
+            <button
+              type="button"
+              className={css.expand}
+              aria-expanded={expanded}
+              aria-label={expanded ? '收起来源' : `展开其余 ${hidden} 条来源`}
+              onClick={onToggle}
+            >
+              {expanded ? '收起' : `… 其余 ${hidden} 条来源`}
+            </button>
+          </li>
         )}
-        {tail.map((source, index) => <SourceItem key={sources.length - tailCount + index} source={source} />)}
+        {tail.map((source, index) => (
+          <SourceItem
+            key={sources.length - tailCount + index}
+            source={source}
+            ordinal={sources.length - tailCount + index + 1}
+          />
+        ))}
       </ol>
       {truncated && <div className={css.truncated}>来源列表已截断</div>}
     </div>

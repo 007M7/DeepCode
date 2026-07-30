@@ -216,11 +216,15 @@ describe('DetailsPanel web Output section', () => {
     expect(view.getByText(/"query"/)).toBeTruthy()
   })
 
-  it('renders the fetch card', () => {
+  it('renders the fetch card and keeps the fetched body below it', () => {
     const view = mount(snapshot({ nodes: [settledFetch()] }), { turnSeq: 11, callId: 'c2', toolName: 'web_fetch' })
     const card = view.container.querySelector('[data-web="fetch"]')
     expect(card?.querySelector('a')?.getAttribute('href')).toBe('https://example.com/page')
     expect(view.getByText('HTTP 200')).toBeTruthy()
+    // The card is a summary (URL + status only); the panel is the single-call
+    // reading surface, so the fetched body still renders below the card.
+    const output = view.getByText('Output').closest('section')
+    expect(output?.querySelector('pre')?.textContent).toContain('fetch body')
   })
 
   it('a non-web result keeps the flattened pre form', () => {

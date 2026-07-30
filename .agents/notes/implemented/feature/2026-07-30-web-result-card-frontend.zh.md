@@ -14,7 +14,7 @@ Status: implemented
 
 一个组件绘制两种 kind,由 `kind` 判别。`search` 把 answer 作为 markdown 显示在引用列表上方;每个 source 是一个安全外链,以其标题为标签,provider 未给标题时以其主机名为标签,下方是 snippet 与发布日期,工具截断列表时显示 `来源列表已截断` 提示。`fetch` 显示一个紧凑摘要:带链接的最终 URL、其 HTTP 状态、以及 `内容已截断` 提示。用一个组件而非两个,因为两者都是渲染为同一卡片族的 web 检索 —— 这正是契约把它们放在一个 `card` 标签下、用 `kind` 判别的原因。
 
-**链接的安全性沿用 MarkdownText 对不受信任的 assistant 链接所用的同一 allowlist。** 一个 source 或 fetch URL 仅当其协议为 `http:` 或 `https:` 时才成为可导航锚点,带 `target="_blank"` 和 `rel="noopener noreferrer"`;`javascript:`/`data:`/`file:` URL 或无法解析的字符串渲染为纯文本、无 href。web 工具返回的 result content 是模型创作的,未经验证抵达本组件,因此像 assistant markdown 一样被当作不受信任处理。标签从标题回退到主机名再回退到原始 URL,因此即便标题缺失且 URL 无法解析,source 也总能读作某个东西。
+**链接的安全性沿用 MarkdownText 对不受信任的 assistant 链接所用 allowlist 的 http(s) 子集。** MarkdownText 还允许 `mailto:`，此处刻意排除，因为检索 URL 绝不会是邮件地址。一个 source 或 fetch URL 仅当其协议为 `http:` 或 `https:` 时才成为可导航锚点，带 `target="_blank"` 和 `rel="noopener noreferrer"`；`javascript:`/`data:`/`file:`/`mailto:` URL 或无法解析的字符串渲染为纯文本、无 href。web 工具返回的 result content 是模型创作的,未经验证抵达本组件,因此像 assistant markdown 一样被当作不受信任处理。标签从标题回退到主机名再回退到原始 URL,因此即便标题缺失且 URL 无法解析,source 也总能读作某个东西。
 
 **几何镜像 CodeBlock/TerminalBlock**（12px 圆角、code-block 表面、16px 垂直外边距）,使 web 卡片与它们读作一家。长 source 列表在 `maxSources` 处折叠,用 TerminalBlock 完全相同的分割算术做头/尾折叠（`ceil(max/2)` 头部行加剩余尾部）,使长正文的切片在两张卡之间一致。source 列表是散文而非按列对齐的输出,所以它正常换行,而不像终端卡片的输出那样横向滚动 —— 这是与 TerminalBlock 唯一刻意的分歧。
 
@@ -32,7 +32,7 @@ Status: implemented
 
 **重解析模型可见的渲染文本,而非消费结构化视图。** 因契约笔记给出的同一理由拒绝:`web_search` 的渲染把每个 source 的字段压缩成一行自由文本、以标题或主机名为标签,所以重解析无法恢复 `{url, title?, snippet?, publishedAt?}`。结构化的 `resultView` 是唯一忠实来源,这正是后端 PR 添加它的原因。
 
-**不加协议 allowlist 直接渲染裸锚点。** 拒绝:URL 在此接缝处是模型创作、未经验证的,所以未过滤的 href 会让 `javascript:` URL 在点击时执行。该 allowlist 与 MarkdownText 的一致,因此不受信任的链接无论在何处渲染都行为相同。
+**不加协议 allowlist 直接渲染裸锚点。** 拒绝:URL 在此接缝处是模型创作、未经验证的,所以未过滤的 href 会让 `javascript:` URL 在点击时执行。该 allowlist 是 MarkdownText allowlist（它还允许 `mailto:`）的 http(s) 子集,因此不受信任的检索链接无论在何处渲染都行为相同。
 
 ## Testing
 
