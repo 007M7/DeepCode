@@ -38,7 +38,7 @@ Placement and policy rulings folded into this decision:
 
 ## Consequences
 
-- `cordis.yml` chooses the interaction; `apps/cli` mounts `-browse` (the shipped default — remote-capable picking out of the box), one row having swapped backend and UI together; `-native` remains the host-display alternative.
+- `cordis.yml` chooses the interaction; `apps/cli` mounts the [`-auto` chooser](../feature/2026-07-29-directory-picker-adaptive-default.md), which resolves the host's situation at boot and mounts `-native` or `-browse` itself, one row still swapping backend and UI together; composing a backend row directly pins the interaction.
 - The wire gains `host.listDirectory`/`host.createDirectory` and four error codes; the connection fixture serves a deterministic browse tree and a deterministic `pickDirectory` path for keyless assembled tests.
 - A future interaction (or an Electron provider of the `native` interaction) is one dual-face backend package — no gateway surgery, no ui-workspace edits.
 - `ApiProxyDefaults.pickDirectory` (test-only injection) is gone; tests provide a stub `ctx.directoryPicker` like any other service.

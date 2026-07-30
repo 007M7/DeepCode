@@ -234,7 +234,8 @@ export function assertEntriesActive(ctx: Context, binName: string): void {
  * @param patches - optional overlay patches applied over the included tree
  * (see {@link loadPersonalPatches}); an empty list mounts none.
  * @param prepare - optional host setup run after Loader installation and before any config-tree entry mounts.
- * @returns the root context once every entry has started.
+ * @returns the root context once every entry has started, or as soon as a
+ * surface disposed the tree while startup was still in flight.
  */
 export async function boot(
   binName: string,
@@ -255,6 +256,13 @@ export async function boot(
     },
   })
   await ctx.loader.await()
+  // A surface can finish and dispose the whole tree while that await is still
+  // pending: the TUI renders as soon as its own fiber starts, so an `/exit`
+  // typed before the last entry settles tears the context down under us. The
+  // Loader service goes with it, and both assertions below describe a live
+  // tree — reading `ctx.loader` here would throw a TypeError over an app that
+  // exited exactly as asked.
+  if (ctx.get('loader') === undefined) return ctx
   assertEntriesLoaded(ctx, binName)
   assertEntriesActive(ctx, binName)
   return ctx
