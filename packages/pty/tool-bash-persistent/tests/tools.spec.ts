@@ -45,6 +45,7 @@ function agent(ctx: Context, cwd: string | undefined): Agent {
     steer: () => {},
     inject: () => {},
     send: () => {},
+    updateInbox: () => 'not-found',
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
