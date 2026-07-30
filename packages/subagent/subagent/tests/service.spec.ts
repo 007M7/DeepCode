@@ -119,6 +119,12 @@ describe('SubagentService', () => {
     expect('resume' in provider).toBe(false)
   })
 
+  it('drains continuable activations as a no-op when no manager was bound', async () => {
+    const { subagents } = await service()
+    // Without `ctx.agents` no manager exists, so nothing was ever materialized.
+    await expect(subagents.drainContinuable()).resolves.toBeUndefined()
+  })
+
   it('rejects continuable operations when their runtime services are absent', async () => {
     const { subagents } = await service()
     await expect(subagents.startContinuable({

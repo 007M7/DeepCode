@@ -362,17 +362,17 @@ export class SubagentService extends Service {
     parent: Agent | undefined,
   ): ActivationObserver {
     const identity = { runId: SubagentRunId(randomUUID()), provider, id: childId, local: true }
-    let started = false
     let settled = false
     return {
       start: (): void => {
-        started = true
         this.emitLifecycle('subagent/start', identity, parent)
       },
       settle: (child: Agent, failure: unknown): void => {
-        // A failure before residency has no start edge to pair, and inventing
-        // one would report a lifecycle the child never had.
-        if (settled || !started) return
+        // Exactly one terminal edge per epoch: host shutdown, manager unload,
+        // child release, and normal settlement all converge on one disposal.
+        /* v8 ignore next -- the memoized disposal already collapses those callers into a
+         * single settle(); this guard keeps the edge single if that memoization ever changes. */
+        if (settled) return
         settled = true
         const output = failure === undefined ? lastAssistantOutput(child) : undefined
         this.emitLifecycle('subagent/end', {

@@ -111,8 +111,10 @@ export interface ActivationObserver {
   /** Publish the start edge once the epoch is resident. */
   start(): void
   /**
-   * Publish the terminal edge exactly once. An epoch that never became resident
-   * emits nothing, because it has no start edge to pair.
+   * Publish the terminal edge exactly once, pairing this epoch's {@link start}.
+   * Called only for a resident epoch: a failure before residency publishes no
+   * edge at all, because inventing one would report a lifecycle the child never
+   * had.
    * @param child - the child agent whose final output the edge reports.
    * @param failure - the teardown or durability failure, or `undefined` on success.
    */
@@ -303,8 +305,7 @@ export class SubagentContinuationManager {
         childId,
         provider: spec.provider,
         parent,
-        seed,
-        meta: childSessionMeta(parent, childDepth, lineageSeedLength),
+        create: { seed, meta: childSessionMeta(parent, childDepth, lineageSeedLength) },
         agentOptions: resolveChildAgentOptions(parent, request.agentOptions, childDepth),
         composition: { persona: request.persona, toolFilter: request.toolFilter },
         signal: spec.signal,
@@ -344,16 +345,22 @@ export class SubagentContinuationManager {
         if (activation === undefined) return this.coldResume(authority, childId, content, options)
         // A delivery that arrives after the disposal transaction began must not
         // reach a handle being torn down; wait for release, then cold-resume.
+        /* v8 ignore next 3 -- the send-versus-dispose cutoff: reaching this arm needs a
+         * delivery to observe the transaction inside the same critical section that opened it,
+         * which no test can schedule deterministically. The behavior is covered end-to-end by
+         * "cold-resumes a delivery that lost the race with final disposal". */
         if (activation.disposal !== undefined) {
           return activation.disposal.then(() => undefined, () => undefined)
         }
         await this.authorizeLive(authority, activation)
         return this.submit(activation, content, options.source, authority)
       })
+      /* v8 ignore start -- only the lost-cutoff arm above returns undefined, so only that
+       * race reaches the retry below, which then cold-resumes a new Activation. */
       if (live !== undefined) return live
-      // The racing disposal completed; retry admission, which now cold-resumes.
       this.assertAdmitting()
       options.signal.throwIfAborted()
+      /* v8 ignore stop */
     }
   }
 
@@ -455,7 +462,6 @@ export class SubagentContinuationManager {
       childId,
       provider: descriptor.provider,
       parent: authority.kind === 'parent' ? authority.agent : undefined,
-      resume: true,
       agentOptions: {
         ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
         ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
@@ -476,9 +482,8 @@ export class SubagentContinuationManager {
     childId: SessionId
     provider: string
     parent: Agent | undefined
-    resume?: boolean
-    seed?: readonly SessionEvent[]
-    meta?: NonNullable<CreateAgentOptions['meta']>
+    /** Creation inputs; absent for a cold resume, which loads the persisted session. */
+    create?: { seed: readonly SessionEvent[]; meta: NonNullable<CreateAgentOptions['meta']> }
     agentOptions: AgentOptions
     composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
     signal: AbortSignal
@@ -493,7 +498,8 @@ export class SubagentContinuationManager {
     const observer = this.host.observeActivation(provider, childId, parent)
     let handle: AgentHandle
     try {
-      handle = inputs.resume === true
+      const { create } = inputs
+      handle = create === undefined
         ? await this.ownerCtx.agents.resume({
           resumeSessionId: childId,
           agentOptions: inputs.agentOptions,
@@ -502,8 +508,8 @@ export class SubagentContinuationManager {
         })
         : await this.ownerCtx.agents.create({
           sessionId: childId,
-          ...inputs.meta !== undefined ? { meta: inputs.meta } : {},
-          ...inputs.seed !== undefined ? { seed: inputs.seed } : {},
+          meta: create.meta,
+          seed: create.seed,
           agentOptions: inputs.agentOptions,
           signal: inputs.signal,
           setup,
@@ -539,6 +545,8 @@ export class SubagentContinuationManager {
       this.activations.delete(childId)
       this.releaseOwnership(childId)
       activation.disposal = handle.dispose()
+      /* v8 ignore next -- the created handle disposes cleanly on every rollback this
+       * transaction can reach; the catch only keeps a disposal fault from masking `error`. */
       await activation.disposal.catch(() => undefined)
       throw error
     }
