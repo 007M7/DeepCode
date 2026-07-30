@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildWindow, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '../src/read-render.ts'
+import { buildWindow, langFromPath, readMetaFromMeta, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '../src/read-render.ts'
 import type { ReadWindow } from '../src/read-render.ts'
 
 const DEFAULT_CAPS = { maxLineLength: READ_MAX_LINE_LENGTH, maxBytes: READ_MAX_BYTES }
@@ -114,5 +114,56 @@ describe('buildWindow', () => {
       const result = await buildWindow(chunked('one\ntwo\n', 3), READ_ALL, 'f')
       expect(result.lines.map(l => l.text)).toEqual(['one', 'two'])
     })
+  })
+})
+
+describe('langFromPath', () => {
+  it('maps a known extension to its language hint, case-insensitively', () => {
+    expect(langFromPath('src/a.ts')).toBe('ts')
+    expect(langFromPath('src/a.TSX')).toBe('tsx')
+    expect(langFromPath('/abs/module.mjs')).toBe('js')
+    expect(langFromPath('conf.yml')).toBe('yaml')
+    expect(langFromPath('README.md')).toBe('md')
+  })
+
+  it('reads the extension after the last path segment and last dot', () => {
+    expect(langFromPath('a.py.bak')).toBeUndefined()
+    expect(langFromPath('archive.tar.gz')).toBeUndefined()
+    expect(langFromPath('/dir.py/plain')).toBeUndefined()
+    expect(langFromPath('C:\\src\\main.rs')).toBe('rs')
+  })
+
+  it('returns undefined for a dotfile, an extensionless name, and an unknown extension', () => {
+    expect(langFromPath('.gitignore')).toBeUndefined()
+    expect(langFromPath('/etc/hosts')).toBeUndefined()
+    expect(langFromPath('data.unknownext')).toBeUndefined()
+    expect(langFromPath('trailingdot.')).toBeUndefined()
+  })
+})
+
+describe('readMetaFromMeta', () => {
+  const good = { path: '/abs/a.ts', lines: [{ number: 1, text: 'x' }], totalLines: 1, lang: 'ts' }
+
+  it('narrows a well-formed read meta, with and without a lang hint', () => {
+    expect(readMetaFromMeta(good)).toEqual(good)
+    const noLang = { path: '/abs/a', lines: [], totalLines: 0 }
+    expect(readMetaFromMeta(noLang)).toEqual(noLang)
+  })
+
+  it('returns undefined for absent, non-object, or array meta', () => {
+    expect(readMetaFromMeta(undefined)).toBeUndefined()
+    expect(readMetaFromMeta(null)).toBeUndefined()
+    expect(readMetaFromMeta('nope')).toBeUndefined()
+    expect(readMetaFromMeta([good])).toBeUndefined()
+  })
+
+  it('returns undefined when a field is missing or the wrong type (defensive narrowing)', () => {
+    expect(readMetaFromMeta({ ...good, path: 5 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, totalLines: '1' })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lines: 'nope' })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lines: [{ number: '1', text: 'x' }] })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lines: [{ number: 1 }] })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lines: [null] })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, lang: 5 })).toBeUndefined()
   })
 })
