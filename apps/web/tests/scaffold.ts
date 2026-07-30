@@ -1,6 +1,6 @@
 // Shared scaffold for the keyless browser e2e lane (Agent Note:
 // .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md).
-// Boots the REAL web composition — the shipped apps/cli/cordis.yml through
+// Boots the REAL web composition — the shipped base plus web overlay through
 // the vendored Loader (the same include boot AppCLIEntry drives), patched the
 // snapshot way — so a real chromium exercises the real HTTP/SSE wire, the
 // api-gateway, agent loop, tools, and persistence. Modes ride $DSH_SNAPSHOT:
@@ -9,7 +9,7 @@
 // from live session memory), refresh (keyless replay that rewrites goldens).
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
-// patches over the SAME tree (never a second yml): temp persistenceRoot;
+// patches after the shipped surface overlay: temp persistenceRoot;
 // workspace-context disabled (recorded fixtures must not embed this repo's
 // AGENTS.md); session-title-llm disabled (its fire-and-forget title call
 // would race the loop for the session's replay cursor); webserver pinned to
@@ -28,7 +28,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include, { type PatchOptions } from '@cordisjs/plugin-include'
 import { scrubRequestHeaders } from '@deepseek-ai/dsh-acp-snapshot'
-import { assertEntriesLoaded } from '@deepseek-ai/dsh-app-boot'
+import { assertEntriesLoaded, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import type { ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import SessionStore, {
@@ -60,8 +60,9 @@ export function webSnapshotMode(): WebSnapshotMode {
   throw new Error(`DSH_SNAPSHOT must be replay, record, or refresh; got ${JSON.stringify(value)}`)
 }
 
-/** The shipped composition under test: apps/cli's config tree. */
-const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/cordis.yml')
+/** The shipped composition under test: apps/cli's shared base and web overlay. */
+const CONFIG_PATH = join(REPO_ROOT, 'apps/cli/config/base.cordis.yml')
+const WEB_OVERLAY_PATH = join(REPO_ROOT, 'apps/cli/config/web.cordis.yml')
 
 // Replay publishes the provider catalog the gateway routes to (providers
 // mode, never catch-all: with llm-deepseek disabled no adapter exists, so a
@@ -163,7 +164,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // The include patch set — the same mechanism AppCLIEntry and the ACP
   // snapshot overlay use, applied over the SAME shipped tree (a patch id that
   // stops matching a row fails the boot sweep loudly instead of drifting).
+  const surfacePatches = loadOverlayPatches('web e2e scaffold', WEB_OVERLAY_PATH)
   const patches: PatchOptions[] = [
+    ...surfacePatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     // storage-json's './.storages' yml default is cwd-relative and resolves
     // per write; the scaffold restores the original cwd after boot, so the

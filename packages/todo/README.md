@@ -8,4 +8,4 @@ The model-facing todo tool. A single **product** package — there is no interfa
 |---|---|---|
 | `tool-todo/` | Model-facing `todo_write` tool; writes the whole list to the session log (`todo/write`) | (registers on `ctx.tools`) |
 
-The list lives on the event-sourced session log (`SessionEventMap['todo/write']`, owned by [`dsh-session`](../core/session)); this package is the thin consumer that appends the snapshot. UIs such as the [TUI app](../examples/tui-demo) and the host/client runtime render the durable list from session events.
+The list lives on the event-sourced session log (`SessionEventMap['todo/write']`, owned by [`dsh-session`](../core/session)); this package is the thin consumer that appends the snapshot. UIs such as the [TUI app](../ui/tui) and the host/client runtime render the durable list from session events.

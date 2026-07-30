@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-dsh web GUI 的宿主侧：所有客户端形态共用的 API 网关，以及承载它的纯 HTTP 服务器。浏览器侧位于 [`client/`](../client/README.md)；组合后的应用是 [`apps/cli`](../../apps/cli/cordis.yml)，它负责服务 [`apps/web`](../../apps/web/)。全部为**产品**包。
+dsh web GUI 的宿主侧：所有客户端形态共用的 API 网关，以及承载它的纯 HTTP 服务器。浏览器侧位于 [`client/`](../client/README.md)；组合后的应用是 [`apps/cli`](../../apps/cli/config/base.cordis.yml)，它负责服务 [`apps/web`](../../apps/web/)。全部为**产品**包。
 
 | 包 | 角色 | ctx 键 |
 |---|---|---|

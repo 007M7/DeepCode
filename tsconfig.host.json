@@ -152,7 +152,6 @@
     { "path": "./packages/ui/jsonrpc" },
     { "path": "./packages/examples/jsonrpc-demo" },
     { "path": "./packages/ui/tui" },
-    { "path": "./packages/examples/tui-demo" },
     { "path": "./packages/support/llm-replay" },
     { "path": "./packages/typert/generator" },
     { "path": "./packages/support/acp-snapshot" },
