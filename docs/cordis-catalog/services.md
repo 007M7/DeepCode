@@ -882,7 +882,7 @@ stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 
 Types: [AdapterRegistrationHandle](../core-data-structures/core.md) · [GenerateOptions](../core-data-structures/core.md) · [LlmAdapter](../core-data-structures/llm-streaming.md) · [LlmCallConfig](../core-data-structures/core.md) · [LlmConfigurableProvider](../core-data-structures/core.md) · [LlmModelInfo](../core-data-structures/core.md) · [LlmProviderInfo](../core-data-structures/core.md) · [LlmResolvedModelInfo](../core-data-structures/core.md) · [PreparedLlmCall](../core-data-structures/llm-streaming.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [StreamChunk](../core-data-structures/llm-streaming.md)
 
-Source: [`packages/llm/llm/src/index.ts:223`](../../packages/llm/llm/src/index.ts)
+Source: [`packages/llm/llm/src/index.ts:227`](../../packages/llm/llm/src/index.ts)
 
 ## `ctx.permission` — `PermissionService`
 
@@ -970,7 +970,7 @@ set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop
 
 Types: [Agent](../core-data-structures/core.md)
 
-Source: [`packages/plan/plan-mode/src/index.ts:179`](../../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:182`](../../packages/plan/plan-mode/src/index.ts)
 
 ## `ctx.pty` — `PtyService`
 
@@ -2423,7 +2423,7 @@ async ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>
 
 Types: [AskUserQuestionAnswer](../core-data-structures/user-interaction.md) · [AskUserQuestionRequest](../core-data-structures/user-interaction.md) · [UserInteractionProvider](../core-data-structures/user-interaction.md)
 
-Source: [`packages/ui/user-interaction/src/index.ts:50`](../../packages/ui/user-interaction/src/index.ts)
+Source: [`packages/ui/user-interaction/src/index.ts:51`](../../packages/ui/user-interaction/src/index.ts)
 
 ## `ctx.web` — `WebService`
 

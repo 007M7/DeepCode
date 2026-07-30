@@ -11,20 +11,15 @@ export const UNGROUPED_KEY = ''
 /** Display label for the ungrouped bucket row. */
 export const UNGROUPED_LABEL = 'Ungrouped'
 
-/** One session node of a group's visible tree (34px row; children render indented one step). */
+/** One top-level session row in a group or the flat list. */
 export interface SessionNode {
   id: SessionId
   title: string
-  /** Visible children, already expansion/search-filtered (empty when folded). */
-  children: readonly SessionNode[]
-  /** The session HAS children in the data (the twist renders even while folded). */
-  hasChildren: boolean
-  expanded: boolean
   running: boolean
   updatedAt: number
 }
 
-/** One workspace group section: header row facts + the visible session tree. */
+/** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
   /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
   key: string
@@ -39,14 +34,13 @@ export interface GroupNode {
   expanded: boolean
   /** The group contains the selected session (active folder tint; supplied here so the renderer never scans). */
   containsCurrent: boolean
-  /** Visible roots (empty while the group is folded). */
+  /** Visible session rows (empty while the group is folded). */
   sessions: readonly SessionNode[]
 }
 
-/** Viewing state consumed by the derivation — the component's local useState arrays, taken as-is. */
+/** Viewing state consumed by the derivation. */
 export interface TreeView {
   expandedProjects: readonly string[]
-  expandedSessions: readonly string[]
   query: string
 }
 
@@ -56,9 +50,7 @@ interface Group {
   cwd: string | undefined
   createdAt: number | undefined
   label: string
-  summaries: Map<SessionId, SessionSummary>
-  roots: SessionId[]
-  children: Map<SessionId, SessionId[]>
+  sessions: SessionSummary[]
 }
 
 /**
@@ -89,7 +81,7 @@ function sessionTitle(session: SessionSummary): string {
   return session.blank ? 'New Session' : session.displayTitle
 }
 
-/** Build one group's parent/child tree from an ordered member list. */
+/** Build one group without projecting session lineage into presentation. */
 function buildGroup(
   key: string,
   workspaceId: WorkspaceId | undefined,
@@ -99,54 +91,11 @@ function buildGroup(
   members: readonly SessionSummary[],
   order: 'account' | 'recency',
 ): Group {
-  const summaries = new Map(members.map(m => [m.id, m]))
-  const children = new Map<SessionId, SessionId[]>()
-  const roots: SessionSummary[] = []
-  for (const m of members) {
-    // A session is a tree child only when its parent lives in the same
-    // group; cross-group or unknown parents degrade to group roots.
-    if (m.parentId !== undefined && m.parentId !== m.id && summaries.has(m.parentId)) {
-      const kids = children.get(m.parentId)
-      if (kids === undefined) children.set(m.parentId, [m.id])
-      else kids.push(m.id)
-    } else {
-      roots.push(m)
-    }
-  }
-  // Workspace order is the member iteration order (workspace.sessionIds), so
-  // attached groups keep insertion order; Ungrouped sorts by recency.
-  if (order === 'recency') {
-    roots.sort(byRecency)
-    for (const kids of children.values()) {
-      kids.sort((a, b) => {
-        const sa = summaries.get(a)
-        const sb = summaries.get(b)
-        /* v8 ignore next -- unreachable: kid ids are inserted alongside their summaries. */
-        if (sa === undefined || sb === undefined) return 0
-        return byRecency(sa, sb)
-      })
-    }
-  }
-  const rootIds = roots.map(r => r.id)
-  // parentId cycles (host bug) leave members unreachable from any root;
-  // surface them as extra roots — the flatten walk's visited set stops
-  // loops. Each node sits in at most one kids list and roots have no
-  // in-group parent, so the scan pushes every reachable node exactly once.
-  const reachable = new Set<SessionId>(rootIds)
-  const stack = [...rootIds]
-  while (stack.length > 0) {
-    const top = stack.pop()
-    /* v8 ignore next -- unreachable: the loop condition guarantees a non-empty stack. */
-    if (top === undefined) break
-    for (const kid of children.get(top) ?? []) {
-      reachable.add(kid)
-      stack.push(kid)
-    }
-  }
-  for (const m of members) {
-    if (!reachable.has(m.id)) rootIds.push(m.id)
-  }
-  return { key, workspaceId, cwd, createdAt, label, summaries, roots: rootIds, children }
+  const sessions = [...members]
+  // Workspace order is workspace.sessionIds; only Ungrouped lacks an account
+  // order and therefore falls back to recency.
+  if (order === 'recency') sessions.sort(byRecency)
+  return { key, workspaceId, cwd, createdAt, label, sessions }
 }
 
 /**
@@ -181,72 +130,24 @@ function groupByWorkspace(list: SessionListState, workspaces: readonly Workspace
   return groups
 }
 
-function sessionNode(s: SessionSummary, children: readonly SessionNode[], hasChildren: boolean, expanded: boolean): SessionNode {
+function sessionNode(s: SessionSummary): SessionNode {
   return {
     id: s.id,
     title: sessionTitle(s),
-    children,
-    hasChildren,
-    expanded,
     running: s.running,
     updatedAt: s.updatedAt,
   }
 }
 
-function buildVisible(g: Group, expandedSessions: ReadonlySet<string>): SessionNode[] {
-  const visited = new Set<SessionId>()
-  const walk = (id: SessionId): SessionNode | null => {
-    if (visited.has(id)) return null
-    visited.add(id)
-    const s = g.summaries.get(id)
-    /* v8 ignore next -- unreachable: walked ids come from the grouped summaries. */
-    if (s === undefined) return null
-    const kids = g.children.get(id) ?? []
-    const expanded = expandedSessions.has(id)
-    const children = expanded ? kids.map(walk).filter((n): n is SessionNode => n !== null) : []
-    return sessionNode(s, children, kids.length > 0, expanded)
-  }
-  return g.roots.map(walk).filter((n): n is SessionNode => n !== null)
-}
-
-/** Matched sessions plus their ancestor chains (forced visible under search). */
-function searchVisible(g: Group, q: string): Set<SessionId> {
-  const visible = new Set<SessionId>()
-  for (const m of g.summaries.values()) {
-    if (!sessionTitle(m).toLowerCase().includes(q)) continue
-    let cur: SessionSummary | undefined = m
-    while (cur !== undefined && !visible.has(cur.id)) {
-      visible.add(cur.id)
-      cur = cur.parentId !== undefined && cur.parentId !== cur.id ? g.summaries.get(cur.parentId) : undefined
-    }
-  }
-  return visible
-}
-
-function buildSearch(g: Group, visible: ReadonlySet<SessionId>): SessionNode[] {
-  const visited = new Set<SessionId>()
-  const walk = (id: SessionId): SessionNode | null => {
-    if (visited.has(id) || !visible.has(id)) return null
-    visited.add(id)
-    const s = g.summaries.get(id)
-    /* v8 ignore next -- unreachable: walked ids come from the grouped summaries. */
-    if (s === undefined) return null
-    const kids = (g.children.get(id) ?? []).filter(kid => visible.has(kid))
-    const children = kids.map(walk).filter((n): n is SessionNode => n !== null)
-    return sessionNode(s, children, kids.length > 0, kids.length > 0)
-  }
-  return g.roots.map(walk).filter((n): n is SessionNode => n !== null)
-}
-
 /**
- * Derive the nested workspace browser group structure.
+ * Derive the workspace browser groups with every session as a top-level row.
  *
  * Normal mode: every group shows; sessions populate under expanded groups,
- * descending only into expanded sessions. Search mode (non-blank query,
+ * preserving Host account order. Search mode (non-blank query,
  * case-insensitive display-title substring): expansion state is ignored —
- * matched sessions and their ancestor chains are forced visible, groups
- * without a display-title or label hit are dropped, and a label-only hit
- * keeps the bare group header. Blank sessions are excluded everywhere.
+ * matching sessions are forced visible, groups without a display-title or
+ * label hit are dropped, and a label-only hit
+ * keeps the bare group header. Non-current blank sessions are excluded.
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
  * @param view - local expansion arrays and search query.
@@ -259,7 +160,6 @@ export function deriveGroups(
 ): GroupNode[] {
   const q = view.query.trim().toLowerCase()
   const expandedProjects = new Set(view.expandedProjects)
-  const expandedSessions = new Set(view.expandedSessions)
   const currentGroup = list.current === undefined
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
@@ -274,24 +174,24 @@ export function deriveGroups(
         cwd: g.cwd,
         createdAt: g.createdAt,
         label: g.label,
-        sessionCount: g.summaries.size,
+        sessionCount: g.sessions.length,
         expanded,
         containsCurrent: g.key === currentGroup,
-        sessions: expanded ? buildVisible(g, expandedSessions) : [],
+        sessions: expanded ? g.sessions.map(sessionNode) : [],
       })
     } else {
-      const visible = searchVisible(g, q)
-      if (visible.size === 0 && !g.label.toLowerCase().includes(q)) continue
+      const matches = g.sessions.filter(session => sessionTitle(session).toLowerCase().includes(q))
+      if (matches.length === 0 && !g.label.toLowerCase().includes(q)) continue
       groups.push({
         key: g.key,
         workspaceId: g.workspaceId,
         cwd: g.cwd,
         createdAt: g.createdAt,
         label: g.label,
-        sessionCount: g.summaries.size,
-        expanded: visible.size > 0,
+        sessionCount: g.sessions.length,
+        expanded: matches.length > 0,
         containsCurrent: g.key === currentGroup,
-        sessions: buildSearch(g, visible),
+        sessions: matches.map(sessionNode),
       })
     }
   }
@@ -301,9 +201,8 @@ export function deriveGroups(
 /**
  * Derive the flat session list ("In one list" mode): every session — fork
  * children included — as a top-level row, strictly newest-first. No grouping,
- * no parent/child adjacency; rows reuse SessionNode with children always
- * empty so the renderer stays branch-free. Search mode filters by
- * case-insensitive display-title substring.
+ * no parent/child adjacency. Search mode filters by case-insensitive
+ * display-title substring.
  * @param list - sessions list snapshot.
  * @param view - the search query (expansion state does not apply).
  * @returns flat rows in render order.
@@ -318,7 +217,7 @@ export function deriveFlat(list: SessionListState, view: Pick<TreeView, 'query'>
     rows.push(s)
   }
   rows.sort(byRecency)
-  return rows.map(s => sessionNode(s, [], false, false))
+  return rows.map(sessionNode)
 }
 
 /**

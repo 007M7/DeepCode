@@ -859,6 +859,11 @@ export function installSettingsSection<T>(
     })
     hooks.onChange()
     scope.watch(() => {
+      // A stored change landing while the consumer unloads reaches the watcher
+      // before the registration is released, and `onChange` is exactly as
+      // harmful here as in the disposer above: it re-registers routes against
+      // a fiber whose resources are being let go.
+      if (isUnloading(ctx)) return
       hooks.onChange()
     })
   })
