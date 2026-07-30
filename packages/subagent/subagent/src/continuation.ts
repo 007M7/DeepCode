@@ -168,6 +168,12 @@ interface Activation {
    * a new Activation. Every converging releaser shares this one teardown.
    */
   disposal: Promise<void> | undefined
+  /**
+   * Accepted waking message ids this manager has not yet seen leave the inbox.
+   * `Agent.status` is still `idle` in the window between `followup()` and the
+   * microtask that admits it, so settlement must not treat that gap as quiet.
+   */
+  readonly accepted: Set<MessageId>
   /** Renewed whenever a settlement watcher must re-observe quiescence. */
   poke: PromiseWithResolvers<void>
 }
@@ -353,6 +359,11 @@ export class SubagentContinuationManager {
           return activation.disposal.then(() => undefined, () => undefined)
         }
         await this.authorizeLive(authority, activation)
+        // The caller signal owns admission until acceptance, so re-check it
+        // here: the outer check cannot cover an abort that landed while
+        // authorization yielded, and enqueueing afterwards would return a
+        // message id for a delivery the caller already cancelled.
+        options.signal.throwIfAborted()
         return this.submit(activation, content, options.source, authority)
       })
       /* v8 ignore start -- only the lost-cutoff arm above returns undefined, so only that
@@ -413,10 +424,15 @@ export class SubagentContinuationManager {
 
   /**
    * Derive residency from Agent quiescence and the owned-child set. `running`
-   * covers an active admission, an open turn, or waking inbox work.
+   * covers an active admission, an open turn, or accepted waking inbox work.
+   *
+   * `Agent.status` alone is insufficient: it stays `idle` between an accepted
+   * waking send and the microtask that admits it, so a synchronous inbox
+   * observer would see `settled` while a turn is already queued. `accepted`
+   * holds the ids this manager admitted but has not yet seen drained.
    */
   private stateOf(activation: Activation): ActivationState {
-    if (activation.handle.agent.status === 'running') return 'running'
+    if (activation.handle.agent.status === 'running' || activation.accepted.size > 0) return 'running'
     if (activation.ownedChildren.size > 0) return 'waiting'
     return 'settled'
   }
@@ -528,6 +544,7 @@ export class SubagentContinuationManager {
       ownedChildren: new Set(),
       observer,
       disposal: undefined,
+      accepted: new Set(),
       poke: Promise.withResolvers<void>(),
     }
     // After transfer, any failure must dispose the created handle, remove the
@@ -550,6 +567,22 @@ export class SubagentContinuationManager {
       await activation.disposal.catch(() => undefined)
       throw error
     }
+    // Every accepted id leaves the inbox exactly once, through dequeue or
+    // discard. Clearing it there is what lets `stateOf()` distinguish a truly
+    // quiet Agent from one whose accepted turn has not been admitted yet.
+    // Registered through the child's own scoped context, so scope filtering
+    // already restricts both listeners to this exact agent.
+    handle.agent.ctx.on('agent/inbox/dequeue', (_agent, item) => {
+      /* v8 ignore next -- a dequeue of an id this manager never admitted needs
+       * another sender on the same child, which no current path allows. */
+      if (activation.accepted.delete(item.message.id)) this.wake(activation)
+    })
+    handle.agent.ctx.on('agent/inbox/discard', (_agent, items) => {
+      // Deleting every id in the batch is unconditional; waking once afterwards
+      // costs nothing and avoids branching on which ids this manager admitted.
+      for (const item of items) activation.accepted.delete(item.message.id)
+      this.wake(activation)
+    })
     // Resident: publish the start edge before any turn can run, so observers
     // see this epoch before its first request.
     observer.start()
@@ -604,7 +637,15 @@ export class SubagentContinuationManager {
     // establish it before the message can enter the child's inbox.
     if (authority.kind === 'parent') this.acquireOwnership(authority.agent, activation.childId)
     const message = createUserMessage({ content, source })
-    activation.handle.agent.followup(message)
+    // `Agent.followup()` publishes `agent/inbox/enqueue` synchronously, so its
+    // observers must see this Activation as busy before the call begins.
+    activation.accepted.add(message.id)
+    try {
+      activation.handle.agent.followup(message)
+    } catch (error: unknown) {
+      activation.accepted.delete(message.id)
+      throw error
+    }
     // Accepted waking work keeps this Activation live until whenIdle() observes
     // the complete waking suffix.
     this.wake(activation)
@@ -730,8 +771,17 @@ export class SubagentContinuationManager {
             'ACTIVATION_TEARDOWN_FAILED',
           )
         }
+        // Quiesce before the checkpoint: a turn still running would keep
+        // appending events the flush cannot cover, and a slow flush would let
+        // model and tool work continue for the whole shutdown.
+        activation.handle.agent.cancel({ kind: 'parent' })
+        await activation.handle.agent.whenIdle()
         const durability = await this.checkpoint(activation)
         failure ??= durability
+        // Publish the terminal edge while the child is STILL registered:
+        // consumers resolve `ctx.agents.get(info.id)` in `subagent/end` to run
+        // in the child's own cwd and scope, which handle disposal removes.
+        activation.observer.settle(activation.handle.agent, failure)
       } finally {
         this.activations.delete(childId)
         try {
@@ -746,7 +796,6 @@ export class SubagentContinuationManager {
           // Release ownership even on failure: a retained failed child would
           // pin its ancestors in `waiting` forever.
           this.releaseOwnership(childId)
-          activation.observer.settle(activation.handle.agent, failure)
         }
       }
       if (failure !== undefined) throw failure

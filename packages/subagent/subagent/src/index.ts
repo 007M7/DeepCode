@@ -36,6 +36,7 @@ import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { findLastMessageTurnEnd } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type {
   ContinuableCreateRequest,
@@ -377,7 +378,7 @@ export class SubagentService extends Service {
         const output = failure === undefined ? lastAssistantOutput(child) : undefined
         this.emitLifecycle('subagent/end', {
           ...identity,
-          stopReason: failure === undefined ? 'completed' : 'error',
+          stopReason: failure === undefined ? childStopReason(child) : 'error',
           ...output === undefined ? {} : { lastAssistantMessage: output },
         }, parent)
       },
@@ -456,6 +457,37 @@ export class SubagentService extends Service {
         )
       }
     }
+  }
+}
+
+/**
+ * Why this child's last ordinary turn ended, for the terminal lifecycle edge.
+ * The child's own `turn/end` is authoritative: teardown succeeding says nothing
+ * about whether the model errored, hit its token ceiling, or was cancelled, so
+ * deriving the reason from disposal would report failed work as completed.
+ * @param child - the settling child agent whose log is read.
+ * @returns its terminal stop reason; `completed` when no ordinary turn closed.
+ */
+function childStopReason(child: Agent): SubagentResult['stopReason'] {
+  const reason = findLastMessageTurnEnd(child.session.events)?.data.reason
+  // No ordinary turn closed, so nothing failed either.
+  if (reason === undefined) return 'completed'
+  switch (reason.kind) {
+    case 'max-tokens':
+      return 'max-tokens'
+    case 'aborted':
+    case 'interrupted':
+    case 'disposed':
+      return 'aborted'
+    case 'error':
+      return 'error'
+    case 'completed':
+      return 'completed'
+    /* v8 ignore next 3 -- `TurnEndReason` is merge-extensible, so this arm needs a
+     * backend that adds a variant; treating an unnameable reason as success would
+     * report failed work as completed. */
+    default:
+      return 'error'
   }
 }
 
