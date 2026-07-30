@@ -39,6 +39,7 @@
 | [`session-projection/`](session-projection/README.md) | 投影 seam：领域折叠单元供给全量值 | 产品：稳定表面 |
 | [`session-query/`](session-query/README.md) | 会话检索系列：逻辑语料库、有界读取、血缘、事件关系、语义过滤和 SQLite 全文搜索 | 产品：稳定表面 |
 | [`session-title/`](session-title/README.md) | 日志支撑的会话标题：回退服务与选用 LLM 提供方 | 产品：稳定表面 |
+| [`settings/`](settings/README.md) | 用户设置 seam + 文件 provider | 产品：稳定表面 |
 | [`telemetry/`](telemetry/README.md) | 会话上报：捕获／脱敏 seam、OTel 后端 | 产品：稳定表面 |
 | [`storage/`](storage/README.md) | 非会话存储中枢 + 后端 + 领域形式 | 产品：稳定表面 |
 | [`workspace/`](workspace/README.md) | Workspace 实体 | 产品：稳定表面 |
