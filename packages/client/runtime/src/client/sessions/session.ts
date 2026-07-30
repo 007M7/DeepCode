@@ -4,8 +4,8 @@ import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
-  HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  SessionId, ToolEventView,
+  HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
+  RpcId, RpcResult, SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -48,14 +48,6 @@ export interface SessionOptions {
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
 const QUEUE_PREVIEW_CHARS = 200
 
-/** Internal inbox-mirror entry: the snapshot row plus the retirement-matching fields the frames carry. */
-interface QueuedEntry {
-  row: QueuedMessage
-  steering: boolean
-  /** JSON-serialized MessageSource (steering retirement matches by source, the host-mirror precedent). */
-  sourceJson: string
-}
-
 /** Single-line queue-row preview: text blocks flattened, non-text as tags, capped by code point. */
 function queuePreviewOf(content: readonly ContentBlock[]): string {
   const flat = content
@@ -63,6 +55,12 @@ function queuePreviewOf(content: readonly ContentBlock[]): string {
     .join(' ').replace(/\s+/g, ' ').trim()
   const chars = Array.from(flat)
   return chars.length > QUEUE_PREVIEW_CHARS ? `${chars.slice(0, QUEUE_PREVIEW_CHARS).join('')}…` : flat
+}
+
+/** Recover complete composer text only when editing cannot discard non-text blocks. */
+function queueTextOf(content: readonly ContentBlock[]): string | null {
+  if (!content.every(block => block.type === 'text')) return null
+  return content.map(block => block.text).join('')
 }
 
 /**
@@ -102,9 +100,8 @@ export class Session implements SessionFace {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
-  /** Inbox mirror (session/queued frames + mux-open baseline). Queue frames never hit history,
-   *  so this is stream-only state: reconnect clears it and the fresh baseline re-populates. */
-  private queued: QueuedEntry[] = []
+  /** Authoritative stream-only inbox snapshot; pending work never hits history. */
+  private queued: QueuedMessage[] = []
   private queueRev = 0
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
@@ -232,6 +229,15 @@ export class Session implements SessionFace {
       this.notifier.markDirty()
     }
     return result
+  }
+
+  /** Apply one operation to a still-pending queue occurrence. */
+  async updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>> {
+    try {
+      return (await this.api.sessions.updateQueue({ sessionId: this.sessionId, itemId, action })).result
+    } catch (error) {
+      return transportError(error)
+    }
   }
 
   /**
@@ -393,20 +399,15 @@ export class Session implements SessionFace {
   handleMuxEnvelope(rpcId: RpcId, frame: MuxFrame): void {
     switch (frame.type) {
       case 'session/event': {
-        this.retireQueued(frame.event)
         this.acceptLiveEvent(frame.event, frame.view)
         return
       }
-      case 'session/queued': {
-        const message = frame.message
-        // Row key: the enqueueing prompt's rpcId when it rode this wire (the
-        // provisional-echo reconciliation key); otherwise the frame envelope id.
-        const key = 'rpcId' in message.source ? String(message.source.rpcId) : `f:${rpcId}`
-        this.queued.push({
-          row: { key, preview: queuePreviewOf(message.content) },
-          steering: frame.steering,
-          sourceJson: JSON.stringify(message.source),
-        })
+      case 'session/queue': {
+        this.queued = frame.items.map(item => ({
+          id: item.id,
+          preview: queuePreviewOf(item.message.content),
+          text: queueTextOf(item.message.content),
+        }))
         this.queueRev++
         this.notifier.markDirty()
         return
@@ -459,15 +460,6 @@ export class Session implements SessionFace {
    * @param running - the new running state.
    */
   handleRunning(running: boolean): void {
-    // Leave-running sweep (host queuedMirror precedent): discard paths (cancel,
-    // terminal steering drop) have no per-entry frame, so ANY not-running signal
-    // with a nonempty mirror clears it — checked before the equality return so a
-    // stale replay on an already-idle session still sweeps.
-    if (!running && this.queued.length > 0) {
-      this.queued = []
-      this.queueRev++
-      this.notifier.markDirty()
-    }
     // Turn-start conversion: a blank session never runs, so the first
     // running:true proves another端's first message landed (设计稿 2.2).
     if (running && this.blankBit) {
@@ -630,27 +622,6 @@ export class Session implements SessionFace {
     } finally {
       this.stitching = false
     }
-  }
-
-  /** Consumption-event retirement, mirroring the host queuedMirror rules: a message-triggered
-   *  turn/start claims the oldest non-steering entry; a steering/message drains the oldest
-   *  steering entry with the same source (loop-authored steering matches nothing and drops none). */
-  private retireQueued(event: SessionEvent): void {
-    if (this.queued.length === 0) return
-    let index = -1
-    if (event.type === 'turn/start') {
-      if (event.data.trigger.kind !== 'message') return
-      index = this.queued.findIndex(entry => !entry.steering)
-    } else if (event.type === 'steering/message') {
-      const source = JSON.stringify(event.data.message.source)
-      index = this.queued.findIndex(entry => entry.steering && entry.sourceJson === source)
-    } else {
-      return
-    }
-    if (index < 0) return
-    this.queued.splice(index, 1)
-    this.queueRev++
-    this.notifier.markDirty()
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
@@ -832,7 +803,7 @@ export class Session implements SessionFace {
       this.dispatchesCache = { rev: this.dispatchesRev, value: new Map(this.codeDispatches) }
     }
     if (this.queueCache === null || this.queueCache.rev !== this.queueRev) {
-      this.queueCache = { rev: this.queueRev, value: this.queued.map(entry => entry.row) }
+      this.queueCache = { rev: this.queueRev, value: this.queued }
     }
     const partial = this.partial?.toPartial() ?? null
     return {
