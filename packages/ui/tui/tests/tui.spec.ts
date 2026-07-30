@@ -4320,16 +4320,20 @@ describe('tool cards and surface replay', () => {
     },
     scatteredDiff: {
       name: 'scatteredDiff', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
-      // Two hunks in ONE file, each side ending in the terminator newline real
-      // write/edit content carries. The footer must read `+2 -0 · 1 file`: the
-      // trailing newline terminates its line rather than adding a phantom empty
-      // one, and the two hunks count as the single distinct path they touch.
+      // Three hunks in ONE file. The first two sides end in the terminator
+      // newline real write/edit content carries; the third removes a line and
+      // leaves an EMPTY added side (a full deletion), so `diffContentLines('')`
+      // returns zero lines. The footer must read `+2 -1 · 1 file`: each trailing
+      // newline terminates its line rather than adding a phantom empty one, the
+      // empty side contributes no `+ ` row, and the three hunks count as the
+      // single distinct path they touch.
       presentCall: () => ({
         card: 'diff',
         title: 'Edit src/scatter.ts',
         diffs: [
           { path: 'src/scatter.ts', oldText: null, newText: 'first\n' },
           { path: 'src/scatter.ts', oldText: null, newText: 'second\n' },
+          { path: 'src/scatter.ts', oldText: 'gone\n', newText: '' },
         ],
       }),
     },
@@ -4638,7 +4642,10 @@ describe('tool cards and surface replay', () => {
   })
 
   it('counts a same-file diff once and terminates its trailing newline', async () => {
-    const result = await setup({ tools })
+    // A budget past the card's row count so every hunk row stays visible (the
+    // collapse arithmetic is covered elsewhere); this test is about the
+    // terminator rule and the distinct-path footer count.
+    const result = await setup({ tools, config: { maxToolOutputLines: 20 } })
     appendUser(result.session, 'scatter edits in one file')
     appendAssistant(result.session, [
       { type: 'text', text: 'Editing' },
@@ -4649,14 +4656,17 @@ describe('tool cards and surface replay', () => {
     })
     await tick()
     const output = result.terminal.output
-    // Two hunks, one path: distinct-path count, same as the Web DiffBlock.
+    // Three hunks, one path: distinct-path count, same as the Web DiffBlock.
     expect(output).toContain('· 1 file')
-    expect(output).not.toContain('· 2 files')
+    expect(output).not.toContain('· 3 files')
     // The `first\n`/`second\n` sides each contribute exactly one added line —
     // the trailing newline terminates rather than adding a phantom empty `+ `.
     expect(output).toContain('+ first')
     expect(output).toContain('+ second')
-    expect(output).toContain('+2 -0')
+    // The third hunk removes `gone` and leaves an empty added side, which
+    // contributes no `+ ` row (diffContentLines('') is zero lines).
+    expect(output).toContain('- gone')
+    expect(output).toContain('+2 -1')
     await dispose(result)
   })
 
