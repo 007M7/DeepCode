@@ -12,11 +12,12 @@ import { InputHub } from '../src/client/input/hub.ts'
 async function bench() {
   const runtime = await SlotTestRuntime.create()
   const prompt = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
+  const updateQueue = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const cancel = vi.fn(() => Promise.resolve({ ok: true as const, value: { accepted: true as const } }))
   const loadOlder = vi.fn(() => Promise.resolve())
   await runtime.sessions.add({
     id: 's1',
-    session: { prompt, cancel, loadOlder },
+    session: { prompt, updateQueue, cancel, loadOlder },
   })
   // config.input is required (the apply shares its hub with the inject
   // factories); the bench passes its own instance explicitly.
@@ -26,16 +27,18 @@ async function bench() {
   await fiber.await()
   const root = runtime.ctx.get('conversation') as ConversationService
   const scoped = runtime.sessions.scope('s1')!.get('conversation') as ConversationService
-  return { runtime, root, scoped, prompt, cancel, loadOlder }
+  return { runtime, root, scoped, prompt, updateQueue, cancel, loadOlder }
 }
 
 describe('ConversationService', () => {
   it('routes operations through the public Session binding', async () => {
     const b = await bench()
     await b.scoped.send('hello', 'steer')
+    await b.scoped.updateQueue('item-1' as never, { kind: 'remove' })
     await b.scoped.cancel()
     await b.scoped.loadOlder()
     expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'steer')
+    expect(b.updateQueue).toHaveBeenCalledWith('item-1', { kind: 'remove' })
     expect(b.cancel).toHaveBeenCalledOnce()
     expect(b.loadOlder).toHaveBeenCalledOnce()
     await b.runtime.dispose()

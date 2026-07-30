@@ -1249,9 +1249,9 @@ export function createTuiChat(
     }, { prepend: true })
     // Installed before followup(): an enqueue listener can synchronously
     // cancel and discard before followup() returns its id.
-    const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
+    const detachDiscard = ctx.on('agent/inbox/discard', (subject, items) => {
       if (subject !== agent) return
-      for (const message of messages) discarded.add(message.id)
+      for (const item of items) discarded.add(item.message.id)
       if (discarded.has(acceptedId)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
@@ -1486,13 +1486,13 @@ export function createTuiChat(
   const settlePendingSteering = (id: MessageId): void => {
     if (pendingSteering.delete(id)) refreshStatus()
   }
-  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {
-    if (subject === agent) settlePendingSteering(message.id)
+  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, item) => {
+    if (subject === agent) settlePendingSteering(item.message.id)
   })
-  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, messages) => {
+  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, items) => {
     if (subject !== agent) return
     let changed = false
-    for (const message of messages) changed = pendingSteering.delete(message.id) || changed
+    for (const item of items) changed = pendingSteering.delete(item.message.id) || changed
     if (changed) refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {

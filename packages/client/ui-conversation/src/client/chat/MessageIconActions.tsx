@@ -18,7 +18,7 @@ export interface MessageIconActionsProps {
   clock: 'start' | 'end'
   /** When true, append the stub edit control (user bubble). */
   edit?: boolean | undefined
-  /** Parent layout / hover-reveal class composed onto the actions row. */
+  /** Parent layout class composed onto the actions row. */
   className?: string | undefined
 }
 

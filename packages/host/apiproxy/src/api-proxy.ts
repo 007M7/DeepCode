@@ -9,11 +9,11 @@ import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
-  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
+  Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxItem, InboxItemId,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
-import type { MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
@@ -508,46 +508,106 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   })
 
   /**
-   * Per-session inbox occurrence mirror serving the mux-open queue snapshot
+   * Per-session queued-occurrence mirror serving the mux-open queue snapshot
    * (the same refresh-recovery baseline as pending questions). Each terminal
-   * inbox event retires one matching occurrence, so repeated sends of the same
+   * queue event retires one matching occurrence, so repeated sends of the same
    * identified message remain visible until every occurrence is claimed.
    */
-  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean }[]>()
+  const queuedMirror = new Map<SessionId, InboxItem[]>()
+  type UnseenQueueEvent =
+    | { readonly kind: 'update'; readonly item: InboxItem }
+    | { readonly kind: 'terminal' }
+  const unseenQueueEvents = new Map<SessionId, Map<InboxItemId, UnseenQueueEvent>>()
+  const rememberUnseen = (sessionId: SessionId, itemId: InboxItemId, event: UnseenQueueEvent): void => {
+    let events = unseenQueueEvents.get(sessionId)
+    if (events === undefined) {
+      events = new Map()
+      unseenQueueEvents.set(sessionId, events)
+    }
+    events.set(itemId, event)
+    // Only synchronous re-entrancy may deliver a mutation before its outer
+    // enqueue observer. Drop unmatched protocol-invalid observations instead
+    // of retaining process-local ids indefinitely.
+    queueMicrotask(() => {
+      const current = unseenQueueEvents.get(sessionId)
+      if (current?.get(itemId) !== event) return
+      current.delete(itemId)
+      if (current.size === 0) unseenQueueEvents.delete(sessionId)
+    })
+  }
+  const takeUnseen = (sessionId: SessionId, itemId: InboxItemId): UnseenQueueEvent | undefined => {
+    const events = unseenQueueEvents.get(sessionId)
+    const event = events?.get(itemId)
+    if (event === undefined) return undefined
+    events?.delete(itemId)
+    if (events?.size === 0) unseenQueueEvents.delete(sessionId)
+    return event
+  }
+  const publishQueue = (sessionId: SessionId): void => {
+    const items = queuedMirror.get(sessionId) ?? []
+    broadcast({
+      type: 'session/queue',
+      sessionId,
+      items: items.map(item => ({
+        id: item.id,
+        message: item.message,
+      })),
+    })
+  }
   ctx.effect(() => {
-    const retire = (agent: Agent, id: MessageId, placement?: InboxPlacement): void => {
+    const retire = (agent: Agent, item: InboxItem): boolean => {
       const entries = queuedMirror.get(agent.id)
-      if (entries === undefined) return
-      const index = entries.findIndex(entry =>
-        entry.message.id === id
-        && (placement === undefined || entry.steering === (placement === 'steering')))
-      if (index !== -1) entries.splice(index, 1)
+      if (entries === undefined) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      const index = entries.findIndex(entry => entry.id === item.id)
+      if (index === -1) {
+        rememberUnseen(agent.id, item.id, { kind: 'terminal' })
+        return false
+      }
+      entries.splice(index, 1)
       if (entries.length === 0) queuedMirror.delete(agent.id)
+      return true
     }
     const disposers = [
-      ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
+      ctx.on('agent/inbox/enqueue', (agent: Agent, item: InboxItem) => {
+        if (item.placement !== 'queued') return
+        const unseen = takeUnseen(agent.id, item.id)
+        if (unseen?.kind === 'terminal') return
         let entries = queuedMirror.get(agent.id)
         if (entries === undefined) {
           entries = []
           queuedMirror.set(agent.id, entries)
         }
-        const steering = placement === 'steering'
-        entries.push({ message, steering })
-        broadcast({
-          type: 'session/queued',
-          sessionId: agent.id,
-          message,
-          steering,
-        })
+        entries.push(unseen?.kind === 'update' ? unseen.item : item)
+        publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage, placement) => {
-        retire(agent, message.id, placement)
+      ctx.on('agent/inbox/update', (agent: Agent, item: InboxItem) => {
+        const entries = queuedMirror.get(agent.id)
+        if (entries === undefined) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        const index = entries.findIndex(entry => entry.id === item.id)
+        if (index === -1) {
+          rememberUnseen(agent.id, item.id, { kind: 'update', item })
+          return
+        }
+        entries.splice(index, 1, item)
+        publishQueue(agent.id)
       }),
-      ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
-        for (const message of messages) retire(agent, message.id)
+      ctx.on('agent/inbox/dequeue', (agent: Agent, item: InboxItem) => {
+        if (retire(agent, item)) publishQueue(agent.id)
+      }),
+      ctx.on('agent/inbox/discard', (agent: Agent, items: InboxItem[]) => {
+        let changed = false
+        for (const item of items) changed = retire(agent, item) || changed
+        if (changed) publishQueue(agent.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
+        unseenQueueEvents.delete(session.id)
       }),
     ]
     return () => { for (const dispose of disposers) dispose() }
@@ -1099,6 +1159,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         return ok(request, { accepted: true as const })
       },
 
+      updateQueue(request) {
+        const { sessionId, itemId, action } = request.payload
+        const agent = ctx.agents.get(sessionId)
+        if (agent === undefined || agent.updateInbox(itemId, action) === 'not-found') {
+          return Promise.resolve(err(request, {
+            code: 'queue-item-not-found',
+            message: 'queued item is no longer pending',
+            details: { itemId },
+          }))
+        }
+        return Promise.resolve(ok(request, { accepted: true as const }))
+      },
+
       cancel(request) {
         const { sessionId } = request.payload
         const agent = ctx.agents.get(sessionId)
@@ -1494,15 +1567,15 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         // Queue snapshot baseline (pendingQuestions precedent): frames replayed
         // in arrival order per session; a reconnecting client rebuilds its
         // queue view from these alone.
-        for (const [sessionId, entries] of queuedMirror) {
-          for (const entry of entries) {
-            queue.push(frame({
-              type: 'session/queued',
-              sessionId,
-              message: entry.message,
-              steering: entry.steering,
-            }))
-          }
+        for (const [sessionId, items] of queuedMirror) {
+          queue.push(frame({
+            type: 'session/queue',
+            sessionId,
+            items: items.map(item => ({
+              id: item.id,
+              message: item.message,
+            })),
+          }))
         }
         // Per-session open-call table for result-view pairing. Bounded by the
         // per-turn call count: entries clear on turn/end; a table miss (stream
