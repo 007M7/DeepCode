@@ -34,6 +34,10 @@
 - button "上下文已压缩 点击查看压缩摘要":
   - img
   - text: 上下文已压缩 点击查看压缩摘要
+- button "上下文注入":
+  - img
+  - img
+  - text: 上下文注入
 - textbox "Message the agent"
 - button "Add attachment":
   - img

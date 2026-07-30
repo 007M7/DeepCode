@@ -8,4 +8,4 @@
 |---|---|---|
 | `tool-todo/` | 面向模型的 `todo_write` 工具；将完整列表写入会话日志（`todo/write`） | （注册到 `ctx.tools`） |
 
-列表存在于事件溯源会话日志中（`SessionEventMap['todo/write']`，由 [`dsh-session`](../core/session) 拥有）；本包是追加快照的轻量消费方。[TUI 应用](../examples/tui-demo)等 UI 以及宿主／客户端运行时会根据会话事件渲染该持久化列表。
+列表存在于事件溯源会话日志中（`SessionEventMap['todo/write']`，由 [`dsh-session`](../core/session) 拥有）；本包是追加快照的轻量消费方。[TUI 应用](../ui/tui)等 UI 以及宿主／客户端运行时会根据会话事件渲染该持久化列表。

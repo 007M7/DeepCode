@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceSection, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
-  installFailLoud, loadEnv, resolveConfigPath, type FailLoudProcess,
+  addHarnessSourceSection, assertEntriesActive, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
 const NAME = 'dsh-test-bin'
@@ -157,6 +157,25 @@ describe('assertEntriesLoaded', () => {
   })
 })
 
+describe('loadOverlayPatches', () => {
+  it('loads expressions and rejects missing, malformed, non-array, and non-mapping overlays', () => {
+    const dir = tmp()
+    const valid = join(dir, 'valid.yml')
+    writeFileSync(valid, '- id: target\n  config:\n    value: !!js process.env.VALUE\n')
+    expect(loadOverlayPatches(NAME, valid)).toEqual([{ id: 'target', config: { value: { __jsExpr: 'process.env.VALUE' } } }])
+    expect(() => loadOverlayPatches(NAME, join(dir, 'missing.yml'))).toThrow(`${NAME}: failed to read overlay`)
+    const malformed = join(dir, 'malformed.yml')
+    writeFileSync(malformed, ': bad')
+    expect(() => loadOverlayPatches(NAME, malformed)).toThrow(`${NAME}: failed to parse overlay`)
+    const mapping = join(dir, 'mapping.yml')
+    writeFileSync(mapping, 'id: target\n')
+    expect(() => loadOverlayPatches(NAME, mapping)).toThrow('must be a top-level YAML array')
+    const scalar = join(dir, 'scalar.yml')
+    writeFileSync(scalar, '- scalar\n')
+    expect(() => loadOverlayPatches(NAME, scalar)).toThrow('entry 1')
+  })
+})
+
 describe('boot', () => {
   it('boots a leaf config through the real Loader and settles the tree', async () => {
     const dir = tmp()
@@ -176,7 +195,11 @@ describe('boot', () => {
     writeFileSync(join(dir, 'noop.mjs'), 'export const name = "noop"\nexport function apply() {}\n')
     writeFileSync(join(dir, 'cordis.yml'), '- id: noop\n  name: ./noop.mjs\n')
     const prepared: Context[] = []
-    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, (hostCtx) => { prepared.push(hostCtx) })
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'), undefined, (hostCtx) => {
+      expect(hostCtx.loader).toBeDefined()
+      expect([...hostCtx.loader.entries()]).toEqual([])
+      prepared.push(hostCtx)
+    })
     try {
       expect(prepared).toEqual([ctx])
     } finally {
@@ -188,6 +211,33 @@ describe('boot', () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
+  })
+
+  it('rejects a settled tree with a pending inject and names every missing service', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'waiting.mjs'), "export const inject = ['alpha', 'beta']\nexport function apply() {}\n")
+    writeFileSync(join(dir, 'cordis.yml'), '- id: waiting\n  name: ./waiting.mjs\n')
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow('./waiting.mjs: pending (waiting for services: alpha, beta)')
+  })
+
+  it('uses singular diagnostics for one missing pending dependency', () => {
+    const ctx = {
+      loader: { entries: () => [{ disabled: false, options: { name: 'waiting' }, fiber: { state: 0, inject: { alpha: {} } } }] },
+      get: () => undefined,
+    } as unknown as Context
+    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow('waiting: pending (waiting for service: alpha)')
+  })
+
+  it('reports unknown pending dependencies and unexpected fiber states', () => {
+    const entries = [
+      { disabled: false, options: { name: 'unknown' }, fiber: { state: 0, inject: {} } },
+      { disabled: false, options: { name: 'failed' }, fiber: { state: 3, inject: {} } },
+    ]
+    const ctx = {
+      loader: { entries: () => entries },
+      get: () => undefined,
+    } as unknown as Context
+    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow(`${NAME}: 2 entries did not activate\nunknown: pending (waiting for services: unknown)\nfailed: fiber state 3`)
   })
 })
 
