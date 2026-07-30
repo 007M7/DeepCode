@@ -331,7 +331,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const pathInputRef = useRef<HTMLInputElement | null>(null)
   const editZoneRef = useRef<HTMLButtonElement | null>(null)
 
-  /** Select a row of the listed level and preview its children on the right. */
+  /**
+   * Select a row of the listed level and preview its children on the right.
+   * Deliberately NOT one-frame like navigate(): a pick's first duty is the
+   * immediate selected state on the clicked row, and the pane split IS that
+   * feedback (aria-current pill, crumbs following the selection) — holding
+   * it back for the child listing would make clicks feel dropped. The quiet
+   * rule governs whole-view replacement, where nothing acknowledges the
+   * click but the swap itself.
+   */
   const select = useCallback((entry: DirectoryEntry) => {
     const { seq, scan } = launchListing(entry.path)
     // A pick while the path editor is open adopts the (filtered) row and
@@ -402,6 +410,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       return
     }
     supersede()
+    // Closing mid-scan leaves nothing to load: without this edge the
+    // slow-scan effect keeps arming while hidden and the reopened dialog
+    // would show the indicator on its first frame instead of waiting out a
+    // fresh silence window (reopen's navigate() produces no loading edge).
+    setLoading(false)
     setError(null)
     setPathDraft(null)
     setFolderDraft(null)
@@ -438,6 +451,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // create target becomes the listed level and the new folder its selection.
       const { seq, scan } = launchListing(targetPath)
       setLoading(true)
+      // Symmetric with navigate/select: a launched scan clears the stale
+      // failure text (and keeps the floating indicator's corner the only
+      // occupant of the content's right edge while it shows).
+      setError(null)
       scan.then((level) => {
         /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
         if (seq !== requestSeq.current) return
