@@ -215,8 +215,8 @@ export type DeepSeekReadiness =
 
 /**
  * Project official-DeepSeek readiness from the provider/settings/credential
- * join used by the Models page. A missing directory entry means the adapter
- * is not mounted and therefore cannot be repaired by navigating to Models.
+ * join used by the Models page. A missing official configurable-provider
+ * declaration means the adapter is not repairable by navigating to Models.
  * @param state - current shared Models join snapshot.
  * @returns the onboarding state without reading a parallel fact source.
  */
@@ -230,7 +230,10 @@ export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness
       reason: 'load-failed',
     }
   }
-  const row = state.rows.find(candidate => candidate.entry.provider === 'deepseek-official')
+  const row = state.rows.find(candidate =>
+    candidate.entry.provider === 'deepseek-official'
+    && candidate.entry.settingsNs === 'llm-deepseek'
+    && candidate.entry.settingsPath.length === 0)
   if (row === undefined) return { kind: 'adapter-absent' }
   if (!row.entry.active) {
     return {

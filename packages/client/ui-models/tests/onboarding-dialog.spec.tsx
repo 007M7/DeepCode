@@ -25,6 +25,7 @@ function fail<T>(message: string): RpcResponse<T> {
 function harness(options: {
   provider?: boolean
   providerActive?: boolean
+  providerSettingsNs?: string
   settingsNamespace?: boolean
   apiKeyEnv?: string | null
   literal?: boolean
@@ -32,16 +33,14 @@ function harness(options: {
   credential?: { source?: string; writable: boolean }
   describeFailure?: string
   settingsWritable?: boolean
-  providersRejectOnce?: boolean
+  providersReject?: boolean
 } = {}) {
   let fileConfigured = false
-  let rejectProviders = options.providersRejectOnce === true
   const configured = options.configured ?? (() => fileConfigured)
   const face = {
     llm: {
       providers: () => {
-        if (rejectProviders) {
-          rejectProviders = false
+        if (options.providersReject === true) {
           return Promise.reject(new Error('provider transport unavailable'))
         }
         return Promise.resolve(ok({
@@ -50,7 +49,7 @@ function harness(options: {
             : [{
               provider: 'deepseek-official',
               displayName: 'DeepSeek',
-              settingsNs: 'llm-deepseek',
+              settingsNs: options.providerSettingsNs ?? 'llm-deepseek',
               settingsPath: [],
               active: options.providerActive ?? true,
             }],
@@ -135,45 +134,20 @@ describe('DeepSeekOnboardingDialog', () => {
     expect(h.openSection).not.toHaveBeenCalled()
   })
 
-  it('routes an unavailable credential deployment to Models with a diagnostic', async () => {
-    const h = harness({ describeFailure: 'credentials service is absent' })
-    render(<DeepSeekOnboardingDialog {...h.props} />)
-    await screen.findByRole('dialog', { name: en.onboardingUnavailableTitle })
-    expect(screen.getByText(en.onboardingCredentialsUnavailable)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: en.onboardingGoToSettings }))
-    expect(h.openSection).toHaveBeenCalledWith('models')
-  })
-
-  it('explains read-only credential and settings deployments', async () => {
+  it('does not block the product when DeepSeek setup is unavailable', async () => {
     for (const h of [
+      harness({ describeFailure: 'credentials service is absent' }),
       harness({ credential: { writable: false } }),
       harness({ settingsWritable: false }),
-    ]) {
-      const view = render(<DeepSeekOnboardingDialog {...h.props} />)
-      await screen.findByRole('dialog', { name: en.onboardingUnavailableTitle })
-      expect(screen.getByText(en.onboardingReadOnly)).toBeTruthy()
-      view.unmount()
-    }
-  })
-
-  it('distinguishes an initial transport failure from deployment misconfiguration', async () => {
-    const h = harness({ providersRejectOnce: true })
-    render(<DeepSeekOnboardingDialog {...h.props} />)
-    await screen.findByRole('dialog', { name: en.onboardingUnavailableTitle })
-    expect(screen.getByText(en.onboardingLoadFailed)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: en.onboardingGoToSettings }))
-    expect(h.openSection).toHaveBeenCalledWith('models')
-  })
-
-  it('uses the configuration diagnostic for inactive or unresolvable adapters', async () => {
-    for (const h of [
+      harness({ providersReject: true }),
       harness({ providerActive: false }),
       harness({ settingsNamespace: false }),
       harness({ apiKeyEnv: null }),
     ]) {
       const view = render(<DeepSeekOnboardingDialog {...h.props} />)
-      await screen.findByRole('dialog', { name: en.onboardingUnavailableTitle })
-      expect(screen.getByText(en.onboardingConfigurationUnavailable)).toBeTruthy()
+      await act(async () => { await h.controller.load() })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(h.openSection).not.toHaveBeenCalled()
       view.unmount()
     }
   })
@@ -181,6 +155,7 @@ describe('DeepSeekOnboardingDialog', () => {
   it('skips an absent adapter and already-configured literal or environment credentials', async () => {
     for (const h of [
       harness({ provider: false }),
+      harness({ providerSettingsNs: '' }),
       harness({ literal: true, describeFailure: 'credential seam absent' }),
       harness({ configured: () => true, credential: { source: 'env', writable: false } }),
     ]) {

@@ -41,6 +41,14 @@ describe('deepSeekReadiness', () => {
     expect(deepSeekReadiness(state({ status: 'idle', rows: [] }))).toEqual({ kind: 'loading' })
     expect(deepSeekReadiness(state({ status: 'loading', rows: [] }))).toEqual({ kind: 'loading' })
     expect(deepSeekReadiness(state({ rows: [] }))).toEqual({ kind: 'adapter-absent' })
+    expect(deepSeekReadiness(state({
+      rows: [row({
+        entry: {
+          ...row().entry,
+          settingsNs: '',
+        },
+      })],
+    }))).toEqual({ kind: 'adapter-absent' })
   })
 
   it('reports a missing writable effective credential', () => {

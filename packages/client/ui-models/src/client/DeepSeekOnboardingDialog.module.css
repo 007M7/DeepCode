@@ -2,13 +2,6 @@
   width: min(420px, 100%);
 }
 
-.diagnostic {
-  margin: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-}
-
 .primary {
   width: 100%;
 }
