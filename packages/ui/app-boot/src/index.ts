@@ -229,6 +229,7 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
  */
 const FIBER_PENDING = 0 as FiberState.PENDING
 const FIBER_ACTIVE = 2 as FiberState.ACTIVE
+const FIBER_FAILED = 3 as FiberState.FAILED
 
 /** Render a thrown plugin value without discarding an Error's original stack. */
 function formatActivationError(error: unknown): string {
@@ -238,7 +239,9 @@ function formatActivationError(error: unknown): string {
 /**
  * Reject a settled Loader tree when an enabled entry failed or remains inactive.
  * Plugin failures include the original thrown stack; pending entries name their
- * unresolved services because no plugin error exists for that state.
+ * unresolved services because no plugin error exists for that state. Active
+ * entries require no further wait; only failed fibers are awaited to recover
+ * their private rejection reason.
  * @param ctx - the settled context whose Loader entries to audit.
  * @param binName - the diagnostic prefix on the thrown error.
  * @returns nothing when every enabled entry is active.
@@ -252,15 +255,17 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
   for (const entry of ctx.loader.entries()) {
     const fiber = entry.fiber
     if (fiber === undefined || entry.disabled) continue
-    try {
-      await fiber.await()
-    } catch (error) {
-      rejectionReasons.push(error)
-      failures.push(`${entry.options.name}: ${formatActivationError(error)}`)
-      continue
-    }
     const state = fiber.state
     if (state === FIBER_ACTIVE) continue
+    if (state === FIBER_FAILED) {
+      try {
+        await fiber.await()
+      } catch (error) {
+        rejectionReasons.push(error)
+        failures.push(`${entry.options.name}: ${formatActivationError(error)}`)
+      }
+      continue
+    }
     if (state === FIBER_PENDING) {
       const missing = Object.keys(fiber.inject).filter(service => fiber.ctx.get(service) === undefined)
       const subject = missing.length === 1 ? 'service' : 'services'

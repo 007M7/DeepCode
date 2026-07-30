@@ -209,10 +209,22 @@ describe('assertEntriesActivated', () => {
   })
 
   it('passes active entries and ignores disabled entries', async () => {
+    let awaitCalls = 0
+    const active = fiber(2)
+    active.await = async () => {
+      awaitCalls++
+      return undefined
+    }
+    const disabled = fiber(3, new Error('disabled failure'))
+    disabled.await = async () => {
+      awaitCalls++
+      throw new Error('disabled failure')
+    }
     await expect(assertEntriesActivated(ctxWith([
-      { fiber: fiber(2), options: { name: 'active' } },
-      { disabled: true, options: { name: 'disabled' } },
+      { fiber: active, options: { name: 'active' } },
+      { fiber: disabled, disabled: true, options: { name: 'disabled' } },
     ]), NAME)).resolves.toBeUndefined()
+    expect(awaitCalls).toBe(0)
   })
 
   it('reports the plugin name and original activation stack instead of fiber state 3', async () => {
@@ -232,17 +244,28 @@ describe('assertEntriesActivated', () => {
   })
 
   it('reports unresolved services for pending entries', async () => {
+    let awaitCalls = 0
     const expected = [
       `${NAME}: 3 entries did not activate`,
       'waiting: pending (waiting for services: missingA, missingB)',
       'single-wait: pending (waiting for service: missing)',
       'unknown-wait: pending (waiting for services: unknown)',
     ].join('\n')
+    const waiting = fiber(0, undefined, { ready: {}, missingA: {}, missingB: {} }, ['ready'])
+    const singleWait = fiber(0, undefined, { missing: {} })
+    const unknownWait = fiber(0)
+    for (const item of [waiting, singleWait, unknownWait]) {
+      item.await = async () => {
+        awaitCalls++
+        return undefined
+      }
+    }
     await expect(assertEntriesActivated(ctxWith([
-      { fiber: fiber(0, undefined, { ready: {}, missingA: {}, missingB: {} }, ['ready']), options: { name: 'waiting' } },
-      { fiber: fiber(0, undefined, { missing: {} }), options: { name: 'single-wait' } },
-      { fiber: fiber(0), options: { name: 'unknown-wait' } },
+      { fiber: waiting, options: { name: 'waiting' } },
+      { fiber: singleWait, options: { name: 'single-wait' } },
+      { fiber: unknownWait, options: { name: 'unknown-wait' } },
     ]), NAME)).rejects.toThrow(expected)
+    expect(awaitCalls).toBe(0)
   })
 
   it('retains the numeric diagnostic for a settled unexpected state', async () => {
