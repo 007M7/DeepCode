@@ -34,11 +34,3 @@
   /* Optical align with 28px icon hit targets that pad 6px past the glyph. */
   margin-left: -6px;
 }
-
-/* Hover-capable pointers: reveal shared actions on root hover/focus. */
-@media (hover: hover) {
-  .root:hover .actions,
-  .root:focus-within .actions {
-    opacity: 1;
-  }
-}
