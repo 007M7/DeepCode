@@ -376,6 +376,9 @@ flowchart TD
   pkg_host_directory_picker_native --> pkg_client_ui_slots
   pkg_host_directory_picker_native --> pkg_client_ui_workspace
   pkg_host_directory_picker_native --> pkg_invariants
+  pkg_settings_local --> pkg_invariants
+  pkg_settings_local --> pkg_paths
+  pkg_settings_local --> pkg_settings
   pkg_llm_deepseek --> pkg_invariants
   pkg_llm_deepseek --> pkg_llm
   pkg_llm_deepseek --> pkg_timeout
@@ -413,14 +416,15 @@ flowchart TD
   pkg_client_ui_subagent --> pkg_client_ui_slash
   pkg_client_ui_subagent --> pkg_client_ui_slots
   pkg_client_ui_subagent --> pkg_invariants
+  pkg_host_directory_picker_auto --> pkg_host_directory_picker_browse
+  pkg_host_directory_picker_auto --> pkg_host_directory_picker_native
+  pkg_host_directory_picker_auto --> pkg_host_webserver
+  pkg_host_directory_picker_auto --> pkg_invariants
   pkg_lsp --> pkg_brand
   pkg_lsp --> pkg_invariants
   pkg_lsp --> pkg_llm
   pkg_sandbox --> pkg_invariants
   pkg_sandbox --> pkg_llm
-  pkg_settings_local --> pkg_invariants
-  pkg_settings_local --> pkg_paths
-  pkg_settings_local --> pkg_settings
   pkg_token_meter --> pkg_invariants
   pkg_token_meter --> pkg_llm
   pkg_token_meter --> pkg_session
@@ -476,10 +480,6 @@ flowchart TD
   pkg_code_runtime_worker --> pkg_invariants
   pkg_code_runtime_worker --> pkg_session
   pkg_code_runtime_worker --> pkg_timeout
-  pkg_host_directory_picker_auto --> pkg_host_directory_picker_browse
-  pkg_host_directory_picker_auto --> pkg_host_directory_picker_native
-  pkg_host_directory_picker_auto --> pkg_host_webserver
-  pkg_host_directory_picker_auto --> pkg_invariants
   pkg_lsp_local --> pkg_brand
   pkg_lsp_local --> pkg_invariants
   pkg_lsp_local --> pkg_llm
@@ -1063,6 +1063,7 @@ flowchart TD
 | [`client-ui-theme`](../packages/client/ui-theme) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | `host` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-workspace`](../packages/client/ui-workspace), [`invariants`](../packages/support/invariants) |
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-workspace`](../packages/client/ui-workspace), [`invariants`](../packages/support/invariants) |
+| [`settings-local`](../packages/settings/settings-local) | `settings` | [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`settings`](../packages/settings/settings) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
 | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`attachment`](../packages/attachment/attachment), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
@@ -1072,9 +1073,9 @@ flowchart TD
 | [`client-ui-layout`](../packages/client/ui-layout) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-theme`](../packages/client/ui-theme), [`invariants`](../packages/support/invariants) |
 | [`client-ui-skill`](../packages/client/ui-skill) | `client` | [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-subagent`](../packages/client/ui-subagent) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`host-directory-picker-auto`](../packages/host/directory-picker-auto) | `host` | [`host-directory-picker-browse`](../packages/host/directory-picker-browse), [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`lsp`](../packages/lsp/lsp) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
-| [`settings-local`](../packages/settings/settings-local) | `settings` | [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`settings`](../packages/settings/settings) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`bash`](../packages/bash/bash) | `bash` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`subprocess`](../packages/subprocess/subprocess) |
@@ -1091,7 +1092,6 @@ flowchart TD
 | [`app-boot`](../packages/ui/app-boot) | `ui` | [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`system-prompt`](../packages/core/system-prompt) |
 | [`client-ui-command`](../packages/client/ui-command) | `client` | [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slash`](../packages/client/ui-slash), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`code-runtime-worker`](../packages/code-runtime/code-runtime-worker) | `code-runtime` | [`code-runtime`](../packages/code-runtime/code-runtime), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
-| [`host-directory-picker-auto`](../packages/host/directory-picker-auto) | `host` | [`host-directory-picker-browse`](../packages/host/directory-picker-browse), [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/support/invariants) |
 | [`lsp-local`](../packages/lsp/lsp-local) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`lsp`](../packages/lsp/lsp), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`sandbox-local`](../packages/sandbox/sandbox-local) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`sandbox-policy`](../packages/sandbox/sandbox-policy) | `sandbox` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`session`](../packages/core/session) |

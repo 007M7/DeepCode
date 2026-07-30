@@ -23,8 +23,10 @@
   // cannot see both sides of the cordis Context merges).
   "exclude": [
     "tests/scaffold.ts",
+    "tests/scaffold-hermetic.e2e.ts",
     "tests/live-interactions.e2e.ts",
     "tests/question-composer.e2e.ts",
+    "tests/plan-review.e2e.ts",
     "tests/steering.e2e.ts",
     "tests/navigation-panes.e2e.ts",
     "tests/lifecycle-chrome.e2e.ts",

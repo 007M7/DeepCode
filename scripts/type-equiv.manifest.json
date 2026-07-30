@@ -696,6 +696,11 @@
     },
     {
       "doc": "docs/core-data-structures/user-interaction.md",
+      "symbol": "AskUserQuestionIntent",
+      "source": "packages/ui/user-interaction/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/user-interaction.md",
       "symbol": "AskUserQuestionItem",
       "source": "packages/ui/user-interaction/src/types.ts"
     },

@@ -201,7 +201,7 @@ describe('sessions', () => {
     await runtime.dispose()
   })
 
-  it('records service-face calls; open() moves the selection and clear() empties it', async () => {
+  it('records service-face calls; open() moves selection, clear() empties it, and fork() echoes the source', async () => {
     const runtime = await runtimeWithFrame()
     await runtime.sessions.add({ id: 's1' })
     await runtime.sessions.add({ id: 's2' })
@@ -211,9 +211,13 @@ describe('sessions', () => {
     runtime.sessions.clear()
     await runtime.flush()
     expect(runtime.sessions.list.getSnapshot().current).toBeUndefined()
+    await expect(runtime.sessions.fork({
+      sessionId: 's1' as SessionId, atSeq: 7, increaseTitle: true,
+    })).resolves.toBe('s1')
     expect(runtime.sessions.calls).toEqual([
       { method: 'open', args: ['s1'] },
       { method: 'clear', args: [] },
+      { method: 'fork', args: [{ sessionId: 's1', atSeq: 7, increaseTitle: true }] },
     ])
     await runtime.dispose()
   })

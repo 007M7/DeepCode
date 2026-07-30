@@ -237,6 +237,20 @@ export interface SessionsApi {
   Promise<RpcResponse<{ title: string; seq: number }>>
 
   /**
+   * Forks a new session from a completed-turn prefix of the source. `atSeq`
+   * anchors the cut: the boundary is the first `turn/end` at or after it
+   * (a message's fork button passes the message seq, so the fork includes
+   * that whole turn); a boundary past the log end, or an omitted `atSeq`,
+   * falls back to the source's last completed turn. An in-log anchor whose
+   * turn is still open fails with `fork-unavailable` instead of clipping to
+   * an earlier turn. The child inherits the source cwd, latest logged model
+   * target, workspace attachment, and `parentSessionId` lineage; the seed
+   * prefix carries the source title.
+   */
+  fork(request: RpcRequest<{ sessionId: SessionId; atSeq?: number }>):
+  Promise<RpcResponse<{ sessionId: SessionId }>>
+
+  /**
    * Sends text plus temporary base64 image uploads; the host persists images before calling the agent.
    * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
    * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
@@ -248,7 +262,7 @@ export interface SessionsApi {
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
   /** Reads one durable image after proving that this session's log references its id. */
-  attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }> ):
+  attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
   Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string }>>
 
   /**

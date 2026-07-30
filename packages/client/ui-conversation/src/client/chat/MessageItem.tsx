@@ -18,6 +18,8 @@ import { ImageGallery, type ImageLoader } from './MessageImage.tsx'
 export interface MessageItemProps {
   node: UserMessageNode | SteeringMessageNode | ContextMessageNode | UnknownSurfaceNode
   loadImage?: ImageLoader
+  /** Fork the session through the turn containing this message (user-bubble branch action). */
+  onFork?: (seq: number) => void
 }
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
@@ -73,7 +75,9 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
-export const MessageItem = memo(function MessageItem({ node, loadImage = unavailableImage }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({
+  node, loadImage = unavailableImage, onFork,
+}: MessageItemProps) {
   switch (node.kind) {
     case 'user': {
       const { text, images, rest } = contentParts(node.content)
@@ -91,6 +95,7 @@ export const MessageItem = memo(function MessageItem({ node, loadImage = unavail
             time={node.time}
             clock="start"
             edit
+            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
           />
         </div>
