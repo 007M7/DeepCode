@@ -117,3 +117,14 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* The result text for an errored mutation, indented to the card's own column
+   (the diff card's inset) and in the error tone, since it stands in for the diff
+   card the failure path does not produce. */
+.failure {
+  margin: 4px 0 4px 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-state-error-primary);
+}

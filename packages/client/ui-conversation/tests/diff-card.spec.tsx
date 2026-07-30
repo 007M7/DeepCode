@@ -17,7 +17,7 @@ import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../src/client/contract/diff-
 import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
-import { FileMutationRow } from '../src/client/toolviews/file-mutation-row.tsx'
+import { FileMutationRow, fileMutationToolview } from '../src/client/toolviews/file-mutation-row.tsx'
 
 afterEach(cleanup)
 
@@ -85,6 +85,22 @@ describe('diffCardModel', () => {
     expect(diffCardModel(settled({
       callView: future, resultView: { card: 'chart' } as unknown as ToolResultView,
     }))).toBeNull()
+  })
+
+  it('falls back to null for a malformed diff payload off the wire', () => {
+    // toolEventViewSchema validates only the `card` string, so a version
+    // mismatch can deliver a diff card with an unusable diffs field. Each shape
+    // routes to the generic path instead of throwing inside DiffBlock.
+    const bad = (diffs: unknown): ToolResultView => ({ card: 'diff', diffs } as unknown as ToolResultView)
+    expect(diffCardModel(settled({ resultView: bad(undefined) }))).toBeNull()
+    expect(diffCardModel(settled({ resultView: bad([]) }))).toBeNull()
+    expect(diffCardModel(settled({ resultView: bad('nope') }))).toBeNull()
+    expect(diffCardModel(settled({ resultView: bad([null]) }))).toBeNull()
+    expect(diffCardModel(settled({ resultView: bad([{ path: 1, oldText: null, newText: 'x' }]) }))).toBeNull()
+    expect(diffCardModel(settled({ resultView: bad([{ path: 'a', oldText: 5, newText: 'x' }]) }))).toBeNull()
+    expect(diffCardModel(settled({ resultView: bad([{ path: 'a', oldText: null, newText: 9 }]) }))).toBeNull()
+    // The running side narrows identically.
+    expect(diffCardModel(running({ callView: { card: 'diff', diffs: 'nope' } as unknown as ToolCallView }))).toBeNull()
   })
 })
 
@@ -175,6 +191,78 @@ describe('FileMutationRow diff card', () => {
   it('a mutation call with no diff view renders the summary row alone', () => {
     const view = render(<FileMutationRow {...rowProps(settled({ callView: null, resultView: null }))} />)
     expect(view.container.querySelector('[data-diff]')).toBeNull()
+  })
+
+  it('surfaces the result text when an errored mutation has no diff card', () => {
+    // write/edit return undefined from presentResult on isError, so the failure
+    // has no diff — the row shows the model-facing error text instead of a bare
+    // red dot.
+    const view = render(<FileMutationRow {...rowProps(settled({
+      isError: true, callView: null, resultView: null,
+      content: [{ type: 'text', text: 'old_string not found in notes/demo.txt' }],
+    }))} />)
+    expect(view.container.querySelector('[data-diff]')).toBeNull()
+    expect(view.getByText('old_string not found in notes/demo.txt')).toBeTruthy()
+  })
+
+  it('falls back to the error name/code when an errored result has no text block', () => {
+    const view = render(<FileMutationRow {...rowProps(settled({
+      isError: true, callView: null, resultView: null, content: [],
+      error: { name: 'ToolError', code: 'sandbox_denied' },
+    }))} />)
+    expect(view.getByText('ToolError: sandbox_denied')).toBeTruthy()
+  })
+
+  it('shows no failure text for a successful diff or a running call', () => {
+    const ok = render(<FileMutationRow {...rowProps(settled())} />)
+    expect(ok.container.querySelector('[class*="_failure_"]')).toBeNull()
+    cleanup()
+    const run = render(<FileMutationRow {...rowProps(running())} />)
+    expect(run.container.querySelector('[class*="_failure_"]')).toBeNull()
+  })
+
+  it('shows the stopped state when the call was interrupted', () => {
+    const view = render(<FileMutationRow {...rowProps(settled({
+      callView: null, resultView: null, isError: true,
+      error: { name: 'ToolError', code: 'interrupted' },
+    }))} />)
+    expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
+    // The visually-hidden status label carries the stopped semantic for AT.
+    expect(view.getByText('已停止')).toBeTruthy()
+  })
+
+  it('renders a plain summary span when the call carries no file path', () => {
+    // Empty args leave deriveFilePath undefined, so the summary is not a link.
+    const view = render(<FileMutationRow {...rowProps(settled({
+      call: { name: 'edit', argsRaw: '' }, callView: null, resultView: null,
+    }))} />)
+    expect(view.container.querySelector('[class*="_fileLink_"]')).toBeNull()
+    expect(view.container.querySelector('[class*="_summary_"]')).not.toBeNull()
+  })
+})
+
+describe('fileMutationToolview registration', () => {
+  it('registers one component under both edit and write, and each disposes', () => {
+    const registered: { key: string; disposed: boolean }[] = []
+    const disposers: (() => void)[] = []
+    const ctx = {
+      slots: {
+        register: ({ key }: { name: string; key: string }) => {
+          const entry = { key, disposed: false }
+          registered.push(entry)
+          const dispose = () => { entry.disposed = true }
+          disposers.push(dispose)
+          return dispose
+        },
+      },
+    }
+    fileMutationToolview.apply(ctx as never)
+    expect(registered.map(r => r.key).sort()).toEqual(['edit', 'write'])
+    // The registrant's inject seam is the load-order contract the row relies on.
+    expect(fileMutationToolview.inject).toEqual(['slots', 'conversation'])
+    // Disposal removes each contribution (packages/AGENTS.md registry contract).
+    for (const dispose of disposers) dispose()
+    expect(registered.every(r => r.disposed)).toBe(true)
   })
 })
 

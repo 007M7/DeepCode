@@ -26,7 +26,7 @@ export const DEFAULT_DIFF_MAX_LINES = 16
  * free of the tool contract (the terminal card's decoupling, applied to diffs).
  */
 export interface DiffHunk {
-  /** The changed file's path (as the tool operated on it; the bridge relativizes it). */
+  /** The changed file's path, drawn verbatim as the hunk's header (the tool's model-facing path). */
   path: string
   /** Prior content, or `null` for a new file / an overwrite (nothing on the removed side). */
   oldText: string | null
@@ -49,6 +49,12 @@ interface DiffRow {
   text: string
 }
 
+/** Local exhaustiveness helper — this package does not depend on `dsh-llm`. */
+/* v8 ignore next 3 -- closed-union backstop; only reached if a row kind is forged */
+function assertNever(value: never): never {
+  throw new Error(`unreachable diff row kind: ${String(value)}`)
+}
+
 /** The dim class per row kind (path/gap chrome vs the diff's own +/- colors). */
 const ROW_CLASS: Record<DiffRow['kind'], string | undefined> = {
   path: css.path,
@@ -61,8 +67,10 @@ const ROW_CLASS: Record<DiffRow['kind'], string | undefined> = {
  * Flatten the hunks into the body's rows plus the footer counts. A path header
  * opens each new file; a same-file second hunk (a scattered edit) opens with a
  * `⋯` gap instead of repeating the path. Every old-side line counts toward
- * `removed` and every new-side line toward `added`, the same per-side line count
- * the TUI footer draws, so the two front ends agree on a change's size.
+ * `removed` and every new-side line toward `added`. The file count is of
+ * DISTINCT paths, which is the one deliberate divergence from the TUI diff card:
+ * the TUI footer uses `diffs.length`, so two hunks in one file read there as
+ * `2 files`, whereas this counts the one file they belong to.
  * @param diffs - the hunks to render.
  * @returns the body rows, the +/- totals, and the distinct-file count.
  */
@@ -78,17 +86,32 @@ function buildRows(diffs: DiffHunk[]): { rows: DiffRow[]; added: number; removed
     else rows.push({ kind: 'gap', text: '⋯' })
     prevPath = diff.path
     if (diff.oldText !== null) {
-      for (const line of diff.oldText.split('\n')) {
+      for (const line of contentLines(diff.oldText)) {
         rows.push({ kind: 'del', text: line })
         removed++
       }
     }
-    for (const line of diff.newText.split('\n')) {
+    for (const line of contentLines(diff.newText)) {
       rows.push({ kind: 'add', text: line })
       added++
     }
   }
   return { rows, added, removed, files: paths.size }
+}
+
+/**
+ * Split a side's text into its content lines. Empty text is zero lines (a full
+ * deletion's `newText` or a create's absent `oldText` side draws nothing), and a
+ * single trailing newline is a line terminator rather than an extra empty line —
+ * the same terminator rule TerminalBlock applies to command output. An interior
+ * blank line (a genuine `\n\n`) survives.
+ * @param text - the removed or added side's text.
+ * @returns the content lines, without the terminating newline.
+ */
+function contentLines(text: string): string[] {
+  if (text === '') return []
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  return body.split('\n')
 }
 
 /**
@@ -103,8 +126,9 @@ function copyText(rows: DiffRow[]): string {
     switch (row.kind) {
       case 'del': return `- ${row.text}`
       case 'add': return `+ ${row.text}`
+      case 'path': return row.text
       case 'gap': return row.text
-      default: return row.text
+      default: return assertNever(row.kind)
     }
   }).join('\n')
 }

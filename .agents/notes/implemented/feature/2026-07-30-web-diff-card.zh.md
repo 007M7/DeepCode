@@ -16,9 +16,9 @@ Web 客户端忽略了它。write/edit 调用落到 `GenericToolCard`，其行�
 
 `DiffBlock` 是一个 `ui-primitives` 组件，把文件改动渲染为内联 diff 表面，write/edit 调用的两个 Web 渲染点都通过它消费 diff 渲染意图：chat 工具行的行体和详情面板的 Output 区。`ui-conversation/src/client/contract/diff-card-model.ts` 是唯一把快照的 `callView`/`resultView` 对转成组件 props 的地方，因此两个渲染点不会对一次改动产生分歧。当两侧都未声明 `card: 'diff'` 时它返回 null —— 走通用路径 —— 包括本客户端版本不认识的 `card` 值，以及已结算调用的 result view 是 generic 的情况（write/edit 的执行错误正是这样留在通用路径上的）。调用结算后 result 侧是权威：已应用的 hunk 替换仅从参数推导的 call 时 diff。分页窗口丢弃了 call 头也仍能渲染，因为 result view 携带完整改动。
 
-组件的契约镜像 TUI 的 `diffLines`（`packages/ui/tui/src/components/transcript.ts`），使 diff 在两个前端读起来一致：
+组件的契约遵循 TUI 的 `diffLines`（`packages/ui/tui/src/components/transcript.ts`），使 diff 在两个前端读起来是同一形态，仅文件计数一处刻意分歧（见下）：
 
-- **每个文件一个路径头。** 新文件开启一个粗体路径头；同文件的第二个 hunk（分散编辑，或 `replace_all`）以一个 `⋯` gap 开启，而非重复路径。`N file(s)` 页脚统计去重后的路径数。
+- **每个文件一个路径头。** 新文件开启一个粗体路径头；同文件的第二个 hunk（分散编辑，或 `replace_all`）以一个 `⋯` gap 开启，而非重复路径。`N file(s)` 页脚统计**去重后的路径数** —— 这是与 TUI 的分歧:TUI 页脚用 `diffs.length`，同文件两个 hunk 在那里读作 `2 files`，此处读作 `1 file`。
 - **改动用 diff 自身的颜色。** 删除行是 error token 上的 `- `，新增行是 success token 上的 `+ `，在横向滚动的盒子里以 `white-space: pre` 逐字绘制 —— 源码行靠缩进阅读，所以滚动而不折行。新建（`oldText: null`）没有删除侧。
 - **高度上限带展开控件。** 长于 `DEFAULT_DIFF_MAX_LINES`（16）的 diff 显示 `ceil(max/2)` 个头部行加剩余尾部行，中间一个按钮报告隐藏行数。分割算术与 `TerminalBlock` 和 TUI 的折叠卡片一致，因此长 diff 的头尾切片在两个前端一致。
 - **页脚与复制。** 暗色 `└ +A -R · N file(s)` 页脚概括改动；`+A -R` 是新增/删除行数，与 TUI 页脚绘制的每侧计数相同。复制控件复制带前缀的 diff 文本（路径头、`- `/`+ ` 行、`⋯` gap），使多文件复制保持可归属。
@@ -47,7 +47,7 @@ chat 行把 diff 常驻渲染在路径链接摘要之下，上限 `CHAT_DIFF_MAX
 
 `packages/client/ui-conversation/tests/diff-card.spec.tsx` 钉住每个渲染点的接线：`diffCardModel` 的派生及其每个 null 支路、result hunk 替换 call 时 diff、窗口截断的 call 仍从 result 渲染、chat 行的 diff 体、`FileMutationRow` 的常驻卡片及其路径链接经 host 以 cwd 解析打开、其在 `write` 与 `edit` 下的注册、以及面板的 Output 区。
 
-fixture（`packages/client/connection/src/client/fixture.ts`）携带三个 diff turn，使 built-boot snapshot 在两个渲染点钉住全部三个支路：单 hunk 编辑（turn 62，keyed `FileMutationRow`）、新建/写入（turn 63）、多 hunk 编辑（turn 67，一个文件内两处分散 hunk 之间的 `⋯` gap）。
+fixture（`packages/client/connection/src/client/fixture.ts`）携带三个 diff turn，使 `?fixture` 服务与 per-package 接线测试套件在两个渲染点演练全部三个支路：单 hunk 编辑（turn 62，keyed `FileMutationRow`）、新建/写入（turn 63）、多 hunk 编辑（turn 67，一个文件内两处分散 hunk 之间的 `⋯` gap）。built-boot snapshot（`apps/web/tests/built-boot.snapshot.ts`）是启动装配 smoke，只断言图挂载并抵达 chat 内容（`data-sample="bash-global"`）；按其自身契约它不带 diff 行为断言，那由接线套件负责。
 
 ## Related
 

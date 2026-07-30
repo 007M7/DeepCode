@@ -238,7 +238,7 @@ function buildAlphaLog(): SessionEvent[] {
   // the presenter reads to emit the two-hunk sample: the card draws one path
   // header, the first hunk, a `⋯` gap, then the second (the same-file
   // second-hunk arm turns 62/63 cannot reach).
-  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"multi","new_string":"multi"}', '已编辑')
+  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
   // Turn 64: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same

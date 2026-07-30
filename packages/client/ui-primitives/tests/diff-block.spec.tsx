@@ -76,6 +76,26 @@ describe('DiffBlock structure', () => {
     const { container } = render(<DiffBlock diffs={[]} />)
     expect(container.firstChild).toBeNull()
   })
+
+  it('treats a trailing newline as a terminator, not an extra blank line', () => {
+    // A create whose newText ends in a newline is one added line, not two, and
+    // the footer counts one — the phantom `+ ` empty line the naive split drew.
+    const { container } = render(<DiffBlock diffs={[{ path: 'n.txt', oldText: null, newText: 'hello\n' }]} />)
+    expect(changeRows(container)).toEqual(['hello'])
+    expect(screen.getByText('└ +1 -0 · 1 file')).toBeTruthy()
+  })
+
+  it('renders a full deletion as removed-only with no phantom added line', () => {
+    // newText '' is zero added lines: an empty string must contribute nothing.
+    const { container } = render(<DiffBlock diffs={[{ path: 'gone.ts', oldText: 'a\nb', newText: '' }]} />)
+    expect(container.querySelectorAll('[class*="_add_"]').length).toBe(0)
+    expect(screen.getByText('└ +0 -2 · 1 file')).toBeTruthy()
+  })
+
+  it('keeps a genuine interior blank line', () => {
+    const { container } = render(<DiffBlock diffs={[{ path: 'a.ts', oldText: null, newText: 'x\n\ny' }]} />)
+    expect(container.querySelectorAll('[class*="_add_"]').length).toBe(3)
+  })
 })
 
 describe('DiffBlock footer', () => {

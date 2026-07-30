@@ -40,6 +40,27 @@ function stateStatus(state: ToolRowState): string | null {
 }
 
 /**
+ * A settled result's text, flattened from its content blocks, for the arm that
+ * shows a failure the diff card cannot: write/edit return `undefined` from
+ * `presentResult` on `result.isError`, so an errored mutation has no diff card,
+ * and the keyed row is not a details-panel target. Without this the failure —
+ * an `old_string` that did not match, a permission denial — would read as a bare
+ * red dot with the model-facing error text nowhere on screen.
+ * @param block - the frozen call slice.
+ * @returns the result text, or null for a running call or an empty result.
+ */
+function errorText(block: ToolRowProps['block']): string | null {
+  if (!('kind' in block)) return null
+  const parts: string[] = []
+  for (const item of block.content) {
+    if (item.type === 'text') parts.push(item.text)
+  }
+  if (parts.length === 0 && block.error !== undefined) parts.push(`${block.error.name}: ${block.error.code}`)
+  const text = parts.join('\n')
+  return text === '' ? null : text
+}
+
+/**
  * File-mutation row: icon + {Edit,Write} · {path} in the shared ToolRow chrome,
  * with the applied diff resident below it. The summary is a path link (a file
  * tool's interaction) resolved against the session cwd and opened through the
@@ -50,6 +71,9 @@ export function FileMutationRow({ toolName, block, cwd, openFile }: ToolRowProps
   const diff = diffCardModel(block)
   const status = stateStatus(model.state)
   const filePath = model.filePath
+  // An errored mutation has no diff card (presentResult returns undefined on
+  // isError); surface its result text so the failure is more than a red dot.
+  const failure = diff === null && model.state === 'error' ? errorText(block) : null
   return (
     <div className={css.card}>
       <div className={css.root} data-variant={model.variant} data-state={model.state}>
@@ -72,6 +96,7 @@ export function FileMutationRow({ toolName, block, cwd, openFile }: ToolRowProps
       {diff !== null && (
         <DiffBlock {...diff.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.diff} />
       )}
+      {failure !== null && <div className={css.failure}>{failure}</div>}
     </div>
   )
 }
