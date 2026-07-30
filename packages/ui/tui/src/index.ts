@@ -35,6 +35,7 @@ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
+  isReplacementSurfaceEvent,
   lastActivityTime,
   SessionId,
   type SessionEvent,
@@ -120,14 +121,14 @@ import {
 } from './chat/skill-invocation.ts'
 import { ReferenceAutocompleteProvider } from './chat/autocomplete.ts'
 import {
-  activeSurfaceSeqs,
-  activeToolCallIds,
   BANNER_REVEAL_INTERVAL_MS,
   BANNER_REVEAL_STEPS,
   formatCwd,
   gitBranch,
   HintEditor,
+  isCompactCheckpoint,
   sessionReferenceCard,
+  transcriptToolCallIds,
 } from './chat/helpers.ts'
 import {
   createModelController,
@@ -260,6 +261,13 @@ export const inject = ['agents', 'sessions', 'commands', 'userInteraction', 'too
 
 /** Model guidance for path-only file references selected through the TUI. */
 export const FILE_REFERENCE_PROMPT = 'Paths prefixed with @ are files explicitly referenced by the user. Use the read tool when their contents are needed; do not claim to have inspected a file before reading it.'
+
+/**
+ * Transcript row standing in for one compacted range. The conversation the
+ * compaction replaced stays rendered above it: the marker reports where the
+ * model stopped seeing that history, not that the history is gone.
+ */
+const COMPACTION_MARKER = '… earlier context was compacted …'
 
 interface RunningStatus {
   turn: number | undefined
@@ -808,6 +816,23 @@ export function createTuiChat(
     }
   }
 
+  const renderCompactionMarker = (): void => {
+    chat.addChild(new Spacer(1))
+    chat.addChild(new Text(palette.dim(COMPACTION_MARKER), 0, 0))
+  }
+
+  /**
+   * Replay the human transcript from the append-only log. The model-visible
+   * surface shadows compacted ranges, so it is not the source here: every
+   * append-origin message stays rendered, and a replacement contributes at most
+   * the compaction marker at its own log position.
+   *
+   * The `tool/call` pairing check has no live counterpart, because only replay
+   * can meet an orphan: `tool/call` carries no `surfaceOp` of its own, so it
+   * inherits transcript membership from the `assistant/message` that advertised
+   * it, which the live listener has necessarily just rendered. A loaded log is a
+   * replay boundary, so the pairing is re-derived here instead of assumed.
+   */
   const rebuildTranscript = (populateHistory: boolean): void => {
     chat.clear()
     toolCards.clear()
@@ -815,15 +840,13 @@ export function createTuiChat(
     contextCards.clear()
     streaming = undefined
     todo.update([])
-    const active = activeSurfaceSeqs(agent.session)
-    const activeCalls = activeToolCallIds(agent.session, active)
+    const transcriptCalls = transcriptToolCallIds(agent.session)
     for (const event of agent.session.events) {
-      const isSurface = event.type === 'user/message'
-        || event.type === 'assistant/message'
-        || event.type === 'tool/result'
-        || event.type === 'steering/message'
-      if (isSurface && !active.has(event.seq)) continue
-      if (event.type === 'tool/call' && !activeCalls.has(event.data.callId)) continue
+      if (isReplacementSurfaceEvent(event)) {
+        if (isCompactCheckpoint(event)) renderCompactionMarker()
+        continue
+      }
+      if (event.type === 'tool/call' && !transcriptCalls.has(event.data.callId)) continue
       renderEvent(event, { addHistory: populateHistory, renderChunks: false })
     }
     requestRender()
@@ -1475,8 +1498,11 @@ export function createTuiChat(
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
     if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
-    if ('surfaceOp' in event && typeof event.surfaceOp === 'object') {
-      rebuildTranscript(false)
+    // A replacement mutates only the model surface, so the rendered transcript
+    // keeps what it already showed; a landed summary checkpoint adds its marker.
+    if (isReplacementSurfaceEvent(event)) {
+      if (isCompactCheckpoint(event)) renderCompactionMarker()
+      requestRender()
       return
     }
     renderEvent(event, { addHistory: false, renderChunks: true })

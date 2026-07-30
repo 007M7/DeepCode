@@ -266,10 +266,14 @@ interface RenderedFetch {
  * limits the source prefix processed synchronously, then applies again where the
  * complete output — header, rendered body, and footer — is known.
  *
- * The tool registry calls this once through `output.render` and again through
- * `output.presentationMeta`, both with the same frozen result value; the
- * conversion is memoized per `(result, maxOutputChars)` so the synchronous DOM
- * parse and turndown walk run once, not twice, on the same body.
+ * Package-internal: the only callers are {@link formatFetchOutput} and
+ * {@link fetchMetaFromValue}, both reached through the tool registry, which
+ * deep-freezes the result value before calling `output.render` and
+ * `output.presentationMeta`. The conversion is memoized per
+ * `(result, maxOutputChars)` so the synchronous DOM parse and turndown walk run
+ * once, not twice, on that same frozen value. Keeping it unexported means no
+ * caller can mutate a cached input or the returned {@link RenderedFetch}, so the
+ * memo needs no defensive copy.
  *
  * @param result - the seam's fetch outcome.
  * @param maxOutputChars - cap on the complete returned string; a cut body gets
@@ -277,7 +281,7 @@ interface RenderedFetch {
  * @returns the complete `Fetched <url> (HTTP <status>)`-headed text and whether
  *   the provider, a source cut, or the cap trimmed the content.
  */
-export function renderFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
+function renderFetchOutput(result: WebFetchResult, maxOutputChars: number): RenderedFetch {
   const byCap = renderCache.get(result) ?? new Map<number, RenderedFetch>()
   const cached = byCap.get(maxOutputChars)
   if (cached !== undefined) return cached
