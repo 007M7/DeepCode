@@ -10,7 +10,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render } from '@testing-library/react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { ActionsDecl, SlotEntryDef, SlotSpec, StoreHandle, StoredEntry } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionMaybeProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
 import {
@@ -861,5 +861,72 @@ describe('inject: execution point, parameter derivation, cache granularity', () 
     expect(props['fromInject']).toBe('inject')
     expect(props['owner']).toBe('owner')
     expect(props['shared']).toBe('owner')   // owner overrides inject
+  })
+})
+
+describe('session-maybe adoption identity', () => {
+  const SINGLE_MAYBE: DeclaredSpec = { kind: 'single', scope: 'session-maybe' }
+
+  /** Mount a maybe entry that records its mount count and local state. */
+  function mountMaybeCounter(h: Fake) {
+    let mounts = 0
+    const seen: { sessionId: string | undefined; mount: number }[] = []
+    h.declare('k.maybe', SINGLE_MAYBE)
+    h.add('k.maybe', {
+      component: ({ sessionId }: { sessionId?: string }) => {
+        // Local mount marker: useState initializer runs once per incarnation.
+        const [mount] = useState(() => ++mounts)
+        seen.push({ sessionId, mount })
+        return <b>{`${sessionId ?? 'blank'}#${mount}`}</b>
+      },
+    })
+    const { view } = mountRoot(h, { 'k.maybe': SINGLE_MAYBE }, renderSlot => renderSlot('k.maybe', {}))
+    return { view, seen }
+  }
+
+  it('adopts the first session: blank → first id keeps the incarnation (no remount)', () => {
+    const h = makeHost()
+    h.addSession('s1')
+    const { view } = mountMaybeCounter(h)
+    expect(view.container.textContent).toBe('blank#1')
+    act(() => { h.current.set('s1') })
+    // Same incarnation (#1): the blank shell adopted s1.
+    expect(view.container.textContent).toBe('s1#1')
+  })
+
+  it('remounts on a post-adoption session switch (local state must not leak across sessions)', () => {
+    const h = makeHost()
+    h.addSession('s1')
+    h.addSession('s2')
+    const { view } = mountMaybeCounter(h)
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('s1#1')
+    act(() => { h.current.set('s2') })
+    // New incarnation (#2): strict-session behavior after adoption.
+    expect(view.container.textContent).toBe('s2#2')
+  })
+
+  it('remounts into a fresh blank incarnation on session loss, then adopts anew', () => {
+    const h = makeHost()
+    h.addSession('s1')
+    h.addSession('s2')
+    const { view } = mountMaybeCounter(h)
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('s1#1')
+    act(() => { h.current.set(undefined) })
+    // The adopted incarnation dies with its session; blank state is fresh.
+    expect(view.container.textContent).toBe('blank#2')
+    act(() => { h.current.set('s2') })
+    // The fresh blank adopts again — still incarnation #2, no flash.
+    expect(view.container.textContent).toBe('s2#2')
+  })
+
+  it('keeps the incarnation across a no-op republish of the same session', () => {
+    const h = makeHost()
+    h.addSession('s1')
+    const { view } = mountMaybeCounter(h)
+    act(() => { h.current.set('s1') })
+    act(() => { h.current.set('s1') })
+    expect(view.container.textContent).toBe('s1#1')
   })
 })

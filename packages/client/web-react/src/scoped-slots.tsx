@@ -2,7 +2,7 @@
  * React renderer for declarative slots. Per-entry bindings enforce child
  * authorization, and entry boundaries contain registrant failures.
  */
-import { Component, useSyncExternalStore, type FC, type ReactNode } from 'react'
+import { Component, useState, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import {
   SlotOwnershipError, StaleAuthorizationError,
   type ChainRenderOpts, type HostObservable, type LocaleFace, type RenderOpts,
@@ -366,14 +366,68 @@ function SessionEntry({ entry, ownerProps, info }: {
   return <Comp {...kit} {...injected} {...ownerProps} />
 }
 
-function SessionMaybeEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
+function SessionMaybeEntryBody({ entry, ownerProps, info }: {
+  entry: StoredEntry
+  ownerProps: object
+  info: SessionMaybeProvideInfo
+}) {
   const host = useHost()
-  const info = useSessionMaybeProvideInfo()
   const Comp = entry.component as FC<InjectedProps>
   const { kit, actions } = standardKit(host, entry, 'session-maybe', info)
   const injected = cachedSessionMaybeInject(entry, info, actions)
   return <Comp {...kit} {...injected} {...ownerProps} />
 }
+
+/**
+ * Session-maybe identity: adoption — the ONLY behavior (there is no
+ * hold-identity-forever mode). An incarnation born session-less ADOPTS the
+ * first session that arrives: identity holds across that one transition
+ * (undefined → first id), so a blank shell's DOM survives the moment a
+ * session appears. From then on the entry behaves exactly like a strict
+ * session entry: switching to a DIFFERENT session remounts (component-local
+ * state must not leak between sessions), and dropping back to no-session
+ * remounts into a fresh blank incarnation, which will adopt again.
+ * Component-local per-session state therefore clears by construction; state
+ * that must SURVIVE a switch belongs in session-bound sources (machine,
+ * store, hooks) — the existing layering rule, now load-bearing.
+ */
+function SessionMaybeEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
+  const info = useSessionMaybeProvideInfo()
+  // The child key is an incarnation counter, NOT the session id: adoption
+  // must keep the key constant across undefined → first id. Bookkeeping
+  // lives in this stable (unkeyed) wrapper via the render-phase setState
+  // form (React's sanctioned derived-state pattern: setState during render
+  // of the same component re-renders once before children mount, and the
+  // guard conditions make it convergent — StrictMode-safe).
+  const [state, setState] = useState<MaybeIncarnation>(FIRST_INCARNATION)
+  let { adopted, epoch } = state
+  if (info.sessionId !== undefined && adopted === undefined) {
+    // Adoption: same epoch — no remount.
+    adopted = info.sessionId
+    setState({ adopted, epoch })
+  } else if (adopted !== undefined && info.sessionId !== undefined && info.sessionId !== adopted) {
+    // Post-adoption session switch: next incarnation, born already adopted.
+    adopted = info.sessionId
+    epoch += 1
+    setState({ adopted, epoch })
+  } else if (adopted !== undefined && info.sessionId === undefined) {
+    // Back to no-session: next incarnation, born blank (adopts anew later).
+    adopted = undefined
+    epoch += 1
+    setState({ adopted, epoch })
+  }
+  return <SessionMaybeEntryBody key={epoch} entry={entry} ownerProps={ownerProps} info={info} />
+}
+
+/** Adoption bookkeeping of one session-maybe outlet (see SessionMaybeEntry). */
+interface MaybeIncarnation {
+  /** Session this incarnation adopted; undefined while born blank and unadopted. */
+  readonly adopted: string | undefined
+  /** Incarnation counter — the child key; bumps exactly when an incarnation dies. */
+  readonly epoch: number
+}
+
+const FIRST_INCARNATION: MaybeIncarnation = { adopted: undefined, epoch: 0 }
 
 function RootEntry({ entry, ownerProps }: { entry: StoredEntry; ownerProps: object }) {
   const host = useHost()
