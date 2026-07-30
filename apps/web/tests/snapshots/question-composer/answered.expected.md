@@ -18,7 +18,7 @@
 - button:
   - img
   - img
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"color\", \"question\": \"Which color do you prefer?\", \"header\": \"Pick one\", \"options\": [{\"label\": \"Blue\", \"description\": \"A cool recessive hue that reads as calm and trustworthy in long reading sessions and dense dashboards.\"}, {\"label\": \"Green\", \"description\": \"A restful mid-spectrum hue with the highest perceived brightness, easiest on the eye over long sessions.\"}]}]}"
+- text: Ask question 1/1 answered
 - button "Think The user answered \"Blue\". I should now reply with the single word DONE and stop.":
   - img
   - img
