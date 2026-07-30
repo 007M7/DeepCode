@@ -127,11 +127,11 @@ Adapter failures close their step before `agent/request-error` receives the exac
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels asynchronous model-capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before queue clearing and abort; observers cannot veto; idle calls emit nothing. Durability records user or parent cancellation as `aborted`, teardown as `disposed`; teardown awaits quiescence. The cause affects reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Turn and step events are turn-enclosed; idle injected `user/message` events may sit between turns. Reload closes an interrupted tail with a synthetic turn end. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
+Turn and step events are turn-enclosed. Idle injected `user/message` events and standalone manual `compact/* { turn: null }` brackets may sit between turns; neither consumes a turn number. Compaction markers are lock time points rather than an exclusive container, so unrelated idle injection may appear between a manual start and end. Reload closes an interrupted turn tail with a synthetic turn end; `session/end-seed` also separates stale compaction orphans from locks created in the current process lifecycle. After close, only `agent/error` reports turn failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
-`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use full `send()` options or `followup()`, `steer()`, and `inject()` presets; `cancel()` and `whenIdle()` control lifecycle. One awaited disposer coordinates teardown ownership.
+`ctx.agents` owns live agents and returns `AgentHandle { agent, dispose() }`. Plugins use full `send()` options or `followup()`, `steer()`, and `inject()` presets; [`reserveTurnAdmission()`](../packages/core/agent/README.md#agent-interface-typests) synchronously holds the idle boundary for standalone durable work without changing queued prompt identity. `cancel()` and `whenIdle()` control lifecycle. One awaited disposer coordinates teardown ownership.
 
 ### Agent Scope
 
@@ -147,7 +147,7 @@ The session log is authoritative. `deriveMessages()` projects model history; raw
 
 Durability is a plugin concern. Backends eagerly drain synchronous `session/event` notifications. `session/flush` barriers precede each request and top-level tool dispatch, then follow `turn/end` before another queued turn or idle observation. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, while SQLite shares the contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
-Log-only events may sit between turns. Owners append through `Session`, flushing only for durability. `session/title` relies on eager persistence and lifecycle drains. Latest title wins with provenance; fallback and provider work never delays responses. Such records are fork boundaries, so forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
+Log-only events may sit between turns. Owners append through `Session`, flushing only for durability. `session/title` relies on eager persistence and lifecycle drains; a manual compaction explicitly flushes its closed standalone bracket before releasing turn admission. Latest title wins with provenance; fallback and provider work never delays responses. Such records are fork boundaries, so forks inherit titles ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
 ### Model Content
 

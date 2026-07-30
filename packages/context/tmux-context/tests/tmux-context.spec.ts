@@ -106,6 +106,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
     send: () => {},
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

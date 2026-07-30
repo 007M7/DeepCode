@@ -94,6 +94,11 @@
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
 
+# Human `/compact`: one useful reduction below the automatic threshold. Backend
+# independent, so it follows whichever compaction service this leaf mounts.
+- id: command-compact
+  name: '@deepseek-ai/dsh-command-compact'
+
 # Expose fresh-child `spawn` and completed-prefix `fork` through independent
 # in-process backends. Each tool instance needs a distinct `toolName`; the registry
 # rejects duplicates. These leaves follow the app because it provides `ctx.agents` and `ctx.tools`.

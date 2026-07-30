@@ -209,20 +209,27 @@ Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/in
 #### `compact/end` — log-only
 
 ```ts persistence-catalog
-/** Marks the end of a compaction — log-only, releases the lock. `error` set if summarization failed. */
-'compact/end': { turn: number; error?: string }
+/**
+ * Marks the end of a compaction — log-only, releases the lock. Its owner
+ * matches `compact/start`; `error` records an unsuccessful attempt.
+ */
+'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:44`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:51`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
 ```ts persistence-catalog
-/** Marks the start of a compaction — log-only, holds the lock until `compact/end`. */
-'compact/start': { turn: number }
+/**
+ * Marks the start of a compaction — log-only, holds the lock until
+ * `compact/end`. A numbered owner is strictly enclosed by that open turn;
+ * `null` identifies a standalone manual transaction between turns.
+ */
+'compact/start': { turn: number | null }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -258,7 +265,7 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:26`](../packages/compact/compact/src/types.ts)
 
 ### `hook/*`
 

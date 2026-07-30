@@ -19,7 +19,7 @@ pnpm run demo:tui
 
 `todo_write` 任务跟踪器是选用的，不在已交付配置中：请将 `@deepseek-ai/dsh-tool-todo` 添加到 `cordis.yml`（或在 `~/.dsh` 下使用个人配置覆盖）以公开该工具。加载后，模型会把整表计划记录到会话日志，TUI 则渲染它。
 
-TUI 渲染 Markdown 历史、推理（reasoning）、工具自有的终端／diff／通用卡片、token 总量，以及加载 `todo_write` 时的最新计划。较长的工具正文保留首尾预览；Ctrl+O 展开或折叠所有卡片。Enter 用于提交，或在 agent 运行时进行 steering（中途引导）；Ctrl+R 切换推理，Escape 取消，`/help` 列出命令。`/plan` 为下一步骤选择 plan mode；`/plan <message>` 还会将消息提交到该步骤，`/plan off` 则在没有模型输入的情况下选择默认 mode。`/status` 会展开当前会话的标识、活动计数、精确 token／缓存 bucket、上下文用量和时间戳，而不中断正在运行的轮次。`/model` 打开当前提供方目录的键盘选择器；使用 Up/Down 聚焦模型，使用 Shift+Tab 循环切换为该模型公布的推理强度，再用 Enter 选择；也可以使用 `/model <model>` 和 `/model <provider>/<model>` 直接选择。`ask_user_question` 会打开一个位于左下方的宽键盘面板，包含批次进度和编号选项。
+TUI 渲染 Markdown 历史、推理（reasoning）、工具自有的终端／diff／通用卡片、token 总量，以及加载 `todo_write` 时的最新计划。较长的工具正文保留首尾预览；Ctrl+O 展开或折叠所有卡片。Enter 用于提交，或在 agent 运行时进行 steering（中途引导）；Ctrl+R 切换推理，Escape 取消，`/help` 列出命令。空闲时，裸 `/compact` 即使未达到自动压力，也会摘要有效的较早历史；它拒绝参数，并仅在保存独立替换标记对后报告结果。压缩期间提交的提示词会保留其队列身份并在压缩后启动，注入的上下文则在检查点之后保持可见。`/plan` 为下一步骤选择 plan mode；`/plan <message>` 还会将消息提交到该步骤，`/plan off` 则在没有模型输入的情况下选择默认 mode。`/status` 会展开当前会话的标识、活动计数、精确 token／缓存 bucket、上下文用量和时间戳，而不中断正在运行的轮次。`/model` 打开当前提供方目录的键盘选择器；使用 Up/Down 聚焦模型，使用 Shift+Tab 循环切换为该模型公布的推理强度，再用 Enter 选择；也可以使用 `/model <model>` 和 `/model <provider>/<model>` 直接选择。`ask_user_question` 会打开一个位于左下方的宽键盘面板，包含批次进度和编号选项。
 
 ### 恢复早先的会话
 

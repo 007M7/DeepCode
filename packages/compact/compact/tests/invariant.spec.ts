@@ -41,6 +41,38 @@ describe('compaction invariants', () => {
     failed.append('compact/end', { turn: 2, error: 'provider failed' })
   })
 
+  it('accepts standalone successful and failed compaction lifecycles between turns', async () => {
+    const ctx = await setup()
+    const success = ctx.sessions.create()
+    success.append('compact/start', { turn: null })
+    success.append('compact/summary', summary())
+    success.append('compact/end', { turn: null })
+
+    const failed = ctx.sessions.create()
+    failed.append('compact/start', { turn: null })
+    failed.append('compact/end', { turn: null, error: 'provider failed' })
+  })
+
+  it('clears an inherited open compaction trace at end-seed during replay', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const source = new Session(SessionId('stale-compaction-source'))
+    source.append('compact/start', { turn: null })
+    const replayed = ctx.sessions.create(SessionId('stale-compaction-replay'), {
+      seed: source.events,
+    })
+    expect(replayed.events.map(event => event.type))
+      .toEqual(['compact/start', 'session/end-seed'])
+
+    await ctx.plugin(InvariantService)
+    await ctx.plugin(CompactInvariant)
+
+    expect(() => {
+      replayed.append('compact/start', { turn: null })
+      replayed.append('compact/end', { turn: null, error: 'new attempt failed' })
+    }).not.toThrow()
+  })
+
   it('rebuilds an open trace when the companion loads after the session', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -76,6 +108,26 @@ describe('compaction invariants', () => {
     expect(() => session.append('compact/start', { turn: 1 })).toThrow(/outside any open turn/)
     startTurn(session)
     expect(() => session.append('compact/start', { turn: 2 })).toThrow(/but open turn is 1/)
+  })
+
+  it('rejects a standalone bracket while a turn is open and a numbered bracket between turns', async () => {
+    const ctx = await setup()
+    const open = ctx.sessions.create()
+    startTurn(open)
+    expect(() => open.append('compact/start', { turn: null }))
+      .toThrow(/standalone but turn 1 is open/)
+
+    const idle = ctx.sessions.create()
+    expect(() => idle.append('compact/start', { turn: 1 }))
+      .toThrow(/outside any open turn/)
+  })
+
+  it('attributes a nested standalone start to the standalone owner', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('compact/start', { turn: null })
+    expect(() => session.append('compact/start', { turn: null }))
+      .toThrow(/standalone compaction is still compacting/)
   })
 
   it('rejects an unenclosed compaction event when replaying an existing session', async () => {

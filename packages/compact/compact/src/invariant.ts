@@ -13,7 +13,7 @@ export const name = 'compact-invariant'
 export const inject = ['invariants']
 
 interface CompactionTrace {
-  turn: number
+  turn: number | null
   summarized: boolean
 }
 
@@ -23,9 +23,30 @@ interface SessionTrace {
 }
 
 type CompactionTransition =
-  | { kind: 'start'; turn: number }
-  | { kind: 'summary'; turn: number }
+  | { kind: 'start'; turn: number | null }
+  | { kind: 'summary'; turn: number | null }
   | { kind: 'end' }
+  | { kind: 'end-seed' }
+
+/** Require a numbered bracket inside its exact turn, or a standalone bracket between turns. */
+function validateOwner(
+  owner: number | null,
+  openTurn: number | null,
+  eventType: 'compact/start' | 'compact/summary' | 'compact/end',
+  fail: InvariantFailure,
+): void {
+  if (owner === null) {
+    if (openTurn !== null) fail(`${eventType} is standalone but turn ${openTurn} is open`)
+    return
+  }
+  if (openTurn === null) fail(`${eventType} for turn ${owner} appended outside any open turn`)
+  if (owner !== openTurn) {
+    if (eventType === 'compact/summary') {
+      fail(`compact/summary belongs to turn ${owner} but open turn is ${openTurn}`)
+    }
+    fail(`${eventType} names turn ${owner} but open turn is ${openTurn}`)
+  }
+}
 
 /** Validate one compaction event without advancing committed trace state. */
 function validateCompactionEvent(
@@ -33,23 +54,22 @@ function validateCompactionEvent(
   event: SessionEvent,
   fail: InvariantFailure,
 ): CompactionTransition | undefined {
+  if (event.type === 'session/end-seed') return { kind: 'end-seed' }
   if (event.type !== 'compact/start' && event.type !== 'compact/summary' && event.type !== 'compact/end') {
     return undefined
   }
-  if (trace.openTurn === null) fail(`${event.type} appended outside any open turn`)
   const open = trace.compaction
   if (event.type === 'compact/start') {
-    if (open !== undefined) fail(`compact/start for turn ${event.data.turn} while turn ${open.turn} is still compacting`)
-    if (event.data.turn !== trace.openTurn) {
-      fail(`compact/start names turn ${event.data.turn} but open turn is ${trace.openTurn}`)
+    if (open !== undefined) {
+      const owner = open.turn === null ? 'standalone compaction' : `turn ${open.turn}`
+      fail(`compact/start while ${owner} is still compacting`)
     }
+    validateOwner(event.data.turn, trace.openTurn, event.type, fail)
     return { kind: 'start', turn: event.data.turn }
   }
   if (event.type === 'compact/summary') {
     if (open === undefined) fail('compact/summary has no matching compact/start')
-    if (open.turn !== trace.openTurn) {
-      fail(`compact/summary belongs to turn ${open.turn} but open turn is ${trace.openTurn}`)
-    }
+    validateOwner(open.turn, trace.openTurn, event.type, fail)
     if (open.summarized) fail('compact/summary repeated within one compaction')
     const seqs = event.data.shadowedSeqs
     if (seqs.length === 0) fail('compact/summary shadowedSeqs must be non-empty')
@@ -63,11 +83,9 @@ function validateCompactionEvent(
   }
   if (open === undefined) fail('compact/end has no matching compact/start')
   if (event.data.turn !== open.turn) {
-    fail(`compact/end turn ${event.data.turn} does not match compact/start turn ${open.turn}`)
+    fail(`compact/end owner ${String(event.data.turn)} does not match compact/start owner ${String(open.turn)}`)
   }
-  if (event.data.turn !== trace.openTurn) {
-    fail(`compact/end names turn ${event.data.turn} but open turn is ${trace.openTurn}`)
-  }
+  validateOwner(open.turn, trace.openTurn, event.type, fail)
   if (event.data.error === undefined && !open.summarized) {
     fail('successful compact/end requires one compact/summary')
   }
@@ -114,7 +132,10 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
       trace.openTurn = null
       return
     }
-    if (event.type !== 'compact/start' && event.type !== 'compact/summary' && event.type !== 'compact/end') return
+    if (event.type !== 'session/end-seed'
+      && event.type !== 'compact/start'
+      && event.type !== 'compact/summary'
+      && event.type !== 'compact/end') return
     const candidate = staged.get(event)
     /* v8 ignore next -- internal/dispatch stages every compaction event */
     if (candidate === undefined || candidate.session !== session) return fail('compaction event published without pre-commit validation')
