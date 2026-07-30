@@ -11,7 +11,24 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, saveFailureShot } from './support.ts'
+import { saveFailureShot } from './support.ts'
+
+/**
+ * connectFreshWorkspace twin over the product default Chinese locale (the
+ * shared helper's anchors assume the English page every other scenario
+ * boots; this scenario deliberately keeps zh, so the localized picker
+ * copy is the anchor set).
+ */
+async function connectFreshWorkspaceZh(page: Page, name = 'workspace'): Promise<void> {
+  await page.getByRole('button', { name: '选择工作区' }).click()
+  await page.getByRole('menuitem', { name: '新建工作区' }).click()
+  const dialog = page.getByRole('dialog', { name: '新建工作区' })
+  await dialog.waitFor({ timeout: 10_000 })
+  await dialog.getByLabel('新工作区名称').fill(name)
+  await dialog.getByRole('button', { name: '创建工作区' }).click()
+  await page.locator('textarea:enabled[placeholder="描述你想要构建的内容"]')
+    .waitFor({ timeout: 15_000 })
+}
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/access-confirmation', import.meta.url))
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
@@ -36,7 +53,7 @@ describe('web e2e: Full access confirmation', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspaceZh(page)
   }, 120_000)
 
   afterAll(async () => {
@@ -46,7 +63,7 @@ describe('web e2e: Full access confirmation', () => {
 
   it('requires acknowledgement before the composer picker can enable Full access', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-full-access-confirmation'))
-    const access = page.locator('button[aria-label^="Access mode"]').first()
+    const access = page.locator('button[aria-label^="访问模式"]').first()
     await access.waitFor({ timeout: 10_000 })
 
     // Normalize the starting preset through the real command path. The
@@ -55,7 +72,7 @@ describe('web e2e: Full access confirmation', () => {
       await access.click()
       await page.getByRole('menuitem', { name: 'Workspace Write' }).click()
       await expect.poll(() => access.getAttribute('aria-label'), { timeout: 10_000 })
-        .toBe('Access mode, current: Workspace Write')
+        .toBe('访问模式，当前：Workspace Write')
     }
 
     await access.click()
@@ -75,7 +92,7 @@ describe('web e2e: Full access confirmation', () => {
     expect(await enable.isEnabled()).toBe(true)
     await enable.click()
     await expect.poll(() => access.getAttribute('aria-label'), { timeout: 10_000 })
-      .toBe('Access mode, current: Full access')
+      .toBe('访问模式，当前：Full access')
     expect(await dialog.count()).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
