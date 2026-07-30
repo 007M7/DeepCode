@@ -6,7 +6,7 @@
  * `sidebar.workspaces` registrant's (ui-workspace), and the foot is the
  * `sidebar.settings` registrant's (ui-settings).
  */
-import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
 // program that sees this contract, so PropsRuntime<'sidebar'> resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -68,7 +68,9 @@ export type SidebarRootInjected = {
 
 /**
  * Full component props: layout owner state/actions plus the declared holes'
- * render shares and this package's injected callbacks. No store is registered.
+ * render shares, this package's injected callbacks, and the standard locale
+ * seat. No store is registered.
  */
 export type SidebarRootComponentProps =
-  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings'> & SidebarRootInjected
+  PropsRuntime<'sidebar'> & PropsRenderSlots<'sidebar.workspaces' | 'sidebar.settings'>
+  & SidebarRootInjected & PropsLocale<'sidebar'>

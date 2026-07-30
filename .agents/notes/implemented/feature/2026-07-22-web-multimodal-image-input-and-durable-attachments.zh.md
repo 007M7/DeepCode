@@ -195,7 +195,7 @@ UI 状态可能陈旧，也无法保护直接 SDK、ACP、回放或未收录模�
 
 - 存储测试覆盖内容寻址去重、私有权限、准入失败、对象损坏或缺失时的失败，以及收紧部署限制后读取历史数据。
 - 宿主与协议测试覆盖先持久化再追加事件的顺序、日志中不含 base64、会话作用域授权、能力拒绝、上传限制、大小受限的 HTTP 请求体，以及在会话日志已含图片时拒绝切换到纯文本模型的 `session.selectModel`（接受该切换会让此后每一轮都失败）。
-- 客户端单元测试覆盖粘贴与拖放、混合剪贴板文本、仅图片发送、草稿恢复、顺序，以及草稿、会话作用域和应用层级的对象 URL 清理；keyless 的组装后构建产物通道（`apps/web/tests/image-display.snapshot.ts`，`DSH_EXAMPLE_MODE=lib pnpm run test:snapshot`）覆盖经授权附件路由渲染的历史用户与助手图片画廊、原图 lightbox，以及 composer 粘贴缩略图条。
+- 客户端单元测试覆盖粘贴与拖放、混合剪贴板文本、仅图片发送、草稿恢复、顺序、画廊与 lightbox 渲染，以及草稿、会话作用域和应用层级的对象 URL 清理——按"单一 smoke 组装通道"设计，行为断言归各包套件。构建产物 boot smoke 的 journey（`apps/web/tests/built-boot.snapshot.ts`，`DSH_EXAMPLE_MODE=lib pnpm run test:snapshot`）额外抵达持久图片内容：历史画廊经授权附件路由把 fixture 字节解析为 object URL，走完构建后 bundle 的线上往返。
 - 适配器与压缩测试覆盖 Pi-AI 原生图片转换、后置附件服务组合、仅文本拒绝、嵌套工具结果中的图片、保留摘要输入，以及明确拒绝图片输出。
 - 需要凭据的实际 API 测试会通过 Anthropic `claude-opus-4-8` 路径发送一张 PNG，并要求模型识别其中的二维码。
 - 当前生产适配器集合没有经过认证的图片输出路由；输出提供方认证仍不在第一版范围内。

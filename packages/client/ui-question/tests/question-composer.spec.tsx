@@ -8,10 +8,12 @@ import { PendingWait } from '@deepseek-ai/dsh-client-runtime/client'
 import type { RpcReceipt } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import { PendingQuestion } from '../src/client/contract/slots.ts'
+import { PendingQuestion, type QuestionComposerProps } from '../src/client/contract/slots.ts'
 import {
   QuestionComposer, parseQuestionTitle, parseRecommendedLabel,
 } from '../src/client/QuestionComposer.tsx'
+import { zh } from '../src/client/locales.ts'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 
 afterEach(cleanup)
 
@@ -28,6 +30,11 @@ const kit = {
   useProjection: (() => undefined) as never,
   useInput: (() => { throw new Error('unused') }) as never,
   inputActions: { setDraft: () => { throw new Error('unused') }, submit: () => { throw new Error('unused') } } as never,
+  // The seat's key domain is question ∪ common; the stub mirrors the real
+  // lookup chain: package dictionary, then common vocabulary, then the key.
+  t: (key => (zh as Record<string, string>)[key]
+    ?? (commonZh as Record<string, string>)[key]
+    ?? key) as QuestionComposerProps['t'],
 }
 
 const QUESTIONS = [

@@ -268,7 +268,7 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
   let published = false
   for (let index = events.length - 1; index >= 0; index -= 1) {
     // The loop bounds prove the read-only event view contains this index.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     const event = events[index]!
     if (event.type !== 'user/message'
       || event.data.source.kind !== 'plugin'

@@ -44,6 +44,7 @@ export function ConversationSession({
     // the machine mirror, not this seed effect.
   }, [inputActions])
 
+  // Historical image object URLs die with this session's rendered window.
   useEffect(() => () => {
     releaseSessionImages(sessionId)
   }, [releaseSessionImages, sessionId])

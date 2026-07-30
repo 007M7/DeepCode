@@ -11,6 +11,7 @@
 | 组 | 职责 | 发布预期 |
 |---|---|---|
 | [`core/`](core/README.md) | 产品 API 主干：会话、提示词、工具、agent（智能体）服务与具体循环 | 产品：稳定表面 |
+| [`typert/`](typert/README.md) | 类型图生成、产物加载与运行时注册表 | 产品：稳定表面 |
 | [`goal/`](goal/README.md) | 持久化的同会话 goal 状态与生命周期 | 产品：稳定表面 |
 | [`llm/`](llm/README.md) | LLM（大语言模型）能力系列：抽象服务 + 提供方适配器 | 产品：稳定表面 |
 | [`subprocess/`](subprocess/README.md) | 进程管理能力系列：spawn seam + 本地进程树实现 | 产品：稳定表面 |

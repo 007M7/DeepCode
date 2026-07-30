@@ -267,7 +267,7 @@ export class SkillService extends Service {
           invalidateCache()
         }
       }, 'skills.registerProvider()')
-      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; preserve exact disposer identity
+      // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; preserve exact disposer identity
       return dispose
     } catch (error) {
       lifecycle.abort(error)
@@ -307,7 +307,7 @@ export class SkillService extends Service {
         invalidateCache()
       }
     }, 'skills.register()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return dispose
   }
 
