@@ -59,7 +59,7 @@ export function apply(ctx: ClientContext): void {
     scope.effect(() => scope.slots.register({
       name: 'conversation.input.dock',
       id: 'goal',
-      order: 1,
+      order: 0,
       inject: (sessionId): GoalBarActions => ({
         onEdit: async (objective) => {
           const ref = refOf(sessionId)
