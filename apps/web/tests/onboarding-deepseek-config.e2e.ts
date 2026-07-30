@@ -61,14 +61,19 @@ describe.skipIf(MODE === 'record')('web e2e: first-run DeepSeek credential setup
     expect(browserConsole.some(line => line.includes(secret))).toBe(false)
 
     // The same running composition reuses the refreshed join. Opening Models
-    // and its credential control proves the configured view without reload.
+    // and its write-only key field proves the configured view without reload.
     await page.getByRole('button', { name: '设置', exact: true }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
     await settings.getByRole('button', { name: '模型' }).click()
     const deepSeekRow = settings.getByText('DeepSeek', { exact: true }).first()
     await deepSeekRow.waitFor({ timeout: 10_000 })
     await deepSeekRow.locator('xpath=ancestor::li').getByRole('button', { name: '编辑' }).click()
-    await settings.getByText('已配置', { exact: true }).waitFor({ timeout: 10_000 })
+    const keyInput = settings.getByLabel('API 密钥', { exact: true })
+    await keyInput.waitFor({ timeout: 10_000 })
+    await expect.poll(
+      () => keyInput.getAttribute('placeholder'),
+      { timeout: 10_000 },
+    ).toBe('已配置——输入新值可替换')
 
     expect((await page.content()).includes(secret)).toBe(false)
     expect((await page.locator('body').ariaSnapshot()).includes(secret)).toBe(false)
