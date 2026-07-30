@@ -167,7 +167,19 @@ describe.skipIf(!existsSync(cliBin))('dsh-cli-demo BUILT bin', () => {
 
     const stream = await runBuiltBin(consumer, ['--config', './cordis.yml', '--output-format', 'stream-json', 'stream task'])
     const lines = stream.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
-    expect(lines[0]).toMatchObject({ type: 'session_event', event: { type: 'turn/start' } })
+    expect(lines[0]).toMatchObject({
+      type: 'session_event',
+      event: {
+        type: 'agent/inbox/spliced',
+        data: {
+          target: 'next-turn',
+          start: 0,
+          inserted: [{ content: [{ type: 'text', text: 'stream task' }], source: { kind: 'user' } }],
+        },
+      },
+    })
+    expect(lines.findIndex(line =>
+      (line['event'] as { type?: string } | undefined)?.type === 'turn/start')).toBeGreaterThan(0)
     expect(lines.at(-1)).toMatchObject({ type: 'result', output: 'BUILT: stream task' })
     const sessionsRoot = join(consumer, '.sessions')
     const files = await readdir(sessionsRoot, { recursive: true })
