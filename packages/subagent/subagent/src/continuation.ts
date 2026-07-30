@@ -113,10 +113,10 @@ export interface ActivationObserver {
   /**
    * Publish the terminal edge exactly once. An epoch that never became resident
    * emits nothing, because it has no start edge to pair.
-   * @param child - the child agent whose final output the edge reports, if any.
+   * @param child - the child agent whose final output the edge reports.
    * @param failure - the teardown or durability failure, or `undefined` on success.
    */
-  settle(child: Agent | undefined, failure: unknown): void
+  settle(child: Agent, failure: unknown): void
 }
 
 /** Hooks the manager needs from the owning service. */
@@ -244,24 +244,6 @@ export class SubagentContinuationManager {
   }
 
   /**
-   * Whether this manager still admits new materialization and delivery. Host
-   * teardown closes admission synchronously through {@link enterDraining}.
-   * @returns true once draining began.
-   */
-  get isDraining(): boolean {
-    return this.draining
-  }
-
-  /**
-   * Close admission synchronously: reject new creation, cold resume, and
-   * delivery so a host can drain the live Activation forest without racing new
-   * work. Idempotent.
-   */
-  enterDraining(): void {
-    this.draining = true
-  }
-
-  /**
    * Read one durable child's live residency state.
    * @param childId - the durable child session id.
    * @returns its Activation state, or `undefined` when no Activation is live.
@@ -384,7 +366,9 @@ export class SubagentContinuationManager {
    * @throws an aggregate error when any branch failed to release.
    */
   async drain(): Promise<void> {
-    this.enterDraining()
+    // Close admission synchronously before the first await, so no new creation,
+    // cold resume, or delivery can race the snapshot below.
+    this.draining = true
     // Snapshot roots after closing admission: a root is an Activation no live
     // Activation owns, so disposing roots recurses child-first into the forest.
     const owned = new Set<SessionId>()
@@ -500,18 +484,10 @@ export class SubagentContinuationManager {
     signal: AbortSignal
   }): Promise<Activation> {
     const { childId, provider, parent } = inputs
-    if (this.activations.has(childId)) {
-      throw new SubagentError(
-        `subagent "${childId}" already has a live activation; the message was not delivered`,
-        'ACTIVATION_CONFLICT',
-      )
-    }
-    if (this.ctx.agents.get(childId) !== undefined) {
-      throw new SubagentError(
-        `subagent "${childId}" has a live agent outside continuation ownership; the message was not delivered`,
-        'OWNERSHIP_CONFLICT',
-      )
-    }
+    // No id pre-check here: the child lock serializes each durable child, both
+    // callers reach this only after confirming no Activation exists, and
+    // `AgentRegistry.enter()` is the authoritative collision boundary for an id
+    // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
     const setup = (childCtx: Context): void => { applyChildComposition(childCtx, inputs.composition) }
     const observer = this.host.observeActivation(provider, childId, parent)
@@ -535,7 +511,7 @@ export class SubagentContinuationManager {
     } catch (error: unknown) {
       // Agent creation provides rollback before handle transfer, so nothing
       // outlives this rejection; report the epoch that never became resident.
-      observer.settle(undefined, error)
+      // No start edge was published, so this epoch has no lifecycle to close.
       throw error
     }
 
@@ -558,16 +534,11 @@ export class SubagentContinuationManager {
     } catch (error: unknown) {
       // Roll the transfer back completely: the Activation leaves the map, the
       // parent's ownership membership is released, and the created handle is
-      // disposed before this rejection surfaces.
+      // disposed before this rejection surfaces. No lifecycle edge is published,
+      // because `observer.start()` below has not run for this epoch.
       this.activations.delete(childId)
       this.releaseOwnership(childId)
-      activation.disposal = (async () => {
-        try {
-          await handle.dispose()
-        } finally {
-          observer.settle(handle.agent, error)
-        }
-      })()
+      activation.disposal = handle.dispose()
       await activation.disposal.catch(() => undefined)
       throw error
     }

@@ -630,13 +630,181 @@ describe('continuable public surface', () => {
 })
 
 describe('continuable errors', () => {
-  it('rejects a second live Activation for the same durable child', async () => {
-    const { ctx, parent } = await setup([textResponse('unused')])
-    // Occupy the id with an unmanaged live Agent.
-    const squatter = ctx.agentLoop.create(SessionId('squatted'), { provider: 'mock', model: 'mock' })
-    await ctx.sessions.flush(squatter.session)
-    await expect(followup(ctx, { kind: 'user' }, SessionId('squatted'), message('hello')))
+  it('rejects a duplicate Activation at the agent registry collision boundary', async () => {
+    const hold = Promise.withResolvers<void>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    const child = await vi.waitFor(() => {
+      const found = ctx.agents.get(started.childId)
+      expect(found).toBeDefined()
+      return found!
+    })
+    // Drop the Activation without disposing the Agent, leaving the id live but
+    // unmanaged. Materialization must not adopt it.
+    const manager = (ctx.subagents as unknown as {
+      continuations: { activations: Map<SessionId, unknown> }
+    }).continuations
+    manager.activations.delete(started.childId)
+
+    await expect(followup(ctx, { kind: 'user' }, started.childId, message('hello')))
       .rejects.toThrow(SubagentError)
-    void parent
+    expect(ctx.agents.get(started.childId)).toBe(child)
+    hold.resolve()
+  })
+
+  it('rejects parent authority whose agent is no longer the live registry entry', async () => {
+    const { ctx, parent } = await setup([textResponse('first')])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    const child = await vi.waitFor(() => {
+      const found = ctx.agents.get(started.childId)
+      expect(found).toBeDefined()
+      return found!
+    })
+    // A stale parent reference: same id, not the exact live entry.
+    const stale = { ...parent, id: parent.id } as unknown as Agent
+
+    await expect(followup(ctx, { kind: 'parent', agent: stale }, started.childId, message('stale')))
+      .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    void child
+  })
+
+  it('rejects establishing a child under a parent whose disposal already began', async () => {
+    const hold = Promise.withResolvers<void>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('child'), gate: hold.promise }])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    const child = await vi.waitFor(() => {
+      const found = ctx.agents.get(started.childId)
+      expect(found).toBeDefined()
+      return found!
+    })
+
+    // Begin the parent Activation's teardown, then try to give it a child.
+    const drained = ctx.subagents.drainContinuable()
+    await expect(ctx.subagents.startContinuable(startSpec(child)))
+      .rejects.toMatchObject({ code: 'DRAINING' })
+    hold.resolve()
+    await drained
+  })
+
+  it('reports a failing branch after every branch settles, without pinning the rest', async () => {
+    const hold = Promise.withResolvers<void>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('child done') },
+      { chunks: textResponse('grandchild'), gate: hold.promise },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    const child = await vi.waitFor(() => {
+      const found = ctx.agents.get(started.childId)
+      expect(found).toBeDefined()
+      return found!
+    })
+    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
+    await vi.waitFor(() => { expect(ctx.agents.get(grandchild.childId)).toBeDefined() })
+    // Make the grandchild's own handle disposal reject: scope teardown failure
+    // propagates, unlike a contained `agent/disposed` listener throw.
+    const manager = (ctx.subagents as unknown as {
+      continuations: { activations: Map<SessionId, { handle: { dispose: () => Promise<void> } }> }
+    }).continuations
+    const branch = manager.activations.get(grandchild.childId)!
+    const realDispose = branch.handle.dispose.bind(branch.handle)
+    branch.handle.dispose = async () => {
+      await realDispose()
+      throw new Error('grandchild reap failed')
+    }
+
+    const drained = ctx.subagents.drainContinuable()
+    hold.resolve()
+    await expect(drained).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
+    // The other branch still released, and durable sessions survive.
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.meta.id).toBe(started.childId)
+  })
+
+  it('rolls the transfer back when ownership registration fails after handle transfer', async () => {
+    const hold = Promise.withResolvers<void>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('parent child'), gate: hold.promise },
+      { chunks: textResponse('unused') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    const outer = await ctx.subagents.startContinuable(startSpec(parent))
+    const child = await vi.waitFor(() => {
+      const found = ctx.agents.get(outer.childId)
+      expect(found).toBeDefined()
+      return found!
+    })
+    // Begin the would-be parent's disposal, then race a grandchild into it. The
+    // handle transfers before ownership registration rejects, so the rollback
+    // must leave no Activation and no live Agent behind.
+    const manager = (ctx.subagents as unknown as {
+      continuations: { activations: Map<SessionId, { disposal: Promise<void> | undefined }> }
+    }).continuations
+    const before = new Set(ctx.agents.list().map(agent => agent.id))
+    manager.activations.get(outer.childId)!.disposal = Promise.resolve()
+
+    await expect(ctx.subagents.startContinuable(startSpec(child)))
+      .rejects.toMatchObject({ code: 'ACTIVATION_CLOSING' })
+    await vi.waitFor(() => {
+      expect(ctx.agents.list().map(agent => agent.id).filter(id => !before.has(id))).toEqual([])
+    })
+    hold.resolve()
+  })
+
+  it('reapplies the descriptor model route on cold resume', async () => {
+    const { ctx, parent } = await setup([textResponse('first'), textResponse('resumed')])
+    const started = await ctx.subagents.startContinuable({
+      ...startSpec(parent),
+      request: {
+        prompt: message('routed work'),
+        parent,
+        agentOptions: { provider: 'mock', model: 'child-model' },
+      },
+    })
+    await waitNoActivation(ctx, started.childId)
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(loaded.events.find(event => event.type === 'subagent/descriptor')?.data)
+      .toMatchObject({ agentProvider: 'mock', agentModel: 'child-model' })
+
+    // The resumed Activation runs on the declared route, not the parent's.
+    await followup(ctx, { kind: 'user' }, started.childId, message('again'))
+    await vi.waitFor(() => {
+      expect(ctx.agents.get(started.childId)?.options.model).toBe('child-model')
+    })
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('drains without continuation services as a no-op', async () => {
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(SubagentService)
+    // No `ctx.agents`, so no manager was ever bound and nothing was materialized.
+    await expect(ctx.subagents.drainContinuable()).resolves.toBeUndefined()
+  })
+
+  it('unloading the manager drains its live activations', async () => {
+    const hold = Promise.withResolvers<void>()
+    const adapter = new GatedAdapter([{ chunks: textResponse('child'), gate: hold.promise }])
+    const ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx)
+    const root = mkdtempSync(join(tmpdir(), 'dsh-subagent-continuation-'))
+    roots.push(root)
+    await ctx.plugin(JsonlSessionPersistence, { root })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    const serviceFiber = await ctx.plugin(SubagentService)
+    await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(ctx.agents.get(started.childId)).toBeDefined() })
+
+    // Manager unload uses the same drain, so no child outlives its runtime.
+    const disposal = serviceFiber.dispose()
+    hold.resolve()
+    await disposal
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
   })
 })

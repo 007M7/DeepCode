@@ -369,7 +369,7 @@ export class SubagentService extends Service {
         started = true
         this.emitLifecycle('subagent/start', identity, parent)
       },
-      settle: (child: Agent | undefined, failure: unknown): void => {
+      settle: (child: Agent, failure: unknown): void => {
         // A failure before residency has no start edge to pair, and inventing
         // one would report a lifecycle the child never had.
         if (settled || !started) return
@@ -462,9 +462,10 @@ export class SubagentService extends Service {
 /**
  * The child's last assistant message content, for one Activation's terminal
  * lifecycle edge. Absent when no assistant message reached the log.
+ * @param child - the settling child agent whose log is read.
+ * @returns its final assistant content, or `undefined` when it produced none.
  */
-function lastAssistantOutput(child: Agent | undefined): ContentBlock[] | undefined {
-  if (child === undefined) return undefined
+function lastAssistantOutput(child: Agent): ContentBlock[] | undefined {
   const message = child.session.events.findLast(
     (event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message',
   )
