@@ -17,7 +17,7 @@ export interface AssembledResult {
 
 export async function assemble(ctx: Context, options: Omit<GenerateOptions, 'provider'> & { provider?: string }): Promise<AssembledResult> {
   const assembler = new BlockAssembler()
-  const request = { provider: 'deepseek', ...options }
+  const request = { provider: 'deepseek-official', ...options }
   for await (const chunk of ctx.llm.stream(request)) assembler.push(chunk)
   return {
     message: assembler.message({

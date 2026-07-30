@@ -123,7 +123,7 @@
     - id: api-gateway
       name: '@deepseek-ai/dsh-host-apiproxy'
       config:
-        provider: deepseek
+        provider: deepseek-official
         model: deepseek-v4-flash
 
     # ── layer 2: transport/service ──────────────────────────────────────────────

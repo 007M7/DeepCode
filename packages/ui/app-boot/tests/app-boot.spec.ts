@@ -207,6 +207,25 @@ describe('boot', () => {
     }
   })
 
+  it('returns instead of asserting over a tree a surface disposed mid-startup', async () => {
+    // What a TUI `/exit` does (ui-tui's disposeRootAndExit): dispose the root
+    // fiber, which lands while boot() is still awaiting the Loader whenever the
+    // surface renders before the last entry settles. The Loader service goes
+    // with the tree, so reading it for the post-boot assertions would crash an
+    // app that exited exactly as the user asked.
+    const dir = tmp()
+    writeFileSync(join(dir, 'exiting.mjs'), [
+      'export const name = "exiting"',
+      'export function apply(ctx) {',
+      '  void ctx.root.fiber.dispose()',
+      '}',
+      '',
+    ].join('\n'))
+    writeFileSync(join(dir, 'cordis.yml'), '- id: exiting\n  name: ./exiting.mjs\n')
+    const ctx = await boot(NAME, join(dir, 'cordis.yml'))
+    expect(ctx.get('loader')).toBeUndefined()
+  })
+
   it('rejects (never exits 0 half-empty) when a config names a plugin that cannot be imported', async () => {
     const dir = tmp()
     writeFileSync(join(dir, 'cordis.yml'), '- id: ghost\n  name: ./missing.mjs\n')

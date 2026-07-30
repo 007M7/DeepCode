@@ -64,8 +64,8 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
 
     // Focus-reveal the footers (hover:hover keeps them opacity-hidden until
-    // hover/focus-within). User has three actions; each finalized assistant
-    // text node has copy + branch.
+    // hover/focus-within). User has three actions; each turn's last content
+    // assistant has copy + branch.
     const copyButtons = page.getByRole('button', { name: '复制' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     await copyButtons.first().focus()

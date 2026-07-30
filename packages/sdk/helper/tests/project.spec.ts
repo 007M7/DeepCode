@@ -61,7 +61,7 @@ function request(
     packageManager: new NpmPackageManager('10.0.0'),
     releaseVersion: '0.0.1',
     features: [
-      selection('provider', ['deepseek'], { apiKey: 'test-key' }),
+      selection('provider', ['deepseek-official'], { apiKey: 'test-key' }),
       selection('bash', [bash]),
       selection('app', [app]),
       selection('persistence', ['jsonl']),
@@ -344,7 +344,7 @@ describe('SdkProject and ProjectEditSession', () => {
     const edit = project.edit(registry)
     expect(edit.inspections()).not.toHaveLength(0)
     const todo = registry.get(featureId('todo'))
-    edit.configureFeature(registry.get(featureId('web')), selection('web', ['deepseek']))
+    edit.configureFeature(registry.get(featureId('web')), selection('web', ['deepseek-official']))
     edit.disableFeature(todo)
     edit.configureFeature(todo, selection('todo', ['default']))
     edit.enableFeature(todo)
@@ -598,7 +598,7 @@ describe('SdkProject and ProjectEditSession', () => {
     expect(installation.diagnostics).toContain('missing package.json dependencies entry @deepseek-ai/dsh-llm-deepseek')
     const partialEdit = partial.edit(createBuiltinRegistry(partial.profile))
     const provider = createBuiltinRegistry(partial.profile).get(featureId('provider'))
-    expect(() => { partialEdit.configureFeature(provider, selection('provider', ['deepseek'])) }).toThrow('inconsistent')
+    expect(() => { partialEdit.configureFeature(provider, selection('provider', ['deepseek-official'])) }).toThrow('inconsistent')
     expect(() => { partialEdit.enableFeature(provider) }).toThrow('inconsistent')
     expect(() => { partialEdit.disableFeature(provider) }).toThrow('required feature')
   })
@@ -615,7 +615,7 @@ describe('SdkProject and ProjectEditSession', () => {
     const edit = project.edit(builtin)
     const web = builtin.get(featureId('web'))
     expect(() => { edit.disableFeature(web) }).toThrow('inconsistent')
-    expect(() => { edit.installFeature(web, selection('web', ['deepseek'])) }).toThrow('inconsistent')
+    expect(() => { edit.installFeature(web, selection('web', ['deepseek-official'])) }).toThrow('inconsistent')
 
     class RequiresWeb extends FixedFeature {
       override readonly id = featureId('requires-web')
@@ -656,7 +656,7 @@ describe('SdkProject and ProjectEditSession', () => {
     const project = await createCommitted([selection('web', ['exa'], { apiKey: 'exa' })])
     const registry = createBuiltinRegistry(project.profile)
     const edit = project.edit(registry)
-    edit.configureFeature(registry.get(featureId('web')), selection('web', ['deepseek']))
+    edit.configureFeature(registry.get(featureId('web')), selection('web', ['deepseek-official']))
     expect(edit.readEnvironment('.env.example', 'EXA_API_KEY')).toBeUndefined()
   })
 
@@ -676,7 +676,7 @@ describe('SdkProject and ProjectEditSession', () => {
     const edit = reopened.edit(registry)
     edit.configureFeature(
       registry.get(featureId('provider')),
-      selection('provider', ['deepseek'], { apiKey: 'replacement' }),
+      selection('provider', ['deepseek-official'], { apiKey: 'replacement' }),
     )
     edit.installFeature(registry.get(featureId('web')), selection('web', ['exa'], { apiKey: 'exa-key' }))
     const withExa = (await edit.commit()).project
@@ -686,7 +686,7 @@ describe('SdkProject and ProjectEditSession', () => {
     }
     const nextRegistry = createBuiltinRegistry(withExa.profile)
     const remove = withExa.edit(nextRegistry)
-    remove.configureFeature(nextRegistry.get(featureId('web')), selection('web', ['deepseek']))
+    remove.configureFeature(nextRegistry.get(featureId('web')), selection('web', ['deepseek-official']))
     await remove.commit()
     expect(await readFile(join(withExa.root, '.env'), 'utf8')).toBe(`${original}EXA_API_KEY=exa-key\n`)
   })
@@ -936,12 +936,12 @@ describe('extension points', () => {
     expect(spineAgentLoop?.validateConfig?.({ agents: 'main' })).toEqual(['agents must be an array'])
     expect(spineAgentLoop?.validateConfig?.({ agents: ['main'] })).toEqual(['agents must be empty'])
     expect(spineAgentLoop?.validateConfig?.({ agents: [] })).toEqual([])
-    expect(builtins.get(featureId('provider')).defaultOptions(profile)).toEqual(['deepseek'])
+    expect(builtins.get(featureId('provider')).defaultOptions(profile)).toEqual(['deepseek-official'])
     expect(() => builtins.get(featureId('provider')).contribution({
       id: featureId('provider'), options: ['custom'], values: { baseURL: 1 },
     }, profile)).toThrow('baseURL must be a string')
     const alternateModel = builtins.get(featureId('provider')).contribution({
-      id: featureId('provider'), options: ['deepseek'],
+      id: featureId('provider'), options: ['deepseek-official'],
     }, { ...profile, runtime: { model: 'other' } }).resources
       .find(resource => resource.kind === 'cordis-config-entry')
     expect(alternateModel?.entry.config?.models).toEqual(['other'])

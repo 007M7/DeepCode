@@ -46,6 +46,13 @@ import {
   goalCompleteValueSchema,
   goalClearValueSchema,
 } from '../api/goals.schema.ts'
+import {
+  settingsDescribeValueSchema, settingsMutateValueSchema, settingsReplaceValueSchema, settingsUpdateValueSchema,
+} from '../api/settings.schema.ts'
+import {
+  credentialsDescribeValueSchema, credentialsSetValueSchema, credentialsUnsetValueSchema,
+} from '../api/credentials.schema.ts'
+import { llmModelsValueSchema, llmProvidersValueSchema } from '../api/llm.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -108,6 +115,21 @@ export interface IApiClient {
     complete(payload: RequestPayload<'goal.complete'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.complete'>>>
     clear(payload: RequestPayload<'goal.clear'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'goal.clear'>>>
   }
+  settings: {
+    describe(payload: RequestPayload<'settings.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.describe'>>>
+    update(payload: RequestPayload<'settings.update'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.update'>>>
+    replace(payload: RequestPayload<'settings.replace'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.replace'>>>
+    mutate(payload: RequestPayload<'settings.mutate'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'settings.mutate'>>>
+  }
+  credentials: {
+    describe(payload: RequestPayload<'credentials.describe'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'credentials.describe'>>>
+    set(payload: RequestPayload<'credentials.set'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'credentials.set'>>>
+    unset(payload: RequestPayload<'credentials.unset'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'credentials.unset'>>>
+  }
+  llm: {
+    providers(payload: RequestPayload<'llm.providers'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.providers'>>>
+    models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
+  }
   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
   respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
 }
@@ -146,6 +168,15 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'goal.resume': goalResumeValueSchema,
   'goal.complete': goalCompleteValueSchema,
   'goal.clear': goalClearValueSchema,
+  'settings.describe': settingsDescribeValueSchema,
+  'settings.update': settingsUpdateValueSchema,
+  'settings.replace': settingsReplaceValueSchema,
+  'settings.mutate': settingsMutateValueSchema,
+  'credentials.describe': credentialsDescribeValueSchema,
+  'credentials.set': credentialsSetValueSchema,
+  'credentials.unset': credentialsUnsetValueSchema,
+  'llm.providers': llmProvidersValueSchema,
+  'llm.models': llmModelsValueSchema,
 }
 
 /** Default unary timeout (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -377,6 +408,24 @@ export abstract class AbstractApiClient implements IApiClient {
     resume: (payload, signal) => this.callUnary('goal.resume', payload, signal),
     complete: (payload, signal) => this.callUnary('goal.complete', payload, signal),
     clear: (payload, signal) => this.callUnary('goal.clear', payload, signal),
+  }
+
+  readonly settings: IApiClient['settings'] = {
+    describe: (payload, signal) => this.callUnary('settings.describe', payload, signal),
+    update: (payload, signal) => this.callUnary('settings.update', payload, signal),
+    replace: (payload, signal) => this.callUnary('settings.replace', payload, signal),
+    mutate: (payload, signal) => this.callUnary('settings.mutate', payload, signal),
+  }
+
+  readonly credentials: IApiClient['credentials'] = {
+    describe: (payload, signal) => this.callUnary('credentials.describe', payload, signal),
+    set: (payload, signal) => this.callUnary('credentials.set', payload, signal),
+    unset: (payload, signal) => this.callUnary('credentials.unset', payload, signal),
+  }
+
+  readonly llm: IApiClient['llm'] = {
+    providers: (payload, signal) => this.callUnary('llm.providers', payload, signal),
+    models: (payload, signal) => this.callUnary('llm.models', payload, signal),
   }
 
   readonly events: IApiClient['events'] = {

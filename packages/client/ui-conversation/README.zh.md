@@ -18,7 +18,7 @@
 
 审批经由本包声明的链接管编辑器：`ApprovalPanel` 注册为按选择器路由的 `'conversation.composer'` 配置项（ui-question 模式），在审批等待未决期间取代 InputBar 占据编辑器（琥珀色条、理由标题、来自运行中调用参数的配对命令行、一次性的拒绝／允许）。`contract/slots.ts` 中的 `PendingApproval` 领域面在运行时 `PendingWait` 载体之上拥有 wire 编码——带审计关联的 `ApprovalResponsePayload` 值；广播的 `approval/resolved` 帧使等待落定并恢复编辑器。侧边栏通过 manager 跟踪的 `waitingApproval` 列表位（未实例化会话同样点亮）镜像该阻塞状态，其优先级高于运行中圆环，直至问题解决。未决等待完全离开消息流：问题（ui-question）与审批（ApprovalPanel）都经编辑器接管作答，不再保留只读占位卡。编辑器底行的 Access 席位挂载 `PermissionSelect`，由 host 计算的 `permissions` 投影经标准工具包 `useProjection` 供数（key 缺席即隐藏 chip）；chip 打开 Menu 原语下拉，kebab-case 预设名渲染为 Title Case 标签（与 `/permission` popup 的显示变换孪生），选中会经由输入栏注入的 `command` 回调提交 `/permission <preset>` 命令行。
 
-todo 两个面就是在该形状上的两个注册项，都是普通注册方插件，`inject: ['slots', 'conversation']`。`TodoRow` 占用 `'conversation.chat.toolview'` 的 `todo_write` key，摘要该次调用「试图写入」的内容（从其 args 解析出 `<已完成>/<总数> 已完成 · <进行中条目>`；模型 JSON 残缺或形状不对时回落到通用摘要；非 ok 执行状态保留通用状态点，使被取消的调用绝不读成一次已完成的更新）。`TodoDock` 以 `order: 10` 占用 `'conversation.input.dock'` 列表 slot（位于 Goal 和 Queue 之间），是计划条：它经 `useProjection` 读取 host 计算的 `todos` 投影（站立计划：其后没有更晚 `turn/start` 的最近一次 `todo/write`）并渲染 `TodoPanel`，后者接收纯列表，在列表为空时自我隐藏；列表非空时面板初始折叠，表头显示标题加 `"<已完成>/<总数> tasks · <n> in progress"`（状态图标为 figma 的勾选／进行中／虚线未开始一组）。选取由 dock 适配器负责，因此面板保持为其 props 的纯函数；站立列表放在此处而非行内，行才能保持单行。输入区 composer 链隐藏的一切（例如 ui-question 对 `conversation.composer` 的接管）也会隐藏整个 dock，包括这条计划条。
+todo 两个面就是在该形状上的两个注册项，都是普通注册方插件，`inject: ['slots', 'conversation']`。`TodoRow` 占用 `'conversation.chat.toolview'` 的 `todo_write` key，摘要该次调用「试图写入」的内容（从其 args 解析出 `<已完成>/<总数> 已完成 · <进行中条目>`；模型 JSON 残缺或形状不对时回落到通用摘要；非 ok 执行状态保留通用状态点，使被取消的调用绝不读成一次已完成的更新）。`TodoDock` 以 `order: -1` 占用 `'conversation.input.dock'` 列表 slot（位于队列行之上），是计划条：它经 `useProjection` 读取 host 计算的 `todos` 投影（站立计划：其后没有更晚 `turn/start` 的最近一次 `todo/write`）并渲染 `TodoPanel`，后者接收纯列表，在列表为空时自我隐藏；列表非空时面板初始折叠，表头显示标题加 `"<已完成>/<总数> tasks · <n> in progress"`（状态图标为 figma 的勾选／进行中／虚线未开始一组）。选取由 dock 适配器负责，因此面板保持为其 props 的纯函数；站立列表放在此处而非行内，行才能保持单行。输入区 composer 链隐藏的一切（例如 ui-question 对 `conversation.composer` 的接管）也会隐藏整个 dock，包括这条计划条。
 
 `QueueDock` 是 `order: 20` 的末端 input-dock 条目。队列为空时隐藏；只有一个待处理项时直接渲染该行；存在两个或更多待处理项时，默认收起为 `"<n> 条排队消息"` 表头，其按钮可展开或收起完整列表。表头暴露 `aria-expanded` 和 `aria-controls`；展开后的列表以 180px 为高度上限，并可滚动。存在进行中的编辑或变更时，列表行会保持可见；队列清空后，下一次出现队列时会恢复默认收起状态。每条可见行仍是单行预览，并提供针对精确单次入队项的编辑和删除操作。
 
@@ -40,7 +40,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 - **统计行的耗时只覆盖窗口内消息流**：LLM（大语言模型）与工具墙钟时间由快照的 assistant `timing` 与工具 call/result 配对折算，落在已加载事件窗口之外的节点（更早的历史）不计入。
 - **详情面板是最小形态，且当前没有入口**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。工具行已不再是详情面板的点击目标，且没有任何手势接替它，因此 `ChatViewInjected.openDetails` 虽已实现却无人调用，该面板（含其终端卡片）在组装后的应用中不可达；其渲染仍由直接以选中态挂载它来覆盖。
-- **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的内容 IconActions 行（复制／分支／时钟）只挂在 text 输出下；分支会 fork 到包含该消息的轮次末尾，在 client 端递增继承标题后打开子会话，而 fork 或改名失败时源会话保持选中。
+- **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的内容 IconActions 行（复制／分支／时钟）只挂在每个轮次中最后一条带 text 内容的 assistant 下；轮次中间的叙述与纯 Think 节点不带 chrome。分支会 fork 到包含该消息的轮次末尾，在 client 端递增继承标题后打开子会话，而 fork 或改名失败时源会话保持选中。
 - **others 工具行的闪光图标是手绘近似版本**：无法在本地导出设计字形的矢量几何；等到存在精确导出后再将其提升到 ui-primitives。
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。

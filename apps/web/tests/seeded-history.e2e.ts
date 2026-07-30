@@ -3,7 +3,9 @@
 // else covers: sidebar cold listing, the implicit resume/attach inside the
 // history RPC, history-page tool views, and the client fold of historical
 // events — with ZERO model calls in replay (no replay fixture; a stray stream
-// fails loud on the open llm seam). The seed is a recorded fixture under the
+// fails loud on the open llm seam). The cold session also carries the one
+// keyless command-row surface: an Access-chip pick runs `/permission` on the
+// host, so the settled row's copy has a golden here. The seed is a recorded fixture under the
 // same record discipline as every other: DSH_SNAPSHOT=record drives the turn
 // live through the composer (real read tool against seeded workspace files)
 // and harvests seed.jsonl; replay/refresh seed it cold and only render.
@@ -24,6 +26,9 @@ import { newEnglishPage, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/seeded-history', import.meta.url))
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/seeded-history/ui.expected.md', import.meta.url))
+// The command-row golden: the same conversation after one /permission switch,
+// which is the only surface that shows a settled command row's copy.
+const COMMAND_ROW_EXPECTED = fileURLToPath(new URL('./snapshots/seeded-history/command-row.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const SEED_ID = 'seeded-history-web-e2e'
 
@@ -225,11 +230,33 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })
 
+  it.skipIf(MODE === 'record')('an Access-chip switch lands one command row: bare name, non-repeating settlement text', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-seeded-command-row'))
+    // The Access chip submits `/permission <preset>` — a host command with no
+    // model call, so the settled row renders keylessly over this cold history.
+    // The row copy is the assertion: `permission · preset workspace-write`,
+    // where neither half repeats the other (the dispatched `/` and its
+    // argument stay out of the title, and the settlement text never restates
+    // the command's own name).
+    await page.getByRole('button', { name: 'Access mode, current: Danger Full Access' }).click()
+    await page.getByRole('menuitem', { name: 'Workspace Write' }).click()
+    await page.getByRole('button', { name: 'Access mode, current: Workspace Write' }).waitFor({ timeout: 10_000 })
+    // Scoped to the row itself, so unrelated page text that happens to read
+    // `permission` (a future resident slash menu) cannot satisfy or break it.
+    const row = page.locator('[data-variant="others"]').filter({ hasText: 'preset workspace-write' })
+    await expect.poll(() => row.count(), { timeout: 10_000 }).toBe(1)
+    expect(await row.getByText('permission', { exact: true }).count()).toBe(1)
+    expect(await row.getByText('/permission workspace-write', { exact: true }).count()).toBe(0)
+    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)
+  }, 60_000)
+
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     // No replay fixture was installed and the llm seam is open — any stray
     // stream would have failed the turn loudly. Cleanliness pins the wire.
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['seed.jsonl', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['command-row.expected.md', 'seed.jsonl', 'ui.expected.md'])
   })
 })

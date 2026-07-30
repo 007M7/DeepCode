@@ -22,7 +22,7 @@
   config:
     agents:
       - id: main
-        provider: deepseek
+        provider: deepseek-official
         model: deepseek-v4-pro
         cwd: !!js process.cwd()
 
