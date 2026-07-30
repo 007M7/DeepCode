@@ -174,34 +174,42 @@ function WebSearchBlock({ answer, sources, truncated, maxSources = DEFAULT_WEB_M
   const tailCount = maxSources - headCount
   const head = capped ? sources.slice(0, headCount) : sources
   const tail = capped ? sources.slice(sources.length - tailCount) : []
+  // A provider may legitimately return no answer and no sources; the chat WebRow
+  // does not show the raw result content, so without this the user would see an
+  // empty card. Mirror the backend's `No results found.` render text.
+  const empty = (answer === undefined || answer === '') && sources.length === 0
   return (
     <div className={clsx(css.block, className)} data-web="search">
       {answer !== undefined && answer !== '' && (
         <div className={css.answer}><MarkdownText text={answer} /></div>
       )}
-      <ol className={css.sources}>
-        {head.map((source, index) => <SourceItem key={index} source={source} ordinal={index + 1} />)}
-        {hidden > 0 && (
-          <li className={css.expandItem}>
-            <button
-              type="button"
-              className={css.expand}
-              aria-expanded={expanded}
-              aria-label={expanded ? '收起来源' : `展开其余 ${hidden} 条来源`}
-              onClick={onToggle}
-            >
-              {expanded ? '收起' : `… 其余 ${hidden} 条来源`}
-            </button>
-          </li>
-        )}
-        {tail.map((source, index) => (
-          <SourceItem
-            key={sources.length - tailCount + index}
-            source={source}
-            ordinal={sources.length - tailCount + index + 1}
-          />
-        ))}
-      </ol>
+      {empty ? (
+        <div className={css.empty}>未找到结果</div>
+      ) : (
+        <ol className={css.sources}>
+          {head.map((source, index) => <SourceItem key={index} source={source} ordinal={index + 1} />)}
+          {hidden > 0 && (
+            <li className={css.expandItem}>
+              <button
+                type="button"
+                className={css.expand}
+                aria-expanded={expanded}
+                aria-label={expanded ? '收起来源' : `展开其余 ${hidden} 条来源`}
+                onClick={onToggle}
+              >
+                {expanded ? '收起' : `… 其余 ${hidden} 条来源`}
+              </button>
+            </li>
+          )}
+          {tail.map((source, index) => (
+            <SourceItem
+              key={sources.length - tailCount + index}
+              source={source}
+              ordinal={sources.length - tailCount + index + 1}
+            />
+          ))}
+        </ol>
+      )}
       {truncated && <div className={css.truncated}>来源列表已截断</div>}
     </div>
   )

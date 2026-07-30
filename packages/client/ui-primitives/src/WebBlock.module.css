@@ -91,6 +91,11 @@
   font: var(--dsw-font-xs-13);
 }
 
+.empty {
+  color: var(--dsw-alias-label-secondary);
+  font: var(--dsw-font-xs-13);
+}
+
 /* The fetch card is a compact summary: the URL over a status/truncation row. */
 .fetch {
   display: flex;

@@ -111,12 +111,13 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   // The web render intent reaches the assembled boot graph: the fixture's
   // web_search / web_fetch turns render their keyed WebRow cards, proving the
   // registration, wire projection, and card rendering survive the real bundle
-  // path (not just the per-package src benches). Without this the whole web
-  // card could silently fall back to the generic row and every new unit test
-  // would still pass.
+  // path (not just the per-package src benches). The selector pins the KEYED
+  // WebRow (its own `data-variant="web"` wrapper), not the `[data-web]` attribute
+  // WebBlock draws — the generic fallback renders the same WebBlock, so a silent
+  // keyed-registration failure would still satisfy a bare `[data-web]` check.
   await waitFor(() => {
-    expect(document.querySelector('[data-web="search"]')).not.toBeNull()
-    expect(document.querySelector('[data-web="fetch"]')).not.toBeNull()
+    expect(document.querySelector('[data-variant="web"][data-tool="web_search"]')).not.toBeNull()
+    expect(document.querySelector('[data-variant="web"][data-tool="web_fetch"]')).not.toBeNull()
   }, { timeout: 10_000 })
 
   // Every bundle injected its plugin-owned style tag (the loader's CSS path).

@@ -36,6 +36,25 @@ describe('WebBlock search card', () => {
     expect(empty.container.querySelector('[class^="_answer_"]')).toBeNull()
   })
 
+  it('shows the empty-state note when a search returns no answer and no sources', () => {
+    const view = render(<WebBlock kind="search" sources={[]} truncated={false} />)
+    expect(view.getByText('未找到结果')).toBeTruthy()
+    // The empty note replaces the source list, not an empty <ol>.
+    expect(view.container.querySelector('ol')).toBeNull()
+  })
+
+  it('shows the source list, not the empty note, when a source is present', () => {
+    const view = render(<WebBlock kind="search" sources={sources(1)} truncated={false} />)
+    expect(view.container.querySelector('ol')).toBeTruthy()
+    expect(view.queryByText('未找到结果')).toBeNull()
+  })
+
+  it('shows the source list when an empty source list still carries an answer', () => {
+    const view = render(<WebBlock kind="search" answer="Just an answer" sources={[]} truncated={false} />)
+    expect(view.getByText('Just an answer')).toBeTruthy()
+    expect(view.queryByText('未找到结果')).toBeNull()
+  })
+
   it('labels a source by its title, and by hostname when the title is absent', () => {
     const view = render(<WebBlock kind="search" truncated={false} sources={[
       { url: 'https://example.com/a', title: 'Titled' },

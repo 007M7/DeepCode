@@ -13,7 +13,7 @@
 
 ## Web 检索
 
-`WebBlock` 渲染一次已完成的 web 检索，用一个组件绘制 `web` 渲染意图的两种 kind（由 `kind` 判别）。`search` 在有序引用列表上方显示可选的 provider answer（通过 `MarkdownText`）：每个 source 是一个安全外链，以其标题为标签，或以其主机名为标签，当 URL 无法解析或没有主机名（`file:`/`data:` URL）时回退到原始 URL，因此标签绝不为空；其下渲染 snippet 与发布日期。只有 http(s) URL 会成为锚点（设置 `target`/`rel`）——这是 `MarkdownText` 对不受信任链接所用 allowlist 的 http(s) 子集（该 allowlist 还允许 `mailto:`，此处排除）；任何其他 URL 渲染为纯文本。长列表在 `maxSources`（默认 16，即 TerminalBlock 的切分算术）处折叠为头部/尾部；折叠的尾部通过 `<li value>` 保留每个 source 原始的引用编号，展开控件是无 marker 的 `<li>`，使 `<ol>` 保持为合法 HTML。`fetch` 显示一个紧凑摘要：带链接的最终 URL 及其 HTTP 状态。两者都会标记一次被截断的检索。原理：[Web result 卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card-frontend.md)。
+`WebBlock` 渲染一次已完成的 web 检索，用一个组件绘制 `web` 渲染意图的两种 kind（由 `kind` 判别）。`search` 在有序引用列表上方显示可选的 provider answer（通过 `MarkdownText`）：每个 source 是一个安全外链，以其标题为标签，或以其主机名为标签，当 URL 无法解析或没有主机名（`file:`/`data:` URL）时回退到原始 URL，因此标签绝不为空；其下渲染 snippet 与发布日期。只有 http(s) URL 会成为锚点（设置 `target`/`rel`）——这是 `MarkdownText` 对不受信任链接所用 allowlist 的 http(s) 子集（该 allowlist 还允许 `mailto:`，此处排除）；任何其他 URL 渲染为纯文本。长列表在 `maxSources`（默认 16，即 TerminalBlock 的切分算术）处折叠为头部/尾部；折叠的尾部通过 `<li value>` 保留每个 source 原始的引用编号，展开控件是无 marker 的 `<li>`，使 `<ol>` 保持为合法 HTML。当一次 search 合法地返回无 answer 且无 source 时，卡片显示一个明确的空状态提示，而不是空的 `<ol>`（chat 行不呈现原始 result content）。`fetch` 显示一个紧凑摘要：带链接的最终 URL 及其 HTTP 状态。两者都会标记一次被截断的检索。原理：[Web result 卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-result-card-frontend.md)。
 
 ## 模型体验
 
@@ -28,5 +28,5 @@
 - **字形级图标是重新绘制的近似版本**：鱼形标志（以及 ui-conversation 持有的闪光图标）来自字体字形，而本地设计数据无法导出其矢量几何；在获得精确导出路径前，使用手工重建版本代替。
 - **Pill 与 Input 没有设计来源**：两个原子组件均自行定义；与其相似的侧边栏搜索字段和视图标签条由消费方组合，不是这些原子组件。
 - **StateDot 的 `Active` 变体是设计中的隐藏占位符**：尚未实现；已交付的四种状态（done/warning/ongoing/error）构成完整的 P-I 表层。
-- **本包面向用户的文案是内联中文，未做本地化**：这些原子组件是 zero-cordis 的，因此拿不到 `ctx.locale`；`TerminalBlock` 的退出码与信号胶囊、它的复制与展开控件、`CodeBlock` 的复制控件，以及 `WebBlock` 的来源展开/收起控件与它的来源列表与 fetch 截断提示，全部硬编码。这与 locale 包记录的全仓现状一致（只有 Settings 表面做了翻译）；把它们抽取进 `zh`/`en` 字典需要为 zero-cordis 原子组件提供一条本地化通道，属于那次全仓抽取的范围。
+- **本包面向用户的文案是内联中文，未做本地化**：这些原子组件是 zero-cordis 的，因此拿不到 `ctx.locale`；`TerminalBlock` 的退出码与信号胶囊、它的复制与展开控件、`CodeBlock` 的复制控件，以及 `WebBlock` 的来源展开/收起控件、它的来源列表与 fetch 截断提示、以及它的空搜索提示，全部硬编码。这与 locale 包记录的全仓现状一致（只有 Settings 表面做了翻译）；把它们抽取进 `zh`/`en` 字典需要为 zero-cordis 原子组件提供一条本地化通道，属于那次全仓抽取的范围。
 - **`TerminalBlock` 不是终端模拟器**：它渲染已结束或仍在运行的命令输出，而不是交互式会话：SGR 颜色与属性会被遵循，进度行所用的行内光标移动同样被遵循——回车、退格、行内擦除、制表位与字符宽度。绝对光标定位、清屏与备用屏幕序列会被剥离。基础 16 色中的洋红与青色没有对应 token，保持字面 rgb。
