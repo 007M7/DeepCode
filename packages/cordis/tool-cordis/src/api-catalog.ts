@@ -1163,6 +1163,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Delete one workspace registration while retaining its directory and every\n * session log. The durable order is updated before the table deletion; a\n * failed table write restores the prior order and keeps the entity\n * published. Unknown ids are an idempotent no-op for domain callers.\n * @param id - Workspace registration to remove.\n * @returns `true` when a record was deleted, `false` when it was unknown.\n */',
       },
       {
+        signature: 'archiveSession(sessionId: SessionId): Promise<void>',
+        jsDoc: '/**\n * Archive one session durably. The session must exist (live or in session\n * persistence); its workspace accounting — or lack of one — is irrelevant.\n * An already archived id resolves without writing.\n * @param sessionId - The session to archive.\n * @returns resolution after durability.\n */',
+      },
+      {
         signature: 'async resolveByPath(path: string): Promise<Workspace | undefined>',
         jsDoc: '/**\n * Resolve by canonical directory path without creating or mutating a\n * workspace. A missing path rejects during `realpath`; an existing unowned\n * directory returns `undefined`.\n * @param path - Existing directory path in any spelling.\n * @returns the workspace owning the canonical path, when one exists.\n */',
       },
