@@ -309,7 +309,12 @@ describe('package manager strategies', () => {
     await expect(npm.install('/tmp', failed)).rejects.toThrow('exited with code 2')
     const killed: CommandRunner = { run: async () => ({ exitCode: null, signal: 'SIGTERM' }) }
     await expect(npm.build('/tmp', killed)).rejects.toThrow('killed by SIGTERM')
-    expect(scrubEnvironment({ PATH: '/bin', API_KEY: 'secret', TOKEN_VALUE: 'secret' })).toEqual({ PATH: '/bin' })
+    expect(scrubEnvironment({
+      PATH: '/bin',
+      API_KEY: 'secret',
+      DB_PASSWORD: 'secret',
+      TOKEN_VALUE: 'secret',
+    })).toEqual({ PATH: '/bin' })
   })
 
   it('probes versions and runs real child-process boundaries', async () => {

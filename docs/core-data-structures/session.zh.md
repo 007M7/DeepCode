@@ -304,6 +304,7 @@ interface SurfaceFoldResult {
  *
  * Plain class (not a Service) — create instances via `ctx.sessions.create()`.
  * Seeding with an existing event log replays/forks a session.
+ * @typert object
  */
 declare class Session {
   /** The ordered surface over this session's event log. */

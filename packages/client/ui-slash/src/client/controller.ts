@@ -256,6 +256,13 @@ export class SlashController {
     this.refreshLexicon()
   }
 
+  /** External dismiss (e.g. pointer outside the composer area). */
+  dismiss(): void {
+    if (this.disposed) return
+    this.stopFetch()
+    this.reduce({ type: 'close' })
+  }
+
   /** Scope teardown: close and abort (the service deletes the map entry). */
   dispose(): void {
     this.disposed = true

@@ -39,6 +39,8 @@ import type { GoalRef as CoreGoalRef } from '@deepseek-ai/dsh-goal'
 // Type-only edges: resolve `ctx.get('commands')`, the `commands/change` event, and `ctx.get('skills')`.
 import type {} from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-skill'
+// Value edge: the rename impl narrows the title service's validation failure; the import also resolves `ctx.get('sessionTitle')`.
+import { SessionTitleInvalidError } from '@deepseek-ai/dsh-session-title'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval'
 // Side-effect type import: resolves the `approval/request` waterfall and
@@ -1054,6 +1056,36 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
       },
 
+      async rename(request) {
+        const { sessionId, title } = request.payload
+        const found = await agentFor(sessionId)
+        if ('error' in found) return err(request, found.error)
+        const titles = ctx.get('sessionTitle')
+        if (titles === undefined) {
+          return err(request, { code: 'internal', message: 'renaming is unavailable: this deployment mounts no session-title service', details: {} })
+        }
+        try {
+          const accepted = titles.rename(found.agent.session, title)
+          return ok(request, { title: accepted.title, seq: accepted.eventSeq })
+        } catch (error: unknown) {
+          // Only the input's fault maps to title-invalid (the message is
+          // product-user-visible in the rename dialog); liveness and disposal
+          // races are deployment trouble, not a bad title.
+          if (error instanceof SessionTitleInvalidError) {
+            return err(request, {
+              code: 'title-invalid',
+              message: error.message,
+              details: { sessionId },
+            })
+          }
+          return err(request, {
+            code: 'internal',
+            message: `failed to rename session "${sessionId}": ${String(error)}`,
+            details: {},
+          })
+        }
+      },
+
       async prompt(request) {
         const { sessionId, mode, content } = request.payload
         const found = await agentFor(sessionId)
@@ -1430,7 +1462,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           return err(request, { code: 'internal', message: 'skill registry is absent: this deployment does not mount @deepseek-ai/dsh-skill in its composition (cordis.yml or explicit assembly)', details: {} })
         }
         try {
-          const skills = await skillRegistry.list({ cwd })
+          const skills = (await skillRegistry.list({ cwd }))
+            .filter(skill => skill.invocation.modelInvocable && skill.invocation.userInvocable)
           return ok(request, {
             skills: skills.map(skill => ({
               name: skill.name,
