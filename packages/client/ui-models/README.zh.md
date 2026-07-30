@@ -4,7 +4,7 @@
 
 模型设置分区插件：提供方配置页。它把三个协议领域汇聚为一个界面——`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret 槽位）与 `credentials.describe`（不含值的 configured/source/writable 徽标）——并渲染提供方行，一次只展开一张编辑卡片。
 
-行是*已配置*的提供方（其 profile 在所属 namespace 中解析得出）；密钥未在任何地方配置的整分节提供方（DeepSeek 的首次运行姿态）会渲染为其展开的设置卡片而非一行，「新增」流程则是一张承载休眠目录提供方选择框的卡片——裸挂载的 `llm-pi-ai` 在任何路由存在之前就能提供其完整的已安装 catalog。编辑器是每个适配器家族各一张的手写卡片：主字段是单独一个 **API 密钥**输入框——页面从不询问环境变量名；键入的密钥经 `credentials.set` 以**只写**方式存入 profile 的引用之下，profile 没有引用时便派生 `<ROUTE>_API_KEY`，pi-ai profile 会把这次派生记录为 `apiKeyEnv`，因此 `settings.yaml` 从不携带密钥值。收起的「自定义设置」折叠区承载精选的额外字段（deepseek：`baseURL` + `reasoningEffort`；pi-ai：`reasoning`）；其余每个 profile 字段仍归 `settings.yaml` 所有，折叠区上也会明说。只有当某行仅由用户层承载时它才可删除（删除会还原组合 base）。
+行是*已配置*的提供方（其 profile 在所属 namespace 中解析得出）；密钥未在任何地方配置的整分节提供方（DeepSeek 的首次运行姿态）会渲染为其展开的设置卡片而非一行，「新增」流程则是一张承载休眠目录提供方选择框的卡片——裸挂载的 `llm-pi-ai` 在任何路由存在之前就能提供其完整的已安装 catalog。编辑器是每个适配器家族各一张的手写卡片：主字段是单独一个 **API 密钥**输入框——页面从不询问环境变量名；键入的密钥经 `credentials.set` 以**只写**方式存入 profile 的引用之下，profile 没有引用时便派生 `<ROUTE>_API_KEY`，pi-ai profile 会把这次派生记录为 `apiKeyEnv`，因此 `settings.yaml` 从不携带密钥值。收起的「自定义设置」折叠区承载精选的额外字段——两个家族都有 `baseURL`（deepseek 的占位符显示公共端点），另加 `reasoningEffort`（deepseek）或 `reasoning`（pi-ai）；其余每个 profile 字段仍归 `settings.yaml` 所有。只有当某行仅由用户层承载时它才可删除（删除会还原组合 base）。
 
 「应用」语义与 settings seam 呈镜像：不含删除的编辑以最小的 `settings.update` 合并 patch 落地，把折叠区字段清回继承值或删除整行则经对整个用户分节的 `settings.replace` 落地，使删除真正生效——整体替换是安全的，因为该分节存的是密钥引用，从不存密钥值。页面加载完成后会在推送的失效事件（`settings/changed`、`credentials/changed`、`models/changed` 与 `connection/reset`）上重拉，因此外部的 `settings.yaml` 编辑、第二个标签页或 settings 新生的路由都无需轮询即可收敛。
 

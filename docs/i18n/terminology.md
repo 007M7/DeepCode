@@ -118,6 +118,7 @@
 | fenced code block | 围栏代码块 | | | 沿用 MDN 中文翻译 |
 | fingerprint | 指纹 | | | 通用内容指纹；双语配对机制使用 sidecar record 记录两侧 blob hash |
 | finish reason | 结束原因 | | | |
+| fold | 折叠区 | | | 配置界面语境：默认收起的字段分区（collapsed →「收起」）|
 | foreground run | 前台运行 | | | |
 | freshness | 新鲜度 | | | 沿用 MDN 中文翻译；在本项目中指译文相对源文的同步状态 |
 | hook | 钩子 | | | |
@@ -164,6 +165,7 @@
 | serving surface | 对外服务接口 | | | |
 | session | 会话 | | | |
 | session event | 会话事件 | | | |
+| setup card | 设置卡片 | | | 首次运行时代替行卡直接展开的配置卡 |
 | sidecar record | 伴随记录 | | 旁挂记录 | 指与文档同目录的伴随记录文件 |
 | smoke test | 冒烟测试 | | | |
 | snapshot | 快照 | | | |
