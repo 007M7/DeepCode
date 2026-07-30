@@ -5,9 +5,11 @@
   flex: none;
   width: 100%;
   max-width: 776px;
-  /* Eat InputBar's 6px top padding and tuck the panel 2px under the card;
-     the later composer sibling paints its surface and shadow over this edge. */
-  margin: 0 auto -10px;
+  /* Flex gap still applies after this item; subtract it together with the
+     design's overlap so the later composer paints over the queue edge. */
+  margin: 0 auto calc(
+    0px - var(--dsh-composer-stack-gap) - var(--dsh-queue-composer-overlap)
+  );
   padding: 2px 12px;
 }
 
