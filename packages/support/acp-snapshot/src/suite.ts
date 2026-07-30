@@ -131,6 +131,12 @@ export interface Scenario {
    */
   workspaceParent?: string
   /**
+   * Optional final workspace preparation after the committed fixture is
+   * copied. Reserve this for paths that Git cannot represent portably; normal
+   * scenario files belong under the scenario's `workspace/` directory.
+   */
+  prepareWorkspace?: (cwd: string) => void | Promise<void>
+  /**
    * Whether Windows additionally compares stdout with native separators against
    * `stdout.expected.windows.jsonl`. The shared canonical stdout expected output is still
    * compared on every platform, and the fixture guard requires this sidecar
@@ -138,10 +144,9 @@ export interface Scenario {
    */
   pinsNativeWindowsStdout?: boolean
   /**
-   * Whether the driven behavior needs POSIX process semantics the harness
-   * cannot exercise on Windows (e.g. cancelling a live bash tool call kills a
-   * detached process group). The scenario's run test is skipped on Windows;
-   * its fixtures stay guarded on every platform.
+   * Whether the scenario requires a non-Windows host, such as for POSIX process
+   * semantics or generated paths Windows cannot represent. The scenario's run
+   * test is skipped on Windows; its fixtures stay guarded on every platform.
    */
   posixOnly?: boolean
 }
@@ -956,8 +961,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
   scenarioSuite('snapshot scenarios', () => {
     for (const scenario of scenarios) {
       // In RECORD mode, only re-run the `recorded` (live-API) scenarios; the `authored` ones
-      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on
-      // Windows, where their process semantics cannot be driven.
+      // (sidecar-driven errors/cancel) are never re-recorded. `posixOnly` scenarios skip on Windows.
       it.skipIf(scenarioSkipped(scenario, RECORDING))(`snapshot: ${scenario.name} matches the expected outputs`, async ({ expect }) => {
         const dir = join(snapshotsDir, scenario.name)
         const input = JSON.parse(await readFile(join(dir, 'input.json'), 'utf8')) as InputScript
@@ -980,6 +984,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           // replays from its own script. In RECORD they are harvested, not read.
           ...!RECORDING && childFixtureFiles.length > 0 ? { childFiles: childFixtureFiles.map(file => join(dir, file)) } : {},
           ...existsSync(workspaceDir) ? { workspaceDir } : {},
+          ...scenario.prepareWorkspace !== undefined ? { prepareWorkspace: scenario.prepareWorkspace } : {},
           ...scenario.workspaceParent !== undefined ? { workspaceParent: scenario.workspaceParent } : {},
           // A scenario booting an overlay tree passes its own live config; the
           // bin's replay swap derives the sibling `*cordis.snapshot.yml` from it.

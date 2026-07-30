@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks'
 /** A named aggregate exposed by the gate runner. */
 export type Mode =
   | 'ci-primary'
+  | 'ci-linux-primary'
   | 'ci-static'
   | 'ci-lint'
   | 'ci-coverage'
@@ -97,6 +98,7 @@ async function main(args: string[]): Promise<number> {
 function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
+    case 'ci-linux-primary':
     case 'ci-static':
     case 'ci-lint':
     case 'ci-coverage':
@@ -112,7 +114,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -190,6 +192,8 @@ export function gatesForMode(selected: Mode): Gate[] {
   switch (selected) {
     case 'ci-primary':
       return ciPrimaryGates()
+    case 'ci-linux-primary':
+      return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
     case 'ci-static':
       return ciStaticGates()
     case 'ci-lint':
@@ -331,6 +335,7 @@ function ciConsumerGates(): Gate[] {
     }),
     pnpmScript('node-compat', 'check:node-compat', { label: 'Node compatibility' }),
     snapshotGate(restoredBuild),
+    webSnapshotGate(restoredBuild),
     pnpmScript('publint', 'publint'),
     pnpmScript('node-next-types', 'verify-node-next-types', {
       label: 'node-next types',
@@ -339,6 +344,15 @@ function ciConsumerGates(): Gate[] {
     builtPackageInvariantsGate(publicArtifacts),
     builtBinSmokeGate(restoredBuild),
   ]
+}
+
+function webSnapshotGate(needs: string[]): Gate {
+  return pnpmScript('web-snapshot', 'test:web:built', {
+    label: 'web browser snapshot',
+    displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+    env: { DSH_SNAPSHOT: 'replay' },
+    needs,
+  })
 }
 
 function ciWindowsBlockingGates(): Gate[] {

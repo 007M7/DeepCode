@@ -1,13 +1,14 @@
 /* Todo strip above the composer (figma 772:51905 / 772:52972 / 772:53419):
    tip surface, 14px radius, status icons + secondary item labels. Column is
-   calc(100% - 88px) / max 776, centered; InputBar top pad supplies the gap. */
+   calc(100% - 88px) / max 752 (GoalBar's column), centered; the composer
+   stack owns the gap. */
 
 .root {
   flex: none;
   overflow: hidden;
   margin: 0 auto;
   width: calc(100% - 88px);
-  max-width: 776px;
+  max-width: 752px;
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 14px;
   background: var(--dsw-specific-tip);
@@ -20,11 +21,13 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Compact scale (GoalBar reference): collapsed header totals the goal
+   strip's 38px (8+8 pad + 20 line + 2 border). */
 .body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 8px 14px;
 }
 
 .header {
@@ -41,8 +44,8 @@
 
 .title {
   flex: none;
-  font-size: 14px;
-  line-height: 24px;
+  font-size: 13px;
+  line-height: 20px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }

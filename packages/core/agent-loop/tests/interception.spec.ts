@@ -86,8 +86,9 @@ describe('agent/prompt-submit', () => {
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
     const observed: UserMessage[] = []
-    ctx.on('agent/inbox/enqueue', (subject, message) => {
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
       if (subject !== agent) return
+      const message = item.message
       expect(Object.isFrozen(message)).toBe(true)
       expect(Object.isFrozen(message.content)).toBe(true)
       expect(Object.isFrozen(message.content[0])).toBe(true)
@@ -97,8 +98,8 @@ describe('agent/prompt-submit', () => {
         if (block?.type === 'text') block.text = 'listener mutation'
       }).toThrow()
     })
-    ctx.on('agent/inbox/enqueue', (subject, message) => {
-      if (subject === agent) observed.push(message)
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent) observed.push(item.message)
     })
     ctx.on('agent/prompt-submit', async () => {
       entered.resolve(undefined)
@@ -240,8 +241,8 @@ describe('agent/prompt-submit', () => {
       entered.resolve(undefined)
       return decision.promise
     })
-    ctx.on('agent/inbox/enqueue', (subject, _message, placement) => {
-      if (subject === agent) placements.push(placement)
+    ctx.on('agent/inbox/enqueue', (subject, item) => {
+      if (subject === agent) placements.push(item.placement)
     })
 
     const idle = waitForIdle(ctx, agent)

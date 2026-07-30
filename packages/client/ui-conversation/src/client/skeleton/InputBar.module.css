@@ -20,10 +20,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* figma Input_Bottom: pad L32/R32/B12; the bottom gradient mask is owned by
-     the chat scroller. Top 6 is the gap under the dock todo strip (12px todo
-     margin + 6px here); error/status strips still carry their own margin. */
-  padding: 6px 32px 12px;
+  /* figma Input_Bottom: pad L32/R32/B8; the bottom gradient mask is owned by
+     the chat scroller. No top pad: the composer stack's gap owns the space
+     above; error/status strips still carry their own margin. */
+  padding: 0 32px 8px;
 }
 
 .hero {
@@ -209,10 +209,14 @@
 .mirror {
   visibility: hidden;
   pointer-events: none;
-  /* figma min-h 52 (= ~2 × 24 line + 4pt); 14-line cap (336px). */
-  min-height: 52px;
   max-height: 336px;
   overflow: hidden;
+}
+
+/* Hero (centered empty-state) keeps the 2-line floor (figma min-h 52 = ~2 × 24
+   line + 4pt); the docked composer collapses to the content height. */
+.hero .mirror {
+  min-height: 52px;
 }
 
 /* Toolbar: attach + Plan + Read-only on the left; model + send on the right

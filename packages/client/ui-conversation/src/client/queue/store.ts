@@ -11,8 +11,8 @@ import type { QueuedMessage } from '../input/contract.ts'
 /**
  * Project a session's queue rows as a bare observable (subscribe/getSnapshot).
  * The wiring layer (T5) overlays this onto InputState.queue; the runtime
- * QueuedMessage and the input-contract QueuedMessage are structurally the
- * same frozen shape ({key, preview}).
+ * QueuedMessage and the input-contract QueuedMessage are structurally
+ * identical.
  * @param session - the resident session face.
  * @returns the queue read face (snapshot reference stable while the queue is unchanged).
  */

@@ -63,4 +63,33 @@ describe('parseClaudeConfig', () => {
     const { config } = parseClaudeConfig({ Stop: [{ hooks: [{ type: 'command', command: 's.sh' }] }] })
     expect('matcher' in config.Stop![0]!).toBe(false)
   })
+
+  it('rejects an invalid regex matcher with its event name', () => {
+    expect(() => parseClaudeConfig({
+      PreToolUse: [{ matcher: '(', hooks: [{ type: 'command', command: 'x.sh' }] }],
+    })).toThrow('invalid claude regex matcher "(" on event "PreToolUse"')
+  })
+
+  it('discards matcher fields on events without matcher subjects before validation', () => {
+    const { config } = parseClaudeConfig({
+      UserPromptSubmit: [{ matcher: '[', hooks: [{ type: 'command', command: 'prompt.sh' }] }],
+      Stop: [{ matcher: '(', hooks: [{ type: 'command', command: 'stop.sh' }] }],
+    })
+
+    expect(config).toEqual({
+      UserPromptSubmit: [{ hooks: [{ command: 'prompt.sh' }] }],
+      Stop: [{ hooks: [{ command: 'stop.sh' }] }],
+    })
+  })
+
+  it('ignores invalid matchers on unsupported events without dropping supported hooks', () => {
+    const { config } = parseClaudeConfig({
+      Setup: [{ matcher: '(', hooks: [{ type: 'command', command: 'ignored.sh' }] }],
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'kept.sh' }] }],
+    })
+
+    expect(config).toEqual({
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ command: 'kept.sh' }] }],
+    })
+  })
 })

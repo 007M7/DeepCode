@@ -1,14 +1,10 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
-// Web browser lane (GUI, gate-exempt — not part of the CI sequence yet): real
-// host entry points, built-client interaction snapshots, and the replayed
-// keyless e2e scenarios, outside the unit/e2e includes. Real-model cases
-// self-skip without DEEPSEEK_API_KEY; fixture branches and replay stay
-// keyless and deterministic.
-// TODO(ci-browser): running this lane in CI requires chromium provisioning
-// and reverses the no-browser-in-CI ruling — staged criteria in
-// .agents/notes/implemented/testing/2026-07-24-web-gui-browser-e2e-lane.md.
+// Web browser lane: real host entry points, built-client interaction snapshots,
+// and replayed keyless e2e scenarios outside the unit/e2e includes. Linux PR CI
+// pins DSH_SNAPSHOT=replay and compares committed goldens; record/refresh remain
+// explicit local workflows. Real-model cases self-skip without DEEPSEEK_API_KEY.
 try {
   // Node >= 21.7 native; throws when the file does not exist.
   process.loadEnvFile(new URL('.env', import.meta.url).pathname)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
+import { matcherDiagnostic, matchesMatcher } from '@deepseek-ai/dsh-hook-protocol'
 
 describe('matchesMatcher — match-all sentinels (both dialects)', () => {
   for (const mode of ['claude', 'codex'] as const) {
@@ -54,5 +54,21 @@ describe('matchesMatcher — invalid regex is a non-match (never throws)', () =>
     expect(() => matchesMatcher('(', 'x', 'claude')).not.toThrow()
     expect(matchesMatcher('(', 'x', 'claude')).toBe(false)
     expect(matchesMatcher('[', 'x', 'codex')).toBe(false)
+  })
+})
+
+describe('matcherDiagnostic — parse-time diagnostics', () => {
+  it('accepts match-all sentinels, Claude literals, and valid regexes', () => {
+    expect(matcherDiagnostic(undefined, 'claude')).toBeUndefined()
+    expect(matcherDiagnostic('', 'codex')).toBeUndefined()
+    expect(matcherDiagnostic('*', 'codex')).toBeUndefined()
+    expect(matcherDiagnostic('Edit|Write', 'claude')).toBeUndefined()
+    expect(matcherDiagnostic('^Bash$', 'claude')).toBeUndefined()
+    expect(matcherDiagnostic('Edit|Write', 'codex')).toBeUndefined()
+  })
+
+  it('returns a stable diagnostic for invalid regexes in either dialect', () => {
+    expect(matcherDiagnostic('(', 'claude')).toBe('invalid claude regex matcher "("')
+    expect(matcherDiagnostic('[', 'codex')).toBe('invalid codex regex matcher "["')
   })
 })

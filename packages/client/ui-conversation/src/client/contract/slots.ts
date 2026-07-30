@@ -67,7 +67,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * design §6 MIX evidence: entries coexist in fixed order).
      */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
-    /** The composer top-edge band (stats line family). */
+    /** The band under the composer card (stats line family), rendered inside the bar's width column via the `footer` owner prop. */
     'conversation.composer.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /** Tool-row left region inside the input card (existing chrome stays in place beside entries). */
     'conversation.input.left': { kind: 'list'; scope: 'session'; owner: InputZone }
@@ -253,6 +253,8 @@ export interface ComposerBarOwnerProps {
   leftItems?: ReactNode
   /** input.right slot entries (tool row, before the primary button). */
   rightItems?: ReactNode
+  /** composer.dock entries (stats line), rendered under the card inside the bar's width column. */
+  footer?: ReactNode
   onAdd?: () => void
   addLabel?: string
 }
