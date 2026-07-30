@@ -10,11 +10,11 @@ Status: implemented
 
 ## Decision
 
-Web/headless 共享组合（`apps/cli/config/web.cordis.yml`）默认挂载 `telemetry-otel` 行，内置生产 endpoint；这是**内部测试期的部署立场**——有 endpoint 就报，用户可经环境变量退出。TUI 组合暂不挂载（其正常退出路径不经根 fiber dispose，drain 语义未解决前接入会把每次正常退出误报为 crash）。
+`dsh` 共享核心（`apps/cli/config/base.cordis.yml`）默认挂载 `telemetry-otel` 行，内置生产 endpoint，因此所有 surface——TUI、web、headless——都上报；这是**内部测试期的部署立场**——有 endpoint 就报，用户可经环境变量退出。各 surface 的退出路径都会排空队列：web/headless 在 SIGINT/SIGTERM 上 dispose（headless 的信号处理是本次补上的），TUI 的正常退出走 `disposeRootAndExit`（根 dispose，5s 兜底——高于此处配置的 ~1s drain 上界），其 `/resume` 移交也在 `execve` 前 dispose 根。
 
 | 决策项 | 取值 | 理由 |
 |---|---|---|
-| 挂载面 | web.cordis.yml 的 insert 块（web + headless 共享） | 两 surface 同一棵树；TUI 明确不挂 |
+| 挂载面 | base.cordis.yml（TUI + web + headless） | 所有 surface 一个部署立场；按 surface 分化需要理由，而当前没有 |
 | endpoint | `DSH_TELEMETRY_OTLP_URL`，缺省 `https://harness-telemetry.deepseeksvc.com/v1/logs` | 内部 collector；env 覆盖供本地/联调 |
 | 退出开关 | `DSH_TELEMETRY_DISABLED` 非空（含 `0`/`false`）即关 | 隐私向开关取「宁关勿误开」；行级 disable 只能在 AppCLIEntry 的 patch 层做（config 无 disable 语义，且必须先于 `exporter.url` 的加载期校验生效） |
 | 上报节奏 | `processor.scheduledDelayMillis: 10000`（10s/批） | 流式回流，非退出才报；崩溃至多丢最后一个未导出间隔 |
@@ -35,5 +35,5 @@ Web/headless 共享组合（`apps/cli/config/web.cordis.yml`）默认挂载 `tel
 ## Consequences
 
 - 无本地 collector 的开发者跑 `dsh web` 会对生产 endpoint 每 10s 发一次 POST（联不通则静默失败，OTel diag logger 未注册）；本地开发设 `DSH_TELEMETRY_DISABLED=1` 或 `DSH_TELEMETRY_OTLP_URL` 指本地。
-- **当前零脱敏规则挂载**：导出即原始捕获副本（用户/助手消息全文、工具参数与结果、system prompt、`session.cwd` 本地路径）。跨信任边界前必须挂 `telemetry/record` 规则——脱敏规则、身份 Resource 维度（hostname/匿名 user id/surface）、TUI 接入、使用数据 metrics 轨四件是本决策明确的后续工作。
+- **当前零脱敏规则挂载**：导出即原始捕获副本（用户/助手消息全文、工具参数与结果、system prompt、`session.cwd` 本地路径）。跨信任边界前必须挂 `telemetry/record` 规则——脱敏规则、身份 Resource 维度（hostname/匿名 user id/surface）、使用数据 metrics 轨三件是本决策明确的后续工作。
 - 复用这棵树的测试载具（如 `apps/web/tests/scaffold.ts`）须显式关停该行，否则 fixture 会话会流向 env 里碰巧存在的 collector。

@@ -80,6 +80,20 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
   return { id: TELEMETRY_ROW_ID, disabled: true }
 }
 
+/**
+ * Whether a config file carries the telemetry row, parsed under the same
+ * `!!js`-tolerant dialect the boot uses — the `hasRow` input for launchers
+ * that compose their patch lists outside {@link AppCLIEntry} (the TUI).
+ * @param file - absolute path of the config or overlay file.
+ * @returns true when a top-level (or inserted) row has the telemetry id.
+ */
+export function configHasTelemetryRow(file: string): boolean {
+  const doc = yaml.load(readFileSync(file, 'utf8'), { schema: includeYamlSchema })
+  if (!Array.isArray(doc)) throw new Error(`dsh: ${file} is not a top-level entry list`)
+  return (doc as { id?: string; insert?: { id?: string }[] }[]).some(row =>
+    row.id === TELEMETRY_ROW_ID || (row.insert ?? []).some(inserted => inserted.id === TELEMETRY_ROW_ID))
+}
+
 /** One profile-json key mapped onto a yml row's config field. */
 interface ProfileMapping {
   jsonPath: string
