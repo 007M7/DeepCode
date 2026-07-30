@@ -20,6 +20,8 @@
   padding-top: 2px;
   border-radius: 14px 14px 0 0;
   background: var(--dsw-specific-tip);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .panel::after {
@@ -53,6 +55,10 @@
   outline-offset: -2px;
 }
 
+.header:disabled {
+  cursor: default;
+}
+
 .count {
   flex: 1 1 auto;
   min-width: 0;
@@ -72,6 +78,8 @@
 }
 
 .list {
+  max-height: 180px;
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
