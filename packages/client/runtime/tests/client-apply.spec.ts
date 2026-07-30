@@ -102,60 +102,6 @@ describe('runtime client apply', () => {
     expect(bench.api.callsOf('session.create')).toHaveLength(1)
   })
 
-  it('clears connection-local request telemetry after every disconnected generation but not connected', async () => {
-    const bench = await mount()
-    const sessions = bench.ctx.get('sessions') as SessionsService
-    bench.sinks?.onHostEnvelope?.({
-      rpcId: 'session' as never,
-      payload: { type: 'host/session-added', blank: true, sessionId: 's-state' } as never,
-    })
-    await Promise.resolve()
-    const session = sessions.binding('s-state' as never)?.session
-    if (session === undefined) throw new Error('session binding missing')
-    bench.sinks?.onMuxEnvelope?.({
-      rpcId: 'request' as never,
-      payload: {
-        type: 'session/model-request',
-        sessionId: 's-state',
-        turn: 1,
-        step: 1,
-        provider: 'test',
-        model: 'alpha',
-        contextTokens: 32_000,
-        contextWindow: 128_000,
-      } as never,
-    })
-
-    bench.sinks?.onConnected?.()
-    expect(session.getSnapshot().modelRequest).toMatchObject({
-      model: 'alpha',
-      contextTokens: 32_000,
-      contextWindow: 128_000,
-    })
-
-    bench.sinks?.onDisconnected?.()
-    expect(session.getSnapshot().modelRequest).toBeNull()
-
-    // Every failed generation invokes its own disconnect callback, which
-    // clears telemetry received before that generation's handshake failed.
-    bench.sinks?.onMuxEnvelope?.({
-      rpcId: 'request-2' as never,
-      payload: {
-        type: 'session/model-request',
-        sessionId: 's-state',
-        turn: 2,
-        step: 1,
-        provider: 'test',
-        model: 'beta',
-        contextTokens: 48_000,
-        contextWindow: 256_000,
-      } as never,
-    })
-    expect(session.getSnapshot().modelRequest?.model).toBe('beta')
-    bench.sinks?.onDisconnected?.()
-    expect(session.getSnapshot().modelRequest).toBeNull()
-  })
-
   it('stops the stream loop when the plugin fiber unloads', async () => {
     const bench = await mount()
     const fiber = [...bench.ctx.registry.values()].find(f => f.name?.includes('client'))

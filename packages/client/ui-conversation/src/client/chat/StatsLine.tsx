@@ -1,12 +1,13 @@
 // Settled-node identity prevents stream-delta updates from rerendering this row.
+// Mounted on 'conversation.composer.dock' so it sticks with the composer in the
+// active conversation scrollport (see ConversationRoot data-conversation-scroll).
 
 import { memo, useMemo } from 'react'
 import type {
   ConversationSnapshot, UseProjection,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ModelRequestTelemetry } from '@deepseek-ai/dsh-client-connection/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import css from './StatsLine.module.css'
 
 interface VisibleCounts {
@@ -57,16 +58,19 @@ export function cacheHitPercent(usage: TokenUsageProjection): number | null {
 }
 
 /**
- * Current context occupancy using the TUI's integer rounding and upper clamp.
- * @param request - one atomic request snapshot observed on this mux generation.
- * @returns occupancy percent, or null when either input is unavailable.
+ * Approximate context occupancy, using the TUI's integer rounding and upper
+ * clamp. The numerator and capacity are independent last-wins projection
+ * fields, so this is a reference figure rather than an exact request
+ * measurement (see the token-meter README).
+ * @param pressure - the session's context-pressure projection value.
+ * @returns occupancy percent, or null when no capacity is known.
  */
-export function contextPercent(request: ModelRequestTelemetry | null): number | null {
-  if (request?.contextTokens === undefined || request.contextWindow === undefined) return null
-  return Math.min(100, Math.round(request.contextTokens / request.contextWindow * 100))
+export function contextPercent(pressure: ContextPressureProjection | undefined): number | null {
+  if (pressure?.contextWindow === undefined) return null
+  return Math.min(100, Math.round(pressure.pressureTokens / pressure.contextWindow * 100))
 }
 
-/** Props: standard session hooks handed down by ChatView. */
+/** Props: the framework's session snapshot and projection hook seats. */
 export interface StatsLineProps {
   useSession: SnapshotSelectorHook<ConversationSnapshot>
   useProjection: UseProjection
@@ -74,8 +78,8 @@ export interface StatsLineProps {
 
 export const StatsLine = memo(function StatsLine({ useSession, useProjection }: StatsLineProps) {
   const nodes = useSession(s => s.nodes)
-  const modelRequest = useSession(s => s.modelRequest)
   const usage = useProjection('tokenUsage')
+  const pressure = useProjection('contextPressure')
   const counts = useMemo(() => deriveVisibleCounts(nodes), [nodes])
   const hasUsage = usage !== undefined && (
     usage.uncachedInputTokens !== 0
@@ -83,24 +87,22 @@ export const StatsLine = memo(function StatsLine({ useSession, useProjection }: 
     || usage.cacheReadTokens !== 0
     || usage.cacheWriteTokens !== 0
   )
-  const context = contextPercent(modelRequest)
+  const context = contextPercent(pressure)
   if (counts.steps === 0 && !hasUsage && context === null) return null
 
   const parts: string[] = []
-  if (usage === undefined) {
-    parts.push('usage unknown')
-  } else {
+  if (usage !== undefined) {
     parts.push(`${formatMetricTokens(usage.uncachedInputTokens)} uncached input`)
     parts.push(`${formatMetricTokens(usage.outputTokens)} output`)
     parts.push(`${formatMetricTokens(usage.cacheReadTokens)} cache read`)
     const cacheHit = cacheHitPercent(usage)
     if (cacheHit !== null) parts.push(`cache hit ${cacheHit}%`)
   }
-  // contextPercent validates both fields; repeat the capacity guard so that
-  // TypeScript carries the same refinement into the formatting branch.
-  parts.push(context === null || modelRequest?.contextWindow === undefined
-    ? 'context unknown'
-    : `context ${context}% of ${formatMetricTokens(modelRequest.contextWindow)}`)
+  // Capacity absent (no token-meter, or an adapter that advertises none) omits
+  // the segment: an unknown denominator has no percentage worth a placeholder.
+  if (context !== null && pressure?.contextWindow !== undefined) {
+    parts.push(`context ${context}% of ${formatMetricTokens(pressure.contextWindow)}`)
+  }
   parts.push(`${counts.turns} turns`)
   parts.push(`${counts.steps} steps`)
   return <div className={css.root}>{parts.join(' · ')}</div>

@@ -1,11 +1,11 @@
 /**
- * Pure fold for durable provider-reported token usage.
+ * Pure folds for durable provider-reported token usage and context occupancy.
  */
 
 import { z } from 'zod'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import type { TokenUsageProjection } from './projection.ts'
+import type { ContextPressureProjection, TokenUsageProjection } from './projection.ts'
 
 interface UsageSample {
   turn: number
@@ -56,13 +56,26 @@ const projectionSchema = z.object({
   cacheWriteTokens: z.number().int().nonnegative(),
 }).strict()
 
+// Cast for the optional capacity: under exactOptionalPropertyTypes zod infers
+// `number | undefined` where the interface declares an absent-or-number field.
+const pressureSchema = z.object({
+  pressureTokens: z.number().int().nonnegative(),
+  contextWindow: z.number().int().positive().optional(),
+}).strict() as unknown as z.ZodType<ContextPressureProjection>
+
+/** Prompt-side pressure of one request: input plus cache traffic, no output. */
+const pressureFrom = (usage: TokenUsage): number =>
+  usage.inputTokens + (usage.cacheReadTokens ?? 0) + (usage.cacheWriteTokens ?? 0)
+
 /**
  * Token-meter's session projection unit.
  *
  * Usage chunks provide an early sample that survives a later request failure;
  * an assistant message provides the final sample for the same turn/step. A
  * repeated sample replaces that step's earlier value instead of double
- * counting it.
+ * counting it. The single `last` slot relies on the session-log invariant
+ * that usage reports for one turn/step are adjacent: once a later step begins,
+ * a legal log never reports usage for an earlier step again.
  */
 export const tokenUsageProjectionDefinition:
 ProjectionDefinition<'tokenUsage', TokenUsageState> = {
@@ -97,4 +110,42 @@ ProjectionDefinition<'tokenUsage', TokenUsageState> = {
   },
   view: state => state.totals,
   stateVersion: 1,
+}
+
+/**
+ * Token-meter's context-occupancy projection unit.
+ *
+ * Two independent last-wins slots: the newest usage sample supplies the
+ * numerator, the newest `request/context` record the denominator. Both are
+ * whole values, so replay order alone decides the result and no cross-field
+ * consistency is claimed — the pair is explicitly not one atomic request
+ * observation (see {@link ContextPressureProjection}).
+ *
+ * The numerator is prompt-side only, so it holds still while a turn streams
+ * and steps forward once the next request reports its usage.
+ */
+export const contextPressureProjectionDefinition:
+ProjectionDefinition<'contextPressure', ContextPressureProjection> = {
+  key: 'contextPressure',
+  schema: pressureSchema,
+  init: () => ({ pressureTokens: 0 }),
+  apply: (state, event) => {
+    if (event.type === 'request/context') {
+      return event.data.contextWindow === state.contextWindow
+        ? state
+        : { ...state, contextWindow: event.data.contextWindow }
+    }
+    const usage = event.type === 'assistant/chunk' && event.data.chunk.type === 'usage'
+      ? event.data.chunk.usage
+      : event.type === 'assistant/message'
+        ? event.data.usage
+        : undefined
+    if (usage === undefined) return state
+    const pressureTokens = pressureFrom(usage)
+    return pressureTokens === state.pressureTokens
+      ? state
+      : { ...state, pressureTokens }
+  },
+  view: state => state,
+  stateVersion: 0,
 }

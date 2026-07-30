@@ -112,7 +112,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     sessionId, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
-    promptError: null, blank: false, lastAgentError: null, modelRequest: null,
+    promptError: null, blank: false, lastAgentError: null,
   })
   const barProps: InputBarProps = {
     sessionId,

@@ -91,16 +91,6 @@ export type PromptDecision =
 /** Model-request failure with an optional machine-routable provider code. */
 export type RequestError = Error & { code?: string }
 
-/** Live metadata for one model request whose outer stream handle was obtained. */
-export interface AgentModelRequest {
-  /** Final request provider route; a short-circuit listener may own it. */
-  readonly provider: string
-  /** Final request model id; a short-circuit listener may own it. */
-  readonly model: string
-  /** Registration-bound context capacity when preparation exposed one. */
-  readonly contextWindow?: number
-}
-
 /** Action returned by a listener that owns model-request recovery. */
 export type RequestErrorAction = { kind: 'retry' } | undefined
 
@@ -347,20 +337,6 @@ declare module 'cordis' {
      * @mode waterfall
     */
     'agent/request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
-    /**
-     * One model request obtained its outer `llm/stream` handle and is about to
-     * iterate it. This observes an Agent-loop request attempt, not proof that
-     * provider I/O began. The notification is live, contained, and not replayed.
-     * Preparation or a synchronous outer waterfall failure emits nothing;
-     * failures or abortion after the handle returns still count.
-     * @param agent - the agent dispatching the model request.
-     * @param turn - the open turn number.
-     * @param step - the request's step number.
-     * @param request - final route plus registration-bound context capacity.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode emit
-     */
-    'agent/model-request'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, request: AgentModelRequest): void
     /**
      * Handle a model-request failure after its failed step has closed but
      * before the failed turn closes. A listener returns `{ kind: 'retry' }`

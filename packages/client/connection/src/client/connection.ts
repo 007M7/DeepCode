@@ -35,6 +35,10 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/** Coarse connection state for the UI (audit C1): 'connected' after each generation's handshake,
+ *  'reconnecting' the moment the generation fails (covers the whole backoff+retry span). */
+export type ConnectionState = 'connected' | 'reconnecting'
+
 /** Frame sink callbacks: the Controller owns the physical streams; business dispatch belongs to
  *  SessionManager. */
 export interface ConnectionSinks {
@@ -42,8 +46,9 @@ export interface ConnectionSinks {
   onHostEnvelope?: (envelope: RpcRequest<HostFrame>) => void
   /** After each connection generation is established (both streams open + describe succeeded), first connect included. */
   onConnected?: () => void
-  /** After every failed generation closes and before retry starts. Not emitted when the controller is stopped. */
-  onDisconnected?: () => void
+  /** Coarse state transitions (deduplicated: fires only on change). The initial pre-connect
+   *  span reports nothing — the UI treats "no state yet" as connecting, not as an outage. */
+  onStateChange?: (state: ConnectionState) => void
 }
 
 /**
@@ -58,6 +63,7 @@ export class ConnectionController {
   private attempt = 0
   private current: AbortController | null = null
   private running = false
+  private lastState: ConnectionState | null = null
   private readonly config: Required<ConnectionConfig>
 
   constructor(
@@ -114,8 +120,8 @@ export class ConnectionController {
           if (gen === this.generation && !ac.signal.aborted) ac.abort()
           resolve()
         }
-        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, ac.signal, settle)
-        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, ac.signal, settle)
+        void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
+        void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle)
       })
 
       try {
@@ -132,6 +138,7 @@ export class ConnectionController {
         timeout.abort()
         if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
         this.attempt = 0
+        this.emitState('connected')
         this.callSink(this.sinks.onConnected)
       } catch {
         // Transport failure: treat as generation failure, fall through to the shared backoff.
@@ -140,7 +147,7 @@ export class ConnectionController {
 
       await failed
       if (!this.isRunning()) return
-      this.callSink(this.sinks.onDisconnected)
+      this.emitState('reconnecting')
       this.attempt += 1
       console.warn(`[web-runtime] connection lost, retry #${this.attempt}`)
       const idle = new AbortController()
@@ -148,15 +155,20 @@ export class ConnectionController {
     }
   }
 
+  /** Deduplicated state emission (sink isolation applies). */
+  private emitState(state: ConnectionState): void {
+    if (this.lastState === state) return
+    this.lastState = state
+    this.callSink(() => this.sinks.onStateChange?.(state))
+  }
+
   private async pumpStream<F extends { type: string }>(
     stream: AsyncIterable<RpcRequest<F>>,
     sink: ((envelope: RpcRequest<F>) => void) | undefined,
-    signal: AbortSignal,
     onEnd: () => void,
   ): Promise<void> {
     try {
       for await (const envelope of stream) {
-        if (signal.aborted) break
         if (envelope.payload.type === 'stream/error') break
         if (sink !== undefined) this.callSink(() => { sink(envelope) })
       }

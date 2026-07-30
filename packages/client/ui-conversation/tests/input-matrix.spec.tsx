@@ -26,7 +26,7 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: over?.running ?? false, composerPhase: 'active',
     removed: over?.disabled ?? false, openState: 'open', openError: null, hasMore: false,
-    loadingOlder: false, promptError: null, blank: false, lastAgentError: null, modelRequest: null,
+    loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
   })
   const props: InputBarProps = {
     sessionId: SID,

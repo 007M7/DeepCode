@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给两个 manager。客户端 Session 一律由 Host 出生（一次 `session.create` 同瞬产出 Session+Agent+cwd）；客户端不持有任何实体化之前的会话状态——Agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时出生，随 prune 死亡。契约：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，由历史尾页的 `projections` 块播种，并经 `session/projection` 帧按 seq 高者胜更新；领域键（含 `todos`、`title` 与 `tokenUsage`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。`ConversationSnapshot.modelRequest` 另行保留当前 mux 连接观察到的最新完整 `session/model-request`。每个帧都会替换整个快照，因此分子或容量字段一旦缺失，就会清除先前值。`SessionManager` 会缓冲一个实例化前快照；`session/subscribed`、断开连接和移除会话则会清除常驻值与待处理值；移除还会安装仅针对请求的栅栏，避免独立 mux 流中延迟到达的瞬时帧重新填充请求遥测，下一次 mux 订阅或连接 generation 会解除该栅栏，而不会阻断可回放的帧类别。因此，重连、恢复和新订阅都不会显示上下文百分比，直到观察到另一次请求。仅选择模型不会改变请求观测数据。
+客户端 cordis 启动与不依赖 React 的对象服务：SlotsService 包装 SlotCore 并提供 renderer 数据源；SessionsService 拥有 Session 对象、列表／scope／history 状态；WorkspacesService 依赖 SessionsService，拥有 Workspace 对象、列表／操作、默认目标派生，以及 New Session 空会话复用入口（`connectWorkspace`）。运行时把共享 Host 流分发给两个 manager。客户端 Session 一律由 Host 出生（一次 `session.create` 同瞬产出 Session+Agent+cwd）；客户端不持有任何实体化之前的会话状态——Agent scope（host dsh-scope 的客户端镜像，以 agent/session 共用 id 为键）在会话行进入列表镜像时出生，随 prune 死亡。契约：api-contracts v3 §4。每个 `Session` 持有一个通用的 `ProjectionValueStore`，由历史尾页的 `projections` 块播种，并经 `session/projection` 帧按 seq 高者胜更新；领域键（含 `todos`）经 `projections.faceOf`／`useProjection` 读取，不经 `ConversationSnapshot`。
 
 ## Workspace 与 Session 列表
 
@@ -22,7 +22,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## Session 标题投影
 
-`SessionManager` 独立于 Session 实例是否到达而保留逐会话通用投影值仓，因此实时 `title` 帧可以在会话打开前更新列表行。订阅基线会截断 seq 超过 `lastSeq` 的投影行；下一份 history 尾页基线重新播种持久值，显式移除 Session 则清除该值仓。因此，面向客户端的 `SessionSummary.title` 只包含真实的持久标题；`title` key 缺失时，`displayTitle` 始终依次回退到 cwd basename 和 Session id。
+`SessionManager` 独立于列表和 Session 实例到达情况，保留最近一次通过验证的 `session/title` 控制快照。seq 更新的事件会替换旧快照，标题时间戳计入列表新近程度；订阅基线会先丢弃 seq 超过其 `lastSeq` 的任何已保留标题，再接收可选的折叠标题。显式移除 Session 也会清除已保留标题。因此，面向客户端的 `SessionSummary.title` 只包含真实的持久标题；`displayTitle` 始终存在，并依次回退到 cwd basename 和 Session id。冷启动的持久会话会保持该回退值，直到打开或恢复会话，促使主机折叠并投影日志支持的标题。
 
 ## 会话模型选择
 

@@ -15,7 +15,6 @@ const scopedSubjectResolvers: Readonly<Record<string, ScopedSubjectResolver | nu
   'agent/inbox/dequeue': args => args[0],
   'agent/inbox/discard': args => args[0],
   'agent/inbox/enqueue': args => args[0],
-  'agent/model-request': args => args[0],
   'agent/prompt-submit': args => args[0],
   'agent/request': args => args[0],
   'agent/request-error': args => args[0],

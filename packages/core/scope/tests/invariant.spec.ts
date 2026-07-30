@@ -56,7 +56,6 @@ describe('scoped-dispatch invariants', () => {
       'agent/step': [agent, 1, 1, signal],
       'agent/prompt-submit': [agent, message, signal, () => Promise.resolve({ kind: 'allow' })],
       'agent/request': [agent, 1, 1, signal, () => Promise.resolve(config)],
-      'agent/model-request': [agent, 1, 1, { provider: 'p', model: 'm', contextWindow: 128_000 }],
       'agent/request-error': [
         agent,
         1,

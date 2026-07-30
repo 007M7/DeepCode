@@ -12,7 +12,7 @@ export type {
   WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelRequestTelemetry, ModelTarget, SessionModels, SessionProjectionsBlock,
+  ModelReasoningEffort, ModelTarget, SessionModels,
   GoalsApi, GoalRef,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'

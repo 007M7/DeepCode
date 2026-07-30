@@ -4,8 +4,7 @@
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {
   ClientResponse, CommandDescriptor, HostFrame, IApiClient, ModelTarget, MuxFrame,
-  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels,
-  SessionProjectionsBlock, SkillEntry,
+  RpcError, RpcReceipt, RpcRequest, RpcResponse, SessionId, SessionModels, SkillEntry,
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
@@ -65,11 +64,7 @@ export class FakeApiClient implements IApiClient {
   onCreate: (payload: unknown) => Promise<RpcResponse<{ sessionId: SessionId }>> = () => Promise.resolve(ok({ sessionId: 'fk-new' as SessionId }))
   readonly defaultModel: ModelTarget = { provider: 'deepseek', model: 'deepseek-v4-flash' }
   onHistory: (payload: { sessionId: SessionId; beforeSeq?: number; maxMessages?: number })
-  => Promise<RpcResponse<{
-    events: never[]
-    hasMore: boolean
-    projections?: SessionProjectionsBlock
-  }>> =
+  => Promise<RpcResponse<{ events: never[]; hasMore: boolean }>> =
     () => Promise.resolve(ok({ events: [], hasMore: false }))
 
   onModels: (payload: unknown) => Promise<RpcResponse<SessionModels>> = () => Promise.resolve(ok({

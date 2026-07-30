@@ -7,10 +7,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { createUserMessage, LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type {
-  GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo, StreamChunk,
-} from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, LlmError, ReasoningEffortId  } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmModelReasoningInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, foldRequestHeader } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
@@ -181,7 +179,6 @@ describe('request stability across the loop', () => {
           provider,
           id: model,
           name: model,
-          context: { contextWindow: 64_000 },
           reasoning: await reasoning.promise,
         }
       }
@@ -192,12 +189,6 @@ describe('request stability across the loop', () => {
     })
     const disposeFirst = ctx.llm.registerAdapter(['mock'], first)
     const agent = ctx.agentLoop.create(SessionId('effort-hmr'), { provider: 'mock', model: 'mock' })
-    const dispatched: number[] = []
-    ctx.on('agent/model-request', (subject, _turn, _step, request) => {
-      if (subject === agent && request.contextWindow !== undefined) {
-        dispatched.push(request.contextWindow)
-      }
-    })
 
     send(agent, 'go')
     await started.promise
@@ -213,7 +204,6 @@ describe('request stability across the loop', () => {
       ReasoningEffortId('high'),
     ])
     expect(second.requests).toHaveLength(0)
-    expect(dispatched).toEqual([64_000])
     const headers = agent.session.events.filter(event => event.type === 'request/header')
     expect(headers.at(-1)?.data.header.config.reasoningEffort).toBe(ReasoningEffortId('high'))
   })
@@ -293,7 +283,6 @@ describe('request stability across the loop', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentLoop, { agents: [] })
     let observed: GenerateOptions | undefined
-    let observedRequest: { provider: string; model: string; contextWindow?: number } | undefined
     ctx.on('llm/stream', (options) => {
       observed = options
       return (async function* () {
@@ -304,15 +293,11 @@ describe('request stability across the loop', () => {
       provider: 'listener',
       model: 'virtual',
     })
-    ctx.on('agent/model-request', (subject, _turn, _step, request) => {
-      if (subject === agent) observedRequest = { ...request }
-    })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
     expect(observed).toMatchObject({ provider: 'listener', model: 'virtual' })
-    expect(observedRequest).toEqual({ provider: 'listener', model: 'virtual' })
     expect(agent.session.requestHeader()?.config).toEqual({
       provider: 'listener',
       model: 'virtual',
@@ -321,129 +306,6 @@ describe('request stability across the loop', () => {
       type: 'text',
       text: 'owned',
     })
-  })
-
-  it('notifies one contained request attempt after the outer stream handle returns', async () => {
-    const ctx = new Context()
-    await ctx.plugin(LlmService)
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SystemPrompt, { persona: 'stable base' })
-    await ctx.plugin(ToolRegistry)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [] })
-    let resolutions = 0
-    const adapter = new class extends LlmAdapter {
-      override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
-        resolutions += 1
-        return Promise.resolve({
-          provider,
-          id: model,
-          name: model,
-          ...model === 'capacity'
-            ? { context: { contextWindow: 128_000 } }
-            : {},
-        })
-      }
-
-      override stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-        if (options.model === 'lazy-sync-failure') {
-          throw new LlmError('lazy construction failed', 'CONSTRUCTION')
-        }
-        if (options.model === 'async-failure') {
-          return {
-            [Symbol.asyncIterator]: () => ({
-              next: () => Promise.reject(new LlmError('iteration failed', 'ITERATION')),
-            }),
-          }
-        }
-        return (async function* () {
-          yield* textResponse(options.model)
-        })()
-      }
-    }()
-    ctx.llm.registerAdapter(['mock'], adapter)
-    const agent = ctx.agentLoop.create(SessionId('model-request-live'), {
-      provider: 'mock',
-      model: 'capacity',
-    })
-    const returnedHandles = new Set<string>()
-    ctx.on('llm/stream', (options, next) => {
-      if (options.model === 'outer-failure') {
-        throw new Error('outer waterfall failed before returning a handle')
-      }
-      if (options.model === 'lazy-sync-failure') {
-        const stream = (async function* () {
-          yield* next()
-        })()
-        returnedHandles.add(options.model)
-        return stream
-      }
-      const stream = next()
-      returnedHandles.add(options.model)
-      return stream
-    })
-    const observed: {
-      turn: number
-      step: number
-      provider: string
-      model: string
-      contextWindow?: number
-    }[] = []
-    const observedBeforeHandleReturn: string[] = []
-    ctx.on('agent/model-request', (subject) => {
-      if (subject === agent) throw new Error('observer failed')
-    })
-    ctx.on('agent/model-request', (subject, turn, step, request) => {
-      if (subject !== agent) return
-      if (!returnedHandles.has(request.model)) observedBeforeHandleReturn.push(request.model)
-      observed.push({ turn, step, ...request })
-    })
-    ctx.on('agent/request', async (_subject, turn, _step, _signal, next) => ({
-      ...await next(),
-      model: [
-        'capacity',
-        'unknown',
-        'async-failure',
-        'lazy-sync-failure',
-        'outer-failure',
-      ][turn - 1]!,
-    }))
-
-    for (const prompt of ['one', 'two', 'three', 'four', 'five']) {
-      send(agent, prompt)
-      await waitForIdle(ctx, agent)
-    }
-
-    expect(observed).toEqual([
-      {
-        turn: 1,
-        step: 1,
-        provider: 'mock',
-        model: 'capacity',
-        contextWindow: 128_000,
-      },
-      {
-        turn: 2,
-        step: 1,
-        provider: 'mock',
-        model: 'unknown',
-      },
-      {
-        turn: 3,
-        step: 1,
-        provider: 'mock',
-        model: 'async-failure',
-      },
-      {
-        turn: 4,
-        step: 1,
-        provider: 'mock',
-        model: 'lazy-sync-failure',
-      },
-    ])
-    expect(resolutions).toBe(5)
-    expect(observedBeforeHandleReturn).toEqual([])
-    expect(returnedHandles.has('outer-failure')).toBe(false)
   })
 
   it('a compaction replace rewrites the resend, and the log explains it', async () => {

@@ -151,7 +151,7 @@ export const sessionProjectionsBlockSchema = z.object({
   values: z.record(z.string(), z.unknown()),
 }) as unknown as z.ZodType<SessionProjectionsBlock>
 
-/** session.history response value (projections ride the tail page only). */
+/** session.history response value (projections rides the tail page only). */
 export const sessionHistoryValueSchema = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),

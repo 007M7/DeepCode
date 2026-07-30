@@ -444,6 +444,47 @@ function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection
   return totals
 }
 
+/** Latest log-only capacity record, or undefined before any request ran. */
+function lastRequestContext(
+  log: readonly SessionEvent[],
+): { provider: string; model: string; contextWindow: number } | undefined {
+  const event = log.findLast(item => (item as { type: string }).type === 'request/context')
+  return event === undefined
+    ? undefined
+    : (event as unknown as { data: { provider: string; model: string; contextWindow: number } }).data
+}
+
+/**
+ * Fixture parallel of token-meter's request-pressure projection: the last
+ * provider-reported prompt size paired with the last recorded capacity. The
+ * two need not come from one request — see the token-meter README.
+ */
+function contextPressureOf(
+  log: readonly SessionEvent[],
+): { pressureTokens: number; contextWindow?: number } {
+  let pressureTokens = 0
+  for (const event of log) {
+    const item = event as unknown as {
+      type: string
+      data: { usage?: TokenUsage; chunk?: { type?: string; usage?: TokenUsage } }
+    }
+    const usage = item.type === 'assistant/chunk' && item.data.chunk?.type === 'usage'
+      ? item.data.chunk.usage
+      : item.type === 'assistant/message'
+        ? item.data.usage
+        : undefined
+    if (usage === undefined) continue
+    pressureTokens = usage.inputTokens
+      + (usage.cacheReadTokens ?? 0)
+      + (usage.cacheWriteTokens ?? 0)
+  }
+  const contextWindow = lastRequestContext(log)?.contextWindow
+  return {
+    pressureTokens,
+    ...contextWindow === undefined ? {} : { contextWindow },
+  }
+}
+
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
@@ -460,23 +501,32 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['goal'] = backscanGoal(log)
   // Always present (token-meter composed): full-log provider billing.
   values['tokenUsage'] = tokenUsageOf(log)
+  // Always present (token-meter composed): last request pressure and capacity.
+  values['contextPressure'] = contextPressureOf(log)
   return values
 }
 
 /** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
 function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
   const type = (event as { type: string }).type
+  // One usage sample advances both token-meter units.
   if (
     (type === 'assistant/chunk'
       && (event as unknown as { data: { chunk?: { type?: string } } }).data.chunk?.type === 'usage')
     || (type === 'assistant/message'
       && (event as unknown as { data: { usage?: TokenUsage } }).data.usage !== undefined)
   ) {
+    return [
+      { type: 'session/projection', sessionId: id, key: 'tokenUsage', value: tokenUsageOf(log), seq: event.seq },
+      { type: 'session/projection', sessionId: id, key: 'contextPressure', value: contextPressureOf(log), seq: event.seq },
+    ]
+  }
+  if (type === 'request/context') {
     return [{
       type: 'session/projection',
       sessionId: id,
-      key: 'tokenUsage',
-      value: tokenUsageOf(log),
+      key: 'contextPressure',
+      value: contextPressureOf(log),
       seq: event.seq,
     }]
   }
@@ -1136,20 +1186,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           append(id, { type: 'plan/mode', data: { active: plan.wanted } })
         }
         append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
+        // Capacity parallel of the host token-meter's request/context record:
+        // log-only, appended inside the open turn, and deduplicated against the
+        // route already recorded (the fixture never varies contextWindow).
         const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
-        emitMux({
-          type: 'session/model-request',
-          sessionId: id,
-          // The fixture's durable transcript is historically zero-based, while
-          // the real Agent's request telemetry opens turns at one.
-          turn: turn + 1,
-          step: 1,
-          provider: target.provider,
-          model: target.model,
-          // No fixture token-meter is composed, so omit the request-pressure
-          // numerator instead of substituting cumulative provider billing.
-          contextWindow: 128_000,
-        })
+        if (lastRequestContext(logOf(id))?.model !== target.model) {
+          append(id, {
+            type: 'request/context',
+            data: { provider: target.provider, model: target.model, contextWindow: 128_000 },
+          })
+        }
         startReply(
           id,
           turn,

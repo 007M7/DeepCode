@@ -188,15 +188,9 @@ export interface SessionsApi {
    * the client needs a fresh baseline already pulls the tail page, and
    * loadOlder (the only beforeSeq path) is the only path that never needs one.
    * A deployment without the registry serves histories without the block.
-   * Model-request telemetry is connection-local and is never reconstructed
-   * from history.
    */
   history(request: RpcRequest<{ sessionId: SessionId; beforeSeq?: number; maxMessages?: number }>):
-  Promise<RpcResponse<{
-    events: HistoryEntry[]
-    hasMore: boolean
-    projections?: SessionProjectionsBlock
-  }>>
+  Promise<RpcResponse<{ events: HistoryEntry[]; hasMore: boolean; projections?: SessionProjectionsBlock }>>
 
   /** Reads a fresh advisory model directory for this session. Provider lookups run independently. */
   models(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<SessionModels>>

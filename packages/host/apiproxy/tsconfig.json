@@ -24,9 +24,6 @@
       "path": "../../llm/llm"
     },
     {
-      "path": "../../llm/token-meter"
-    },
-    {
       "path": "../../core/agent"
     },
     {

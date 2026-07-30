@@ -170,6 +170,20 @@ export interface EpochHeader {
 }
 
 /**
+ * Registration-bound context capacity of one resolved model route. Adapter
+ * metadata about a route rather than a request input, which is why it lives
+ * outside {@link EpochHeader}.
+ */
+export interface RequestContext {
+  /** Registered provider route the capacity was resolved through. */
+  provider: string
+  /** Provider-owned model id the capacity belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens. */
+  contextWindow: number
+}
+
+/**
  * Why a `request/header` snapshot was appended: `'initial'` — the log's first
  * header (a new conversation); `'resume'` — a loop instance's first request
  * over a log that already has header events (process restart, fork seed);
@@ -250,6 +264,16 @@ export interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Registration-bound context capacity for the route a request resolved to,
+   * appended inside its step beside `request/header` and only when the route
+   * or capacity differs from the last record. It is log-only and deliberately
+   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+   * route, not an input the request was built from, so it must not participate
+   * in request reconstruction or header equality. Absent for a route whose
+   * adapter advertises no capacity.
+   */
+  'request/context': RequestContext
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */

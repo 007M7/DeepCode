@@ -221,9 +221,7 @@ function StreamingTail({ useSession, onGrow }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({
-  useProjection, useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder,
-}: ChatViewSlotProps) {
+export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
@@ -231,8 +229,7 @@ export function ChatView({
   const runningCalls = useSession(s => s.runningCalls)
   const codeDispatches = useSession(s => s.codeDispatches)
   const openState = useSession(s => s.openState)
-  const openError = useSession(s => s.openError)
-  const openErrorMessage = openError === null ? null : `${openError.message}（${openError.code}）`
+  const openErrorMessage = useSession(s => s.openError === null ? null : `${s.openError.message}（${s.openError.code}）`)
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
   const selectedCallId = useStore(s => s.selection?.callId)
@@ -356,12 +353,7 @@ export function ChatView({
       <div ref={listRef} className={css.scroll} onScroll={onScroll}>
         <div className={css.column}>
           {openState === 'loading' && <div className={css.hint}>载入历史…</div>}
-          {openState === 'error' && openError?.code === 'cancelled' && (
-            <div className={css.hint}>连接已中断，等待重连…</div>
-          )}
-          {openState === 'error' && openError?.code !== 'cancelled' && (
-            <div className={css.openError}>历史加载失败：{openErrorMessage}</div>
-          )}
+          {openState === 'error' && <div className={css.openError}>历史加载失败：{openErrorMessage}</div>}
           {hasMore && (
             <div className={css.older}>
               <button type="button" disabled={loadingOlder} onClick={loadOlderAnchored}>
@@ -397,7 +389,7 @@ export function ChatView({
           {running && <TurnDots />}
         </div>
       </div>
-      <StatsLine useSession={useSession} useProjection={useProjection} />
+      <StatsLine useSession={useSession} />
       {!atBottom && (
         <button
           type="button"

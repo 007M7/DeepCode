@@ -153,13 +153,11 @@ describe('sessions domain schemas', () => {
     expect(sessionCreateValueSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionHistoryRequestSchema.parse({ sessionId: 's1', beforeSeq: 3, maxMessages: 5 }).beforeSeq).toBe(3)
     expect(() => sessionHistoryRequestSchema.parse({ sessionId: 's1', maxMessages: 0 })).toThrow()
-    const history = sessionHistoryValueSchema.parse({
+    expect(sessionHistoryValueSchema.parse({
       events: [],
       hasMore: false,
-      projections: { asOfSeq: 11, values: { todos: [] } },
       modelTarget: { provider: 'deepseek', model: 'deepseek-v4-flash' },
-    })
-    expect(history.projections).toEqual({ asOfSeq: 11, values: { todos: [] } })
+    }).hasMore).toBe(false)
     expect(sessionModelsRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
     expect(sessionModelsValueSchema.parse({
       current: { provider: 'deepseek', model: 'deepseek-v4-flash', reasoningEffort: 'max' },
@@ -361,24 +359,6 @@ describe('events frame schemas', () => {
     const frames = [
       { type: 'session/event', sessionId: 's', event: { type: 't', seq: 0, time: 1, data: null } },
       { type: 'session/subscribed', sessionId: 's', lastSeq: -1 },
-      {
-        type: 'session/model-request',
-        sessionId: 's',
-        turn: 2,
-        step: 1,
-        provider: 'deepseek',
-        model: 'deepseek-chat',
-        contextTokens: 8_000,
-        contextWindow: 128_000,
-      },
-      {
-        type: 'session/model-request',
-        sessionId: 's',
-        turn: 3,
-        step: 1,
-        provider: 'deepseek',
-        model: 'unknown-capacity',
-      },
       { type: 'approval/requested', sessionId: 's', approvalId: 'a', toolName: 'bash', callId: 'c', reason: 'r' },
       { type: 'approval/resolved', sessionId: 's', approvalId: 'a', outcome: 'allowed-once' },
       { type: 'question/requested', sessionId: 's', questions: [{ id: 'q', question: 'Q?', options: [{ label: 'L' }], multiSelect: true }] },
@@ -391,10 +371,6 @@ describe('events frame schemas', () => {
     for (const frame of frames) expect(muxFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
     expect(() => muxFrameSchema.parse({ type: 'unknown/frame' })).toThrow()
     for (const invalid of [
-      { type: 'session/model-request', sessionId: 's', turn: 0, step: 1, provider: 'p', model: 'm' },
-      { type: 'session/model-request', sessionId: 's', turn: 1, step: 0, provider: 'p', model: 'm' },
-      { type: 'session/model-request', sessionId: 's', turn: 1, step: 1, provider: 'p', model: 'm', contextTokens: -1 },
-      { type: 'session/model-request', sessionId: 's', turn: 1, step: 1, provider: 'p', model: 'm', contextWindow: 0 },
       { type: 'session/projection', sessionId: 's', key: '', value: null, seq: 0 },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: -1 },
       { type: 'session/projection', sessionId: 's', key: 'todos', value: null, seq: 0.5 },

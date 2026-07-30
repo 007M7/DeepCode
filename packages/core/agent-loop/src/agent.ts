@@ -489,20 +489,6 @@ export class ReactLoopAgent implements Agent {
     const assembler = new BlockAssembler()
     const chunkSeqs: number[] = []
     const stream = preparedCall?.stream(request) ?? this.loopCtx.llm.stream(request)
-    emitAgentEvent(
-      this.loopCtx,
-      this,
-      'agent/model-request',
-      turn,
-      step,
-      {
-        provider: request.provider,
-        model: request.model,
-        ...preparedCall?.context === undefined
-          ? {}
-          : { contextWindow: preparedCall.context.contextWindow },
-      },
-    )
     try {
       for await (const chunk of stream) {
         signal.throwIfAborted()
@@ -638,6 +624,23 @@ export class ReactLoopAgent implements Agent {
       this.requestHeaderLogged = true
     } else if (baseline === undefined || !headerEquals(baseline, header)) {
       session.append('request/header', { header, reason: 'change' })
+    }
+
+    // Capacity of the route this request resolved to, recorded from the same
+    // registration-bound lookup that prepared the call (no second resolve).
+    // Deduplicated against the last record: an unchanged route logs nothing.
+    const contextWindow = preparedCall?.context?.contextWindow
+    if (contextWindow !== undefined) {
+      const previous = session.requestContext()
+      if (previous?.provider !== config.provider
+        || previous.model !== config.model
+        || previous.contextWindow !== contextWindow) {
+        session.append('request/context', {
+          provider: config.provider,
+          model: config.model,
+          contextWindow,
+        })
+      }
     }
 
     const request = markAgentLoopRequest(deepFreeze({

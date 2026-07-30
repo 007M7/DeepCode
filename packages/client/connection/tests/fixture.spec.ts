@@ -194,19 +194,17 @@ describe('createFixtureApi', () => {
     expect(types).toContain('assistant/chunk')
     expect(types).toContain('assistant/message')
     expect(types.at(-1)).toBe('turn/end')
-    expect(frames).toContainEqual({
-      type: 'session/model-request',
-      sessionId: id,
-      turn: 1,
-      step: 1,
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
-      contextWindow: 128_000,
-    })
+    // Capacity is durable log state, not a transient frame: the prompt path
+    // records request/context and the projection carries it to the client.
+    expect(types).toContain('request/context')
     expect(frames.some(frame =>
       frame.type === 'session/projection'
       && frame.key === 'tokenUsage'
       && (frame.value as { outputTokens?: number }).outputTokens === 8)).toBe(true)
+    expect(frames.some(frame =>
+      frame.type === 'session/projection'
+      && frame.key === 'contextPressure'
+      && (frame.value as { contextWindow?: number }).contextWindow === 128_000)).toBe(true)
     const finalize = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event' && f.event.type === 'assistant/message')
     expect(JSON.stringify(finalize?.event.data)).toContain('（已中断）')
     // Idle cancel: no replay in flight, must not explode; running flips false.
@@ -238,7 +236,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 9) abort.abort()
+        if (envelopes.length >= 10) abort.abort()
       }
       return envelopes
     }
@@ -253,11 +251,11 @@ describe('createFixtureApi', () => {
     expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
     expect(first[5]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
     expect(first[6]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'tokenUsage' })
-    expect(first[7]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[7]?.rpcId).toBe(first[7]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[8]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[8]?.rpcId).toBe(first[8]?.rpcId)
-    expect(first.some(envelope => envelope.payload.type === 'session/model-request')).toBe(false)
+    expect(first[7]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'contextPressure' })
+    expect(first[8]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[8]?.rpcId).toBe(first[8]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[9]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[9]?.rpcId).toBe(first[9]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {

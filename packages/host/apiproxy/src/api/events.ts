@@ -31,24 +31,6 @@ export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
 
-/** Atomic telemetry captured at one observed model-request boundary. */
-export interface ModelRequestTelemetry {
-  /**
-   * Agent request identity and resolved route. The current StatsLine consumes
-   * only occupancy, while the complete snapshot preserves provenance for
-   * diagnostics and later request-bound consumers without consulting mutable
-   * selected-model state.
-   */
-  turn: number
-  step: number
-  provider: string
-  model: string
-  /** Token-meter pressure measured synchronously for this exact request. */
-  contextTokens?: number
-  /** Registration-bound capacity from this exact prepared call. */
-  contextWindow?: number
-}
-
 /** Streaming face of the contract: the two SSE stream openers (mux + host). */
 export interface EventsApi {
   /**
@@ -75,18 +57,6 @@ export interface EventsApi {
 export type MuxFrame =
   | { type: 'session/event'; sessionId: SessionId; event: SessionEvent; view?: ToolEventView }
   | { type: 'session/subscribed'; sessionId: SessionId; lastSeq: number }
-  /**
-   * One request attempt observed by this already-open mux connection after its
-   * final route and outer `llm/stream` handle were obtained. This does not prove
-   * provider I/O began. The frame is transient: mux baselines, reconnects, and
-   * session history never replay it. The optional numerator and capacity are
-   * one atomic request snapshot; absent fields explicitly replace, rather
-   * than inherit from, the preceding request.
-   */
-  | ({
-    type: 'session/model-request'
-    sessionId: SessionId
-  } & ModelRequestTelemetry)
   | { type: 'approval/requested'; sessionId: SessionId; approvalId: ApprovalRequestId; toolName: string; callId?: CallId; reason?: string }
   | { type: 'approval/resolved'; sessionId: SessionId; approvalId: ApprovalRequestId; outcome: ApprovalOutcome }
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }

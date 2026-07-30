@@ -5,10 +5,13 @@
 
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  ModelRequestTelemetry, RpcError, SessionId, ToolCallView, ToolResultView,
+  RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
+
+export type { TodoItem }
 
 /** Assistant content blocks sorted by what the UI cares about
  *  (text body / collapsible reasoning / tool-call card head / other fallback). */
@@ -267,6 +270,4 @@ export interface ConversationSnapshot {
    */
   blank: boolean
   lastAgentError: string | null
-  /** Latest atomic model-request snapshot on this mux generation. */
-  modelRequest: ModelRequestTelemetry | null
 }

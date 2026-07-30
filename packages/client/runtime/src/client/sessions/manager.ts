@@ -2,10 +2,7 @@
 // dispatch entry + list state, constructed and held by SessionsService (one per client runtime).
 // List data never enters zustand; React connects via subscribe/getListSnapshot.
 
-import type {
-  HostFrame, IApiClient, ModelRequestTelemetry, MuxFrame, RpcError, RpcRequest,
-  RpcResult, SessionId, SessionSummary, WorkspaceId,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId, SessionSummary, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -60,19 +57,6 @@ export class SessionManager {
    *  drop-and-backfill path; replayed and cleared on instantiation. Bounded per session (these
    *  frames are low-frequency; overflow drops oldest) and dropped on session-removed (audit S7). */
   private readonly pendingBuffers = new Map<SessionId, RpcRequest<MuxFrame>[]>()
-  /**
-   * Latest request telemetry observed for an uninstantiated session on the
-   * current mux generation. Unlike durable history, this transient frame
-   * cannot be backfilled when get() lazily creates the Session.
-   */
-  private readonly modelRequests = new Map<SessionId, ModelRequestTelemetry>()
-  /**
-   * Removal fence for the one non-replayable mux frame. Host and mux use
-   * independent SSE streams, so a request emitted before removal can arrive
-   * after host/session-removed. Durable/replayed frame classes stay unfenced;
-   * the next mux subscription is the same-stream proof that the id is live.
-   */
-  private readonly removedModelRequests = new Set<SessionId>()
   /** Outstanding approval questions per session, keyed by approvalId (idempotent under mux-open
    *  replays of the same requested frame). Manager-owned rather than read off Session instances
    *  because the sidebar must light up for sessions never instantiated. Cleared per connection
@@ -181,7 +165,6 @@ export class SessionManager {
   }
 
   private createSession(sessionId: SessionId): Session {
-    const modelRequest = this.modelRequests.get(sessionId)
     return new Session(sessionId, this.api, {
       // The sender's local first-send flip mirrors into the list row so the
       // session surfaces (lists filter on blank) before any host frame lands.
@@ -189,7 +172,6 @@ export class SessionManager {
         this.recordMutation({ kind: 'engaged', sessionId: engaged.sessionId })
       },
       projections: this.projectionStore(sessionId),
-      ...(modelRequest === undefined ? {} : { modelRequest }),
     })
   }
 
@@ -364,16 +346,7 @@ export class SessionManager {
       this.notifier.markDirty()
       return
     }
-    if (frame.type === 'session/model-request') {
-      if (this.removedModelRequests.has(frame.sessionId)) return
-      // Transient and non-replayable: retain the whole latest request until
-      // lazy instantiation. Missing fields replace rather than inherit.
-      const { type: _type, sessionId, ...modelRequest } = frame
-      this.modelRequests.set(sessionId, modelRequest)
-    }
     if (frame.type === 'session/subscribed') {
-      this.removedModelRequests.delete(frame.sessionId)
-      this.modelRequests.delete(frame.sessionId)
       // Rows past the host's durable baseline rode state a restart lost; drop
       // them so last-wins cannot pin a phantom value over recomputed truth.
       this.projectionStores.get(frame.sessionId)?.truncate(frame.lastSeq)
@@ -449,11 +422,9 @@ export class SessionManager {
         return
       }
       case 'host/session-removed': {
-        this.removedModelRequests.add(frame.sessionId)
         this.recordMutation({ kind: 'remove', sessionId: frame.sessionId })
         this.sessions.get(frame.sessionId)?.handleRemoved() // instance survives (resident-instance rule), only flagged in the snapshot
         this.pendingBuffers.delete(frame.sessionId) // a removed session's buffered frames must not replay on a future instantiation
-        this.modelRequests.delete(frame.sessionId) // connection-local request telemetry dies with the Host session
         this.waitingApprovals.delete(frame.sessionId) // a removed session cannot wait on anyone
         this.projectionStores.delete(frame.sessionId) // removed sessions drop their projection rows with the instance
         return
@@ -494,9 +465,6 @@ export class SessionManager {
       if (kept.length === 0) this.pendingBuffers.delete(sessionId)
       else this.pendingBuffers.set(sessionId, kept)
     }
-    this.modelRequests.clear()
-    this.removedModelRequests.clear()
-    for (const session of this.sessions.values()) session.handleReconnecting()
   }
 
   /** After each connection generation: refresh the session baseline and rebuild opened windows. */

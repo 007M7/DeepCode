@@ -18,7 +18,7 @@ import type {
   TokenMeterConfig,
   TokenSurfaceNode,
 } from './types.ts'
-import { tokenUsageProjectionDefinition } from './usage-projection.ts'
+import { contextPressureProjectionDefinition, tokenUsageProjectionDefinition } from './usage-projection.ts'
 
 export type * from './types.ts'
 
@@ -97,6 +97,7 @@ export class TokenMeterService extends Service {
     // compositions without the generic registry keep the meter's old shape.
     ctx.inject(['sessionProjections'], (projectionCtx) => {
       projectionCtx.sessionProjections.register(tokenUsageProjectionDefinition)
+      projectionCtx.sessionProjections.register(contextPressureProjectionDefinition)
     })
 
     // Readers catch up independently, while eager observation bounds ordinary

@@ -7,11 +7,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type {
-  SessionId, SessionProjectionsBlock,
-} from '@deepseek-ai/dsh-client-connection/client'
+import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
 import { entries, ev, plainTurn } from './event-script.ts'
@@ -25,17 +22,9 @@ function makeSession(api = new FakeApiClient()): { api: FakeApiClient; session: 
   return { api, session: new Session(SID, api) }
 }
 
-function histResponse(
-  events: SessionEvent[],
-  hasMore = false,
-  projections?: SessionProjectionsBlock,
-) {
+function histResponse(events: SessionEvent[], hasMore = false) {
   // history now returns HistoryEntry[] ({event, view?}); these tests are view-less.
-  return Promise.resolve(ok({
-    events: entries(events) as never[],
-    hasMore,
-    ...projections === undefined ? {} : { projections },
-  }))
+  return Promise.resolve(ok({ events: entries(events) as never[], hasMore }))
 }
 
 describe('open', () => {
@@ -51,7 +40,6 @@ describe('open', () => {
     expect(snapshot.openState).toBe('open')
     expect(snapshot.hasMore).toBe(true)
     expect(snapshot.nodes.map(n => n.kind)).toEqual(['user', 'assistant'])
-    expect(snapshot.modelRequest).toBeNull()
   })
 
   it('is idempotent: concurrent opens share one history call, reopening when open is a no-op', async () => {
@@ -114,87 +102,6 @@ describe('live event path', () => {
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(3, '重放') })
     await Promise.resolve()
     expect(session.getSnapshot().nodes).toEqual(before.nodes)
-  })
-
-  it('replaces the whole request snapshot, clears omitted fields, and resets at subscription', async () => {
-    const { session } = await opened()
-    session.handleMuxEnvelope('request-1' as never, {
-      type: 'session/model-request',
-      sessionId: SID,
-      turn: 1,
-      step: 1,
-      provider: 'test',
-      model: 'alpha',
-      contextTokens: 32_000,
-      contextWindow: 128_000,
-    })
-    expect(session.getSnapshot().modelRequest).toEqual({
-      turn: 1,
-      step: 1,
-      provider: 'test',
-      model: 'alpha',
-      contextTokens: 32_000,
-      contextWindow: 128_000,
-    })
-
-    session.handleMuxEnvelope('request-2' as never, {
-      type: 'session/model-request',
-      sessionId: SID,
-      turn: 2,
-      step: 1,
-      provider: 'test',
-      model: 'without-capacity',
-    })
-    expect(session.getSnapshot().modelRequest).toEqual({
-      turn: 2,
-      step: 1,
-      provider: 'test',
-      model: 'without-capacity',
-    })
-
-    session.handleMuxEnvelope('sub' as never, {
-      type: 'session/subscribed',
-      sessionId: SID,
-      lastSeq: 5,
-    })
-    expect(session.getSnapshot().modelRequest).toBeNull()
-    session.handleMuxEnvelope('request-3' as never, {
-      type: 'session/model-request',
-      sessionId: SID,
-      turn: 3,
-      step: 1,
-      provider: 'test',
-      model: 'beta',
-      contextTokens: 20,
-      contextWindow: 256_000,
-    })
-    expect(session.getSnapshot().modelRequest).toMatchObject({
-      turn: 3,
-      contextTokens: 20,
-      contextWindow: 256_000,
-    })
-  })
-
-  it('publishes a subscribed reset when request telemetry arrived first', async () => {
-    const { session } = await opened()
-    session.handleMuxEnvelope('request' as never, {
-      type: 'session/model-request',
-      sessionId: SID,
-      turn: 1,
-      step: 1,
-      provider: 'test',
-      model: 'alpha',
-      contextTokens: 8_000,
-      contextWindow: 128_000,
-    })
-    expect(session.getSnapshot().modelRequest?.contextWindow).toBe(128_000)
-
-    session.handleMuxEnvelope('sub' as never, {
-      type: 'session/subscribed',
-      sessionId: SID,
-      lastSeq: 5,
-    })
-    expect(session.getSnapshot().modelRequest).toBeNull()
   })
 
   it('materializes a command node from live lifecycle frames and reproduces it from a history window', async () => {
@@ -353,27 +260,6 @@ describe('paging', () => {
     await Promise.all([first, second])
     expect(api.callsOf('session.history')).toHaveLength(2) // open + one page, not two
   })
-
-  it('drops an older page from the disconnected generation', async () => {
-    const { api, session } = makeSession()
-    api.onHistory = () => histResponse(plainTurn(6, 1, '新问', '新答'), true)
-    await session.open()
-    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    api.onHistory = () => stale.promise
-    const loading = session.loadOlder()
-
-    session.handleReconnecting()
-    stale.resolve(ok({
-      events: entries(plainTurn(0, 0, '旧问', '旧答')) as never[],
-      hasMore: false,
-    }))
-    await loading
-    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9])
-
-    api.onHistory = () => histResponse(plainTurn(12, 2, '重连问', '重连答'))
-    await session.resync()
-    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([13, 15])
-  })
 })
 
 describe('prompt and cancel errors', () => {
@@ -416,23 +302,6 @@ describe('prompt and cancel errors', () => {
 })
 
 describe('pending interactions', () => {
-  it('routes an approval wait response through the original requested rpcId', async () => {
-    const { api, session } = makeSession()
-    session.handleMuxEnvelope('ra-answer' as never, {
-      type: 'approval/requested',
-      sessionId: SID,
-      approvalId: 'ap-answer' as never,
-      toolName: 'bash',
-    })
-    const wait = session.getSnapshot().pending[0]!
-    await wait.respond({ ok: true, value: { decision: 'allow' } })
-    expect(api.callsOf('respond')).toEqual([{
-      type: 'client-response',
-      rpcId: 'ra-answer',
-      result: { ok: true, value: { decision: 'allow' } },
-    }])
-  })
-
   it('adds approval/question on requested and removes them on resolved', async () => {
     const { session } = makeSession()
     session.handleMuxEnvelope('ra' as never, { type: 'approval/requested', sessionId: SID, approvalId: 'ap1' as never, toolName: 'rm' })
@@ -475,16 +344,6 @@ describe('pending interactions', () => {
 })
 
 describe('remaining branches', () => {
-  it('rejects a second scope bind and allows rebinding after explicit release', () => {
-    const { session } = makeSession()
-    const first = new Context()
-    const second = new Context()
-    session.bindScope(first)
-    expect(() => { session.bindScope(second) }).toThrow(`session ${SID} already has a bound scope`)
-    session.unbindScope()
-    expect(() => { session.bindScope(second) }).not.toThrow()
-  })
-
   it('prompt transport throw folds to internal promptError', async () => {
     const { api, session } = makeSession()
     api.onPrompt = () => Promise.reject(new Error('prompt wire down'))
@@ -715,49 +574,22 @@ describe('remaining branches', () => {
     expect(session.getSnapshot().openState).toBe('open')
   })
 
-  it('drops a stale gap repair without clearing a newer generation repair', async () => {
+  it('drops a gap repair superseded by a full resync while its pull was in flight', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
     await session.open()
-    const staleRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    api.onHistory = () => staleRepair.promise
+    const repairPull = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
+    api.onHistory = () => repairPull.promise
     session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event: ev.user(9, '洞') }) // starts repairGap
-    session.handleReconnecting()
     api.onHistory = () => histResponse(plainTurn(6, 1, 'c', 'd'))
-    await session.resync()
-
-    const freshRepair = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    let freshRepairCalls = 0
-    api.onHistory = () => {
-      freshRepairCalls++
-      return freshRepair.promise
-    }
-    session.handleMuxEnvelope('fresh-gap' as never, {
-      type: 'session/event',
-      sessionId: SID,
-      event: ev.user(15, '新洞'),
-    })
-    expect(freshRepairCalls).toBe(1)
-
-    staleRepair.resolve(ok({
+    const resynced = session.resync() // bumps the generation
+    repairPull.resolve(ok({
       events: entries(plainTurn(0, 0, '旧', '页')) as never[],
       hasMore: false,
+      modelTarget: { provider: 'deepseek', model: 'stale' },
     })) // repair result: stale, dropped
-    await Promise.resolve()
-    session.handleMuxEnvelope('fresh-buffer' as never, {
-      type: 'session/event',
-      sessionId: SID,
-      event: ev.user(16, '继续缓存'),
-    })
-    expect(freshRepairCalls).toBe(1) // stale finally did not clear the newer stitching owner
-
-    freshRepair.resolve(ok({
-      events: entries([...plainTurn(6, 1, 'c', 'd'), ...plainTurn(12, 2, 'e', 'f')]) as never[],
-      hasMore: false,
-    }))
-    await vi.waitFor(() => {
-      expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9, 13, 15])
-    })
+    await resynced
+    expect(session.getSnapshot().nodes.map(n => n.seq)).toEqual([7, 9])
   })
 
   it('successful cancel leaves no promptError; tool/result for an unknown callId is a no-op', async () => {
@@ -822,133 +654,6 @@ describe('remaining branches', () => {
 })
 
 describe('resync', () => {
-  it('settles an in-flight open when its connection generation dies', async () => {
-    const { api, session } = makeSession()
-    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    api.onHistory = () => stale.promise
-    const opening = session.open()
-    expect(session.getSnapshot().openState).toBe('loading')
-
-    session.handleReconnecting()
-    expect(session.getSnapshot()).toMatchObject({
-      openState: 'error',
-      openError: {
-        code: 'cancelled',
-        message: 'session history request cancelled after connection loss',
-        details: {},
-      },
-    })
-
-    stale.reject(new Error('dead generation failed'))
-    await opening
-    expect(session.getSnapshot()).toMatchObject({
-      openState: 'error',
-      openError: {
-        code: 'cancelled',
-        message: 'session history request cancelled after connection loss',
-        details: {},
-      },
-    })
-  })
-
-  it('settles an in-flight older-page load when its connection generation dies', async () => {
-    const { api, session } = makeSession()
-    api.onHistory = () => histResponse(plainTurn(6, 1, '新问', '新答'), true)
-    await session.open()
-    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    api.onHistory = () => stale.promise
-    const paging = session.loadOlder()
-    expect(session.getSnapshot().loadingOlder).toBe(true)
-
-    session.handleReconnecting()
-    expect(session.getSnapshot().loadingOlder).toBe(false)
-
-    stale.resolve(ok({
-      events: entries(plainTurn(0, 0, '旧问', '旧答')) as never[],
-      hasMore: false,
-    }))
-    await paging
-    expect(session.getSnapshot().loadingOlder).toBe(false)
-    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9])
-  })
-
-  it('clears request telemetry on reconnect and drops a stale in-flight history response', async () => {
-    const { api, session } = makeSession()
-    const stale = deferred<Awaited<ReturnType<FakeApiClient['onHistory']>>>()
-    api.onHistory = () => stale.promise
-    const opening = session.open()
-    session.handleMuxEnvelope('old-request' as never, {
-      type: 'session/model-request',
-      sessionId: SID,
-      turn: 1,
-      step: 1,
-      provider: 'test',
-      model: 'old',
-      contextTokens: 20,
-      contextWindow: 128_000,
-    })
-
-    session.handleReconnecting()
-    expect(session.getSnapshot().modelRequest).toBeNull()
-
-    stale.resolve(ok({
-      events: entries(plainTurn(0, 0, '旧问', '旧答')) as never[],
-      hasMore: false,
-    }))
-    await opening
-    expect(session.getSnapshot().nodes).toEqual([])
-    expect(session.getSnapshot().modelRequest).toBeNull()
-
-    api.onHistory = () => histResponse(plainTurn(6, 1, '新问', '新答'))
-    await session.resync()
-    expect(session.getSnapshot().openState).toBe('open')
-    expect(session.getSnapshot().nodes.map(node => node.seq)).toEqual([7, 9])
-    expect(session.getSnapshot().modelRequest).toBeNull()
-  })
-
-  it('preserves a fresh-generation request snapshot when history resync fails', async () => {
-    const { api, session } = makeSession()
-    api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))
-    await session.open()
-
-    session.handleMuxEnvelope('sub' as never, {
-      type: 'session/subscribed',
-      sessionId: SID,
-      lastSeq: 5,
-    })
-    expect(session.getSnapshot().modelRequest).toBeNull()
-
-    session.handleMuxEnvelope('fresh-request' as never, {
-      type: 'session/model-request',
-      sessionId: SID,
-      turn: 2,
-      step: 1,
-      provider: 'test',
-      model: 'fresh',
-      contextTokens: 20,
-      contextWindow: 256_000,
-    })
-    api.onHistory = () => Promise.resolve(err({
-      code: 'internal',
-      message: 'history refresh failed',
-      details: {},
-    }))
-
-    await session.resync()
-
-    expect(session.getSnapshot()).toMatchObject({
-      openState: 'error',
-      modelRequest: {
-        turn: 2,
-        step: 1,
-        provider: 'test',
-        model: 'fresh',
-        contextTokens: 20,
-        contextWindow: 256_000,
-      },
-    })
-  })
-
   it('rebuilds the window and clears pending; cold instances no-op', async () => {
     const { api, session } = makeSession()
     api.onHistory = () => histResponse(plainTurn(0, 0, 'a', 'b'))

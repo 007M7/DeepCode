@@ -5,7 +5,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MuxFrame, RpcError, RpcId, RpcResult,
-  ModelRequestTelemetry, SessionId, ToolEventView,
+  SessionId, ToolEventView,
 } from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
@@ -43,8 +43,6 @@ export interface SessionOptions {
    * private store (bare object-layer construction).
    */
   projections?: ProjectionValueStore
-  /** Request telemetry already observed on this mux generation before lazy construction. */
-  modelRequest?: ModelRequestTelemetry
 }
 
 /** Queue-row preview cap: the dock renders one line, the full content never leaves the host mirror. */
@@ -84,8 +82,9 @@ export class Session implements SessionFace {
   private openState: OpenState = 'cold'
   private openError: RpcError | null = null
   private openPromise: Promise<void> | null = null
-  /** Bumped at disconnect and resync to invalidate in-flight history work: a reconnect must
-   *  rebuild, never adopt a pre-disconnect response (audit S4). */
+  /** Bumped by resync to invalidate an in-flight doOpen: a reconnect must rebuild, never adopt
+   *  a pre-disconnect open whose history request is already doomed (audit S4). Stale doOpen
+   *  passes drop all writes once the generation moves on. */
   private openGeneration = 0
   private loadingOlder = false
   private readonly foldAdapter = new FoldAdapter()
@@ -110,8 +109,6 @@ export class Session implements SessionFace {
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
   private frozenRev = 0
   private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
-  /** Latest atomic request snapshot observed on this mux connection. */
-  private modelRequest: ModelRequestTelemetry | null
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
@@ -173,7 +170,6 @@ export class Session implements SessionFace {
     private readonly options: SessionOptions = {},
   ) {
     this.projections = options.projections ?? new ProjectionValueStore()
-    this.modelRequest = options.modelRequest ?? null
     this.snapshotCache = this.buildSnapshot()
   }
 
@@ -286,14 +282,12 @@ export class Session implements SessionFace {
   /** Page up: pull one earlier page with the window's first seq as beforeSeq and prepend (§D.2). */
   async loadOlder(): Promise<void> {
     if (this.openState !== 'open' || !this.hasMore || this.loadingOlder) return
-    const generation = this.openGeneration
     this.loadingOlder = true
     this.notifier.markDirty()
     try {
       const { result } = await this.api.sessions.history({
         sessionId: this.sessionId, beforeSeq: this.baseSeq, maxMessages: PAGE_MESSAGES,
       })
-      if (generation !== this.openGeneration) return
       if (!result.ok) return // keep the window as-is; do not overwrite openError (open already succeeded)
       const older = result.value.events
       if (older.length === 0) {
@@ -317,10 +311,8 @@ export class Session implements SessionFace {
     } catch (error) {
       console.error('[web-runtime] loadOlder failed:', error)
     } finally {
-      if (generation === this.openGeneration) {
-        this.loadingOlder = false
-        this.notifier.markDirty()
-      }
+      this.loadingOlder = false
+      this.notifier.markDirty()
     }
   }
 
@@ -329,10 +321,11 @@ export class Session implements SessionFace {
    *  in-flight open first — its history request rode the dead connection and must not settle
    *  the fresh generation into 'error' (audit S4). */
   async resync(): Promise<void> {
-    // Queue and request telemetry are NOT cleared here: onConnected
-    // (which drives resync) races the mux frames — fresh-generation state may
-    // have landed already, and the host never resends request telemetry.
-    // session/subscribed owns the reset before the queue snapshot.
+    // The queue mirror is NOT cleared here: onConnected (which drives resync)
+    // races the mux frames — the fresh generation's baseline may have landed
+    // already, and the host never resends it. The mirror re-baselines on the
+    // session/subscribed frame instead (same stream as the queue snapshot
+    // that follows it, so ordering is guaranteed).
     if (this.openState === 'cold') return // never opened: no window to rebuild (doOpen flips to 'loading' synchronously, so cold implies no in-flight open)
     this.openGeneration++
     this.openPromise = null
@@ -341,8 +334,6 @@ export class Session implements SessionFace {
     this.events = []
     this.views = []
     this.baseSeq = 0
-    this.loadingOlder = false
-    this.stitching = false
     // Superseded, not settled: the baseline replay re-sends still-pending requested frames verbatim
     // (same rpcId), re-minting fresh waits; a stale reference's respond() still reaches the host.
     this.pending.clear()
@@ -403,7 +394,6 @@ export class Session implements SessionFace {
       }
       case 'session/subscribed': {
         this.subscribedLastSeq = frame.lastSeq
-        let changed = false
         // New mux-generation baseline: the host pushes this session's queue
         // snapshot AFTER the subscribed frame on the same stream, so the
         // stale mirror clears here — race-free against onConnected/resync
@@ -411,25 +401,8 @@ export class Session implements SessionFace {
         if (this.queued.length > 0) {
           this.queued = []
           this.queueRev++
-          changed = true
+          this.notifier.markDirty()
         }
-        if (this.modelRequest !== null) {
-          this.modelRequest = null
-          changed = true
-        }
-        if (changed) this.notifier.markDirty()
-        return
-      }
-      case 'session/model-request': {
-        const {
-          type: _type,
-          sessionId: _sessionId,
-          ...modelRequest
-        } = frame
-        // Whole-frame replacement is load-bearing: an omitted numerator or
-        // capacity clears that field from the preceding request.
-        this.modelRequest = modelRequest
-        this.notifier.markDirty()
         return
       }
       case 'approval/requested': {
@@ -501,41 +474,10 @@ export class Session implements SessionFace {
     this.notifier.markDirty()
   }
 
-  /** Connection-loss boundary: clear values that are not replayed before the next stream starts. */
-  handleReconnecting(): void {
-    this.openGeneration++
-    let changed = false
-    if (this.openState === 'loading') {
-      // The in-flight history request belongs to the dead generation. Its
-      // eventual success or failure is fenced below, so settle the visible
-      // pane now instead of leaving it loading throughout an outage.
-      this.openState = 'error'
-      this.openError = {
-        code: 'cancelled',
-        message: 'session history request cancelled after connection loss',
-        details: {},
-      }
-      changed = true
-    }
-    if (this.loadingOlder) {
-      // The stale request's generation-fenced finally cannot clear this bit.
-      // Release the paging control synchronously at the connection boundary.
-      this.loadingOlder = false
-      changed = true
-    }
-    if (this.modelRequest !== null) {
-      this.modelRequest = null
-      changed = true
-    }
-    if (changed) this.notifier.markDirty()
-  }
-
-  /** host/session-removed relay: flag the resident snapshot and clear request telemetry. */
+  /** host/session-removed relay: flag the snapshot (instance survives — resident-instance rule). */
   handleRemoved(): void {
-    const changed = !this.removed || this.modelRequest !== null
     this.removed = true
-    this.modelRequest = null
-    if (changed) this.notifier.markDirty()
+    this.notifier.markDirty()
   }
 
   /**
@@ -579,23 +521,13 @@ export class Session implements SessionFace {
         this.openError = result.error
         return
       }
-      this.installWindow(
-        result.value.events,
-        result.value.hasMore,
-        result.value.projections,
-      )
+      this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       // Gap detection (§D.3-4): baseline past the window tail and liveBuffer did not cover it -> pull the tail page once more.
       const tailSeq = this.windowTailSeq()
       if (this.subscribedLastSeq !== null && tailSeq !== null && this.subscribedLastSeq > tailSeq) {
         result = (await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })).result
         if (generation !== this.openGeneration) return
-        if (result.ok) {
-          this.installWindow(
-            result.value.events,
-            result.value.hasMore,
-            result.value.projections,
-          )
-        }
+        if (result.ok) this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
       this.openState = 'open'
     } catch (error) {
@@ -616,11 +548,7 @@ export class Session implements SessionFace {
    *  A carried projections block seeds the value store (higher seq wins, so a stale
    *  baseline cannot overwrite a newer push frame); the window events themselves are
    *  never folded — the host is the only computation site. */
-  private installWindow(
-    entries: HistoryEntry[],
-    hasMore: boolean,
-    projections: ProjectionsBaseline | undefined,
-  ): void {
+  private installWindow(entries: HistoryEntry[], hasMore: boolean, projections?: ProjectionsBaseline): void {
     this.events = entries.map(e => e.event)
     this.views = entries.map(e => e.view)
     this.baseSeq = this.events[0]?.seq ?? 0
@@ -676,16 +604,12 @@ export class Session implements SessionFace {
       const { result } = await this.api.sessions.history({ sessionId: this.sessionId, maxMessages: PAGE_MESSAGES })
       // Failure or superseded by a full resync: drop — the resync path rebuilds and clears the buffer itself.
       if (result.ok && generation === this.openGeneration && this.openState === 'open') {
-        this.installWindow(
-          result.value.events,
-          result.value.hasMore,
-          result.value.projections,
-        )
+        this.installWindow(result.value.events, result.value.hasMore, result.value.projections)
       }
     } catch (error) {
       console.error('[web-runtime] gap repair failed:', error)
     } finally {
-      if (generation === this.openGeneration) this.stitching = false
+      this.stitching = false
     }
   }
 
@@ -917,7 +841,6 @@ export class Session implements SessionFace {
       promptError: this.promptError,
       blank: this.blankBit,
       lastAgentError: this.lastAgentError,
-      modelRequest: this.modelRequest,
     }
   }
 }

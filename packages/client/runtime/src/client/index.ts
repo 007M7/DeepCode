@@ -40,7 +40,7 @@ export type {
 export type {
   AssistantBlock, AssistantMessageNode, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
   ConversationSnapshot, QueuedMessage, RunningToolCall,
-  SteeringMessageNode, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export { PendingWait } from './sessions/pending.ts'
 export type { PendingInteraction, PendingKind, PendingPayloads } from './sessions/pending.ts'
@@ -154,11 +154,11 @@ export function apply(ctx: Context): void {
       workspaces.handleConnected()
       ctx.emit('connection/reset')
     },
-    onDisconnected: () => {
+    onStateChange: (state) => {
       // Generation death fires before any next-generation frame can arrive
       // (reconnect replays flow from stream open, ahead of onConnected):
       // the only safe moment to drop generation-scoped interaction state.
-      sessions.handleDisconnected()
+      if (state === 'reconnecting') sessions.handleDisconnected()
     },
   })
   ctx.effect(() => () => { loop.stop() }, 'runtime: connection stream loop')
