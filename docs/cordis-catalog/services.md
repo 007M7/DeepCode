@@ -220,7 +220,7 @@ Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/i
 
 ## `ctx.approval` — `ApprovalService`
 
-Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through prompt and pre-step notices.
+Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through the cache-safe runtime-context snapshot.
 
 ```ts cordis-catalog
 /**
@@ -253,7 +253,7 @@ overrideOf(session: Session): ApprovalPolicy | undefined
 
 Types: [ApprovalOutcome](../core-data-structures/approval.md) · [ApprovalPolicy](../core-data-structures/approval.md) · [ApprovalRequest](../core-data-structures/approval.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/ui/user-approval/src/index.ts:217`](../../packages/ui/user-approval/src/index.ts)
+Source: [`packages/ui/user-approval/src/index.ts:193`](../../packages/ui/user-approval/src/index.ts)
 
 ## `ctx.bash` — `BashExecutor` (abstract seam)
 
@@ -1023,12 +1023,22 @@ The sandbox-policy service (`ctx.sandboxPolicy`). Owns the deployment default mo
 /**
  * Register one runtime contribution that enforces the shared file policy for
  * a model-facing operation family. Equal families remain independently
- * disposable; registration and removal invalidate assembled prompt caches
+ * disposable; registration and removal invalidate request-input assemblies
  * when a system-prompt service is active.
  * @param family - operation family whose file effects this contribution enforces.
  * @returns the exact Cordis effect disposer for this contribution.
  */
 registerEnforcedFamily(family: 'filesystem' | 'bash' | 'terminal'): () => void
+
+/**
+ * Register one model-facing family whose tool schema and execution path offer
+ * an approved wider retry after a real denial. Equal contributions remain
+ * independently disposable; a family is narrated as escalatable only while
+ * it is also enforced.
+ * @param family - operation family whose tools expose escalation.
+ * @returns the exact Cordis effect disposer for this contribution.
+ */
+registerEscalatableFamily(family: 'filesystem' | 'bash' | 'terminal'): () => void
 
 /**
  * Resolve the complete policy for one capability call. An approved explicit
@@ -1051,7 +1061,7 @@ overrideOf(session: Session): SandboxMode | undefined
 
 Types: [SandboxExecutionPolicy](../core-data-structures/sandbox.md) · [SandboxMode](../core-data-structures/sandbox.md) · [SandboxPolicyRequest](../core-data-structures/sandbox.md) · [Session](../core-data-structures/session.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:116`](../../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:126`](../../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `ctx.sessionPersistence` — `SessionPersistence` (abstract seam)
 
@@ -1881,6 +1891,16 @@ Registry service for the prompt inputs assembled before each model step.
 section(section: PromptSection): () => void
 
 /**
+ * Register ordered cache-safe dynamic context in the calling context's scope.
+ * A scoped context shadows a global context with the same name; duplicates
+ * within one layer and non-finite orders throw. Registration and disposal
+ * emit `system-prompt/change`.
+ * @param context - the context contribution to register.
+ * @returns the exact Cordis effect disposer.
+ */
+context(context: PromptContext): () => void
+
+/**
  * Register a tool-schema provider in the calling context's scope. Global and
  * matching scoped providers both contribute; returning the reserved
  * {@link TOOL_ORDER_REST} name makes assembly fail.
@@ -1909,9 +1929,9 @@ variable(name: string, provider: (context: AssembleContext) => string | undefine
 async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 ```
 
-Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
+Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:248`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:294`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 

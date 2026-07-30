@@ -67,6 +67,7 @@ export function apply(ctx: Context, config: Config): void {
   // per-call policy resolution, and denial-marker mapping, all keyed off whether
   // the mounted ctx.fs confines (ctx.fs.sandboxMode).
   const sandbox = new FsSandboxSurface(ctx)
+  if (sandbox.escalationModes.length > 0) ctx.get('sandboxPolicy')?.registerEscalatableFamily('filesystem')
   applyWriteTool(ctx, sandbox)
   applyEditTool(ctx, sandbox)
 }
