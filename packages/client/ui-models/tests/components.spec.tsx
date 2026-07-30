@@ -206,7 +206,9 @@ describe('ModelsSection', () => {
     })
     fireEvent.click(screen.getByText(en.customized))
     const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
-    expect(baseURL.placeholder).toBe('https://base')
+    // The deepseek placeholder is pinned to the public endpoint, not the
+    // effective value (which may reflect a launch-environment override).
+    expect(baseURL.placeholder).toBe('https://api.deepseek.com')
     fireEvent.change(baseURL, { target: { value: 'https://next2' } })
     fireEvent.click(screen.getByText(en.apply))
     await waitFor(() => { expect(update).toHaveBeenCalledTimes(1) })
@@ -228,7 +230,7 @@ describe('ModelsSection', () => {
     expect(replace.mock.calls[0]?.[0]).toEqual({ ns: 'llm-deepseek', section: {} })
   })
 
-  it('falls back to the provider-default placeholder and clears typed input back to inherited', async () => {
+  it('pins the deepseek placeholder and clears typed input back to inherited', async () => {
     const { face } = scriptedFace()
     const bare: SettingsNamespaceView = {
       ns: 'llm-deepseek',
@@ -250,7 +252,7 @@ describe('ModelsSection', () => {
     />)
     fireEvent.click(screen.getByText(en.customized))
     const baseURL = screen.getByLabelText<HTMLInputElement>(en.baseUrl)
-    expect(baseURL.placeholder).toBe(en.baseUrlDefault)
+    expect(baseURL.placeholder).toBe('https://api.deepseek.com')
     fireEvent.change(baseURL, { target: { value: 'https://x' } })
     expect(baseURL.value).toBe('https://x')
     fireEvent.change(baseURL, { target: { value: '' } })
@@ -273,9 +275,12 @@ describe('ModelsSection', () => {
     const keys = await screen.findAllByLabelText<HTMLInputElement>(en.keyInput)
     const editorKey = keys[keys.length - 1] as HTMLInputElement
     await waitFor(() => { expect(editorKey.placeholder).toBe(en.keyStored) })
-    // No Base URL for pi-ai; the only one on the page is the setup card's.
+    // pi-ai carries Base URL too: the stored override shows as the value and
+    // the effective profile endpoint as its placeholder source.
     fireEvent.click(screen.getAllByText(en.customized)[1] as HTMLElement)
-    expect(screen.getAllByLabelText(en.baseUrl)).toHaveLength(1)
+    const urls = screen.getAllByLabelText<HTMLInputElement>(en.baseUrl)
+    expect(urls).toHaveLength(2)
+    expect((urls[1] as HTMLInputElement).value).toBe('https://proxy')
     const effort = screen.getAllByLabelText<HTMLSelectElement>(en.effort)
     fireEvent.change(effort[effort.length - 1] as HTMLSelectElement, { target: { value: 'xhigh' } })
     fireEvent.click(screen.getAllByText(en.apply)[1] as HTMLElement)
@@ -296,6 +301,11 @@ describe('ModelsSection', () => {
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
     expect([...pick.options].map(option => option.value)).toEqual(['anthropic', 'broken', 'plain'])
     expect(pick.value).toBe('anthropic')
+    // A dormant profile has no endpoint anywhere: the pi-ai placeholder
+    // falls back to the provider-default wording.
+    fireEvent.click(screen.getAllByText(en.customized)[1] as HTMLElement)
+    const urls = screen.getAllByLabelText<HTMLInputElement>(en.baseUrl)
+    expect((urls[1] as HTMLInputElement).placeholder).toBe(en.baseUrlDefault)
     const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
     const addKey = keys[keys.length - 1] as HTMLInputElement
     fireEvent.change(addKey, { target: { value: 'sk-ant' } })

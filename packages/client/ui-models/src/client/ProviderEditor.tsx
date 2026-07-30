@@ -4,9 +4,9 @@
  * environment-variable name — a typed key stores through `credentials.set`
  * under the profile's reference, deriving `<ROUTE>_API_KEY` when the profile
  * has none, and the pi-ai profile records that derivation as `apiKeyEnv`);
- * the collapsed 自定义设置 area carries the per-family extras (deepseek:
- * `baseURL` + `reasoningEffort`; pi-ai: `reasoning`). Everything else stays
- * owned by `settings.yaml` — the folded hint says so. Profile edits land as a
+ * the collapsed 自定义设置 area carries the per-family extras (`baseURL` for
+ * both families, plus `reasoningEffort` for deepseek / `reasoning` for
+ * pi-ai). Everything else stays owned by `settings.yaml`. Profile edits land as a
  * minimal `settings.update` merge patch; clearing a field back to inherited
  * removes its key, so that apply replaces the user section (safe: the section
  * stores references, never key values).
@@ -36,6 +36,9 @@ const EFFORT_FIELD: Record<'deepseek' | 'pi-ai', string> = {
   deepseek: 'reasoningEffort',
   'pi-ai': 'reasoning',
 }
+
+/** The public DeepSeek endpoint shown as the deepseek base-URL placeholder. */
+const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
 
 /** Props of {@link ProviderEditor}. */
 export interface ProviderEditorProps {
@@ -232,24 +235,22 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             <details className={styles['customized']}>
               <summary className={styles['customizedSummary']}>{t('customized')}</summary>
               <div className={styles['customizedBody']}>
-                {layout === 'deepseek'
-                  ? (
-                    <div className={styles['field']}>
-                      <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
-                      <input
-                        className={styles['input']}
-                        type="text"
-                        value={stringAt(draft, 'baseURL') ?? ''}
-                        placeholder={stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
-                        aria-label={t('baseUrl')}
-                        disabled={disabled}
-                        onChange={(event) => {
-                          setField('baseURL', event.target.value === '' ? undefined : event.target.value)
-                        }}
-                      />
-                    </div>
-                  )
-                  : null}
+                <div className={styles['field']}>
+                  <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
+                  <input
+                    className={styles['input']}
+                    type="text"
+                    value={stringAt(draft, 'baseURL') ?? ''}
+                    placeholder={layout === 'deepseek'
+                      ? DEEPSEEK_PUBLIC_BASE_URL
+                      : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
+                    aria-label={t('baseUrl')}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      setField('baseURL', event.target.value === '' ? undefined : event.target.value)
+                    }}
+                  />
+                </div>
                 {/* v8 ignore next -- EFFORT_FIELD is total over non-unknown layouts; the check only narrows the type */}
                 {effortField !== undefined
                   ? (
@@ -272,7 +273,6 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                     </div>
                   )
                   : null}
-                <p className={styles['advancedHint']}>{`${t('advancedHint')} (${namespace.ns})`}</p>
               </div>
             </details>
           </>

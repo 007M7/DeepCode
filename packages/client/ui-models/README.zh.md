@@ -4,9 +4,9 @@
 
 模型设置分区插件：提供方配置页。它把三个协议领域汇聚为一个界面——`llm.providers`（可配置提供方目录，含每条路由的存活／休眠状态）、`settings.describe`（序列化 schema、分层脱敏值、secret 槽位）与 `credentials.describe`（不含值的 configured/source/writable 徽标）——并渲染提供方行，一次只展开一张编辑卡片。
 
-行是*已配置*的提供方（其 profile 在所属 namespace 中解析得出）；新增选择框的词汇是全部休眠目录条目，因此裸挂载的 `llm-pi-ai` 在任何路由存在之前就能提供其完整的已安装 catalog。编辑器经 [`@deepseek-ai/dsh-client-schema-form`](../schema-form) 渲染该提供方的 profile 子树；`credential-ref` 角色会挂载凭据控件，它展示该引用的实时状态，并经 `credentials.set` 以**只写**方式存入密钥值——任何值都绝不回显。只有当某行仅由用户层承载时它才可删除（删除会还原组合 base）。
+行是*已配置*的提供方（其 profile 在所属 namespace 中解析得出）；密钥未在任何地方配置的整分节提供方（DeepSeek 的首次运行姿态）会渲染为其展开的设置卡片而非一行，「新增」流程则是一张承载休眠目录提供方选择框的卡片——裸挂载的 `llm-pi-ai` 在任何路由存在之前就能提供其完整的已安装 catalog。编辑器是每个适配器家族各一张的手写卡片：主字段是单独一个 **API 密钥**输入框——页面从不询问环境变量名；键入的密钥经 `credentials.set` 以**只写**方式存入 profile 的引用之下，profile 没有引用时便派生 `<ROUTE>_API_KEY`，pi-ai profile 会把这次派生记录为 `apiKeyEnv`，因此 `settings.yaml` 从不携带密钥值。收起的「自定义设置」折叠区承载精选的额外字段（deepseek：`baseURL` + `reasoningEffort`；pi-ai：`reasoning`）；其余每个 profile 字段仍归 `settings.yaml` 所有，折叠区上也会明说。只有当某行仅由用户层承载时它才可删除（删除会还原组合 base）。
 
-「应用」语义与 settings seam 呈镜像：不含删除的编辑以最小的 `settings.update` 合并 patch 落地（patch 之外已存储的 secret 得以保留），字段重置或整行删除则经对整个用户分节的 `settings.replace` 落地，使删除真正生效。页面加载完成后会在推送的失效事件（`settings/changed`、`credentials/changed`、`models/changed` 与 `connection/reset`）上重拉，因此外部的 `settings.yaml` 编辑、第二个标签页或 settings 新生的路由都无需轮询即可收敛。
+「应用」语义与 settings seam 呈镜像：不含删除的编辑以最小的 `settings.update` 合并 patch 落地，把折叠区字段清回继承值或删除整行则经对整个用户分节的 `settings.replace` 落地，使删除真正生效——整体替换是安全的，因为该分节存的是密钥引用，从不存密钥值。页面加载完成后会在推送的失效事件（`settings/changed`、`credentials/changed`、`models/changed` 与 `connection/reset`）上重拉，因此外部的 `settings.yaml` 编辑、第二个标签页或 settings 新生的路由都无需轮询即可收敛。
 
 ## 模型体验
 
@@ -19,5 +19,7 @@
 ## 已知限制与暂缓事项
 
 - **重置可能丢弃同一子树中已存储的字面 secret**：经 replace 承载的删除无法重新提供协议从未返回过的 secret；把密钥放在 `credentials.*` 引用背后（产品默认做法），该情形便不会出现。
+- **卡片上可编辑的只有 API 密钥与精选折叠区字段**：手写编辑器用 schema 通用的字段覆盖面换来了设计稿上的布局（[Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-30-web-config-plane.md)）；进阶字段（`models`、重试策略、超时……）在 `settings.yaml` 中编辑，折叠区会指向它。不带这些约定字段的 profile schema 只渲染该提示，两套精选布局则以 `llm-deepseek`/`llm-pi-ai` 这两个 namespace 的名字为键。
+- **删除一行会把它已存储的密钥留在 `.env` 里**：删除替换的是 settings profile，却刻意不清除那条派生凭据；重新添加该提供方时会发现密钥已配置。显式的密钥移除控件暂缓。
 - **页面上没有逐提供方的模型列表**：模型由选择器呈现；本页只展示路由状态。逐行的模型预览暂缓，待有消费方需要时再实现。
 - **未声明的存活路由无处渲染**：未附带可配置提供方声明即注册的路由没有 settings 地址；它在各选择器中仍然可见，但不会出现在本页的行里。
