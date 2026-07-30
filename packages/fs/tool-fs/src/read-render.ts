@@ -201,7 +201,12 @@ export function langFromPath(path: string): string | undefined {
   const dot = base.lastIndexOf('.')
   // A leading dot is a dotfile (no extension), not an empty extension.
   if (dot <= 0) return undefined
-  return LANG_BY_EXTENSION[base.slice(dot + 1).toLowerCase()]
+  const ext = base.slice(dot + 1).toLowerCase()
+  // Own-property check only: a filename whose extension is an Object.prototype
+  // key (`foo.constructor`, `foo.__proto__`) must map to no language, not to the
+  // inherited member — otherwise a function would reach `lang` and fail the
+  // tool-output JSON validation.
+  return Object.hasOwn(LANG_BY_EXTENSION, ext) ? LANG_BY_EXTENSION[ext] : undefined
 }
 
 /**

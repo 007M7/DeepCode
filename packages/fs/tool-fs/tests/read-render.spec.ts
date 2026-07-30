@@ -139,6 +139,15 @@ describe('langFromPath', () => {
     expect(langFromPath('data.unknownext')).toBeUndefined()
     expect(langFromPath('trailingdot.')).toBeUndefined()
   })
+
+  it('returns undefined for a filename whose extension is an Object.prototype key', () => {
+    // Own-property lookup only: these must not resolve to the inherited member
+    // (a function/object), which would fail the tool-output JSON validation.
+    expect(langFromPath('foo.constructor')).toBeUndefined()
+    expect(langFromPath('foo.__proto__')).toBeUndefined()
+    expect(langFromPath('foo.toString')).toBeUndefined()
+    expect(langFromPath('foo.hasOwnProperty')).toBeUndefined()
+  })
 })
 
 describe('readMetaFromMeta', () => {
