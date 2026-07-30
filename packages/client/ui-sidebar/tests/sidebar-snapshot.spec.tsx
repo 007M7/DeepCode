@@ -11,6 +11,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, waitFor } from '@testing-library/react'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 
 afterEach(cleanup)
@@ -18,6 +19,12 @@ afterEach(cleanup)
 async function bench() {
   const runtime = await SlotTestRuntime.create()
   runtime.provide('layout', { toggleSidebar: vi.fn() })
+  // English locale pins the snapshots to the copy they were recorded with;
+  // the installed face backs the entry's standard `t` seat.
+  const locale = new LocaleService(runtime.ctx)
+  locale.setLocale('en')
+  runtime.provide('locale', locale)
+  runtime.slots.installLocale(locale)
   await runtime.declare({ 'sidebar': { kind: 'single', scope: 'root' } })
   await runtime.mount({ inject: [...inject], apply })
   return runtime

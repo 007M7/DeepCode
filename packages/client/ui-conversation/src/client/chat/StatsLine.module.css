@@ -2,12 +2,22 @@
    736px message column axis. */
 
 .root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   max-width: 736px;
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
-  padding: 4px 24px 8px;
+  padding: 4px 24px 0px;
   font-size: 12px;
   line-height: 20px;
   color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sep {
+  color: var(--dsw-alias-separator-primary);
 }

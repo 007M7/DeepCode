@@ -16,7 +16,7 @@ import {
   acknowledgeReloadConnectionLoss, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
   launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/workspace-management', import.meta.url))
 // The seed is another scenario's committed fixture, reused read-only: this
@@ -42,12 +42,12 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     const agentsBefore = scaffold.ctx.agents.list().length
     await page.getByRole('button', { name: 'Create workspace' }).click()
     await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
-    const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+    const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
     await dialog.waitFor({ timeout: 10_000 })
-    await dialog.getByRole('button', { name: '编辑路径' }).click()
-    await dialog.getByLabel('编辑路径').fill(path)
-    await dialog.getByLabel('编辑路径').press('Enter')
-    await dialog.getByRole('button', { name: '打开' }).click()
+    await dialog.getByRole('button', { name: 'Edit path' }).click()
+    await dialog.getByLabel('Edit path').fill(path)
+    await dialog.getByLabel('Edit path').press('Enter')
+    await dialog.getByRole('button', { name: 'Open' }).click()
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(path),
@@ -72,7 +72,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await writeFile(join(sessionCwd, 'b.txt'), 'beta\n')
     await seedSession(scaffold, await readFile(SEED, 'utf8'), SEED_ID)
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -363,15 +363,15 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     try {
       await page.getByRole('button', { name: 'Create workspace' }).click()
       await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
-      const dialog = page.getByRole('dialog', { name: '选择工作区目录' })
+      const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
       await dialog.waitFor({ timeout: 10_000 })
-      await dialog.getByRole('button', { name: '编辑路径' }).click()
-      await dialog.getByLabel('编辑路径').fill(staged)
-      await dialog.getByLabel('编辑路径').press('Enter')
+      await dialog.getByRole('button', { name: 'Edit path' }).click()
+      await dialog.getByLabel('Edit path').fill(staged)
+      await dialog.getByLabel('Edit path').press('Enter')
       await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
       const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(BROWSER_EXPECTED, snapshot, MODE)
-      await dialog.getByRole('button', { name: '取消' }).click()
+      await dialog.getByRole('button', { name: 'Cancel' }).click()
       await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     } finally {
       if (realHome === undefined) delete process.env.HOME
@@ -406,7 +406,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     // card; no aria role — text anchors are the stable selector).
     await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBeGreaterThanOrEqual(1)
     // Leaving the anchor closes it with no delay.
-    await page.getByRole('button', { name: '设置' }).hover()
+    await page.getByRole('button', { name: 'Settings' }).hover()
     await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

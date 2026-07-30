@@ -6,7 +6,7 @@
  * cancelled error encoding, receipt checks — lives HERE, with the package
  * that consumes it.
  */
-import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Also pulls ui-conversation's SlotMap merge (the 'conversation.composer'
 // entry) into every program that sees this contract, so PropsRuntime resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -70,8 +70,9 @@ export class PendingQuestion {
 /**
  * Full component props: the framework runtime share (chain currency +
  * session/global standard kit) plus the chain `matched` share — the entry's
- * selector result, already narrowed to the question carrier. No injected
- * share: the carrier plus the domain face above carry the whole behavior
- * surface.
+ * selector result, already narrowed to the question carrier — plus the
+ * standard locale seat; the carrier plus the domain face above carry the
+ * whole behavior surface.
  */
-export type QuestionComposerProps = PropsRuntime<'conversation.composer'> & { matched: QuestionWait }
+export type QuestionComposerProps =
+  PropsRuntime<'conversation.composer'> & { matched: QuestionWait } & PropsLocale<'question'>

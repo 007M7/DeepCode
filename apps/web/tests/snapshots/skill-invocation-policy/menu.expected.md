@@ -1,3 +1,3 @@
 - listbox "Trigger suggestions":
-  - text: 技能
+  - text: Skills
   - option "policy-shared Available to both model and user invocation" [selected]
