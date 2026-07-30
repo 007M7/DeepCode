@@ -25,10 +25,10 @@
 - button "在新对话中分支":
   - img
 - text: {{clock}}
-- button:
+- 'button "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"':
   - img
   - img
-- text: "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"
+  - text: "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"
 - 'button "Think The plan was approved. The user''s last instruction says: \"Once the plan is approved, reply with the single word DONE and stop.\" So I should just reply with DONE and stop."':
   - img
   - img
