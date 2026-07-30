@@ -22,7 +22,7 @@ Status: implemented
 
 - **按文件分组的匹配，逐文件可折叠。** 每个文件是一个头行（加粗路径加它的匹配计数，整行即折叠控件），后面跟它的 `lineNumber: line` 行。折叠一个组会把它的匹配行从压平列表和高度上限的算术里去掉，但绝不从复制文本里去掉。
 - **扁平路径列表。** paths 形态每行一个路径，无头行。
-- **截断指示。** `truncated` 时，横幅摘要旁一个 pill 显示 `已截断 · 共 {total}`，因此卡片绝不把一个被截断的页面呈现为完整结果 —— 想要其余部分的读者跟随面向模型文本里的溢出定位符，与模型的做法完全一致。横幅摘要是一个朴素的结构计数（`{n} 处匹配 · {m} 个文件`，或 `{n} 个路径`）。
+- **截断指示。** `truncated` 时，横幅摘要把截断前总数折入 —— grep 为 `显示 X / 共 N 处匹配 · K 个文件`，glob 为 `显示 X / 共 N 个路径` —— 因此卡片绝不把一个被截断的页面呈现为完整结果；想要其余部分的读者跟随面向模型文本里的溢出定位符，与模型的做法完全一致。未 `truncated` 时摘要是一个朴素的结构计数（`{n} 处匹配 · {m} 个文件`，或 `{n} 个路径`）。
 - **不软换行。** 结果行在一个横向滚动的盒子里 `white-space: pre`，因此一条长匹配行或一个深路径横向滚动而不折叠。
 - **带展开控件的高度上限。** 超过 `DEFAULT_SEARCH_MAX_LINES`（16）行时显示一个头/尾切片，中间一个按钮报告被隐藏的行数，形状和算术与 `TerminalBlock` 相同。
 - **复制。** 复制控件写入整个结构化结果 —— 每个文件与匹配，或每个路径 —— 无关高度上限或哪些组被折叠，因此剪贴板携带的是结果本身，而不是卡片此刻恰好显示的内容。
@@ -33,7 +33,7 @@ Status: implemented
 
 三个渲染点消费该推导，与终端卡片的落位完全一致：
 
-- **keyed `SearchRow`**（`toolviews/search-sample.tsx`）把一个组件同时注册到 `conversation.chat.toolview` keyed hole 的 `grep` 与 `glob` 键下，并把卡片作为常驻（resident）渲染在摘要行下方，上限为 `CHAT_SEARCH_MAX_LINES`（8）—— 与 `BashRow` 对其终端卡片采取的姿态相同。两个工具名共用同一行，因为推导出的 `kind` 决定形态，第二个组件只会重复它。（该常驻姿态与当前的 terminal/diff 卡片一致；一个单独的后续 PR 会统一整行折叠/展开交互并一次性翻转所有常驻卡片 —— 不在本 PR 范围内。）
+- **keyed `SearchRow`**（`toolviews/search-row.tsx`）把一个组件同时注册到 `conversation.chat.toolview` keyed hole 的 `grep` 与 `glob` 键下，并把卡片作为常驻（resident）渲染在摘要行下方，上限为 `CHAT_SEARCH_MAX_LINES`（8）—— 与 `BashRow` 对其终端卡片采取的姿态相同。两个工具名共用同一行，因为推导出的 `kind` 决定形态，第二个组件只会重复它。（该常驻姿态与当前的 terminal/diff 卡片一致；一个单独的后续 PR 会统一整行折叠/展开交互并一次性翻转所有常驻卡片 —— 不在本 PR 范围内。）
 - **generic fallback**（`chat/GenericToolCard` → `chat/ToolRow`）把推导出的 model 作为展开门控的 body 传入，与 `terminal` 用的是同一分支：没有 keyed 行的 `grep`/`glob` 结果（发布应用里没有，因为两者都注册了）仍在行的展开开关后渲染其卡片。
 - **details panel**（`skeleton/DetailsPanel`）在 Output 段以 primitive 自身的完整高度渲染卡片，保留 JSON Input 段。
 
@@ -45,7 +45,7 @@ Status: implemented
 
 **加一个 `SearchCallView`，让行在搜索运行时就渲染卡片。** 否决：后端契约刻意没有调用阶段的搜索视图 —— 搜索在 `execute` 前没有匹配或路径。运行中的行只显示摘要，`searchCardModel` 对运行块返回 null，忠实于实际存在的东西。
 
-**复用 `TerminalBlock` 或 `CodeBlock`。** 否决：两者都不建模逐文件可折叠的组或截断 pill，都需要把按文件分组的形态硬塞进去。三个块转而共享几何与字体 token，那是唯一一处一个实现对三者都正确的部分。
+**复用 `TerminalBlock` 或 `CodeBlock`。** 否决：两者都不建模逐文件可折叠的组或折叠式截断摘要，都需要把按文件分组的形态硬塞进去。三个块转而共享几何与字体 token，那是唯一一处一个实现对三者都正确的部分。
 
 ## Consequences
 
@@ -53,7 +53,7 @@ Status: implemented
 
 ## Testing
 
-`packages/client/ui-primitives/tests/search-block.spec.tsx` 以 per-file 100% 覆盖固定组件：两种 kind、带 pre-cap total 的截断 pill、空结果分支、逐文件折叠/再展开且不影响邻居、一个文件头与其匹配一起计为一个被截断行、跨两种形态的头/尾上限及其展开控件（含无尾与默认上限的边界），以及复制控件在接受与拒绝的剪贴板路径上写入整个结构化结果。
+`packages/client/ui-primitives/tests/search-block.spec.tsx` 以 per-file 100% 覆盖固定组件：两种 kind、折入摘要的截断前总数、空结果分支、逐文件折叠/再展开且不影响邻居、一个文件头与其匹配一起计为一个被截断行、切口落在文件中间时尾部切片恢复其所属文件头、跨两种形态的头/尾上限及其展开控件（含无尾与默认上限的边界），以及复制控件在接受与拒绝的剪贴板路径上写入整个结构化结果。
 
 `packages/client/ui-conversation/tests/search-card.spec.tsx` 固定每个渲染点的接线：`searchCardModel` 对两种 kind 的推导、截断信号、替换标题，以及每个 null 分支（运行中、无视图、generic、terminal、未知卡片）；通过 `GenericToolCard` 的展开门控 matches 与 paths body，对照非搜索的 args-JSON body；`SearchRow` 对两种 kind 的常驻卡片、它与摘要行运行状态的一致、替换标题优先级，以及一个组件在 `grep` 与 `glob` 两个键下的 keyed 注册；以及 details panel 的 Output 段对两种 kind，对照非搜索的压平形态。`packages/client/ui-conversation/src/*` 在覆盖排除清单上，因此该文件不受 gate 压力。`packages/client/connection/src/client/fixture.ts` 新增一个发出 `kind: 'matches'` 的 `grep` turn 与一个发出 `kind: 'paths'` 的 `glob` turn 作为 `resultView`，两者都截断，驱动 built-boot snapshot 与实时 `?fixture` 服务。
 

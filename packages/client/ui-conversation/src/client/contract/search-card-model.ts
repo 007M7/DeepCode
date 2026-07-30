@@ -65,8 +65,10 @@ export interface SearchCardModel {
  * a still-running call (no result view) is null, as is a settled call whose
  * result view is not a search card — including a `card` value this UI version
  * does not know, which arrives over the wire and cannot be trusted to be one of
- * the compiled variants, and a generic result a `grep`/`glob` failure or nested
- * `run_code` dispatch produces (its text keeps the generic path).
+ * the compiled variants, a `card: 'search'` view whose `kind` is neither
+ * `matches` nor `paths` (equally untrusted wire data), and a generic result a
+ * `grep`/`glob` failure or nested `run_code` dispatch produces (its text keeps
+ * the generic path).
  * @param block - RunningToolCall or ToolResultNode off the snapshot caches.
  * @returns the search-card props, or null for the generic path.
  */
@@ -76,10 +78,15 @@ export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {
   const result = block.resultView?.card === 'search' ? block.resultView : null
   if (result === null) return null
   const common = { truncated: result.truncated, total: result.total }
-  return {
-    title: result.title,
-    card: result.kind === 'matches'
-      ? { kind: 'matches', files: result.files, ...common }
-      : { kind: 'paths', paths: result.paths, ...common },
+  if (result.kind === 'matches') {
+    return { title: result.title, card: { kind: 'matches', files: result.files, ...common } }
   }
+  // `kind` rides the same untrusted wire frame as `card`, so a version mismatch
+  // or a loose protocol producer could deliver a `card: 'search'` subtype this
+  // client does not compile. Guard the paths shape explicitly: an unknown kind
+  // falls to the generic path rather than being rendered as a paths card, which
+  // would leave SearchBlock calling `.length`/`.map` on an absent `paths`.
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- kind is wire data; the compiled union cannot prove this exhaustive.
+  if (result.kind !== 'paths') return null
+  return { title: result.title, card: { kind: 'paths', paths: result.paths, ...common } }
 }

@@ -15,8 +15,8 @@
   border-radius: var(--dsl-search-radius);
 }
 
-/* The banner: result summary on the left, the truncation pill and copy control
-   holding their intrinsic width on the right. */
+/* The banner: result summary on the left, the copy control holding its
+   intrinsic width on the right. */
 .header {
   display: flex;
   align-items: center;

@@ -137,7 +137,7 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
- * Structured grep result for the search sample (turn 67): matches grouped by
+ * Structured grep result for the search sample (turn 66): matches grouped by
  * file, authored inline because the client-side fixture cannot import the tool
  * that produces the canonical value. `truncated` with a larger `total` than the
  * retained match count exercises the search card's capped indicator; the file
@@ -162,33 +162,43 @@ const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; lin
 ]
 
 /**
- * The model-facing grep render text for the sample, grouped under file headers
- * with `Line N:` rows and a spill footer — what a UI without a search card
- * shows, attached as the view's `content`.
+ * The model-facing grep render text for the sample — what a UI without a search
+ * card shows, attached as the view's `content`. Mirrors the real grep
+ * presenter's shape (see formatGrepOutput in dsh-tool-fs-search): a
+ * `Found X of Y matches` header, the matches grouped under file headers with
+ * `Line N:` rows, then a spill-recovery footer.
  */
 const SEARCH_MATCHES_TEXT = [
-  ...SEARCH_MATCHES_FIXTURE.flatMap(file => [
-    file.path,
-    ...file.matches.map(m => `  Line ${m.lineNumber}: ${m.line}`),
-  ]),
+  'Found 5 of 42 matches',
   '',
-  '（已显示 5 处匹配中的前 5 处，共 42 处；其余见溢出文件）',
+  ...SEARCH_MATCHES_FIXTURE.map(file =>
+    [file.path, ...file.matches.map(m => `Line ${m.lineNumber}: ${m.line}`)].join('\n')),
+  '',
+  '(Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)',
 ].join('\n')
 
 /**
- * Structured glob result for the search sample (turn 68): a flat path list,
+ * Structured glob result for the search sample (turn 67): a flat path list,
  * truncated with a larger `total` so the path card shows its capped indicator.
  */
 const SEARCH_PATHS_FIXTURE = [
   'packages/client/ui-primitives/src/SearchBlock.tsx',
   'packages/client/ui-primitives/src/SearchBlock.module.css',
   'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
-  'packages/client/ui-conversation/src/client/toolviews/search-sample.tsx',
-  'packages/client/ui-conversation/src/client/toolviews/search-sample.module.css',
+  'packages/client/ui-conversation/src/client/toolviews/search-row.tsx',
+  'packages/client/ui-conversation/src/client/toolviews/search-row.module.css',
 ]
 
-/** The model-facing glob render text: the newline-joined path list plus a spill footer. */
-const SEARCH_PATHS_TEXT = [...SEARCH_PATHS_FIXTURE, '', '（共 23 个路径，已显示前 5 个）'].join('\n')
+/**
+ * The model-facing glob render text — the newline-joined path list plus a
+ * spill-recovery footer, mirroring the real glob presenter's shape (see
+ * formatGlobOutput in dsh-tool-fs-search).
+ */
+const SEARCH_PATHS_TEXT = [
+  ...SEARCH_PATHS_FIXTURE,
+  '',
+  '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-67. Read it to see every path.)',
+].join('\n')
 
 const DEEPSEEK_REASONING = {
   efforts: [

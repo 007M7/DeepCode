@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // SearchBlock: both kinds (grouped grep matches and a flat glob path list), the
-// truncation pill, the empty arm, per-file collapse/expand, the head/tail height
-// cap and its expand control, and the copy control writing the whole structured
+// folded truncation summary, the empty arm, per-file collapse/expand, the
+// head/tail height cap and its expand control, the tail slice restoring its
+// owning file header, and the copy control writing the whole structured
 // result on both the accepted and refused clipboard paths.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,9 +42,9 @@ describe('SearchBlock matches kind', () => {
     ]} />)
     expect(fileHeaders(view.container)).toEqual(['a.ts2', 'b.ts1'])
     expect(lines(view.container)).toEqual(['12: const a = 1', '40: return a', '7: const b = 2'])
-    // The summary counts matches and files, no truncation pill under the cap.
+    // The summary counts matches and files, with no folded pre-cap total below the cap.
     expect(view.getByText('3 处匹配 · 2 个文件')).toBeTruthy()
-    expect(view.queryByText(/已截断/u)).toBeNull()
+    expect(view.queryByText(/显示|共/u)).toBeNull()
   })
 
   it('collapses and re-expands a single file group without touching the others', () => {
@@ -64,7 +65,6 @@ describe('SearchBlock matches kind', () => {
   it('folds the pre-cap total into the summary when truncated', () => {
     const view = render(<SearchBlock kind="matches" truncated total={99} files={[group('a.ts', 2)]} />)
     expect(view.getByText('显示 2 / 共 99 处匹配 · 1 个文件')).toBeTruthy()
-    expect(view.queryByText(/已截断/u)).toBeNull()
   })
 })
 
@@ -80,7 +80,6 @@ describe('SearchBlock paths kind', () => {
   it('folds the pre-cap total into the paths summary when truncated', () => {
     const view = render(<SearchBlock kind="paths" truncated total={50} paths={['a', 'b']} />)
     expect(view.getByText('显示 2 / 共 50 个路径')).toBeTruthy()
-    expect(view.queryByText(/已截断/u)).toBeNull()
   })
 })
 
@@ -137,6 +136,20 @@ describe('SearchBlock height cap', () => {
       paths={['a', 'b', 'c', 'd', 'e']} maxLines={1} />)
     expect(lines(view.container)).toEqual(['a'])
     expect(view.getByRole('button', { name: '展开其余 4 行结果' })).toBeTruthy()
+  })
+
+  it('restores the owning file header above a tail slice that begins mid-file', () => {
+    // Two files of 10 matches each → 22 rows. Cap 8: head 4 (a.ts header + 3
+    // matches), tail 4 (last 4 of b.ts, whose header sits above the cut).
+    const view = render(<SearchBlock kind="matches" truncated={false} total={20} maxLines={8} files={[
+      group('a.ts', 10), group('b.ts', 10, 11),
+    ]} />)
+    // The tail's own header is restored so its rows can be attributed to b.ts.
+    expect(fileHeaders(view.container)).toEqual(['a.ts10', 'b.ts10'])
+    expect(lines(view.container)).toEqual([
+      '1: hit 1', '2: hit 2', '3: hit 3',
+      '17: hit 17', '18: hit 18', '19: hit 19', '20: hit 20',
+    ])
   })
 
   it('caps at the documented default when maxLines is absent', () => {

@@ -17,7 +17,7 @@ import { IconSearchOutline16, SearchBlock, StateDot } from '@deepseek-ai/dsh-cli
 import type { ToolRowProps } from '../contract/slots.ts'
 import { CHAT_SEARCH_MAX_LINES, searchCardModel } from '../contract/search-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
-import css from './search-sample.module.css'
+import css from './search-row.module.css'
 
 /** Leading-slot glyph substitution: the search icon yields to the terminal
  *  state semantic (error = red, interrupted = amber). Running keeps the icon —

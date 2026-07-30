@@ -22,7 +22,7 @@ The component's contract:
 
 - **Grouped matches, collapsible per file.** Each file is a header row (a bold path plus its match count, the whole row the collapse control) followed by its `lineNumber: line` rows. Collapsing a group drops its match rows from the flattened list and from the height cap's arithmetic, but never from the copy text.
 - **Flat path list.** The paths shape renders one path per row, no headers.
-- **A capped indicator.** When `truncated`, a pill reads `已截断 · 共 {total}` beside the banner summary, so the card never presents a capped page as the complete result — a reader who wants the rest follows the spill locator in the model-facing text, exactly as the model does. The banner summary is a plain structural count (`{n} 处匹配 · {m} 个文件`, or `{n} 个路径`).
+- **A capped indicator.** When `truncated`, the banner summary folds the pre-cap total in — `显示 X / 共 N 处匹配 · K 个文件` for grep, `显示 X / 共 N 个路径` for glob — so the card never presents a capped page as the complete result; a reader who wants the rest follows the spill locator in the model-facing text, exactly as the model does. When not `truncated` the summary is a plain structural count (`{n} 处匹配 · {m} 个文件`, or `{n} 个路径`).
 - **No soft wrapping.** Result rows are `white-space: pre` inside a horizontally scrolling box, so a long match line or a deep path scrolls sideways rather than folding.
 - **Height cap with an expand control.** More than `DEFAULT_SEARCH_MAX_LINES` (16) rows shows a head/tail slice with a button reporting the hidden count, the same shape and arithmetic as `TerminalBlock`.
 - **Copy.** The copy control writes the whole structured result — every file and match, or every path — regardless of the height cap or which groups are collapsed, so the clipboard carries the result rather than what the card happens to be showing.
@@ -33,7 +33,7 @@ Geometry, radius, and fonts mirror `CodeBlock` and `TerminalBlock`, so a search 
 
 Three sites consume the derivation, mirroring the terminal card's placement exactly:
 
-- **The keyed `SearchRow`** (`toolviews/search-sample.tsx`) registers ONE component under both `grep` and `glob` in the `conversation.chat.toolview` keyed hole, and renders the card RESIDENT under the summary row, capped at `CHAT_SEARCH_MAX_LINES` (8) — the same posture `BashRow` takes for its terminal card. Both tool names get the same row because the derived `kind` decides the shape, so a second component would duplicate it. (This resident posture matches the current terminal/diff cards; a separate later PR unifies the whole-row collapse/expand interaction and flips all resident cards at once — out of scope here.)
+- **The keyed `SearchRow`** (`toolviews/search-row.tsx`) registers ONE component under both `grep` and `glob` in the `conversation.chat.toolview` keyed hole, and renders the card RESIDENT under the summary row, capped at `CHAT_SEARCH_MAX_LINES` (8) — the same posture `BashRow` takes for its terminal card. Both tool names get the same row because the derived `kind` decides the shape, so a second component would duplicate it. (This resident posture matches the current terminal/diff cards; a separate later PR unifies the whole-row collapse/expand interaction and flips all resident cards at once — out of scope here.)
 - **The generic fallback** (`chat/GenericToolCard` → `chat/ToolRow`) threads the derived model as an expand-gated body, the same arm `terminal` uses: a `grep`/`glob` result with no keyed row (none in the shipped app, since both are registered) still renders its card behind the row's expand toggle.
 - **The details panel** (`skeleton/DetailsPanel`) renders the card at the primitive's own full height in the Output section, keeping the JSON Input section.
 
@@ -45,7 +45,7 @@ Three sites consume the derivation, mirroring the terminal card's placement exac
 
 **A `SearchCallView` so the row renders a card while the search runs.** Rejected: the backend contract deliberately has no call-time search view — a search has no matches or paths before `execute`. The running row shows its summary alone, and `searchCardModel` returns null for a running block, which is faithful to what exists.
 
-**Reuse `TerminalBlock` or `CodeBlock`.** Rejected: neither models per-file collapsible groups or a truncation pill, and both would need the grouped-matches shape bolted on. The three blocks share their geometry and font tokens instead, which is the only part where one implementation is correct for all.
+**Reuse `TerminalBlock` or `CodeBlock`.** Rejected: neither models per-file collapsible groups or a folded capped-result summary, and both would need the grouped-matches shape bolted on. The three blocks share their geometry and font tokens instead, which is the only part where one implementation is correct for all.
 
 ## Consequences
 
@@ -53,7 +53,7 @@ Three sites consume the derivation, mirroring the terminal card's placement exac
 
 ## Testing
 
-`packages/client/ui-primitives/tests/search-block.spec.tsx` pins the component at per-file 100%: both kinds, the truncation pill with its pre-cap total, the empty arm, per-file collapse/re-expand without touching neighbours, a file header counting as one capped row alongside its matches, the head/tail cap and its expand control across both shapes and the no-tail and default-cap edges, and the copy control writing the whole structured result on the accepted and refused clipboard paths.
+`packages/client/ui-primitives/tests/search-block.spec.tsx` pins the component at per-file 100%: both kinds, the folded pre-cap total in the summary, the empty arm, per-file collapse/re-expand without touching neighbours, a file header counting as one capped row alongside its matches, the tail slice restoring its owning file header when the cut falls mid-file, the head/tail cap and its expand control across both shapes and the no-tail and default-cap edges, and the copy control writing the whole structured result on the accepted and refused clipboard paths.
 
 `packages/client/ui-conversation/tests/search-card.spec.tsx` pins the wiring at every render site: `searchCardModel`'s derivation for both kinds, the truncation signal, the replacement title, and each null arm (running, no views, generic, terminal, unknown card); the chat row's expand-gated matches and paths bodies through `GenericToolCard` against the non-search args-JSON body; `SearchRow`'s resident card for both kinds, its agreement with the summary row's run state, the replacement-title precedence, and the keyed registration under both `grep` and `glob` with one component; and the details panel's Output section for both kinds against the non-search flattened form. `packages/client/ui-conversation/src/*` sits on the coverage exclude list, so this file is written against no gate pressure. `packages/client/connection/src/client/fixture.ts` gains a `grep` turn emitting `kind: 'matches'` and a `glob` turn emitting `kind: 'paths'` as `resultView`, both truncated, driving the built-boot snapshot and the live `?fixture` server.
 

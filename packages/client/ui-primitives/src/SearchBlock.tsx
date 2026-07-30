@@ -1,13 +1,14 @@
 // SearchBlock: the search surface for a completed content or path search — a
-// banner (result count + a truncation pill when the tool capped the result +
-// a copy control), then either grep matches grouped by file (each file a bold
+// banner (result summary that folds the pre-cap total in when the tool capped
+// the result, plus a copy control), then either grep matches grouped by file
+// (each file a bold
 // path header with its `lineNumber: line` rows, the group collapsible) or a
 // flat glob path list. Both shapes flatten to one list of rows the height cap
 // slices head/tail over, and neither soft-wraps: a long match line or path
 // scrolls horizontally instead of folding. Geometry mirrors CodeBlock and
 // TerminalBlock so a search card reads as one family with them.
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { writeClipboard } from './clipboard.ts'
 import css from './SearchBlock.module.css'
@@ -39,8 +40,9 @@ export interface SearchFileGroup {
 interface SearchBlockCommon {
   /**
    * Whether the tool capped the inline result: the shape carries only the
-   * retained results, not every result the search found. A truncation pill is
-   * shown so the card never presents a capped result as complete.
+   * retained results, not every result the search found. The banner summary
+   * folds the pre-cap `total` in (`显示 X / 共 N …`) so the card never presents a
+   * capped result as complete.
    */
   truncated: boolean
   /** Total results the search found before capping (equals the retained count when not `truncated`). */
@@ -77,7 +79,7 @@ export type SearchBlockProps = SearchMatchesBlockProps | SearchPathsBlockProps
  */
 type SearchRow =
   | { type: 'file'; path: string; count: number; index: number; collapsed: boolean }
-  | { type: 'match'; lineNumber: number; line: string; key: string }
+  | { type: 'match'; lineNumber: number; line: string; key: string; fileIndex: number }
   | { type: 'path'; path: string }
 
 /**
@@ -97,7 +99,7 @@ function copyText(props: SearchBlockProps): string {
 /**
  * Number of retained results the card holds: the matched-line count across all
  * files for a matches card, the path count for a paths card. This is the count
- * the truncation pill reports against `total`.
+ * the banner summary reports against `total` when the result was capped.
  * @param props - the card's props.
  * @returns the retained result count.
  */
@@ -141,7 +143,7 @@ function toRows(props: SearchBlockProps, collapsed: ReadonlySet<number>): Search
     rows.push({ type: 'file', path: file.path, count: file.matches.length, index, collapsed: isCollapsed })
     if (isCollapsed) return
     for (const match of file.matches) {
-      rows.push({ type: 'match', lineNumber: match.lineNumber, line: match.line, key: `${index}:${match.lineNumber}` })
+      rows.push({ type: 'match', lineNumber: match.lineNumber, line: match.line, key: `${index}:${match.lineNumber}`, fileIndex: index })
     }
   })
   return rows
@@ -173,7 +175,9 @@ export function SearchBlock(props: SearchBlockProps) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())
   const [copied, setCopied] = useState(false)
 
-  const rows = useMemo(() => toRows(props, collapsed), [props, collapsed])
+  // `props` is a fresh object each render, so memoizing on it never hits; the
+  // flatten is cheap, so it runs inline keyed on the collapse set instead.
+  const rows = toRows(props, collapsed)
   const shown = shownCount(props)
   const empty = rows.length === 0
   const text = copyText(props)
@@ -204,6 +208,18 @@ export function SearchBlock(props: SearchBlockProps) {
   // tool card), so a long result's head and tail slices agree across surfaces.
   const headLines = Math.ceil(maxLines / 2)
   const tailLines = maxLines - headLines
+  const head = capped ? rows.slice(0, headLines) : rows
+  const tail = capped ? rows.slice(rows.length - tailLines) : []
+  // When the tail slice begins inside a file's matches, its own header sits
+  // above the cut and is not shown, so those rows could not be attributed to a
+  // file. Restore the owning header at the top of the tail — unless the head
+  // slice already carries it (a single large file), where it would duplicate.
+  const tailLead = tail[0]
+  const tailHeader = tailLead?.type === 'match'
+    && !head.some(row => row.type === 'file' && row.index === tailLead.fileIndex)
+    ? rows.find((row): row is Extract<SearchRow, { type: 'file' }> =>
+      row.type === 'file' && row.index === tailLead.fileIndex)
+    : undefined
 
   const renderRow = (row: SearchRow): ReactNode => {
     if (row.type === 'path') return <div className={css.line}>{row.path}</div>
@@ -242,7 +258,7 @@ export function SearchBlock(props: SearchBlockProps) {
         ? <div className={css.empty}>无结果</div>
         : (
           <div className={css.body}>
-            {(capped ? rows.slice(0, headLines) : rows).map(row => (
+            {head.map(row => (
               <div key={rowKey(row)}>{renderRow(row)}</div>
             ))}
             {hidden > 0 && (
@@ -256,7 +272,10 @@ export function SearchBlock(props: SearchBlockProps) {
                 {expanded ? '收起' : `… 其余 ${hidden} 行`}
               </button>
             )}
-            {capped && rows.slice(rows.length - tailLines).map(row => (
+            {tailHeader !== undefined && (
+              <div key={`tailHeader:${rowKey(tailHeader)}`}>{renderRow(tailHeader)}</div>
+            )}
+            {tail.map(row => (
               <div key={rowKey(row)}>{renderRow(row)}</div>
             ))}
           </div>

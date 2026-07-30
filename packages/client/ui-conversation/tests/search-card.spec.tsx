@@ -18,7 +18,7 @@ import { CHAT_SEARCH_MAX_LINES, searchCardModel } from '../src/client/contract/s
 import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
-import { SearchRow, searchToolview } from '../src/client/toolviews/search-sample.tsx'
+import { SearchRow, searchToolview } from '../src/client/toolviews/search-row.tsx'
 
 afterEach(cleanup)
 
