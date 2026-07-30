@@ -14,7 +14,7 @@ Status: implemented
 
 [`THIRD_PARTY_NOTICES.md`](../../../../THIRD_PARTY_NOTICES.md) 由 [`scripts/gen-third-party-notices.ts`](../../../../scripts/gen-third-party-notices.ts) 依据各工作区清单、`vendor/README.md`、`pyproject.toml` 与 `pnpm-workspace.yaml` 生成。根 README 双语两侧都从「许可证」一节链到该文件。
 
-**新鲜度靠维护而非拦截。** 只要暂存了生成器的任一输入——任何清单文件、两个锁文件、`vendor/README.md`、某个 `pyproject.toml`、生成器自身，或持有构建期 pin 的脚本——pre-commit 任务就会重新生成并一并入库，改依赖的人不必事后再折返跑一次生成器。已提交的字节随后由 [`scripts/gen-third-party-notices.spec.ts`](../../../../scripts/gen-third-party-notices.spec.ts) 断言，而测试 lane 本就会跑这个文件——这项校验不增加门禁进程、不占调度位、也不新增 CI 步骤。需要单独校验时，`pnpm run verify-third-party-notices` 仍然可用。
+**新鲜度靠维护而非拦截。** 只要暂存了生成器的任一输入——任何清单文件、工作区声明、根锁文件、`vendor/README.md`、某个 `pyproject.toml`、生成器自身，或持有构建期 pin 的脚本——pre-commit 任务就会重新生成并一并入库，改依赖的人不必事后再折返跑一次生成器。已提交的字节随后由 [`scripts/gen-third-party-notices.spec.ts`](../../../../scripts/gen-third-party-notices.spec.ts) 断言，而测试 lane 本就会跑这个文件——这项校验不增加门禁进程、不占调度位、也不新增 CI 步骤。需要单独校验时，`pnpm run verify-third-party-notices` 仍然可用。
 
 有一处触发缺口是接受而非绕过的：lefthook 只检视磁盘上存在的文件，因此**删除**清单文件不会触发任何任务，移除一个包会落到测试 lane 的断言上。重构暂存文件列表以纳入删除的做法试过，不成立——无论怎么给列表，lefthook 都会拿工作树过滤一遍。这个场景正由断言兜底。
 
@@ -24,11 +24,11 @@ Status: implemented
 
 运行时层刻意覆盖**所有可挂载的插件**，而不止 CLI、Web UI 与 Python 运行时默认加载的那些。`scripts/install.sh` 安装的就是仓库本身，用户的 `cordis.yml` 可以挂载任何插件包；`@modelcontextprotocol/sdk` 与 OpenTelemetry 系列即使没有任何默认装配引入，也会触达真实用户。对法务披露而言，披露不足才是代价更高的那个方向。
 
-许可证与仓库地址取自已安装的 pnpm store，因此生成器要求工作树已安装依赖；某个包两处都解析不到时直接失败，而不是留下空单元格。`OVERRIDES` 收录已发布清单答不上来的包：用 Rust 构建、发布时省略 `license` 字段的 npm 可执行包，以及 `modelcontextprotocol/servers` 系列——该仓库正处在 MIT 向 Apache-2.0 的重新许可过程中，实际条款按贡献逐条而定。被源码收编的包会与 `vendor/README.md` 交叉核对，出现非 MIT 即报错；`pnpm-workspace.yaml` 的 `patchedDependencies` 列在运行时表格之后，因为 pnpm 在安装期就会打上这些补丁——交付产物携带的是改动过的 `@earendil-works/pi-tui` 与 `node-pty`，补丁文件本身就是改动的完整记录。
+清单集合由两个 `pnpm-workspace.yaml`——根工作区与嵌套的 Landlock 工作区——各自声明的 `packages:` 成员派生，因此新增成员区域在声明当天就会被读取，而不必等谁想起来去补一份列表。许可证与仓库地址取自已安装的 pnpm store，根 store 与 Landlock 工作区的 store 都会查；某个包两处都解析不到时直接失败，而不是留下空单元格。`OVERRIDES` 收录已发布清单答不上来的包：用 Rust 构建、发布时省略 `license` 字段的 npm 可执行包，以及 `modelcontextprotocol/servers` 系列——该仓库正处在 MIT 向 Apache-2.0 的重新许可过程中，实际条款按贡献逐条而定。运行时依赖的许可证若不在宽松清单内即为硬失败：交付 copyleft 是一项分发决策，不该被一次重新生成悄悄吸收。被源码收编的包会与 `vendor/README.md` 交叉核对，出现非 MIT 即报错；`pnpm-workspace.yaml` 的 `patchedDependencies` 列在运行时表格之后，因为 pnpm 在安装期就会打上这些补丁——交付产物携带的是改动过的 `@earendil-works/pi-tui` 与 `node-pty`，补丁文件本身就是改动的完整记录。
 
 ## Testing
 
-断言新鲜度的同一个 spec 也用夹具清单钉住分层规则，覆盖促成该规则的两个场景：测试支撑包的 `dependencies` 条目，以及没有任何应用挂载的插件包。它同时钉住被收编包的表格解析器能读出已提交的清单表，且表格形态一变就解析为空——正是这一点让生成器直接失败，而不是产出一个空章节。
+断言新鲜度的同一个 spec 也用夹具清单钉住分层规则，覆盖促成该规则的两个场景：测试支撑包的 `dependencies` 条目，以及没有任何应用挂载的插件包。它还把各解析器钉在那些原本会让某个包无声消失的形态上：不再覆盖全部收编目录的 `vendor/README.md` 表、含 extras 的依赖数组（`"httpx[http2]"`）、完全不带版本的依赖、作者自取名字的 `[dependency-groups]` 表，以及任何硬编码列表都不含的工作区成员区域。这些都是静默漏报路径——正是披露文件最担不起的失败方式。
 
 ## Alternatives considered
 

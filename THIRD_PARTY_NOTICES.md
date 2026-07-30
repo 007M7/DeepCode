@@ -139,6 +139,7 @@ External packages declared only by repository tooling, test infrastructure, the 
 
 `eslint-plugin-sonarjs` (LGPL-3.0-only) and `lightningcss` (MPL-2.0) run only as development tooling; their code is not linked into or distributed with any DeepSeek Harness artifact.
 
+
 ## Python SDK dependencies (`python/`)
 
 Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the development workflow tool.

@@ -110,11 +110,36 @@ function readManifest(rel: string): Manifest {
   return JSON.parse(readFileSync(resolve(root, rel), 'utf8')) as Manifest
 }
 
+/**
+ * Manifest globs, derived from the workspace declarations rather than listed
+ * here, so a new member area (`tools/*`) is read the day it is declared.
+ * @returns one glob per manifest-bearing location, repository-relative.
+ */
+export function manifestPatterns(rootMembers: readonly string[], nativeMembers: readonly string[]): string[] {
+  return [
+    'package.json',
+    ...rootMembers.map(member => `${member}/package.json`),
+    // The demo leaves join the workspace through `examples/package.json`, so
+    // their own manifests are members of nothing and no glob above reaches them.
+    'examples/*/package.json',
+    // `native/landlock-run` is a nested workspace with its own lock file.
+    'native/landlock-run/package.json',
+    ...nativeMembers.map(member => `native/landlock-run/${member}/package.json`),
+  ]
+}
+
+/** The `packages:` member globs declared by one pnpm workspace file. */
+function workspaceMembers(rel: string): string[] {
+  const declared = (yaml.load(readFileSync(resolve(root, rel), 'utf8')) as { packages?: unknown }).packages
+  if (!Array.isArray(declared) || declared.length === 0) {
+    throw new Error(`gen-third-party-notices: ${rel} declares no workspace members; the manifest set cannot be derived.`)
+  }
+  return declared.map(member => String(member))
+}
+
 /** Every workspace manifest, keyed by path, plus the set of workspace package names. */
 function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Set<string> } {
-  // `native/landlock-run` is a nested workspace with its own lock file; its
-  // leaf manifests live one level deeper than this repository's own tiers.
-  const patterns = ['package.json', 'vendor/*/package.json', 'packages/*/*/package.json', 'apps/*/package.json', 'website/package.json', 'examples/package.json', 'python/sdk-runtime/package.json', 'native/landlock-run/package.json', 'native/landlock-run/packages/*/package.json']
+  const patterns = manifestPatterns(workspaceMembers('pnpm-workspace.yaml'), workspaceMembers('native/landlock-run/pnpm-workspace.yaml'))
   const manifests = new Map<string, Manifest>()
   const names = new Set<string>()
   for (const pattern of patterns) {
@@ -132,15 +157,21 @@ function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Se
 function installedMetadata(name: string): { license: string; repo: string } {
   const override = OVERRIDES[name]
   let manifest: (Manifest & { license?: string; repository?: string | { url?: string }; homepage?: string }) | undefined
-  const direct = resolve(root, 'node_modules', name, 'package.json')
-  if (existsSync(direct)) {
-    manifest = JSON.parse(readFileSync(direct, 'utf8')) as typeof manifest
-  } else {
-    const prefix = `${name.replace('/', '+')}@`
-    const entry = readdirSync(resolve(root, 'node_modules/.pnpm')).find(dir => dir.startsWith(prefix))
-    if (entry !== undefined) {
-      manifest = JSON.parse(readFileSync(resolve(root, 'node_modules/.pnpm', entry, 'node_modules', name, 'package.json'), 'utf8')) as typeof manifest
+  // The nested Landlock workspace installs into its own store, so a package
+  // only that workspace depends on is unreachable from the root one.
+  for (const store of ['node_modules', 'native/landlock-run/node_modules']) {
+    const direct = resolve(root, store, name, 'package.json')
+    if (existsSync(direct)) {
+      manifest = JSON.parse(readFileSync(direct, 'utf8')) as typeof manifest
+      break
     }
+    const virtual = resolve(root, store, '.pnpm')
+    if (!existsSync(virtual)) continue
+    const prefix = `${name.replace('/', '+')}@`
+    const entry = readdirSync(virtual).find(dir => dir.startsWith(prefix))
+    if (entry === undefined) continue
+    manifest = JSON.parse(readFileSync(resolve(virtual, entry, 'node_modules', name, 'package.json'), 'utf8')) as typeof manifest
+    break
   }
   const license = override?.license ?? manifest?.license
   const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage
@@ -272,20 +303,72 @@ export function parsePythonRequirements(block: string): string[] {
   return names
 }
 
+/**
+ * Every requirement name a `pyproject.toml` declares, located by TOML table
+ * rather than by key name: `requires` under `[build-system]`, `dependencies`
+ * under `[project]`, and every key under `[project.optional-dependencies]` and
+ * `[dependency-groups]`, whose keys are author-chosen group names. Array bodies
+ * are scanned with quote awareness, because a requirement may itself contain
+ * `]` inside extras (`"httpx[http2]"`).
+ * @param text - the complete `pyproject.toml` contents.
+ * @returns each declared requirement's distribution name, in file order.
+ */
+export function parsePyprojectRequirements(text: string): string[] {
+  const names: string[] = []
+  let table = ''
+  const lines = text.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? ''
+    const header = /^\s*\[([^\]]+)]\s*$/.exec(line)
+    if (header?.[1] !== undefined) {
+      table = header[1]
+      continue
+    }
+    const assignment = /^\s*([A-Za-z0-9._-]+)\s*=\s*\[/.exec(line)
+    if (assignment?.[1] === undefined) continue
+    const key = assignment[1]
+    const bearsRequirements = (table === 'build-system' && key === 'requires')
+      || (table === 'project' && key === 'dependencies')
+      || table === 'project.optional-dependencies'
+      || table === 'dependency-groups'
+    if (!bearsRequirements) continue
+
+    // Consume the array body from the opening bracket to its match, ignoring
+    // brackets inside quoted requirements.
+    let body = ''
+    let depth = 0
+    let quoted = false
+    let cursor = index
+    let column = line.indexOf('[')
+    scan: for (; cursor < lines.length; cursor += 1) {
+      const current = lines[cursor] ?? ''
+      for (; column < current.length; column += 1) {
+        const character = current[column] ?? ''
+        if (character === '"' || character === "'") quoted = !quoted
+        if (!quoted && character === '[') depth += 1
+        if (!quoted && character === ']') {
+          depth -= 1
+          if (depth === 0) break scan
+        }
+        if (depth > 0) body += character
+      }
+      body += '\n'
+      column = 0
+    }
+    if (depth !== 0) throw new Error(`gen-third-party-notices: unterminated ${key} array in a pyproject.toml table [${table}].`)
+    names.push(...parsePythonRequirements(body))
+    index = cursor
+  }
+  return names
+}
+
 /** Direct Python dependencies named by the `pyproject.toml` manifests under `python/`. */
 function collectPython(): { name: string; license: string; repo: string; role: string }[] {
   const found = new Set<string>()
   for (const path of ['python/sdk/pyproject.toml', 'python/sdk-runtime/pyproject.toml']) {
-    const text = readFileSync(resolve(root, path), 'utf8')
-    // Requirement arrays only: `[project] name`/`readme` and `[tool.*]` string
-    // values would otherwise read as dependencies.
-    for (const block of text.matchAll(/(?:^|\n)\s*(?:requires|dependencies|test|dev|lint)\s*=\s*\[([^\]]*)\]/g)) {
-      const body = block[1]
-      if (body === undefined) continue
-      for (const name of parsePythonRequirements(body)) {
-        if (name.startsWith('deepseek')) continue
-        found.add(name)
-      }
+    for (const name of parsePyprojectRequirements(readFileSync(resolve(root, path), 'utf8'))) {
+      if (name.startsWith('deepseek')) continue
+      found.add(name)
     }
   }
   return [...found].sort((a, b) => a.localeCompare(b)).map((name) => {
@@ -311,6 +394,33 @@ function verifyBuildTimePins(): void {
   }
 }
 
+/**
+ * Whether an SPDX expression is a permissive license this project may ship.
+ * Anything outside the list — copyleft or unrecognized — is reported rather
+ * than silently rendered, because the tier tables assert what may be linked.
+ * @param license - the SPDX expression from the package manifest.
+ * @returns true when every alternative in the expression is permissive.
+ */
+export function isPermissive(license: string): boolean {
+  const permissive = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0'])
+  return license.split('/').map(part => part.trim().replace(/^\(|\)$/g, ''))
+    .flatMap(part => part.split(' OR ').map(alternative => alternative.trim()))
+    .some(alternative => permissive.has(alternative))
+}
+
+/**
+ * Render the sentence that isolates non-permissive development tooling, or
+ * nothing at all when every development dependency is permissive.
+ * @param deps - development dependencies whose license is not permissive.
+ * @returns the paragraph to place after the development table.
+ */
+function renderNonPermissiveNote(deps: ExternalDep[]): string {
+  if (deps.length === 0) return ''
+  const named = deps.map(dep => `\`${dep.name}\` (${dep.license})`)
+  const subject = named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`
+  return `\n${subject} ${named.length === 1 ? 'runs' : 'run'} only as development tooling; their code is not linked into or distributed with any DeepSeek Harness artifact.\n`
+}
+
 /** Render one npm dependency table. */
 function renderNpmTable(deps: ExternalDep[]): string {
   const lines = ['| Package | License |', '| --- | --- |']
@@ -331,7 +441,13 @@ export function render(): string {
   const python = collectPython()
   const patched = collectPatched()
 
-  const nonPermissiveDev = devDeps.filter(dep => dep.license.startsWith('LGPL') || dep.license.startsWith('MPL'))
+  const nonPermissiveDev = devDeps.filter(dep => !isPermissive(dep.license))
+  // A copyleft license reaching a shipped surface is a distribution decision,
+  // not a rendering detail; the notices cannot quietly absorb it.
+  const nonPermissiveRuntime = runtimeDeps.filter(dep => !isPermissive(dep.license))
+  if (nonPermissiveRuntime.length > 0) {
+    throw new Error(`gen-third-party-notices: runtime ${nonPermissiveRuntime.map(dep => `${dep.name} (${dep.license})`).join(', ')} is not a permissive license; review the distribution terms and record the decision before regenerating.`)
+  }
   const patchedLines = patched.map(({ spec, patch }) => `- \`${spec}\` — [\`${patch}\`](${patch})`)
 
   return `<!-- Generated by scripts/gen-third-party-notices.ts — do not edit by hand.
@@ -368,8 +484,7 @@ ${patchedLines.join('\n')}
 External packages declared only by repository tooling, test infrastructure, the documentation site, the demo leaves, or the native launcher's build workspace. They are not part of any shipped runtime artifact.
 
 ${renderNpmTable(devDeps)}
-
-${nonPermissiveDev.map(dep => `\`${dep.name}\` (${dep.license})`).join(' and ')} run only as development tooling; their code is not linked into or distributed with any DeepSeek Harness artifact.
+${renderNonPermissiveNote(nonPermissiveDev)}
 
 ## Python SDK dependencies (\`python/\`)
 

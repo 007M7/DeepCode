@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { type Manifest, parsePythonRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
+import { isPermissive, type Manifest, manifestPatterns, parsePyprojectRequirements, parsePythonRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -94,9 +94,61 @@ describe('parsePythonRequirements', () => {
   })
 
   it('reads the committed manifests', () => {
-    const text = readFileSync(resolve(root, 'python/sdk/pyproject.toml'), 'utf8')
-    const block = /dependencies\s*=\s*\[([^\]]*)\]/.exec(text)?.[1] ?? ''
+    expect(parsePyprojectRequirements(readFileSync(resolve(root, 'python/sdk/pyproject.toml'), 'utf8'))).toContain('pydantic')
+  })
+})
 
-    expect(parsePythonRequirements(block)).toContain('pydantic')
+describe('parsePyprojectRequirements', () => {
+  it('locates requirement arrays by TOML table, so author-named groups are not missed', () => {
+    expect(parsePyprojectRequirements([
+      '[build-system]',
+      'requires = ["hatchling>=1.24.0"]',
+      '',
+      '[project]',
+      'name = "not-a-requirement"',
+      'dependencies = ["pydantic>=2.12"]',
+      '',
+      '[project.optional-dependencies]',
+      'cli = ["click"]',
+      '',
+      '[dependency-groups]',
+      'docs = ["sphinx>=7"]',
+      '',
+      '[tool.hatch.build.targets.wheel]',
+      'packages = ["src/deepseek_harness"]',
+      '',
+      '[tool.pytest.ini_options]',
+      'testpaths = ["tests"]',
+    ].join('\n'))).toEqual(['hatchling', 'pydantic', 'click', 'sphinx'])
+  })
+
+  it('does not truncate an array at a bracket inside extras', () => {
+    expect(parsePyprojectRequirements('[project]\ndependencies = ["httpx[http2]", "requests"]\n'))
+      .toEqual(['httpx', 'requests'])
+  })
+
+  it('reads a multi-line array', () => {
+    expect(parsePyprojectRequirements('[project]\ndependencies = [\n  "pydantic>=2.12",\n  "typing-extensions",\n]\n'))
+      .toEqual(['pydantic', 'typing-extensions'])
+  })
+})
+
+describe('isPermissive', () => {
+  it('accepts the licenses this project ships and rejects copyleft or unknown ones', () => {
+    expect(['MIT', 'ISC', 'BSD-3-Clause', 'Apache-2.0', 'MIT / Apache-2.0', '(MIT OR CC0-1.0)'].every(isPermissive)).toBe(true)
+    expect(['LGPL-3.0-only', 'MPL-2.0', 'GPL-3.0-or-later', 'SEE LICENSE IN LICENSE'].some(isPermissive)).toBe(false)
+  })
+})
+
+describe('manifestPatterns', () => {
+  it('derives globs from the declared members, so a new member area is read', () => {
+    expect(manifestPatterns(['packages/*/*', 'tools/*'], ['packages/*'])).toEqual([
+      'package.json',
+      'packages/*/*/package.json',
+      'tools/*/package.json',
+      'examples/*/package.json',
+      'native/landlock-run/package.json',
+      'native/landlock-run/packages/*/package.json',
+    ])
   })
 })
