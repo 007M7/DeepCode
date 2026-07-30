@@ -56,6 +56,8 @@ interface Scenario {
   seedWorkspace?: boolean
   /** Add the launcher's model-visible DSH source checkout at this fixed path. */
   harnessSourceRoot?: string
+  /** Replace the real `pwd` result with a portable fixed-length workspace path. */
+  normalizePwdResult?: boolean
   /**
    * Load the opt-in `todo_write` tool for this scenario. The shipped tui-agent
    * config omits it, so only the todo-plan scenario (the enabled-path proof)
@@ -103,6 +105,7 @@ const SCENARIOS: Scenario[] = [
     expectedTools: ['bash'],
     recorded: true,
     harnessSourceRoot: '/opt/dsh-source',
+    normalizePwdResult: true,
   },
   {
     name: 'parallel-file-reads',
@@ -323,6 +326,14 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       await cp(source, cwd, { recursive: true })
     }
     ctx = await mountScenarioContext(scenario, cwd, displayCwd, fixtureFile, childFiles, replayRoot)
+    if (scenario.normalizePwdResult === true) {
+      ctx.on('tools/post-execute', async (exec, result, next) => {
+        const args = exec.arguments as { command?: unknown }
+        return exec.name === 'bash' && args.command === 'pwd' && !result.isError
+          ? { kind: 'accept', content: [{ type: 'text', text: '/workspace/project\n' }] }
+          : next()
+      })
+    }
     const disposedSessions: Session[] = []
     ctx.on('session/disposed', (session) => { disposedSessions.push(session) })
     const workflowEvents: string[] = []

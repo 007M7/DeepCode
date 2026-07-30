@@ -26,8 +26,8 @@ buffer
   style 0-46 fg=green
 12| "$ pwd                                                                                               "
   style 0-4 dim
-13| "/workspace/project                                        "
-  style 0-59 dim
+13| "/workspace/project                                                                                  "
+  style 0-17 dim
 14| "[exit 0]                                                                                            "
   style 0-7 dim
 15| "Model wait 0.0s · Completed 2026-07-21 12:00:00                                                     "
