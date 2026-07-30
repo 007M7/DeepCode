@@ -131,7 +131,7 @@ idle inject:
 
 ### Agent 句柄
 
-`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件用 `followup()`、`steer()` 和 `inject()` 驱动 agent；`cancel()` 停止工作，而拆卸由需等待完成的 disposer 负责。`followup()` 只会将一条带标识的消息排队：其 `MessageId` 跟踪持久 inbox 准入，而不标识某个提示词特有的输出或轮次结束。`agent/status` 与 `whenIdle()` 描述整个 agent 的活动；只有显式拥有某个活动区间的调用方才能将该区间概括为一次运行的结果（[提案](../.agents/notes/proposed/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
+`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件用 `followup()`、`steer()` 和 `inject()` 驱动 agent；`cancel()` 停止工作，而拆卸由需等待完成的 disposer 负责。`followup()` 只会将一条带标识的消息排队：其 `MessageId` 跟踪持久 inbox 准入，而不标识某个提示词特有的输出或轮次结束。`agent/status` 与 `whenIdle()` 描述整个 agent 的活动；只有显式拥有某个活动区间的调用方才能将该区间概括为一次运行的结果（[决策](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
 
 ### Agent 作用域
 

@@ -68,7 +68,7 @@ The handle every plugin programs against:
 - `agent.whenIdle()` — observe whole-agent quiescence, including replacement work scheduled before the current driver retires. It does not settle any particular message.
 - `agent.session`, `agent.status`, `agent.options`, `agent.id`, `agent.ctx`
 
-`running` describes a driver-wide drain interval, not proof that a turn is still open; it can cover turn close, the durability checkpoint, and consecutive queued turns. Only a caller that owns a complete interval may summarize it as a run result ([proposal](../../../.agents/notes/proposed/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
+`running` describes a driver-wide drain interval, not proof that a turn is still open; it can cover turn close, the durability checkpoint, and consecutive queued turns. Only a caller that owns a complete interval may summarize it as a run result ([decision](../../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
 
 ### Extension points
 
