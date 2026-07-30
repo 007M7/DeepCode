@@ -7,11 +7,7 @@ import { toFetchHandler } from '../src/fetch/handler.ts'
 import { AbstractApiClient, InProcessApiClient } from '../src/fetch/client.ts'
 
 /** Minimal in-memory ApiProxy: echoes rpcIds, scripts one frame per stream. */
-function fakeApi(overrides: Partial<{
-  muxFrames: MuxFrame[]
-  hostFrames: HostFrame[]
-  crashOn: string
-}> = {}): ApiProxy {
+function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFrame[]; crashOn: string }> = {}): ApiProxy {
   const muxFrames = overrides.muxFrames ?? [{ type: 'session/subscribed', sessionId: 's1' as never, lastSeq: -1 }]
   const hostFrames = overrides.hostFrames ?? [{ type: 'host/session-removed', sessionId: 's1' as never }]
   async function * stream<F>(frames: F[], signal: AbortSignal): AsyncGenerator<RpcRequest<F>> {
@@ -92,13 +88,7 @@ function fakeApi(overrides: Partial<{
     },
     host: {
       async describe(request) {
-        return {
-          rpcId: request.rpcId,
-          result: {
-            ok: true,
-            value: { version: 'v', cwd: '/w', attachedSessions: 0 },
-          },
-        }
+        return { rpcId: request.rpcId, result: { ok: true, value: { version: 'v', cwd: '/w', attachedSessions: 0 } } }
       },
       async pickDirectory(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { path: null } } }
