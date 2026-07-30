@@ -250,6 +250,29 @@ export interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * Marks the end of a constructor seed. Events before it have smaller seq
+   * values and came from the seed (resume, fork, or replay); this lifecycle
+   * produced none of them. This log-only event is the durable projection of
+   * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
+   * carry the meaning.
+   *
+   * Locate the LAST one in stored history. A seed already ending in one is not
+   * re-marked, so reopening an untouched session does not grow its log per
+   * pickup and the event need not be at the current `firstLiveSeq`.
+   *
+   * `Session`'s constructor is the only legitimate writer. The invariant
+   * companion deliberately constrains nothing here, so a plugin appending one
+   * would silently classify every live bracket before it as seed history.
+   *
+   * An owner of a standalone open/close bracket (`compact/start` …
+   * `compact/end`) reads it because seed history and live work are otherwise
+   * byte-identical: an unmatched opening marker before this event belongs to
+   * an ended lifecycle, whatever ended it. NOT a liveness signal about other
+   * writers — a concurrently live session holds its own boundary elsewhere,
+   * so tolerating concurrent writers needs a signal beyond the log.
+   */
+  'session/end-seed': Record<string, never>
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */
