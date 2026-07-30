@@ -5,6 +5,12 @@
  * question carrier (matched prop), and the whole behavior surface rides the
  * carrier (domain encoding in contract/slots.ts PendingQuestion); copy rides
  * the standard locale seat. Export discipline: packages/client/AGENTS.md.
+ *
+ * One entry, two shapes: the composer renders a request that declares a
+ * presentation intent as that intent's own surface (`plan-review` → the plan
+ * decision card) and every other request as the generic question flow. A
+ * separate chain entry per shape would race the same carrier, so the shape
+ * choice lives inside this entry — see QuestionComposer.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -14,8 +20,10 @@ import type { QuestionWait } from './contract/slots.ts'
 import { QuestionComposer } from './QuestionComposer.tsx'
 import { en, zh, type QuestionKey } from './locales.ts'
 
-export { PendingQuestion } from './contract/slots.ts'
-export type { QuestionAnswer, QuestionComposerProps, QuestionWait } from './contract/slots.ts'
+export { PendingQuestion, planReviewOf } from './contract/slots.ts'
+export type {
+  PlanReview, QuestionAnswer, QuestionComposerProps, QuestionWait,
+} from './contract/slots.ts'
 export type { QuestionKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
