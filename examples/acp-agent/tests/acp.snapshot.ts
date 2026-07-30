@@ -212,10 +212,16 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
   },
-  // Prompt-submit blocks are authored keylessly. Admission rejects before a
-  // turn opens, so only the ACP stop reason is observable and no log is harvested.
+  // Prompt-submit blocks are authored keylessly with malformed matcher fields,
+  // which these matcherless events must ignore. Admission rejects before a turn
+  // opens, so only the ACP stop reason is observable and no log is harvested.
   { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, recorded: false },
   { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, recorded: false },
+  // Each invalid matcher follows a runnable prompt blocker. Reaching the replay
+  // model without any hook audit rows proves config loading is atomic through
+  // the real Loader/app path, rather than retaining the earlier valid group.
+  { name: 'hook-cc-invalid-matcher', hasModelTurn: true, recorded: false },
+  { name: 'hook-codex-invalid-matcher', hasModelTurn: true, recorded: false },
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
