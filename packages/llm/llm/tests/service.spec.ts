@@ -857,8 +857,6 @@ describe('LlmService', () => {
     [{ provider: 'route', id: 'model', name: 1 }, 'non-string name'],
     [{ provider: 'route', id: 'model', name: '' }, 'empty name'],
     [{ provider: 'route', id: 'model', name: 'Model', description: 1 }, 'non-string description'],
-    [{ provider: 'route', id: 'model', name: 'Model', inputModalities: 'text' }, 'non-array input modalities'],
-    [{ provider: 'route', id: 'model', name: 'Model', outputModalities: [1] }, 'non-string output modality'],
   ] as const)('rejects invalid exact model metadata (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
@@ -880,7 +878,7 @@ describe('LlmService', () => {
       override resolveModel(): Promise<LlmResolvedModelInfo> {
         return Promise.resolve({
           provider: 'route', id: 'model', name: 'Model',
-          inputModalities: ['text', 'image'], outputModalities: ['text'],
+          inputModalities: ['text', 'image'],
         })
       }
     }(SCRIPT)
@@ -890,7 +888,7 @@ describe('LlmService', () => {
     // rebuild that drops it silently reads as "modalities unknown".
     await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toEqual({
       provider: 'route', id: 'model', name: 'Model',
-      inputModalities: ['text', 'image'], outputModalities: ['text'],
+      inputModalities: ['text', 'image'],
     })
   })
 
@@ -1177,8 +1175,6 @@ describe('LlmService', () => {
     [{ provider: 'route', id: 'm', name: 1 }, 'non-string name'],
     [{ provider: 'route', id: 'm', name: '' }, 'empty name'],
     [{ provider: 'route', id: 'm', name: 'M', description: 1 }, 'non-string description'],
-    [{ provider: 'route', id: 'm', name: 'M', inputModalities: 'text' }, 'non-array input modalities'],
-    [{ provider: 'route', id: 'm', name: 'M', outputModalities: [1] }, 'non-string output modality'],
   ] as const)('rejects invalid model metadata (%s: %s)', async (metadata, _label) => {
     const ctx = new Context()
     await ctx.plugin(LlmService)

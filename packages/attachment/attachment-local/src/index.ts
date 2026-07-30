@@ -10,8 +10,6 @@ import { readImageFile, saveImageFile, validateImageFile } from './store.ts'
 
 export { detectImage } from './image.ts'
 export { readImageFile, saveImageFile, validateImageFile } from './store.ts'
-export { AttachmentError } from '@deepseek-ai/dsh-attachment'
-export type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
 /** Default maximum encoded bytes for one image. */
 export const DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024

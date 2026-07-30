@@ -254,26 +254,9 @@ export class LlmService extends Service {
     return this.registration(provider).retryPolicy
   }
 
-  /**
-   * Validate adapter-owned modality arrays and detach them. One rule for the
-   * advisory catalog and exact resolution: both validate, both copy — two
-   * readings of the same adapter field with different trust or detachment
-   * would be an unexplained asymmetry.
-   * @param provider - provider route (diagnostic context).
-   * @param code - error code matching the calling surface.
-   * @param modalities - adapter-owned array, or undefined for unknown.
-   * @returns a detached copy, or undefined when absent.
-   */
-  private detachedModalities(
-    provider: string,
-    code: 'INVALID_CATALOG' | 'INVALID_MODEL_INFO',
-    modalities: readonly unknown[] | undefined,
-  ): ModelModality[] | undefined {
-    if (modalities === undefined) return undefined
-    if (!Array.isArray(modalities) || modalities.some(entry => typeof entry !== 'string')) {
-      throw new LlmError(`adapter returned invalid modality metadata for provider "${provider}"`, code)
-    }
-    return [...(modalities as readonly ModelModality[])]
+  /** Detach typed adapter-owned modality metadata. */
+  private detachedModalities(modalities: readonly ModelModality[] | undefined): ModelModality[] | undefined {
+    return modalities === undefined ? undefined : [...modalities]
   }
 
   /**
@@ -300,15 +283,13 @@ export class LlmService extends Service {
         throw new LlmError(`adapter returned invalid or duplicate model metadata for provider "${provider}"`, 'INVALID_CATALOG')
       }
       seen.add(model.id)
-      const inputModalities = this.detachedModalities(provider, 'INVALID_CATALOG', model.inputModalities)
-      const outputModalities = this.detachedModalities(provider, 'INVALID_CATALOG', model.outputModalities)
+      const inputModalities = this.detachedModalities(model.inputModalities)
       return {
         provider: model.provider,
         id: model.id,
         name: model.name,
         ...model.description === undefined ? {} : { description: model.description },
         ...inputModalities === undefined ? {} : { inputModalities },
-        ...outputModalities === undefined ? {} : { outputModalities },
       }
     })
   }
@@ -360,15 +341,13 @@ export class LlmService extends Service {
     }
     // Capability metadata rides through: an explicit modality omission is
     // negative capability downstream preflights act on (image admission).
-    const inputModalities = this.detachedModalities(provider, 'INVALID_MODEL_INFO', resolved.inputModalities)
-    const outputModalities = this.detachedModalities(provider, 'INVALID_MODEL_INFO', resolved.outputModalities)
+    const inputModalities = this.detachedModalities(resolved.inputModalities)
     const info: LlmResolvedModelInfo = {
       provider,
       id: model,
       name: resolved.name,
       ...resolved.description === undefined ? {} : { description: resolved.description },
       ...inputModalities === undefined ? {} : { inputModalities },
-      ...outputModalities === undefined ? {} : { outputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
     }
     const reasoning = resolved.reasoning

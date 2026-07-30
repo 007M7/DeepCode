@@ -23,18 +23,17 @@ type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
 
 function contentParts(content: readonly unknown[]): {
   text: string
-  images: { attachment: UserImage['attachment']; alt?: string }[]
+  images: { attachment: UserImage['attachment'] }[]
   rest: unknown[]
 } {
   const texts: string[] = []
-  const images: { attachment: UserImage['attachment']; alt?: string }[] = []
+  const images: { attachment: UserImage['attachment'] }[] = []
   const rest: unknown[] = []
   for (const block of content) {
-    const b = block as { type?: string; text?: string; attachment?: unknown; alt?: string }
+    const b = block as { type?: string; text?: string; attachment?: unknown }
     if (b.type === 'text' && typeof b.text === 'string') texts.push(b.text)
     else if (b.type === 'image' && b.attachment !== undefined) {
-      const image = b as UserImage
-      images.push({ attachment: image.attachment, ...image.alt === undefined ? {} : { alt: image.alt } })
+      images.push({ attachment: (b as UserImage).attachment })
     }
     else rest.push(block)
   }

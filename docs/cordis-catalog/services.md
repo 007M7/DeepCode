@@ -261,9 +261,8 @@ Immutable binary attachment service. Implementations validate bytes before publi
 
 ```ts cordis-catalog
 /**
- * Validate one image against the deployment policy without persisting anything.
- * Callers persisting a multi-image batch validate every member first so a
- * malformed member cannot leave earlier members as unreferenced objects.
+ * Validate one image without persisting it.
+ * Batch callers validate every member before saving any member.
  * @param input - encoded bytes, declared media type, and optional display name.
  */
 abstract validateImage(input: SaveImageAttachment): void
@@ -2086,7 +2085,7 @@ estimateMessage(message: Message): number
 
 Types: [EpochHeader](../core-data-structures/session.md) · [Message](../core-data-structures/core.md) · [Session](../core-data-structures/session.md) · [TokenMeasurement](../core-data-structures/token-meter.md)
 
-Source: [`packages/llm/token-meter/src/index.ts:87`](../../packages/llm/token-meter/src/index.ts)
+Source: [`packages/llm/token-meter/src/index.ts:82`](../../packages/llm/token-meter/src/index.ts)
 
 ## `ctx.toolResultPrune` — `ToolResultPruneService`
 

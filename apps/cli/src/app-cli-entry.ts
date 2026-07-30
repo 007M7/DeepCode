@@ -138,7 +138,6 @@ export class AppCLIEntry {
   lanAddresses: readonly string[] = []
 
   private patches: PatchOptions[] = []
-
   constructor(private readonly options: AppCLIEntryOptions) {}
 
   /**

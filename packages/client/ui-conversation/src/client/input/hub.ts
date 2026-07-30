@@ -151,7 +151,12 @@ export class InputHub implements InputService {
       // see them — release the drafts here instead of resurrecting them onto
       // a dead instance where they would leak for the page lifetime.
       if (this.shells.get(session.sessionId) === shell) {
-        shell?.restoreImages(imageIds)
+        if (shell?.snapshot.imageIds.length === 0) {
+          shell.restoreImages(imageIds)
+        } else {
+          const conversation = this.rootCtx.get('conversation') as ConversationAttachmentFace | undefined
+          for (const id of imageIds) conversation?.releaseDraftImage(id)
+        }
         if (shell?.snapshot.draft === '') shell.setDraft(text)
         return
       }

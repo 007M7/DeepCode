@@ -39,6 +39,13 @@ function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   return conversation
 }
 
+/** Resolve package-internal attachment operations from the public service registration. */
+function concreteConversation(ctx: Context): ConversationService {
+  const conversation = ctx.get('conversation') as ConversationService | undefined
+  if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
+  return conversation
+}
+
 /** Chain routing: claim the composer while an approval wait is pending (pure — owner props only). */
 function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | null {
   return interactions.find((i): i is ApprovalWait => i.kind === 'approval') ?? null
@@ -157,8 +164,7 @@ export function apply(ctx: Context): void {
     children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     store: chatStore,
     inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => {
-      const conversation = ctx.get('conversation')
-      if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
+      const conversation = concreteConversation(ctx)
       return {
         views: {
           list: viewTabs,
@@ -186,8 +192,7 @@ export function apply(ctx: Context): void {
       'conversation.input.model': { kind: 'single', scope: 'session' },
     },
     inject: (sessionId: SessionId): ComposerBarInjected => {
-      const conversation = ctx.get('conversation')
-      if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
+      const conversation = concreteConversation(ctx)
       const shell = inputHub.shell(sessionId)
       return {
         keyboard: shell,
@@ -248,8 +253,7 @@ export function apply(ctx: Context): void {
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
-      const conversation = ctx.get('conversation')
-      if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
+      const conversation = concreteConversation(ctx)
       const scoped = scopedConversation(sessions, sessionId)
       return {
         openDetails: (target) => {

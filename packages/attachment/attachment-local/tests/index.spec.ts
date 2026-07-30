@@ -49,7 +49,6 @@ describe('local attachment service', () => {
         'base64',
       ))
       expect(() => { service.validateImage({ data: valid, mediaType: 'image/png' }) }).not.toThrow()
-      // Validation is storage-free: nothing below the root may exist yet.
       expect(existsSync(service.root)).toBe(false)
     } finally {
       await rm(dshHome, { recursive: true, force: true })

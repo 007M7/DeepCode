@@ -112,13 +112,13 @@ type PromptInputPart =
     }
 ```
 
-Base64 crosses JSON-RPC once and is discarded after persistence. The host validates canonical base64, image count, aggregate bytes, individual bytes, magic-byte MIME, intrinsic dimensions, and decoded-pixel count — the complete batch, through the seam's storage-free `validateImage`, before persisting any member, so one malformed image cannot strand the batch's valid members as unreferenced objects. Only after every image succeeds does it call the agent with normalized text and durable image blocks. A failure appends no user event and exposes no attachment path or raw bytes.
+Base64 crosses JSON-RPC once and is discarded after persistence. The host validates canonical base64, image count, aggregate bytes, individual bytes, magic-byte MIME, intrinsic dimensions, and decoded-pixel count: it validates the complete batch through the seam's storage-free `validateImage` before saving any member, so one malformed image cannot strand the batch's valid members as unreferenced objects. Only after every image succeeds does it call the agent with normalized text and durable image blocks in the submitted order. A failure appends no user event and exposes no attachment path or raw bytes.
 
 `session.attachment` is a read-only, session-scoped endpoint. The host serves bytes only when a durable event in that session references the requested attachment identifier. The client deduplicates loads by session and attachment identifier while that session is rendered, revokes resolved URLs on rendered-session disposal, and invalidates late loads so an unmounted session cannot repopulate the cache.
 
 ### Model capabilities and provider behavior
 
-Model catalog entries gain optional merge-extensible input and output modality declarations. A missing declaration means unknown; a present list without `image` is an explicit negative capability.
+Model catalog entries gain optional merge-extensible input modality declarations. A missing declaration means unknown; a present list without `image` is an explicit negative capability.
 
 The host is the authoritative preflight boundary. It resolves the session's latest routed provider/model, falling back through agent options to host defaults; if that model explicitly excludes image input, it rejects the prompt before writing any attachment or event, and the client restores the draft. Unknown capability proceeds to the adapter guard so uncatalogued model identifiers remain usable. The browser rejects unsupported declared image media types before allocating preview URLs, but it does not snapshot deployment limits or model capability: a handshake snapshot cannot represent a session's current target after `session.selectModel`, and deployment policy may change independently. The host validates the complete batch against current byte, count, aggregate, media, dimension, pixel, and routed-model policy before writing any attachment or event; its rejection renders through the composer error strip.
 
@@ -126,7 +126,7 @@ The Pi-AI adapter is the first visual-input route: it resolves `ctx.attachments`
 
 Core supports structured assistant image blocks, but no current production provider route is certified for image output. Any future output-capable adapter must retrieve provider bytes under bounded size and time policy, validate them through the same attachment service, persist them, and only then publish the atomic `ImageBlock`. A URL in assistant Markdown remains text and is never downloaded automatically.
 
-Token estimation accounts for image dimensions without counting base64 or attachment locators as text. Provider-reported usage remains authoritative. ACP renders an explicit image marker until that protocol surface gains native image support rather than silently omitting the block.
+Provider-neutral token estimation does not guess visual pricing from image dimensions; provider-reported usage remains authoritative. ACP renders an explicit image marker until that protocol surface gains native image support rather than silently omitting the block.
 
 Compaction replays the selected conversation prefix, including image references, into the configured summarization route. A visual-capable route resolves those references through its adapter; a text-only route fails explicitly instead of silently dropping the visual context. The synthesized checkpoint remains text-only, and `compact-basic` rejects image summary output with `UNSUPPORTED_CONTENT`.
 
@@ -148,7 +148,7 @@ Malformed base64, unsupported or mismatched media, truncated headers, excess byt
 | --- | --- |
 | `packages/attachment/attachment` | Opaque attachment identifier, image reference, limits, failures, and `ctx.attachments` service. |
 | `packages/attachment/attachment-local` | Private content-addressed storage, image-header validation, integrity verification, and configuration. |
-| `packages/llm/llm` and `packages/llm/token-meter` | Role-neutral `ImageBlock`, modality metadata, and image cost estimation. |
+| `packages/llm/llm` | Role-neutral `ImageBlock` and input-modality metadata. |
 | `packages/llm/llm-pi-ai` | Resolve durable supported image input into native provider content. |
 | `packages/llm/llm-deepseek` | Reject image content explicitly. |
 | `packages/compact/compact-basic` | Preserve images in summary input and reject non-text checkpoint output explicitly. |
@@ -161,7 +161,7 @@ The attachment packages form the interface/implementation side of one capability
 
 ### Implementation
 
-The implemented slice includes the attachment seam, role-neutral image block, image-aware token estimation, Pi-AI input conversion, DeepSeek rejection, durable host ordering, Web upload/read protocol, host-capability projection, bounded Web request bodies, in-memory draft images, paste/drop rail, user and assistant history rendering, double-click preview, compaction handling, and keyless assembled Web coverage.
+The implemented slice includes the attachment seam, role-neutral image block, Pi-AI input conversion, DeepSeek rejection, durable host ordering, Web upload/read protocol, current image-limit enforcement, bounded Web request bodies, in-memory draft images, paste/drop rail, user and assistant history rendering, double-click preview, compaction handling, and keyless assembled Web coverage.
 
 No compatibility shim is required for the pre-release prompt wire; all call sites and fixtures change with the introducing slice.
 
@@ -198,7 +198,7 @@ UI state can be stale and does not protect direct SDK, ACP, replay, or uncatalog
 - Client unit tests cover paste and drop, mixed clipboard text, image-only send, draft restoration, ordering, gallery and lightbox rendering, and draft/session-scope/application object-URL cleanup — behavior lives in the package suites per the one-smoke assembled-lane design. The built-bundle boot smoke's journey (`apps/web/tests/built-boot.snapshot.ts`, `DSH_EXAMPLE_MODE=lib pnpm run test:snapshot`) additionally reaches durable image content: the history gallery resolves fixture bytes over the authorized attachment route into an object URL through the built bundles.
 - Adapter and compaction tests cover native Pi-AI image conversion, late attachment-service composition, text-only rejection, nested tool-result images, preserved summary input, and explicit image-output rejection.
 - A credentialed real-API test sends a PNG through the Anthropic `claude-opus-4-8` route and requires the model to identify its QR code.
-- The current production adapter set declares text-only output; output-provider certification remains outside version one.
+- The current production adapter set has no certified image-output route; output-provider certification remains outside version one.
 
 ## Consequences
 

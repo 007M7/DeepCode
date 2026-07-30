@@ -228,7 +228,7 @@ for (const profile of providerCases) {
                   type: 'text',
                   text: 'What type of machine-readable symbol is shown in the attached image? Reply with exactly: QR code',
                 },
-                { type: 'image', attachment: ref, alt: 'machine-readable symbol' },
+                { type: 'image', attachment: ref },
               ],
               source: { kind: 'plugin', plugin: 'test' },
             })],

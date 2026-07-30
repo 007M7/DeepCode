@@ -29,10 +29,9 @@ export interface IConversation {
    * Send a prompt into the caller scope's session.
    * @param text - prompt text, sent verbatim as one text block.
    * @param mode - queue after the current turn, or steer into it.
-   * @param images - browser-owned temporary images promoted by the host during this call.
    * @returns completion; business failures reject (and land in promptError).
    */
-  send(text: string, mode: 'queue' | 'steer', images?: readonly File[]): Promise<void>
+  send(text: string, mode: 'queue' | 'steer'): Promise<void>
   /**
    * Cancel the scoped session's in-flight turn.
    * @returns completion; failures reject as in send.
@@ -43,53 +42,11 @@ export interface IConversation {
    * @returns completion of the page pull.
    */
   loadOlder(): Promise<void>
-  /**
-   * Create runtime-only draft attachments and preview URLs.
-   * @param files - browser-owned image files.
-   * @returns ordered descriptors for the input state.
-   */
-  createDraftImages(files: readonly File[]): readonly ComposerAttachment[]
-  /**
-   * Resolve ordered draft ids to runtime-owned attachments.
-   * @param ids - ordered composer attachment ids.
-   * @returns attachments still available in this browser runtime.
-   */
-  draftImages(ids: readonly string[]): readonly ComposerAttachment[]
-  /**
-   * Release one draft attachment and its preview URL.
-   * @param id - draft-local attachment id.
-   */
-  releaseDraftImage(id: string): void
-  /**
-   * Resolve a session-authorized historical image to an object URL.
-   * @param sessionId - session whose durable log grants the read.
-   * @param attachment - durable image reference from that log.
-   * @returns browser URL for inline and original-size rendering.
-   */
-  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string>
-  /**
-   * Release every historical image URL owned by one rendered session.
-   * @param sessionId - session whose rendered image scope is ending.
-   */
-  releaseSessionImages(sessionId: SessionId): void
 }
 
-/** Opaque wrapper keeps browser `File` internals outside persisted store state. */
-class BrowserDraftAttachment implements ComposerAttachment {
-  readonly kind = 'image' as const
-  readonly id: string
-  readonly previewUrl: string
-  readonly #file: File
-
-  constructor(file: File) {
-    this.id = crypto.randomUUID()
-    this.previewUrl = URL.createObjectURL(file)
-    this.#file = file
-  }
-
-  get file(): File {
-    return this.#file
-  }
+/** Create one browser-only draft descriptor; only its id enters input state. */
+function browserDraftAttachment(file: File): ComposerAttachment {
+  return { kind: 'image', id: crypto.randomUUID(), previewUrl: URL.createObjectURL(file), file }
 }
 
 interface ImageUrlEntry {
@@ -102,7 +59,7 @@ interface ImageUrlEntry {
 export class ConversationService extends Service implements IConversation {
   /** The per-session input machine registry (InputService face, design §5.2). */
   readonly input: InputService
-  private readonly draftAttachments = new Map<string, BrowserDraftAttachment>()
+  private readonly draftAttachments = new Map<string, ComposerAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
@@ -131,11 +88,10 @@ export class ConversationService extends Service implements IConversation {
    * exists for caller choreography (the composer restores the draft on it).
    * @param text - prompt text, sent verbatim as one text block when non-empty.
    * @param mode - queue after the current turn, or steer into it.
-   * @param images - browser-owned temporary images promoted by the host during this call.
    */
-  async send(text: string, mode: 'queue' | 'steer', images: readonly File[] = []): Promise<void> {
+  async send(text: string, mode: 'queue' | 'steer'): Promise<void> {
     const session = this.scopedSession('send')
-    await this.sendFiles(session, text, mode, images)
+    await this.sendFiles(session, text, mode, [])
   }
 
   /**
@@ -181,7 +137,7 @@ export class ConversationService extends Service implements IConversation {
   createDraftImages(files: readonly File[]): readonly ComposerAttachment[] {
     for (const file of files) imageMediaType(file.type)
     return files.map((file) => {
-      const attachment = new BrowserDraftAttachment(file)
+      const attachment = browserDraftAttachment(file)
       this.draftAttachments.set(attachment.id, attachment)
       this.createdImageUrls.add(attachment.previewUrl)
       return attachment

@@ -57,8 +57,6 @@ export interface ImageBlock {
   type: 'image'
   /** Immutable bytes and intrinsic display metadata owned by the attachment service. */
   attachment: ImageAttachmentRef
-  /** Optional provider- and UI-facing alternative text, carried from the prompt wire's image part. */
-  alt?: string
 }
 
 /** A tool invocation requested by the model. */
@@ -156,8 +154,6 @@ export interface LlmModelInfo {
   description?: string
   /** Accepted request modalities; absent means unknown, while an explicit omission is negative capability. */
   inputModalities?: readonly ModelModality[]
-  /** Structured response modalities; absent means unknown, while an explicit omission is negative capability. */
-  outputModalities?: readonly ModelModality[]
 }
 
 /** Provider-owned context capacity for one exact provider/model route. */

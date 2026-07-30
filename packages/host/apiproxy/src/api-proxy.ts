@@ -11,8 +11,8 @@ import { installAgentLlmTarget } from '@deepseek-ai/dsh-agent'
 import type {
   Agent, AgentLlmTarget, AgentLlmTargetRef, AgentStatus, InboxPlacement,
 } from '@deepseek-ai/dsh-agent'
-import { AttachmentError } from '@deepseek-ai/dsh-attachment-local'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment-local'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -80,20 +80,17 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
     return content.map(part => ({ type: 'text', text: part.text }))
   }
   const limits = ctx.attachments.imageLimits
+  if (content.filter(part => part.type === 'image').length > limits.maxImagesPerMessage) {
+    throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
+  }
   const prepared = content.map(part => part.type === 'text'
     ? part
     : { part, data: decodeBase64(part.data) })
   const images = prepared.filter((part): part is Extract<typeof part, { data: Uint8Array }> => 'data' in part)
-  if (images.length > limits.maxImagesPerMessage) {
-    throw new AttachmentError('Prompt exceeds the configured image-count limit.', 'TOO_MANY_IMAGES')
-  }
   const totalBytes = images.reduce((sum, image) => sum + image.data.byteLength, 0)
   if (totalBytes > limits.maxMessageImageBytes) {
     throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
   }
-  // Validate the complete batch before persisting any member: the store has no
-  // garbage collection, so one malformed image must not leave the batch's
-  // valid members as published objects no message event will ever reference.
   for (const image of images) {
     ctx.attachments.validateImage({
       data: image.data,
@@ -108,7 +105,7 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
       mediaType: item.part.mediaType,
       ...item.part.name === undefined ? {} : { name: item.part.name },
     })
-    return { type: 'image', attachment, ...item.part.alt === undefined ? {} : { alt: item.part.alt } }
+    return { type: 'image', attachment }
   }))
 }
 
@@ -1222,8 +1219,8 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const target = targetFor(agent).current
             const provider = target.provider
             const model = target.model
-            const activeModel = await ctx.llm.resolveModelInfo(provider, model)
-            if (activeModel.inputModalities !== undefined && !activeModel.inputModalities.includes('image')) {
+            const modelInfo = await ctx.llm.resolveModelInfo(provider, model)
+            if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
               return err(request, {
                 code: 'attachment-error',
                 message: `Model "${model}" does not support image input.`,

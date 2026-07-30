@@ -7,12 +7,6 @@ import { RpcId } from '../src/api/rpc.ts'
 import { toFetchHandler } from '../src/fetch/handler.ts'
 import { AbstractApiClient, InProcessApiClient } from '../src/fetch/client.ts'
 
-declare module '@deepseek-ai/dsh-llm' {
-  interface ModelModalityMap {
-    audio: 'audio'
-  }
-}
-
 /** Minimal in-memory ApiProxy: echoes rpcIds, scripts one frame per stream. */
 function fakeApi(overrides: Partial<{
   muxFrames: MuxFrame[]
