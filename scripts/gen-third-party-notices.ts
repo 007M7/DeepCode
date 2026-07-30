@@ -41,7 +41,11 @@ const DEV_ONLY_AREAS = [
  * First-party packages released from sibling repositories under the project's
  * own license: reachable from workspace manifests but not third-party.
  */
-const FIRST_PARTY = new Set(['node-addon-landlock-run'])
+const FIRST_PARTY = new Set([
+  'node-addon-landlock-run',
+  'node-addon-landlock-run-linux-arm64',
+  'node-addon-landlock-run-linux-x64',
+])
 
 /**
  * Metadata overrides where the installed manifest is wrong or unreachable.
@@ -108,7 +112,9 @@ function readManifest(rel: string): Manifest {
 
 /** Every workspace manifest, keyed by path, plus the set of workspace package names. */
 function loadWorkspaceManifests(): { manifests: Map<string, Manifest>; names: Set<string> } {
-  const patterns = ['package.json', 'vendor/*/package.json', 'packages/*/*/package.json', 'apps/*/package.json', 'website/package.json', 'examples/package.json', 'python/sdk-runtime/package.json', 'native/landlock-run/package.json', 'native/landlock-run/*/package.json']
+  // `native/landlock-run` is a nested workspace with its own lock file; its
+  // leaf manifests live one level deeper than this repository's own tiers.
+  const patterns = ['package.json', 'vendor/*/package.json', 'packages/*/*/package.json', 'apps/*/package.json', 'website/package.json', 'examples/package.json', 'python/sdk-runtime/package.json', 'native/landlock-run/package.json', 'native/landlock-run/packages/*/package.json']
   const manifests = new Map<string, Manifest>()
   const names = new Set<string>()
   for (const pattern of patterns) {
@@ -219,27 +225,51 @@ export function parseVendoredRows(text: string): VendoredRow[] {
   return rows
 }
 
-/** Parse the vendored manifest table and confirm every vendored package is MIT. */
+/**
+ * Parse the vendored manifest table and confirm it accounts for every vendored
+ * directory. The `vendor/` tree — not the table — is the set that must be
+ * disclosed, so a row that stops matching the table format is a hard error
+ * rather than a package that quietly vanishes from the notices.
+ */
 function collectVendored(): VendoredRow[] {
   const rows = parseVendoredRows(readFileSync(resolve(root, 'vendor/README.md'), 'utf8'))
-  if (rows.length === 0) throw new Error('gen-third-party-notices: no vendored rows parsed from vendor/README.md; its table format changed.')
+  const onDisk = new Map<string, string>()
+  for (const entry of readdirSync(resolve(root, 'vendor'), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const manifest = readManifest(`vendor/${entry.name}/package.json`)
+    if (manifest.name !== undefined) onDisk.set(manifest.name, entry.name)
+  }
+
+  const parsed = new Set(rows.map(row => row.npmName))
+  const missing = [...onDisk.keys()].filter(name => !parsed.has(name))
+  if (missing.length > 0) {
+    throw new Error(`gen-third-party-notices: vendor/README.md has no manifest-table row for ${missing.join(', ')}; its table format changed or the sync is incomplete.`)
+  }
   for (const row of rows) {
-    const manifest = readManifest(`vendor/${vendorDir(row.npmName)}/package.json`)
-    if (manifest.license !== 'MIT') {
-      throw new Error(`gen-third-party-notices: vendored ${row.npmName} declares license ${JSON.stringify(manifest.license)}; the vendored section assumes MIT throughout.`)
+    const dir = onDisk.get(row.npmName)
+    if (dir === undefined) throw new Error(`gen-third-party-notices: vendored package ${row.npmName} from vendor/README.md has no vendor/ directory.`)
+    const license = readManifest(`vendor/${dir}/package.json`).license
+    if (license !== 'MIT') {
+      throw new Error(`gen-third-party-notices: vendored ${row.npmName} declares license ${JSON.stringify(license)}; the vendored section assumes MIT throughout.`)
     }
   }
   return rows
 }
 
-/** The vendor/ directory of a vendored npm name (manifest table order is authoritative for names). */
-function vendorDir(npmName: string): string {
-  const dirs = readdirSync(resolve(root, 'vendor'), { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)
-  for (const dir of dirs) {
-    const manifest = readManifest(`vendor/${dir}/package.json`)
-    if (manifest.name === npmName) return dir
+/**
+ * Extract the distribution names from one `pyproject.toml` requirement array.
+ * PEP 508 makes every part after the name optional, so a bare `"requests"` and
+ * a marker-only `"requests; python_version < '3.11'"` must both be found.
+ * @param block - the bracketed array text of a requirement list.
+ * @returns each requirement's distribution name, in file order.
+ */
+export function parsePythonRequirements(block: string): string[] {
+  const names: string[] = []
+  for (const match of block.matchAll(/"\s*([a-zA-Z][a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@].*?)?"/g)) {
+    const name = match[1]
+    if (name !== undefined) names.push(name)
   }
-  throw new Error(`gen-third-party-notices: vendored package ${npmName} from vendor/README.md has no vendor/ directory.`)
+  return names
 }
 
 /** Direct Python dependencies named by the `pyproject.toml` manifests under `python/`. */
@@ -247,10 +277,15 @@ function collectPython(): { name: string; license: string; repo: string; role: s
   const found = new Set<string>()
   for (const path of ['python/sdk/pyproject.toml', 'python/sdk-runtime/pyproject.toml']) {
     const text = readFileSync(resolve(root, path), 'utf8')
-    for (const match of text.matchAll(/"([a-zA-Z][a-zA-Z0-9._-]*)\s*(?:>=|==|~=|<|>|\[)/g)) {
-      const name = match[1]
-      if (name === undefined || name.startsWith('deepseek')) continue
-      found.add(name)
+    // Requirement arrays only: `[project] name`/`readme` and `[tool.*]` string
+    // values would otherwise read as dependencies.
+    for (const block of text.matchAll(/(?:^|\n)\s*(?:requires|dependencies|test|dev|lint)\s*=\s*\[([^\]]*)\]/g)) {
+      const body = block[1]
+      if (body === undefined) continue
+      for (const name of parsePythonRequirements(body)) {
+        if (name.startsWith('deepseek')) continue
+        found.add(name)
+      }
     }
   }
   return [...found].sort((a, b) => a.localeCompare(b)).map((name) => {
@@ -306,7 +341,9 @@ export function render(): string {
 
 DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the third-party open-source software listed below. Each project remains under its own license; nothing in this file changes those terms.
 
-This file lists **direct** dependencies declared by the workspace, generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\` and verified fresh by \`pnpm run verify-third-party-notices\` (part of \`doc-sync\`). The complete npm transitive closure, with exact pinned versions, is recorded in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) (inspect it with \`pnpm licenses list\`); the Python closure is recorded in [\`python/sdk/uv.lock\`](python/sdk/uv.lock).
+This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a manifest changes, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Run \`pnpm run verify-third-party-notices\` for the standalone check.
+
+The complete npm transitive closure, with exact pinned versions, is recorded in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded in [\`python/sdk/uv.lock\`](python/sdk/uv.lock), and the Landlock launcher workspace keeps its own in [\`native/landlock-run/pnpm-lock.yaml\`](native/landlock-run/pnpm-lock.yaml).
 
 ## Vendored source (\`vendor/\`)
 

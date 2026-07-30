@@ -5,7 +5,9 @@
 
 DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the third-party open-source software listed below. Each project remains under its own license; nothing in this file changes those terms.
 
-This file lists **direct** dependencies declared by the workspace, generated from the workspace manifests by `scripts/gen-third-party-notices.ts` and verified fresh by `pnpm run verify-third-party-notices` (part of `doc-sync`). The complete npm transitive closure, with exact pinned versions, is recorded in [`pnpm-lock.yaml`](pnpm-lock.yaml) (inspect it with `pnpm licenses list`); the Python closure is recorded in [`python/sdk/uv.lock`](python/sdk/uv.lock).
+This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by `scripts/gen-third-party-notices.ts`: a pre-commit hook regenerates it whenever a manifest changes, and `scripts/gen-third-party-notices.spec.ts` asserts in the test lane that the committed bytes match. Run `pnpm run verify-third-party-notices` for the standalone check.
+
+The complete npm transitive closure, with exact pinned versions, is recorded in [`pnpm-lock.yaml`](pnpm-lock.yaml) — inspect it with `pnpm licenses list`. The Python closure is recorded in [`python/sdk/uv.lock`](python/sdk/uv.lock), and the Landlock launcher workspace keeps its own in [`native/landlock-run/pnpm-lock.yaml`](native/landlock-run/pnpm-lock.yaml).
 
 ## Vendored source (`vendor/`)
 

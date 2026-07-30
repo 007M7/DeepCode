@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { type Manifest, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
+import { type Manifest, parsePythonRequirements, parseVendoredRows, render, tierExternalDeps } from './gen-third-party-notices.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -75,5 +75,28 @@ describe('parseVendoredRows', () => {
 
   it('yields nothing when the table shape changes, so the generator fails loud', () => {
     expect(parseVendoredRows('| `cordis/` | cordis | 4.0.0 | https://example.com | `abc123` |\n')).toEqual([])
+  })
+
+  it('covers every vendored directory, so no package can drop out of the notices', () => {
+    const parsed = new Set(parseVendoredRows(readFileSync(resolve(root, 'vendor/README.md'), 'utf8')).map(row => row.npmName))
+    const onDisk = readdirSync(resolve(root, 'vendor'), { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => (JSON.parse(readFileSync(resolve(root, 'vendor', entry.name, 'package.json'), 'utf8')) as Manifest).name)
+
+    expect([...onDisk].sort()).toEqual([...parsed].sort())
+  })
+})
+
+describe('parsePythonRequirements', () => {
+  it('reads names whether or not the requirement carries a version, extras, or a marker', () => {
+    expect(parsePythonRequirements('"pydantic>=2.12", "requests", "httpx[http2]", "tomli ; python_version < \'3.11\'", "hatchling >= 1.24.0"'))
+      .toEqual(['pydantic', 'requests', 'httpx', 'tomli', 'hatchling'])
+  })
+
+  it('reads the committed manifests', () => {
+    const text = readFileSync(resolve(root, 'python/sdk/pyproject.toml'), 'utf8')
+    const block = /dependencies\s*=\s*\[([^\]]*)\]/.exec(text)?.[1] ?? ''
+
+    expect(parsePythonRequirements(block)).toContain('pydantic')
   })
 })
