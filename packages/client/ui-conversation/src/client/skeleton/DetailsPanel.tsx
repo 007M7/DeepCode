@@ -7,10 +7,11 @@
 // share the store seat exists for) and derives the call material from the
 // session snapshot — no data of its own.
 
-import { CodeBlock, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, DiffBlock, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
+import { diffCardModel } from '../contract/diff-card-model.ts'
 import { terminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolCallBlock } from '../contract/tool-call-model.ts'
 import css from './DetailsPanel.module.css'
@@ -127,8 +128,10 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, clo
  * The Output section's body for the selected call. A terminal-card call — a
  * shell command's call/result views — renders through the shared TerminalBlock
  * at the primitive's own full height allowance, so column-aligned output keeps
- * its alignment and scrolls sideways instead of folding. Every other call, and
- * a running call with no terminal card yet, keeps the flattened text form.
+ * its alignment and scrolls sideways instead of folding. A diff-card call — a
+ * write/edit's applied change — renders through the shared DiffBlock at the same
+ * full height. Every other call, and a running call with neither card yet, keeps
+ * the flattened text form.
  * @param props.material - the selected call's material from {@link materialFor}.
  * @param props.cwd - the session workspace root, resolving the terminal view's cwd.
  * @returns the Output section's body element.
@@ -147,6 +150,8 @@ function OutputBody({ material, cwd }: { material: CallMaterial; cwd: string | u
       </>
     )
   }
+  const diff = diffCardModel(material.block)
+  if (diff !== null) return <DiffBlock {...diff.card} className={css.terminal} />
   // A settled call always carries the result node the flattened form needs;
   // the running shape has no result to flatten.
   if (!('kind' in material.block)) return <div className={css.empty}>运行中…</div>

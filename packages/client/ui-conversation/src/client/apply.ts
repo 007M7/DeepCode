@@ -19,6 +19,7 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
 import { todoDockEntry } from './skeleton/TodoPanel.tsx'
@@ -253,6 +254,11 @@ export function apply(ctx: Context): void {
   // The bash sample rides that exact seam, in third-party posture
   // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
   ctx.plugin(bashToolviewSample)
+
+  // The write/edit rows ride the same seam: a file-mutation call declares the
+  // diff render intent, so these rows stack the applied diff card under their
+  // path-link summary (the terminal card's posture, applied to diffs).
+  ctx.plugin(fileMutationToolview)
 
   // The todo_write row rides the same seam (a product registration, not a sample).
   ctx.plugin(todoToolview)

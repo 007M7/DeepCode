@@ -10,8 +10,9 @@
 
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, DiffBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CHAT_DIFF_MAX_LINES, type DiffCardModel } from '../contract/diff-card-model.ts'
 import { CHAT_TERMINAL_MAX_LINES, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import css from './ToolRow.module.css'
@@ -33,6 +34,13 @@ export interface ToolRowProps {
    * expandable (its leading slot never toggles).
    */
   terminal?: TerminalCardModel | null | undefined
+  /**
+   * Diff-card material for a call whose render intent is a diff card (derived by
+   * `diffCardModel`); it replaces the text body when present, the same way
+   * `terminal` does. A call carries at most one card intent, so the two are
+   * never both set.
+   */
+  diff?: DiffCardModel | null | undefined
   state: ToolRowState
   /** Makes the row itself the expand control instead of only its leading icon. */
   expandOnRowClick?: boolean | undefined
@@ -64,6 +72,7 @@ export function ToolRow({
   summary,
   body,
   terminal,
+  diff,
   state,
   expandOnRowClick = false,
   filePath,
@@ -71,13 +80,17 @@ export function ToolRow({
 }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false)
   const terminalBody = terminal ?? null
+  const diffBody = diff ?? null
   // A row that names a single file keeps one interaction (open that path);
-  // args expand is off whether or not the open callback is wired yet. Terminal
-  // material still expands: only the file variants carry a path, so a terminal
-  // card and a file link never land on the same row.
+  // args expand is off whether or not the open callback is wired yet. A card
+  // body (terminal or diff) still expands: only the file variants carry a
+  // path. A write/edit row carries both a file path and a diff card, so its
+  // path link and its expandable card coexist — the card expands, the summary
+  // stays a link.
   const singleFile = filePath !== undefined
   const fileLink = singleFile && onOpenFile !== undefined
-  const expandable = (body !== null && !singleFile) || terminalBody !== null
+  const cardBody = terminalBody !== null || diffBody !== null
+  const expandable = (body !== null && !singleFile) || cardBody
   // The text arms take the empty string for a null body: a row expandable
   // only through its terminal material renders the terminal body instead, so
   // this substitution never shows.
@@ -164,9 +177,11 @@ export function ToolRow({
       )}
       {open && (terminalBody !== null
         ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
-        : variant === 'code'
-          ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
-          : <div className={css.body}>{text}</div>)}
+        : diffBody !== null
+          ? <DiffBlock {...diffBody.card} maxLines={CHAT_DIFF_MAX_LINES} className={css.terminalBody} />
+          : variant === 'code'
+            ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
+            : <div className={css.body}>{text}</div>)}
     </div>
   )
 }

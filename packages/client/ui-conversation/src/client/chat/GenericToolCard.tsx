@@ -10,6 +10,7 @@ import {
   IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowOwnerProps } from '../contract/slots.ts'
+import { diffCardModel } from '../contract/diff-card-model.ts'
 import { terminalCardModel } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
@@ -29,6 +30,7 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
 export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
+  const diff = diffCardModel(block)
   const singleFile = model.filePath !== undefined
   return (
     <ToolRow
@@ -39,9 +41,12 @@ export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwner
       // A terminal presenter's description is the contract's above-card text, so
       // it outranks the args-derived summary here exactly as it does in BashRow.
       summary={terminal?.description ?? model.summary}
-      // Single-file tools never expose an args body — the path link is the only action.
+      // Single-file tools never expose an args body — the path link is the only
+      // args interaction. A diff card is not an args body: a write/edit row is
+      // single-file AND carries a diff, so the card expands under the path link.
       body={singleFile ? null : model.body}
       terminal={terminal}
+      diff={diff}
       state={model.state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
