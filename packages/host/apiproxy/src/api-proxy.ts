@@ -14,6 +14,7 @@ import type {
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
+import { lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
@@ -164,7 +165,9 @@ function sessionBlank(session: Session): boolean {
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
     sessionId: session.id,
-    updatedAt: session.events.at(-1)?.time ?? session.header.createdAt,
+    // Excludes end-seed: a resumed-but-untouched session
+    // must not sort as freshly worked in.
+    updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
     running,
     blank: sessionBlank(session),
     ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },

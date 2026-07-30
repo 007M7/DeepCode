@@ -9,7 +9,6 @@
 // through the host; the row itself is not a details-panel control.
 
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import clsx from 'clsx'
 import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CHAT_TERMINAL_MAX_LINES, type TerminalCardModel } from '../contract/terminal-card-model.ts'
@@ -106,12 +105,12 @@ export function ToolRow({
     ? (
       <>
         <span className={css.iconIdle}>{icon}</span>
-        <IconChevronDownOutline14 className={clsx(css.chevron, css.chevronHover)} />
+        <IconChevronDownOutline14 className={css.chevronHover} />
       </>
     )
     : icon
   const leading = open
-    ? <IconChevronDownOutline14 className={css.chevron} />
+    ? <IconChevronDownOutline14 />
     : leadingFor(state, collapsedIcon)
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
