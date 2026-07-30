@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { delimiter, join, relative, sep } from 'node:path'
@@ -466,6 +466,30 @@ describe('runScenario', () => {
       { agent: AGENT, mode: 'replay', fixtureFile, workspaceDir },
     )
     expect(result.rawStdout).toContain('workspace:seeded.txt')
+  })
+
+  it('prepares the generated workspace after copying committed fixtures', { timeout: 20_000 }, async () => {
+    const { dir, fixtureFile } = await scenario({ echoWorkspace: true })
+    const workspaceDir = join(dir, 'workspace')
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(workspaceDir, { recursive: true })
+    await writeFile(join(workspaceDir, 'committed.txt'), 'committed')
+
+    const result = await runScenario(
+      { steps: [...boot, { op: 'prompt', text: 'ls' }] },
+      {
+        agent: AGENT,
+        mode: 'replay',
+        fixtureFile,
+        workspaceDir,
+        prepareWorkspace: async (cwd) => {
+          expect(await readFile(join(cwd, 'committed.txt'), 'utf8')).toBe('committed')
+          await writeFile(join(cwd, 'runtime.txt'), 'runtime')
+        },
+      },
+    )
+
+    expect(result.rawStdout).toContain('workspace:committed.txt,runtime.txt')
   })
 
   it('creates the generated workspace under an explicit parent', { timeout: 20_000 }, async () => {
