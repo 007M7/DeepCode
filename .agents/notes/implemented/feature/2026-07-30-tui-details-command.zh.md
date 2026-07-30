@@ -10,7 +10,7 @@ TUI 的 transcript（文本记录）细节状态——工具卡片可见性（`c
 
 ## Decision
 
-`dsh-tui` 在其他 agent 作用域命令旁注册 `/details`。裸 `/details` 用一条通知报告当前状态。参数直接命名目标状态：`collapsed|expanded|hidden` 让工具卡片跳到该阶段，`reasoning on|off` 设置 reasoning 显示，裸 `reasoning` 切换它，且指令可在一次调用中组合。未知 token 返回携带用法行的命令错误。命令改动的是与快捷键相同的闭包状态，重构后循环与切换成为 `setToolsVisibility`/`setReasoning` 之上的薄封装；快捷键及其通知保持不变。
+`dsh-tui` 在其他 agent 作用域命令旁注册 `/details`。裸 `/details` 打开 `DetailsDialog`：一个居中的键盘选择器，列出五个细节状态——三个工具卡片阶段与 reasoning 显示/隐藏——预选当前阶段并标记两个当前值，Enter 应用高亮状态并关闭，Esc 或 Ctrl+C 取消；其宽度由配置键 `detailsDialogWidth` 决定，选择器打开时再次执行 `/details` 会替换它，与 `/model` 浮层一致。参数直接命名目标状态：`collapsed|expanded|hidden` 让工具卡片跳到该阶段，`reasoning on|off` 设置 reasoning 显示，裸 `reasoning` 切换它，且指令可在一次调用中组合。未知 token 返回携带用法行的命令错误。每个入口改动的都是与快捷键相同的闭包状态，重构后循环与切换成为 `setToolsVisibility`/`setReasoning` 之上的薄封装；快捷键及其通知保持不变。
 
 组合调用先应用 reasoning 再应用可见性，因为 `setReasoning` 会从会话事件重建 transcript，而重建会丢弃非持久的通知组件；若最后才应用它，会抹掉刚追加的可见性通知。
 
@@ -18,7 +18,9 @@ reasoning 重建暴露了一个重放缺陷，本变更在 `renderEvent` 中修�
 
 ## Alternatives considered
 
-**裸 `/details` 像 Ctrl+O 一样循环。** 否决：命令相对快捷键的价值在于命名绝对状态；循环命令只是按键更多的快捷键，裸调用作为状态报告更有用。
+**裸 `/details` 像 Ctrl+O 一样循环。** 否决：命令相对快捷键的价值在于命名绝对状态；循环命令只是按键更多的快捷键，裸调用作为选择器更有用——它在展示当前状态的同时提供所有目标。
+
+**裸 `/details` 仅输出文本状态报告。** 首版如此实现，后被选择器取代：报告回答了“我在哪”，但改变任何东西仍需第二次、拼写参数的调用；选择器展示同样的状态并在一次交互中应用变更。文本语法保留给脚本、肌肉记忆和两维组合变更。
 
 **拆分 `/tools` 与 `/reasoning` 两个命令。** 否决：两个维度同属一个展示关注点（“transcript 显示多少细节”），单一命令让注册表与 `/help` 列表更小，同时允许一次组合调用。
 
@@ -26,6 +28,7 @@ reasoning 重建暴露了一个重放缺陷，本变更在 `renderEvent` 中修�
 
 ## Consequences
 
-- 用户可以跳到任意细节模式、一次设置两个维度并查询状态——包括在拦截 Ctrl+O/Ctrl+R 的终端上。
+- 用户可以跳到任意细节模式、一次设置两个维度，并在选择器中看到当前状态——包括在拦截 Ctrl+O/Ctrl+R 的终端上。
 - 解析器接受无序 token，因此 `/details reasoning expanded` 会切换 reasoning 并展开卡片；每个维度以最后一个指令为准。这一宽松是刻意的，并记录在 README 中。
-- 当一个步骤携带多条 `assistant/message` 事件时，transcript 重建不再丢失 assistant 消息；`details-command` 快照同时固定命令表面与修复后的重放。
+- 选择器每次确认只应用一个维度；组合变更仍需参数形式。在已是当前值的行上按 Enter 会幂等地重新应用并重复其通知。
+- 当一个步骤携带多条 `assistant/message` 事件时，transcript 重建不再丢失 assistant 消息；`details-command` 快照固定参数表面与修复后的重放，`details-selector` 固定带当前值标记的打开选择器。

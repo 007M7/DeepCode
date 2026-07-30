@@ -46,6 +46,7 @@ const CHECKPOINTS = [
   'advanced-cards-expanded',
   'tool-cards-hidden-folded',
   'details-command',
+  'details-selector',
   'untrusted-controls',
   'question-dialog',
   'question-dialog-single-option',
@@ -661,11 +662,14 @@ describe('TUI terminal-state snapshots', () => {
       harness.terminal.send('/details hidden reasoning off')
       harness.terminal.send('\r')
     })
+    await checkpoint('details-command', harness.terminal, { includeScrollback: true })
+    // Bare /details opens the selector, preselecting and marking the current
+    // hidden/reasoning-off state.
     await renderAfter(harness, () => {
       harness.terminal.send('/details')
       harness.terminal.send('\r')
     })
-    await checkpoint('details-command', harness.terminal, { includeScrollback: true })
+    await checkpoint('details-selector', harness.terminal, { includeScrollback: true })
     nowSpy.mockRestore()
     await disposeSnapshot(harness)
   })

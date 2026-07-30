@@ -34,6 +34,7 @@ import type {
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction'
 import { BRACKETED_PASTE_END, BRACKETED_PASTE_START, displayText, sanitizePastedText } from './text.ts'
 import { dialogSelectTheme, type Palette } from './theme.ts'
+import type { ToolCardVisibility } from './transcript.ts'
 import {
   renderTuiPromptTemplate,
   type TuiPromptTemplateToken,
@@ -428,6 +429,63 @@ export class ModelDialog implements Component {
         : this.list.render(innerWidth),
       '',
       this.palette.dim('type to filter • ↑/↓ move • Shift+Tab reasoning • Enter select • Esc'),
+    ], width, this.palette)
+  }
+}
+
+/** One transcript-detail state the details selector applies on confirm. */
+export type DetailsSelection =
+  | { readonly kind: 'tools'; readonly visibility: ToolCardVisibility }
+  | { readonly kind: 'reasoning'; readonly show: boolean }
+
+/**
+ * Keyboard selector over the transcript detail states: the three tool-card
+ * visibility phases and reasoning-block display. Enter applies the highlighted
+ * state and closes; Esc or Ctrl+C closes without changing anything.
+ */
+export class DetailsDialog implements Component {
+  private readonly list: SelectList
+
+  constructor(
+    visibility: ToolCardVisibility,
+    showReasoning: boolean,
+    private readonly palette: Palette,
+    done: (selection: DetailsSelection) => void,
+    private readonly cancel: () => void,
+  ) {
+    const current = (isCurrent: boolean): string => isCurrent ? ' — current' : ''
+    const items: SelectItem[] = [
+      { value: 'collapsed', label: 'Tool cards · collapsed', description: `head/tail preview${current(visibility === 'collapsed')}` },
+      { value: 'expanded', label: 'Tool cards · expanded', description: `full bodies${current(visibility === 'expanded')}` },
+      { value: 'hidden', label: 'Tool cards · hidden', description: `conversation only${current(visibility === 'hidden')}` },
+      { value: 'reasoning-shown', label: 'Reasoning · shown', description: `show reasoning blocks${current(showReasoning)}` },
+      { value: 'reasoning-hidden', label: 'Reasoning · hidden', description: `omit reasoning blocks${current(!showReasoning)}` },
+    ]
+    this.list = new SelectList(items, items.length, dialogSelectTheme(palette))
+    this.list.setSelectedIndex(items.findIndex(item => item.value === visibility))
+    this.list.onSelect = (item) => {
+      done(item.value === 'reasoning-shown' || item.value === 'reasoning-hidden'
+        ? { kind: 'reasoning', show: item.value === 'reasoning-shown' }
+        : { kind: 'tools', visibility: item.value as ToolCardVisibility })
+    }
+  }
+
+  invalidate(): void {
+    this.list.invalidate()
+  }
+
+  handleInput(data: string): void {
+    if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl('c'))) this.cancel()
+    else this.list.handleInput(data)
+    this.invalidate()
+  }
+
+  render(width: number): string[] {
+    const innerWidth = Math.max(1, width - 4)
+    return renderDialog('Transcript details', [
+      ...this.list.render(innerWidth),
+      '',
+      this.palette.dim('↑/↓ move • Enter apply • Esc cancel'),
     ], width, this.palette)
   }
 }

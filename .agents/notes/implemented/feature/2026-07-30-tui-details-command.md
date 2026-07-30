@@ -10,7 +10,7 @@ The TUI's transcript detail state — tool-card visibility (`collapsed`/`expande
 
 ## Decision
 
-`dsh-tui` registers `/details` beside its other agent-scoped commands. Bare `/details` reports the current state in one notice. Arguments name target states directly: `collapsed|expanded|hidden` jumps tool cards to that phase, `reasoning on|off` sets reasoning display, bare `reasoning` toggles it, and directives combine in one invocation. An unknown token returns a command error carrying the usage line. The command mutates the same closure state as the shortcuts, refactored so the cycle and toggle are thin wrappers over `setToolsVisibility`/`setReasoning`; the shortcuts and their notices are unchanged.
+`dsh-tui` registers `/details` beside its other agent-scoped commands. Bare `/details` opens `DetailsDialog`, a centered keyboard selector over the five detail states — the three tool-card phases and reasoning shown/hidden — that preselects the current phase, marks both current values, applies the highlighted state on Enter, and cancels on Esc or Ctrl+C; its width is the `detailsDialogWidth` config key and a second `/details` replaces an open selector, mirroring the `/model` overlay. Arguments name target states directly: `collapsed|expanded|hidden` jumps tool cards to that phase, `reasoning on|off` sets reasoning display, bare `reasoning` toggles it, and directives combine in one invocation. An unknown token returns a command error carrying the usage line. Every entry mutates the same closure state as the shortcuts, refactored so the cycle and toggle are thin wrappers over `setToolsVisibility`/`setReasoning`; the shortcuts and their notices are unchanged.
 
 A combined invocation applies reasoning before visibility because `setReasoning` rebuilds the transcript from session events, which drops non-durable notice components; applying it last would erase the just-appended visibility notice.
 
@@ -18,7 +18,9 @@ The reasoning rebuild exposed a replay defect that this change fixes in `renderE
 
 ## Alternatives considered
 
-**Cycle on bare `/details`, mirroring Ctrl+O.** Rejected: the command's value over the shortcut is naming an absolute state; a cycling command is the shortcut with more keystrokes, and bare invocation is more useful as a state report.
+**Cycle on bare `/details`, mirroring Ctrl+O.** Rejected: the command's value over the shortcut is naming an absolute state; a cycling command is the shortcut with more keystrokes, and bare invocation is more useful as the selector, which shows the current state while offering every target.
+
+**Bare `/details` as a text-only state report.** Shipped first, replaced by the selector: the report answered "where am I" but still required a second, argument-spelling invocation to change anything, while the selector shows the same state and applies a change in one interaction. The textual grammar remains for scripts, muscle memory, and combined two-dimension changes.
 
 **Separate `/tools` and `/reasoning` commands.** Rejected: both dimensions are one presentation concern ("how much detail does the transcript show"), and a single command keeps the registry and `/help` list small while allowing one combined invocation.
 
@@ -26,6 +28,7 @@ The reasoning rebuild exposed a replay defect that this change fixes in `renderE
 
 ## Consequences
 
-- A user can jump to any detail mode, set both dimensions at once, and query the state — including on terminals that intercept Ctrl+O/Ctrl+R.
+- A user can jump to any detail mode, set both dimensions at once, and see the current state in the selector — including on terminals that intercept Ctrl+O/Ctrl+R.
 - The parser accepts order-free tokens, so `/details reasoning expanded` toggles reasoning and expands cards; last directive wins per dimension. This leniency is deliberate and documented in the README.
-- Transcript rebuilds no longer lose assistant messages when a step carries more than one `assistant/message` event; the `details-command` snapshot pins the command surface and the fixed replay together.
+- The selector applies one dimension per confirm; a combined change still needs the argument form. Enter on the already-current row re-applies it idempotently and repeats its notice.
+- Transcript rebuilds no longer lose assistant messages when a step carries more than one `assistant/message` event; the `details-command` snapshot pins the argument surface and the fixed replay, and `details-selector` pins the open selector with its current-state markers.

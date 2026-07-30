@@ -29,10 +29,10 @@ buffer
 12| "                                                                                            "
 13| "/clear — Clear the transcript view (session history is unchanged)                           "
   style 0-64 dim
-14| "/details [collapsed|expanded|hidden] [reasoning [on|off]] — Show or set tool-card visibility"
+14| "/details [collapsed|expanded|hidden] [reasoning [on|off]] — Select tool-card visibility and "
   style 0-91 dim
-15| "and reasoning display                                                                       "
-  style 0-20 dim
+15| "reasoning display                                                                           "
+  style 0-16 dim
 16| "/exit — Exit after the active turn reaches idle                                             "
   style 0-46 dim
 17| "/help — Show keyboard shortcuts and commands                                                "

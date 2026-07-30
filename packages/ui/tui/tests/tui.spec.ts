@@ -186,6 +186,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 20,
       modelDialogWidth: 76,
       modelDialogMaxHeight: 20,
+      detailsDialogWidth: 72,
       fileSearchMaxResults: 20,
       fileSearchMaxEntries: 10_000,
       fileSearchExcludedDirectories: ['.git', 'node_modules'],
@@ -210,6 +211,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      detailsDialogWidth: 44,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -226,6 +228,7 @@ describe('TUI config', () => {
       questionDialogMaxHeight: 14,
       modelDialogWidth: 64,
       modelDialogMaxHeight: 16,
+      detailsDialogWidth: 44,
       fileSearchMaxResults: 7,
       fileSearchMaxEntries: 123,
       fileSearchExcludedDirectories: ['.git', 'generated'],
@@ -2510,16 +2513,13 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
-  it('/details reports and sets card visibility and reasoning display', async () => {
+  it('/details sets card visibility and reasoning display from arguments', async () => {
     const result = await setup()
     const run = async (line: string): Promise<void> => {
       result.terminal.send(line)
       result.terminal.send('\r')
       await tick()
     }
-
-    await run('/details')
-    expect(result.terminal.output).toContain('Tool and context cards collapsed; reasoning blocks shown.')
 
     await run('/details hidden')
     expect(result.terminal.output).toContain('Tool cards hidden.')
@@ -2531,14 +2531,68 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await run('/details reasoning on')
     expect(result.terminal.output).toContain('Reasoning blocks shown.')
 
-    // Bare `reasoning` toggles: shown -> hidden, confirmed by the status line.
+    // Bare `reasoning` toggles: shown -> hidden.
+    const toggleOutput = result.terminal.output.length
     await run('/details reasoning')
+    expect(result.terminal.output.slice(toggleOutput)).toContain('Reasoning blocks hidden.')
     await run('/details collapsed')
-    await run('/details')
-    expect(result.terminal.output).toContain('Tool and context cards collapsed; reasoning blocks hidden.')
+    expect(result.terminal.output.slice(toggleOutput)).toContain('Tool and context cards collapsed.')
 
     await run('/details bogus')
     expect(result.terminal.output).toContain('Unknown /details argument "bogus"')
+
+    await dispose(result)
+  })
+
+  it('bare /details opens the transcript-details selector and applies the confirmed state', async () => {
+    const result = await setup()
+    const open = async (): Promise<number> => {
+      const from = result.terminal.output.length
+      result.terminal.send('/details')
+      result.terminal.send('\r')
+      await vi.waitFor(() => { expect(result.terminal.output.slice(from)).toContain('Transcript details') })
+      return from
+    }
+
+    await open()
+    expect(result.terminal.output).toContain('Tool cards · collapsed')
+    expect(result.terminal.output).toContain('head/tail preview — current')
+    expect(result.terminal.output).toContain('show reasoning blocks — current')
+
+    // A second /details while the selector is open replaces the overlay
+    // instead of stacking a second one behind it.
+    await result.ctx.commands.execute(result.agent, '/details', new AbortController().signal)
+    await tick()
+
+    // Esc cancels without touching the state.
+    const cancelOutput = result.terminal.output.length
+    result.terminal.send('\x1b')
+    await tick()
+    expect(result.terminal.output.slice(cancelOutput)).not.toContain('Tool and context cards')
+
+    // Enter on the next visibility row applies it and closes.
+    await open()
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+
+    // The reopened selector preselects the current phase and marks it.
+    const reopened = await open()
+    expect(result.terminal.output.slice(reopened)).toContain('full bodies — current')
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\x1b[B')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Reasoning blocks hidden.')
+
+    // Ctrl+C also cancels.
+    const ctrlCOutput = result.terminal.output.length
+    await open()
+    result.terminal.send('\x03')
+    await tick()
+    expect(result.terminal.output.slice(ctrlCOutput)).not.toContain('Reasoning blocks shown.')
 
     await dispose(result)
   })

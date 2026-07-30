@@ -104,6 +104,7 @@ import {
 } from './components/transcript.ts'
 import {
   compactTargetLabel,
+  DetailsDialog,
   diagnosticMeter,
   formatDiagnosticCount,
   formatDiagnosticNumber,
@@ -112,6 +113,7 @@ import {
   StatusCardComponent,
   PromptContextComponent,
   targetLabel,
+  type DetailsSelection,
   type StatusCardRow,
 } from './components/dialogs.ts'
 import {
@@ -1037,12 +1039,38 @@ export function createTuiChat(
 
   const toggleReasoning = (): void => { setReasoning(!showReasoning) }
 
+  // The selector and the argument grammar mutate the same closure state the
+  // Ctrl+O cycle and Ctrl+R toggle drive, so every entry converges.
+  let detailsOverlay: TuiOverlaySession | undefined
+  const showDetailsSelector = (): void => {
+    void detailsOverlay?.close()
+    const session = overlayManager.open({
+      create: () => new DetailsDialog(
+        toolsVisibility,
+        showReasoning,
+        palette,
+        (selection: DetailsSelection) => {
+          void session.close()
+          if (selection.kind === 'reasoning') setReasoning(selection.show)
+          else setToolsVisibility(selection.visibility)
+        },
+        () => { void session.close() },
+      ),
+      options: { width: resolved.detailsDialogWidth, anchor: 'center', margin: 1 },
+    })
+    detailsOverlay = session
+    void session.closed.then(() => {
+      if (detailsOverlay === session) detailsOverlay = undefined
+    })
+    requestRender()
+  }
+
   // `/details` names the same transcript-detail state the Ctrl+O cycle and
   // Ctrl+R toggle mutate, so a user can jump to a mode without cycling.
   const runDetails = (rawInput: string): CommandResult => {
     const tokens = rawInput.split(/\s+/u).filter(token => token !== '')
     if (tokens.length === 0) {
-      appendNotice(`Tool and context cards ${toolsVisibility}; reasoning blocks ${showReasoning ? 'shown' : 'hidden'}.`)
+      showDetailsSelector()
       return { kind: 'success' }
     }
     let visibility: ToolCardVisibility | undefined
@@ -1255,7 +1283,7 @@ export function createTuiChat(
     })
     commandCtx.commands.register({
       name: 'details',
-      description: 'Show or set tool-card visibility and reasoning display',
+      description: 'Select tool-card visibility and reasoning display',
       input: { hint: '[collapsed|expanded|hidden] [reasoning [on|off]]' },
       handler: ({ rawInput }) => runDetails(rawInput),
     })
