@@ -8,26 +8,26 @@ export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
  * Bump only when the notice changes materially and every user should see it
  * again. The acknowledgement is compared for exact equality.
  */
-export const WELCOME_NOTICE_VERSION = '2026-07-30.1'
+export const WELCOME_NOTICE_VERSION = '2026-07-30.2'
 
 /** The complete editable welcome notice in both supported GUI locales. */
 export const WELCOME_NOTICE_COPY = {
   zh: {
-    paragraphs: [
-      '感谢您愿意拨冗试用 DeepSeek Harness。',
-      '目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验难免粗粝。',
-      '“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中暴露的问题，也可能促使我们重新审视，甚至推翻已有的设计。',
-      '我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未能帮到您，甚至反而为工作平添了麻烦，请在企业微信群中留言，将使用感受告诉我们。每一条反馈，都会帮助我们把它打磨得更好。',
-    ],
+    title: '内测声明',
+    lead: '感谢您试用 DeepSeek Harness。目前仍处于内部测试阶段，部分功能与体验还在持续打磨。',
+    feedbackTitle: '我们最想听见：失败、困惑和不顺手',
+    feedbackBody: '如果它没帮到您，甚至给工作添了麻烦，请在企业微信群告诉我们。',
+    closing: '真实使用中的每一个问题，都可能促使我们重新审视，甚至推翻已有设计。',
+    quote: '“如切如磋，如琢如磨。”',
     continueLabel: '继续',
   },
   en: {
-    paragraphs: [
-      'Thank you for taking the time to try DeepSeek Harness.',
-      'This version is still in internal testing. Some features remain unfinished, and parts of the experience may feel rough.',
-      '“As one cuts and files, as one chisels and polishes.” A product grows through real encounters and candid feedback. Problems you uncover in real use may prompt us to reconsider—or even overturn—our existing designs.',
-      'We especially want to hear about failures, confusion, and friction. If it did not help you, or even made your work harder, please leave a message in the company WeChat group and tell us about your experience. Every piece of feedback helps us refine it.',
-    ],
+    title: 'Internal Testing Notice',
+    lead: 'Thank you for trying DeepSeek Harness. This version is still in internal testing, and some features and experiences remain under refinement.',
+    feedbackTitle: 'What we most want to hear: failures, confusion, and friction',
+    feedbackBody: 'If it did not help—or even made your work harder—please tell us in the company WeChat group.',
+    closing: 'Every problem found in real use may prompt us to reconsider, or even overturn, an existing design.',
+    quote: '“As one cuts and files, as one chisels and polishes.”',
     continueLabel: 'Continue',
   },
 } as const

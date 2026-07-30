@@ -54,10 +54,18 @@ function mount(version?: string, mutateImpl: () => Promise<unknown> = () => Prom
 describe('WelcomeNotice', () => {
   it('renders the owner copy with one primary action and no dismissal control', async () => {
     const h = mount()
-    const dialog = await screen.findByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.paragraphs[0] })
-    for (const paragraph of WELCOME_NOTICE_COPY.zh.paragraphs) {
-      expect(screen.getByText(paragraph)).toBeTruthy()
+    const dialog = await screen.findByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title })
+    for (const text of [
+      WELCOME_NOTICE_COPY.zh.title,
+      WELCOME_NOTICE_COPY.zh.lead,
+      WELCOME_NOTICE_COPY.zh.feedbackTitle,
+      WELCOME_NOTICE_COPY.zh.feedbackBody,
+      WELCOME_NOTICE_COPY.zh.closing,
+      WELCOME_NOTICE_COPY.zh.quote,
+    ]) {
+      expect(screen.getByText(text)).toBeTruthy()
     }
+    expect(dialog.textContent?.match(/感谢您试用 DeepSeek Harness/g) ?? []).toHaveLength(1)
     const buttons = dialog.querySelectorAll('button')
     expect(buttons).toHaveLength(1)
     expect(screen.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel })).toBeTruthy()

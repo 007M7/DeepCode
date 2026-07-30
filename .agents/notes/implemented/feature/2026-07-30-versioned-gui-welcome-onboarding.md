@@ -18,7 +18,7 @@ The GUI's credential onboarding begins with a DeepSeek-specific readiness check,
 
 **Concurrent views converge without stale replacement.** The acknowledgement write omits `expectedRevision` deliberately: every tab writes the same version to one path, so the operation is idempotent and preserves sibling fields instead of rebuilding the section. `settings/document-updated` becomes `host/settings-changed`; an already mounted tab refetches and advances when another tab or an external editor commits the current version. The API proxy exposes this one product namespace through a closed allowlist beside configurable-provider namespaces, without treating its changes as model-catalog invalidations.
 
-**The welcome modal has one completion path.** It renders no close icon or secondary action, installs no Escape handler, and assigns no click handler to the mask. Its mask starts below the 80 px top chrome and preserves `position:absolute`, zero left/right/bottom offsets, `rgba(0, 0, 0, 0.24)`, and `backdrop-filter: blur(2px)`. Continue is the sole button and receives initial focus.
+**The welcome modal is scan-first and has one completion path.** Its hierarchy is a declaration title, one status sentence, one emphasized feedback callout, one consequence sentence, and a restrained quotation; the notice version changes whenever that authored copy changes materially. It renders no close icon or secondary action, installs no Escape handler, and assigns no click handler to the mask. Its mask starts below the 80 px top chrome and preserves `position:absolute`, zero left/right/bottom offsets, `rgba(0, 0, 0, 0.24)`, and `backdrop-filter: blur(2px)`. Continue is the sole button and receives initial focus.
 
 ## Alternatives considered
 

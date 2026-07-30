@@ -47,22 +47,26 @@ export function WelcomeNotice(props: WelcomeNoticeProps): ReactNode {
     <div className={css.overlay} role="presentation">
       <div className={css.mask} aria-hidden="true" />
       <section className={css.dialog} role="dialog" aria-modal="true" aria-labelledby="welcome-notice-title">
-        <h2 id="welcome-notice-title" className={css.title}>{t('welcome.paragraph.0')}</h2>
-        <div className={css.copy}>
-          <p>{t('welcome.paragraph.1')}</p>
-          <p>{t('welcome.paragraph.2')}</p>
-          <p>{t('welcome.paragraph.3')}</p>
+        <h2 id="welcome-notice-title" className={css.title}>{t('welcome.title')}</h2>
+        <p className={css.lead}>{t('welcome.lead')}</p>
+        <div className={css.feedback}>
+          <strong>{t('welcome.feedbackTitle')}</strong>
+          <p>{t('welcome.feedbackBody')}</p>
         </div>
+        <p className={css.closing}>{t('welcome.closing')}</p>
         {state.error === null ? null : <p className={css.error} role="alert">{t('welcome.error')}</p>}
-        <Button
-          variant="primary"
-          className={css.primary}
-          autoFocus
-          disabled={state.status === 'saving'}
-          onClick={() => { void acknowledge() }}
-        >
-          {t('welcome.continue')}
-        </Button>
+        <div className={css.footer}>
+          <p className={css.quote}>{t('welcome.quote')}</p>
+          <Button
+            variant="primary"
+            className={css.primary}
+            autoFocus
+            disabled={state.status === 'saving'}
+            onClick={() => { void acknowledge() }}
+          >
+            {t('welcome.continue')}
+          </Button>
+        </div>
       </section>
     </div>
   )
