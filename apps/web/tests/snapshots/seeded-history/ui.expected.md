@@ -31,6 +31,10 @@
 - button "在新对话中分支":
   - img
 - text: {{clock}}
+- button "上下文注入":
+  - img
+  - img
+  - text: 上下文注入
 - textbox "Message the agent"
 - button "Add attachment":
   - img
