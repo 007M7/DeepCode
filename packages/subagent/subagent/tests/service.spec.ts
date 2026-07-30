@@ -12,7 +12,6 @@ import SubagentService, {
   assertSubagentMaxDepth,
   type SubagentCapabilities,
   type SubagentProvider,
-  type SubagentProviderStartRequest,
   type SubagentResult,
   type SubagentRun,
   type SubagentStartRequest,
@@ -38,7 +37,7 @@ function baseRequest(overrides: Partial<SubagentStartRequest> = {}): SubagentSta
 class StubProvider implements SubagentProvider {
   readonly inheritsParentContext = false
   startCount = 0
-  lastRequest: SubagentProviderStartRequest | undefined
+  lastRequest: SubagentStartRequest | undefined
 
   constructor(
     readonly name: string,
@@ -49,7 +48,7 @@ class StubProvider implements SubagentProvider {
     },
   ) {}
 
-  async start(request: SubagentProviderStartRequest): Promise<SubagentRun> {
+  async start(request: SubagentStartRequest): Promise<SubagentRun> {
     this.startCount += 1
     this.lastRequest = request
     return {
@@ -112,21 +111,27 @@ describe('SubagentService', () => {
     const request = baseRequest()
     await subagents.start('one-shot', request)
 
+    // One-shot start borrows the caller's exact request; the seam has no
+    // provider-facing resume or steer surface to dispatch through.
     expect(provider.lastRequest).toBe(request)
-    expectTypeOf<SubagentProviderStartRequest>()
-      .not.toExtend<Parameters<SubagentService['start']>[1]>()
+    expectTypeOf<Parameters<SubagentService['start']>[1]>().toExtend<SubagentStartRequest>()
     expect('resume' in subagents).toBe(false)
+    expect('resume' in provider).toBe(false)
   })
 
-  it('rejects Task-backed continuation operations when their runtime services are absent', async () => {
+  it('rejects continuable operations when their runtime services are absent', async () => {
     const { subagents } = await service()
-    expect(() => {
-      subagents.startContinuable({
-        provider: 'unused',
-        label: 'work',
-        request: baseRequest(),
-      })
-    }).toThrow(expect.objectContaining({ code: 'CONTINUATION_UNAVAILABLE' }))
+    await expect(subagents.startContinuable({
+      provider: 'unused',
+      request: baseRequest(),
+      signal: new AbortController().signal,
+    })).rejects.toMatchObject({ code: 'CONTINUATION_UNAVAILABLE' })
+    await expect(subagents.followup(
+      { kind: 'user' },
+      SessionId('child'),
+      [{ type: 'text', text: 'hello' }],
+      { source: { kind: 'user' }, signal: new AbortController().signal },
+    )).rejects.toMatchObject({ code: 'CONTINUATION_UNAVAILABLE' })
   })
 
   it.each([

@@ -198,7 +198,7 @@ export class SubagentService extends Service {
    * @returns the durable child id and the accepted prompt's message id.
    * @throws when continuation services are unavailable or materialization fails.
    */
-  startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
+  async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
     return this.requireContinuations().startContinuable(spec)
   }
 
@@ -217,7 +217,7 @@ export class SubagentService extends Service {
    * @throws when continuation services are unavailable, authority is rejected,
    *   or the message was not admitted.
    */
-  followup(
+  async followup(
     authority: SubagentAuthority,
     childId: SessionId,
     content: ContentBlock[],
@@ -342,7 +342,7 @@ export class SubagentService extends Service {
   private requireContinuations(): SubagentContinuationManager {
     if (this.continuations === undefined) {
       throw new SubagentError(
-        'continuable subagents require the tasks and agents services',
+        'continuable subagents require the agents service',
         'CONTINUATION_UNAVAILABLE',
       )
     }
