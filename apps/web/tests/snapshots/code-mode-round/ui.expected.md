@@ -11,7 +11,6 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
@@ -38,14 +37,10 @@
 - button "在新对话中分支":
   - img
 - text: {{clock}} cache hit 52% · 17,490 tokens · 1 turns · 2 steps
-- textbox "Message the agent"
+- textbox "给智能体发消息"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
 - button "选择模型，当前 DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

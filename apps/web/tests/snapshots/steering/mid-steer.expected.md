@@ -11,7 +11,6 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
@@ -24,7 +23,7 @@
 - button:
   - img
   - img
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]} cache hit 98% · 7,946 tokens · 1 turns · 1 steps"
+- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]}"
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]
