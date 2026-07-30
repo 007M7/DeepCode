@@ -46,6 +46,34 @@ describe('ACP connection ownership', () => {
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
   })
 
+  it('cancels its own prompt before awaiting the descendant drain', async () => {
+    harness = await makeBridgeHarness({ script: ['hang'] })
+    const order: string[] = []
+    const release = Promise.withResolvers<undefined>()
+    harness.ctx.provide('subagents', {
+      drainContinuable: async () => {
+        order.push('drain started')
+        await release.promise
+        order.push('drain finished')
+      },
+    } as never)
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+    void harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }).catch(() => {})
+    await vi.waitFor(() => { expect(agent.status).toBe('running') })
+    harness.ctx.on('agent/cancel-requested', () => { order.push('parent cancelled') })
+
+    const disposal = harness.acpFiber.dispose()
+    // A drain can block on persistence, so the bridge's own turn must already be
+    // cancelled rather than running for its whole duration.
+    await vi.waitFor(() => { expect(order).toContain('drain started') })
+    expect(order).toEqual(['parent cancelled', 'drain started'])
+    release.resolve(undefined)
+    await disposal
+    expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
+  })
+
   it('reports a failed continuable drain and still disposes its sessions', async () => {
     harness = await makeBridgeHarness()
     const warnings: string[] = []

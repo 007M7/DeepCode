@@ -685,19 +685,71 @@ describe('continuable review regressions', () => {
     expect(before).toBeGreaterThan(0)
   })
 
-  it('publishes the terminal edge while the child agent is still resolvable', async () => {
-    const { ctx, parent } = await setup([textResponse('answer')])
-    const resolvable: boolean[] = []
-    // Consumers resolve the child in `subagent/end` to run in its own cwd.
-    ctx.on('subagent/end', (info) => {
-      resolvable.push(ctx.agents.get(info.id) !== undefined)
-    })
+  it('reports this epoch\'s own output, captured while the child was still live', async () => {
+    const { ctx, parent } = await setup([textResponse('first answer'), textResponse('second answer')])
+    const ends: SubagentRunEndInfo[] = []
+    ctx.on('subagent/end', (info) => { ends.push(info) })
 
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
+    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
+    // Handle disposal unregisters the child, so the edge's content must have
+    // been captured before that — an after-the-fact lookup would find nothing.
+    expect(ends[0]!.lastAssistantMessage).toEqual([{ type: 'text', text: 'first answer' }])
 
-    await vi.waitFor(() => { expect(resolvable).toHaveLength(1) })
-    expect(resolvable[0]).toBe(true)
+    // A cold resume is a new epoch: it must report its OWN answer, never the
+    // previous epoch's, which the replayed transcript still contains.
+    await followup(ctx, { kind: 'user' }, started.childId, message('again'))
+    await waitNoActivation(ctx, started.childId)
+    await vi.waitFor(() => { expect(ends).toHaveLength(2) })
+    expect(ends[1]!.lastAssistantMessage).toEqual([{ type: 'text', text: 'second answer' }])
+  })
+
+  it('reports a resumed epoch that opened no turn without the previous answer', async () => {
+    const { ctx, parent } = await setup([textResponse('first answer')])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await waitNoActivation(ctx, started.childId)
+
+    const ends: SubagentRunEndInfo[] = []
+    ctx.on('subagent/end', (info) => { ends.push(info) })
+    // Block the resumed prompt so this epoch produces nothing of its own.
+    ctx.on('agent/prompt-submit', async (subject, _content, _source, _signal, next) => {
+      if (subject === parent) return next()
+      return { kind: 'block', reason: 'blocked by policy' }
+    })
+    await followup(ctx, { kind: 'user' }, started.childId, message('again'))
+    await waitNoActivation(ctx, started.childId)
+
+    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
+    // Reading the whole session would resurrect 'first answer' here.
+    expect(ends[0]!.lastAssistantMessage).toBeUndefined()
+    expect(ends[0]!.stopReason).toBe('completed')
+  })
+
+  it('reports handle-disposal failure on the terminal edge', async () => {
+    const { ctx, parent } = await setup([textResponse('answer')])
+    const ends: SubagentRunEndInfo[] = []
+    ctx.on('subagent/end', (info) => { ends.push(info) })
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    const manager = (ctx.subagents as unknown as {
+      continuations: { activations: Map<SessionId, { handle: { dispose: () => Promise<void> } }> }
+    }).continuations
+    const activation = await vi.waitFor(() => {
+      const found = manager.activations.get(started.childId)
+      expect(found).toBeDefined()
+      return found!
+    })
+    const realDispose = activation.handle.dispose.bind(activation.handle)
+    activation.handle.dispose = async () => {
+      await realDispose()
+      throw new Error('scoped cleanup failed')
+    }
+
+    await expect(ctx.subagents.drainContinuable()).rejects.toThrow()
+    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
+    // Emitting before disposal would have reported this failed epoch as success.
+    expect(ends[0]!.stopReason).toBe('error')
   })
 
   it('cancels a running turn before the final durability checkpoint', async () => {

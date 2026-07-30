@@ -108,17 +108,26 @@ export type ActivationState = 'running' | 'waiting' | 'settled'
  * children emit the same start/end pair as one-shot runs.
  */
 export interface ActivationObserver {
-  /** Publish the start edge once the epoch is resident. */
-  start(): void
   /**
-   * Publish the terminal edge exactly once, pairing this epoch's {@link start}.
-   * Called only for a resident epoch: a failure before residency publishes no
-   * edge at all, because inventing one would report a lifecycle the child never
-   * had.
-   * @param child - the child agent whose final output the edge reports.
+   * Publish the start edge once the epoch is resident.
+   * @param child - the resident child agent, whose log suffix bounds this epoch.
+   */
+  start(child: Agent): void
+  /**
+   * Snapshot the child-dependent terminal facts while the child is still
+   * registered, because handle disposal unregisters it and consumers resolve it
+   * to read the child's own log and scope.
+   * @param child - the quiescent child agent about to be released.
+   */
+  capture(child: Agent): void
+  /**
+   * Publish the terminal edge exactly once, pairing this epoch's {@link start},
+   * after the disposal outcome is known. Called only for a resident epoch: a
+   * failure before residency publishes no edge, because inventing one would
+   * report a lifecycle the child never had.
    * @param failure - the teardown or durability failure, or `undefined` on success.
    */
-  settle(child: Agent, failure: unknown): void
+  settle(failure: unknown): void
 }
 
 /** Hooks the manager needs from the owning service. */
@@ -585,7 +594,7 @@ export class SubagentContinuationManager {
     })
     // Resident: publish the start edge before any turn can run, so observers
     // see this epoch before its first request.
-    observer.start()
+    observer.start(handle.agent)
     this.watchSettlement(activation)
     return activation
   }
@@ -778,12 +787,10 @@ export class SubagentContinuationManager {
         await activation.handle.agent.whenIdle()
         const durability = await this.checkpoint(activation)
         failure ??= durability
-        // Publish the terminal edge while the child is STILL registered:
-        // consumers resolve `ctx.agents.get(info.id)` in `subagent/end` to run
-        // in the child's own cwd and scope, which handle disposal removes.
-        activation.observer.settle(activation.handle.agent, failure)
+        // Capture the child-dependent edge data while the child is still live:
+        // handle disposal unregisters it, and consumers read its log and scope.
+        activation.observer.capture(activation.handle.agent)
       } finally {
-        this.activations.delete(childId)
         try {
           await activation.handle.dispose()
         } catch (error: unknown) {
@@ -793,9 +800,16 @@ export class SubagentContinuationManager {
             { cause: error },
           )
         } finally {
+          // Only now is the Activation gone: keeping the entry until disposal
+          // settles makes a racing delivery wait for release rather than
+          // cold-resume into the still-registered agent.
+          this.activations.delete(childId)
           // Release ownership even on failure: a retained failed child would
           // pin its ancestors in `waiting` forever.
           this.releaseOwnership(childId)
+          // Emit once the disposal outcome is known, so a rejecting scoped
+          // cleanup cannot be reported as a successful epoch.
+          activation.observer.settle(failure)
         }
       }
       if (failure !== undefined) throw failure

@@ -336,6 +336,13 @@ export function apply(ctx: Context, config: AcpConfig): void {
     closed = true
     const records = [...sessions.values()]
     sessions.clear()
+    // Stop the bridge's own work before any await: a descendant drain can block
+    // on persistence or scoped cleanup, and the top-level agents must not keep
+    // running model and tool calls for its whole duration.
+    for (const record of records) {
+      record.agent.cancel({ kind: 'user' })
+      settlePrompt(record, 'cancelled')
+    }
     quiescing = (async () => {
       // Continuable subagents outlive the turn that started them, and their
       // Activations own descendant teardown. Drain that forest child-first
@@ -351,10 +358,7 @@ export function apply(ctx: Context, config: AcpConfig): void {
           logger.warn(`acp: continuable subagent teardown failed: ${String(error)}`)
         }
       }
-      await Promise.all(records.map(async (record) => {
-        settlePrompt(record, 'cancelled')
-        await record.dispose()
-      }))
+      await Promise.all(records.map(record => record.dispose()))
     })()
     return quiescing
   }

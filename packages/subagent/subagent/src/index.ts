@@ -363,22 +363,40 @@ export class SubagentService extends Service {
     parent: Agent | undefined,
   ): ActivationObserver {
     const identity = { runId: SubagentRunId(randomUUID()), provider, id: childId, local: true }
+    // A cold resume replays earlier turns, so this epoch's telemetry must come
+    // from the suffix it actually produced — never the whole session, which
+    // would report a previous epoch's answer when this one opened no turn.
+    let boundary = 0
+    // Assigned by `capture()`, which the disposal path always runs before
+    // `settle()`; a resident epoch therefore always has its facts by then.
+    let captured: { stopReason: SubagentResult['stopReason']; output?: ContentBlock[] } = {
+      stopReason: 'completed',
+    }
     let settled = false
     return {
-      start: (): void => {
+      start: (child: Agent): void => {
+        boundary = child.session.events.length
         this.emitLifecycle('subagent/start', identity, parent)
       },
-      settle: (child: Agent, failure: unknown): void => {
+      capture: (child: Agent): void => {
+        const own = child.session.events.slice(boundary)
+        const output = lastAssistantOutput(own)
+        captured = {
+          stopReason: epochStopReason(own),
+          ...output === undefined ? {} : { output },
+        }
+      },
+      settle: (failure: unknown): void => {
         // Exactly one terminal edge per epoch: host shutdown, manager unload,
         // child release, and normal settlement all converge on one disposal.
         /* v8 ignore next -- the memoized disposal already collapses those callers into a
          * single settle(); this guard keeps the edge single if that memoization ever changes. */
         if (settled) return
         settled = true
-        const output = failure === undefined ? lastAssistantOutput(child) : undefined
+        const output = failure === undefined ? captured.output : undefined
         this.emitLifecycle('subagent/end', {
           ...identity,
-          stopReason: failure === undefined ? childStopReason(child) : 'error',
+          stopReason: failure === undefined ? captured.stopReason : 'error',
           ...output === undefined ? {} : { lastAssistantMessage: output },
         }, parent)
       },
@@ -465,11 +483,11 @@ export class SubagentService extends Service {
  * The child's own `turn/end` is authoritative: teardown succeeding says nothing
  * about whether the model errored, hit its token ceiling, or was cancelled, so
  * deriving the reason from disposal would report failed work as completed.
- * @param child - the settling child agent whose log is read.
+ * @param events - this epoch's own event suffix.
  * @returns its terminal stop reason; `completed` when no ordinary turn closed.
  */
-function childStopReason(child: Agent): SubagentResult['stopReason'] {
-  const reason = findLastMessageTurnEnd(child.session.events)?.data.reason
+function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopReason'] {
+  const reason = findLastMessageTurnEnd(events)?.data.reason
   // No ordinary turn closed, so nothing failed either.
   if (reason === undefined) return 'completed'
   switch (reason.kind) {
@@ -494,11 +512,11 @@ function childStopReason(child: Agent): SubagentResult['stopReason'] {
 /**
  * The child's last assistant message content, for one Activation's terminal
  * lifecycle edge. Absent when no assistant message reached the log.
- * @param child - the settling child agent whose log is read.
+ * @param events - this epoch's own event suffix.
  * @returns its final assistant content, or `undefined` when it produced none.
  */
-function lastAssistantOutput(child: Agent): ContentBlock[] | undefined {
-  const message = child.session.events.findLast(
+function lastAssistantOutput(events: readonly SessionEvent[]): ContentBlock[] | undefined {
+  const message = events.findLast(
     (event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message',
   )
   return message?.data.message.content
