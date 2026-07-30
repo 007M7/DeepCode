@@ -326,7 +326,7 @@ describe('session-log invariants', () => {
       unresolved.append('step/start', { turn: 1, step: 1 })
       unresolved.append('tool/call', { turn: 1, step: 1, callId: CallId('c1'), name: 'echo', arguments: '{}' })
       unresolved.append('step/end', { turn: 1, step: 1 })
-      unresolved.append('turn/end', { turn: 1, reason: { kind: 'error', error: new Error('boom') } })
+      unresolved.append('turn/end', { turn: 1, reason: { kind: 'error', error: 'boom' } })
     }).not.toThrow()
   })
 
@@ -384,16 +384,16 @@ describe('session-log invariants', () => {
     const { ctx } = await setup()
     // Balanced seed: between turns.
     expect(() => ctx.sessions.create(SessionId('inherited-between-turns'), { seed: [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
       { type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } } },
     ] })).not.toThrow()
     // Unbalanced seed: inside the open turn, which the relation permits.
     const open = ctx.sessions.create(SessionId('inherited-inside-open-turn'), { seed: [
-      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1 } },
     ] })
     expect(open.events.map(event => event.type)).toEqual(['turn/start', 'session/end-seed'])
     // Still open afterwards: the boundary moves no cursor.
-    expect(() => open.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
+    expect(() => open.append('turn/start', { turn: 2 }))
       .toThrow(/turn 1 is still open/)
     expect(() => open.append('turn/end', { turn: 1, reason: { kind: 'completed' } })).not.toThrow()
   })

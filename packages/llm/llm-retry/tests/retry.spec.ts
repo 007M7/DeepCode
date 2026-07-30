@@ -144,15 +144,8 @@ function alwaysConfig(backoff: BackoffConfig = {}): AlwaysRetryPolicyConfig {
   }
 }
 
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise((resolve) => {
-    const dispose = ctx.on('agent/status', (subject, status) => {
-      if (subject === agent && status === 'idle') {
-        dispose()
-        resolve()
-      }
-    })
-  })
+function waitForIdle(_ctx: Context, agent: Agent): Promise<void> {
+  return agent.whenIdle()
 }
 
 function waitForRetry(ctx: Context, agent: Agent, retryNumber: number): Promise<Extract<SessionEvent, { type: 'llm/retry' }>> {
@@ -175,7 +168,7 @@ afterEach(async () => {
 })
 
 describe('provider-routed retry policy', () => {
-  it('records the scheduled delay before opening a fresh request attempt', async () => {
+  it('records the scheduled delay before retrying the request', async () => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([
       new LlmError('busy', 'RATE_LIMIT', { status: 429 }),
@@ -214,7 +207,7 @@ describe('provider-routed retry policy', () => {
 
     expect(adapter.requests).toHaveLength(2)
     expect(agent.session.events.filter(item => item.type === 'step/start').map(item => item.data))
-      .toEqual([{ turn: 1, step: 1 }, { turn: 2, step: 1 }])
+      .toEqual([{ turn: 1, step: 1 }])
     expect(agent.session.deriveMessages().at(-1)).toEqual({
       id: expect.any(String) as unknown,
       role: 'assistant',
@@ -251,7 +244,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => ({
       turn: event.data.turn,
       step: event.data.step,
-    }))).toEqual([{ turn: 2, step: 1 }])
+    }))).toEqual([{ turn: 1, step: 1 }])
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
       role: 'assistant',
       content: [{ type: 'text', text: 'recovered' }],
@@ -291,7 +284,7 @@ describe('provider-routed retry policy', () => {
     expect(agent.session.events.filter(event => event.type === 'assistant/message').map(event => ({
       turn: event.data.turn,
       step: event.data.step,
-    }))).toEqual([{ turn: 2, step: 1 }])
+    }))).toEqual([{ turn: 1, step: 1 }])
     expect(agent.session.events.some(event => event.type === 'tool/call')).toBe(false)
     expect(toolExecutions).toBe(0)
     expect(agent.session.deriveMessages().at(-1)).toMatchObject({
@@ -534,9 +527,9 @@ describe('provider-routed retry policy', () => {
         backoff: { initialDelayMs: 1, maxDelayMs: 1 },
       }),
     }, (ctx) => {
-      ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => ({
+      ctx.on('agent/request', async (_agent, _turn, _step, _signal, next) => ({
         ...await next(),
-        provider: turn === 1 ? 'mock' : 'other',
+        provider: adapter.requests.length === 0 ? 'mock' : 'other',
       }))
     }))
     const agent = context.agentLoop.create(SessionId('retry-provider-budgets'), {

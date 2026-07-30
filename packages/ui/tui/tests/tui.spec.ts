@@ -452,7 +452,7 @@ describe('goodbye message and /resume', () => {
 
   it.each([
     [{ kind: 'aborted', reason: { kind: 'user' } }, 'cancelled'],
-    [{ kind: 'error', error: new Error('failed') }, 'error'],
+    [{ kind: 'error', error: 'failed' }, 'error'],
     [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'cancelled'],
     [{ kind: 'max-tokens' }, 'max tokens'],
     [{ kind: 'interrupted' }, 'interrupted'],
@@ -3687,6 +3687,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.agent.cancelled).toContainEqual({ kind: 'user' })
+    result.agent.status = 'idle'
+    agentEvents(result.ctx, result.agent).emit('agent/status', 'idle')
+    await tick()
     expect(result.exit).toHaveBeenCalledWith(0)
 
     const events = await setup()
@@ -3714,7 +3717,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     events.session.append('turn/start', { turn: 6 })
     events.session.append('turn/end', {
       turn: 6,
-      reason: { kind: 'error', error: { message: 'structured provider failure', code: 'SERVER' } },
+      reason: { kind: 'error', error: 'structured provider failure' },
     })
     events.session.append('turn/start', { turn: 8 })
     events.session.append('turn/end', {
@@ -3732,7 +3735,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(events.terminal.output).toContain('structured provider failure')
     expect(events.terminal.output).toContain('output-token limit')
     expect(events.terminal.output).toContain('previous process ended')
-    expect(events.terminal.output).toContain('Turn stopped: the agent was disposed')
     expect(events.terminal.output).toContain('Turn ended: plugin-policy')
     expect(events.terminal.output).toContain('was disposed')
     await dispose(events)

@@ -262,13 +262,16 @@ describe('LlmService', () => {
       messages: [],
     }))
 
-    expect(chunks.at(-1)).toMatchObject({
+    const finish = chunks.at(-1)
+    expect(finish).toMatchObject({
       type: 'finish',
       reason: {
         kind: 'error',
-        failure: { code: 'NO_ADAPTER', message: expect.stringContaining('no adapter registered') },
+        failure: { code: 'NO_ADAPTER' },
       },
     })
+    if (finish?.type !== 'finish' || finish.reason.kind !== 'error') throw new Error('expected error finish')
+    expect(finish.reason.failure.message).toContain('no adapter registered')
   })
 
   it.each(['done', 'value'] as const)('normalizes a throwing IteratorResult.%s getter', async (field) => {

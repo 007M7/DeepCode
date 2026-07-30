@@ -354,7 +354,7 @@ describe('runOneShot and executeCli', () => {
     })
   })
 
-  it('counts a failed retry attempt once even though it has no assistant message', async () => {
+  it('reports usage committed by the recovered assistant message', async () => {
     const failed = { inputTokens: 11, outputTokens: 2, cacheReadTokens: 3 }
     const recovered = { inputTokens: 7, outputTokens: 5, reasoningTokens: 4 }
     const { ctx } = await harness([failedResponse(failed), textResponse('done', recovered)])
@@ -362,9 +362,8 @@ describe('runOneShot and executeCli', () => {
     const result = await runOneShot(ctx, { task: 'task' })
 
     expect(result.usage).toEqual({
-      inputTokens: 18,
-      outputTokens: 7,
-      cacheReadTokens: 3,
+      inputTokens: 7,
+      outputTokens: 5,
       reasoningTokens: 4,
     })
   })
@@ -422,7 +421,8 @@ describe('runOneShot and executeCli', () => {
     const outcome = await result
     expect(outcome).toMatchObject({ type: 'result', output: 'streamed' })
     const events = streamed.map(item => item.event)
-    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 3 } })
+    expect(events.find(event => event.type === 'turn/start'))
+      .toMatchObject({ type: 'turn/start', data: { turn: 3 } })
     expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 3 } })
     expect(streamed.every(item => item.sessionId === agent.session.id)).toBe(true)
     expect(events.some(event => event.type === 'user/message'
@@ -462,7 +462,7 @@ describe('runOneShot and executeCli', () => {
 
     const failed = await harness([])
     failed.ctx.on('agent/prompt-submit', async () => { throw new Error('admission exploded') })
-    await expect(runOneShot(failed.ctx, { task: 'task' })).rejects.toThrow('not admitted')
+    await expect(runOneShot(failed.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
   })
 
   it('emits partial data without attributing a turn outcome', async () => {

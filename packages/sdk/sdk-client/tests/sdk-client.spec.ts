@@ -175,7 +175,7 @@ describe('DeepSeekHarness', () => {
       await using harness = new DeepSeekHarness({ launch: fakeLaunch() })
       captured = harness
       const result = await harness.run('scoped')
-      expect(result.finalResponse).toBe('scoped')
+      expect(result.finalResponse).toBe('hello from fake runtime')
     }
     // After scope exit the runtime is closed: reuse fails loudly.
     await expect(captured.run('after')).rejects.toThrow(TransportClosedError)

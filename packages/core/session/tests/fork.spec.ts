@@ -139,17 +139,17 @@ describe('SessionStore.fork', () => {
     const reasons: TurnEndReason[] = [
       { kind: 'completed' },
       { kind: 'aborted', reason: { kind: 'user' } },
-      { kind: 'error', error: new Error('model failed') },
+      { kind: 'error', error: 'model failed' },
       { kind: 'aborted', reason: { kind: 'disposed' } },
       { kind: 'max-tokens' },
       { kind: 'interrupted' },
     ]
 
-    for (const reason of reasons) {
-      const source = ctx.sessions.create(SessionId(`parent-${reason.kind}`))
+    for (const [index, reason] of reasons.entries()) {
+      const source = ctx.sessions.create(SessionId(`parent-${index}`))
       appendClosedTurn(source, 1, reason.kind, reason)
 
-      const child = sessions.fork(source, lastSeq(source), SessionId(`child-${reason.kind}`))
+      const child = sessions.fork(source, lastSeq(source), SessionId(`child-${index}`))
 
       expect(inherited(child).at(-1)?.type).toBe('turn/end')
       expect(child.header.seedLength).toBe(source.events.length)

@@ -126,7 +126,7 @@ describe('TelemetryCoordinator capture', () => {
       }),
     }, { surfaceOp: 'append' })
     session.append('telemetry-test/opaque', { payload: { nested: [] } })
-    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: new Error('boom') } })
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: 'boom' } })
     const severities = backend.ledger().map(r => [r.attributes['event.type'], r.severity])
     expect(severities).toEqual([
       ['turn/start', 'info'],

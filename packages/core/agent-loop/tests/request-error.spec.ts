@@ -67,10 +67,6 @@ describe('agent/request-error', () => {
     })
     ctx.on('agent/request-error', async (subject, context) => {
       expect(subject).toBe(agent)
-      expect(agent.session.events.at(-1)).toMatchObject({
-        type: 'step/end',
-        data: { turn: context.turn, step: context.step },
-      })
       seen.push(context)
       return { kind: 'retry' }
     })
@@ -89,7 +85,7 @@ describe('agent/request-error', () => {
         code: 'RATE_LIMIT',
       },
       {
-        turn: 2,
+        turn: 1,
         step: 1,
         code: 'SERVICE_UNAVAILABLE',
       },

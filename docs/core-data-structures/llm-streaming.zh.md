@@ -144,7 +144,7 @@ declare class BlockAssembler {
    * Assemble all blocks seen so far, in stream order.
    * @returns one block per seen index, except that max-token truncation drops
    *   tool calls that cannot be executed safely; an open block assembles from
-   *   accumulated deltas (an unknown block type never closed by `block-end` throws).
+   *   its accumulated deltas (an unknown block type never closed by `block-end` throws).
    */
   blocks(): ContentBlock[];
   /** Usage from the `usage` chunk; undefined until one arrives. */

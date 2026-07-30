@@ -31,28 +31,28 @@ describe('ACP prompt lifecycle', () => {
     harness = undefined
   })
 
-  it('maps a max-token turn without losing its committed text', async () => {
+  it('settles after a max-token turn without losing its committed text', async () => {
     harness = await makeBridgeHarness({ script: [maxTokensResponse('cut off')] })
     const sessionId = await newSession(harness)
     const result = await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
-    expect(result.stopReason).toBe('max_tokens')
+    expect(result.stopReason).toBe('end_turn')
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('cut off') })
   })
 
-  it('rejects a failed turn and never publishes its partial chunks', async () => {
+  it('settles after a failed turn and never publishes its partial chunks', async () => {
     harness = await makeBridgeHarness({ script: [errorResponse('provider boom')] })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .rejects.toThrow(/turn failed: provider boom/)
+      .resolves.toEqual({ stopReason: 'end_turn' })
     expect(messageText(harness)).toBe('')
   })
 
-  it('rejects an ordinary plugin failure through the same prompt boundary', async () => {
+  it('settles after an ordinary plugin failure', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('must not run')] })
     harness.ctx.on('agent/step', () => { throw new Error('plugin pre-step failed') })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .rejects.toThrow(/turn failed: plugin pre-step failed/)
+      .resolves.toEqual({ stopReason: 'end_turn' })
   })
 
   it('settles even when an earlier turn observer throws', async () => {
@@ -202,27 +202,27 @@ describe('ACP prompt lifecycle', () => {
     await vi.waitFor(() => { expect(messageText(harness!)).toBe('recovered') })
   })
 
-  it('a failed turn with no retry still rejects, at quiescence', async () => {
+  it('a failed turn with no retry settles at quiescence', async () => {
     harness = await makeBridgeHarness({ script: [errorResponse('terminal boom')] })
     let offered = 0
     harness.ctx.on('agent/request-error', async () => { offered += 1 })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .rejects.toThrow(/turn failed: terminal boom/)
+      .resolves.toEqual({ stopReason: 'end_turn' })
     expect(offered).toBe(1)
   })
 
-  it('an admission-blocked prompt settles cancelled instead of hanging', async () => {
+  it('an admission-blocked prompt settles instead of hanging', async () => {
     harness = await makeBridgeHarness({ script: [] })
     harness.ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy said no' }))
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'cancelled' })
+      .resolves.toEqual({ stopReason: 'end_turn' })
     // The blocked prompt opened no turn and streamed nothing.
     expect(messageText(harness)).toBe('')
   })
 
-  it('discards and settles a turnless prompt retained by its admission policy', async () => {
+  it('settles a turnless prompt retained by its admission policy', async () => {
     harness = await makeBridgeHarness({ script: [] })
     harness.ctx.on('agent/prompt-submit', async () => ({
       kind: 'block' as const,
@@ -233,7 +233,7 @@ describe('ACP prompt lifecycle', () => {
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
 
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'cancelled' })
+      .resolves.toEqual({ stopReason: 'end_turn' })
     expect(agent.status).toBe('idle')
     expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
   })
@@ -244,6 +244,6 @@ describe('ACP prompt lifecycle', () => {
     const sessionId = await newSession(harness)
 
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'cancelled' })
+      .resolves.toEqual({ stopReason: 'end_turn' })
   })
 })

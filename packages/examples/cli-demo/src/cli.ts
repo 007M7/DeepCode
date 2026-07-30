@@ -226,7 +226,9 @@ export async function runOneShot(ctx: Context, options: OneShotOptions): Promise
       options.onEvent(sessionId, event)
     } catch (error: unknown) {
       outputError = toError(error)
-      agent.cancel({ kind: 'user' })
+      queueMicrotask(() => {
+        agent.cancel({ kind: 'user' })
+      })
     }
   }
 

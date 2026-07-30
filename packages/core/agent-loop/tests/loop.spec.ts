@@ -308,7 +308,6 @@ describe('agent loop', () => {
     send(agent, 'start')
     await waitForIdle(ctx, agent)
 
-    const types = agent.session.events.map(e => e.type)
     const steering = agent.session.events.find(e =>
       e.type === 'user/message' && JSON.stringify(e.data.content).includes('change of plans'))
     expect(steering).toBeDefined()

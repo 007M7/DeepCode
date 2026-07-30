@@ -90,7 +90,7 @@ describe('attached updatedAt excludes end-seed', () => {
     const worked = 1_000_000
     const resumed = ctx.sessions.create(sid('resumed-untouched'), {
       seed: [
-        { type: 'turn/start', seq: 0, time: worked, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+        { type: 'turn/start', seq: 0, time: worked, data: { turn: 1 } },
         { type: 'turn/end', seq: 1, time: worked, data: { turn: 1, reason: { kind: 'completed' } } },
       ],
       meta: { cwd: '/proj', createdAt: 500 },
@@ -106,7 +106,7 @@ describe('attached updatedAt excludes end-seed', () => {
     expect(summary?.updatedAt).toBe(worked)
 
     // Real work appended after end-seed does move it.
-    resumed.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
+    resumed.append('turn/start', { turn: 2 })
     const after = await api.sessions.list(request({}))
     if (!after.result.ok) throw new Error('list failed')
     const moved = after.result.value.items.find(item => item.sessionId === 'resumed-untouched')
