@@ -1,10 +1,15 @@
+import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { scrubRequestHeaders, tokenizeSessionFixtureCwd } from '@deepseek-ai/dsh-acp-snapshot'
+import {
+  scrubRequestHeaders,
+  stabilizeFixtureMessageIds,
+  tokenizeSessionFixtureCwd,
+} from '@deepseek-ai/dsh-acp-snapshot'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import * as AgentCore from '@deepseek-ai/dsh-agent-spine-demo'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
@@ -484,17 +489,15 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
 async function writeRecording(scenario: Scenario, result: ScenarioResult): Promise<void> {
   const dir = scenarioDir(scenario)
   await mkdir(dir, { recursive: true })
-  await writeFile(
-    join(dir, 'session.jsonl'),
-    scrubRequestHeaders(tokenizeSessionFixtureCwd(rawSessionLog(result.parent))),
-  )
   expect(result.children).toHaveLength(scenario.childSessions ?? 0)
-  for (const [index, child] of result.children.entries()) {
-    await writeFile(
-      join(dir, `session.${index + 1}.jsonl`),
-      scrubRequestHeaders(tokenizeSessionFixtureCwd(rawSessionLog(child))),
-    )
-  }
+  const files = [join(dir, 'session.jsonl'), ...childFixturePaths(scenario)]
+  const existing = await Promise.all(files.map(async file => existsSync(file) ? readFile(file, 'utf8') : ''))
+  const fixtures = stabilizeFixtureMessageIds(
+    [result.parent, ...result.children]
+      .map(session => scrubRequestHeaders(tokenizeSessionFixtureCwd(rawSessionLog(session)))),
+    existing,
+  )
+  await Promise.all(fixtures.map((fixture, index) => writeFile(files[index] as string, fixture)))
 }
 
 describe('TUI recorded-session terminal snapshots', () => {

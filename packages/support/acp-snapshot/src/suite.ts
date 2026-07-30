@@ -554,8 +554,8 @@ function uniqueMessageIds(logs: readonly string[]): Map<string, string | undefin
  * Match unchanged complete messages across a scenario's fresh and existing logs.
  * New, changed, repeated, or otherwise ambiguous messages keep their fresh ids.
  */
-function fixtureMessageIdReplacements(logs: HarvestedLog[], fixtures: string[]): FixtureReplacement[] {
-  const freshIds = uniqueMessageIds(logs.map(log => log.content))
+function fixtureMessageIdReplacements(logs: readonly string[], fixtures: readonly string[]): FixtureReplacement[] {
+  const freshIds = uniqueMessageIds(logs)
   const existingIds = uniqueMessageIds(fixtures)
   const replacements: FixtureReplacement[] = []
   for (const [fingerprint, fresh] of freshIds) {
@@ -571,6 +571,18 @@ function applyFixtureReplacements(content: string, replacements: readonly Fixtur
   let stable = content
   for (const { from, to } of replacements) stable = stable.split(from).join(to)
   return stable
+}
+
+/**
+ * Carry committed UUIDs into unchanged, unambiguous messages in fresh session fixtures.
+ *
+ * @param logs Fresh fixture-ready session JSONL contents for one scenario.
+ * @param fixtures Existing fixture contents in matching order; missing fixtures may be empty strings.
+ * @returns The fresh contents with only reusable message UUIDs replaced.
+ */
+export function stabilizeFixtureMessageIds(logs: readonly string[], fixtures: readonly string[]): string[] {
+  const replacements = fixtureMessageIdReplacements(logs, fixtures)
+  return logs.map(log => applyFixtureReplacements(log, replacements))
 }
 
 /** One packed row's member times, or `undefined` for an ordinary record. */
@@ -626,7 +638,7 @@ export function unknownToolCallIds(rawLog: string): string[] {
  * @returns Literal replacements from fresh values to the fixture's existing values.
  */
 export function refreshFixtureReplacements(logs: HarvestedLog[], fixtures: string[]): FixtureReplacement[] {
-  const replacements = fixtureMessageIdReplacements(logs, fixtures)
+  const replacements = fixtureMessageIdReplacements(logs.map(log => log.content), fixtures)
   for (let i = 0; i < logs.length; i++) {
     const fresh = parseJsonlRecords((logs[i] as HarvestedLog).content)[0]
     const existing = parseJsonlRecords(fixtures[i] ?? '')[0]
@@ -1111,23 +1123,22 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             const path = join(dir, file)
             return existsSync(path) ? readFile(path, 'utf8') : ''
           }))
-          const replacements = REFRESHING
+          const refreshReplacements = REFRESHING
             ? refreshFixtureReplacements(result.sessionLogs, existingFixtures)
-            : fixtureMessageIdReplacements(result.sessionLogs, existingFixtures)
-          const primary = (result.sessionLogs[0] as HarvestedLog).content
-          await writeFile(join(dir, outputFixtureFiles[0] as string), scrub(portableFixture(
-            REFRESHING
-              ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements, ctx)
-              : applyFixtureReplacements(primary, replacements),
-          )))
-          for (let i = 1; i < result.sessionLogs.length; i++) {
-            const child = (result.sessionLogs[i] as HarvestedLog).content
-            await writeFile(join(dir, outputFixtureFiles[i] as string), scrub(portableFixture(
-              REFRESHING
-                ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements, ctx)
-                : applyFixtureReplacements(child, replacements),
-            )))
-          }
+            : []
+          const outputFixtures = REFRESHING
+            ? result.sessionLogs.map((log, index) => scrub(portableFixture(stabilizeRefreshLog(
+              log.content,
+              existingFixtures[index] as string,
+              refreshReplacements,
+              ctx,
+            ))))
+            : stabilizeFixtureMessageIds(
+              result.sessionLogs.map(log => scrub(portableFixture(log.content))),
+              existingFixtures,
+            )
+          await Promise.all(outputFixtures.map((fixture, index) =>
+            writeFile(join(dir, outputFixtureFiles[index] as string), fixture)))
           if (RECORDING) {
             const outputNames = new Set(outputFixtureFiles)
             const entries = await readdir(dir, { withFileTypes: true })

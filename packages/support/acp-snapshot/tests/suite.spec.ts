@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
-import { defineAcpSnapshotSuite, type HarvestedLog, type Scenario } from '../src/index.ts'
+import {
+  defineAcpSnapshotSuite,
+  stabilizeFixtureMessageIds,
+  type HarvestedLog,
+  type Scenario,
+} from '../src/index.ts'
 import {
   assertUniqueSnapshotContents,
   claimSharedSnapshot,
@@ -632,6 +637,36 @@ describe('unknownToolCallIds', () => {
 
   it('returns no failures for ordinary tool results', () => {
     expect(unknownToolCallIds('{"type":"tool/result","data":{"message":{"source":{"kind":"tool","callId":"ok"}}}}\n')).toEqual([])
+  })
+})
+
+describe('stabilizeFixtureMessageIds', () => {
+  it('reuses one committed message UUID across fixture-ready parent and child logs', () => {
+    const freshId = '11111111-1111-4111-8111-111111111111'
+    const existingId = '22222222-2222-4222-8222-222222222222'
+    const log = (session: string, id: string): string => [
+      JSON.stringify({ type: 'session', id: session, cwd: '{{cwd}}' }),
+      JSON.stringify({
+        type: 'user/message',
+        data: { role: 'user', content: [{ type: 'text', text: 'same' }], source: { kind: 'user' }, id },
+      }),
+      '',
+    ].join('\n')
+    const fresh = [log('fresh-parent', freshId), log('fresh-child', freshId)]
+    const existing = [log('old-parent', existingId), log('old-child', existingId)]
+
+    const stable = stabilizeFixtureMessageIds(fresh, existing)
+
+    expect(stable).toHaveLength(2)
+    for (const fixture of stable) {
+      expect(fixture).toContain(`"id":"${existingId}"`)
+      expect(fixture).not.toContain(freshId)
+    }
+  })
+
+  it('leaves fresh fixtures unchanged when no committed counterpart exists', () => {
+    const fresh = '{"type":"session","id":"new"}\n'
+    expect(stabilizeFixtureMessageIds([fresh], [''])).toEqual([fresh])
   })
 })
 
