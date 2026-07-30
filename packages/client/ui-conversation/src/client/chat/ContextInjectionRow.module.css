@@ -1,0 +1,29 @@
+/* Figma 10:2482: 24px Tool calls header, 4px gap, 141px clipped code block. */
+
+.root {
+  min-width: 0;
+}
+
+.root[data-open] {
+  padding-bottom: 4px;
+}
+
+.chevron {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.body {
+  box-sizing: border-box;
+  width: calc(100% - 22px);
+  height: 141px;
+  margin: 4px 0 0 22px;
+  overflow: auto;
+  padding: 10px 16px 12px 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--dsw-alias-markdown-code-block);
+  color: var(--dsw-alias-label-tertiary);
+  font: 400 11px/16px var(--ds-font-family-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
