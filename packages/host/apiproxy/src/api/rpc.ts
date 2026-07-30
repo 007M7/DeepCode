@@ -70,6 +70,7 @@ export interface RpcErrorDetailsMap {
   /** A credential write was refused (read-only shadowing layer or storage failure); the message is the seam's own text. */
   'credential-rejected': { ref: string }
   'title-invalid': { sessionId: SessionId }
+  'fork-unavailable': { sessionId: SessionId }
   'internal': {}
 }
 
