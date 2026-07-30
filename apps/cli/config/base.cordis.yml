@@ -102,6 +102,8 @@
 
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    sampleOverCapGlobResults: false
 
 - id: workspace-context
   name: '@deepseek-ai/dsh-workspace-context'
