@@ -860,6 +860,26 @@ describe('workspace context rendering', () => {
     expect(rendered.changes).toEqual([change])
   })
 
+  it.each([
+    { action: 'set' as const, maxBytes: 327, heading: 'Additional instructions from:' },
+    { action: 'replace' as const, maxBytes: 256, heading: 'Updated instructions from:' },
+  ])('does not commit a $action change when its heading survives with zero content bytes', ({ action, maxBytes, heading }) => {
+    const change = {
+      action,
+      scope: sk('pkg', 'AGENTS.md'),
+      path: 'pkg/AGENTS.md',
+      digest: 'digest',
+    }
+    const rendered = renderInstructionChanges([{
+      change,
+      file: { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'x'.repeat(1000) },
+    }], maxBytes)
+
+    expect(rendered.text).toContain(heading)
+    expect(rendered.text).toContain('from 1000 to 0 bytes')
+    expect(rendered.changes).toEqual([])
+  })
+
   it('keeps compact truncation notices within budget when a multibyte display path is cut', () => {
     const rendered = renderWorkspaceContext([
       { absolutePath: '/repo/路径/AGENTS.md', displayPath: '路径/AGENTS.md', content: 'x'.repeat(1000) },
@@ -1318,14 +1338,14 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('does not expose state markers when a tiny budget reduces the baseline contribution', async () => {
+  it('does not expose state markers when a baseline heading survives with zero content bytes', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
       await mkdir(join(root, '.git'), { recursive: true })
-      await write(join(root, 'AGENTS.md'), 'repo rule')
+      await write(join(root, 'AGENTS.md'), 'x'.repeat(1000))
       const ctx = new Context()
-      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 10 })
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 120 })
       const agent = stubAgent(root)
 
       await composeBaselinePrefix(ctx, agent)
@@ -1336,6 +1356,8 @@ describe('workspace context request injection', () => {
       expect(contexts).toHaveLength(1)
       const source = contexts[0]?.type === 'user/message' ? contexts[0].data.source : undefined
       expect(source?.kind === 'workspace-instructions' ? source.changes : undefined).toEqual([])
+      expect(derivedText(agent)).toContain('Instructions from: AGENTS.md')
+      expect(derivedText(agent)).toContain('from 1000 to 0 bytes')
       expect(derivedText(agent)).not.toContain('workspace-context:')
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -3382,6 +3404,42 @@ describe('dynamic nested workspace context injection', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('retries a nested instruction touch when only a truncated budget notice was rendered', async () => {
+    const root = join(await tempRepo(), 'virtual-repo')
+    const home = join(await tempRepo(), 'virtual-home')
+    const ctx = new Context()
+    try {
+      await ctx.plugin(SystemPrompt)
+      await ctx.plugin(ToolRegistry)
+      await ctx.plugin(RecordingFileSystem)
+      const fs = ctx.fs as RecordingFileSystem
+      const instructionPath = join(root, 'pkg/AGENTS.md')
+      fs.entries.set(join(root, '.git'), { type: 'directory' })
+      fs.entries.set(instructionPath, { type: 'file', content: 'x'.repeat(1000) })
+      fs.entries.set(join(root, 'pkg/file.txt'), { type: 'file', content: 'hello' })
+      await ctx.plugin(ToolFs)
+      await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 20 })
+      const agent = stubAgent(root)
+
+      const first = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-tiny-budget-1'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+      const second = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId('read-tiny-budget-2'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+
+      expect(first.additionalContexts).toBeUndefined()
+      expect(second.additionalContexts).toBeUndefined()
+      expect(fs.readTargets.filter(path => path === instructionPath)).toHaveLength(2)
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dirname(root), { recursive: true, force: true })
+      await rm(dirname(home), { recursive: true, force: true })
     }
   })
 

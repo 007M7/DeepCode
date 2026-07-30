@@ -12,7 +12,14 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import { dshHomeDisplay } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
 import { trimmedInstructionDigest } from './digest.ts'
-import { decodeScopeKey, renderWorkspaceInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE, type RenderedWorkspaceContext } from './render.ts'
+import {
+  decodeScopeKey,
+  renderWorkspaceInstructionSet,
+  USER_GLOBAL_DIRECTORY,
+  USER_GLOBAL_FILE,
+  type RenderedInstructionSet,
+  type RenderedWorkspaceContext,
+} from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
 export interface InstructionFile {
@@ -52,12 +59,6 @@ interface DiscoverOptions {
 interface LoadOptions extends DiscoverOptions {
   maxBytes: number
   maxSourceBytes?: number
-}
-
-/** Rendered baseline plus the files that survived byte budgeting. */
-export interface RenderedInstructionSet {
-  rendered: RenderedWorkspaceContext
-  included: LoadedInstructionFile[]
 }
 
 /** Tri-state scope probe that distinguishes confirmed absence from provider failure. */
