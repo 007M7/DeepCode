@@ -125,7 +125,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
       ids: [], byId: {}, current: undefined, phase: 'ready',
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: new Set(), state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),

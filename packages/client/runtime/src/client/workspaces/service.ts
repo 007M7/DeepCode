@@ -14,6 +14,12 @@ import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 /** Workspace list plus the two-baseline readiness and default-target projection. */
 export interface WorkspaceListState {
   items: readonly WorkspaceView[]
+  /**
+   * Registry-global archive set: grouping surfaces hide these sessions
+   * everywhere (workspace groups and the ungrouped bucket) while their
+   * session logs and workspace accounting slots remain.
+   */
+  archivedSessionIds: ReadonlySet<SessionId>
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -58,7 +64,7 @@ export class WorkspacesService implements IWorkspaces {
   constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'pending', error: null,
+      items: [], archivedSessionIds: new Set(), state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
     this.manager.subscribe(() => { this.project() })
@@ -250,6 +256,18 @@ export class WorkspacesService implements IWorkspaces {
   }
 
   /**
+   * Archive a session into the registry-global set. When the archived
+   * session is the current one, the selection is cleared into the New
+   * Session view state — a hidden row must not stay open behind the list.
+   * @param sessionId - session to archive.
+   */
+  async archiveSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.archiveSession(sessionId)
+    if (!result.ok) throw new Error(`session archive failed: ${result.error.code}: ${result.error.message}`)
+    if (this.sessions.list.getSnapshot().current === sessionId) this.sessions.clear()
+  }
+
+  /**
    * Move a session within its Workspace's manual order (DOM-insertBefore-like).
    * @param workspaceId - owning workspace.
    * @param sessionId - accounted session to move.
@@ -293,6 +311,7 @@ export class WorkspacesService implements IWorkspaces {
     const baselinesReady = workspace.phase === 'ready' && sessions.phase === 'ready'
     this.list.set({
       items: workspace.items,
+      archivedSessionIds: workspace.archivedSessionIds,
       state: workspace.state,
       phase: workspace.phase,
       error: workspace.error,

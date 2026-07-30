@@ -62,7 +62,7 @@ function workspace(id = 'w1'): WorkspaceView {
 }
 
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
-  items, state: 'idle', phase: 'ready', error: null,
+  items, archivedSessionIds: new Set(), state: 'idle', phase: 'ready', error: null,
   baselinesReady: true, recentWorkspaceId: undefined,
 })
 
