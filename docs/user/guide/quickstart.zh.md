@@ -52,7 +52,7 @@ pnpm run demo:tui
 
 ## 回头看
 
-headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app，tui-agent 使用交互式 `@deepseek-ai/dsh-tui-demo` app。二者加载同一个 providerless agent spine，并通过各自的 `cordis.yml` 为对应 surface 选择 DeepSeek 模型和能力插件。
+headless-agent 使用 `@deepseek-ai/dsh-cli-demo` app；交互式 `dsh` surface 则以 [`apps/cli/config/base.cordis.yml`](../../../apps/cli/config/base.cordis.yml) 叠加 `tui.cordis.yml` overlay 组合而成，不使用 app 组合包。二者加载同一个 providerless agent spine，并通过各自的 `cordis.yml` 为对应 surface 选择 DeepSeek 模型和能力插件。
 
 ## 下一步
 

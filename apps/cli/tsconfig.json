@@ -30,6 +30,9 @@
       "path": "../../packages/util/paths"
     },
     {
+      "path": "../../packages/session-query/session-query-sqlite"
+    },
+    {
       "path": "../../packages/client/connection"
     },
     {
