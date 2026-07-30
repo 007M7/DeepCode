@@ -12,8 +12,8 @@ import InvariantService from '@deepseek-ai/dsh-invariants'
 
 declare global {
   interface ImportMeta {
-    /** Eager Vite module-glob expansion used by the Vitest setup file. */
-    glob<TModule>(pattern: string, options: { eager: true }): Record<string, TModule>
+    /** Lazy Vite module-glob expansion used by the Vitest setup file. */
+    glob<TModule>(pattern: string): Record<string, () => Promise<TModule>>
   }
 }
 
@@ -25,9 +25,15 @@ export interface TestInvariantCompanion {
   apply(ctx: Context): Promise<() => void>
 }
 
-/** Every package companion, discovered eagerly so coverage observes each registration. */
-export const testInvariantCompanions: Readonly<Record<string, TestInvariantCompanion>> =
-  import.meta.glob<TestInvariantCompanion>('../packages/*/*/src/invariant.ts', { eager: true })
+/**
+ * Every package companion as a lazy loader keyed by glob path. Ordinary tests
+ * load only their owner's module; the exhaustive topology test loads and
+ * executes all of them, so aggregated coverage still observes every
+ * registration while per-file setup stops importing 168 companions and their
+ * transitive package sources.
+ */
+export const testInvariantCompanions: Readonly<Record<string, () => Promise<TestInvariantCompanion>>> =
+  import.meta.glob<TestInvariantCompanion>('../packages/*/*/src/invariant.ts')
 
 /** Manual-topology suites whose names cannot follow the focused invariant convention. */
 const MANUAL_INVARIANT_TEST_EXCEPTIONS = [
@@ -36,7 +42,6 @@ const MANUAL_INVARIANT_TEST_EXCEPTIONS = [
 ] as const
 
 interface InvariantHost {
-  readonly fibers: readonly PluginFiber[]
   readonly byCallback: ReadonlyMap<unknown, PluginFiber>
   readonly ready: Promise<void>
 }
@@ -102,39 +107,40 @@ export function testInvariantCompanionPaths(testPath: string): string[] {
 }
 
 function startInvariantHost(root: Context): InvariantHost {
-  const fibers: PluginFiber[] = []
   const byCallback = new Map<unknown, PluginFiber>()
-  const mount = (plugin: Plugin, config?: unknown): void => {
+  const mount = (plugin: Plugin, config?: unknown): PluginFiber => {
     const fiber = originalPlugin.call(root.registry, plugin, config)
     const callback = root.registry.resolve(plugin)
     if (callback === undefined) throw new Error('test invariants: companion is not a valid Cordis plugin')
-    fibers.push(fiber)
     byCallback.set(callback, fiber)
+    return fiber
   }
 
-  mount(InvariantService, { enabled: true })
+  // The service mounts synchronously so the intercepted registration that
+  // started this host immediately finds its own fiber in byCallback.
+  // Companions load and mount inside the ready chain (after the service is
+  // active, so their startup is directly joinable); every joined root plugin
+  // awaits ready, so none starts ahead of its package checks. Tests plugging
+  // a companion directly must await an earlier root plugin first — the
+  // duplicate-mount failure otherwise is loud (owner name already reserved).
+  const serviceFiber = mount(InvariantService, { enabled: true })
   const testPath = expect.getState().testPath ?? ''
   const companionPaths = testInvariantCompanionPaths(testPath)
-  for (const path of companionPaths) {
-    const companion = testInvariantCompanions[path]
-    if (companion === undefined) {
-      throw new Error(`test invariants: selected companion vanished at ${path}`)
-    }
-    if (!companion.inject.includes('invariants')) {
-      throw new Error(`test invariants: ${path} must inject the invariant service`)
-    }
-    mount(companion)
-  }
-
-  const [serviceFiber, ...companionFibers] = fibers
-  if (serviceFiber === undefined) throw new Error('test invariants: service fiber was not mounted')
-  // A companion is initially PENDING on the invariant service, and Cordis
-  // Fiber.await() only joins work already in flight. Wait for the service to
-  // activate its dependants before joining their startup and failures.
-  const ready = serviceFiber.await()
-    .then(() => Promise.all(companionFibers.map(fiber => fiber.await())))
-    .then(() => undefined)
-  const host = { fibers, byCallback, ready }
+  const ready = serviceFiber.await().then(async () => {
+    const companionFibers = await Promise.all(companionPaths.map(async (path) => {
+      const load = testInvariantCompanions[path]
+      if (load === undefined) {
+        throw new Error(`test invariants: selected companion vanished at ${path}`)
+      }
+      const companion = await load()
+      if (!companion.inject.includes('invariants')) {
+        throw new Error(`test invariants: ${path} must inject the invariant service`)
+      }
+      return mount(companion)
+    }))
+    await Promise.all(companionFibers.map(fiber => fiber.await()))
+  })
+  const host = { byCallback, ready }
   hosts.set(root, host)
   return host
 }
