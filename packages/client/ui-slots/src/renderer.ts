@@ -1,6 +1,31 @@
 /** React-free contracts between the slot host and an installed renderer. */
 import type { ReactNode } from 'react'
-import type { SlotEntryDef, SlotSpec, StoredEntry } from './index.ts'
+import type { SlotEntryDef, SlotSpec, StoredEntry, Translate } from './index.ts'
+
+/**
+ * The locale face the render machinery consumes: namespace binding plus an
+ * observable revision (getSnapshot/subscribe pair — the same HostObservable
+ * currency as every other standard-kit source). The revision moves on every
+ * active-locale or registry change; the renderer re-derives each entry's `t`
+ * from (namespace, revision), so a locale switch hands out NEW function
+ * references and memoized components re-render naturally. Implemented by the
+ * locale plugin, installed through the runtime SlotsService (installLocale).
+ * Install before the first render that needs the seat: outlets bind their
+ * revision subscription at mount, and a face appearing later has no channel
+ * to notify already-mounted outlets (the locale plugin is immediately-tier
+ * infrastructure, so normal compositions install during boot).
+ */
+export interface LocaleFace extends HostObservable<{ revision: number }> {
+  /**
+   * Bind a namespace to a translate function reading the active locale at
+   * call time. Identity may be stable per namespace — freshness of rendered
+   * text is carried by the renderer's (ns, revision) seat derivation, not by
+   * this binding.
+   * @param ns - dictionary namespace.
+   * @returns the namespace-bound translate function.
+   */
+  bind(ns: string): Translate
+}
 
 /** Minimal observable surface for host-provided standard-kit data sources. */
 export interface HostObservable<T> {
@@ -128,6 +153,12 @@ export interface SlotRendererHost {
     /** Workspace list source backing the useWorkspaces standard hook. */
     list: HostObservable<unknown>
   }
+  /**
+   * Installed locale face backing the `t` standard seat (absent until the
+   * locale plugin installs one; rendering an entry that declared `locale:`
+   * without it is an assembly failure).
+   */
+  locale?: LocaleFace | undefined
 }
 
 /** The install seam: runtime owns install()/renderSlot(); web-react implements rendering. */

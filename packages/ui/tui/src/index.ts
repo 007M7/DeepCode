@@ -35,6 +35,7 @@ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
+  lastActivityTime,
   SessionId,
   type SessionEvent,
   type UserMessage,
@@ -985,7 +986,7 @@ export function createTuiChat(
     const systemPrompt = displayText(renderPrompt(assembly)) || '(empty)'
     const registeredTools = assembly.tools.map(tool => displayText(tool.name)).join(', ') || '(none)'
     const events = agent.session.events
-    const latestActivity = events.at(-1)?.time ?? agent.session.header.createdAt
+    const latestActivity = lastActivityTime(events) ?? agent.session.header.createdAt
     const usedContext = Math.max(0, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens))
     let context = `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
     const contextWindow = modelController.contextWindow()
@@ -1249,9 +1250,9 @@ export function createTuiChat(
     }, { prepend: true })
     // Installed before followup(): an enqueue listener can synchronously
     // cancel and discard before followup() returns its id.
-    const detachDiscard = ctx.on('agent/inbox/discard', (subject, messages) => {
+    const detachDiscard = ctx.on('agent/inbox/discard', (subject, items) => {
       if (subject !== agent) return
-      for (const message of messages) discarded.add(message.id)
+      for (const item of items) discarded.add(item.message.id)
       if (discarded.has(acceptedId)) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
@@ -1486,13 +1487,13 @@ export function createTuiChat(
   const settlePendingSteering = (id: MessageId): void => {
     if (pendingSteering.delete(id)) refreshStatus()
   }
-  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, message) => {
-    if (subject === agent) settlePendingSteering(message.id)
+  const disposeDequeued = ctx.on('agent/inbox/dequeue', (subject, item) => {
+    if (subject === agent) settlePendingSteering(item.message.id)
   })
-  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, messages) => {
+  const disposeDiscarded = ctx.on('agent/inbox/discard', (subject, items) => {
     if (subject !== agent) return
     let changed = false
-    for (const message of messages) changed = pendingSteering.delete(message.id) || changed
+    for (const item of items) changed = pendingSteering.delete(item.message.id) || changed
     if (changed) refreshStatus()
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {

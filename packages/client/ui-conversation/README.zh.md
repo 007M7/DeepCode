@@ -20,7 +20,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 逐 Session UI 状态中的选择与活跃视图位于已声明的聊天 store（`stores.ts` `createChatStore`）中；InputHub 拥有输入区状态机，并将草稿镜像到该 store 以便持久化。apply 将同一个 store handle 传给严格限定于会话的子树、聊天视图和详情注册，因此每个会话内共享一个实例，框架拥有其生命周期。组件保持纯粹：框架标准工具包提供 `useSession`／`sessionId`、全局 `useSessions`／`useWorkspaces`，以及输入状态机的 `useInput`／`inputActions`；store 表层与 inject factory 提供其余状态和回调。
 
-输入栏为 `'conversation.input.plan'`（位于本地 access 模式控件右侧）和 `'conversation.input.model'`（渲染在 pending 指示器与发送／停止按钮之前）声明会话作用域的单实例 seat，并为 overlay、dock、left 和 right 输入扩展声明列表 slot。各功能包拥有相应控件及其状态；ui-conversation 提供放置位置、`locked` owner prop 和标准 slot share。当 `plan` 投影的有效目标为 plan mode 时，InputBar 将文本框 placeholder 切换为 plan 任务措辞，经本包注册的 `command.hint` locale 命名空间本地化，并与已认领 `/plan` 命令的提示逐字共用同一份文案（经标准套件 `useProjection` 读取的 host 折叠值；owner 提供的 placeholder 优先）。另一个会话视图活跃时，待处理的 composer 接管仍保持挂载，使被阻塞的 agent（智能体）仍能收到回答；没有待处理交互时，活跃会话的 composer 归 Chat 所有。常驻无会话壳使用 `DisabledInputBar`，因此不会分发任何会话作用域的控件 seat。
+输入栏为 `'conversation.input.plan'`（位于本地 access 模式控件右侧）和 `'conversation.input.model'`（渲染在 pending 指示器与发送／停止按钮之前）声明会话作用域的单实例 seat，并为 overlay、dock、left 和 right 输入扩展声明列表 slot。各功能包拥有相应控件及其状态；ui-conversation 提供放置位置、`locked` owner prop 和标准 slot share。当 `plan` 投影的有效目标为 plan mode 时，InputBar 将文本框 placeholder 切换为 plan 任务措辞，经本包注册的 `command.hint` locale 命名空间本地化，并与已认领 `/plan` 命令的提示逐字共用同一份文案（经标准套件 `useProjection` 读取的 host 折叠值；owner 提供的 placeholder 优先）。另一个会话视图活跃时，待处理的 composer 接管仍保持挂载，使被阻塞的 agent（智能体）仍能收到回答；没有待处理交互时，活跃会话的 composer 归 Chat 所有。composer bar 坑位本身为 `session-maybe`：没有当前会话时，同一个 bar 以惰性态渲染（machine face 缺席、`disabled` owner prop），而不是换入一棵平行的 disabled 树，因此 textarea DOM 在选定 workspace 的切换中得以存活；严格会话作用域的控件 seat 在会话存在之前保持为空。
 
 `src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件（骨架、聊天行）与 store factory 保持内部状态，只能通过 apply 的 slot 注册到达页面（测试通过 `./src/*` 子路径获取它们）。
 
@@ -34,9 +34,11 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 ## 已知限制与暂缓事项
 
-- **统计行没有耗时区段**：assistant `usage` 只携带 token 计数；耗时需要主机数据源。
+- **统计行的耗时只覆盖窗口内消息流**：LLM 与工具墙钟时间由快照的 assistant `timing` 与工具 call/result 配对折算，落在已加载事件窗口之外的节点（更早的历史）不计入。
 - **详情面板是最小形态，且当前没有入口**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。工具行已不再是详情面板的点击目标，且没有任何手势接替它，因此 `ChatViewInjected.openDetails` 虽已实现却无人调用，该面板（含其终端卡片）在组装后的应用中不可达；其渲染仍由直接以选中态挂载它来覆盖。
-- **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的 IconActions 行（复制／分支／时钟）已落地；分支仍是 chrome stub。
+- **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的内容 IconActions 行（复制／分支／时钟）只挂在 text 输出下；分支仍是 chrome stub。
 - **others 工具行的闪光图标是手绘近似版本**：无法在本地导出设计字形的矢量几何；等到存在精确导出后再将其提升到 ui-primitives。
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。
+- **Queue 编辑仅支持文本**：包含非文本块的行仍显示扁平化预览，但由于内联编辑器无法保留这些块，其编辑控件会被禁用。文本行进入编辑模式后，删除会替换为保存和取消；Enter 保存，Escape 取消。QueueDock 不提供立即发送控件。
+- **Web 仅暴露待处理 Queue**：在 steering（中途引导）拥有专用交互之前，Host 不会把待处理 steering 纳入 Queue 快照。已消费的 `steering/message` 仍会渲染到持久 transcript（文本记录）中，因此从外部提交的 steering 在回放时仍能如实呈现。

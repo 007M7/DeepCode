@@ -235,6 +235,32 @@ describe('skill-local watcher failures', () => {
     await settle()
   })
 
+  it('replaces a retained watcher when its root emits unlinkDir', async () => {
+    const home = await tempDir('skill-watch-root-unlink')
+    const root = join(home, '.dsh/skills')
+    await writeSkill(root, 'removed-skill')
+    const ctx = new Context()
+    await ctx.plugin(SkillService)
+    const fiber = await ctx.plugin(SkillLocal, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      watch: true,
+      watchPollIntervalMs: 10,
+      watchStabilityThresholdMs: 20,
+    })
+
+    expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['removed-skill'])
+    const original = watcherHarness.watchers[0]
+    if (original === undefined) throw new Error('expected a root watcher')
+
+    await rm(root, { recursive: true })
+    original.emitter.emit('unlinkDir', root)
+    await vi.waitFor(() => { expect(original.closeCalls).toBeGreaterThan(0) })
+    expect(watcherHarness.watchFiles.some(control => control.path === root)).toBe(true)
+
+    await fiber.dispose()
+  })
+
   it('re-probes a retained root after child unlink and observes immediate recreation', async () => {
     const home = await tempDir('skill-watch-root-reprobe')
     const root = join(home, '.dsh/skills')

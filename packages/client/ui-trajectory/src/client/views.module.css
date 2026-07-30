@@ -13,11 +13,17 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-/* Under the active conversation column (`[data-conversation-scroll]`) the
- * parent owns overflow so the sticky composer stays in the same scrollport. */
-:global([data-conversation-scroll]) .root {
-  overflow: visible;
-  height: auto;
+/* Trajectory keeps the ledger and details panel inside the remaining
+ * conversation height. Only the ledger pane scrolls; the composer remains
+ * the fixed flex sibling below this view. */
+:global([data-conversation-scroll]):has(.root) {
+  overflow: hidden;
+}
+
+:global([data-conversation-scroll]):has(.root) > :first-child {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .ledger {

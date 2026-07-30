@@ -28,6 +28,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ContinuationDecision: 'core.md',
   ContinuationStop: 'core.md',
   GenerateOptions: 'core.md',
+  InboxItem: 'core.md',
   InboxPlacement: 'core.md',
   MessageId: 'core.md',
   HookContext: 'core.md',

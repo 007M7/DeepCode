@@ -1,11 +1,12 @@
-/* GoalBar: the goal strip docked above the composer card. The dock mirrors
-   InputBar's horizontal geometry (32px side padding, 776px centered cap)
-   plus the mock's 12px inset, so the bar's edges land 12px inside the
-   composer card's edges in both the capped and the squeezed regimes. The
-   negative bottom margin eats InputBar's 8px top padding and tucks the
+/* GoalBar: the goal strip docked above the composer card. The dock's 44px
+   side padding and the bar's 752px cap match the todo strip's column
+   (TodoPanel.module.css), 24px inside the composer card's edges. The
+   negative bottom margin cancels the composer stack's 8px gap and tucks the
    bar's square bottom edge 2px under the composer card's top edge (the
-   card, later in DOM order, paints over it). All states share one fixed
-   38px height so switching between them never resizes the strip. */
+   card, later in DOM order, paints over it). Surface matches the todo
+   strip: tip fill, l1 border — no bottom edge where it disappears under the
+   card. All states share one fixed 38px height so switching between them
+   never resizes the strip. */
 
 .dock {
   padding: 0 44px;
@@ -20,10 +21,10 @@
   height: 38px;
   margin: 0 auto -10px;
   padding: 0 14px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: none;
   border-radius: 14px 14px 0 0;
-  /* Translucent hover gray doubles as the mock's #F5F6F7 over the white
-     base and lifts the strip off the composer card in dark mode. */
-  background: var(--dsw-alias-interactive-bg-hover);
+  background: var(--dsw-specific-tip);
 }
 
 .sparkle {
