@@ -99,7 +99,7 @@ Providers receive exactly this request: one-shot delegation has no service-resol
 
 ## Continuable children and activations
 
-A **continuable background subagent** is one durable child Session with at most one process-local **Activation** — a residency epoch for a reconstructed child Agent. An Activation is not a request, result, cancellation, or Task boundary: it may execute many FIFO turns and stays resident while descendants it created are still running. The continuation manager owns activation admission, authority, the live ownership graph, cold resume, and child-first disposal; the Agent loop owns all turn ordering and execution. No continuable path creates a Task or an intermediate result-bearing wrapper.
+A **continuable background subagent** is one durable child Session with at most one process-local **Activation** — a residency epoch for a reconstructed child Agent. An Activation is not a request, result, cancellation, or Task boundary: it may execute many FIFO turns and stays resident while descendants it created are still running. The continuation manager owns activation admission, direct-parent authorization, the live ownership graph, cold resume, and child-first disposal; the Agent loop owns all turn ordering and execution. No continuable path creates a Task or an intermediate result-bearing wrapper.
 
 ```text
 persisted Session
@@ -113,17 +113,17 @@ persisted Session
 
 `SubagentService.followup()` is the sole continuation-message operation, and routing depends only on Activation residency:
 
-| Activation state | Sender | `followup` |
-|---|---|---|
-| `running` | parent or user | enqueue in the same Activation |
-| `waiting` | parent or user | wake the same Activation |
-| no Activation | parent or user | cold-resume a new Activation |
+| Activation state | `followup` |
+|---|---|
+| `running` | enqueue in the same Activation |
+| `waiting` | wake the same Activation |
+| no Activation | cold-resume a new Activation |
 
-`running` means the Agent has an active admission or turn, or waking inbox work; `waiting` means it is quiescent but still owns at least one child Activation that has not completed disposal; `settled` means quiescent with every owned child disposed, at which point the manager disposes the `AgentHandle` and removes the Activation. The manager derives these from Agent quiescence and the owned-child set rather than maintaining a second execution state machine, and `activationState()` reports the current value (`undefined` when no Activation is live).
+`running` means the Agent has an active admission or turn, or waking inbox work; `waiting` means it is quiescent but still owns at least one child Activation that has not completed disposal; `settled` means quiescent with every owned child disposed, at which point the manager disposes the `AgentHandle` and removes the Activation. The manager derives these internal conditions from Agent quiescence and the owned-child set rather than maintaining a second execution state machine.
 
-The Agent inbox is the only queue. Every continuation message becomes one `Agent.followup()` FIFO turn, so parent and user messages share one observable order and a follow-up cannot redirect a turn already underway. Successful delivery returns the accepted `MessageId`; the existing `agent/inbox/enqueue`, `agent/inbox/dequeue`, and `agent/inbox/discard` events remain the message-lifecycle observations, and the continuation layer defines no subagent-specific delivery route.
+The Agent inbox is the only queue. Every continuation message becomes one `Agent.followup()` FIFO turn, so accepted messages have one observable order and a follow-up cannot redirect a turn already underway. Successful delivery returns the accepted `MessageId`; the existing `agent/inbox/enqueue`, `agent/inbox/dequeue`, and `agent/inbox/discard` events remain the message-lifecycle observations, and the continuation layer defines no subagent-specific delivery route.
 
-Authority is supplied by a trusted host interaction or an exact live Agent tool context. The parent variant is admitted only when the authenticated Agent is the durable child's direct parent recorded in `SessionHeader.parentSession`. User authority carries an opaque grant that only `SubagentService.userAuthority()` mints, so a caller cannot claim it by writing the discriminant — a plugin holding `ctx.subagents`, including model-generated mount code, would otherwise bypass the direct-parent check for any known child id. `MessageSource` and `senderSessionId` are durable provenance after admission and grant no authority — the optional model-facing tool uses `CoordinatorMessageSource`, while a host adapter uses `{ kind: 'user' }`. User authority may cold-resume a child without loading its historical parent.
+Follow-up authority comes from an exact live Agent tool context. The authenticated Agent must be the durable child's direct parent recorded in `SessionHeader.parentSession`. `MessageSource` and `senderSessionId` are durable provenance after admission and grant no authority; the optional model-facing tool uses `CoordinatorMessageSource`.
 
 For both operations the caller signal owns lookup, materialization, and admission only until inbox acceptance. Afterwards the manager owns the Activation independently: later caller cancellation neither cancels the accepted turn nor disposes the child, and the seam exposes no public subagent cancellation or steering operation.
 
@@ -138,25 +138,6 @@ interface CoordinatorMessageSource {
   /** Session id of the agent whose tool call produced the follow-up. */
   readonly senderSessionId: SessionId
 }
-```
-
-```ts type-equiv
-/**
- * Who authorizes one continuable-subagent operation. Authority comes from a
- * trusted host interaction or an exact live Agent tool context; durable
- * {@link MessageSource} provenance never authorizes delivery.
- */
-type SubagentAuthority =
-  /** The exact live parent Agent whose tool context is making the call. */
-  | { readonly kind: 'parent'; readonly agent: Agent }
-  /**
-   * A trusted host adapter acting for the human user. The `grant` must be the
-   * exact token {@link SubagentService.userAuthority} minted, so a discriminant
-   * alone cannot claim this authority — any plugin holding `ctx.subagents`,
-   * including model-generated mount code, could otherwise forge it and bypass
-   * the direct-parent check.
-   */
-  | { readonly kind: 'user'; readonly grant: UserAuthorityGrant }
 ```
 
 ```ts type-equiv
@@ -177,18 +158,6 @@ interface ContinuableStart {
   /** The accepted initial prompt's inbox message id. */
   readonly messageId: MessageId
 }
-```
-
-```ts type-equiv
-/**
- * The public residency state of one continuable child, derived from Agent
- * quiescence and the owned-child set rather than a second state machine:
- * `running` — the Agent has an active admission or turn, or waking inbox work;
- * `waiting` — the Agent is quiescent but still owns undisposed children;
- * `settled` — quiescent with every owned child disposed, so the manager
- * disposes the `AgentHandle` and removes the Activation.
- */
-type ActivationState = 'running' | 'waiting' | 'settled'
 ```
 
 The provider participates only in preparing the initial creation spec, where `spawn` and `fork` differ. Its returned spec carries only detached provider-specific creation inputs — today the optional parent-history seed — and no Agent, `AgentHandle`, prompt delivery, result, disposal, or resume operation. Cold resume does not dispatch through a provider at all: the manager folds the generic descriptor, calls `ctx.agents.resume()` through the same activation-owner scope, and submits the waiting turn.

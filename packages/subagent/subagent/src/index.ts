@@ -29,35 +29,31 @@
  * @module @deepseek-ai/dsh-subagent
  */
 
-import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import { assertObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { findLastMessageTurnEnd } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,
   SubagentCapabilities,
   SubagentProvider,
-  SubagentResult,
   SubagentRun,
+  SubagentRunEndInfo,
+  SubagentRunInfo,
   SubagentStartRequest,
 } from './types.ts'
-import { SubagentRunId } from './types.ts'
 import { SubagentError } from './error.ts'
 import { assertSubagentMaxDepth } from './depth.ts'
+import { createActivationObserver, createLifecycleEmitter, observeRun } from './lifecycle.ts'
+import type { ActivationObserver, LifecycleEmitter } from './lifecycle.ts'
 import SubagentContinuationManager from './continuation.ts'
 import type {
-  ActivationObserver,
-  ActivationState,
-  UserAuthorityGrant,
   ContinuableStart,
   ContinuableStartSpec,
-  SubagentAuthority,
   SubagentFollowupOptions,
 } from './continuation.ts'
 
@@ -93,15 +89,12 @@ export {
 } from './child-agent.ts'
 export type { ChildComposition } from './child-agent.ts'
 export type {
-  ActivationObserver,
-  ActivationState,
-  UserAuthorityGrant,
   ContinuableStart,
   ContinuableStartSpec,
   CoordinatorMessageSource,
-  SubagentAuthority,
   SubagentFollowupOptions,
 } from './continuation.ts'
+export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -144,55 +137,25 @@ declare module 'cordis' {
   }
 }
 
-/** Observe-only identifying detail for a ready subagent run. */
-export interface SubagentRunInfo {
-  /** Unique identity shared with the paired terminal event. */
-  readonly runId: SubagentRunId
-  /** The provider that established the run. */
-  readonly provider: string
-  /** The child agent's id. */
-  readonly id: SessionId
-  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
-  readonly local: boolean
-}
-
-/** Observe-only outcome detail for a settled subagent run. */
-export interface SubagentRunEndInfo {
-  /** Unique identity shared with the paired start event. */
-  readonly runId: SubagentRunId
-  /** The provider that ran it. */
-  readonly provider: string
-  /** The child agent's id. */
-  readonly id: SessionId
-  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
-  readonly local: boolean
-  /** The terminal stop reason. */
-  readonly stopReason: SubagentResult['stopReason']
-  /** The child's final assistant output, absent on infrastructure rejection. */
-  readonly lastAssistantMessage?: ContentBlock[]
-}
-
 /** Named provider registry with one-shot runs and continuable-child operations. */
 export class SubagentService extends Service {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
   /**
-   * The process-local proof of host-user authority. Minted here so the value is
-   * unguessable and unforgeable: a caller must obtain it from
-   * {@link userAuthority}, which composition hands only to trusted host
-   * adapters.
+   * The contained lifecycle-edge publisher. Built here because scoped dispatch
+   * keys its carrier by this exact service instance, whose own context filter
+   * composes into the carrier.
    */
-  private readonly userGrant = Object.freeze({
-    __brand: 'SubagentUserAuthority',
-  }) as UserAuthorityGrant
+  private readonly emitLifecycle: LifecycleEmitter
 
   constructor(ctx: Context) {
     super(ctx, 'subagents')
+    this.emitLifecycle = createLifecycleEmitter(this.ctx, parent => scopeTarget(this, parent))
     ctx.inject(['agents'], (childCtx: Context) => {
       const manager = new SubagentContinuationManager(childCtx, {
         prepareContinuable: (name, request) => this.prepareContinuable(name, request),
         observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
-      }, this.userGrant)
+      })
       this.continuations = manager
       childCtx.effect(() => () => {
         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
@@ -218,45 +181,24 @@ export class SubagentService extends Service {
    * Deliver one later message to a continuable child as its next FIFO turn. A
    * resident child's Agent inbox accepts it directly (waking a `waiting`
    * Activation), while an absent one is cold-resumed from its persisted
-   * Session. The Agent inbox is the only queue, so parent and user messages
-   * share one observable order.
-   * @param authority - trusted parent or user authority for this delivery.
+   * Session. The Agent inbox is the only queue, so every accepted message has
+   * one observable order.
+   * @param parent - the exact live direct parent authorizing this delivery.
    * @param childId - durable child session id.
    * @param content - user-role content to deliver.
    * @param options - durable provenance and caller cancellation, which stops the
    *   operation only before inbox acceptance.
    * @returns the accepted message's inbox id.
-   * @throws when continuation services are unavailable, authority is rejected,
-   *   or the message was not admitted.
+   * @throws when continuation services are unavailable, parent authority is
+   *   rejected, or the message was not admitted.
    */
   async followup(
-    authority: SubagentAuthority,
+    parent: Agent,
     childId: SessionId,
     content: ContentBlock[],
     options: SubagentFollowupOptions,
   ): Promise<MessageId> {
-    return this.requireContinuations().followup(authority, childId, content, options)
-  }
-
-  /**
-   * Host-user authority for continuable operations, which may continue any
-   * durable child without its parent. A composition passes this only to a
-   * trusted host adapter carrying real human interaction; a model-facing tool
-   * uses `{ kind: 'parent', agent }` from its own execution context instead.
-   * @returns the authority a host adapter supplies to {@link followup}.
-   */
-  userAuthority(): SubagentAuthority {
-    return { kind: 'user', grant: this.userGrant }
-  }
-
-  /**
-   * Read one durable child's live residency state.
-   * @param childId - durable child session id.
-   * @returns its Activation state, or `undefined` when no Activation is live.
-   * @throws when continuation services are unavailable.
-   */
-  activationState(childId: SessionId): ActivationState | undefined {
-    return this.requireContinuations().activationState(childId)
+    return this.requireContinuations().followup(parent, childId, content, options)
   }
 
   /**
@@ -329,7 +271,7 @@ export class SubagentService extends Service {
     this.assertCapabilities(provider, request)
     assertSubagentMaxDepth(request.maxDepth)
     if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
-    return this.observeRun(name, request.parent, await provider.start(request))
+    return observeRun(this.emitLifecycle, name, request.parent, await provider.start(request))
   }
 
   /**
@@ -373,112 +315,15 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Emit the start/end lifecycle pair for one continuable Activation's
-   * residency epoch. Observers see the same vocabulary as a one-shot run, so a
-   * child's start and settlement remain observable without exposing whether the
-   * manager materialized, woke, or cold-resumed it. Creation failure before
-   * residency reports only the terminal edge.
+   * Build the lifecycle observer for one continuable Activation's residency
+   * epoch, so the manager publishes its edges without owning event dispatch.
    */
   private observeActivation(
     provider: string,
     childId: SessionId,
-    parent: Agent | undefined,
+    parent: Agent,
   ): ActivationObserver {
-    const identity = { runId: SubagentRunId(randomUUID()), provider, id: childId, local: true }
-    // A cold resume replays earlier turns, so this epoch's telemetry must come
-    // from the suffix it actually produced — never the whole session, which
-    // would report a previous epoch's answer when this one opened no turn.
-    let boundary = 0
-    // Assigned by `capture()`, which the disposal path always runs before
-    // `settle()`; a resident epoch therefore always has its facts by then.
-    let captured: { stopReason: SubagentResult['stopReason']; output?: ContentBlock[] } = {
-      stopReason: 'completed',
-    }
-    let settled = false
-    return {
-      start: (child: Agent): void => {
-        boundary = child.session.events.length
-        this.emitLifecycle('subagent/start', identity, parent)
-      },
-      capture: (child: Agent): void => {
-        const own = child.session.events.slice(boundary)
-        const output = lastAssistantOutput(own)
-        captured = {
-          stopReason: epochStopReason(own),
-          ...output === undefined ? {} : { output },
-        }
-      },
-      settle: (failure: unknown): void => {
-        // Exactly one terminal edge per epoch: host shutdown, manager unload,
-        // child release, and normal settlement all converge on one disposal.
-        /* v8 ignore next -- the memoized disposal already collapses those callers into a
-         * single settle(); this guard keeps the edge single if that memoization ever changes. */
-        if (settled) return
-        settled = true
-        const output = failure === undefined ? captured.output : undefined
-        this.emitLifecycle('subagent/end', {
-          ...identity,
-          stopReason: failure === undefined ? captured.stopReason : 'error',
-          ...output === undefined ? {} : { lastAssistantMessage: output },
-        }, parent)
-      },
-    }
-  }
-
-  /** Emit the start/end lifecycle pair for one accepted run and return it. */
-  private observeRun(name: string, parent: Agent, run: SubagentRun): SubagentRun {
-    const runId = SubagentRunId(randomUUID())
-    const lifecycleIdentity = {
-      runId,
-      provider: name,
-      id: run.id,
-      local: run.localAgent !== undefined,
-    }
-    // Attach the terminal observer before dispatching start. Promise reactions
-    // still run after this synchronous start emission, preserving start → end.
-    void run.result.then(
-      (result) => {
-        this.emitLifecycle('subagent/end', {
-          ...lifecycleIdentity,
-          stopReason: result.stopReason,
-          lastAssistantMessage: result.output,
-        }, parent)
-      },
-      () => {
-        this.emitLifecycle('subagent/end', { ...lifecycleIdentity, stopReason: 'error' }, parent)
-      },
-    )
-    this.emitLifecycle('subagent/start', lifecycleIdentity, parent)
-    return run
-  }
-
-  /**
-   * Emit lifecycle events with per-listener synchronous and asynchronous
-   * exception containment. Payloads are borrowed immutable values.
-   */
-  private emitLifecycle(name: 'subagent/start', info: SubagentRunInfo, parent: Agent | undefined): void
-  private emitLifecycle(name: 'subagent/end', info: SubagentRunEndInfo, parent: Agent | undefined): void
-  private emitLifecycle(name: 'subagent/provider-removed', info: string): void
-  private emitLifecycle(
-    name: 'subagent/start' | 'subagent/end' | 'subagent/provider-removed',
-    info: SubagentRunInfo | SubagentRunEndInfo | string,
-    parent?: Agent  ,
-  ): void {
-    // A user-resumed continuable child has no delegating parent to key the
-    // carrier by, so its lifecycle reaches unscoped listeners globally.
-    const dispatchArgs: unknown[] = parent === undefined
-      ? [name, info]
-      : [scopeTarget(this, parent), name, info]
-    for (const callback of this.ctx.events.dispatch('emit', dispatchArgs)) {
-      try {
-        const returned: unknown = callback(info)
-        void Promise.resolve(returned).catch((error: unknown) => {
-          this.ctx.logger.warn(`subagent: ${name} listener rejected: ${renderThrown(error)}`)
-        })
-      } catch (error: unknown) {
-        this.ctx.logger.warn(`subagent: ${name} listener threw: ${renderThrown(error)}`)
-      }
-    }
+    return createActivationObserver(this.emitLifecycle, provider, childId, parent)
   }
 
   /** Reject the first requested capability that the provider lacks. */
@@ -497,59 +342,6 @@ export class SubagentService extends Service {
         )
       }
     }
-  }
-}
-
-/**
- * Why this child's last ordinary turn ended, for the terminal lifecycle edge.
- * The child's own `turn/end` is authoritative: teardown succeeding says nothing
- * about whether the model errored, hit its token ceiling, or was cancelled, so
- * deriving the reason from disposal would report failed work as completed.
- * @param events - this epoch's own event suffix.
- * @returns its terminal stop reason; `completed` when no ordinary turn closed.
- */
-function epochStopReason(events: readonly SessionEvent[]): SubagentResult['stopReason'] {
-  const reason = findLastMessageTurnEnd(events)?.data.reason
-  // No ordinary turn closed, so nothing failed either.
-  if (reason === undefined) return 'completed'
-  switch (reason.kind) {
-    case 'max-tokens':
-      return 'max-tokens'
-    case 'aborted':
-    case 'interrupted':
-    case 'disposed':
-      return 'aborted'
-    case 'error':
-      return 'error'
-    case 'completed':
-      return 'completed'
-    /* v8 ignore next 3 -- `TurnEndReason` is merge-extensible, so this arm needs a
-     * backend that adds a variant; treating an unnameable reason as success would
-     * report failed work as completed. */
-    default:
-      return 'error'
-  }
-}
-
-/**
- * The child's last assistant message content, for one Activation's terminal
- * lifecycle edge. Absent when no assistant message reached the log.
- * @param events - this epoch's own event suffix.
- * @returns its final assistant content, or `undefined` when it produced none.
- */
-function lastAssistantOutput(events: readonly SessionEvent[]): ContentBlock[] | undefined {
-  const message = events.findLast(
-    (event): event is SessionEvent<'assistant/message'> => event.type === 'assistant/message',
-  )
-  return message?.data.message.content
-}
-
-/** Render any listener-thrown value without letting coercion escape containment. */
-function renderThrown(value: unknown): string {
-  try {
-    return value instanceof Error ? `${value.name}: ${value.message}` : String(value)
-  } catch {
-    return '<unrenderable thrown value>'
   }
 }
 

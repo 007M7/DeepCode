@@ -19,7 +19,7 @@ import SubagentService, {
   SubagentError,
   SUBAGENT_DESCRIPTOR_VERSION,
 } from '../src/index.ts'
-import type { SubagentAuthority, SubagentRunEndInfo, SubagentRunInfo } from '../src/index.ts'
+import type { SubagentRunEndInfo, SubagentRunInfo } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -109,12 +109,12 @@ function userTexts(events: readonly SessionEvent[]): string[] {
 
 function followup(
   ctx: Context,
-  authority: SubagentAuthority,
+  parent: Agent,
   childId: SessionId,
   content: ReturnType<typeof message>,
   signal: AbortSignal = testSignal,
 ) {
-  return ctx.subagents.followup(authority, childId, content, {
+  return ctx.subagents.followup(parent, childId, content, {
     source: { kind: 'user' },
     signal,
   })
@@ -123,7 +123,6 @@ function followup(
 /** Wait until a child's Activation is gone, i.e. its handle finished disposal. */
 async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void> {
   await vi.waitFor(() => {
-    expect(ctx.subagents.activationState(childId)).toBeUndefined()
     expect(ctx.agents.get(childId)).toBeUndefined()
   }, { timeout: 5_000 })
 }
@@ -303,7 +302,8 @@ describe('SubagentService.startContinuable', () => {
     await fresh.plugin(AgentLoop, { agents: [] })
     await fresh.plugin(SubagentService)
     await fresh.plugin(SubagentSpawn, { providerName: 'spawn' })
-    await followup(fresh, fresh.subagents.userAuthority(), started.childId, message('resume routeless'))
+    const freshParent = fresh.agentLoop.create(SessionId('routeless-resume'), {})
+    await followup(fresh, freshParent, started.childId, message('resume routeless'))
 
     const resumed = await vi.waitFor(() => {
       const found = fresh.agents.get(started.childId)
@@ -353,7 +353,7 @@ describe('SubagentService.startContinuable', () => {
     expect(descriptor?.data).toMatchObject({ persona: 'You are scoped.' })
 
     // Cold resume reconstructs the declared composition from that descriptor.
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('resume it'))
+    await followup(ctx, parent, started.childId, message('resume it'))
     await waitNoActivation(ctx, started.childId)
     const resumed = await ctx.sessionPersistence.load(started.childId)
     expect(hasUserText(resumed.events, 'resume it')).toBe(true)
@@ -372,19 +372,19 @@ describe('SubagentService.followup residency routing', () => {
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
     const child = ctx.agents.get(started.childId)
-    expect(ctx.subagents.activationState(started.childId)).toBe('running')
+    expect(child?.status).toBe('running')
 
-    // Both origins queue behind the open turn, in call order.
-    const parentMessage = await followup(ctx, { kind: 'parent', agent: parent }, started.childId, message('from parent'))
-    const userMessage = await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('from user'))
-    expect(parentMessage).not.toBe(userMessage)
+    // Both messages queue behind the open turn, in call order.
+    const firstMessage = await followup(ctx, parent, started.childId, message('first follow-up'))
+    const secondMessage = await followup(ctx, parent, started.childId, message('second follow-up'))
+    expect(firstMessage).not.toBe(secondMessage)
     // Still the same Activation: no second child Agent was created.
     expect(ctx.agents.get(started.childId)).toBe(child)
 
     releaseFirst.resolve(undefined)
     await waitNoActivation(ctx, started.childId)
     const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(userTexts(loaded.events)).toEqual(['child task', 'from parent', 'from user'])
+    expect(userTexts(loaded.events)).toEqual(['child task', 'first follow-up', 'second follow-up'])
   })
 
   it('cold-resumes a settled child into a new Activation', async () => {
@@ -392,7 +392,7 @@ describe('SubagentService.followup residency routing', () => {
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
 
-    const messageId = await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('continue please'))
+    const messageId = await followup(ctx, parent, started.childId, message('continue please'))
     expect(messageId).toBeTypeOf('string')
     await waitNoActivation(ctx, started.childId)
 
@@ -421,12 +421,13 @@ describe('SubagentService.followup residency routing', () => {
     const grandchild = await ctx.subagents.startContinuable(startSpec(child))
     await vi.waitFor(() => { expect(adapter.requests.length).toBeGreaterThanOrEqual(2) })
     await vi.waitFor(() => {
-      expect(ctx.subagents.activationState(started.childId)).toBe('waiting')
+      expect(child.status).toBe('idle')
+      expect(ctx.agents.get(started.childId)).toBe(child)
     }, { timeout: 5_000 })
     // Waiting retains the handle: the same Agent is still live.
     expect(ctx.agents.get(started.childId)).toBe(child)
 
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('while waiting'))
+    await followup(ctx, parent, started.childId, message('while waiting'))
     // Woken back to running on the SAME Activation.
     expect(ctx.agents.get(started.childId)).toBe(child)
 
@@ -437,56 +438,14 @@ describe('SubagentService.followup residency routing', () => {
     expect(userTexts(loaded.events)).toEqual(['child task', 'while waiting'])
   })
 
-  it('rejects a forged user-authority grant', async () => {
-    const { ctx, parent } = await setup([textResponse('first')])
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    // Any plugin holding `ctx.subagents` can write this shape, so shape alone
-    // must not skip the direct-parent check for an arbitrary known child id.
-    const forged = { kind: 'user', grant: { __brand: 'SubagentUserAuthority' } } as unknown as SubagentAuthority
-    await expect(followup(ctx, forged, started.childId, message('not really the user')))
-      .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
-
-    // The service-minted grant is accepted.
-    await expect(followup(ctx, ctx.subagents.userAuthority(), started.childId, message('really the user')))
-      .resolves.toBeTypeOf('string')
-    await waitNoActivation(ctx, started.childId)
-  })
-
   it('rejects a parent that is not the durable direct parent', async () => {
     const { ctx, parent } = await setup([textResponse('first')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
     const stranger = ctx.agentLoop.create(SessionId('stranger'), { provider: 'mock', model: 'mock' })
 
-    await expect(followup(ctx, { kind: 'parent', agent: stranger }, started.childId, message('mine now')))
+    await expect(followup(ctx, stranger, started.childId, message('mine now')))
       .rejects.toThrow(/belongs to another parent session/)
-  })
-
-  it('lets user authority cold-resume a child without loading its historical parent', async () => {
-    const { ctx, parent, root } = await setup([textResponse('first')])
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-    await ctx.sessionPersistence.load(started.childId)
-
-    // A fresh runtime over the same store has no parent Agent at all.
-    const fresh = new Context()
-    await mountAgentLoopTestDependencies(fresh)
-    await fresh.plugin(JsonlSessionPersistence, { root: root! })
-    await fresh.plugin(AgentLoop, { agents: [] })
-    await fresh.plugin(SubagentService)
-    await fresh.plugin(SubagentSpawn, { providerName: 'spawn' })
-    fresh.llm.registerAdapter(['mock'], new MockAdapter([textResponse('resumed cold')]))
-    expect(fresh.agents.get(SessionId('parent'))).toBeUndefined()
-
-    await followup(fresh, fresh.subagents.userAuthority(), started.childId, message('user continues'))
-    await waitNoActivation(fresh, started.childId)
-
-    const loaded = await fresh.sessionPersistence.load(started.childId)
-    expect(hasUserText(loaded.events, 'user continues')).toBe(true)
-    // The historical parent was never reconstructed.
-    expect(fresh.agents.get(SessionId('parent'))).toBeUndefined()
   })
 
   it('reports an unresumable child whose persisted log has no supported descriptor', async () => {
@@ -502,13 +461,13 @@ describe('SubagentService.followup residency routing', () => {
     const oneShotId = run.id
     await run.dispose()
 
-    await expect(followup(ctx, ctx.subagents.userAuthority(), oneShotId, message('continue')))
+    await expect(followup(ctx, parent, oneShotId, message('continue')))
       .rejects.toThrow(/no supported continuation state/)
   })
 
   it('reports an unknown child id as unavailable', async () => {
-    const { ctx } = await setup([])
-    await expect(followup(ctx, ctx.subagents.userAuthority(), SessionId('missing'), message('hello')))
+    const { ctx, parent } = await setup([])
+    await expect(followup(ctx, parent, SessionId('missing'), message('hello')))
       .rejects.toMatchObject({ code: 'NOT_RESUMABLE' })
   })
 
@@ -524,7 +483,7 @@ describe('SubagentService.followup residency routing', () => {
     // exactly one side wins the cutoff. A delivery that loses awaits release and
     // cold-resumes rather than reaching a handle being torn down.
     const delivery = child.whenIdle().then(() =>
-      followup(ctx, ctx.subagents.userAuthority(), started.childId, message('raced')))
+      followup(ctx, parent, started.childId, message('raced')))
 
     await expect(delivery).resolves.toBeTypeOf('string')
     await waitNoActivation(ctx, started.childId)
@@ -550,7 +509,8 @@ describe('continuable child ownership', () => {
     const grandchild = await ctx.subagents.startContinuable(startSpec(child))
 
     await vi.waitFor(() => {
-      expect(ctx.subagents.activationState(started.childId)).toBe('waiting')
+      expect(child.status).toBe('idle')
+      expect(ctx.agents.get(started.childId)).toBe(child)
     }, { timeout: 5_000 })
     // Child-first: the parent handle is retained while the grandchild is live.
     expect(ctx.agents.get(started.childId)).toBe(child)
@@ -565,8 +525,7 @@ describe('continuable child ownership', () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
-    // The top-level parent has no Activation of its own.
-    expect(ctx.subagents.activationState(parent.id)).toBeUndefined()
+    // The top-level parent remains independently registered after its child settles.
     expect(ctx.agents.get(parent.id)).toBe(parent)
   })
 })
@@ -652,7 +611,7 @@ describe('continuable durability and teardown', () => {
 
     await expect(ctx.subagents.startContinuable(startSpec(parent)))
       .rejects.toMatchObject({ code: 'DRAINING' })
-    await expect(followup(ctx, ctx.subagents.userAuthority(), started.childId, message('too late')))
+    await expect(followup(ctx, parent, started.childId, message('too late')))
       .rejects.toMatchObject({ code: 'DRAINING' })
   })
 
@@ -663,7 +622,7 @@ describe('continuable durability and teardown', () => {
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
     // Accepted into the inbox, but this queued turn never opens.
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('never logged'))
+    await followup(ctx, parent, started.childId, message('never logged'))
 
     const drained = ctx.subagents.drainContinuable()
     hold.resolve(undefined)
@@ -707,7 +666,7 @@ describe('continuable review regressions', () => {
 
     const controller = new AbortController()
     controller.abort('caller gave up')
-    await expect(followup(ctx, ctx.subagents.userAuthority(), started.childId, message('cancelled'), controller.signal))
+    await expect(followup(ctx, parent, started.childId, message('cancelled'), controller.signal))
       .rejects.toThrow()
 
     // Nothing was enqueued, so no later turn can carry it.
@@ -732,7 +691,7 @@ describe('continuable review regressions', () => {
 
     // A cold resume is a new epoch: it must report its OWN answer, never the
     // previous epoch's, which the replayed transcript still contains.
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('again'))
+    await followup(ctx, parent, started.childId, message('again'))
     await waitNoActivation(ctx, started.childId)
     await vi.waitFor(() => { expect(ends).toHaveLength(2) })
     expect(ends[1]!.lastAssistantMessage).toEqual([{ type: 'text', text: 'second answer' }])
@@ -746,11 +705,11 @@ describe('continuable review regressions', () => {
     const ends: SubagentRunEndInfo[] = []
     ctx.on('subagent/end', (info) => { ends.push(info) })
     // Block the resumed prompt so this epoch produces nothing of its own.
-    ctx.on('agent/prompt-submit', async (subject, _content, _source, _signal, next) => {
+    ctx.on('agent/prompt-submit', async (subject, _message, _signal, next) => {
       if (subject === parent) return next()
       return { kind: 'block', reason: 'blocked by policy' }
     })
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('again'))
+    await followup(ctx, parent, started.childId, message('again'))
     await waitNoActivation(ctx, started.childId)
 
     await vi.waitFor(() => { expect(ends).toHaveLength(1) })
@@ -819,7 +778,7 @@ describe('continuable review regressions', () => {
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
     // Queue a turn, then cancel so it is discarded rather than dequeued. The
     // Activation must still reach settlement instead of waiting on that id.
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('discarded'))
+    await followup(ctx, parent, started.childId, message('discarded'))
 
     const drained = ctx.subagents.drainContinuable()
     hold.resolve(undefined)
@@ -845,7 +804,7 @@ describe('continuable review regressions', () => {
         child.cancel({ kind: 'user' })
       }
     })
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('doomed'))
+    await followup(ctx, parent, started.childId, message('doomed'))
     off()
 
     releaseFirst.resolve(undefined)
@@ -861,7 +820,7 @@ describe('continuable review regressions', () => {
     const ends: SubagentRunEndInfo[] = []
     ctx.on('subagent/end', (info) => { ends.push(info) })
     // Block admission so the child's only turn never opens.
-    ctx.on('agent/prompt-submit', async (subject, _content, _source, _signal, next) => {
+    ctx.on('agent/prompt-submit', async (subject, _message, _signal, next) => {
       if (subject === parent) return next()
       return { kind: 'block', reason: 'blocked by policy' }
     })
@@ -873,30 +832,35 @@ describe('continuable review regressions', () => {
     expect(ends[0]!.stopReason).toBe('completed')
   })
 
-  it('never reports settled while an accepted message is still in the inbox', async () => {
+  it('retains the Activation while an accepted message is still in the inbox', async () => {
     const releaseFirst = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
       { chunks: textResponse('first'), gate: releaseFirst.promise },
       { chunks: textResponse('second') },
     ])
     const { ctx, parent } = await setupWith(adapter)
-    const states: (string | undefined)[] = []
+    const registeredAtEnqueue: boolean[] = []
     // A synchronous inbox observer runs before the admitting microtask, the
     // exact window where `Agent.status` is still idle.
     ctx.on('agent/inbox/enqueue', (agent) => {
       if (agent.session.header.parentSession !== undefined) {
-        states.push(ctx.subagents.activationState(agent.id))
+        registeredAtEnqueue.push(ctx.agents.get(agent.id) === agent)
       }
     })
 
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('queued'))
+    const child = ctx.agents.get(started.childId)
+    await followup(ctx, parent, started.childId, message('queued'))
 
-    expect(states.length).toBeGreaterThan(0)
-    expect(states).not.toContain('settled')
+    expect(registeredAtEnqueue.length).toBeGreaterThan(0)
+    expect(registeredAtEnqueue).not.toContain(false)
+    expect(ctx.agents.get(started.childId)).toBe(child)
     releaseFirst.resolve(undefined)
     await waitNoActivation(ctx, started.childId)
+    expect(adapter.requests).toHaveLength(2)
+    const loaded = await ctx.sessionPersistence.load(started.childId)
+    expect(hasUserText(loaded.events, 'queued')).toBe(true)
   })
 })
 
@@ -913,7 +877,7 @@ describe('continuable lifecycle observation', () => {
     await vi.waitFor(() => { expect(ends).toHaveLength(1) })
 
     // A cold resume is a NEW epoch with its own pair.
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('again'))
+    await followup(ctx, parent, started.childId, message('again'))
     await waitNoActivation(ctx, started.childId)
     await vi.waitFor(() => { expect(ends).toHaveLength(2) })
 
@@ -926,10 +890,19 @@ describe('continuable lifecycle observation', () => {
 })
 
 describe('continuable public surface', () => {
-  it('exposes no cancellation, steering, or report operation', async () => {
+  it('exposes no host authority, residency query, cancellation, steering, or report operation', async () => {
     const { ctx } = await setup([])
     const subagents: Record<string, unknown> = ctx.subagents as unknown as Record<string, unknown>
-    for (const absent of ['cancel', 'kill', 'steer', 'steerContinuable', 'report', 'resume']) {
+    for (const absent of [
+      'activationState',
+      'cancel',
+      'kill',
+      'report',
+      'resume',
+      'steer',
+      'steerContinuable',
+      'userAuthority',
+    ]) {
       expect(subagents[absent]).toBeUndefined()
     }
     // No steering tool and no report tool are registered by this seam.
@@ -957,7 +930,7 @@ describe('continuable public surface', () => {
 
     const controller = new AbortController()
     controller.abort('caller gave up')
-    await expect(followup(ctx, ctx.subagents.userAuthority(), started.childId, message('aborted'), controller.signal))
+    await expect(followup(ctx, parent, started.childId, message('aborted'), controller.signal))
       .rejects.toThrow()
 
     const loaded = await ctx.sessionPersistence.load(started.childId)
@@ -975,7 +948,7 @@ describe('continuable public surface', () => {
     await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
 
     const controller = new AbortController()
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('survives'), controller.signal)
+    await followup(ctx, parent, started.childId, message('survives'), controller.signal)
     // After acceptance the manager owns the Activation independently.
     controller.abort('caller gave up')
 
@@ -1004,13 +977,13 @@ describe('continuable errors', () => {
     }).continuations
     manager.activations.delete(started.childId)
 
-    await expect(followup(ctx, ctx.subagents.userAuthority(), started.childId, message('hello')))
+    await expect(followup(ctx, parent, started.childId, message('hello')))
       .rejects.toThrow(SubagentError)
     expect(ctx.agents.get(started.childId)).toBe(child)
     hold.resolve(undefined)
   })
 
-  it('rejects parent authority whose agent is no longer the live registry entry', async () => {
+  it('rejects a parent that is no longer the live registry entry', async () => {
     const { ctx, parent } = await setup([textResponse('first')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     const child = await vi.waitFor(() => {
@@ -1021,7 +994,7 @@ describe('continuable errors', () => {
     // A stale parent reference: same id, not the exact live entry.
     const stale = { ...parent, id: parent.id } as unknown as Agent
 
-    await expect(followup(ctx, { kind: 'parent', agent: stale }, started.childId, message('stale')))
+    await expect(followup(ctx, stale, started.childId, message('stale')))
       .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     void child
   })
@@ -1127,7 +1100,7 @@ describe('continuable errors', () => {
       .toMatchObject({ agentProvider: 'mock', agentModel: 'child-model' })
 
     // The resumed Activation runs on the declared route, not the parent's.
-    await followup(ctx, ctx.subagents.userAuthority(), started.childId, message('again'))
+    await followup(ctx, parent, started.childId, message('again'))
     await vi.waitFor(() => {
       expect(ctx.agents.get(started.childId)?.options.model).toBe('child-model')
     })

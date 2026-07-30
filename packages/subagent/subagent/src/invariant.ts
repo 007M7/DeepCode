@@ -2,8 +2,7 @@
 
 import type { Context } from 'cordis'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import type { SubagentProvider } from './types.ts'
-import type { SubagentRunEndInfo, SubagentRunInfo } from './index.ts'
+import type { SubagentProvider, SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-subagent'
 

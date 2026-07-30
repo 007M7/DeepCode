@@ -1106,17 +1106,7 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
-      "symbol": "SubagentAuthority",
-      "source": "packages/subagent/subagent/src/continuation.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/subagent.md",
       "symbol": "ContinuableStart",
-      "source": "packages/subagent/subagent/src/continuation.ts"
-    },
-    {
-      "doc": "docs/core-data-structures/subagent.md",
-      "symbol": "ActivationState",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },
     {

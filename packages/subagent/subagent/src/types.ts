@@ -1,5 +1,10 @@
 /**
- * Request, result, and capability contracts for {@link SubagentProvider}.
+ * The seam's consumer-facing contracts: request, result, and capability types
+ * for {@link SubagentProvider}, plus the `subagent/start` and `subagent/end`
+ * payloads that plugins and hosts observe. Internal control interfaces belong
+ * with their implementation — the lifecycle observer in `./lifecycle.ts`, the
+ * continuation host in `./continuation.ts` — so this module stays the published
+ * surface rather than a bag of everything type-shaped.
  *
  * @module @deepseek-ai/dsh-subagent/types
  */
@@ -20,6 +25,41 @@ export type SubagentRunId = Branded<'SubagentRunId'>
  */
 export function SubagentRunId(id: string): SubagentRunId {
   return id as SubagentRunId
+}
+
+/**
+ * Observe-only identifying detail for a ready subagent run, carried by
+ * `subagent/start`. One-shot runs and continuable Activation epochs share this
+ * payload, so an observer sees the same vocabulary for both.
+ */
+export interface SubagentRunInfo {
+  /** Unique identity shared with the paired terminal event. */
+  readonly runId: SubagentRunId
+  /** The provider that established the run. */
+  readonly provider: string
+  /** The child agent's id. */
+  readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
+}
+
+/**
+ * Observe-only outcome detail for a settled subagent run, carried by
+ * `subagent/end` and paired with one {@link SubagentRunInfo} by `runId`.
+ */
+export interface SubagentRunEndInfo {
+  /** Unique identity shared with the paired start event. */
+  readonly runId: SubagentRunId
+  /** The provider that ran it. */
+  readonly provider: string
+  /** The child agent's id. */
+  readonly id: SessionId
+  /** Snapshot of whether `SubagentRun.localAgent` was present when start fulfilled. */
+  readonly local: boolean
+  /** The terminal stop reason. */
+  readonly stopReason: SubagentResult['stopReason']
+  /** The child's final assistant output, absent on infrastructure rejection. */
+  readonly lastAssistantMessage?: ContentBlock[]
 }
 
 /**

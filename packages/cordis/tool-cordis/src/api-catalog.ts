@@ -889,16 +889,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Establish one durable continuable child and deliver its initial prompt.\n * Resolves when the child\'s inbox accepts that prompt, without waiting for the\n * turn to start or for the message to reach the Session log; any earlier\n * failure rejects with no ids and rolls back the child entirely.\n * @param spec - provider, delegation request, and caller cancellation.\n * @returns the durable child id and the accepted prompt\'s message id.\n * @throws when continuation services are unavailable or materialization fails.\n */',
       },
       {
-        signature: 'async followup( authority: SubagentAuthority, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>',
-        jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so parent and user messages\n * share one observable order.\n * @param authority - trusted parent or user authority for this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, authority is rejected,\n *   or the message was not admitted.\n */',
-      },
-      {
-        signature: 'userAuthority(): SubagentAuthority',
-        jsDoc: '/**\n * Host-user authority for continuable operations, which may continue any\n * durable child without its parent. A composition passes this only to a\n * trusted host adapter carrying real human interaction; a model-facing tool\n * uses `{ kind: \'parent\', agent }` from its own execution context instead.\n * @returns the authority a host adapter supplies to {@link followup}.\n */',
-      },
-      {
-        signature: 'activationState(childId: SessionId): ActivationState | undefined',
-        jsDoc: '/**\n * Read one durable child\'s live residency state.\n * @param childId - durable child session id.\n * @returns its Activation state, or `undefined` when no Activation is live.\n * @throws when continuation services are unavailable.\n */',
+        signature: 'async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>',
+        jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
       },
       {
         signature: 'async drainContinuable(): Promise<void>',
@@ -1579,10 +1571,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
 
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
-  {
-    name: 'ActivationState',
-    declaration: 'export type ActivationState = \'running\' | \'waiting\' | \'settled\';',
-  },
   {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
@@ -2696,10 +2684,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
   {
-    name: 'SubagentAuthority',
-    declaration: 'export type SubagentAuthority = {\n    readonly kind: \'parent\';\n    readonly agent: Agent;\n} | {\n    readonly kind: \'user\';\n    readonly grant: UserAuthorityGrant;\n};',
-  },
-  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
   },
@@ -3038,10 +3022,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TypertTypeModel',
     declaration: 'export interface TypertTypeModel {\n    readonly name: string;\n    readonly declaration: string;\n}',
-  },
-  {
-    name: 'UserAuthorityGrant',
-    declaration: 'export type UserAuthorityGrant = {\n    readonly __brand: \'SubagentUserAuthority\';\n};',
   },
   {
     name: 'UserInteractionProvider',

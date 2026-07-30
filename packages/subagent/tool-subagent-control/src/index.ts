@@ -61,7 +61,7 @@ export function apply(ctx: Context): void {
       }
       const message: ContentBlock[] = [{ type: 'text', text: args.message }]
       const messageId = await ctx.subagents.followup(
-        { kind: 'parent', agent: parent },
+        parent,
         SessionId(args.subagent_id),
         message,
         {

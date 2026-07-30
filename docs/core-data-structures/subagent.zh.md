@@ -99,7 +99,7 @@ interface SubagentStartRequest {
 
 ## 可继续子 agent 与激活
 
-**可继续后台 subagent** 是一份持久化子 agent 会话（Session），至多关联一个进程内的 **Activation（激活）**——即被重建的子 Agent 的一段驻留纪元（residency epoch）。Activation 不是请求、结果、取消或 Task 边界：它可以执行多个 FIFO 轮次，并在其创建的后代仍在运行期间保持驻留。继续执行管理器负责 activation 准入、授权、实时所有权图、冷恢复（cold resume）与子级优先释放；agent loop 负责一切轮次排序与执行。任何可继续路径都不会创建 Task，也不会创建承载中间结果的包装层。
+**可继续后台 subagent** 是一份持久化子 agent 会话（Session），至多关联一个进程内的 **Activation（激活）**——即被重建的子 Agent 的一段驻留纪元（residency epoch）。Activation 不是请求、结果、取消或 Task 边界：它可以执行多个 FIFO 轮次，并在其创建的后代仍在运行期间保持驻留。继续执行管理器负责 activation 准入、直接父级鉴权、实时所有权图、冷恢复（cold resume）与子级优先释放；agent loop 负责一切轮次排序与执行。任何可继续路径都不会创建 Task，也不会创建承载中间结果的包装层。
 
 ```text
 persisted Session
@@ -113,17 +113,17 @@ persisted Session
 
 `SubagentService.followup()` 是唯一的继续执行消息操作，其路由仅取决于 Activation 的驻留状态：
 
-| Activation 状态 | 发送方 | `followup` |
-|---|---|---|
-| `running` | parent 或 user | 在同一 Activation 中入队 |
-| `waiting` | parent 或 user | 唤醒同一 Activation |
-| 无 Activation | parent 或 user | 冷恢复一个新的 Activation |
+| Activation 状态 | `followup` |
+|---|---|
+| `running` | 在同一 Activation 中入队 |
+| `waiting` | 唤醒同一 Activation |
+| 无 Activation | 冷恢复一个新的 Activation |
 
-`running` 表示 Agent 拥有活跃的准入或轮次，或正在唤醒收件箱工作；`waiting` 表示它已停稳，但仍拥有至少一个尚未完成 dispose 的子 Activation；`settled` 表示已停稳且其拥有的每个子级都已 dispose，此时管理器会 dispose `AgentHandle` 并移除该 Activation。管理器根据 Agent 的完全停稳状态与其拥有的子级集合推导这些状态，而非维护第二套执行状态机；`activationState()` 报告当前值（无存活 Activation 时为 `undefined`）。
+`running` 表示 Agent 拥有活跃的准入或轮次，或正在唤醒收件箱工作；`waiting` 表示它已停稳，但仍拥有至少一个尚未完成 dispose 的子 Activation；`settled` 表示已停稳且其拥有的每个子级都已 dispose，此时管理器会 dispose `AgentHandle` 并移除该 Activation。管理器根据 Agent 的完全停稳状态与其拥有的子级集合推导这些内部条件，而非维护第二套执行状态机。
 
-Agent 收件箱是唯一的队列。每条继续执行消息都会成为一个 `Agent.followup()` FIFO 轮次，因此 parent 与 user 消息共享同一个可观测顺序，且后续消息无法改变已在进行中的轮次。投递成功会返回被接受的 `MessageId`；既有的 `agent/inbox/enqueue`、`agent/inbox/dequeue` 与 `agent/inbox/discard` 事件仍是消息生命周期的观测点，继续执行层不定义任何 subagent 专属的投递路由。
+Agent 收件箱是唯一的队列。每条继续执行消息都会成为一个 `Agent.followup()` FIFO 轮次，因此已接受的消息共享同一个可观测顺序，且后续消息无法改变已在进行中的轮次。投递成功会返回被接受的 `MessageId`；既有的 `agent/inbox/enqueue`、`agent/inbox/dequeue` 与 `agent/inbox/discard` 事件仍是消息生命周期的观测点，继续执行层不定义任何 subagent 专属的投递路由。
 
-授权由受信任的宿主交互或一个确切的实时 Agent 工具上下文提供。仅当已认证的 Agent 是持久化子 agent 在 `SessionHeader.parentSession` 中记录的直接父级时，才会准入 parent 变体；只有受信任的宿主适配器才能提供 user 授权。`MessageSource` 与 `senderSessionId` 在准入之后是持久的来源凭据，不授予任何权限——可选的面向模型工具使用 `CoordinatorMessageSource`，宿主适配器则使用 `{ kind: 'user' }`。user 授权可以在不加载子 agent 历史父级的情况下冷恢复它。
+后续操作的权限来自确切的在线 Agent 工具上下文。已认证的 Agent 必须是持久化子 agent 在 `SessionHeader.parentSession` 中记录的直接父级。`MessageSource` 与 `senderSessionId` 在准入之后是持久的来源凭据，不授予任何权限；可选的面向模型工具使用 `CoordinatorMessageSource`。
 
 对于这两种操作，调用方 signal 仅在收件箱接受之前掌管查找、物化与准入。此后管理器独立掌管该 Activation：之后的调用方取消既不会取消已接受的轮次，也不会 dispose 子 agent，并且该 seam 不对外暴露任何 subagent 取消或 steering（中途引导）操作。
 
@@ -138,25 +138,6 @@ interface CoordinatorMessageSource {
   /** Session id of the agent whose tool call produced the follow-up. */
   readonly senderSessionId: SessionId
 }
-```
-
-```ts type-equiv
-/**
- * Who authorizes one continuable-subagent operation. Authority comes from a
- * trusted host interaction or an exact live Agent tool context; durable
- * {@link MessageSource} provenance never authorizes delivery.
- */
-type SubagentAuthority =
-  /** The exact live parent Agent whose tool context is making the call. */
-  | { readonly kind: 'parent'; readonly agent: Agent }
-  /**
-   * A trusted host adapter acting for the human user. The `grant` must be the
-   * exact token {@link SubagentService.userAuthority} minted, so a discriminant
-   * alone cannot claim this authority — any plugin holding `ctx.subagents`,
-   * including model-generated mount code, could otherwise forge it and bypass
-   * the direct-parent check.
-   */
-  | { readonly kind: 'user'; readonly grant: UserAuthorityGrant }
 ```
 
 ```ts type-equiv
@@ -177,18 +158,6 @@ interface ContinuableStart {
   /** The accepted initial prompt's inbox message id. */
   readonly messageId: MessageId
 }
-```
-
-```ts type-equiv
-/**
- * The public residency state of one continuable child, derived from Agent
- * quiescence and the owned-child set rather than a second state machine:
- * `running` — the Agent has an active admission or turn, or waking inbox work;
- * `waiting` — the Agent is quiescent but still owns undisposed children;
- * `settled` — quiescent with every owned child disposed, so the manager
- * disposes the `AgentHandle` and removes the Activation.
- */
-type ActivationState = 'running' | 'waiting' | 'settled'
 ```
 
 提供方只参与准备初始创建 spec，`spawn` 与 `fork` 在此有所不同。其返回的 spec 只携带分离的、提供方专属的创建输入——目前是可选的父级历史种子——不含 Agent、`AgentHandle`、prompt 投递、结果、dispose 或 resume 操作。冷恢复根本不经由提供方分发：管理器折叠通用描述符，通过同一个 activation-owner 作用域调用 `ctx.agents.resume()`，并提交等待中的轮次。

@@ -38,6 +38,7 @@ import {
 } from './child-agent.ts'
 import { seedDescriptorTurn } from './descriptor-seed.ts'
 import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentStartRequest } from './types.ts'
+import type { ActivationObserver } from './lifecycle.ts'
 import { SubagentError } from './error.ts'
 
 /** Attribution for a model coordinator's follow-up to one of its children. */
@@ -52,29 +53,6 @@ declare module '@deepseek-ai/dsh-llm' {
     coordinator: CoordinatorMessageSource
   }
 }
-
-/**
- * Who authorizes one continuable-subagent operation. Authority comes from a
- * trusted host interaction or an exact live Agent tool context; durable
- * {@link MessageSource} provenance never authorizes delivery.
- */
-export type SubagentAuthority =
-  /** The exact live parent Agent whose tool context is making the call. */
-  | { readonly kind: 'parent'; readonly agent: Agent }
-  /**
-   * A trusted host adapter acting for the human user. The `grant` must be the
-   * exact token {@link SubagentService.userAuthority} minted, so a discriminant
-   * alone cannot claim this authority — any plugin holding `ctx.subagents`,
-   * including model-generated mount code, could otherwise forge it and bypass
-   * the direct-parent check.
-   */
-  | { readonly kind: 'user'; readonly grant: UserAuthorityGrant }
-
-/**
- * Opaque proof that a caller obtained user authority from the service rather
- * than constructing it. Only {@link SubagentService.userAuthority} mints one.
- */
-export type UserAuthorityGrant = { readonly __brand: 'SubagentUserAuthority' }
 
 /** What a caller asks for when starting a continuable background child. */
 export interface ContinuableStartSpec {
@@ -106,44 +84,22 @@ export interface SubagentFollowupOptions {
 }
 
 /**
- * The public residency state of one continuable child, derived from Agent
- * quiescence and the owned-child set rather than a second state machine:
+ * The residency state of one continuable child, derived from Agent quiescence
+ * and the owned-child set rather than a second state machine:
  * `running` — the Agent has an active admission or turn, or waking inbox work;
  * `waiting` — the Agent is quiescent but still owns undisposed children;
  * `settled` — quiescent with every owned child disposed, so the manager
  * disposes the `AgentHandle` and removes the Activation.
  */
-export type ActivationState = 'running' | 'waiting' | 'settled'
+type ActivationState = 'running' | 'waiting' | 'settled'
 
 /**
- * Lifecycle observer for one Activation's residency epoch, so continuable
- * children emit the same start/end pair as one-shot runs.
+ * Hooks the manager needs from the owning service. Declared here, by the
+ * dependent, so the manager states exactly what it requires instead of
+ * depending back on the whole {@link SubagentService}. Package-private: no
+ * consumer outside this package supplies a host.
  */
-export interface ActivationObserver {
-  /**
-   * Publish the start edge once the epoch is resident.
-   * @param child - the resident child agent, whose log suffix bounds this epoch.
-   */
-  start(child: Agent): void
-  /**
-   * Snapshot the child-dependent terminal facts while the child is still
-   * registered, because handle disposal unregisters it and consumers resolve it
-   * to read the child's own log and scope.
-   * @param child - the quiescent child agent about to be released.
-   */
-  capture(child: Agent): void
-  /**
-   * Publish the terminal edge exactly once, pairing this epoch's {@link start},
-   * after the disposal outcome is known. Called only for a resident epoch: a
-   * failure before residency publishes no edge, because inventing one would
-   * report a lifecycle the child never had.
-   * @param failure - the teardown or durability failure, or `undefined` on success.
-   */
-  settle(failure: unknown): void
-}
-
-/** Hooks the manager needs from the owning service. */
-export interface ContinuationHost {
+interface ContinuationHost {
   /**
    * Resolve one provider's continuable-creation contribution, or reject when
    * the provider is unknown or lacks the capability.
@@ -156,10 +112,10 @@ export interface ContinuationHost {
    * Build the lifecycle observer for one Activation's residency epoch.
    * @param provider - the provider name recorded in the durable descriptor.
    * @param childId - the durable child session id.
-   * @param parent - the delegating parent for scoped dispatch, if any.
+   * @param parent - the exact live direct parent for scoped dispatch.
    * @returns the observer whose edges this epoch publishes.
    */
-  observeActivation(provider: string, childId: SessionId, parent: Agent | undefined): ActivationObserver
+  observeActivation(provider: string, childId: SessionId, parent: Agent): ActivationObserver
 }
 
 /**
@@ -257,8 +213,6 @@ export class SubagentContinuationManager {
   constructor(
     private readonly ctx: Context,
     private readonly host: ContinuationHost,
-    /** The single token that proves host-user authority for this manager. */
-    private readonly userGrant: UserAuthorityGrant,
   ) {
     // Ordinary Cordis owner effects unwind in reverse registration order, which
     // cannot express the dynamic child graph. Register the private scope's
@@ -272,17 +226,6 @@ export class SubagentContinuationManager {
       yield scope.dispose
       yield () => this.drain()
     }.bind(this), 'subagents.continuations()')
-  }
-
-  /**
-   * Read one durable child's live residency state.
-   * @param childId - the durable child session id.
-   * @returns its Activation state, or `undefined` when no Activation is live.
-   */
-  activationState(childId: SessionId): ActivationState | undefined {
-    const activation = this.activations.get(childId)
-    if (activation === undefined) return undefined
-    return this.stateOf(activation)
   }
 
   /**
@@ -343,7 +286,7 @@ export class SubagentContinuationManager {
       // window — a `subagent/start` listener can cancel synchronously — must
       // roll the child back instead of opening its first turn.
       await this.rollbackIfAborted(activation, spec.signal)
-      return this.submit(activation, request.prompt, { kind: 'user' }, { kind: 'parent', agent: parent })
+      return this.submit(activation, request.prompt, { kind: 'user' }, parent)
     })
     return { childId, messageId }
   }
@@ -353,20 +296,20 @@ export class SubagentContinuationManager {
    * turn. Routing depends only on Activation residency: a `running` Activation
    * enqueues, a `waiting` one wakes the same Agent, and an absent one
    * cold-resumes a new Activation from the persisted Session. The Agent inbox
-   * is the only queue, so parent and user messages share one observable order.
+   * is the only queue, so every accepted message has one observable order.
    *
    * The caller signal owns lookup, materialization, and admission only until
    * inbox acceptance; afterwards the accepted turn cannot be cancelled through
    * this service.
-   * @param authority - trusted parent or user authority for this delivery.
+   * @param parent - the exact live direct parent authorizing this delivery.
    * @param childId - the durable child session id.
    * @param content - the user-role content to deliver.
    * @param options - durable provenance and caller cancellation.
    * @returns the accepted message's inbox id.
-   * @throws when authority, availability, or admission rejects the delivery.
+   * @throws when parent authority, availability, or admission rejects the delivery.
    */
   async followup(
-    authority: SubagentAuthority,
+    parent: Agent,
     childId: SessionId,
     content: ContentBlock[],
     options: SubagentFollowupOptions,
@@ -375,7 +318,7 @@ export class SubagentContinuationManager {
     while (true) {
       const live = await this.locks.run(childId, async () => {
         const activation = this.activations.get(childId)
-        if (activation === undefined) return this.coldResume(authority, childId, content, options)
+        if (activation === undefined) return this.coldResume(parent, childId, content, options)
         // A delivery that arrives after the disposal transaction began must not
         // reach a handle being torn down; wait for release, then cold-resume.
         /* v8 ignore next 3 -- the send-versus-dispose cutoff: reaching this arm needs a
@@ -385,13 +328,13 @@ export class SubagentContinuationManager {
         if (activation.disposal !== undefined) {
           return activation.disposal.then(() => undefined, () => undefined)
         }
-        await this.authorizeLive(authority, activation)
+        await this.authorizeLive(parent, activation)
         // The caller signal owns admission until acceptance, so re-check it
         // here: the outer check cannot cover an abort that landed while
         // authorization yielded, and enqueueing afterwards would return a
         // message id for a delivery the caller already cancelled.
         options.signal.throwIfAborted()
-        return this.submit(activation, content, options.source, authority)
+        return this.submit(activation, content, options.source, parent)
       })
       /* v8 ignore start -- only the lost-cutoff arm above returns undefined, so only that
        * race reaches the retry below, which then cold-resumes a new Activation. */
@@ -472,7 +415,7 @@ export class SubagentContinuationManager {
    * descriptor is the whole reconstruction input.
    */
   private async coldResume(
-    authority: SubagentAuthority,
+    parent: Agent,
     childId: SessionId,
     content: ContentBlock[],
     options: SubagentFollowupOptions,
@@ -488,8 +431,8 @@ export class SubagentContinuationManager {
     options.signal.throwIfAborted()
     this.assertAdmitting()
     // Authorize the persisted header before folding: only the durable child's
-    // direct parent — or the host user — may continue it.
-    this.authorizeLineage(authority, childId, loaded.meta.parentSession)
+    // exact live direct parent may continue it.
+    this.authorizeLineage(parent, childId, loaded.meta.parentSession)
     // Fold only the child's own suffix: a fork seed replays the parent's log,
     // which may carry an ANCESTOR's descriptor when the parent is itself a
     // continuable child.
@@ -504,7 +447,7 @@ export class SubagentContinuationManager {
     const activation = await this.materialize({
       childId,
       provider: descriptor.provider,
-      parent: authority.kind === 'parent' ? authority.agent : undefined,
+      parent,
       agentOptions: {
         ...descriptor.agentProvider !== undefined ? { provider: descriptor.agentProvider } : {},
         ...descriptor.agentModel !== undefined ? { model: descriptor.agentModel } : {},
@@ -513,7 +456,7 @@ export class SubagentContinuationManager {
       signal: options.signal,
     })
     await this.rollbackIfAborted(activation, options.signal)
-    return this.submit(activation, content, options.source, authority)
+    return this.submit(activation, content, options.source, parent)
   }
 
   /**
@@ -540,7 +483,7 @@ export class SubagentContinuationManager {
   private async materialize(inputs: {
     childId: SessionId
     provider: string
-    parent: Agent | undefined
+    parent: Agent
     /** Creation inputs; absent for a cold resume, which loads the persisted session. */
     create?: { seed: readonly SessionEvent[]; meta: NonNullable<CreateAgentOptions['meta']> }
     agentOptions: AgentOptions
@@ -639,8 +582,7 @@ export class SubagentContinuationManager {
    * top-level or other non-continuation Agent has no Activation and stays
    * outside the waiting graph.
    */
-  private acquireOwnership(parent: Agent | undefined, childId: SessionId): void {
-    if (parent === undefined) return
+  private acquireOwnership(parent: Agent, childId: SessionId): void {
     const parentActivation = this.activations.get(parent.id)
     if (parentActivation === undefined) return
     if (parentActivation.disposal !== undefined) {
@@ -674,11 +616,11 @@ export class SubagentContinuationManager {
     activation: Activation,
     content: ContentBlock[],
     source: MessageSource,
-    authority: SubagentAuthority,
+    parent: Agent,
   ): MessageId {
     // Parent-originated delivery keeps the parent live through ownership, so
     // establish it before the message can enter the child's inbox.
-    if (authority.kind === 'parent') this.acquireOwnership(authority.agent, activation.childId)
+    this.acquireOwnership(parent, activation.childId)
     const message = createUserMessage({ content, source })
     // `Agent.followup()` publishes `agent/inbox/enqueue` synchronously, so its
     // observers must see this Activation as busy before the call begins.
@@ -699,39 +641,25 @@ export class SubagentContinuationManager {
    * Authorize delivery to a live Activation. A parent must be the exact live
    * direct parent recorded in the child's durable header.
    */
-  private async authorizeLive(authority: SubagentAuthority, activation: Activation): Promise<void> {
+  private async authorizeLive(parent: Agent, activation: Activation): Promise<void> {
     await Promise.resolve()
     this.authorizeLineage(
-      authority,
+      parent,
       activation.childId,
       activation.handle.agent.session.header.parentSession,
     )
   }
 
   /**
-   * Authorize one operation against the durable direct-parent lineage. User
-   * authority may continue any child without loading its parent; parent
-   * authority requires the exact live direct parent. Other agents, ancestors,
-   * teams, and workflows remain rejected until an explicit authority protocol
-   * exists.
+   * Authorize one operation against the durable direct-parent lineage. Other
+   * agents, ancestors, teams, workflows, and hosts remain rejected until an
+   * explicit authority protocol has a production consumer.
    */
   private authorizeLineage(
-    authority: SubagentAuthority,
+    parent: Agent,
     childId: SessionId,
     parentSession: SessionId | undefined,
   ): void {
-    if (authority.kind === 'user') {
-      // Identity, not shape: a forged discriminant must not skip the
-      // direct-parent check for an arbitrary known child id.
-      if (authority.grant !== this.userGrant) {
-        throw new SubagentError(
-          `subagent "${childId}" delivery presented an invalid user-authority grant`,
-          'UNAUTHORIZED',
-        )
-      }
-      return
-    }
-    const parent = authority.agent
     if (this.ctx.agents.get(parent.id) !== parent) {
       throw new SubagentError(
         `subagent "${childId}" delivery requires the exact live parent agent`,

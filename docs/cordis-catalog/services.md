@@ -1967,35 +1967,18 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
  * Deliver one later message to a continuable child as its next FIFO turn. A
  * resident child's Agent inbox accepts it directly (waking a `waiting`
  * Activation), while an absent one is cold-resumed from its persisted
- * Session. The Agent inbox is the only queue, so parent and user messages
- * share one observable order.
- * @param authority - trusted parent or user authority for this delivery.
+ * Session. The Agent inbox is the only queue, so every accepted message has
+ * one observable order.
+ * @param parent - the exact live direct parent authorizing this delivery.
  * @param childId - durable child session id.
  * @param content - user-role content to deliver.
  * @param options - durable provenance and caller cancellation, which stops the
  *   operation only before inbox acceptance.
  * @returns the accepted message's inbox id.
- * @throws when continuation services are unavailable, authority is rejected,
- *   or the message was not admitted.
+ * @throws when continuation services are unavailable, parent authority is
+ *   rejected, or the message was not admitted.
  */
-async followup( authority: SubagentAuthority, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
-
-/**
- * Host-user authority for continuable operations, which may continue any
- * durable child without its parent. A composition passes this only to a
- * trusted host adapter carrying real human interaction; a model-facing tool
- * uses `{ kind: 'parent', agent }` from its own execution context instead.
- * @returns the authority a host adapter supplies to {@link followup}.
- */
-userAuthority(): SubagentAuthority
-
-/**
- * Read one durable child's live residency state.
- * @param childId - durable child session id.
- * @returns its Activation state, or `undefined` when no Activation is live.
- * @throws when continuation services are unavailable.
- */
-activationState(childId: SessionId): ActivationState | undefined
+async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
 
 /**
  * Close continuable admission synchronously, then dispose every live
@@ -2040,9 +2023,9 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Types: [ActivationState](../core-data-structures/subagent.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentAuthority](../core-data-structures/subagent.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:176`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:141`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

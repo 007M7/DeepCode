@@ -5196,12 +5196,6 @@ importers:
       '@deepseek-ai/dsh-tasks':
         specifier: workspace:^
         version: link:../../tasks/tasks
-      '@deepseek-ai/dsh-tasks-local':
-        specifier: workspace:^
-        version: link:../../tasks/tasks-local
-      '@deepseek-ai/dsh-tool-tasks':
-        specifier: workspace:^
-        version: link:../../tasks/tool-tasks
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
