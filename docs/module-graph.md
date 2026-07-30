@@ -8,6 +8,7 @@ Inter-package dependencies among the `@deepseek-ai/dsh-*` harness packages, deri
 ```mermaid
 flowchart TD
   subgraph group_util["packages/util"]
+    pkg_atomic_write["atomic-write"]
     pkg_brand["brand"]
     pkg_native_command["native-command"]
     pkg_paths["paths"]
@@ -177,6 +178,10 @@ flowchart TD
     pkg_tmux_context["tmux-context"]
     pkg_workspace_context["workspace-context"]
   end
+  subgraph group_credentials["packages/credentials"]
+    pkg_credentials["credentials"]
+    pkg_credentials_local["credentials-local"]
+  end
   subgraph group_examples["packages/examples"]
     pkg_acp_demo["acp-demo"]
     pkg_agent_spine_demo["agent-spine-demo"]
@@ -261,6 +266,7 @@ flowchart TD
   subgraph group_workspace["packages/workspace"]
     pkg_workspace["workspace"]
   end
+  pkg_atomic_write --> pkg_invariants
   pkg_brand --> pkg_invariants
   pkg_native_command --> pkg_invariants
   pkg_paths --> pkg_invariants
@@ -315,6 +321,8 @@ flowchart TD
   pkg_client_ui_workspace --> pkg_client_ui_primitives
   pkg_client_ui_workspace --> pkg_client_ui_slots
   pkg_client_ui_workspace --> pkg_invariants
+  pkg_credentials --> pkg_brand
+  pkg_credentials --> pkg_invariants
   pkg_helper --> pkg_brand
   pkg_helper --> pkg_invariants
   pkg_helper --> pkg_subprocess
@@ -333,11 +341,15 @@ flowchart TD
   pkg_subprocess_local --> pkg_subprocess
   pkg_typert_loader --> pkg_invariants
   pkg_typert_loader --> pkg_typert_registry
+  pkg_llm_deepseek --> pkg_credentials
   pkg_llm_deepseek --> pkg_invariants
   pkg_llm_deepseek --> pkg_llm
+  pkg_llm_deepseek --> pkg_settings
   pkg_llm_deepseek --> pkg_timeout
+  pkg_llm_pi_ai --> pkg_credentials
   pkg_llm_pi_ai --> pkg_invariants
   pkg_llm_pi_ai --> pkg_llm
+  pkg_llm_pi_ai --> pkg_settings
   pkg_llm_pi_ai --> pkg_timeout
   pkg_session --> pkg_brand
   pkg_session --> pkg_invariants
@@ -371,6 +383,10 @@ flowchart TD
   pkg_client_ui_theme --> pkg_client_ui_primitives
   pkg_client_ui_theme --> pkg_client_ui_slots
   pkg_client_ui_theme --> pkg_invariants
+  pkg_credentials_local --> pkg_atomic_write
+  pkg_credentials_local --> pkg_credentials
+  pkg_credentials_local --> pkg_invariants
+  pkg_credentials_local --> pkg_paths
   pkg_host_directory_picker_browse --> pkg_client_locale
   pkg_host_directory_picker_browse --> pkg_client_runtime
   pkg_host_directory_picker_browse --> pkg_client_ui_primitives
@@ -386,6 +402,7 @@ flowchart TD
   pkg_lsp --> pkg_llm
   pkg_sandbox --> pkg_invariants
   pkg_sandbox --> pkg_llm
+  pkg_settings_local --> pkg_atomic_write
   pkg_settings_local --> pkg_invariants
   pkg_settings_local --> pkg_paths
   pkg_settings_local --> pkg_settings
@@ -999,6 +1016,7 @@ flowchart TD
 | Package | Group | Depends on |
 | --- | --- | --- |
 | [`invariants`](../packages/support/invariants) | `support` | — |
+| [`atomic-write`](../packages/util/atomic-write) | `util` | [`invariants`](../packages/support/invariants) |
 | [`brand`](../packages/util/brand) | `util` | [`invariants`](../packages/support/invariants) |
 | [`native-command`](../packages/util/native-command) | `util` | [`invariants`](../packages/support/invariants) |
 | [`paths`](../packages/util/paths) | `util` | [`invariants`](../packages/support/invariants) |
@@ -1033,6 +1051,7 @@ flowchart TD
 | [`client-ui-settings`](../packages/client/ui-settings) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-trajectory`](../packages/client/ui-trajectory) | `client` | [`client-ui-primitives`](../packages/client/ui-primitives), [`invariants`](../packages/support/invariants) |
 | [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`credentials`](../packages/credentials/credentials) | `credentials` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
 | [`helper`](../packages/sdk/helper) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`subprocess`](../packages/subprocess/subprocess) |
 | [`telemetry`](../packages/sdk/telemetry) | `sdk` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |
 | [`settings`](../packages/settings/settings) | `settings` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants) |
@@ -1041,8 +1060,8 @@ flowchart TD
 | [`storage-sqlite`](../packages/storage/storage-sqlite) | `storage` | [`invariants`](../packages/support/invariants), [`storage`](../packages/storage/storage) |
 | [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`invariants`](../packages/support/invariants), [`subprocess`](../packages/subprocess/subprocess) |
 | [`typert-loader`](../packages/typert/loader) | `typert` | [`invariants`](../packages/support/invariants), [`typert-registry`](../packages/typert/registry) |
-| [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
-| [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout) |
+| [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
+| [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
 | [`session`](../packages/core/session) | `core` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`web`](../packages/web/web) | `web` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
@@ -1051,11 +1070,12 @@ flowchart TD
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-slash`](../packages/client/ui-slash) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-theme`](../packages/client/ui-theme) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`credentials-local`](../packages/credentials/credentials-local) | `credentials` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths) |
 | [`host-directory-picker-browse`](../packages/host/directory-picker-browse) | `host` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-workspace`](../packages/client/ui-workspace), [`invariants`](../packages/support/invariants) |
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | [`client-runtime`](../packages/client/runtime), [`client-ui-slots`](../packages/client/ui-slots), [`client-ui-workspace`](../packages/client/ui-workspace), [`invariants`](../packages/support/invariants) |
 | [`lsp`](../packages/lsp/lsp) | `lsp` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
 | [`sandbox`](../packages/sandbox/sandbox) | `sandbox` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
-| [`settings-local`](../packages/settings/settings-local) | `settings` | [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`settings`](../packages/settings/settings) |
+| [`settings-local`](../packages/settings/settings-local) | `settings` | [`atomic-write`](../packages/util/atomic-write), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`settings`](../packages/settings/settings) |
 | [`token-meter`](../packages/llm/token-meter) | `llm` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`agent`](../packages/core/agent) | `core` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt) |
 | [`bash`](../packages/bash/bash) | `bash` | [`invariants`](../packages/support/invariants), [`sandbox`](../packages/sandbox/sandbox), [`subprocess`](../packages/subprocess/subprocess) |

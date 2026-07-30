@@ -2,21 +2,21 @@
 
 English | [中文](README.zh.md)
 
-Generic multi-provider adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai). One plugin instance owns an explicit list of provider profiles; every request selects a profile with `GenerateOptions.provider` and resolves `GenerateOptions.model` dynamically from pi-ai's installed catalog.
+Generic multi-provider adapter for the harness LLM seam backed by [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai). One plugin instance owns a dict of provider profiles keyed by route; every request selects a profile with `GenerateOptions.provider` and resolves `GenerateOptions.model` dynamically from pi-ai's installed catalog.
 
 The package root exposes the Cordis plugin contract and `PiAiAdapter`; profile resolution, model construction, replay conversion, and stream conversion remain package-internal.
 
 ## Config
 
-Configure credentials and deployment-specific transport settings per provider. Omitting `apiKey` delegates authentication to pi-ai's provider-native ambient discovery. `baseURL` overrides only the endpoint of the selected catalog model, preserving its API family and compatibility metadata, so private proxies such as `https://proxy.example.com:8443` remain supported.
+Configure credentials and deployment-specific transport settings per provider, keyed by the provider route itself. Prefer `apiKeyEnv` — a credential *reference* resolved per request — over a literal `apiKey`, so no secret enters this file. Omitting **both** is what delegates authentication to pi-ai's provider-native ambient discovery; a configured reference that resolves to nothing fails the request with `MISSING_CREDENTIAL` instead, because falling through would authenticate with whatever unrelated key the environment happens to hold. `baseURL` overrides only the endpoint of the selected catalog model, preserving its API family and compatibility metadata, so private proxies such as `https://proxy.example.com:8443` remain supported.
 
 ```yaml
 - id: llm
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
     providers:
-      - provider: openai
-        apiKey: !!js process.env.OPENAI_API_KEY
+      openai:
+        apiKeyEnv: OPENAI_API_KEY
         baseURL: https://proxy.example.com:8443
         reasoning: high
         retryPolicy:
@@ -26,22 +26,28 @@ Configure credentials and deployment-specific transport settings per provider. O
             initialDelayMs: 500
             maxDelayMs: 10000
             jitterRatio: 0.1
-      - provider: anthropic
-        apiKey: !!js process.env.ANTHROPIC_API_KEY
+      anthropic:
+        apiKeyEnv: ANTHROPIC_API_KEY
         streamIdleTimeoutMs: 300000
-      - provider: openrouter
-        apiKey: !!js process.env.OPENROUTER_API_KEY
+      openrouter:
+        apiKeyEnv: OPENROUTER_API_KEY
         headers:
           X-Deployment: production
 ```
 
-Each provider name must exist in pi-ai's installed catalog and may appear only once in this plugin instance. Registration with `ctx.llm` is atomic: a collision with any provider route already owned by another adapter fails plugin loading without registering the remaining routes. Model ids are not lifecycle config; an unknown model fails before any provider request with `LlmError('UNKNOWN_MODEL')`.
+Each dict key must exist in pi-ai's installed catalog; the dict shape makes duplicates unrepresentable, and the pre-release array shape (with per-profile `provider` fields) fails load with migration directions. `providers` may also be empty or omitted entirely: the adapter then mounts **dormant** — zero routes, no extra catalog entries — and registers routes the moment the `llm-pi-ai:` settings section supplies profiles, dropping them again when it empties. Which adapters exist is composition; which providers run can be entirely the user's settings document. Registration with `ctx.llm` is atomic: a collision with any provider route already owned by another adapter fails plugin loading without registering the remaining routes. Model ids are not lifecycle config; an unknown model fails before any provider request with `LlmError('UNKNOWN_MODEL')`.
+
+## Dynamic configuration (settings + credentials)
+
+The adapter reads its profiles through a thunk **once per operation** instead of freezing them at construction. The plugin registers the `llm-pi-ai` namespace on the optional `ctx.settings` seam with this same `Config` schema and its `cordis.yml` entry as the composition `base`, and because `providers` is a dict, the base and the user's `llm-pi-ai:` settings section merge **per provider**: a user can add a route, override one field of a composition route, or point a route at another proxy, all effective on the next request with no restart. Without a mounted settings service the entry config alone drives the adapter, unchanged.
+
+Credentials resolve per stream call: a non-empty literal `apiKey` wins, then `apiKeyEnv` through the optional `ctx.credentials` seam (`$DSH_HOME/.env` under the live environment; exactly that variable without a mounted seam). A profile naming no credential at all — and only that case — defers to pi-ai's ambient discovery. The route set and each route's captured retry policy are the registration-level facts: when either changes, the plugin replaces its registration atomically (same adapter instance, candidate set validated first), so a route another adapter already owns leaves the previous routes serving and reverting to a working configuration re-applies. Provider key order never counts as a change. A live settings snapshot naming an unknown provider (or failing any other resolver bound) keeps the last good profiles and logs the failure; the entry config itself still fails plugin load.
 
 The adapter exposes each configured provider's installed pi-ai models through `ctx.llm.listModels(provider)`. This is provider-neutral selector metadata derived from `getModels(provider)`; request-time resolution still performs the authoritative catalog lookup, so discovery does not create a second model registry. `ctx.llm.resolveModelInfo(provider, model)` performs that exact descriptor lookup once and returns its identity, context window, and selectable thinking levels, keeping authoritative metadata on the route-owning adapter rather than its consumers.
 
 The `reasoning.efforts` list is pi-ai's ordered `getSupportedThinkingLevels(model)` result without filtering or normalization, including `off` and the model-specific availability of `xhigh` or `max`. The Harness exposes each canonical pi-ai level as an opaque ID; provider/model wire spellings remain inside pi-ai's `thinkingLevelMap`. A non-reasoning model therefore exposes pi-ai's `off` choice. The profile `reasoning` value, including `off`, is the deployment default when configured; omitting it preserves the provider default. Per-request `GenerateOptions.reasoningEffort` takes precedence, and any explicit value absent from the exact model capability fails with `UNSUPPORTED_REASONING_EFFORT` before network I/O instead of being clamped. pi-ai's common stream options represent `off` by omitting `reasoning`.
 
-Supported profile fields are `provider`, `apiKey`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, `streamIdleTimeoutMs`, and `retryPolicy`. Each profile's optional retry policy is captured with that provider route; omission uses bounded normal defaults. The stream-idle interval is a positive finite Node timer delay, defaults to five minutes, and covers only an outstanding provider read, not consumer think time. Harness app attribution wins a conflicting configured header name.
+Supported profile fields are `apiKey`, `apiKeyEnv`, `baseURL`, `headers`, `reasoning`, `thinkingBudgets`, `cacheRetention`, `transport`, `timeoutMs`, `websocketConnectTimeoutMs`, `streamIdleTimeoutMs`, and `retryPolicy`. Each profile's optional retry policy is captured with that provider route; omission uses bounded normal defaults. The stream-idle interval is a positive finite Node timer delay, defaults to five minutes, and covers only an outstanding provider read, not consumer think time. Harness app attribution wins a conflicting configured header name.
 
 The adapter forces pi-ai's SDK `maxRetries` to zero so one `stream()` call makes one provider request. The removed profile fields `maxRetries` and `maxRetryDelayMs` fail load instead of silently multiplying or hiding the separately composed agent-level retry budget. Idle expiry aborts the SDK's stable request signal and surfaces `TIMEOUT`; an earlier caller abort remains `ABORTED`.
 
@@ -71,7 +77,7 @@ pi-ai installs several provider SDKs and lazy-loads the one selected by the cata
 
 ## Testing
 
-Unit tests use pi-ai catalog models redirected to local mock servers and cover provider/profile routing, one wire request per adapter call, idle-timeout response termination, caller abort, native API selection, endpoint overrides, attribution, conversion, replay-state validation, and cross-provider/model replay within one adapter instance. Real-API coverage remains key-gated under `pnpm run test:e2e`.
+Unit tests use pi-ai catalog models redirected to local mock servers and cover provider/profile routing, one wire request per adapter call, idle-timeout response termination, caller abort, native API selection, endpoint overrides, attribution, conversion, replay-state validation, and cross-provider/model replay within one adapter instance. `tests/dynamic-config.spec.ts` drives real settings-local and credentials-local providers: a settings-born route registers live and drops when the user layer resets, `apiKeyEnv` credentials rotate between requests, and an unknown-provider snapshot keeps the last good profiles. `tests/loader-composition.spec.ts` boots the dormant posture from a test-only `cordis.yml` through the actual Loader and registers its route from an on-disk `settings.yaml` edit. Real-API coverage remains key-gated under `pnpm run test:e2e`.
 
 ## Model Experience
 
@@ -105,6 +111,8 @@ Recorded response content appends to the next request and does not invalidate it
 
 ## Known Limitations and Deferred Work
 
+- **Settings can add or override routes, not remove composition routes** — the user layer merges over the composition `base`, so deleting a `cordis.yml`-provided provider is a composition change; `replace` on the namespace only resets the user layer.
+- **`apiKey` is schema-tagged `role('secret')` but not yet masked anywhere** — the settings `describe()` envelope returns values verbatim; the wire/UI layer that must redact secret-role fields ships with the settings RPC surface.
 - **Catalog membership is required** — custom model ids that are absent from the installed pi-ai catalog fail with `UNKNOWN_MODEL`, even when a provider profile supplies a custom endpoint.
 - **`GenerateOptions.stop` is unsupported** — pi-ai's common stream options cannot guarantee stop-sequence behavior across providers, so the adapter rejects the field.
 - **In-history `system` messages use pi-ai's common context conversion** — provider-specific placement follows pi-ai rather than a harness-owned wire override.

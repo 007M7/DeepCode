@@ -10,7 +10,7 @@
 
 ### 公开 API
 
-- `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): () => void` 为给定提供方路由注册一个适配器实例。注册要么全部成功，要么全部不生效，并且会随调用 fiber 一起 dispose（资源释放）。
+- `ctx.llm.registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle` 为给定提供方路由注册一个适配器实例。注册要么全部成功，要么全部不生效，并且会随调用 fiber 一起 dispose（资源释放）。返回的释放器还携带 `replace(providers)`：候选路由集合会在任何东西变动之前完整校验，因此与另一适配器冲突时，当前路由保持注册且继续服务，而替换本身是一个同步区段，不存在可观察的空档。`replace([])` 合法——一个持有零条路由的注册——这与空的初始注册不同。
 - `ctx.llm.listProviders(): LlmProviderInfo[]` 按注册顺序描述已注册提供方路由。
 - `ctx.llm.providerRetryPolicy(provider: string): ResolvedRetryPolicy` 返回注册时捕获的提供方重试策略，并解析 normal 默认值。
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` 发现某个已注册提供方当前公布的模型。

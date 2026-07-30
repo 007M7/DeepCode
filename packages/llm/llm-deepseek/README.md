@@ -14,8 +14,9 @@ The package root exposes the Cordis plugin contract and `DeepSeekAdapter`; wire 
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY    # or rely on the env fallback
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL  # default: https://api.deepseek.com
+    apiKeyEnv: DEEPSEEK_API_KEY  # default; resolved per request via ctx.credentials, then the environment
+    # apiKey: …                  # literal escape hatch; prefer the reference so no secret enters this file
+    baseURL: https://api.deepseek.com # optional; $DEEPSEEK_BASE_URL then the public API when omitted
     thinking: enabled        # optional; provider default is enabled
     reasoningEffort: high    # optional; off | high | max — omitted ⇒ high
     streamIdleTimeoutMs: 300000 # optional; positive finite Node timer delay; five-minute default
@@ -44,6 +45,15 @@ The same exact-model result exposes ordered `off`, `high`, and `max` efforts und
 
 `streamIdleTimeoutMs` bounds each outstanding provider read, including the initial `fetch`, without counting time the consumer spends between chunks. One stable abort signal reaches the request and body reader for the whole call; expiry stops the transport and throws `LlmError('TIMEOUT')`, while an earlier caller abort throws `LlmError('ABORTED')`. The adapter makes exactly one provider request per `stream()` call; it registers the configured policy as provider metadata, and `dsh-llm-retry` separately executes it at durable agent-step boundaries.
 
+## Dynamic configuration (settings + credentials)
+
+Connection facts are not frozen at load. `resolveAdapterOptions` is the one explicit resolve step from raw config to validated facts, and the adapter re-reads them through a thunk **once per operation**: base URL, catalog, request defaults, and idle budget all take effect on the next request, while an in-flight stream keeps the facts it started with. Two optional seams feed that thunk:
+
+- **`ctx.settings`** — the plugin registers the `llm-deepseek` namespace with this same `Config` schema and its `cordis.yml` entry as the composition `base`, so a `llm-deepseek:` section in the user settings document overrides any field without a restart. Without a mounted settings service the entry config alone drives the adapter, unchanged. A live settings snapshot that passes the schema but fails a beyond-schema bound (a duplicate catalog id, a broken thinking/effort pair) keeps the last good facts and logs the failure; the entry config itself still fails plugin load.
+- **`ctx.credentials`** — the API key resolves per stream call, from the *same* resolved snapshot that supplies the endpoint: a non-empty literal `apiKey` wins, then `apiKeyEnv` through the credential seam (`$DSH_HOME/.env` under the live environment), then — only without a mounted seam — the raw environment variable. Because credential facts travel with the connection facts, a settings snapshot the resolver rejects contributes neither its endpoint nor its key: the whole previous generation keeps serving. A request with no key anywhere fails with `MISSING_CREDENTIAL` naming every configuration entry point, while the route stays registered and the catalog stays browsable — first-run onboarding is "browse models, store the key, prompt again", with no restart between.
+
+The one registration-captured fact is the retry policy: when its resolved value changes, the plugin re-registers the route in place (same adapter instance, one synchronous section), so `ctx.llm.providerRetryPolicy('deepseek')` always reports the current policy.
+
 ## App attribution
 
 Every request carries the shared attribution header from dsh-llm's `attributionHeaders()` - the mandatory `User-Agent` baseline identifying the harness (see [dsh-llm § App attribution](../llm/README.md#app-attribution-attributionts)). Direct DeepSeek requests and OpenAI-compatible gateway requests get no provider-specific app-attribution headers under this adapter contract; OpenRouter app attribution is deferred to a future explicit OpenRouter adapter or mode. A request whose `GenerateOptions.purpose` is `compaction` (dsh-compact-basic's auxiliary summarization call) additionally carries `x-deepseek-harness-compact: 1`, so the host can separate compaction traffic from conversation requests.
@@ -62,7 +72,7 @@ Non-2xx responses throw `LlmError` with stable codes: `AUTH` (401/403), `QUOTA` 
 
 ## Testing
 
-Unit suites run against a local `node:http` mock SSE server (no network), including dynamic `high`/`off`/`max` selection, structured HTTP facts, malformed/truncated streams, caller abort, connection failure, and proof that idle timeout aborts the actual body. Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback.
+Unit suites run against a local `node:http` mock SSE server (no network), including dynamic `high`/`off`/`max` selection, structured HTTP facts, malformed/truncated streams, caller abort, connection failure, and proof that idle timeout aborts the actual body. `tests/dynamic-config.spec.ts` drives real settings-local and credentials-local providers (next-request base-URL/key pickup, literal precedence, keyless onboarding, last-good snapshots, retry-policy re-registration), and `tests/loader-composition.spec.ts` boots the full chain from a test-only `cordis.yml` through the actual Loader and edits `settings.yaml`/`.env` on disk. Real-API coverage lives in `tests/adapter.e2e.ts` (`pnpm run test:e2e`, key-gated): V4 Flash + V4 Pro across thinking enabled/disabled and both official effort levels, including the thinking+tools round trip with reasoning passback and a request whose key exists only in a credentials-local document.
 
 ## Model Experience
 
@@ -96,6 +106,8 @@ Loop-retained response blocks append to the next request and preserve its earlie
 
 ## Known Limitations and Deferred Work
 
+- **A settings `models` list replaces the composition list wholesale** — settings-layer merging is per-field, and arrays are one field; per-entry catalog merging would need a keyed shape.
+- **`Config.apiKey` is schema-tagged `role('secret')` but not yet masked anywhere** — the settings `describe()` envelope returns values verbatim; the wire/UI layer that must redact secret-role fields ships with the settings RPC surface.
 - **`tool_choice` is not mapped** — not part of the core vocabulary (MVP cut, shared with the pi-ai twin).
 - **Requests use raw `fetch`, not `@cordisjs/plugin-http`** — no shared proxy/interception configuration; adoption is deferred until a second adapter wants it (`TODO(http)`).
 - **Serialization flattens user and tool-result content to text blocks** — plugin-added block types are skipped, and empty tool output crosses the wire as the literal `(no output)`.

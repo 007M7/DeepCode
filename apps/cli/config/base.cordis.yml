@@ -56,16 +56,28 @@
 - id: llm-retry
   name: '@deepseek-ai/dsh-llm-retry'
 
+# User-settings document (`$DSH_HOME/settings.yaml`, hot-reloaded): a
+# `llm-deepseek:` or `llm-pi-ai:` section there overrides the adapter entries
+# below without a restart, and is what the web Models page writes.
+- id: settings
+  name: '@deepseek-ai/dsh-settings-local'
+
+# Credential store: the live process environment over `$DSH_HOME/.env`
+# (owner-only file, hot-reloaded). Adapters resolve their key references
+# through it at each request, so no key is inlined in this file — and nothing
+# hoists that document into the process environment, which would make every
+# stored key read as an unrotatable ambient override.
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+# The pi-ai multi-provider twin, mounted dormant: zero routes (and no extra
+# models in the picker) until a `llm-pi-ai:` settings section supplies provider
+# profiles — then those routes register live, keys resolving per request
+# through their apiKeyEnv references, and drop again when the section empties.
+# Which adapters exist is composition; which providers run is the user's
+# settings document.
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
-  config:
-    providers:
-      - provider: openai
-        apiKey: !!js process.env.OPENAI_API_KEY
-        baseURL: !!js process.env.OPENAI_BASE_URL
-      - provider: anthropic
-        apiKey: !!js process.env.ANTHROPIC_API_KEY
-        baseURL: !!js process.env.ANTHROPIC_BASE_URL
 
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -223,10 +235,9 @@
 - id: fs-local
   name: '@deepseek-ai/dsh-fs-local'
 
-# The native DeepSeek adapter; reads the key/base-url the boot's layered .env
-# loading left in the environment. Thinking defaults are a surface choice.
+# The native DeepSeek adapter. No key or endpoint is inlined: both resolve per
+# request from the `llm-deepseek:` settings section over this entry, with the
+# key coming from the credential store below. Thinking defaults are a surface
+# choice.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
-  config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
-    baseURL: !!js process.env.DEEPSEEK_BASE_URL
