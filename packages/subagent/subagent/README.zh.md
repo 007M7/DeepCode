@@ -31,12 +31,13 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `start(name, request)` | 校验普通调用方请求，然后等待提供方，直到真实的一次性子 agent 就绪。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理所有局部启动资源。可继续子 agent 绝不通过此操作进入。 |
 | `startContinuable(spec)` | 建立一个持久化可继续子 agent，并投递其初始提示词。子 agent 的 inbox 接受该提示词时，兑现为 `{ childId, messageId }`，无需等待轮次开始或消息写入 Session 日志；此前任何失败都会以无 id 拒绝，并完全回滚该子 agent。要求 `ctx.agents`、会话持久化以及具备 `prepareContinuable` 能力的提供方。 |
 | `followup(authority, childId, content, { source, signal })` | 将一条后续消息作为可继续子 agent 的下一个 FIFO 轮次投递，术语与 `Agent.followup()` 一致，并返回被接受的 `AgentMessageId`。驻留中的子 agent 由其 inbox 直接接受（唤醒处于 `waiting` 的 Activation）；不驻留的则从其持久化 Session 冷恢复。要求 `ctx.agents`；冷恢复还要求会话持久化。 |
+| `userAuthority()` | 铸造可信 host 适配器传给 `followup()` 的 host 用户权限。组合装配仅将其交给承载真实人类交互的 host；面向模型的工具改用自身执行上下文的 `{ kind: 'parent', agent }`。 |
 | `activationState(childId)` | 读取某个持久化子 agent 的实时驻留状态（`running`、`waiting` 或 `settled`）；无实时 Activation 时返回 `undefined`。 |
 | `drainContinuable()` | 同步关闭可继续准入，然后以子先于父的顺序 dispose 每一个实时 Activation 森林。host 会在 dispose 顶层 agent 之前调用它，使任何后代都不会比拥有其拆卸职责的运行时存活更久。任一分支失败时，会在所有分支结算后抛出聚合错误。 |
 
 `SubagentStartRequest.signal` 是必填项，也是一次性 `start` 的规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消实时子 agent。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。对于可继续启动或后续操作，调用方信号只在 inbox 接受之前掌管查找、物化和准入；此后由管理器独立拥有 Activation，因此调用方后续取消既不会取消已接受的轮次，也不会 dispose 子 agent。
 
-可继续操作的权限来自可信的 host 交互或准确的实时 Agent 工具上下文：`SubagentAuthority` 为 `{ kind: 'parent', agent }` 或 `{ kind: 'user' }`。后续操作上的 `source` 是保留在所投递消息上的持久化来源，不授予任何权限。父级权限要求准确匹配子 agent 持久化 header 中记录的实时直接父级；用户权限可以继续任何子 agent，并且可以在不加载其历史父级的情况下将其冷恢复。
+可继续操作的权限来自可信的 host 交互或准确的实时 Agent 工具上下文：`SubagentAuthority` 为 `{ kind: 'parent', agent }` 或 `{ kind: 'user', grant }`——其 grant 仅由 `userAuthority()` 铸造，因此仅凭判别式无法声明该权限。后续操作上的 `source` 是保留在所投递消息上的持久化来源，不授予任何权限。父级权限要求准确匹配子 agent 持久化 header 中记录的实时直接父级；用户权限可以继续任何子 agent，并且可以在不加载其历史父级的情况下将其冷恢复。
 
 同进程请求、描述符、结果和事件 payload 都是以不可变方式借用的可信类型值。服务不会克隆或冻结它们；序列化和不可信输入校验属于真实的进程、worker、持久化和模型边界。
 

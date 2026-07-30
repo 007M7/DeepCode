@@ -207,8 +207,8 @@ export function apply(ctx: Context, config: Config): void {
       description: wording.description + (backgroundEnabled
         ? continuable
           ? ' Set `run_in_background: true` to start a background subagent that keeps its conversation:'
-          + ' you receive its subagent id and it works on its own. It does not report back to you, so read'
-          + ' its transcript by that id, or send it more work with `send_message`.'
+          + ' you receive its subagent id and it works on its own. It does not report back, so use this'
+          + ' only for work whose result you do not need returned; `send_message` sends it more work.'
           : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
@@ -226,8 +226,8 @@ export function apply(ctx: Context, config: Config): void {
           run_in_background: {
             type: 'boolean' as const,
             description: continuable
-              ? 'Run as a background subagent that keeps its conversation and return its subagent id; '
-              + 'send it more work with send_message.'
+              ? 'Run as a background subagent that keeps its conversation and return its subagent id. '
+              + 'It does not report its result back; send it more work with send_message.'
               : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},

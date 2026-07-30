@@ -54,6 +54,7 @@ import SubagentContinuationManager from './continuation.ts'
 import type {
   ActivationObserver,
   ActivationState,
+  UserAuthorityGrant,
   ContinuableStart,
   ContinuableStartSpec,
   SubagentAuthority,
@@ -94,6 +95,7 @@ export type { ChildComposition } from './child-agent.ts'
 export type {
   ActivationObserver,
   ActivationState,
+  UserAuthorityGrant,
   ContinuableStart,
   ContinuableStartSpec,
   CoordinatorMessageSource,
@@ -174,6 +176,15 @@ export interface SubagentRunEndInfo {
 export class SubagentService extends Service {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
+  /**
+   * The process-local proof of host-user authority. Minted here so the value is
+   * unguessable and unforgeable: a caller must obtain it from
+   * {@link userAuthority}, which composition hands only to trusted host
+   * adapters.
+   */
+  private readonly userGrant = Object.freeze({
+    __brand: 'SubagentUserAuthority',
+  }) as UserAuthorityGrant
 
   constructor(ctx: Context) {
     super(ctx, 'subagents')
@@ -181,7 +192,7 @@ export class SubagentService extends Service {
       const manager = new SubagentContinuationManager(childCtx, {
         prepareContinuable: (name, request) => this.prepareContinuable(name, request),
         observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
-      })
+      }, this.userGrant)
       this.continuations = manager
       childCtx.effect(() => () => {
         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
@@ -225,6 +236,17 @@ export class SubagentService extends Service {
     options: SubagentFollowupOptions,
   ): Promise<MessageId> {
     return this.requireContinuations().followup(authority, childId, content, options)
+  }
+
+  /**
+   * Host-user authority for continuable operations, which may continue any
+   * durable child without its parent. A composition passes this only to a
+   * trusted host adapter carrying real human interaction; a model-facing tool
+   * uses `{ kind: 'parent', agent }` from its own execution context instead.
+   * @returns the authority a host adapter supplies to {@link followup}.
+   */
+  userAuthority(): SubagentAuthority {
+    return { kind: 'user', grant: this.userGrant }
   }
 
   /**

@@ -1151,7 +1151,7 @@ The registered tool name is the load-time `toolName` config (default `subagent`)
 
 ### `send_message`
 
-Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. The subagent does not reply to you — read its transcript by its id to see what it did. A failure means the message was NOT delivered.
+Send a message to a background subagent by its subagent id, continuing the same conversation. It becomes the subagent's next turn: if it is still working, the message waits until its current turn finishes, so it cannot redirect work already underway. The subagent does not reply to you, so use this only to give it more work. A failure means the message was NOT delivered.
 
 ```json
 {

@@ -1981,6 +1981,15 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
 async followup( authority: SubagentAuthority, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
 
 /**
+ * Host-user authority for continuable operations, which may continue any
+ * durable child without its parent. A composition passes this only to a
+ * trusted host adapter carrying real human interaction; a model-facing tool
+ * uses `{ kind: 'parent', agent }` from its own execution context instead.
+ * @returns the authority a host adapter supplies to {@link followup}.
+ */
+userAuthority(): SubagentAuthority
+
+/**
  * Read one durable child's live residency state.
  * @param childId - durable child session id.
  * @returns its Activation state, or `undefined` when no Activation is live.
@@ -2033,7 +2042,7 @@ async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 
 Types: [ActivationState](../core-data-structures/subagent.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentAuthority](../core-data-structures/subagent.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:174`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:176`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

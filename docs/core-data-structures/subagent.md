@@ -123,7 +123,7 @@ persisted Session
 
 The Agent inbox is the only queue. Every continuation message becomes one `Agent.followup()` FIFO turn, so parent and user messages share one observable order and a follow-up cannot redirect a turn already underway. Successful delivery returns the accepted `MessageId`; the existing `agent/inbox/enqueue`, `agent/inbox/dequeue`, and `agent/inbox/discard` events remain the message-lifecycle observations, and the continuation layer defines no subagent-specific delivery route.
 
-Authority is supplied by a trusted host interaction or an exact live Agent tool context. The parent variant is admitted only when the authenticated Agent is the durable child's direct parent recorded in `SessionHeader.parentSession`; only a trusted host adapter can supply user authority. `MessageSource` and `senderSessionId` are durable provenance after admission and grant no authority — the optional model-facing tool uses `CoordinatorMessageSource`, while a host adapter uses `{ kind: 'user' }`. User authority may cold-resume a child without loading its historical parent.
+Authority is supplied by a trusted host interaction or an exact live Agent tool context. The parent variant is admitted only when the authenticated Agent is the durable child's direct parent recorded in `SessionHeader.parentSession`. User authority carries an opaque grant that only `SubagentService.userAuthority()` mints, so a caller cannot claim it by writing the discriminant — a plugin holding `ctx.subagents`, including model-generated mount code, would otherwise bypass the direct-parent check for any known child id. `MessageSource` and `senderSessionId` are durable provenance after admission and grant no authority — the optional model-facing tool uses `CoordinatorMessageSource`, while a host adapter uses `{ kind: 'user' }`. User authority may cold-resume a child without loading its historical parent.
 
 For both operations the caller signal owns lookup, materialization, and admission only until inbox acceptance. Afterwards the manager owns the Activation independently: later caller cancellation neither cancels the accepted turn nor disposes the child, and the seam exposes no public subagent cancellation or steering operation.
 
@@ -149,8 +149,14 @@ interface CoordinatorMessageSource {
 type SubagentAuthority =
   /** The exact live parent Agent whose tool context is making the call. */
   | { readonly kind: 'parent'; readonly agent: Agent }
-  /** A trusted host adapter acting for the human user. */
-  | { readonly kind: 'user' }
+  /**
+   * A trusted host adapter acting for the human user. The `grant` must be the
+   * exact token {@link SubagentService.userAuthority} minted, so a discriminant
+   * alone cannot claim this authority — any plugin holding `ctx.subagents`,
+   * including model-generated mount code, could otherwise forge it and bypass
+   * the direct-parent check.
+   */
+  | { readonly kind: 'user'; readonly grant: UserAuthorityGrant }
 ```
 
 ```ts type-equiv

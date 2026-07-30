@@ -149,8 +149,14 @@ interface CoordinatorMessageSource {
 type SubagentAuthority =
   /** The exact live parent Agent whose tool context is making the call. */
   | { readonly kind: 'parent'; readonly agent: Agent }
-  /** A trusted host adapter acting for the human user. */
-  | { readonly kind: 'user' }
+  /**
+   * A trusted host adapter acting for the human user. The `grant` must be the
+   * exact token {@link SubagentService.userAuthority} minted, so a discriminant
+   * alone cannot claim this authority — any plugin holding `ctx.subagents`,
+   * including model-generated mount code, could otherwise forge it and bypass
+   * the direct-parent check.
+   */
+  | { readonly kind: 'user'; readonly grant: UserAuthorityGrant }
 ```
 
 ```ts type-equiv

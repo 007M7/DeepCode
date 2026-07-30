@@ -133,7 +133,7 @@ describe('SubagentService', () => {
       signal: new AbortController().signal,
     })).rejects.toMatchObject({ code: 'CONTINUATION_UNAVAILABLE' })
     await expect(subagents.followup(
-      { kind: 'user' },
+      subagents.userAuthority(),
       SessionId('child'),
       [{ type: 'text', text: 'hello' }],
       { source: { kind: 'user' }, signal: new AbortController().signal },

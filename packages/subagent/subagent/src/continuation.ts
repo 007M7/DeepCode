@@ -61,8 +61,20 @@ declare module '@deepseek-ai/dsh-llm' {
 export type SubagentAuthority =
   /** The exact live parent Agent whose tool context is making the call. */
   | { readonly kind: 'parent'; readonly agent: Agent }
-  /** A trusted host adapter acting for the human user. */
-  | { readonly kind: 'user' }
+  /**
+   * A trusted host adapter acting for the human user. The `grant` must be the
+   * exact token {@link SubagentService.userAuthority} minted, so a discriminant
+   * alone cannot claim this authority — any plugin holding `ctx.subagents`,
+   * including model-generated mount code, could otherwise forge it and bypass
+   * the direct-parent check.
+   */
+  | { readonly kind: 'user'; readonly grant: UserAuthorityGrant }
+
+/**
+ * Opaque proof that a caller obtained user authority from the service rather
+ * than constructing it. Only {@link SubagentService.userAuthority} mints one.
+ */
+export type UserAuthorityGrant = { readonly __brand: 'SubagentUserAuthority' }
 
 /** What a caller asks for when starting a continuable background child. */
 export interface ContinuableStartSpec {
@@ -245,6 +257,8 @@ export class SubagentContinuationManager {
   constructor(
     private readonly ctx: Context,
     private readonly host: ContinuationHost,
+    /** The single token that proves host-user authority for this manager. */
+    private readonly userGrant: UserAuthorityGrant,
   ) {
     // Ordinary Cordis owner effects unwind in reverse registration order, which
     // cannot express the dynamic child graph. Register the private scope's
@@ -325,6 +339,10 @@ export class SubagentContinuationManager {
         composition: { persona: request.persona, toolFilter: request.toolFilter },
         signal: spec.signal,
       })
+      // Materialization published the Activation; an abort landing in that
+      // window — a `subagent/start` listener can cancel synchronously — must
+      // roll the child back instead of opening its first turn.
+      await this.rollbackIfAborted(activation, spec.signal)
       return this.submit(activation, request.prompt, { kind: 'user' }, { kind: 'parent', agent: parent })
     })
     return { childId, messageId }
@@ -494,7 +512,23 @@ export class SubagentContinuationManager {
       composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
       signal: options.signal,
     })
+    await this.rollbackIfAborted(activation, options.signal)
     return this.submit(activation, content, options.source, authority)
+  }
+
+  /**
+   * Dispose a freshly materialized Activation when the caller signal won the
+   * handoff between publication and inbox acceptance, so an aborted operation
+   * never leaves a resident child.
+   * @param activation - the just-published Activation.
+   * @param signal - the caller signal owning admission until acceptance.
+   */
+  private async rollbackIfAborted(activation: Activation, signal: AbortSignal): Promise<void> {
+    if (!signal.aborted) return
+    /* v8 ignore next -- the swallow only covers a disposal fault during rollback, which
+     * must not mask the caller's abort as the operation's failure. */
+    await this.dispose(activation).catch(() => undefined)
+    signal.throwIfAborted()
   }
 
   /**
@@ -686,7 +720,17 @@ export class SubagentContinuationManager {
     childId: SessionId,
     parentSession: SessionId | undefined,
   ): void {
-    if (authority.kind === 'user') return
+    if (authority.kind === 'user') {
+      // Identity, not shape: a forged discriminant must not skip the
+      // direct-parent check for an arbitrary known child id.
+      if (authority.grant !== this.userGrant) {
+        throw new SubagentError(
+          `subagent "${childId}" delivery presented an invalid user-authority grant`,
+          'UNAUTHORIZED',
+        )
+      }
+      return
+    }
     const parent = authority.agent
     if (this.ctx.agents.get(parent.id) !== parent) {
       throw new SubagentError(
