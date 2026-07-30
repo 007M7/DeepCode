@@ -72,6 +72,9 @@ function optionsOf(value: PermissionSelect, t: (key: string) => string): SelectO
 export function apply(ctx: ClientContext): void {
   const command = ctx.get('command') as CommandServiceContract
   const sessions = ctx.sessions
+  // This optional bundle and ui-conversation can load independently, so each
+  // owns the same safety copy under its own locale namespace.
+  /* jscpd:ignore-start */
   ctx.effect(() => {
     const disposers = [
       ctx.locale.register(ACCESS_NS, 'zh', {
@@ -91,6 +94,7 @@ export function apply(ctx: ClientContext): void {
     ]
     return () => { for (const dispose of disposers) dispose() }
   }, 'ui-permission: Full access confirmation dictionaries')
+  /* jscpd:ignore-end */
   const t = ctx.locale.bind(ACCESS_NS)
   const sessionFor = (session: ClientSessionContext): SessionFace | undefined =>
     sessions.binding(session.sessionId)?.session
