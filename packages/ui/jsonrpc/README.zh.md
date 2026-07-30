@@ -18,7 +18,7 @@ Stdout 只承载 JSON-RPC 帧。部署不得组合 stdout logger；诊断应写�
 
 ## 关闭与退出语义
 
-插件响应 `shutdown`，将 SDK 持有的 agent 和订阅 dispose（资源释放）至完全停稳，关闭传输层，然后以代码 0 退出。EOF 和信号退出由 app bin 处理，后者会 dispose 根上下文。仅卸载此插件会停止服务，但不会退出进程。
+插件响应 `shutdown`，刷新响应并 dispose（资源释放）根上下文，使 SDK 持有的 agent、订阅和持久化全部停稳，然后以代码 0 退出。EOF 和信号退出由 app bin 处理，后者也会 dispose 根上下文。仅卸载此插件会停止服务，但不会退出进程。
 
 ## 协议说明
 

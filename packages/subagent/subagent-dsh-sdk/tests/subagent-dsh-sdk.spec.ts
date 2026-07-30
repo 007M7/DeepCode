@@ -218,16 +218,15 @@ describe('dsh-subagent-dsh-sdk provider', () => {
     }
   })
 
-  it('keeps accumulated streamed text when the turn is cut short before a full message', async () => {
-    // The fake streams one text-delta chunk and then violates the protocol on
-    // the same pipe; frame order guarantees the chunk was dispatched before
-    // the failure settles, so the accumulated partial text (no complete
-    // assistant/message ever arrived) must survive into the error result.
+  it('does not attribute streamed text when prompt acceptance is malformed', async () => {
+    // The fake streams one text-delta chunk but never returns the MessageId
+    // needed to establish this run's durable inbox receipt. The text therefore
+    // lies outside an owned activity interval and cannot become its output.
     const ctx = await setup({ FAKE_STREAM_THEN_MALFORMED: '1' }, { shutdownTimeoutMs: 100, disposeEofGraceMs: 200, disposeGraceMs: 200 })
     const run = await ctx.subagents.start('dsh-sdk', request())
     const result = await run.result
     expect(result.stopReason).toBe('error')
-    expect(text(result.output)).toBe('streamed then cut short')
+    expect(result.output).toEqual([])
     await run.dispose()
     await ctx.fiber.dispose()
   })

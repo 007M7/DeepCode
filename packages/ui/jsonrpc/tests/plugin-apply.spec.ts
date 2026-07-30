@@ -20,6 +20,7 @@ import * as jsonrpc from '../src/index.ts'
 type WireEvent =
   | { kind: 'frame'; frame: Record<string, unknown> }
   | { kind: 'write-complete'; ids: (string | number)[] }
+  | { kind: 'root-disposed' }
   | { kind: 'exit'; code: number }
 
 interface ApplyHarness {
@@ -99,6 +100,7 @@ async function mountPlugin(
   output.on('error', (error: Error) => { outputErrors.push(error) })
   const exit = (code: number): void => { events.push({ kind: 'exit', code }) }
 
+  ctx.effect(() => () => { events.push({ kind: 'root-disposed' }) }, 'jsonrpc test root-disposal witness')
   const fiber = await ctx.plugin(jsonrpc, { input, output, exit })
 
   const frames = (): Record<string, unknown>[] =>
@@ -229,16 +231,19 @@ describe('dsh-jsonrpc plugin apply', () => {
       const firstComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.includes('sd-1'))
       const secondComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.includes('sd-2'))
       const flushComplete = harness.events.findIndex(event => event.kind === 'write-complete' && event.ids.length === 0)
+      const rootDisposed = harness.events.findIndex(event => event.kind === 'root-disposed')
       expect(firstResponse).toBeGreaterThanOrEqual(0)
       expect(secondResponse).toBeGreaterThanOrEqual(0)
       expect(firstComplete).toBeGreaterThan(firstResponse)
       expect(secondComplete).toBeGreaterThan(secondResponse)
       expect(flushComplete).toBeGreaterThan(firstComplete)
       expect(flushComplete).toBeGreaterThan(secondComplete)
-      expect(exitIndex).toBeGreaterThan(flushComplete)
+      expect(rootDisposed).toBeGreaterThan(flushComplete)
+      expect(exitIndex).toBeGreaterThan(rootDisposed)
 
       await settle()
       expect(harness.exits()).toEqual([0])
+      expect(harness.events.filter(event => event.kind === 'root-disposed')).toHaveLength(1)
 
       const before = harness.frames().length
       harness.send({ jsonrpc: '2.0', id: 'after-exit', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek', model: 'x' } })
@@ -259,6 +264,7 @@ describe('dsh-jsonrpc plugin apply', () => {
       await waitFor(() => harness.exits().length > 0 ? true : undefined, 'exit after flush failure')
       await settle()
       expect(harness.exits()).toEqual([0])
+      expect(harness.events.filter(event => event.kind === 'root-disposed')).toHaveLength(1)
       expect(harness.outputErrors.map(error => error.message)).toEqual(['flush callback failed'])
 
       const before = harness.frames().length
@@ -284,6 +290,7 @@ describe('dsh-jsonrpc plugin apply', () => {
       })
 
       await harness.fiber.dispose()
+      expect(harness.events.some(event => event.kind === 'root-disposed')).toBe(false)
 
       const before = harness.frames().length
       harness.send({ jsonrpc: '2.0', id: 'probe-2', method: 'initialize', params: { cwd: storageDir, provider: 'deepseek', model: 'x' } })
