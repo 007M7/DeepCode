@@ -10,9 +10,14 @@ import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import SandboxPolicyService, { SANDBOX_MODES, effectiveSandboxMode, setSandboxMode } from '@deepseek-ai/dsh-sandbox-policy'
 
-async function mounted(config: { mode?: 'read-only' | 'workspace-write' | 'danger-full-access'; workspaceRoot?: string } = {}) {
+async function mounted(config: {
+  mode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  workspaceRoot?: string
+  readDenyPaths?: string[]
+} = {}) {
   const ctx = new Context()
   await ctx.plugin(SandboxPolicyService, config)
   return ctx
@@ -41,11 +46,28 @@ describe('SandboxPolicyService', () => {
     expect(ctx.sandboxPolicy.workspaceRoot).toBe(resolve('/ws/../ws/./sub'))
   })
 
+  it('denies reading the harness credential document by default', async () => {
+    const ctx = await mounted()
+    // The exact file, not the whole home: the model keeps the documented
+    // access to its own session log under the same directory.
+    expect(ctx.sandboxPolicy.readDenyPaths).toEqual([resolve(resolveDshHome(), '.env')])
+    expect(ctx.sandboxPolicy.resolve().readDenyPaths).toEqual([resolve(resolveDshHome(), '.env')])
+  })
+
+  it('replaces the default with a configured denial list', async () => {
+    const configured = await mounted({ readDenyPaths: ['/vault/../vault/./keys.env'] })
+    expect(configured.sandboxPolicy.readDenyPaths).toEqual([resolve('/vault/keys.env')])
+    // Schemastery fills an omitted array with `[]`, so empty reads as omitted.
+    const empty = await mounted({ readDenyPaths: [] })
+    expect(empty.sandboxPolicy.readDenyPaths).toEqual([resolve(resolveDshHome(), '.env')])
+  })
+
   it('resolves the deployment policy for an agentless call', async () => {
     const ctx = await mounted({ mode: 'workspace-write', workspaceRoot: '/fallback' })
     expect(ctx.sandboxPolicy.resolve()).toEqual({
       mode: 'workspace-write',
       workspaceRoot: resolve('/fallback'),
+      readDenyPaths: [resolve(resolveDshHome(), '.env')],
     })
   })
 
@@ -58,16 +80,19 @@ describe('SandboxPolicyService', () => {
     expect(ctx.sandboxPolicy.resolve({ session: first })).toEqual({
       mode: 'workspace-write',
       workspaceRoot: resolve('/projects/first'),
+      readDenyPaths: [resolve(resolveDshHome(), '.env')],
     })
     expect(ctx.sandboxPolicy.resolve({ session: second })).toEqual({
       mode: 'read-only',
       workspaceRoot: resolve('/projects/second'),
+      readDenyPaths: [resolve(resolveDshHome(), '.env')],
     })
     expect(ctx.sandboxPolicy.overrideOf(first)).toBeUndefined()
     expect(ctx.sandboxPolicy.overrideOf(second)).toBe('read-only')
     expect(ctx.sandboxPolicy.resolve()).toEqual({
       mode: 'workspace-write',
       workspaceRoot: resolve('/fallback'),
+      readDenyPaths: [resolve(resolveDshHome(), '.env')],
     })
   })
 
@@ -87,6 +112,7 @@ describe('SandboxPolicyService', () => {
       expect(ctx.sandboxPolicy.resolve({ session: session('sess-symlink-parent', cwd) })).toEqual({
         mode: 'workspace-write',
         workspaceRoot: realpathSync.native(physical),
+        readDenyPaths: [resolve(resolveDshHome(), '.env')],
       })
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -100,6 +126,7 @@ describe('SandboxPolicyService', () => {
     expect(ctx.sandboxPolicy.resolve({ session: active, mode: 'danger-full-access' })).toEqual({
       mode: 'danger-full-access',
       workspaceRoot: resolve('/projects/approved'),
+      readDenyPaths: [resolve(resolveDshHome(), '.env')],
     })
   })
 

@@ -62,6 +62,27 @@ describe('profile dialects', () => {
     ])
   })
 
+  it('bwrap read denial: /dev/null over each denied path, after any workspace bind', () => {
+    expect(bwrapProfileArgs({ ...WW, readDenyPaths: ['/ws/secret.env'] })).toEqual([
+      '--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--die-with-parent',
+      '--tmpfs', '/tmp', '--bind', '/ws', '/ws',
+      // The workspace bind above would otherwise re-expose the file.
+      '--ro-bind-try', '/dev/null', '/ws/secret.env',
+    ])
+  })
+
+  it('landlock ignores read denials: a `/` read grant cannot subtract from itself', () => {
+    expect(landlockProfileArgs({ ...RO, readDenyPaths: ['/ws/secret.env'] }))
+      .toEqual(landlockProfileArgs(RO))
+  })
+
+  it('seatbelt read denial: a trailing deny naming the path as both a file and a directory', () => {
+    expect(seatbeltProfileArgs({ ...RO, readDenyPaths: ['/ws/secret.env'] })).toEqual([
+      '-p',
+      `${SEATBELT_RO_PROFILE} (deny file-read* file-write* (literal "/ws/secret.env") (subpath "/ws/secret.env"))`,
+    ])
+  })
+
   it('landlock read-only: readable tree plus a writable /dev/null, nothing else', () => {
     // /dev/null specifically, NOT /dev: a whole-/dev grant would let confined
     // commands write real host paths beneath it (/dev/shm) under read-only.

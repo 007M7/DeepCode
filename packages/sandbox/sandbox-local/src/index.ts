@@ -228,7 +228,12 @@ export class LocalSandboxProvider extends SandboxProvider {
     const selected = this.selectRunner(policy.mode)
     return {
       argv: [...this.runnerArgv(selected.runner, policy), '--', ...argv],
-      enforcement: selected.enforcement,
+      // Landlock grants are a pure allow-list, so it cannot subtract a read
+      // denial from its own `/` read grant: promising `full` there would
+      // misreport a boundary the process does not have.
+      enforcement: selected.runner === 'landlock' && (policy.readDenyPaths?.length ?? 0) > 0
+        ? 'partial'
+        : selected.enforcement,
       denialSignatures: DENIAL_SIGNATURES[selected.runner],
       runnerFailureSignatures: RUNNER_FAILURE_SIGNATURES[selected.runner],
     }

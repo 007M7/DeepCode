@@ -21,6 +21,9 @@
       "path": "../sandbox"
     },
     {
+      "path": "../../util/paths"
+    },
+    {
       "path": "../../core/session"
     },
     {

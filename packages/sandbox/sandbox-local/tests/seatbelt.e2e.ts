@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -68,6 +68,37 @@ describe.skipIf(!seatbeltUsable)('sandbox-local: real Seatbelt confinement throu
     const { result } = runConfined(sandbox, 'ls / > /dev/null && echo dev-ok', { mode: 'read-only', workspaceRoot: workdir })
     expect(result.status).toBe(0)
     expect(result.stdout).toBe('dev-ok\n')
+  })
+
+  it('denies reading a credential document the mode would otherwise allow', async () => {
+    // The harness's own secret store: readable to the user, and the model's
+    // bash runs as that user — only the confinement can take it away.
+    const workdir = await tempDir(tmpdir())
+    const secret = join(workdir, '.env')
+    await writeFile(secret, 'DEEPSEEK_API_KEY=sk-must-not-leak\n', { mode: 0o600 })
+    const sandbox = await provider()
+
+    const allowed = runConfined(sandbox, `cat ${secret}`, { mode: 'read-only', workspaceRoot: workdir })
+    expect(allowed.result.stdout).toContain('sk-must-not-leak')
+
+    const denied = runConfined(sandbox, `cat ${secret}`, {
+      mode: 'read-only',
+      workspaceRoot: workdir,
+      readDenyPaths: [secret],
+    })
+    expect(denied.result.stdout).not.toContain('sk-must-not-leak')
+    expect(denied.result.status).not.toBe(0)
+    expect(denied.confined.enforcement).toBe('full')
+    // Everything else under the same directory stays readable: the denial is
+    // the credential document, not the harness home.
+    const sibling = join(workdir, 'notes.txt')
+    await writeFile(sibling, 'ordinary\n')
+    const neighbour = runConfined(sandbox, `cat ${sibling}`, {
+      mode: 'read-only',
+      workspaceRoot: workdir,
+      readDenyPaths: [secret],
+    })
+    expect(neighbour.result.stdout).toBe('ordinary\n')
   })
 
   it('read-only grants no temp area: a write under the user temp dir is denied too', async () => {

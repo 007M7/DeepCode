@@ -14,10 +14,11 @@
  * @module @deepseek-ai/dsh-sandbox-policy
  */
 
-import { resolve as resolvePath } from 'node:path'
+import { join, resolve as resolvePath } from 'node:path'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { canonicalPath, type SandboxExecutionPolicy, type SandboxMode } from '@deepseek-ai/dsh-sandbox'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { effectiveSandboxMode } from './session-mode.ts'
 
@@ -49,6 +50,16 @@ export interface Config {
    * `process.cwd()`). Normal agent calls use their session cwd instead.
    */
   workspaceRoot?: string
+  /**
+   * Absolute paths confined executions must not read, whatever their mode
+   * otherwise permits. Omitted (or empty) denies the harness home's
+   * credential document (`$DSH_HOME/.env`) — exactly that file, so the model
+   * keeps the documented access to its own session log under the same home;
+   * a non-empty list replaces it. Backends that cannot express a read denial
+   * report `partial` enforcement instead of pretending, and
+   * `danger-full-access` confines nothing, so no denial applies there at all.
+   */
+  readDenyPaths?: string[]
 }
 
 /** Inputs that select the sandbox policy for one capability call. */
@@ -72,12 +83,15 @@ export class SandboxPolicyService extends Service {
     // No schema default: process.cwd() is resolved in the constructor so the
     // stored root is always absolute regardless of how it was supplied.
     workspaceRoot: z.string(),
+    readDenyPaths: z.array(z.string()),
   })
 
   /** The deployment default mode — the fallback beneath a session override. */
   readonly defaultMode: SandboxMode
   /** The absolute `workspace-write` fallback root for calls without a session cwd. */
   readonly workspaceRoot: string
+  /** Absolute paths every confined execution is denied read access to. */
+  readonly readDenyPaths: readonly string[]
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'sandboxPolicy')
@@ -86,6 +100,12 @@ export class SandboxPolicyService extends Service {
     // the process cwd is real branching, resolved absolute either way.
     this.defaultMode = config.mode as SandboxMode
     this.workspaceRoot = resolveWorkspaceRoot(config.workspaceRoot ?? process.cwd())
+    // The credential document is the default denial; a configured list
+    // replaces it. Schemastery fills an omitted array with `[]`, so empty and
+    // omitted are the same request: protect the default document.
+    const denyPaths = config.readDenyPaths ?? []
+    this.readDenyPaths = (denyPaths.length > 0 ? denyPaths : [join(resolveDshHome(), '.env')])
+      .map(resolveWorkspaceRoot)
   }
 
   /**
@@ -102,6 +122,7 @@ export class SandboxPolicyService extends Service {
     return {
       mode: request.mode ?? (session === undefined ? undefined : this.overrideOf(session)) ?? this.defaultMode,
       workspaceRoot: resolveWorkspaceRoot(session?.header.cwd ?? this.workspaceRoot),
+      readDenyPaths: this.readDenyPaths,
     }
   }
 
