@@ -56,10 +56,10 @@ interface CompactionTransactionOptions {
   readonly flush?: () => Promise<void>
 }
 
-interface TurnTail {
-  readonly turn: number | null
-  readonly compactionStart: SessionEvent<'compact/start'> | undefined
-  readonly endSeedSeq: number | undefined
+interface CompactionEntryState {
+  readonly openTurn: number | null
+  readonly unmatchedCompactionStart: SessionEvent<'compact/start'> | undefined
+  readonly latestEndSeedSeq: number | undefined
 }
 
 /**
@@ -155,20 +155,24 @@ export async function compactSurfaceRegion(
 ): Promise<CompactionResult> {
   if (options.owner === null) signal?.throwIfAborted()
   const selection = validateSurfaceRegion(session, start, end)
-  const tail = inspectTurnTail(session.events)
-  assertCompactionInactive(tail.compactionStart, tail.endSeedSeq, 'compaction')
+  const entryState = inspectCompactionEntryState(session.events)
+  assertCompactionInactive(
+    entryState.unmatchedCompactionStart,
+    entryState.latestEndSeedSeq,
+    'compaction',
+  )
 
   let owner: number | null
   if (options.owner === null) {
-    if (tail.turn !== null) {
+    if (entryState.openTurn !== null) {
       throw new ManualCompactionError('busy', 'manual compaction: the session already has an open turn')
     }
     owner = null
   } else {
-    if (tail.turn === null) {
+    if (entryState.openTurn === null) {
       throw new Error('compactRegion: no open turn — automatic compaction events must be enclosed in a turn')
     }
-    owner = tail.turn
+    owner = entryState.openTurn
   }
 
   const startEvent = session.append('compact/start', { turn: owner })
@@ -257,17 +261,18 @@ function throwManualFailure(failure: TransactionFailure): never {
 /**
  * Reject a durable unmatched compaction marker unless a later constructor-seed
  * boundary proves that its owner belongs to an earlier session lifecycle.
- * @param compactionStart - latest unmatched opening marker, if any.
- * @param endSeedSeq - newest constructor-seed boundary, if any.
+ * @param unmatchedCompactionStart - latest unmatched opening marker, if any.
+ * @param latestEndSeedSeq - newest constructor-seed boundary, if any.
  * @param stage - operation label included in the busy diagnostic.
  */
 function assertCompactionInactive(
-  compactionStart: SessionEvent<'compact/start'> | undefined,
-  endSeedSeq: number | undefined,
+  unmatchedCompactionStart: SessionEvent<'compact/start'> | undefined,
+  latestEndSeedSeq: number | undefined,
   stage: string,
 ): void {
-  if (compactionStart === undefined
-    || (endSeedSeq !== undefined && endSeedSeq > compactionStart.seq)) return
+  if (unmatchedCompactionStart === undefined
+    || (latestEndSeedSeq !== undefined
+      && latestEndSeedSeq > unmatchedCompactionStart.seq)) return
   throw new ManualCompactionError(
     'busy',
     `${stage}: compaction already in progress; the session compaction lock is already active`,
@@ -280,8 +285,12 @@ function assertCompactionInactive(
  * @param stage - operation label included in the busy diagnostic.
  */
 export function assertNoActiveCompaction(session: Session, stage: string): void {
-  const tail = inspectTurnTail(session.events)
-  assertCompactionInactive(tail.compactionStart, tail.endSeedSeq, stage)
+  const entryState = inspectCompactionEntryState(session.events)
+  assertCompactionInactive(
+    entryState.unmatchedCompactionStart,
+    entryState.latestEndSeedSeq,
+    stage,
+  )
 }
 
 /** Validate one requested surface-position span before asynchronous work begins. */
@@ -474,36 +483,38 @@ function buildSummarizationInput(
   }
 }
 
-/** Inspect turn state, unmatched compaction, and newest seed boundary independently. */
-function inspectTurnTail(events: readonly SessionEvent[]): TurnTail {
-  let turn: number | null = null
-  let turnStateKnown = false
-  let compactionStart: SessionEvent<'compact/start'> | undefined
-  let compactionStateKnown = false
-  let endSeedSeq: number | undefined
+/** Inspect open-turn, unmatched-compaction, and latest seed-boundary state independently. */
+function inspectCompactionEntryState(events: readonly SessionEvent[]): CompactionEntryState {
+  let openTurn: number | null = null
+  let openTurnStateKnown = false
+  let unmatchedCompactionStart: SessionEvent<'compact/start'> | undefined
+  let compactionEntryStateKnown = false
+  let latestEndSeedSeq: number | undefined
   for (let index = events.length - 1; index >= 0; index -= 1) {
     // oxlint-disable-next-line typescript/no-non-null-assertion
     const event = events[index]!
-    if (endSeedSeq === undefined && event.type === 'session/end-seed') {
-      endSeedSeq = event.seq
+    if (latestEndSeedSeq === undefined && event.type === 'session/end-seed') {
+      latestEndSeedSeq = event.seq
     }
-    if (!compactionStateKnown) {
+    if (!compactionEntryStateKnown) {
       if (event.type === 'compact/start') {
-        compactionStart = event
-        compactionStateKnown = true
+        unmatchedCompactionStart = event
+        compactionEntryStateKnown = true
       } else if (event.type === 'compact/end') {
-        compactionStateKnown = true
+        compactionEntryStateKnown = true
       }
     }
-    if (!turnStateKnown) {
+    if (!openTurnStateKnown) {
       if (event.type === 'turn/start') {
-        turn = event.data.turn
-        turnStateKnown = true
+        openTurn = event.data.turn
+        openTurnStateKnown = true
       } else if (event.type === 'turn/end') {
-        turnStateKnown = true
+        openTurnStateKnown = true
       }
     }
-    if (turnStateKnown && compactionStateKnown && endSeedSeq !== undefined) break
+    if (openTurnStateKnown
+      && compactionEntryStateKnown
+      && latestEndSeedSeq !== undefined) break
   }
-  return { turn, compactionStart, endSeedSeq }
+  return { openTurn, unmatchedCompactionStart, latestEndSeedSeq }
 }
