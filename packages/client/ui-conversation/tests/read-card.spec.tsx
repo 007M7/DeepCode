@@ -25,7 +25,11 @@ afterEach(cleanup)
 
 const SID = 's1' as SessionId
 
-const ARGS = '{"path":"src/a.ts","offset":41}'
+// The read tool's real schema key is `file_path`; the top-level read samples
+// use it so the row exercises a production-shaped call. `web_fetch` (below) has
+// its own schema whose key is not `file_path`, so it keeps a `url`-less `path`.
+const ARGS = '{"file_path":"src/a.ts","offset":41}'
+const WEB_FETCH_ARGS = '{"path":"src/a.ts","offset":41}'
 
 /** The read block's rendered content cells, one string per row (highlighting
  *  breaks a line across token spans, so match on the row's textContent). */
@@ -122,7 +126,7 @@ describe('GenericToolCard read body', () => {
     expect(CHAT_READ_MAX_LINES).toBeLessThan(16)
     // web_fetch lands on the read variant without its own keyed row, so the
     // fallback card owns the resident read block.
-    const view = render(<GenericToolCard {...ownerProps(settled({ call: { name: 'web_fetch', argsRaw: ARGS } }))} />)
+    const view = render(<GenericToolCard {...ownerProps(settled({ call: { name: 'web_fetch', argsRaw: WEB_FETCH_ARGS } }))} />)
     expect(view.container.querySelector('[data-read]')).not.toBeNull()
     expect(contentTexts(view.container)).toContain('export const a = 1')
     // The gutter keeps the file's own line numbers.
@@ -256,7 +260,7 @@ describe('DetailsPanel Output section (read)', () => {
     const view = mount(snapshot({
       nodes: [settled({ resultView: resultRead({ lines: long, totalLines: 20 }) })],
     }), target)
-    expect(view.getByText(/"path"/)).toBeTruthy()
+    expect(view.getByText(/"file_path"/)).toBeTruthy()
     expect(view.container.querySelector('[data-read]')).not.toBeNull()
     // The panel takes the primitive's own default cap (16), not the row's.
     expect(view.getByText(`… 其余 ${20 - 16} 行`)).toBeTruthy()

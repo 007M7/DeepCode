@@ -32,9 +32,12 @@ type LangModule = { default: typeof langTs }
 
 /**
  * Grammars the singleton loads at boot; each entry's own `name` is the id
- * `codeToTokens`/`codeToHtml` resolve. The TypeScript grammar embeds JS/JSX/TSX,
- * so the JS-family fence aliases resolve to it rather than a separate grammar.
- * The read card's wider set loads lazily through {@link LAZY_GRAMMARS}.
+ * `codeToTokens`/`codeToHtml` resolve. The JS-family aliases (js/jsx/ts/tsx)
+ * resolve to the TypeScript grammar rather than a separate one: it tokenizes
+ * plain TS/JS exactly, and JSX/TSX approximately (shiki's TS grammar is not the
+ * dedicated TSX grammar, so JSX elements tokenize imperfectly) — an accepted
+ * trade to keep the boot set to one JS-family grammar. The read card's wider
+ * set loads lazily through {@link LAZY_GRAMMARS}.
  */
 const LANGS = [langTs, langBash, langJson]
 
@@ -80,9 +83,10 @@ const LAZY_GRAMMARS = new Map<string, () => Promise<LangModule>>([
  * inherited property and crashing the renderer inside shiki. Keys cover both
  * the markdown-fence aliases `CodeBlock` uses and the file-extension hint ids
  * the read tool's `langFromPath` emits, so both callers resolve the same
- * grammars. The JS family maps to the TypeScript grammar (which embeds it),
- * unchanged from when this was the only non-shell/JSON grammar. A value not in
- * {@link LANGS} names a {@link LAZY_GRAMMARS} entry loaded on first use.
+ * grammars. The JS family maps to the TypeScript grammar (see {@link LANGS} for
+ * the JSX/TSX approximation), unchanged from when this was the only
+ * non-shell/JSON grammar. A value not in {@link LANGS} names a
+ * {@link LAZY_GRAMMARS} entry loaded on first use.
  */
 const LANG_ALIASES = new Map<string, string>([
   ['typescript', 'typescript'],
