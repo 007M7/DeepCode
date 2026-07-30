@@ -8,6 +8,9 @@
 - id: telemetry-redact-rule
   name: './telemetry-redact-rule.ts'
 
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
 - id: bash
   name: '@deepseek-ai/dsh-bash-local'
 

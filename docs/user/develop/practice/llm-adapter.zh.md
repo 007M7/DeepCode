@@ -133,10 +133,12 @@ ctx.llm.registerAdapter(['model-name-1', 'model-name-2'], adapter)
       - my-model-v1
       - my-model-v2
 
-- id: tui-agent
-  name: '@deepseek-ai/dsh-tui-demo'
+- id: agent-loop
+  name: '@deepseek-ai/dsh-agent-loop'
   config:
-    provider: my-llm
+    agents:
+      - id: main
+        provider: my-llm
     model: my-model-v1  # References the model registered above.
     workspaceContext: false
 ```

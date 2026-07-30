@@ -24,7 +24,7 @@ The redesign is TUI-only. It touches `ToolCardComponent` in `packages/ui/tui/src
 
 **Keep the presenter title in the header** (e.g. `Tool / read / Read src/index.ts`). Rejected: the verb duplicates the tool name, and non-bash tools have no genuinely distinct one-line description — the target belongs in the body, so only bash contributes a header desc.
 
-**A summary footer for every card type** (line counts, exit pills, diff counts as a uniform `└ …` line). Deferred: only the diff footer shipped. Terminal exit keeps its existing dim `[exit N]` line, long output keeps its existing head+tail middle-elision, an empty result stays header-only, and an error body stays plain (only the header color carries the error) — the current treatments were kept deliberately, not by omission.
+**A summary footer for every card type** (line counts, exit pills, diff counts as a uniform `└ …` line). Deferred: only the diff footer shipped. Terminal exit keeps its existing dim `[exit N]` line, long output keeps its existing head+tail middle-elision, an empty result stays header-only, and an error body stays plain (only the header color carries the error) — the current treatments were kept deliberately, not by omission. The body's flat default-foreground styling was later revisited: the [consolidated TUI presentation](../architecture/2026-07-28-consolidated-tui-presentation.md) recesses the whole body into one dim tone under this note's colored status header.
 
 ## Consequences
 

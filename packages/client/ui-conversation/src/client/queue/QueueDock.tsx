@@ -162,14 +162,14 @@ export const queueDockEntry = {
   name: 'conversation-queue-dock',
   inject: ['slots', 'conversation', 'sessions'],
   /**
-   * Register the queue strip into the input dock (list entry, order 0).
+   * Register the queue strip as the terminal input-dock entry (order 20).
    * @param ctx - registrant context (disposal rides ctx.effect inside slots.register).
    */
   apply(ctx: Context): void {
     ctx.slots.register({
       name: 'conversation.input.dock',
       id: 'queue',
-      order: 0,
+      order: 20,
       inject: (sessionId: SessionId): QueueDockInjected => {
         const actx = ctx.sessions.scope(sessionId)
         if (actx === undefined) throw new Error(`queue dock: session "${sessionId}" resolved no scope`)
