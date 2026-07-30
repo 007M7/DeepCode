@@ -28,11 +28,11 @@
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]
   - text: 1 / 1
-  - button "上一题" [disabled]:
+  - button "Previous question" [disabled]:
     - img
-  - button "下一题" [disabled]:
+  - button "Next question" [disabled]:
     - img
-  - button "放弃整组问题":
+  - button "Dismiss all questions":
     - img
   - radiogroup:
     - radio "Yes":
@@ -41,9 +41,9 @@
     - radio "No":
       - text: 2 No
       - img
-    - button "其他，请填写自定义答案":
+    - button "Other — enter a custom answer":
       - img
-      - text: 其他，请填写自定义答案
+      - text: Other — enter a custom answer
   - status
-  - button "跳过本题"
-  - button "提交" [disabled]
+  - button "Skip this question"
+  - button "Submit" [disabled]

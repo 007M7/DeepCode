@@ -21,11 +21,11 @@
 - button "在新对话中分支":
   - img
 - text: {{clock}} cache hit 99% · 7,869 tokens · 1 turns · 1 steps
-- textbox "给智能体发消息"
+- textbox "Message the agent"
 - button "Add attachment":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
