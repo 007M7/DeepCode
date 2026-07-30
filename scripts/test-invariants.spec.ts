@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Context, FiberState, Service } from 'cordis'
+import { Context, FiberState, Service, ValidationError } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import z from 'schemastery'
 import InvariantService from '@deepseek-ai/dsh-invariants'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { packageInvariantOwners } from './package-invariants.ts'
@@ -134,6 +135,35 @@ describe('global test invariant host', () => {
     expect(usesManualInvariantTree('C:\\repo\\packages\\support\\invariants\\tests\\service.spec.ts')).toBe(true)
     expect(usesManualInvariantTree('/repo/packages/examples/agent-spine-demo/tests/agent-core.spec.ts')).toBe(true)
     expect(usesManualInvariantTree('/repo/packages/core/session/tests/session.spec.ts')).toBe(false)
+  })
+
+  it('preserves config validation failures without starting the rejected plugin', async () => {
+    const ctx = new Context()
+    const apply = vi.fn(function invalidConfigApply() {
+      throw new Error('invalid plugin apply executed')
+    })
+    const plugin = {
+      apply,
+      Config: z.object({
+        requiredValue: z.string().required(),
+      }),
+    }
+
+    const fiber = ctx.plugin(plugin, {})
+    const firstError: unknown = await fiber.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(firstError).toBeInstanceOf(ValidationError)
+    expect(firstError).toHaveProperty('message', expect.stringMatching(/requiredValue/))
+    await ctx.plugin(TestInvariantProbe)
+    const secondError: unknown = await fiber.then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(secondError).toBe(firstError)
+    expect(fiber.state).toBe(FiberState.DISPOSED)
+    expect(apply).not.toHaveBeenCalled()
   })
 
   it('holds a root plugin until every lazy companion is active, then permits nested startup', async () => {

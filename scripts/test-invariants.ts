@@ -75,7 +75,9 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
   if (hasBarrierOwner(host, this.ctx)) {
     return originalPlugin.call(this, plugin, config, getOuterStack)
   }
-  if (callback === undefined) return originalPlugin.call(this, plugin, config, getOuterStack)
+  if (callback === undefined) {
+    return originalPlugin.call(this, plugin, config, getOuterStack)
+  }
 
   const fiber = originalPlugin.call(
     this,
@@ -84,7 +86,7 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
     getOuterStack,
   )
   host.barrierOwners.add(fiber.ctx.fiber)
-  return joinInvariantStartup(fiber, host.ready)
+  return joinInvariantStartup(fiber, host.ready, true)
 }
 
 /**
@@ -204,8 +206,21 @@ function withInvariantReadiness(plugin: Plugin, callback: PluginCallback): Plugi
   }
 }
 
-function joinInvariantStartup(fiber: PluginFiber, invariantReady: Promise<void>): PluginFiber {
-  const readiness = invariantReady.then(() => fiber.await())
+function joinInvariantStartup(
+  fiber: PluginFiber,
+  invariantReady: Promise<void>,
+  disposePendingFailure = false,
+): PluginFiber {
+  const initialized = disposePendingFailure
+    ? fiber.await().catch(async (error: unknown) => {
+      // Config validation is the only failure recorded while a gated fiber
+      // is still PENDING. Dispose it before readiness publication can
+      // refresh the rejected fiber with its uninitialized config.
+      if (fiber.state === FiberState.PENDING) await fiber.dispose()
+      throw error
+    })
+    : Promise.resolve()
+  const readiness = initialized.then(() => invariantReady).then(() => fiber.await())
   const joined = Object.create(fiber) as PluginFiber
   joined.then = readiness.then.bind(readiness)
   return joined
