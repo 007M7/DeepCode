@@ -194,7 +194,7 @@ export class SubagentService extends Service {
    */
   registerProvider(provider: SubagentProvider): () => void {
     const name = provider.name
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
     return this.ctx.effect(function* (this: SubagentService) {
       if (this.providers.has(name)) {
         throw new SubagentError(`a subagent provider named "${name}" is already registered`, 'DUPLICATE_PROVIDER')

@@ -154,6 +154,25 @@
         "tests/**/*.ts"
       ]
     },
+    "packages/core/tools": {
+      "entry": [
+        "tests/**/*.spec.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
+    "packages/typert/generator": {
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/fixtures/type-model/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ]
+    },
     "packages/bash/bash-sandbox": {
       "entry": [
         "tests/**/*.spec.ts",
