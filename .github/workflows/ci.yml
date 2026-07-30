@@ -50,7 +50,7 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / static
     env:
       DSH_GATE_CONCURRENCY: '8'
@@ -102,7 +102,7 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-24-04-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / coverage
     env:
       # Failover shrinks the worker bound: the hosted 32-core runner is
@@ -110,9 +110,8 @@ jobs:
       # across six always-on runner instances, and the timing-sensitive
       # process suites have documented aggregate-contention failures.
       # 8 × 6 instances = 48 workers worst case on 64 cores.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '8' }}
+      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '6' }}
       DSH_GATE_CONCURRENCY: '3'
-      NODE_OPTIONS: '--max-old-space-size=8192'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -167,7 +166,7 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-enterprise-ubuntu-latest-32core-test' }}
+          || 'dsh-ubuntu-24-04-16core' }}
     name: node 24 / snapshots and artifacts
     env:
       DSH_GATE_CONCURRENCY: '8'
