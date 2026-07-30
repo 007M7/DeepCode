@@ -827,6 +827,24 @@ describe('workspace context rendering', () => {
     expect(rendered.included).toEqual([file])
   })
 
+  it('represents a genuinely empty instruction through the framed compact-intro path', () => {
+    const file = {
+      absolutePath: '/repo/pkg/AGENTS.md',
+      displayPath: 'pkg/AGENTS.md',
+      content: '',
+    }
+
+    const rendered = renderWorkspaceInstructionSet([file], { maxBytes: 300 })
+
+    expect(rendered.rendered.text).toContain('<system-reminder>')
+    expect(rendered.rendered.text).toContain('Workspace instructions were omitted or truncated')
+    expect(rendered.rendered.text).toContain('Instructions from: pkg/AGENTS.md')
+    expect(rendered.rendered.truncated).toEqual([
+      { displayPath: 'pkg/AGENTS.md', originalBytes: 0, includedBytes: 0 },
+    ])
+    expect(rendered.included).toEqual([file])
+  })
+
   it('truncates the compact notice itself when the render budget is smaller than the notice', () => {
     const rendered = renderWorkspaceContext([
       { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'x'.repeat(1000) },

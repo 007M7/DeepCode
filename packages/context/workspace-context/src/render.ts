@@ -30,9 +30,11 @@ export interface RenderedWorkspaceContext {
 
 interface RenderedInstructionContext extends RenderedWorkspaceContext {
   /**
-   * Original files whose file-specific section text survived rendering. This
-   * is not the complement of `omitted`: a truncated file may be represented
-   * here and in `truncated`, while a notice-only file appears in neither.
+   * Original files semantically represented by rendered section text. This is
+   * not the complement of `omitted`: a truncated file may be represented here
+   * and in `truncated`, while a notice-only file appears in neither. A genuinely
+   * empty file counts when its heading survives because that heading conveys
+   * that the instruction exists and has no content.
    */
   represented: LoadedInstructionFile[]
 }
