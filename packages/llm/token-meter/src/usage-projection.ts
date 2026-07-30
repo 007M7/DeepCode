@@ -147,5 +147,5 @@ ProjectionDefinition<'contextPressure', ContextPressureProjection> = {
       : { ...state, pressureTokens }
   },
   view: state => state,
-  stateVersion: 0,
+  stateVersion: 1,
 }

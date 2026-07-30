@@ -6,7 +6,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeterService from '@deepseek-ai/dsh-token-meter'
-import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 
 const ZERO: TokenUsageProjection = {
   uncachedInputTokens: 0,
@@ -217,6 +217,96 @@ describe('tokenUsage session projection', () => {
       outputTokens: 2,
       cacheReadTokens: 5,
       cacheWriteTokens: 0,
+    })
+  })
+})
+
+const pressure = (ctx: Context, session: Session): ContextPressureProjection => {
+  const value = ctx.sessionProjections.snapshot(session).values.contextPressure
+  if (value === undefined) throw new Error('contextPressure projection is not registered')
+  return value
+}
+
+function recordContext(session: Session, model: string, contextWindow: number): void {
+  session.append('request/context', { provider: 'mock', model, contextWindow })
+}
+
+describe('contextPressure session projection', () => {
+  it('serves zero pressure and no capacity for an empty log', async () => {
+    const { ctx, session } = await harness()
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 0 })
+  })
+
+  it('sums prompt-side buckets and excludes response output', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    usageChunk(session, {
+      inputTokens: 100,
+      outputTokens: 4_000,
+      cacheReadTokens: 20,
+      cacheWriteTokens: 5,
+    }, 1, 1)
+    // Output is deliberately absent: occupancy describes the prompt that was
+    // sent, so it holds still while the response streams.
+    expect(pressure(ctx, session).pressureTokens).toBe(125)
+  })
+
+  it('replaces pressure with the newest request rather than accumulating', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    const first = usageChunk(session, { inputTokens: 100, outputTokens: 10 }, 1, 1)
+    finalUsage(session, { inputTokens: 100, outputTokens: 10 }, 1, 1, [first])
+    startStep(session, 2, 1)
+    usageChunk(session, { inputTokens: 250, outputTokens: 10 }, 2, 1)
+    expect(pressure(ctx, session).pressureTokens).toBe(250)
+  })
+
+  it('carries the newest recorded capacity and replaces it on a model switch', async () => {
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    recordContext(session, 'small', 64_000)
+    usageChunk(session, { inputTokens: 100, outputTokens: 10 }, 1, 1)
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, contextWindow: 64_000 })
+    recordContext(session, 'large', 256_000)
+    expect(pressure(ctx, session)).toEqual({ pressureTokens: 100, contextWindow: 256_000 })
+  })
+
+  it('pushes no change for unrelated events or a restated capacity', async () => {
+    // The registry gates its change feed on Object.is, so a unit that rebuilt
+    // state for an event it does not care about would push phantom updates.
+    const { ctx, session } = await harness()
+    startStep(session, 1, 1)
+    recordContext(session, 'small', 64_000)
+    usageChunk(session, { inputTokens: 100, outputTokens: 10 }, 1, 1)
+    const changed: string[] = []
+    ctx.sessionProjections.onChanged((_session, key) => { changed.push(key) })
+
+    session.append('todo/write', { todos: [] })
+    expect(changed).not.toContain('contextPressure')
+    // A repeated capacity record for the same window is also a no-op.
+    recordContext(session, 'small', 64_000)
+    expect(changed).not.toContain('contextPressure')
+    // A real capacity change still reports.
+    recordContext(session, 'large', 256_000)
+    expect(changed).toContain('contextPressure')
+  })
+
+  it('restores from a JSON checkpoint and unregisters with the token-meter fiber', async () => {
+    const { ctx, session, meterFiber } = await harness()
+    startStep(session, 1, 1)
+    recordContext(session, 'small', 64_000)
+    usageChunk(session, { inputTokens: 42, outputTokens: 2 }, 1, 1)
+    const checkpoint = JSON.parse(JSON.stringify(
+      ctx.sessionProjections.checkpoint(session),
+    )) as ReturnType<typeof ctx.sessionProjections.checkpoint>
+
+    await meterFiber.dispose()
+    expect(ctx.sessionProjections.snapshot(session).values).not.toHaveProperty('contextPressure')
+
+    await ctx.plugin(TokenMeterService)
+    expect(ctx.sessionProjections.viewCheckpoint(checkpoint).contextPressure).toEqual({
+      pressureTokens: 42,
+      contextWindow: 64_000,
     })
   })
 })

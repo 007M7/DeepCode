@@ -90,6 +90,8 @@ describe('createFixtureApi', () => {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
         },
+        // No request ran, so pressure is zero and no capacity is known yet.
+        contextPressure: { pressureTokens: 0 },
       } },
     })
   })

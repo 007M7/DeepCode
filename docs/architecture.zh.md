@@ -94,7 +94,7 @@ forever:
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> prepare reasoning/default under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> prepare reasoning/default + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:

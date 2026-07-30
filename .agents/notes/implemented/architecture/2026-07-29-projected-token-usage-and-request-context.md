@@ -1,4 +1,4 @@
-# Agent Note: Projected token usage and request context
+# Agent Note: Projected token usage and context occupancy
 
 Status: implemented
 
@@ -6,40 +6,54 @@ English | [中文](2026-07-29-projected-token-usage-and-request-context.zh.md)
 
 ## Problem
 
-A Web stats line derived from the currently loaded conversation nodes is window-dependent under pagination. Compaction can replace visible content without preserving historical usage. Conversely, context occupancy describes one real request boundary: a selected model is only an intention, and combining token pressure from one moment with capacity resolved for another route creates a false percentage.
+The Web stats line derived token totals from the currently loaded conversation nodes. That window is paged, so scrolling changed the totals, and compaction replaces visible content without preserving the billing behind it. Durable provider billing needs a source that survives both.
 
-These two values therefore have different lifetimes. Provider-reported billing is durable, replayable session state. Request pressure and registration-bound capacity are an opportunistic live observation that must disappear across a connection generation.
+Context occupancy needs a numerator and a denominator that no existing surface carried to the browser: the prompt size of the latest request, and the capacity of the route it used.
 
 ## Decision
 
-`@deepseek-ai/dsh-token-meter` registers the generic `tokenUsage` session projection when `ctx.sessionProjections` is present. The projection folds the complete durable log into uncached input, output, cache-read, and cache-write buckets. An `assistant/chunk` usage sample survives a later failed request; an `assistant/message` usage value replaces the earlier value for the same `(turn, step)` instead of being counted twice. Reasoning tokens remain an output subdivision and are not added again. Compaction and surface replacement do not erase earlier billing.
+Both values are ordinary durable session-projection state. `@deepseek-ai/dsh-token-meter` registers two units when `ctx.sessionProjections` is present.
 
-The projection uses the standard projection lifecycle and wire path. History tail baselines, `session/projection` live frames, higher-seq-wins client storage, JSON checkpoints, cache recovery, and unit unload all remain generic. There is no token-specific history field, mux frame, projector, revision counter, or client fence.
+`tokenUsage` folds the complete durable log into uncached input, output, cache-read, and cache-write buckets. An `assistant/chunk` usage sample survives a later failed request; an `assistant/message` usage value for the same `(turn, step)` replaces the earlier sample instead of double-counting it. Reasoning stays an output subdivision. Compaction and surface replacement do not erase earlier billing.
 
-`LlmService.prepareCall()` retains context metadata from the exact lookup that also validates reasoning and captures the adapter registration. After the outer stream call returns its handle and before iteration begins, AgentLoop emits one contained `agent/model-request` notification. Preparation or a synchronous outer waterfall failure emits nothing; short-circuit handles and later iterator construction, iteration, or abort failures still count as an observed request attempt.
+`contextPressure` carries `pressureTokens` — the newest provider-reported prompt size, summing uncached input plus cache reads and writes, excluding output — and the optional `contextWindow` from the newest `request/context` record.
 
-ApiProxy handles that notification synchronously. It reads `tokenMeter.measure(agent.session).totalTokens` once when the optional service is present and combines the result with the same prepared call's registration-bound `contextWindow`. It broadcasts one atomic `session/model-request` frame containing the route, turn, step, and whichever of `contextTokens` and `contextWindow` are available. Measurement failure omits only the numerator. The frame goes only to mux connections already open at that instant; history, subscription baselines, reconnect, and restore never replay it.
+`request/context` is a new log-only session event recording the registration-bound capacity of the route a request resolved to. AgentLoop appends it inside the step beside `request/header`, from the context metadata `prepareCall()` now returns alongside the resolved config — the same registration-bound lookup that already validated reasoning, so no second resolve happens. It is skipped when provider, model, and capacity all match the previous record, and omitted entirely for a route whose adapter advertises no capacity.
 
-The client stores the complete latest request frame as `ConversationSnapshot.modelRequest`. Every later frame replaces the entire snapshot, so omitted fields clear earlier values. `SessionManager` temporarily holds a pre-instantiation frame, while a new subscription generation, disconnect, or session removal clears both resident and pending values. Model selection alone does not change this snapshot.
+Capacity deliberately stays out of `EpochHeader`. That type is the reconstruction contract — what a request was built from — and `headerEquals` compares it field-wise to decide whether a snapshot is a real `change`. Capacity is adapter metadata describing a route, so placing it there would let a capacity change masquerade as a request-envelope change and would drag it into the loop's reconstruction invariant.
 
-The Web `StatsLine` reads `tokenUsage` through the standard `useProjection` hook and reads request telemetry plus visible nodes through `useSession`. It renders uncached input, output, and cache reads separately, computes cache hit as `cacheRead / (uncachedInput + cacheRead)`, and shows context occupancy only when one request snapshot contains both numerator and capacity. Visible nodes continue to supply only turn and step counts. The existing inline text UI is retained; the model selector gains no circle or other accessory.
+Both units ride the standard projection lifecycle: history tail baselines, `session/projection` live frames, higher-seq-wins client storage, JSON checkpoints, cache recovery, and unit unload. There is no token-specific history field, mux frame, projector, revision counter, or client fence.
+
+The Web `StatsLine` reads both through the standard `useProjection` seat. Window nodes still supply turn and step counts plus LLM and tool wall times — those answer "what is on screen" and are correctly window-scoped. A deployment without token-meter drops the token groups; a route with no known capacity drops the occupancy group rather than rendering a placeholder.
+
+## Context occupancy is approximate, and that is the decision
+
+`pressureTokens` and `contextWindow` are independent last-wins fields, not one atomic observation. Switching models pairs a fresh capacity with the previous route's pressure until the next request reports usage, and the numerator describes the last request rather than the surface as it currently stands.
+
+This was accepted deliberately. An occupancy percentage is a user-facing reference figure: nothing in the harness makes decisions from it, and compaction reads `measure()` directly instead. The TUI status line has always computed occupancy this way, dividing a `measure()` total by a capacity resolved separately for the selected model — so an atomic variant here would have been the outlier, not the norm.
+
+Reviewers should not treat the non-atomicity as a defect awaiting a fix. A consumer that genuinely needs an exact same-boundary figure should call `ctx.tokenMeter.measure()` at its own request boundary, where both values are available together, rather than read this projection.
 
 ## Alternatives considered
 
-**A custom session metrics history field and mux frame.** This duplicated the generic projection protocol, cache, recovery, and seq fencing while coupling durable billing to transient request pressure.
+**An atomic request-boundary snapshot delivered as a transient mux frame (implemented, then rejected).** An earlier revision of this branch emitted `session/model-request`: one non-replayable frame carrying `contextTokens` and `contextWindow` measured at the same `agent/model-request` boundary. Being the only non-replayable class on the mux stream is what broke it. Host and mux are independent SSE streams with no cross-stream ordering, so a request emitted before a removal could arrive after `host/session-removed` and revive a dead session's telemetry, while a legitimate request for a new lifecycle reusing the same id could be fenced by a late removal. `session/subscribed` is not lifecycle proof — it says a queue began subscribing to an id, not that a new in-memory session replaced an older one — and `lastSeq` is a durable watermark two lifecycles can share. A correct fix required a monotonic lifecycle generation on the frame, on subscription, and on removal, plus a client watermark comparison.
 
-**Fold the loaded node window in React.** This cannot survive pagination or compaction and makes a presentation package reconstruct log semantics.
+That cost bought a worse display: occupancy went blank after every reconnect and never moved while a conversation grew. It also made ApiProxy a measurement site calling the O(surface) `measure()` on every request, and expressed reconnect state through a synthetic `cancelled` open error the UI had to special-case.
 
-**Publish usage only with final assistant messages.** A request that reports a usage chunk and then fails would lose provider billing.
+**Fold the loaded node window in React.** Cannot survive pagination or compaction, and makes a presentation package reconstruct log semantics.
 
-**Query capacity from the selected model.** Selection may never produce a request, and a second metadata lookup can disagree with the registration-bound lookup used by the actual call.
+**Publish usage only with final assistant messages.** A request that reports a usage chunk and then fails would lose its billing.
 
-**Persist or replay the latest request snapshot.** A request from a prior connection would appear current after restore even though no new request was observed.
+**Resolve capacity inside token-meter.** The package documents itself as independent of model routing and is otherwise a pure reader that never appends to the log. AgentLoop already holds the resolved metadata where the header is written.
 
-**Add a context circle beside the model selector.** That placement suggests selected-model state. The existing stats line expresses the request-scoped semantics without introducing a duplicate UI or data path.
+**Extend the `session.models` RPC with capacity.** The handler already resolves and discards it, so the field is nearly free — but `StatsLine` lives in `ui-conversation` while the model directory lives in `ui-model`, and `ui-conversation` cannot depend on `ui-model`. Delivering it would have required either a second dock entry splitting one text row across two plugins, or a cross-plugin store write.
+
+**Add a context circle beside the model selector.** That placement suggests selected-model state. The stats line carries the figure without a duplicate UI or data path.
 
 ## Consequences
 
-Token totals stay stable across pagination, compaction, replay, and reconnect because they are ordinary durable projection state. Context occupancy is deliberately unknown after reconnect until a new real request is observed. Deployments without token-meter or without model capacity still publish the request route and clear stale optional fields instead of fabricating a percentage.
+Token totals stay stable across pagination, compaction, replay, restart, and reconnect, because they are ordinary durable projection state recovered through the generic paths. The cross-stream reordering race is gone by construction rather than fenced.
 
-ApiProxy performs one synchronous optional measurement and one frame conversion per observed request. It owns no per-session metrics cache or refresh queue. The browser keeps one generic projection value plus one small connection-local request snapshot, and streaming text deltas do not force the stats line to recompute.
+Occupancy is approximate in the ways documented above. It is available immediately after restore or reconnect, since both fields are durable, at the cost of describing the last recorded request rather than an exact current boundary.
+
+Each session log gains one small `request/context` record per route change. ApiProxy carries no token-specific code, owns no per-session metrics cache, and performs no measurement. The browser keeps two generic projection values and no connection-local telemetry, and streaming text deltas still do not force the stats line to recompute.
