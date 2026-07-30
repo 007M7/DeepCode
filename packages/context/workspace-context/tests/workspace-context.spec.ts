@@ -828,6 +828,38 @@ describe('workspace context rendering', () => {
     expect(Buffer.byteLength(rendered.text, 'utf8')).toBe(20)
   })
 
+  it('does not commit a change when only the generic compact notice survives', () => {
+    const change = {
+      action: 'set' as const,
+      scope: sk('pkg', 'AGENTS.md'),
+      path: 'pkg/AGENTS.md',
+      digest: 'digest',
+    }
+    const rendered = renderInstructionChanges([{
+      change,
+      file: { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'x'.repeat(1000) },
+    }], 20)
+
+    expect(rendered.text).toBe('Workspace instructio')
+    expect(rendered.changes).toEqual([])
+  })
+
+  it('commits a change when its file-specific semantic section survives truncation', () => {
+    const change = {
+      action: 'replace' as const,
+      scope: sk('pkg', 'AGENTS.md'),
+      path: 'pkg/AGENTS.md',
+      digest: 'digest',
+    }
+    const rendered = renderInstructionChanges([{
+      change,
+      file: { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'x'.repeat(1000) },
+    }], 400)
+
+    expect(rendered.text).toContain('Updated instructions from: pkg/AGENTS.md')
+    expect(rendered.changes).toEqual([change])
+  })
+
   it('keeps compact truncation notices within budget when a multibyte display path is cut', () => {
     const rendered = renderWorkspaceContext([
       { absolutePath: '/repo/路径/AGENTS.md', displayPath: '路径/AGENTS.md', content: 'x'.repeat(1000) },
@@ -1298,9 +1330,12 @@ describe('workspace context request injection', () => {
 
       await composeBaselinePrefix(ctx, agent)
 
-      expect(agent.session.events.filter(event =>
+      const contexts = agent.session.events.filter(event =>
         event.type === 'user/message' && event.data.source.kind !== 'user',
-      )).toHaveLength(1)
+      )
+      expect(contexts).toHaveLength(1)
+      const source = contexts[0]?.type === 'user/message' ? contexts[0].data.source : undefined
+      expect(source?.kind === 'workspace-instructions' ? source.changes : undefined).toEqual([])
       expect(derivedText(agent)).not.toContain('workspace-context:')
     } finally {
       await rm(root, { recursive: true, force: true })

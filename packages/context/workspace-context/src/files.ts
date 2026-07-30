@@ -12,7 +12,7 @@ import { assertNever } from '@deepseek-ai/dsh-llm'
 import { dshHomeDisplay } from '@deepseek-ai/dsh-paths'
 import { resolveConfig, resolveDiscoveryConfig, type ResolvedConfig } from './config.ts'
 import { trimmedInstructionDigest } from './digest.ts'
-import { decodeScopeKey, renderWorkspaceContext, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE, type RenderedWorkspaceContext } from './render.ts'
+import { decodeScopeKey, renderWorkspaceInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE, type RenderedWorkspaceContext } from './render.ts'
 
 /** An instruction candidate identified by absolute and model-facing paths. */
 export interface InstructionFile {
@@ -413,9 +413,7 @@ export async function loadBaselineInstructionSet(
   }
   const deduped = dedupInstructionFilesByDirectory(loaded)
   if (deduped.length === 0) return undefined
-  const rendered = renderWorkspaceContext(deduped, { maxBytes: config.maxBytes })
-  const omitted = new Set(rendered.omitted.map(file => file.absolutePath))
-  return { rendered, included: deduped.filter(file => !omitted.has(file.absolutePath)) }
+  return renderWorkspaceInstructionSet(deduped, { maxBytes: config.maxBytes })
 }
 
 /**
