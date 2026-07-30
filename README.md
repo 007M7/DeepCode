@@ -8,9 +8,11 @@ DeepSeek Harness is an open-source, plugin-native runtime for coding agents. Thi
 
 ## Before you begin, thank you
 
-Thank you for taking the time to try DeepSeek Harness. It is still in internal testing, and it is far from complete. It is nowhere near the product we want to ship. Some features are unfinished, and some parts are rough to use. Problems that show up in real use may lead us to rethink designs we have today.
+Thank you for taking the time to try DeepSeek Harness.
 
-We will keep working to get these parts right, and we want to hear what using it is actually like. Please tell us plainly where it fails. We also want to know what is confusing or gets in your way. If it does not help you, or makes your work harder, we have not done our job. The specific problems you run into and any suggestions you have will help us decide what to fix first. Thank you for spending time with it before it is ready, and for helping us make it better one step at a time.
+This version is for internal testing only. Overall, it is still far from complete and nowhere near what we want to deliver. Some features are unfinished, and some parts will feel rough. What we learn from real use may also lead us to rethink the designs we have today.
+
+We will keep working carefully on it, and we sincerely want direct feedback—especially about the moments when it fails, confuses you, or gets in your way. If it does not help you, or makes your work harder, please leave a message in our WeCom group and tell us plainly.
 
 > **Pre-release notice:** Package APIs, configuration, and persisted formats may change without compatibility shims until the first tagged release.
 
