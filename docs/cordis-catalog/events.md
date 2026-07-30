@@ -398,7 +398,7 @@ A declarative agent entry failed before it could publish a live agent. Consumers
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/core/agent-loop/src/index.ts:148`](../../packages/core/agent-loop/src/index.ts)
+Source: [`packages/core/agent-loop/src/index.ts:157`](../../packages/core/agent-loop/src/index.ts)
 
 ## `approval/*`
 
@@ -712,7 +712,7 @@ Committed change to one registered namespace's resolved value. Emitted after the
 
 Types: [SettingsNamespace](../core-data-structures/settings.md) · [SettingsUpdateSource](../core-data-structures/settings.md)
 
-Source: [`packages/settings/settings/src/index.ts:106`](../../packages/settings/settings/src/index.ts)
+Source: [`packages/settings/settings/src/index.ts:108`](../../packages/settings/settings/src/index.ts)
 
 ## `skills/*`
 

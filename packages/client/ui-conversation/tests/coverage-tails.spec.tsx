@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Branch tails the acceptance specs do not reach: ToolRow stopped-state dot,
-// bash sample state dots, the node-half empty
-// apply, and AssistantMarkdown reasoning/unknown block arms.
+// bash sample state dots, the node-half empty apply, and AssistantMarkdown
+// reasoning/unknown block arms.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
