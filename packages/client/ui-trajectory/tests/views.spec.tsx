@@ -25,6 +25,7 @@ import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/cli
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
+import { TrajectoryTimeline } from '../src/client/TrajectoryTimeline.tsx'
 import {
   TrajectoryView, type TrajectoryViewInjected,
 } from '../src/client/TrajectoryView.tsx'
@@ -309,6 +310,44 @@ describe('tab switching in ConversationRoot', () => {
       .toBeNull()
   })
 
+  it('clicking a timeline block clears the range, selects the record, and opens its inspector', async () => {
+    const b = await bench()
+    const view = mount(b.slots)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    const toolSpan = view.container.querySelector<HTMLElement>(
+      '[data-timeline-span="tool"]',
+    )
+    expect(toolSpan).not.toBeNull()
+    const recordIndex = toolSpan?.dataset.timelineRecordIndex
+    expect(recordIndex).toBeTruthy()
+
+    fireEvent.pointerMove(toolSpan as HTMLElement, { clientX: 50, pointerId: 1 })
+    expect(view.container.querySelector('[data-timeline-hover-line]')).toBeNull()
+    expect(toolSpan?.getAttribute('data-hovered')).toBe('true')
+
+    fireEvent.pointerDown(plot, { button: 0, clientX: 5, pointerId: 1 })
+    fireEvent.pointerMove(plot, { clientX: 95, pointerId: 1 })
+    fireEvent.pointerUp(plot, { clientX: 95, pointerId: 1 })
+    expect(view.container.querySelector('tr[data-timeline-focus]')).toBeTruthy()
+
+    fireEvent.pointerDown(toolSpan as HTMLElement, {
+      button: 0, clientX: 50, pointerId: 2,
+    })
+    fireEvent.pointerUp(toolSpan as HTMLElement, { clientX: 50, pointerId: 2 })
+
+    const selectedRow = view.container.querySelector<HTMLElement>(
+      `tr[data-record-index="${recordIndex}"]`,
+    )
+    expect(selectedRow?.getAttribute('aria-selected')).toBe('true')
+    expect(view.container.querySelector('tr[data-timeline-focus]')).toBeNull()
+    expect(screen.getByRole('complementary', { name: 'Event details' })).toBeTruthy()
+  })
+
   it('empty window keeps the toolbar and reports no timing data', async () => {
     const b = await bench(historySnapshot([]))
     mount(b.slots)
@@ -332,6 +371,97 @@ describe('timeline projection', () => {
       ],
     }],
   }] satisfies readonly TrajectoryTurnModel[]
+  const longTurns = [{
+    turn: 1,
+    groups: [{
+      title: 'Step 1',
+      cells: Array.from({ length: 10 }, (_, index) => ({
+        index,
+        kind: 'message' as const,
+        text: `record ${index}`,
+        timeSeconds: 1,
+      })),
+    }],
+  }] satisfies readonly TrajectoryTurnModel[]
+
+  it('pans the zoomed viewport only far enough to reveal a newly selected record', async () => {
+    const onRangeChange = vi.fn()
+    const view = render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
+
+    view.rerender(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        selectedIndex={1}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    await vi.waitFor(() => {
+      const domain = view.container.querySelector<HTMLElement>(
+        '[data-timeline-domain]',
+      )
+      expect(domain?.style.getPropertyValue('--trajectory-domain-left')).toBe('-25%')
+    })
+
+    view.rerender(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        selectedIndex={8}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    await vi.waitFor(() => {
+      const domain = view.container.querySelector<HTMLElement>(
+        '[data-timeline-domain]',
+      )
+      expect(domain?.style.getPropertyValue('--trajectory-domain-left')).toBe('-125%')
+    })
+  })
+
+  it('auto-pans a zoomed viewport while a range drag pushes against an edge', () => {
+    const onRangeChange = vi.fn()
+    render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={onRangeChange}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 72, width: 100, height: 72,
+      toJSON: () => ({}),
+    })
+    fireEvent.wheel(plot, { clientX: 50, deltaY: -1_000 })
+    fireEvent.pointerDown(plot, { button: 0, clientX: 50, pointerId: 1 })
+    for (let index = 0; index < 24; index++) {
+      fireEvent.pointerMove(plot, { clientX: 99, pointerId: 1 })
+    }
+    fireEvent.pointerUp(plot, { clientX: 99, pointerId: 1 })
+
+    const selectedRange = onRangeChange.mock.calls.at(-1)?.[0] as
+      | { start: number; end: number }
+      | undefined
+    expect(selectedRange).toBeDefined()
+    expect((selectedRange?.end ?? 0) - (selectedRange?.start ?? 0)).toBeGreaterThan(4)
+  })
 
   it('uses equal-width operation slots and stable semantic lanes', () => {
     expect(deriveTrajectoryTimeline(turns)).toEqual({

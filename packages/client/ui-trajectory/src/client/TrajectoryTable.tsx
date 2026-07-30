@@ -1,6 +1,6 @@
 /** Turn-aware trajectory event ledger with a local record inspector. */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import {
   extractMarkdownPlainText, IconChevronRightOutline14, JsonTree, MarkdownText,
@@ -225,6 +225,8 @@ export interface TrajectoryTableProps {
   onSelectedIndexChange?: (index: number | null) => void
   /** Report a direct user selection from a ledger row. */
   onRecordSelect?: (index: number) => void
+  /** One externally requested record selection; a new object repeats the request. */
+  recordSelection?: { readonly index: number } | null
   /** Clear selection state owned by the ledger host. */
   onClearSelection?: () => void
   /** Turn ids whose rows after the first are folded into a summary. */
@@ -1397,6 +1399,7 @@ export function TrajectoryTable({
   searchMatchIndexes = null,
   onSelectedIndexChange,
   onRecordSelect,
+  recordSelection = null,
   onClearSelection,
   collapsedTurns,
   onToggleTurn,
@@ -1410,11 +1413,12 @@ export function TrajectoryTable({
   const [detailsWidth, setDetailsWidth] = useState<number | null>(null)
   const [toolRequestOffset, setToolRequestOffset] = useState<number | null>(null)
   const detailsResizeDrag = useRef<DetailsResizeDrag | null>(null)
+  const appliedRecordSelection = useRef<TrajectoryTableProps['recordSelection']>(null)
   const tabHistory = useRef<Set<DetailTab>>(new Set(['overview']))
   useEffect(() => {
     onSelectedIndexChange?.(selectedIndex)
   }, [onSelectedIndexChange, selectedIndex])
-  const allRecords = flattenRecords(turns)
+  const allRecords = useMemo(() => flattenRecords(turns), [turns])
   const requestNumbers = indexRequestNumbers(allRecords, sessionRequestNumbers)
   const records = searchMatchIndexes === null
     ? collapseAssistantRecords(
@@ -1531,7 +1535,7 @@ export function TrajectoryTable({
     onClearSelection?.()
   }
 
-  const selectRecord = (index: number) => {
+  const selectRecord = useCallback((index: number) => {
     const record = allRecords.find(candidate => candidate.cell.index === index)
     onRecordSelect?.(index)
     setSelectedRequest(null)
@@ -1541,7 +1545,15 @@ export function TrajectoryTable({
     const available = new Set(tabs.map(tab => tab.id))
     const recent = [...tabHistory.current].reverse().find(tab => available.has(tab))
     setActiveTab(recent ?? tabs[0]?.id ?? 'overview')
-  }
+  }, [allRecords, onRecordSelect])
+  useEffect(() => {
+    if (
+      recordSelection === null
+      || appliedRecordSelection.current === recordSelection
+    ) return
+    appliedRecordSelection.current = recordSelection
+    selectRecord(recordSelection.index)
+  }, [recordSelection, selectRecord])
 
   const selectRequest = (
     request: SelectedRequest,
