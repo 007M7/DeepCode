@@ -33,6 +33,20 @@ const root = resolve(import.meta.dirname, '..')
 // specifiers resolve from apps/cli rather than the examples workspace.
 const appOverlayFiles = new Set(['examples/web-cordis/cordis.yml'])
 const metadataFields = ['id', 'name', 'group', 'disabled', 'inject', 'intercept', 'isolate'] as const
+
+/** The adaptive directory-picker chooser package (mounts a backend row at boot). */
+const CHOOSER_PACKAGE = '@deepseek-ai/dsh-host-directory-picker-auto'
+
+/**
+ * The backends the chooser mounts by runtime string (mirror of its exported
+ * `BACKEND_PACKAGES`), invisible to yml-row scanning: a composition mounting
+ * the chooser must resolve both, or keyless Linux CI (which only ever
+ * resolves `browse`) hides a dropped `-native` dependency until a macOS boot.
+ */
+const CHOOSER_BACKEND_PACKAGES = [
+  '@deepseek-ai/dsh-host-directory-picker-native',
+  '@deepseek-ai/dsh-host-directory-picker-browse',
+]
 const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
   kind: 'scalar',
   resolve: data => typeof data === 'string',
@@ -144,12 +158,18 @@ function missingPluginDependencies(
   manifestPath: string,
 ): string[] {
   const requiredPackages = new Map<string, Set<string>>()
+  const require = (packageName: string, file: string): void => {
+    const locations = requiredPackages.get(packageName) ?? new Set<string>()
+    locations.add(file)
+    requiredPackages.set(packageName, locations)
+  }
   for (const reference of references) {
     const packageName = packageNameFromSpecifier(reference.name)
     if (packageName === undefined) continue
-    const locations = requiredPackages.get(packageName) ?? new Set<string>()
-    locations.add(reference.file)
-    requiredPackages.set(packageName, locations)
+    require(packageName, reference.file)
+    if (packageName === CHOOSER_PACKAGE) {
+      for (const backend of CHOOSER_BACKEND_PACKAGES) require(backend, reference.file)
+    }
   }
   return [...requiredPackages].flatMap(([packageName, locations]) => packageName in dependencies
     ? []
