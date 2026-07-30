@@ -256,8 +256,8 @@ describe('PiAiAdapter provider routing', () => {
         mediaTypes: ['image/png'],
       }
 
-      validateImage(_input: SaveImageAttachment): void {
-        throw new Error('not used')
+      validateImage(_input: SaveImageAttachment): Promise<void> {
+        return Promise.reject(new Error('not used'))
       }
 
       saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {
@@ -613,8 +613,12 @@ describe('provider profile lifecycle', () => {
       messages: [createUserMessage({
         content: [{
           type: 'tool-result',
-          toolCallId: 'call-image' as never,
-          content: [{ type: 'image', attachment: IMAGE_REF }],
+          toolCallId: 'call-outer' as never,
+          content: [{
+            type: 'tool-result',
+            toolCallId: 'call-inner' as never,
+            content: [{ type: 'image', attachment: IMAGE_REF }],
+          }],
         }],
         source: { kind: 'plugin', plugin: 'test' },
       })],

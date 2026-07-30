@@ -74,8 +74,8 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
         mediaTypes: [fixture.ref.mediaType],
       }
 
-      validateImage(_input: SaveImageAttachment): void {
-        throw new Error('e2e attachment fixture is read-only')
+      validateImage(_input: SaveImageAttachment): Promise<void> {
+        return Promise.reject(new Error('e2e attachment fixture is read-only'))
       }
 
       saveImage(_input: SaveImageAttachment): Promise<ImageAttachmentRef> {

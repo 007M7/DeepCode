@@ -302,7 +302,7 @@ describe('session/queued frames', () => {
     expect(replayFrames.filter(f => f.type === 'session/queued')).toEqual(liveFrames)
   })
 
-  it('retires mirror entries on their terminal dequeue', async () => {
+  it('retains each dequeued entry until its durable message publishes', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
@@ -311,15 +311,50 @@ describe('session/queued frames', () => {
     ctx.emit('agent/inbox/enqueue', agent, queued, 'queued')
     ctx.emit('agent/inbox/enqueue', agent, steering, 'steering')
     ctx.emit('agent/inbox/dequeue', agent, queued, 'queued')
-    ctx.emit('agent/inbox/dequeue', agent, steering, 'steering')
 
+    const pendingAbort = new AbortController()
+    const pending = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-dequeued'), payload: {} }, pendingAbort.signal), 3, pendingAbort)
+    expect(pending.filter(f => f.type === 'session/queued')).toEqual([
+      { type: 'session/queued', sessionId: agent.id, message: queued, steering: false },
+      { type: 'session/queued', sessionId: agent.id, message: steering, steering: true },
+    ])
+
+    agent.session.append('user/message', queued, { surfaceOp: 'append' })
+    ctx.emit('agent/inbox/dequeue', agent, steering, 'steering')
+    agent.session.append('steering/message', { turn: 1, message: steering }, { surfaceOp: 'append' })
     const abort = new AbortController()
     const frames = await collect<MuxFrame>(
       api.events.mux({ rpcId: RpcId('t-mux-after'), payload: {} }, abort.signal), 1, abort)
     expect(frames.filter(f => f.type === 'session/queued')).toHaveLength(0)
   })
 
-  it('retires the matching placement when one message identity is queued and steering', async () => {
+  it('retires claimed entries whose admission ends without publication', async () => {
+    const ctx = await harness()
+    const api = createApiProxy(ctx, DEFAULTS)
+    const agent = stubAgent(ctx)
+    const rejected = inboxMessage('m-rejected', 'rejected')
+    const successor = inboxMessage('m-successor', 'successor')
+    ctx.emit('agent/inbox/enqueue', agent, rejected, 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, rejected, 'queued')
+    ctx.emit('agent/inbox/enqueue', agent, successor, 'queued')
+    ctx.emit('agent/inbox/dequeue', agent, successor, 'queued')
+
+    const pendingAbort = new AbortController()
+    const pending = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-rejected'), payload: {} }, pendingAbort.signal), 2, pendingAbort)
+    expect(pending.filter(f => f.type === 'session/queued')).toEqual([
+      { type: 'session/queued', sessionId: agent.id, message: successor, steering: false },
+    ])
+
+    ctx.emit('agent/status', agent, 'idle')
+    const idleAbort = new AbortController()
+    const idle = await collect<MuxFrame>(
+      api.events.mux({ rpcId: RpcId('t-mux-rejected-idle'), payload: {} }, idleAbort.signal), 1, idleAbort)
+    expect(idle.filter(f => f.type === 'session/queued')).toHaveLength(0)
+  })
+
+  it('retires the matching published placement when one message identity is queued and steering', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
@@ -328,6 +363,7 @@ describe('session/queued frames', () => {
     ctx.emit('agent/inbox/enqueue', agent, repeated, 'steering')
     ctx.emit('agent/inbox/dequeue', agent, inboxMessage('unknown', 'not queued'), 'queued')
     ctx.emit('agent/inbox/dequeue', agent, repeated, 'steering')
+    agent.session.append('steering/message', { turn: 1, message: repeated }, { surfaceOp: 'append' })
 
     const abort = new AbortController()
     const frames = await collect<MuxFrame>(

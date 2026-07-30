@@ -161,8 +161,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Immutable binary attachment service.',
     methods: [
       {
-        signature: 'abstract validateImage(input: SaveImageAttachment): void',
-        jsDoc: '/**\n * Validate one image without persisting it.\n * Batch callers validate every member before saving any member.\n * @param input - encoded bytes, declared media type, and optional display name.\n */',
+        signature: 'abstract validateImage(input: SaveImageAttachment): Promise<void>',
+        jsDoc: '/**\n * Validate one image without persisting it.\n * Batch callers validate every member before saving any member.\n * @param input - encoded bytes, declared media type, and optional display name.\n * @returns completion after the encoded raster has been fully decoded.\n */',
       },
       {
         signature: 'abstract saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef>',

@@ -97,6 +97,55 @@ describe('toPiContext', () => {
     })
   })
 
+  it('flattens nested tool-result images into the enclosing result', async () => {
+    const attachment = {
+      attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+      mediaType: 'image/png' as const,
+      bytes: 3,
+      width: 1,
+      height: 1,
+    }
+    const readImage = vi.fn().mockResolvedValue({ ref: attachment, data: Uint8Array.of(1, 2, 3) })
+    const context = await toPiContext({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: CallId('outer'),
+          content: [
+            { type: 'tool-result', toolCallId: CallId('empty'), content: [] },
+            { type: 'text', text: 'before' },
+            { type: 'tool-result', toolCallId: CallId('text'), content: [{ type: 'text', text: 'middle' }] },
+            {
+              type: 'tool-result',
+              toolCallId: CallId('inner'),
+              content: [
+                { type: 'image', attachment },
+                { type: 'text', text: 'after' },
+              ],
+            },
+          ],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }, { readImage } as unknown as AttachmentStore)
+
+    expect(context.messages).toEqual([{
+      role: 'toolResult',
+      toolCallId: 'outer',
+      toolName: 'unknown',
+      content: [
+        { type: 'text', text: 'before' },
+        { type: 'text', text: 'middle' },
+        { type: 'image', data: 'AQID', mimeType: 'image/png' },
+        { type: 'text', text: 'after' },
+      ],
+      isError: false,
+      timestamp: 0,
+    }])
+  })
+
   it('rejects structured image history when no durable resolver is supplied', () => {
     expect(() => toPiContext({
       provider: 'openai', model: 'gpt-4.1',
@@ -205,7 +254,15 @@ describe('toPiContext', () => {
           source: { kind: 'plugin', plugin: 'test' },
         }),
         createUserMessage({
-          content: [{ type: 'tool-result', toolCallId: CallId('c1'), content: [{ type: 'text', text: 'Sunny' }] }],
+          content: [{
+            type: 'tool-result',
+            toolCallId: CallId('c1'),
+            content: [
+              { type: 'text', text: 'Sunny' },
+              { type: 'tool-result', toolCallId: CallId('nested'), content: [{ type: 'text', text: '!' }] },
+              { type: 'chart', data: 'ignored' } as unknown as ContentBlock,
+            ],
+          }],
           source: { kind: 'plugin', plugin: 'test' },
         }),
       ],
@@ -214,7 +271,7 @@ describe('toPiContext', () => {
       role: 'toolResult',
       toolCallId: 'c1',
       toolName: 'get_weather',
-      content: [{ type: 'text', text: 'Sunny' }],
+      content: [{ type: 'text', text: 'Sunny!' }],
       isError: false,
       timestamp: 0,
     })

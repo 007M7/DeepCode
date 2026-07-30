@@ -11,7 +11,7 @@
 import type { ClientContext, ISessions, SessionBinding, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SlashController } from '@deepseek-ai/dsh-client-ui-slash/client'
 import { queueReadFaceOf } from '../queue/store.ts'
-import type { ComposerKeyboard, InputService, SessionInput } from './contract.ts'
+import type { ComposerKeyboard, DraftAttachmentId, InputService, SessionInput } from './contract.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 
@@ -26,9 +26,9 @@ interface ConversationAttachmentFace {
     session: SessionFace,
     text: string,
     mode: 'queue' | 'steer',
-    imageIds: readonly string[],
+    imageIds: readonly DraftAttachmentId[],
   ): Promise<void>
-  releaseDraftImage(id: string): void
+  releaseDraftImage(id: DraftAttachmentId): void
 }
 
 /** Session-addressed input facade registry (InputService face + composer-layer extras). */
@@ -138,7 +138,7 @@ export class InputHub implements InputService {
     session: SessionFace,
     text: string,
     mode: 'queue' | 'steer',
-    imageIds: readonly string[],
+    imageIds: readonly DraftAttachmentId[],
   ): void {
     if (text === '' && imageIds.length === 0) return
     const shell = this.shells.get(session.sessionId)

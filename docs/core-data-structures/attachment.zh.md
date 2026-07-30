@@ -36,7 +36,7 @@ interface ImageAttachmentRef {
 ```
 
 ```ts type-equiv
-/** Deployment-resolved limits shared by upload consumers and UI preflight. */
+/** Deployment-resolved limits used by upload admission and request buffering. */
 interface ImageAttachmentLimits {
   maxImageBytes: number
   maxImagesPerMessage: number
@@ -54,7 +54,7 @@ interface ImageAttachmentLimits {
 /** Request to validate and durably commit one image. */
 interface SaveImageAttachment {
   data: Uint8Array
-  /** Caller-declared media type, checked against magic bytes. */
+  /** Caller-declared media type, checked against fully decoded bytes. */
   mediaType: ImageMediaType
   /** Optional browser/provider display name; it is never interpreted as a path. */
   name?: string
@@ -69,4 +69,4 @@ interface StoredImageAttachment {
 }
 ```
 
-`saveImage()` 校验字节并以原子方式提交一个对象，之后才返回其引用。`validateImage()` 执行相同的准入检查，但不持久化任何内容；批量调用方会在保存任何成员前通过它校验所有成员，因此准入拒绝不会留下部分对象。`readImage()` 接受来自已授权会话路径的引用，只在完整性校验通过后返回字节。该服务刻意不规定保留策略：恢复和 fork 后的会话可能共享对象，因此基于引用的垃圾回收会延期实现，而不是与任何一个会话的删除绑定。
+`saveImage()` 校验字节并以原子方式提交一个对象，之后才返回其引用。`validateImage()` 执行相同的准入检查，但不持久化任何内容；批量调用方会在保存任何成员前通过它校验所有成员，因此校验拒绝不会留下部分对象。`readImage()` 接受来自已授权会话路径的引用，只在完整性校验通过后返回字节。该服务刻意不规定保留策略：恢复和 fork 后的会话可能共享对象，因此基于引用的垃圾回收会延期实现，而不是与任何一个会话的删除绑定。

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import sharp from 'sharp'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import { readImageFile, saveImageFile } from '../src/store.ts'
 
@@ -122,8 +123,9 @@ describe('local attachment store', () => {
       data: PNG, mediaType: 'image/png',
     }, { ...LIMITS, maxImageBytes: 1 })).rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
 
-    const wide = PNG.slice()
-    wide.set([0, 0, 0, 5, 0, 0, 0, 5], 16)
+    const wide = new Uint8Array(await sharp({
+      create: { width: 5, height: 5, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+    }).png().toBuffer())
     await expect(saveImageFile(storageRoot, {
       data: wide, mediaType: 'image/png',
     }, LIMITS)).rejects.toMatchObject({ code: 'IMAGE_TOO_MANY_PIXELS' })

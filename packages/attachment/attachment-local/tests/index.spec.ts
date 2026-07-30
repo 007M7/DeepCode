@@ -42,13 +42,16 @@ describe('local attachment service', () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-validate-'))
     try {
       const service = new LocalAttachmentStore(new Context(), { dshHome })
-      expect(() => { service.validateImage({ data: Uint8Array.of(1, 2, 3), mediaType: 'image/png' }) })
-        .toThrow(/Unsupported or malformed image data/)
+      await expect(service.validateImage({ data: Uint8Array.of(1, 2, 3), mediaType: 'image/png' }))
+        .rejects.toThrow(/Unsupported or malformed image data/)
       const valid = Uint8Array.from(Buffer.from(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         'base64',
       ))
-      expect(() => { service.validateImage({ data: valid, mediaType: 'image/png' }) }).not.toThrow()
+      const limited = new LocalAttachmentStore(new Context(), { dshHome, maxImageBytes: 1 })
+      await expect(limited.validateImage({ data: valid, mediaType: 'image/png' }))
+        .rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
+      await expect(service.validateImage({ data: valid, mediaType: 'image/png' })).resolves.toBeUndefined()
       expect(existsSync(service.root)).toBe(false)
     } finally {
       await rm(dshHome, { recursive: true, force: true })

@@ -33,7 +33,7 @@ export interface ImageAttachmentRef {
   name?: string
 }
 
-/** Deployment-resolved limits shared by upload consumers and UI preflight. */
+/** Deployment-resolved limits used by upload admission and request buffering. */
 export interface ImageAttachmentLimits {
   maxImageBytes: number
   maxImagesPerMessage: number
@@ -45,7 +45,7 @@ export interface ImageAttachmentLimits {
 /** Request to validate and durably commit one image. */
 export interface SaveImageAttachment {
   data: Uint8Array
-  /** Caller-declared media type, checked against magic bytes. */
+  /** Caller-declared media type, checked against fully decoded bytes. */
   mediaType: ImageMediaType
   /** Optional browser/provider display name; it is never interpreted as a path. */
   name?: string

@@ -92,30 +92,29 @@ async function durablePromptContent(ctx: Context, content: readonly PromptConten
     throw new AttachmentError('Prompt exceeds the configured aggregate image-byte limit.', 'IMAGES_TOO_LARGE')
   }
   for (const image of images) {
-    ctx.attachments.validateImage({
+    await ctx.attachments.validateImage({
       data: image.data,
       mediaType: image.part.mediaType,
       ...image.part.name === undefined ? {} : { name: image.part.name },
     })
   }
-  return Promise.all(prepared.map(async (item): Promise<ContentBlock> => {
-    if (!('data' in item)) return { type: 'text', text: item.text }
+  const blocks: ContentBlock[] = []
+  for (const item of prepared) {
+    if (!('data' in item)) {
+      blocks.push({ type: 'text', text: item.text })
+      continue
+    }
     const attachment = await ctx.attachments.saveImage({
       data: item.data,
       mediaType: item.part.mediaType,
       ...item.part.name === undefined ? {} : { name: item.part.name },
     })
-    return { type: 'image', attachment }
-  }))
+    blocks.push({ type: 'image', attachment })
+  }
+  return blocks
 }
 
-/**
- * The ONE recursive block walk shared by attachment authorization and the
- * model-selection gate (nested tool-result content included). Both consumers
- * must agree on what counts as replayed image content — a route added to one
- * walker but not the other would silently skip authorization or stranding
- * protection — so there is exactly one walker, parameterized by match.
- */
+/** Search durable event content for an image reference, including nested tool results. */
 function imageBlockIn(content: unknown, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
   if (!Array.isArray(content)) return undefined
   for (const value of content) {
@@ -148,18 +147,15 @@ function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => b
   return undefined
 }
 
-/** True when any block (nested tool-result content included) is an image block. */
-function contentHasImage(content: unknown): boolean {
-  return imageBlockIn(content, () => true) !== undefined
+/** True when typed model content contains an image, including nested tool results. */
+function contentHasImage(content: readonly ContentBlock[]): boolean {
+  return content.some(block => block.type === 'image'
+    || (block.type === 'tool-result' && contentHasImage(block.content)))
 }
 
-/**
- * True when the session log already carries image content on any route a
- * model request replays (message content, wrapped messages, streamed blocks).
- * The log is immutable, so a true here is permanent for the session's life.
- */
-function sessionHasImage(events: readonly SessionEvent[]): boolean {
-  return events.some(event => imageInEvent(event, () => true) !== undefined)
+/** True when the current model-visible surface contains an image. */
+function messagesHaveImage(messages: readonly { content: readonly ContentBlock[] }[]): boolean {
+  return messages.some(message => contentHasImage(message.content))
 }
 
 function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
@@ -564,6 +560,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
+  const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
+
+  /** Serialize model selection with image prompt admission for one agent. */
+  function serializeImageAdmission<T>(agent: Agent, operation: () => Promise<T>): Promise<T> {
+    const result = (imageAdmissionChains.get(agent) ?? Promise.resolve()).then(operation)
+    imageAdmissionChains.set(agent, result.then(() => undefined, () => undefined))
+    return result
+  }
 
   /**
    * Install or return the session-local target that prompt assembly snapshots.
@@ -619,18 +623,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
    * Per-session inbox occurrence mirror serving the mux-open queue snapshot
    * (the same refresh-recovery baseline as pending questions). Each terminal
    * inbox event retires one matching occurrence, so repeated sends of the same
-   * identified message remain visible until every occurrence is claimed.
+   * identified message remain visible until every occurrence is published or
+   * discarded. Dequeue is not publication: the log append follows it.
    */
-  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean }[]>()
+  const queuedMirror = new Map<SessionId, { message: UserMessage; steering: boolean; claimed: boolean }[]>()
   ctx.effect(() => {
-    const retire = (agent: Agent, id: MessageId, placement?: InboxPlacement): void => {
-      const entries = queuedMirror.get(agent.id)
+    const retire = (sessionId: SessionId, id: MessageId, placement?: InboxPlacement): void => {
+      const entries = queuedMirror.get(sessionId)
       if (entries === undefined) return
       const index = entries.findIndex(entry =>
         entry.message.id === id
         && (placement === undefined || entry.steering === (placement === 'steering')))
       if (index !== -1) entries.splice(index, 1)
-      if (entries.length === 0) queuedMirror.delete(agent.id)
+      if (entries.length === 0) queuedMirror.delete(sessionId)
+    }
+    const retireClaimed = (sessionId: SessionId): void => {
+      const entries = queuedMirror.get(sessionId)
+      if (entries === undefined) return
+      const pending = entries.filter(entry => !entry.claimed)
+      if (pending.length === 0) queuedMirror.delete(sessionId)
+      else queuedMirror.set(sessionId, pending)
     }
     const disposers = [
       ctx.on('agent/inbox/enqueue', (agent: Agent, message: UserMessage, placement) => {
@@ -640,7 +652,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           queuedMirror.set(agent.id, entries)
         }
         const steering = placement === 'steering'
-        entries.push({ message, steering })
+        entries.push({ message, steering, claimed: false })
         broadcast({
           type: 'session/queued',
           sessionId: agent.id,
@@ -649,10 +661,26 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         })
       }),
       ctx.on('agent/inbox/dequeue', (agent: Agent, message: UserMessage, placement) => {
-        retire(agent, message.id, placement)
+        // A later claim proves any earlier claimed item either published (and
+        // was retired by session/event) or its admission ended without one.
+        retireClaimed(agent.id)
+        const entry = queuedMirror.get(agent.id)?.find(candidate =>
+          candidate.message.id === message.id
+          && candidate.steering === (placement === 'steering'))
+        if (entry !== undefined) entry.claimed = true
+      }),
+      ctx.on('session/event', (session: Session, event: SessionEvent) => {
+        if (event.type === 'user/message') {
+          retire(session.id, event.data.id, 'queued')
+        } else if (event.type === 'steering/message') {
+          retire(session.id, (event.data as { message: UserMessage }).message.id, 'steering')
+        }
       }),
       ctx.on('agent/inbox/discard', (agent: Agent, messages: UserMessage[]) => {
-        for (const message of messages) retire(agent, message.id)
+        for (const message of messages) retire(agent.id, message.id)
+      }),
+      ctx.on('agent/status', (agent: Agent, status: AgentStatus) => {
+        if (status === 'idle') retireClaimed(agent.id)
       }),
       ctx.on('session/disposed', (session: Session) => {
         queuedMirror.delete(session.id)
@@ -1133,48 +1161,47 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { sessionId, provider, model, reasoningEffort } = request.payload
         const found = await agentFor(sessionId)
         if ('error' in found) return err(request, found.error)
-        try {
-          const resolved = await ctx.llm.resolveCallConfig({
-            provider,
-            model,
-            ...reasoningEffort === undefined
-              ? {}
-              : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
-          })
-          // An image-bearing log replays into every later request, and both
-          // wire routes reject image content on text-only models — accepting
-          // this selection would strand the session (every turn fails, no
-          // in-product recovery). Refuse at the selection boundary instead.
-          // The pending inbox counts too: a queued image prompt enters the log
-          // only when claimed, which would happen AFTER this switch landed.
-          const queuedImage = (queuedMirror.get(sessionId) ?? [])
-            .some(entry => contentHasImage(entry.message.content))
-          if (queuedImage || sessionHasImage(found.agent.session.events)) {
-            const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
-            if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
-              return err(request, {
-                code: 'model-unavailable',
-                message: `Model "${resolved.model}" does not accept image input, but this session's history already contains images; select an image-capable model.`,
-                details: { provider, model },
-              })
+        return serializeImageAdmission(found.agent, async () => {
+          try {
+            const resolved = await ctx.llm.resolveCallConfig({
+              provider,
+              model,
+              ...reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
+            })
+            // A current image-bearing surface replays into the next request,
+            // while a dequeued prompt remains pending until its message event
+            // publishes. Refuse a text-only route at this shared boundary.
+            const queuedImage = (queuedMirror.get(sessionId) ?? [])
+              .some(entry => contentHasImage(entry.message.content))
+            if (queuedImage || messagesHaveImage(found.agent.session.deriveMessages())) {
+              const info = await ctx.llm.resolveModelInfo(resolved.provider, resolved.model)
+              if (info.inputModalities !== undefined && !info.inputModalities.includes('image')) {
+                return err(request, {
+                  code: 'model-unavailable',
+                  message: `Model "${resolved.model}" does not accept image input, but this session's history already contains images; select an image-capable model.`,
+                  details: { provider, model },
+                })
+              }
             }
+            const selected: AgentLlmTarget = {
+              provider: resolved.provider,
+              model: resolved.model,
+              ...resolved.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: resolved.reasoningEffort },
+            }
+            targetFor(found.agent).current = selected
+            return ok(request, { selected: { ...selected } })
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'model-unavailable',
+              message: error instanceof Error ? error.message : String(error),
+              details: { provider, model },
+            })
           }
-          const selected: AgentLlmTarget = {
-            provider: resolved.provider,
-            model: resolved.model,
-            ...resolved.reasoningEffort === undefined
-              ? {}
-              : { reasoningEffort: resolved.reasoningEffort },
-          }
-          targetFor(found.agent).current = selected
-          return ok(request, { selected: { ...selected } })
-        } catch (error: unknown) {
-          return err(request, {
-            code: 'model-unavailable',
-            message: error instanceof Error ? error.message : String(error),
-            details: { provider, model },
-          })
-        }
+        })
       },
 
       async rename(request) {
@@ -1214,36 +1241,40 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const agent = found.agent
         // The rpcId rides MessageSource into user/message (merge declaration in api/sessions.ts; provisional correlation).
         const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
-        try {
-          if (content.some(part => part.type === 'image')) {
-            const target = targetFor(agent).current
-            const provider = target.provider
-            const model = target.model
-            const modelInfo = await ctx.llm.resolveModelInfo(provider, model)
-            if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
+        const hasImage = content.some(part => part.type === 'image')
+        const admit = async (): Promise<RpcResponse<{ accepted: true }>> => {
+          try {
+            if (hasImage) {
+              const target = targetFor(agent).current
+              const provider = target.provider
+              const model = target.model
+              const modelInfo = await ctx.llm.resolveModelInfo(provider, model)
+              if (modelInfo.inputModalities !== undefined && !modelInfo.inputModalities.includes('image')) {
+                return err(request, {
+                  code: 'attachment-error',
+                  message: `Model "${model}" does not support image input.`,
+                  details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+                })
+              }
+            }
+            const durable = await durablePromptContent(ctx, content)
+            const message: UserMessage = createUserMessage({ content: durable, source })
+            if (mode === 'steer') agent.steer(message)
+            else agent.followup(message)
+          } catch (error: unknown) {
+            if (error instanceof AttachmentError) {
               return err(request, {
                 code: 'attachment-error',
-                message: `Model "${model}" does not support image input.`,
-                details: { reason: 'MODEL_DOES_NOT_SUPPORT_IMAGES' },
+                message: error.message,
+                details: { reason: error.code },
               })
             }
+            // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
+            return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
           }
-          const durable = await durablePromptContent(ctx, content)
-          const message: UserMessage = createUserMessage({ content: durable, source })
-          if (mode === 'steer') agent.steer(message)
-          else agent.followup(message)
-        } catch (error: unknown) {
-          if (error instanceof AttachmentError) {
-            return err(request, {
-              code: 'attachment-error',
-              message: error.message,
-              details: { reason: error.code },
-            })
-          }
-          // A synchronous throw from steer/followup means disposed or invalid input; surface as agent-busy with the reason attached.
-          return err(request, { code: 'agent-busy', message: 'prompt rejected', details: { reason: String(error) } })
+          return ok(request, { accepted: true as const })
         }
-        return ok(request, { accepted: true as const })
+        return hasImage ? serializeImageAdmission(agent, admit) : admit()
       },
 
       async attachment(request) {

@@ -45,7 +45,7 @@
 
 适配器强制 pi-ai SDK `maxRetries` 为零，因此一次 `stream()` 调用只会发起一次提供方请求。已移除 profile 字段 `maxRetries` 和 `maxRetryDelayMs` 会使加载失败，而不是静默倍增或隐藏单独组合的 agent（智能体）级重试预算。空闲超时会 abort SDK 的稳定请求信号，并以 `TIMEOUT` 呈现；较早的调用方 abort 仍为 `ABORTED`。
 
-图片请求会在请求分发时解析可选的 `ctx.attachments` 服务，因此 Cordis 插件加载顺序不会固化附件可用性。当该服务或所选模型的图片能力不存在时，视觉请求仍会明确以 `UNSUPPORTED_CONTENT` 失败。
+图片请求会在请求分发时解析可选的 `ctx.attachments` 服务，因此 Cordis 插件加载顺序不会固化附件可用性。图片检测与转换会递归遍历嵌套的 `tool-result` 内容，因此嵌套图片既不会被展平，也不会被跳过。当该服务或所选模型的图片能力不存在时，视觉请求仍会明确以 `UNSUPPORTED_CONTENT` 失败。
 
 ## 提供方／模型路由与回放
 

@@ -13,6 +13,7 @@ import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type { ComposerAttachment } from '../src/client/contract/slots.ts'
+import type { DraftAttachmentId } from '../src/client/input/contract.ts'
 
 afterEach(cleanup)
 
@@ -78,7 +79,7 @@ function bench(over?: BenchOptions) {
     promptError: over?.promptError ?? null,
   }))
   const stop = vi.fn()
-  const removeImage = vi.fn((id: string) => { shell.removeImage(id) })
+  const removeImage = vi.fn((id: DraftAttachmentId) => { shell.removeImage(id) })
   const slotCalls: { key: string; owner: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, owner })
@@ -523,7 +524,7 @@ describe('image draft rail', () => {
 
   it('allows image-only send, removes a thumbnail, and opens original preview on double-click', () => {
     const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
-    const attachment = { kind: 'image' as const, id: 'draft-1', file, previewUrl: 'blob:draft-1' }
+    const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
     const { view, textarea, sink, removeImage } = bench({ attachments: [attachment] })
     const send = view.getByRole('button', { name: 'Send message' }) as HTMLButtonElement
     expect(send.disabled).toBe(false)
@@ -536,7 +537,7 @@ describe('image draft rail', () => {
 
   it('opens the original preview on double-click and closes it with Escape', () => {
     const file = new File([Uint8Array.of(1)], 'pixel.png', { type: 'image/png' })
-    const attachment = { kind: 'image' as const, id: 'draft-1', file, previewUrl: 'blob:draft-1' }
+    const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file, previewUrl: 'blob:draft-1' }
     const { view } = bench({ attachments: [attachment] })
     fireEvent.doubleClick(view.getByTitle('双击查看原图'))
     expect(view.getByRole('dialog', { name: '原图预览' })).toBeTruthy()
