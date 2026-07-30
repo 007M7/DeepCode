@@ -19,11 +19,17 @@ async function bench() {
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
+  const renameSession = vi.fn(async (title: string) => ({ ok: true, value: { title, seq: 1 } }))
+  const binding = vi.fn(() => ({ session: { rename: renameSession } }))
+  const fork = vi.fn(async () => 'forked' as never)
   ctx.provide('workspaces', {
     create, startSession, rename, insertSessionBefore,
   } as never)
-  ctx.provide('sessions', { open, clear } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename, insertSessionBefore, open, clear }
+  ctx.provide('sessions', { open, clear, binding, fork } as never)
+  return {
+    ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename,
+    insertSessionBefore, open, clear, renameSession, binding, fork,
+  }
 }
 
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
@@ -66,6 +72,14 @@ describe('ui-workspace apply', () => {
     expect(b.startSession).toHaveBeenLastCalledWith(undefined)
     browser.open('session' as never)
     expect(b.open).toHaveBeenCalledWith('session')
+    await browser.renameSession('session' as never, 'renamed session')
+    expect(b.binding).toHaveBeenCalledWith('session')
+    expect(b.renameSession).toHaveBeenCalledWith('renamed session')
+    browser.forkSession('session' as never)
+    await vi.waitFor(() => {
+      expect(b.open).toHaveBeenCalledWith('forked')
+    })
+    expect(b.fork).toHaveBeenCalledWith({ sessionId: 'session', increaseTitle: true })
     await browser.renameWorkspace('ws' as never, 'renamed')
     expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
     await browser.insertSessionBefore('ws' as never, 's1' as never, 's2' as never)

@@ -10,13 +10,13 @@
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
 // patches after the shipped surface overlay, over the SAME tree (never a
-// second yml): temp persistenceRoot; user skill roots redirected to empty
-// temp directories (project skill discovery remains real);
-// workspace-context disabled (recorded fixtures must not embed this repo's
-// AGENTS.md); session-title-llm disabled (its fire-and-forget title call
-// would race the loop for the session's replay cursor); webserver pinned to
-// port 0 with the built dist; keyless modes disable llm-deepseek and fill
-// the open llm seam post-boot with installLlmReplay on the settled root ctx
+// second yml): temp persistenceRoot; host-level skill roots confined to the
+// temp workspace while project skill discovery remains real; workspace-context
+// disabled (recorded fixtures must not embed this repo's AGENTS.md);
+// session-title-llm disabled (its fire-and-forget title call would race the
+// loop for the session's replay cursor); webserver pinned to port 0 with the
+// built dist; keyless modes disable llm-deepseek and fill the open llm seam
+// post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'
@@ -174,14 +174,17 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // per write; the scaffold restores the original cwd after boot, so the
     // row gets an absolute temp root (removed with the workspace at close).
     { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
-    // Host-level skills are ambient machine state and must not change replay
-    // goldens. Keep the provider enabled so project skills under workspaceCwd
-    // remain discoverable, but give its user roots empty scaffold-owned paths.
+    // Skill discovery is model-visible input. Pin every host-level root inside
+    // the owned temp world so ~/.dsh, ~/.agents, and a bundled-root env setting
+    // cannot change replay requests or conversation goldens. Project roots stay
+    // enabled against the same empty temp workspace, preserving the real seam.
     {
       id: 'skill-local',
       config: {
-        dshHome: join(persistenceRoot, 'skill-dsh-home'),
-        agentsHome: join(persistenceRoot, 'skill-agents-home'),
+        dshHome: join(workspaceCwd, '.dsh-home'),
+        agentsHome: join(workspaceCwd, '.agents-home'),
+        bundledSkillDir: join(workspaceCwd, '.bundled-skills'),
+        watch: false,
       },
     },
     // fs/bash cwd default to process.cwd(); the gateway injects the same
