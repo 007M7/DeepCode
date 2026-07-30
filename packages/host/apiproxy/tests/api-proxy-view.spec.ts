@@ -14,7 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { CallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -33,6 +33,35 @@ function tool(name: string, presenters: Pick<ToolDefinition, 'presentCall' | 'pr
     execute: () => reply(`ran:${name}`),
     ...presenters,
   })
+}
+
+/** Append a production-shaped human prompt to the session surface. */
+function appendUserText(session: Session, text: string): SessionEvent {
+  return session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text }], source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+}
+
+/** Append a production-shaped assistant message to the session surface. */
+function appendAssistantText(session: Session, text: string, step: number): SessionEvent {
+  return session.append('assistant/message', {
+    turn: 1,
+    step,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      source: { kind: 'model', provider: 'p', model: 'm' },
+    }),
+  }, { surfaceOp: 'append' })
+}
+
+/**
+ * Append a plugin-owned log-only event. The host proxy is projection-only, so it
+ * declares no compaction vocabulary; the cast writes the real event shape without
+ * depending on the owning package.
+ */
+function appendExtension(session: Session, type: string, data: unknown): SessionEvent {
+  return (session.append as unknown as (type: string, data: unknown) => SessionEvent)(type, data)
 }
 
 async function harness(): Promise<{ ctx: Context }> {
@@ -205,6 +234,55 @@ describe('mux live view computation', () => {
     expect('view' in (byKey.get('tool/result:h-orphan') ?? {})).toBe(false)
     expect('view' in (byKey.get('tool/result:h-bad') ?? {})).toBe(false)
     expect('view' in (byKey.get('tool/result:h-plain') ?? {})).toBe(false)
+  })
+
+  it('counts only append-origin messages toward maxMessages and keeps compaction provenance whole', async () => {
+    const { ctx } = await harness()
+    const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const session = ctx.sessions.create()
+    ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
+    session.append('turn/start', { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } })
+    const first = appendUserText(session, 'first prompt')
+    appendAssistantText(session, 'first reply', 1)
+    const third = appendUserText(session, 'second prompt')
+    appendAssistantText(session, 'second reply', 2)
+    const shadowed = [...session.surface.nodes]
+    // A compaction transaction: log-only provenance immediately followed by the
+    // replacement that shadows the range.
+    const summary = appendExtension(session, 'compact/summary', {
+      summary: [{ type: 'text', text: 'summary' }],
+      shadowedRange: { start: shadowed[0], end: shadowed.at(-1) },
+      shadowedSeqs: shadowed,
+      shadowedTokenCount: 0,
+      provider: 'p',
+      model: 'm',
+    })
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<context_checkpoint>summary</context_checkpoint>' }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    }), {
+      surfaceOp: { op: 'replace', start: shadowed[0] as number, end: shadowed.at(-1) as number },
+      sourceEventSeqs: [...shadowed, summary.seq],
+    })
+
+    const response = await api.sessions.history({
+      rpcId: RpcId('t-hist-compact'),
+      payload: { sessionId: session.id, maxMessages: 2 },
+    })
+    if (!response.result.ok) throw new Error('unreachable')
+    const page = response.result.value.events.map(entry => entry.event)
+    // Two append-origin messages fill the page even though a replacement copy of
+    // the same event type sits in the window: the copy is model-only.
+    const messages = page.filter(event => event.type === 'user/message' || event.type === 'assistant/message')
+    expect(messages.map(event => event.seq)).toEqual([third.seq, third.seq + 1, third.seq + 3])
+    expect(page.some(event => event.seq === first.seq)).toBe(false)
+    expect(response.result.value.hasMore).toBe(true)
+    // The range stays contiguous, so the checkpoint's provenance is readable on
+    // the same page as the checkpoint itself.
+    const summaryIndex = page.findIndex(event => event.seq === summary.seq)
+    expect(summaryIndex).toBeGreaterThan(-1)
+    expect(page[summaryIndex + 1]?.seq).toBe(summary.seq + 1)
+    expect(page.map(event => event.seq)).toEqual(page.map((_event, index) => third.seq + index))
   })
 
   it('drops a disposed session from the live open-call table (result after dispose gets no view)', async () => {
