@@ -343,7 +343,7 @@ interface SubagentProvider {
 }
 ```
 
-提供方的 `start()` 仅在 run 就绪时 fulfill。服务铸造唯一的 `runId`，从提供方确切的 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；rejection 意味着提供方已清理，且不会 emit 生命周期事件对。每个可继续 Activation 都会为其驻留纪元 emit 相同的仅观察事件对，因此一次冷恢复就是一段拥有自己 `runId` 的新纪元。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，且会隔离各自的 listener 异常。
+提供方的 `start()` 仅在 run 就绪时 fulfill。服务铸造唯一的 `runId`，从提供方确切的 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；rejection 意味着提供方已清理，且不会 emit 生命周期事件对。每个可继续 Activation 都会为其驻留纪元 emit 相同的仅观察事件对，因此一次冷恢复就是一段拥有自己 `runId` 的新纪元。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，且会隔离各自的 listener 异常。其中的 `provider` 字段是 run 或 Activation 时段的来源信息，并不声明该 edge 发出时提供方仍处于注册状态。
 
 ## 进程内后端：深度与种子
 

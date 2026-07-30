@@ -4,7 +4,7 @@
 
 可选的全局具名 `send_message` 工具：`ctx.subagents.followup()` 之上的轻量适配器。绑定提供方的 `@deepseek-ai/dsh-tool-subagent` 实例会为每种传输注册不同的委派工具；这个单独加载的包（package）只注册一个共享后续操作工具，因此多个委派工具绝不会重复注册全局控制工具。是否加载本工具不会决定委派工具是否启动可继续工作。
 
-本工具不执行生命周期路由——驻留与冷恢复归 subagent 服务所有。它从 `exec.agent` 提供准确的实时父级权限（`{ kind: 'parent', agent }`），并把每条消息的来源标记为持久化来源 `{ kind: 'coordinator', senderSessionId: parent.id }`；服务会保留该来源，但绝不将其视为权限。每条消息都会通过 `Agent.followup()` 成为子 agent（智能体）的下一个 FIFO 轮次：如果子 agent 仍在工作，该消息会等待其当前轮次结束，因此无法重定向已经在进行的工作。本工具会转发其执行信号，该信号只在 inbox 接受之前掌管准入；一旦子 agent 接受消息，已接受的轮次便无法再通过本工具取消。子 agent 不会回复发送方——通过该 id 查看其 transcript 即是其所做工作的来源。投递失败会变为出错的工具结果，并明确说明消息未送达。
+本工具不执行生命周期路由——驻留与冷恢复归 subagent 服务所有。它将 `exec.agent` 作为授权投递的准确实时父级传入，并把每条消息的来源标记为持久化来源 `{ kind: 'coordinator', senderSessionId: parent.id }`；服务会保留该来源，但绝不将其视为权限。每条消息都会通过 `Agent.followup()` 成为子 agent（智能体）的下一个 FIFO 轮次：如果子 agent 仍在工作，该消息会等待其当前轮次结束，因此无法重定向已经在进行的工作。本工具会转发其执行信号，该信号只在 inbox 接受之前掌管准入；一旦子 agent 接受消息，已接受的轮次便无法再通过本工具取消。子 agent 不会回复发送方——通过该 id 查看其 transcript 即是其所做工作的来源。投递失败会变为出错的工具结果，并明确说明消息未送达。
 
 ## 模型体验
 

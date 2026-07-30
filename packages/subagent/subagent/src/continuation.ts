@@ -36,6 +36,7 @@ import {
   resolveChildAgentOptions,
   resolveChildDepth,
 } from './child-agent.ts'
+import { assertSubagentMaxDepth } from './depth.ts'
 import { seedDescriptorTurn } from './descriptor-seed.ts'
 import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentStartRequest } from './types.ts'
 import type { ActivationObserver } from './lifecycle.ts'
@@ -248,6 +249,7 @@ export class SubagentContinuationManager {
     this.requirePersistence()
     const request = spec.request
     const parent = request.parent
+    assertSubagentMaxDepth(request.maxDepth)
     const childId = SessionId(randomUUID())
     const childDepth = resolveChildDepth(parent, request.maxDepth)
     // Snapshot before any await: invalid descriptor JSON rejects the call
@@ -282,11 +284,13 @@ export class SubagentContinuationManager {
         composition: { persona: request.persona, toolFilter: request.toolFilter },
         signal: spec.signal,
       })
-      // Materialization published the Activation; an abort landing in that
-      // window — a `subagent/start` listener can cancel synchronously — must
-      // roll the child back instead of opening its first turn.
-      await this.rollbackIfAborted(activation, spec.signal)
-      return this.submit(activation, request.prompt, { kind: 'user' }, parent)
+      return this.submitMaterialized(
+        activation,
+        request.prompt,
+        { kind: 'user' },
+        parent,
+        spec.signal,
+      )
     })
     return { childId, messageId }
   }
@@ -328,13 +332,8 @@ export class SubagentContinuationManager {
         if (activation.disposal !== undefined) {
           return activation.disposal.then(() => undefined, () => undefined)
         }
-        await this.authorizeLive(parent, activation)
-        // The caller signal owns admission until acceptance, so re-check it
-        // here: the outer check cannot cover an abort that landed while
-        // authorization yielded, and enqueueing afterwards would return a
-        // message id for a delivery the caller already cancelled.
-        options.signal.throwIfAborted()
-        return this.submit(activation, content, options.source, parent)
+        this.authorizeLive(parent, activation)
+        return this.submitAdmitted(activation, content, options.source, parent, options.signal)
       })
       /* v8 ignore start -- only the lost-cutoff arm above returns undefined, so only that
        * race reaches the retry below, which then cold-resumes a new Activation. */
@@ -455,23 +454,33 @@ export class SubagentContinuationManager {
       composition: { persona: descriptor.persona, toolFilter: descriptor.toolFilter },
       signal: options.signal,
     })
-    await this.rollbackIfAborted(activation, options.signal)
-    return this.submit(activation, content, options.source, parent)
+    return this.submitMaterialized(activation, content, options.source, parent, options.signal)
   }
 
   /**
-   * Dispose a freshly materialized Activation when the caller signal won the
-   * handoff between publication and inbox acceptance, so an aborted operation
-   * never leaves a resident child.
-   * @param activation - the just-published Activation.
-   * @param signal - the caller signal owning admission until acceptance.
+   * Submit to a freshly materialized Activation or roll it back completely.
+   * @param activation - the just-published Activation to admit or release.
+   * @param content - the initial or resumed message content.
+   * @param source - durable provenance for the accepted message.
+   * @param parent - the live direct parent authorizing admission.
+   * @param signal - caller cancellation owning admission until acceptance.
+   * @returns the accepted inbox message id.
    */
-  private async rollbackIfAborted(activation: Activation, signal: AbortSignal): Promise<void> {
-    if (!signal.aborted) return
-    /* v8 ignore next -- the swallow only covers a disposal fault during rollback, which
-     * must not mask the caller's abort as the operation's failure. */
-    await this.dispose(activation).catch(() => undefined)
-    signal.throwIfAborted()
+  private async submitMaterialized(
+    activation: Activation,
+    content: ContentBlock[],
+    source: MessageSource,
+    parent: Agent,
+    signal: AbortSignal,
+  ): Promise<MessageId> {
+    try {
+      return this.submitAdmitted(activation, content, source, parent, signal)
+    } catch (error: unknown) {
+      /* v8 ignore next -- rollback disposal failures must not mask the
+       * pre-acceptance signal, drain, or lifecycle failure. */
+      await this.dispose(activation).catch(() => undefined)
+      throw error
+    }
   }
 
   /**
@@ -498,30 +507,24 @@ export class SubagentContinuationManager {
     inputs.signal.throwIfAborted()
     const setup = (childCtx: Context): void => { applyChildComposition(childCtx, inputs.composition) }
     const observer = this.host.observeActivation(provider, childId, parent)
-    let handle: AgentHandle
-    try {
-      const { create } = inputs
-      handle = create === undefined
-        ? await this.ownerCtx.agents.resume({
-          resumeSessionId: childId,
-          agentOptions: inputs.agentOptions,
-          signal: inputs.signal,
-          setup,
-        })
-        : await this.ownerCtx.agents.create({
-          sessionId: childId,
-          meta: create.meta,
-          seed: create.seed,
-          agentOptions: inputs.agentOptions,
-          signal: inputs.signal,
-          setup,
-        })
-    } catch (error: unknown) {
-      // Agent creation provides rollback before handle transfer, so nothing
-      // outlives this rejection; report the epoch that never became resident.
-      // No start edge was published, so this epoch has no lifecycle to close.
-      throw error
-    }
+    const { create } = inputs
+    // Agent creation owns rollback before handle transfer. A rejection leaves
+    // no resident Activation and therefore publishes no lifecycle edge.
+    const handle: AgentHandle = create === undefined
+      ? await this.ownerCtx.agents.resume({
+        resumeSessionId: childId,
+        agentOptions: inputs.agentOptions,
+        signal: inputs.signal,
+        setup,
+      })
+      : await this.ownerCtx.agents.create({
+        sessionId: childId,
+        meta: create.meta,
+        seed: create.seed,
+        agentOptions: inputs.agentOptions,
+        signal: inputs.signal,
+        setup,
+      })
 
     const activation: Activation = {
       childId,
@@ -540,40 +543,51 @@ export class SubagentContinuationManager {
       inputs.signal.throwIfAborted()
       this.assertAdmitting()
       this.acquireOwnership(parent, childId)
+      // Every accepted id leaves the inbox exactly once, through dequeue or
+      // discard. Clearing it there is what lets `stateOf()` distinguish a truly
+      // quiet Agent from one whose accepted turn has not been admitted yet.
+      // Registered through the child's own scoped context, so scope filtering
+      // already restricts both listeners to this exact agent.
+      handle.agent.ctx.on('agent/inbox/dequeue', (_agent, item) => {
+        /* v8 ignore next -- a dequeue of an id this manager never admitted needs
+         * another sender on the same child, which no current path allows. */
+        if (activation.accepted.delete(item.message.id)) this.wake(activation)
+      })
+      handle.agent.ctx.on('agent/inbox/discard', (_agent, items) => {
+        // Deleting every id in the batch is unconditional; waking once afterwards
+        // costs nothing and avoids branching on which ids this manager admitted.
+        for (const item of items) activation.accepted.delete(item.message.id)
+        this.wake(activation)
+      })
+      // Resident: publish the start edge before any turn can run, so observers
+      // see this epoch before its first request.
+      observer.start(handle.agent)
     } catch (error: unknown) {
-      // Roll the transfer back completely: the Activation leaves the map, the
-      // parent's ownership membership is released, and the created handle is
-      // disposed before this rejection surfaces. No lifecycle edge is published,
-      // because `observer.start()` below has not run for this epoch.
-      this.activations.delete(childId)
-      this.releaseOwnership(childId)
-      activation.disposal = handle.dispose()
-      /* v8 ignore next -- the created handle disposes cleanly on every rollback this
-       * transaction can reach; the catch only keeps a disposal fault from masking `error`. */
-      await activation.disposal.catch(() => undefined)
+      // Listener exceptions are contained by the lifecycle emitter; a start
+      // publication throw therefore leaves no residency edge to pair.
+      /* v8 ignore next -- rollback failure must not mask the admission failure
+       * that prevented this operation from returning an accepted message id. */
+      await this.rollbackUnpublished(activation).catch(() => undefined)
       throw error
     }
-    // Every accepted id leaves the inbox exactly once, through dequeue or
-    // discard. Clearing it there is what lets `stateOf()` distinguish a truly
-    // quiet Agent from one whose accepted turn has not been admitted yet.
-    // Registered through the child's own scoped context, so scope filtering
-    // already restricts both listeners to this exact agent.
-    handle.agent.ctx.on('agent/inbox/dequeue', (_agent, item) => {
-      /* v8 ignore next -- a dequeue of an id this manager never admitted needs
-       * another sender on the same child, which no current path allows. */
-      if (activation.accepted.delete(item.message.id)) this.wake(activation)
-    })
-    handle.agent.ctx.on('agent/inbox/discard', (_agent, items) => {
-      // Deleting every id in the batch is unconditional; waking once afterwards
-      // costs nothing and avoids branching on which ids this manager admitted.
-      for (const item of items) activation.accepted.delete(item.message.id)
-      this.wake(activation)
-    })
-    // Resident: publish the start edge before any turn can run, so observers
-    // see this epoch before its first request.
-    observer.start(handle.agent)
     this.watchSettlement(activation)
     return activation
+  }
+
+  /**
+   * Release an Activation whose start edge was not published. The memoized
+   * transaction remains in the live map until handle disposal settles, so a
+   * concurrent drain or delivery observes the same closing boundary.
+   */
+  private rollbackUnpublished(activation: Activation): Promise<void> {
+    return (activation.disposal ??= (async () => {
+      try {
+        await activation.handle.dispose()
+      } finally {
+        this.activations.delete(activation.childId)
+        this.releaseOwnership(activation.childId)
+      }
+    })())
   }
 
   /**
@@ -638,11 +652,35 @@ export class SubagentContinuationManager {
   }
 
   /**
+   * Cross the final admission cutoff and submit without yielding. Signal abort,
+   * manager drain, or Activation disposal that wins before this synchronous
+   * span rejects without inbox acceptance.
+   */
+  private submitAdmitted(
+    activation: Activation,
+    content: ContentBlock[],
+    source: MessageSource,
+    parent: Agent,
+    signal: AbortSignal,
+  ): MessageId {
+    signal.throwIfAborted()
+    this.assertAdmitting()
+    /* v8 ignore next 6 -- only a synchronous re-entrant disposer can change
+     * this field between the caller's live check and this no-await boundary. */
+    if (disposalOf(activation) !== undefined) {
+      throw new SubagentError(
+        `subagent "${activation.childId}" activation is being disposed; the message was not accepted`,
+        'ACTIVATION_CLOSING',
+      )
+    }
+    return this.submit(activation, content, source, parent)
+  }
+
+  /**
    * Authorize delivery to a live Activation. A parent must be the exact live
    * direct parent recorded in the child's durable header.
    */
-  private async authorizeLive(parent: Agent, activation: Activation): Promise<void> {
-    await Promise.resolve()
+  private authorizeLive(parent: Agent, activation: Activation): void {
     this.authorizeLineage(
       parent,
       activation.childId,
@@ -762,6 +800,12 @@ export class SubagentContinuationManager {
         // Capture the child-dependent edge data while the child is still live:
         // handle disposal unregisters it, and consumers read its log and scope.
         activation.observer.capture(activation.handle.agent)
+      } catch (error: unknown) {
+        failure ??= new SubagentError(
+          `subagent "${childId}" activation teardown failed: ${errorChain(error)}`,
+          'ACTIVATION_TEARDOWN_FAILED',
+          { cause: error },
+        )
       } finally {
         try {
           await activation.handle.dispose()

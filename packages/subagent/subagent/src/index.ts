@@ -303,7 +303,7 @@ export class SubagentService extends Service {
     return provider
   }
 
-  /** Resolve the optional Task-backed continuation runtime or fail loud. */
+  /** Resolve the optional continuable-subagent manager or fail loud. */
   private requireContinuations(): SubagentContinuationManager {
     if (this.continuations === undefined) {
       throw new SubagentError(

@@ -4,7 +4,7 @@ Status: implemented
 
 English | [中文](2026-07-27-intent-named-subagent-continuation-operations.zh.md)
 
-The `followup` operation this record names is retained by [Continuable subagents](../feature/2026-07-28-continuable-subagent-conversations.md), which replaces its Task-backed return value with the accepted `MessageId`, its bare-`Agent` parameter with an explicit authority union, and provider `resume` dispatch with `prepareContinuable`.
+The `followup` operation this record names is retained by [Continuable subagents](../feature/2026-07-28-continuable-subagent-conversations.md), which replaces its Task-backed return value with the accepted `MessageId`, retains its bare `Agent` parameter as exact live-direct-parent authority, and replaces provider `resume` dispatch with `prepareContinuable`.
 
 ## Problem
 

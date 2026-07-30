@@ -35,7 +35,11 @@ export function SubagentRunId(id: string): SubagentRunId {
 export interface SubagentRunInfo {
   /** Unique identity shared with the paired terminal event. */
   readonly runId: SubagentRunId
-  /** The provider that established the run. */
+  /**
+   * Provider provenance for this run or Activation epoch. The named provider
+   * may be absent when an accepted run becomes ready or a persisted Activation
+   * cold-resumes, because neither lifecycle depends on continued registration.
+   */
   readonly provider: string
   /** The child agent's id. */
   readonly id: SessionId
@@ -50,7 +54,7 @@ export interface SubagentRunInfo {
 export interface SubagentRunEndInfo {
   /** Unique identity shared with the paired start event. */
   readonly runId: SubagentRunId
-  /** The provider that ran it. */
+  /** The same provider provenance carried by the paired start event. */
   readonly provider: string
   /** The child agent's id. */
   readonly id: SessionId

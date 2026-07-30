@@ -43,9 +43,11 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     }
     if (eventName === 'subagent/start') {
       const info = args[0] as SubagentRunInfo
-      if (!providers.has(info.provider)) fail(`subagent/start names inactive provider ${JSON.stringify(info.provider)}`)
-      if (String(info.runId).length === 0 || String(info.id).length === 0) {
-        fail('subagent/start runId and child id must be non-empty')
+      // Provider availability is an admission-time relationship. A ready
+      // one-shot run may outlive provider removal, and a cold-resumed Activation
+      // carries durable provider provenance without dispatching through it.
+      if (info.provider.length === 0 || String(info.runId).length === 0 || String(info.id).length === 0) {
+        fail('subagent/start provider, runId, and child id must be non-empty')
       }
       if (runs.has(info.runId)) fail(`subagent/start repeated run id ${JSON.stringify(info.runId)}`)
       stagedStarts.add(info)

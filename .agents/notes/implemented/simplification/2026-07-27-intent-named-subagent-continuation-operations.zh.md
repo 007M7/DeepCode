@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-27-intent-named-subagent-continuation-operations.md) | 中文
 
-本记录命名的 `followup` 操作由[可继续的 subagent](../feature/2026-07-28-continuable-subagent-conversations.md)保留，但后者以已接受的 `MessageId` 替换其基于 Task 的返回值，以显式的 authority（授权）联合类型替换裸 `Agent` 参数，并以 `prepareContinuable` 替换提供方 `resume` 派发。
+本记录命名的 `followup` 操作由[可继续的 subagent](../feature/2026-07-28-continuable-subagent-conversations.md)保留，但后者以已接受的 `MessageId` 替换其基于 Task 的返回值，保留裸 `Agent` 参数作为准确的实时直属父级权限，并以 `prepareContinuable` 替换提供方 `resume` 派发。
 
 ## 问题
 
