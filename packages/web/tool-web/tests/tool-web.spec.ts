@@ -140,35 +140,36 @@ describe('web_search presentation meta and result view', () => {
     })
   })
 
-  it('presents a completed search as a web/search card carrying the structured sources and fallback content', () => {
+  it('presents a completed search as a web/search card carrying the structured sources, titled by the query', () => {
     const meta = searchMetaFromValue({
       content: 'an answer', truncated: true,
       sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-07-20' }],
     })
-    expect(presentSearchResult(toolResult(meta, 'rendered'))).toEqual({
+    expect(presentSearchResult({ query: 'q' }, toolResult(meta, 'rendered'))).toEqual({
       card: 'web',
       kind: 'search',
+      title: 'q',
       answer: 'an answer',
       truncated: true,
       sources: [{ url: 'https://a.test', title: 'A', snippet: 'snip', publishedAt: '2026-07-20' }],
-      content: [{ type: 'text', text: 'rendered' }],
     })
   })
 
   it('omits the answer from the view when meta carries none', () => {
     const meta = searchMetaFromValue({ truncated: false, sources: [{ url: 'https://a.test' }] })
-    const view = presentSearchResult(toolResult(meta))
+    const view = presentSearchResult({ query: 'q' }, toolResult(meta))
     expect(view).toBeDefined()
     expect(view && 'answer' in view).toBe(false)
+    expect(view && 'content' in view).toBe(false)
   })
 
   it('falls back to the generic card on an error result', () => {
     const meta = searchMetaFromValue({ truncated: false, sources: [{ url: 'https://a.test' }] })
-    expect(presentSearchResult(toolResult(meta, 'body', true))).toBeUndefined()
+    expect(presentSearchResult({ query: 'q' }, toolResult(meta, 'body', true))).toBeUndefined()
   })
 
   it('falls back to the generic card on absent or malformed meta', () => {
-    expect(presentSearchResult(toolResult(undefined))).toBeUndefined()
+    expect(presentSearchResult({ query: 'q' }, toolResult(undefined))).toBeUndefined()
     expect(searchMetaFromResult(undefined)).toBeUndefined()
     expect(searchMetaFromResult(null)).toBeUndefined()
     expect(searchMetaFromResult('nope')).toBeUndefined()
@@ -358,30 +359,75 @@ describe('fetch formatting', () => {
 })
 
 describe('web_fetch presentation meta and result view', () => {
-  it('projects url, status, and truncation into meta', () => {
-    expect(fetchMetaFromValue({ url: 'https://a.test', statusCode: 404, truncated: true }))
+  const NO_CAP = 1_000_000
+
+  it('projects url, status, and the provider truncation into meta', () => {
+    expect(fetchMetaFromValue({ url: 'https://a.test', statusCode: 404, truncated: true, body: { kind: 'text', content: 'x' } }, NO_CAP))
       .toEqual({ url: 'https://a.test', statusCode: 404, truncated: true })
   })
 
-  it('presents a completed fetch as a web/fetch card carrying the summary and the markdown body as fallback content', () => {
-    const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false })
-    expect(presentFetchResult(toolResult(meta, '# Title'))).toEqual({
+  it('projects truncated: true when the output cap cut a body the provider did not, matching the render footer', () => {
+    // The provider reports truncated: false, but conversion outgrows the cap, so
+    // the render text carries the truncation footer. The meta must agree.
+    const value = {
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html' as const, content: `<p>${'_'.repeat(1000)}</p>` },
+    }
+    const meta = fetchMetaFromValue(value, 500) as { truncated: boolean }
+    expect(meta.truncated).toBe(true)
+    expect(formatFetchOutput(value, 500)).toContain('Content truncated')
+  })
+
+  it('projects truncated: false when neither the provider nor the cap cut the body', () => {
+    const value = {
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'text' as const, content: 'short' },
+    }
+    const meta = fetchMetaFromValue(value, NO_CAP) as { truncated: boolean }
+    expect(meta.truncated).toBe(false)
+    expect(formatFetchOutput(value, NO_CAP)).not.toContain('Content truncated')
+  })
+
+  it('converts one HTML body once across the render and meta projections of the same result', () => {
+    // The registry calls output.render and output.presentationMeta with the same
+    // frozen result value; the memo must collapse them into one turndown walk so
+    // a large or deeply nested page is not parsed and converted twice. A second
+    // cap on the same result is a distinct entry, so it converts again.
+    const spy = vi.spyOn(TurndownService.prototype, 'turndown')
+    const value = {
+      url: 'https://a.test', statusCode: 200, truncated: false,
+      body: { kind: 'html' as const, content: '<p>hello</p>' },
+    }
+    try {
+      formatFetchOutput(value, NO_CAP)
+      fetchMetaFromValue(value, NO_CAP)
+      expect(spy).toHaveBeenCalledTimes(1)
+      formatFetchOutput(value, NO_CAP - 1)
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('presents a completed fetch as a web/fetch card carrying the summary, titled by the url, without content', () => {
+    const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false, body: { kind: 'text', content: '# Title' } }, NO_CAP)
+    expect(presentFetchResult({ url: 'https://a.test' }, toolResult(meta, '# Title'))).toEqual({
       card: 'web',
       kind: 'fetch',
+      title: 'https://a.test',
       url: 'https://a.test',
       statusCode: 200,
       truncated: false,
-      content: [{ type: 'text', text: '# Title' }],
     })
   })
 
   it('falls back to the generic card on an error result', () => {
-    const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false })
-    expect(presentFetchResult(toolResult(meta, 'body', true))).toBeUndefined()
+    const meta = fetchMetaFromValue({ url: 'https://a.test', statusCode: 200, truncated: false, body: { kind: 'text', content: 'ok' } }, NO_CAP)
+    expect(presentFetchResult({ url: 'https://a.test' }, toolResult(meta, 'body', true))).toBeUndefined()
   })
 
   it('falls back to the generic card on absent or malformed meta', () => {
-    expect(presentFetchResult(toolResult(undefined))).toBeUndefined()
+    expect(presentFetchResult({ url: 'https://a.test' }, toolResult(undefined))).toBeUndefined()
     expect(fetchMetaFromResult(undefined)).toBeUndefined()
     expect(fetchMetaFromResult(null)).toBeUndefined()
     expect(fetchMetaFromResult('nope')).toBeUndefined()

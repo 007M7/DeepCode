@@ -179,11 +179,11 @@ export interface DiffResultView {
 
 /**
  * One citeable source in a completed {@link WebSearchResultView}, the faithful
- * projection of one web-search source. The render text a web tool returns is
- * lossy — its markdown list collapses `title`/`snippet`/`publishedAt` into one
- * free-text line and labels a source by title OR hostname — so a UI cannot
- * reliably recover these fields by reparsing that text. A tool therefore
- * projects this structured shape through `output.presentationMeta`, and its
+ * projection of one web-search source. The presentation projection of `dsh-web`'s
+ * `WebSearchSource`: that seam type is the authoritative shape (core cannot depend
+ * on the web seam, so the two are declared separately and MUST evolve together).
+ * A web tool projects this shape through `output.presentationMeta` because the
+ * render text cannot losslessly carry it (see the web-result-card Agent Note); its
  * `presentResult` reads it back.
  */
 export interface WebSource {
@@ -202,18 +202,25 @@ export interface WebSource {
  * by a web tool whose call retrieves from the web (`web_search`, `web_fetch`).
  * One `kind`-tagged union carries both shapes because both are web retrieval and
  * a UI renders them with one component family; a UI switches on `kind`. An
- * incapable UI falls back to `content` (the reformatted model-facing text). This
- * is the result-time analogue of the `web_search`/`web_fetch` calls' generic
- * call views (`kind: 'search'`/`'fetch'`); those tools keep their generic
- * pending card and add only this completed card.
+ * incapable UI falls back to the raw `tool/result` content (this view carries no
+ * `content` copy — see the web-result-card Agent Note). This is the result-time
+ * analogue of the `web_search`/`web_fetch` calls' generic call views
+ * (`kind: 'search'`/`'fetch'`); those tools keep their generic pending card and
+ * add only this completed card.
+ *
+ * The `kind` field here is this union's own discriminant, NOT a
+ * {@link ToolCallKind}: the two values deliberately match the tools' pending
+ * `ToolCallKind` (`'search'`/`'fetch'`) so a call and its result read as one
+ * category, but a new arm is a union edit plus a consumer branch, not any
+ * arbitrary `ToolCallKind` value.
  */
 export type WebResultView = WebSearchResultView | WebFetchResultView
 
 /**
  * The completed state of a `web_search` call: the structured sources the model
  * cited, an optional provider answer, and whether the source list was cut to the
- * result cap. A capable UI renders the sources as a citation list; an incapable
- * UI renders `content`.
+ * result cap. A capable UI renders the sources as a citation list; a UI without
+ * the `web` capability falls back to the raw `tool/result` content.
  */
 export interface WebSearchResultView {
   card: 'web'
@@ -224,21 +231,15 @@ export interface WebSearchResultView {
   sources: WebSource[]
   /** The provider-generated answer text, when any. */
   answer?: string
-  /** True when the tool cut the source list to its result cap. */
+  /** True when the seam cut the source list to honor the result cap. */
   truncated: boolean
-  /**
-   * UI-facing fallback content (harness {@link ContentBlock}s), reformatted from
-   * the model-facing result. A UI without the `web` capability renders this.
-   * Omit to let the UI render the raw result content.
-   */
-  content?: ContentBlock[]
 }
 
 /**
  * The completed state of a `web_fetch` call: the fetched URL, its HTTP status,
  * and whether the content was cut. The body itself is already markdown in the
- * result content, so this card carries the retrieval summary and leaves the body
- * to `content`.
+ * raw `tool/result` content, so this card carries only the retrieval summary and
+ * a UI without the `web` capability falls back to that content.
  */
 export interface WebFetchResultView {
   card: 'web'
@@ -249,12 +250,10 @@ export interface WebFetchResultView {
   url: string
   /** HTTP status code of the fetched response. */
   statusCode: number
-  /** True when the provider or the output cap cut the content. */
-  truncated: boolean
   /**
-   * UI-facing fallback content (harness {@link ContentBlock}s): the already-markdown
-   * body. A UI without the `web` capability renders this. Omit to let the UI
-   * render the raw result content.
+   * True when the provider capped the decoded body, or the output cap or a
+   * pre-conversion source cut trimmed the rendered text (the effective
+   * truncation the model-facing text also reflects).
    */
-  content?: ContentBlock[]
+  truncated: boolean
 }
