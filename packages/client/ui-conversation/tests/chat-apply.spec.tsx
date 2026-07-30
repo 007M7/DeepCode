@@ -80,12 +80,13 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('mounts the bash sample and the todo row as keyed entries through the load-order seam', async () => {
+  it('mounts the bash sample, the web rows, and the todo row as keyed entries through the load-order seam', async () => {
     const b = await bench()
-    // Both registrant plugins' inject: ['slots', 'conversation'] resolved — the
-    // service being present implies the chat entry declared the hole first.
+    // Every registrant plugin's inject: ['slots', 'conversation'] resolved — the
+    // service being present implies the chat entry declared the hole first. The
+    // web rows register one component under both web tool names.
     const entries = b.slots.entries('conversation.chat.toolview')
-    expect(entries.map(e => e.options.key)).toEqual(['bash', 'todo_write'])
+    expect(entries.map(e => e.options.key)).toEqual(['bash', 'web_search', 'web_fetch', 'todo_write'])
     // Stats stick with the composer (not inside ChatView).
     expect(b.slots.entries('conversation.composer.dock').map(e => e.options.id)).toEqual(['stats'])
     await b.runtime.dispose()

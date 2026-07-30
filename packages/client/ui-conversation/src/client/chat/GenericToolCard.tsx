@@ -7,12 +7,14 @@
 import type { ReactNode } from 'react'
 import {
   IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconSparkle16,
-  IconThinkOutline14,
+  IconThinkOutline14, WebBlock,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ToolRowOwnerProps } from '../contract/slots.ts'
 import { terminalCardModel } from '../contract/terminal-card-model.ts'
+import { CHAT_WEB_MAX_SOURCES, webCardModel } from '../contract/web-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
+import css from './GenericToolCard.module.css'
 
 /** Variant leading icons (figma table); all glyphs render at 14 inside the 16px leading box. */
 const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
@@ -29,8 +31,9 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
 export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
+  const web = webCardModel(block)
   const singleFile = model.filePath !== undefined
-  return (
+  const row = (
     <ToolRow
       variant={model.variant}
       toolName={toolName}
@@ -46,5 +49,17 @@ export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwner
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
     />
+  )
+  // A web-declaring tool without its own keyed row lands here; its card is
+  // resident under the summary, mirroring WebRow (and BashRow's terminal card).
+  if (web === null) return row
+  return (
+    <div className={css.card}>
+      {row}
+      <WebBlock
+        {...(web.kind === 'search' ? { ...web, maxSources: CHAT_WEB_MAX_SOURCES } : web)}
+        className={css.web}
+      />
+    </div>
   )
 }
