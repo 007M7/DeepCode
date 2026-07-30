@@ -15,12 +15,38 @@
 }
 
 .root {
-  position: relative;
+  position: relative; /* sweep-glare overlay anchor */
   overflow: hidden;
   display: flex;
   align-items: center;
   height: 24px;
   min-width: 0;
+}
+
+/* Running sweep glare — same pattern as BashRow/ToolRow, so a running read row
+   gives the same executing feedback a running command row does. The leading
+   read icon stays static (a read has no per-step state to animate); the sweep
+   is the row-level running signal. */
+.root[data-state='running']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-read-row-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes dsh-read-row-sweep {
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
 }
 
 .leading {

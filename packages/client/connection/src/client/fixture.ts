@@ -267,8 +267,8 @@ function buildAlphaLog(): SessionEvent[] {
     const turn = 64
     const callId = `fx-call-${turn}`
     const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
-      + 'const demo = await tools.read({ path: "notes/demo.txt" })\n'
-      + 'await tools.read({ path: "notes/missing.txt" }).catch(() => "tolerated")\n'
+      + 'const demo = await tools.read({ file_path: "notes/demo.txt" })\n'
+      + 'await tools.read({ file_path: "notes/missing.txt" }).catch(() => "tolerated")\n'
       + 'return { listing, demo }'
     const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
@@ -293,8 +293,8 @@ function buildAlphaLog(): SessionEvent[] {
       })
     }
     dispatchPair(1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt\nnew-demo.txt')
-    dispatchPair(2, 'read', { path: 'notes/demo.txt' }, 'hello fixture\n')
-    dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
+    dispatchPair(2, 'read', { file_path: 'notes/demo.txt' }, 'hello fixture\n')
+    dispatchPair(3, 'read', { file_path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
     push({
       type: 'tool/result', surfaceOp: 'append',
       data: { turn, step: 0, message: toolResultMessage(callId, text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), false) },
@@ -326,13 +326,16 @@ function buildAlphaLog(): SessionEvent[] {
   // Turn 66: the read sample — a WINDOW past an offset so the card draws file
   // line numbers starting above 1 and a "showing N of M" note (the window is
   // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
-  // highlights. Named `read`, so it exercises the keyed ReadRow registration
-  // (the render-site fallback row is covered by the read sub-dispatches in the
-  // turn 64 run_code sample). The read render intent is result-side only, so its
-  // pending call stays a generic `kind: 'read'` card; presentResult carries the
+  // highlights. Named `read`, so it exercises the keyed ReadRow registration.
+  // The render-site fallback ROW SHAPE (a read call on the generic flattened
+  // path) is covered by the turn 64 run_code read sub-dispatches, which
+  // session.ts folds with resultView: null; the fallback-row + read-CARD
+  // combination is pinned by the web_fetch case in read-card.spec.tsx, not by
+  // this fixture. The read render intent is result-side only, so its pending
+  // call stays a generic `kind: 'read'` card; presentResult carries the
   // structured window. Ordered BEFORE the todo turn for the same reason the
   // terminal sample is: the standing plan retires at the next `turn/start`.
-  toolTurn(66, 'read', `{"path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+  toolTurn(66, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
   toolTurn(67, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
@@ -375,7 +378,7 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
     // carries no file content until execute returns. The rich read card arrives
     // in presentResult.
     case 'read':
-      return { card: 'generic', title: `Read ${str(args.path)}`, kind: 'read', locations: [{ path: str(args.path) }] }
+      return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
     case 'edit':
       return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
     case 'write':

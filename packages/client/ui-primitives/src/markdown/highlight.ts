@@ -5,9 +5,11 @@
  * theme package's token sheets as `--shiki-*` custom properties (light and
  * dark blocks), never here — the repo's tokens-only styling rule.
  *
- * Grammars are the set the harness actually renders: TypeScript programs
- * (`run_code` bodies; TS pulls in JS via grammar embedding), shell commands,
- * and JSON payloads. An unknown or absent language falls back to plain text
+ * Grammars are the set the harness actually renders: the markdown-fence and
+ * `run_code` languages (TypeScript, shell, JSON) plus the file-extension
+ * language hints the read tool's `langFromPath` emits (`packages/fs/tool-fs`),
+ * so a read card highlights the same source, config, and markup extensions the
+ * backend recognizes. An unknown or absent language falls back to plain text
  * (no highlighting, still monospace) — never an error.
  */
 
@@ -16,14 +18,55 @@ import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import langTs from '@shikijs/langs/typescript'
 import langBash from '@shikijs/langs/shellscript'
 import langJson from '@shikijs/langs/json'
+import langPython from '@shikijs/langs/python'
+import langRuby from '@shikijs/langs/ruby'
+import langGo from '@shikijs/langs/go'
+import langRust from '@shikijs/langs/rust'
+import langJava from '@shikijs/langs/java'
+import langC from '@shikijs/langs/c'
+import langCpp from '@shikijs/langs/cpp'
+import langCsharp from '@shikijs/langs/csharp'
+import langKotlin from '@shikijs/langs/kotlin'
+import langSwift from '@shikijs/langs/swift'
+import langPhp from '@shikijs/langs/php'
+import langYaml from '@shikijs/langs/yaml'
+import langToml from '@shikijs/langs/toml'
+import langIni from '@shikijs/langs/ini'
+import langMarkdown from '@shikijs/langs/markdown'
+import langMdx from '@shikijs/langs/mdx'
+import langHtml from '@shikijs/langs/html'
+import langCss from '@shikijs/langs/css'
+import langScss from '@shikijs/langs/scss'
+import langLess from '@shikijs/langs/less'
+import langSql from '@shikijs/langs/sql'
+import langXml from '@shikijs/langs/xml'
+import langLua from '@shikijs/langs/lua'
 import type { HighlighterCore } from 'shiki/core'
 import type { CSSProperties } from 'react'
+
+/**
+ * Grammars the singleton registers; each entry's own `name` is the id
+ * `codeToTokens`/`codeToHtml` resolve. The TypeScript grammar embeds JS/JSX/TSX,
+ * so the JS-family fence aliases resolve to it rather than a separate grammar.
+ */
+const LANGS = [
+  langTs, langBash, langJson,
+  langPython, langRuby, langGo, langRust, langJava,
+  langC, langCpp, langCsharp, langKotlin, langSwift, langPhp,
+  langYaml, langToml, langIni,
+  langMarkdown, langMdx, langHtml, langCss, langScss, langLess,
+  langSql, langXml, langLua,
+]
 
 /**
  * Language ids (and aliases) the singleton registers; everything else renders
  * plain. A Map, not an object: fence info strings are assistant-authored, so
  * a label like `constructor` or `__proto__` must miss instead of resolving an
- * inherited property and crashing the renderer inside shiki.
+ * inherited property and crashing the renderer inside shiki. Keys cover both
+ * the markdown-fence aliases `CodeBlock` uses and the file-extension hint ids
+ * the read tool's `langFromPath` emits, so both callers resolve the same
+ * grammars. The JS family maps to the TypeScript grammar (which embeds it),
+ * unchanged from when this was the only non-shell/JSON grammar.
  */
 const LANG_ALIASES = new Map<string, string>([
   ['typescript', 'typescript'],
@@ -31,6 +74,7 @@ const LANG_ALIASES = new Map<string, string>([
   ['tsx', 'typescript'],
   ['javascript', 'typescript'],
   ['js', 'typescript'],
+  ['jsx', 'typescript'],
   ['shellscript', 'shellscript'],
   ['bash', 'shellscript'],
   ['sh', 'shellscript'],
@@ -38,6 +82,35 @@ const LANG_ALIASES = new Map<string, string>([
   ['zsh', 'shellscript'],
   ['json', 'json'],
   ['jsonc', 'json'],
+  ['py', 'python'],
+  ['python', 'python'],
+  ['rb', 'ruby'],
+  ['ruby', 'ruby'],
+  ['go', 'go'],
+  ['rs', 'rust'],
+  ['rust', 'rust'],
+  ['java', 'java'],
+  ['c', 'c'],
+  ['cpp', 'cpp'],
+  ['cs', 'csharp'],
+  ['csharp', 'csharp'],
+  ['kotlin', 'kotlin'],
+  ['swift', 'swift'],
+  ['php', 'php'],
+  ['yaml', 'yaml'],
+  ['yml', 'yaml'],
+  ['toml', 'toml'],
+  ['ini', 'ini'],
+  ['md', 'markdown'],
+  ['markdown', 'markdown'],
+  ['mdx', 'mdx'],
+  ['html', 'html'],
+  ['css', 'css'],
+  ['scss', 'scss'],
+  ['less', 'less'],
+  ['sql', 'sql'],
+  ['xml', 'xml'],
+  ['lua', 'lua'],
 ])
 
 /** All token colors resolve through `--shiki-*` custom properties (theme package sheets). */
@@ -53,7 +126,7 @@ let singleton: HighlighterCore | undefined
 function highlighter(): HighlighterCore {
   singleton ??= createHighlighterCoreSync({
     themes: [cssVariablesTheme],
-    langs: [langTs, langBash, langJson],
+    langs: LANGS,
     engine: createJavaScriptRegexEngine({ forgiving: true }),
   })
   return singleton
@@ -114,8 +187,11 @@ export function highlightLines(code: string, lang: string | undefined): Highligh
   const { tokens } = highlighter().codeToTokens(code, { lang: resolved, theme: 'css-variables' })
   // shiki tokenizes `a\nb` into two lines; a trailing newline (`a\n`) adds a
   // third, empty line the caller's own line array does not carry. Drop that
-  // one terminator line so the two structures stay in step.
-  const lines = tokens.length > 1 && tokens[tokens.length - 1]?.length === 0
+  // one terminator line so the two structures stay in step. The explicit
+  // `last !== undefined` (over `tokens[...]?.length`) keeps a single branch for
+  // per-file coverage, matching TerminalBlock's terminator check.
+  const last = tokens[tokens.length - 1]
+  const lines = tokens.length > 1 && last !== undefined && last.length === 0
     ? tokens.slice(0, -1)
     : tokens
   return lines.map(line => line.map(token => ({ text: token.content, style: { color: token.color } })))

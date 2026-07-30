@@ -23,7 +23,8 @@ import { relativizeToCwd, type ToolCallBlock } from './tool-call-model.ts'
  * scannable across many calls, while the details panel is the single-call
  * reading surface. A design constant of this UI's row geometry, not a
  * deployment choice, so it is fixed here rather than a plugin Config field. The
- * same split {@link CHAT_TERMINAL_MAX_LINES} draws for terminal output.
+ * same split [`CHAT_TERMINAL_MAX_LINES`](./terminal-card-model.ts) draws for
+ * terminal output.
  */
 export const CHAT_READ_MAX_LINES = 8
 

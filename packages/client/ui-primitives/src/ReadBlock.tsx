@@ -131,6 +131,13 @@ export function ReadBlock({
             <span className={css.count}>{`显示 ${lines.length} / ${totalLines} 行`}</span>
           )}
           <span className={css.lang}>{lang ?? ''}</span>
+          {/* No empty-window guard around the copy control, unlike TerminalBlock
+              (which hides copy on empty output): a read card is reached only for
+              a settled read whose result view declares `card:'read'`, and the
+              read tool projects that view solely for a parsed envelope with a
+              line window. An empty or non-envelope result falls back to the
+              generic card upstream (readCardModel returns null), so `lines` is
+              never empty here — the branch TerminalBlock needs cannot arise. */}
           <button type="button" className={css.copyButton} onClick={onCopy}>
             {copied ? '复制成功' : '复制'}
           </button>
