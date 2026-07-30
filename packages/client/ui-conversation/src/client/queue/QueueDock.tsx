@@ -61,7 +61,7 @@ export function QueueDock({ useSession, updateQueue, notify }: QueueDockProps) {
   }
 
   return (
-    <div className={css.dock}>
+    <div className={css.dock} data-queue-dock="">
       <div className={css.panel}>
         <ul className={css.list}>
           {queue.map(row => (

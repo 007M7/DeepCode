@@ -131,6 +131,11 @@
 .composerStack {
   display: flex;
   flex-direction: column;
+  /* InputBar and dock registrants derive their horizontal geometry from the
+     same card width, outer clearance, and dock inset. */
+  --dsh-composer-card-max-width: 800px;
+  --dsh-composer-side-clearance: 32px;
+  --dsh-composer-dock-inset: 12px;
 }
 
 /* Common seat for the composer chain (fallback + elected overlay siblings). */
