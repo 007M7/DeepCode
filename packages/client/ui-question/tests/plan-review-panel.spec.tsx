@@ -95,6 +95,13 @@ describe('planReviewOf', () => {
       ...questions()[0] as object, intent: { kind: 'plan-review', approve: 'Ship it' },
     }]],
     ['an intent with no options at all', () => [{ ...questions()[0] as object, options: undefined }]],
+    // Two buttons cannot send a third label or a combination, and the generic
+    // flow can: an intent never costs the user a reachable answer.
+    ['a third option the card could not offer', () => [{
+      ...questions()[0] as object,
+      options: [{ label: 'Approve' }, { label: 'Keep planning' }, { label: 'Start over' }],
+    }]],
+    ['a multi-select decision', () => [{ ...questions()[0] as object, multiSelect: true }]],
   ])('declines %s, leaving the request to the generic flow', (_case, build) => {
     expect(planReviewOf(build() as never)).toBeUndefined()
   })

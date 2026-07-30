@@ -104,6 +104,24 @@ describe('UserInteractionService', () => {
     expect(p.ask).not.toHaveBeenCalled()
   })
 
+  it('rejects a plan-review intent on a question carrying no plan to review', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserInteractionService)
+    const p = { ask: vi.fn(async () => ({ answers: [] })) }
+    ctx.userInteraction.registerProvider(p)
+
+    // Detail IS the plan for this intent, so a UI honouring it would ask the
+    // user to approve something they cannot see.
+    await expect(ctx.userInteraction.ask({
+      questions: [{
+        id: 'plan-review', question: 'Approve?',
+        options: [{ label: 'Approve' }, { label: 'Keep planning' }],
+        intent: { kind: 'plan-review', approve: 'Approve' },
+      }],
+    })).rejects.toMatchObject({ name: 'UserInteractionError', code: 'BAD_INTENT' })
+    expect(p.ask).not.toHaveBeenCalled()
+  })
+
   it('passes an intent through once its approve label names an offered option', async () => {
     const ctx = new Context()
     await ctx.plugin(UserInteractionService)

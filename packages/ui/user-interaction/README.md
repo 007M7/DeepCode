@@ -24,7 +24,7 @@ When an answer includes `custom`, `selected` is empty; custom text is an overrid
 
 ### Presentation intent
 
-`intent` declares that a question IS a decision of a known shape, so a UI that recognises the tag may present it as such — `plan-review` says `detail` is a plan under review, and `dsh-plan-mode` sets it on the `exit_plan_mode` question. An intent shapes presentation only: a UI honouring it answers with the same option labels a generic UI would send, and a UI that does not know the tag renders the generic option list, so callers read one answer shape either way. `approve` names the label that approves rather than relying on option order; `ask()` rejects an intent whose `approve` names none of that question's own options with `BAD_INTENT`, since no type can tie the two together.
+`intent` declares that a question IS a decision of a known shape, so a UI that recognises the tag may present it as such — `plan-review` says `detail` is a plan under review, and `dsh-plan-mode` sets it on the `exit_plan_mode` question. An intent shapes presentation only: a UI honouring it answers with the same option labels a generic UI would send, and a UI that does not know the tag renders the generic option list, so callers read one answer shape either way. `approve` names the label that approves rather than relying on option order. `ask()` rejects with `BAD_INTENT` the two assertions no type can carry: an `approve` naming none of that question's own options, and an intent on a question with no `detail` — the thing it declares itself a review of.
 
 ## Role
 

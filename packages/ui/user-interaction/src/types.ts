@@ -21,7 +21,7 @@ export interface AskUserQuestionOption {
  * either way — an intent shapes presentation only, never the protocol.
  */
 export type AskUserQuestionIntent = {
-  /** A plan submitted for review: `detail` is the plan markdown, and the decision approves or declines it. */
+  /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */
   kind: 'plan-review'
   /**
    * The option label that approves the plan; every other option declines it.

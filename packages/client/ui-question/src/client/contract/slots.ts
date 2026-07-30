@@ -49,12 +49,16 @@ export interface PlanReview {
  * Narrow a request to a renderable plan review, or return undefined to leave it
  * to the generic question flow.
  *
- * The card is one decision over one plan, so it claims a request only when the
- * batch is a single question that declares the intent, carries the plan as its
- * detail, and offers the approve label the intent names. The asker's own
- * service validates that label, but this is a wire boundary: a request failing
- * any part of it still renders and stays answerable as a generic question
- * rather than reaching a card that cannot express it.
+ * The card is one decision over one plan, and it claims a request only when it
+ * can send every answer that request allows — an intent changes the layout,
+ * never which answers are reachable. So the batch must be a single question
+ * that declares the intent, carries the plan as its detail, offers the approve
+ * label the intent names, and is a binary single choice: at most one option
+ * besides approve, and not multi-select. A third option or a multi-select batch
+ * has answers two buttons cannot express, so the generic flow keeps it — as it
+ * keeps any request whose intent the asker's own service would have rejected,
+ * because the client sits downstream of a wire boundary and every request must
+ * stay answerable.
  *
  * @param questions - the request's whole question batch.
  * @returns The narrowed review, or undefined when the generic flow owns it.
@@ -65,7 +69,9 @@ export function planReviewOf(questions: readonly QuestionItem[]): PlanReview | u
   const question = questions[0] as QuestionItem
   const intent = question.intent
   if (intent?.kind !== 'plan-review' || question.detail === undefined) return undefined
+  if (question.multiSelect === true) return undefined
   const options = question.options ?? []
+  if (options.length > 2) return undefined
   const approve = options.find(option => option.label === intent.approve)
   if (approve === undefined) return undefined
   const decline = options.find(option => option.label !== intent.approve)

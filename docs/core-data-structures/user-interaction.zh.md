@@ -22,7 +22,7 @@ interface AskUserQuestionOption {
 
 ## 呈现意图
 
-`AskUserQuestionIntent` 是一项可选声明：某个问题本身就是一次已知形状的决定。它按 `kind` 打标签，因此意图可以扩充；不认识某个标签的 UI 渲染通用选项列表。意图只塑造呈现 —— 遵循它的 UI 回答的仍是通用 UI 会发送的那些 option label，因此调用方两种情况下读到的都是同一种回答形态。`approve` 指名肯定选项，而不依赖选项顺序；`ask()` 会拒绝未命中该问题自身任一选项的 `approve`。
+`AskUserQuestionIntent` 是一项可选声明：某个问题本身就是一次已知形状的决定。它按 `kind` 打标签，因此意图可以扩充；不认识某个标签的 UI 渲染通用选项列表。意图只塑造呈现 —— 遵循它的 UI 回答的仍是通用 UI 会发送的那些 option label，因此调用方两种情况下读到的都是同一种回答形态。`approve` 指名肯定选项，而不依赖选项顺序。有两项断言是任何类型都承载不了的，`ask()` 会拒绝它们：`approve` 未命中该问题自身的任一选项，以及意图落在没有 `detail` 的问题上。
 
 ```ts type-equiv
 /**
@@ -33,7 +33,7 @@ interface AskUserQuestionOption {
  * either way — an intent shapes presentation only, never the protocol.
  */
 type AskUserQuestionIntent = {
-  /** A plan submitted for review: `detail` is the plan markdown, and the decision approves or declines it. */
+  /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */
   kind: 'plan-review'
   /**
    * The option label that approves the plan; every other option declines it.

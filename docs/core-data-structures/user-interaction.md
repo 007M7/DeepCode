@@ -22,7 +22,7 @@ interface AskUserQuestionOption {
 
 ## Presentation intent
 
-`AskUserQuestionIntent` is the optional declaration that a question IS a decision of a known shape. It is tagged on `kind` so intents can be added; a UI that does not recognise a tag renders the generic option list. An intent shapes presentation only — a UI honouring it answers with the same option labels a generic UI would send, so the caller reads one answer shape either way. `approve` names the affirmative option instead of relying on option order, and `ask()` rejects an `approve` naming none of its own question's options.
+`AskUserQuestionIntent` is the optional declaration that a question IS a decision of a known shape. It is tagged on `kind` so intents can be added; a UI that does not recognise a tag renders the generic option list. An intent shapes presentation only — a UI honouring it answers with the same option labels a generic UI would send, so the caller reads one answer shape either way. `approve` names the affirmative option instead of relying on option order. `ask()` rejects the two assertions no type can carry: an `approve` naming none of its own question's options, and an intent on a question with no `detail`.
 
 ```ts type-equiv
 /**
@@ -33,7 +33,7 @@ interface AskUserQuestionOption {
  * either way — an intent shapes presentation only, never the protocol.
  */
 type AskUserQuestionIntent = {
-  /** A plan submitted for review: `detail` is the plan markdown, and the decision approves or declines it. */
+  /** A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it. */
   kind: 'plan-review'
   /**
    * The option label that approves the plan; every other option declines it.
