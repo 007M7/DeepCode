@@ -37,9 +37,9 @@ const testIncludes = [
   'scripts/**/*.spec.ts',
 ]
 
-// These suites exercise process-global state, process APIs, or timing-sensitive process I/O
-// that worker threads cannot isolate reliably under aggregate gate contention.
-// Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
+// These suites exercise process-global state, process APIs, or timing-sensitive process I/O.
+// Keep them in a separate project so Windows, whose main pool uses threads,
+// still contains them in forks; POSIX uses forks for both projects.
 const processBoundTests = [
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
@@ -55,17 +55,20 @@ export default defineConfig({
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
-    // One coverage invocation aggregates both projects. Most suites use threads
-    // for lower startup/IPC overhead; only explicit process-bound suites fork.
+    // One coverage invocation aggregates both projects. POSIX uses forks to
+    // contain the Node CJS-lexer abort; Windows keeps threads for the main
+    // inventory and forks only the explicit process-bound project.
     projects: [
       {
         plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
-          // Node 24 has aborted in its CJS lexer from a macOS arm64 worker
-          // thread. A fork contains that external runtime failure to the test
-          // process; other hosts retain the lower-overhead thread pool.
-          pool: process.platform === 'darwin' ? 'forks' : 'threads',
+          // Node 24 has aborted in its CJS lexer (v8::ToLocalChecked Empty
+          // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS
+          // arm64 and later on Linux. A fork contains that external runtime
+          // failure to the test process; Windows keeps the thread pool, where
+          // the abort has not reproduced and process spawn is costlier.
+          pool: process.platform === 'win32' ? 'threads' : 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
@@ -154,6 +157,10 @@ export default defineConfig({
         'packages/client/ui-sidebar/src/client/index.ts',
         'packages/client/ui-skill/src/client/index.ts',
         'packages/client/ui-workspace/src/client/index.ts',
+        // These three whole-workspace Typert passes are pinned by fixture and
+        // byte-for-byte catalog tests; v8 instrumentation makes them the
+        // coverage lane's longest tail. The generator's lighter modules and
+        // future source files retain the 100% per-file threshold.
         'packages/typert/generator/src/analyzer.ts',
         'packages/typert/generator/src/renderer.ts',
         'packages/typert/generator/src/cordis-catalog.ts',
