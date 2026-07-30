@@ -569,6 +569,8 @@ export interface Config {
   host: '127.0.0.1' | '0.0.0.0'
   /** Listen port; zero requests an OS-assigned port. */
   port: number
+  /** EADDRINUSE handling: fail immediately or try consecutive ports through 65535. */
+  portConflict: 'fail' | 'increment'
   /** Absolute path of index.html inside the static root (dist location is workspace knowledge of the app). */
   distIndex: string
 }
