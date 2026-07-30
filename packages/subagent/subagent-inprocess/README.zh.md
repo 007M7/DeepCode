@@ -10,7 +10,7 @@
 
 驱动器按以下顺序运行：
 
-1. 校验父 agent 深度和可选的绝对 `maxDepth`，然后把子 agent 深度推导为父 agent 深度加一，并将其持久化到子 agent 会话 header。
+1. 校验父 agent 深度和可选的绝对 `maxDepth`，然后把子 agent 深度推导为父 agent 深度加一，并与 `origin: 'subagent'` 一同持久化到子 agent 会话 header。origin 是粗粒度产品导航分类器；后续描述符仍是生命周期与继续执行的权威依据。
 2. 生成全新的子 agent 会话 id，并直接调用 `parent.ctx.agents.create`，把可选的 fork 初始内容和必需的请求信号传入工厂的创建事务。在未发布的设置窗口中，安装请求的 persona、工具限制、结构化输出运行时，以及一次性的 `agent/step` contribution；该 contribution 会在初始 `turn/start` 之后、首次请求之前追加已解析的 `subagent/descriptor` 事件。
 3. 发布子 agent，保留返回的 `AgentHandle`，并返回由持有方拥有的 run。该 run 的 `result` 会通过先调用 `child.followup(prompt)`、再调用 `child.whenIdle()` 来驱动一项任务。
 4. 读取子 agent 自身最后一条 assistant 消息，以及由消息触发的最新轮次原因；排除 fork 初始内容前缀，确保作为初始内容的父 agent 消息绝不会被误认为子 agent 输出。

@@ -8,6 +8,8 @@ The header action reads `subagentsByParent` and session summaries through the st
 
 An addressed child with no exact live parent elects the read-only composer entry and explains the recovery path. A child with a live parent keeps the ordinary input chrome, whose Session routes through `subagent.prompt`; this package never receives host context or calls a model-facing tool. The catalog and composer behavior are specified by the [Web subagent conversations Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-web-subagent-conversations.md).
 
+Subagent-origin Session rows are omitted from the ordinary sidebar, so the parent header catalog is their navigation entry point. Ordinary forks remain in the sidebar.
+
 The `@` source remains deliberately separate and inert. Candidates are zero-RPC running children from `ctx.sessions.list`; picking one inserts literal `@label ` text, and the codec projects `@label`. It has no command-adjudication hooks and does not resolve labels into continuation addresses.
 
 ## Model Experience
@@ -29,5 +31,4 @@ Append-only. This package never edits earlier request tokens.
 ## Known Limitations and Deferred Work
 
 - **The catalog has coarse liveness only** — it cannot show durable outcome, elapsed time, exact Activation state, or a correct cancel button.
-- **The sidebar still contains child sessions** — complete de-duplication needs a scalable durable classifier that does not hide ordinary forks.
 - **`@` references remain display-title text** — duplicate or renamed labels are ambiguous, so they intentionally do not acquire continuation semantics.

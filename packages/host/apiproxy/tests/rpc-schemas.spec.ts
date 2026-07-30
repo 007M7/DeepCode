@@ -141,7 +141,13 @@ describe('sessions domain schemas', () => {
     expect(sessionIdSchema.parse('s1')).toBe('s1')
     expect(() => sessionIdSchema.parse('')).toThrow()
     expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false, blank: true })).toMatchObject({ sessionId: 's1', blank: true })
-    expect(sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: true, blank: false, parentSessionId: 'p', cwd: '/x' }).cwd).toBe('/x')
+    expect(sessionSummarySchema.parse({
+      sessionId: 's1', updatedAt: 1, running: true, blank: false,
+      parentSessionId: 'p', origin: 'subagent', cwd: '/x',
+    })).toMatchObject({ origin: 'subagent', cwd: '/x' })
+    expect(() => sessionSummarySchema.parse({
+      sessionId: 's1', updatedAt: 1, running: false, blank: false, origin: 'fork',
+    })).toThrow()
     // blank is mandatory: a summary without it fails the parse.
     expect(() => sessionSummarySchema.parse({ sessionId: 's1', updatedAt: 1, running: false })).toThrow()
     const event = sessionEventSchema.parse({
@@ -498,7 +504,7 @@ describe('events frame schemas', () => {
 
   it('accepts every host frame branch', () => {
     const frames = [
-      { type: 'host/session-added', sessionId: 's', blank: true, parentSessionId: 'p' },
+      { type: 'host/session-added', sessionId: 's', blank: true, parentSessionId: 'p', origin: 'subagent' },
       { type: 'host/session-added', sessionId: 's', blank: true },
       { type: 'host/session-removed', sessionId: 's' },
       { type: 'host/session-status', sessionId: 's', running: true },
@@ -512,6 +518,9 @@ describe('events frame schemas', () => {
       { type: 'stream/error', error: { code: 'internal', message: 'm', details: {} } },
     ]
     for (const frame of frames) expect(hostFrameSchema.parse(frame)).toMatchObject({ type: frame.type })
+    expect(() => hostFrameSchema.parse({
+      type: 'host/session-added', sessionId: 's', blank: true, origin: 'fork',
+    })).toThrow()
   })
 })
 

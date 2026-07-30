@@ -44,6 +44,8 @@ export interface SessionSummary {
   displayTitle: string
   cwd?: string
   parentId?: SessionId
+  /** Coarse durable origin for navigation filtering; not a continuation capability. */
+  origin?: 'subagent'
   running: boolean
   /** An approval question is pending on this session (sidebar amber-dot state). */
   waitingApproval: boolean
@@ -631,6 +633,7 @@ export class SessionsService implements ISessions {
         ...(entry.title !== undefined ? { title: entry.title } : {}),
         ...(entry.cwd !== undefined ? { cwd: entry.cwd } : {}),
         ...(entry.parentSessionId !== undefined ? { parentId: entry.parentSessionId } : {}),
+        ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
       }
     }
     if (current !== undefined && currentAddress !== undefined && byId[current] === undefined) {
@@ -641,6 +644,7 @@ export class SessionsService implements ISessions {
           id: current,
           displayTitle: child.label,
           parentId: currentAddress.parentSessionId,
+          origin: 'subagent',
           running: child.activity === 'running',
           waitingApproval: false,
           blank: false,

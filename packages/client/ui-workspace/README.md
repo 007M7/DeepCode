@@ -14,6 +14,8 @@ The Session row's Fork action forks at the source's last completed turn, increme
 
 Both target slots are declared by other plugins, so `apply` registers through declaration-aware deferral and re-registers after a declaring slot is restored.
 
+The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`; users enter those conversations through the selected parent's subagent header catalog. Ordinary forks remain visible because lineage alone does not set that origin. The runtime keeps hidden rows available for conversation, title, and addressed transport state.
+
 ## Model Experience
 
 None, as the picker is browser chrome; nothing here reaches a model request.

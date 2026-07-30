@@ -71,8 +71,9 @@ export function resolveChildAgentOptions(
 
 /**
  * Build the child session's durable creation metadata: the parent's workspace,
- * its direct lineage, the recursion budget that must survive persistence, and
- * the seed boundary that separates inherited parent history from child work.
+ * its direct lineage, coarse product origin, the recursion budget that must
+ * survive persistence, and the seed boundary that separates inherited parent
+ * history from child work.
  * @param parent - the delegating parent agent.
  * @param childDepth - the resolved delegation depth to persist.
  * @param lineageSeedLength - how many leading events came from the parent's log.
@@ -87,6 +88,7 @@ export function childSessionMeta(
   return {
     ...parentHeader.cwd !== undefined ? { cwd: parentHeader.cwd } : {},
     parentSession: parentHeader.id,
+    origin: 'subagent',
     // Durable: the recursion budget must survive persistence and resume.
     delegationDepth: childDepth,
     ...lineageSeedLength > 0 ? { seedLength: lineageSeedLength } : {},

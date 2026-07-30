@@ -56,7 +56,7 @@ Session 对象会在事件 wire 边界依据生产方的完整字段契约，验
 
 ## 已寻址的 subagent 对话
 
-`SessionListState.subagentsByParent` 携带直接持久化目录，`currentAddress` 则记录所选 child 从目录得到的 `{parentSessionId, childSessionId}`。只有这份已记录地址能选择 subagent 传输；单凭谱系仍然不足，因为普通 fork 同样具有 `parentId`。已寻址的 Session 通过 `subagent.history` 加载和重连，通过 `subagent.prompt` 发送，绝不调用普通取消，并在刷新期间把地址与所选会话一同持久化。目录读取为 single-flight；`host/session-status` 就地翻转已列 child 的粗粒度活跃状态，`host/session-added` 则只在对应 parent 目录打开时触发一次去抖动的重拉。parent 可用性会传播到 `ConversationSnapshot.subagent`，使呈现层可以把编辑器替换为只读说明，而不激活 parent。
+`SessionListState.subagentsByParent` 携带直接持久化目录，`currentAddress` 则记录所选 child 从目录得到的 `{parentSessionId, childSessionId}`。只有这份已记录地址能选择 subagent 传输；单凭谱系仍然不足，因为普通 fork 同样具有 `parentId`。已寻址的 Session 通过 `subagent.history` 加载和重连，通过 `subagent.prompt` 发送，绝不调用普通取消，并在刷新期间及通过普通选择路径重复选择同一 child 时，把地址与所选会话一同持久化。列表还会投影 header 的粗粒度 `origin: 'subagent'` 分类供导航过滤；传输的权威依据仍是已记录地址，而不是 `origin`。目录读取为 single-flight；`host/session-status` 就地翻转已列 child 的粗粒度活动状态，`host/session-added` 则只在对应 parent 目录打开时触发一次去抖动的重拉。parent 可用性会传播到 `ConversationSnapshot.subagent`，使呈现层可以把编辑器替换为只读说明，而不激活 parent。
 
 ## 模型体验
 

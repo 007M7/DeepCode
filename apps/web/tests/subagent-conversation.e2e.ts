@@ -19,6 +19,7 @@ import { connectFreshWorkspace, saveFailureShot } from './support.ts'
 const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
 const UI_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
 const TREE_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/tree.expected.md', import.meta.url))
+const SIDEBAR_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/sidebar.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 const LABEL = 'event-sourcing researcher'
 const NESTED_LABEL = 'example editor'
@@ -184,6 +185,12 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
       throw new Error(`viewing the child activated it; API calls: ${apiCalls.join(', ')}`)
     }
     await page.getByRole('heading', { name: LABEL }).waitFor()
+    const sidebar = await captureStableAria(
+      page,
+      '[role="tree"][aria-label="Sessions"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(SIDEBAR_EXPECTED, sidebar, MODE)
   })
 
   it('continues through a cold-resumed Activation and receives the child mux events', async () => {

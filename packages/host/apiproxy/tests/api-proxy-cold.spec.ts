@@ -42,7 +42,7 @@ describe('sessions.list cold merge', () => {
     utimesSync(logPath, 5000, 5000) // mtime 5_000_000 ms — newer than every createdAt below
     const metas = [
       header('session-a', 1000),
-      header('session-b', 2000, { parentSession: sid('session-parent') }),
+      header('session-b', 2000, { parentSession: sid('session-parent'), origin: 'subagent' }),
       header('session-c', 1500),
     ]
     // Structural fake of the persistence face list() consumes: list + locate.
@@ -74,6 +74,7 @@ describe('sessions.list cold merge', () => {
     expect(a?.parentSessionId).toBeUndefined()
     expect(b?.updatedAt).toBe(2000)
     expect(b?.parentSessionId).toBe('session-parent')
+    expect(b?.origin).toBe('subagent')
     expect(c?.updatedAt).toBe(1500)
   })
 })

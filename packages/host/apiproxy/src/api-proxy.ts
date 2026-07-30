@@ -283,6 +283,7 @@ function summarize(session: Session, running: boolean): SessionSummary {
     running,
     blank: sessionBlank(session),
     ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
+    ...session.header.origin === undefined ? {} : { origin: session.header.origin },
     ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
   }
 }
@@ -318,6 +319,7 @@ async function summarizeCold(
     // cold session is served as not-blank (its log holds its conversation).
     blank: false,
     ...meta.parentSession === undefined ? {} : { parentSessionId: meta.parentSession },
+    ...meta.origin === undefined ? {} : { origin: meta.origin },
     /* v8 ignore next -- the empty arm needs a cwd-less meta, but list()
     filters those out (legacy logs are not served); the conditional mirrors
     summarize() shape. */
@@ -2340,6 +2342,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               // has run no turn yet, so this is constantly true in practice.
               blank: sessionBlank(session),
               ...session.header.parentSession === undefined ? {} : { parentSessionId: session.header.parentSession },
+              ...session.header.origin === undefined ? {} : { origin: session.header.origin },
               // cwd rides the frame so the client list needs no refresh to group the new session.
               ...session.header.cwd === undefined ? {} : { cwd: session.header.cwd },
             }))

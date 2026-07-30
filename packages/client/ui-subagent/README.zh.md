@@ -8,6 +8,8 @@ Web subagent 功能 owner：向 `conversation.session.header.actions` 贡献可�
 
 已寻址 child 没有确切的存活 parent 时，会选中只读编辑器配置项并说明恢复路径。parent 存活时，child 保留普通输入 chrome，其 Session 会通过 `subagent.prompt` 路由；本包绝不接收宿主 context，也不调用面向模型的工具。目录与编辑器行为由 [Web subagent 对话 Agent Note](../../../.agents/notes/implemented/feature/2026-07-27-web-subagent-conversations.md)规定。
 
+普通侧边栏会省略带 subagent origin 的 Session 行，因此 parent 页头目录是它们的导航入口。普通 fork 仍保留在侧边栏中。
+
 `@` source 仍然刻意保持独立且惰性。候选是从 `ctx.sessions.list` 零 RPC 得到的运行中 child；pick 会插入字面文本 `@label `，codec 投影为 `@label`。它不参与命令裁决，也不会把 label 解析成继续执行地址。
 
 ## 模型体验
@@ -29,5 +31,4 @@ Web subagent 功能 owner：向 `conversation.session.header.actions` 贡献可�
 ## 已知限制与暂缓事项
 
 - **目录只有粗粒度存活状态**：它不能显示持久化结果、耗时、确切的 Activation 状态或正确的取消按钮。
-- **侧边栏仍包含 child Session**：完全去重需要可扩展的持久化分类器，且不得误隐藏普通 fork。
 - **`@` 引用仍是显示标题文本**：重复或改名后的 label 会有歧义，因此它们刻意不获得继续执行语义。

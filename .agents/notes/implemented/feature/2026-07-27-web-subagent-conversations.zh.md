@@ -29,7 +29,7 @@ Figma 中的 [subagent 列表](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5
 | 会话页头显示 subagent 数量，并可打开紧凑列表。 | 页头操作显示直接持久化目录，其中包括健康条目和显式 diagnostic 行。 |
 | 选择条目后，系统会使用普通对话 chrome、标题、transcript 与输入框打开 child。 | child 复用对话 UI，但历史和输入通过已寻址的 subagent RPC 路由。只有确切的 parent Agent 存活时，输入框才发送用户后续消息；否则会说明当前为只读状态。 |
 | 用户可以逐层浏览嵌套 agent。 | 展开某一行时，只加载该 child 的直接目录，并将其插入为下一层树节点。客户端绝不会物化预先加载的递归目录。 |
-| 条目显示 label、活动状态点与相对时间，侧边栏则移除原有 subagent 树。 | label 与粗粒度的 `running` 或 `inactive` 活动状态来自目录。由日志支撑的可选 title 与相对最近活动时间来自普通会话摘要；它们不是 Activation 结果或耗时。侧边栏完全去重仍然暂缓。 |
+| 条目显示 label、活动状态点与相对时间，侧边栏则省略重复的 subagent 行。 | label 与粗粒度的 `running` 或 `inactive` 活动状态来自目录。由日志支撑的可选 title 与相对最近活动时间来自普通会话摘要；它们不是 Activation 结果或耗时。持久化的粗粒度 `SessionHeader.origin` 分类会移除重复的 subagent 行，同时不会隐藏普通 fork。 |
 
 ## 产品契约
 
@@ -61,7 +61,7 @@ mux 仍然是实时事件路径。仅查看持久化 child 的历史不会产生
 
 ## 客户端对象层与呈现
 
-不依赖 React 的客户端运行时将负责持久化目录快照、进行中的刷新、subagent 地址及提示词／历史路由。打开目录中的 child 时，系统会先记录其 `{ parentSessionId, childSessionId }` 地址，再打开常驻的 `Session`；该 Session 使用 `subagent.history` 与 `subagent.prompt`，普通会话则保持现有传输路径。只有从目录中发现的 child 地址，才能作为浏览器选择这条路由的事实；单凭 `parentId` 不足以判断，因为普通 fork 也使用同一个谱系字段。
+不依赖 React 的客户端运行时将负责持久化目录快照、进行中的刷新、subagent 地址及提示词／历史路由。打开目录中的 child 时，系统会先记录其 `{ parentSessionId, childSessionId }` 地址，再打开常驻的 `Session`；该 Session 使用 `subagent.history` 与 `subagent.prompt`，普通会话则保持现有传输路径。通过普通选择路径再次选择同一 child 时，会保留已知地址，避免导航操作静默切换传输。只有从目录中发现的 child 地址，才能作为浏览器选择这条路由的事实；单凭 `parentId` 或 `origin` 都不足以判断，因为普通 fork 也使用同一个谱系字段，而 origin 只是呈现分类器。
 
 目录数据通过 `useSessions` 消费的现有会话快照投影，而不会放入组件 store，也不会通过功能自定义钩子公开。树还从同一份快照读取普通会话摘要，用于显示可选 title 与最近活动时间。根目录或某个已展开后代的目录打开期间，其消费方会像 workspaces manager 那样挂到现有的宿主帧分发上：命中某个已列出 child 的 `host/session-status` 帧会通过与普通会话 `running` 相同的乐观 mutation 路径就地翻转该 child 的 `running`／`inactive` 活动状态，且不重新拉取 `subagent.list`。parent 与某个已打开分支匹配的 `host/session-added` 帧会触发一次去抖动、单次并发（single-flight）的 `subagent.list` 重新拉取，以纳入新成员及其 label 与描述符。组件局部状态负责下拉菜单可见性、已展开分支 id 与键盘焦点。
 
@@ -91,7 +91,7 @@ mux 仍然是实时事件路径。仅查看持久化 child 的历史不会产生
 
 **构建预先加载的递归树。** 不予采纳，因为 `listChildren()` 只查询直接 child，而且可能扫描每份候选日志。界面通过懒加载的直接 child 查询组合出递归树，既保留每份目录的排序与 diagnostic 语义，又不会在用户看不到的层级中成倍增加工作量。
 
-**从侧边栏会话树中移除所有 subagent。** 暂缓，因为 `session.list` 公开谱系，却不公开可继续身份；目录又按 parent 寻址，而不是一种低成本的全局分类器。隐藏所有 child 会话还会隐藏普通 fork。页头将成为权威的 subagent 入口；侧边栏要完全去重，仍需等待可扩展的持久化投影。
+**从谱系推断侧边栏过滤，或扫描全局目录。** 不予采纳，因为普通 fork 共享 `parentSession`，而全局目录扫描按 parent 寻址，用作导航分类器成本过高。每个由进程内 subagent 支撑的会话会在发布前写入 `SessionHeader.origin: 'subagent'`；`session.list` 与 `host/session-added` 将其投影到客户端，共享侧边栏过滤器只省略这些行。页头目录仍然是导航入口与描述符权威来源；`origin` 绝不证明生命周期 mode、可恢复性或授权。
 
 **将目录变化作为专用服务端流推送。** 暂缓，转而复用现有的 `host/session-status` 与 `host/session-added` 分发。`subagent.catalog` 增量帧能让成员与 diagnostic 完全实时而无需任何重新拉取，但它是一项新的宿主协议契约，也是在持久化目录之上的实时投影——恰恰是[持久化目录](../../implemented/feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)留待规模验证的派生索引。第一版从现有存活帧翻转活动状态，只在成员变化时重新拉取。
 
@@ -106,6 +106,7 @@ mux 仍然是实时事件路径。仅查看持久化 child 的历史不会产生
 - 已列出的 `running` child 结算为 `inactive` 时，其活动状态会从实时帧流就地更新，而不重新拉取 `subagent.list`；新创建的直接 child 会在一次去抖动的重新拉取后出现。
 - parent 缺失时，child 仍然可读并拒绝输入，且不会自动恢复 parent。任何 child 历史、提示词或停止操作都不会调用普通 agent API。
 - 刷新和重新连接会通过 subagent 历史路径重建已寻址的 child，不重复事件，也不会丢失 cold resume 发布前后产生的事件。
+- 分组与扁平侧边栏都会省略 `origin: 'subagent'` 行，包括当前 child；普通 fork 行仍然可见。同一 child 的普通选择路径会保留目录派生地址，因此继续使用 subagent 历史／提示词路由。
 - 宿主协议测试固定 schema、id 回显、直接 parent 校验、非激活式历史、存活 parent 强制要求、错误映射以及 inbox 消息确认。客户端对象测试固定目录／地址状态与传输选择；jsdom 测试固定页头树、懒加载式嵌套展开、diagnostic、启用／只读输入框状态、键盘行为与草稿恢复。
 - 一项无密钥的组装 Web 快照展示已结算的可继续 child 与带描述符的已持久化 grandchild、在不物化 Activation 的情况下逐层展开目录、从持久化存储打开，以及让 cold-resume Activation 的 inbox 接受一次用户后续消息。
 
@@ -116,5 +117,5 @@ mux 仍然是实时事件路径。仅查看持久化 child 的历史不会产生
 - parent 可用性与 child 活动状态都是进程局部快照。列出之后，发布、Activation dispose、其他发送方或其他进程都可能抢先改变状态；明确的提示词失败属于正常行为，不是违反不变量。
 - child Activation 可能在历史获取与 mux 订阅之间发布。现有序号归并必须针对这条从冷态转为存活的 subagent 专用打开路径得到验证。
 - 将默认 Web 委派工具切换为可继续后台模式，会改变 `run_in_background` 面向模型的确认消息与持久性要求；快照覆盖必须与组合变更一同落地。
-- 暂时在侧边栏中保留 subagent 会产生两条导航路径。安全移除重复入口需要后续的持久化分类或全局投影，不能只在呈现层过滤。
+- 持久化 subagent origin 会给每个本地 child header 及其列表／增量投影增加一个粗粒度产品分类字段。它刻意弱于描述符与已寻址继续执行契约，因此导航去重不能变成授权捷径。
 - 该功能没有正确的取消按钮、持久化结果、Activation 耗时、删除、目录分页或可独立交互的离线 child。UI 不得暗示这些功能已经存在；其中的相对时间仅表示会话摘要给出的最近活动提示。

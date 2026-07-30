@@ -134,8 +134,13 @@ export class SessionManager {
     if (!this.summaries.some(summary => summary.sessionId === sessionId)) {
       throw new Error(`sessions.select: unknown session ${sessionId}`)
     }
-    this.addresses.delete(sessionId)
-    this.sessions.get(sessionId)?.configureSubagent(undefined)
+    const address = this.addresses.get(sessionId)
+    this.sessions.get(sessionId)?.configureSubagent(
+      address,
+      address === undefined
+        ? false
+        : this.catalogs.get(address.parentSessionId)?.parentAvailable ?? false,
+    )
     this.selected = sessionId
     void this.refreshSubagents(sessionId)
     this.notifier.notifyNow()
@@ -607,6 +612,7 @@ export class SessionManager {
         this.mergeSummary({
           sessionId: frame.sessionId, updatedAt: Date.now(), running: false, blank: frame.blank,
           ...(frame.parentSessionId !== undefined ? { parentSessionId: frame.parentSessionId } : {}),
+          ...(frame.origin !== undefined ? { origin: frame.origin } : {}),
           ...(frame.cwd !== undefined ? { cwd: frame.cwd } : {}),
         })
         this.sessions.get(frame.sessionId)?.handleBlank(frame.blank)
@@ -724,7 +730,7 @@ export class SessionManager {
         prev !== undefined && prev.updatedAt === entry.updatedAt && prev.running === entry.running
         && prev.blank === entry.blank
         && prev.parentSessionId === entry.parentSessionId && prev.cwd === entry.cwd
-        && prev.title === entry.title && prev.depth === entry.depth
+        && prev.origin === entry.origin && prev.title === entry.title && prev.depth === entry.depth
         && prev.waitingApproval === entry.waitingApproval
       ) return prev
       this.entryCache.set(entry.sessionId, entry)
@@ -766,9 +772,11 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
         ...(existing.cwd === undefined && mutation.summary.cwd !== undefined ? { cwd: mutation.summary.cwd } : {}),
         ...(existing.parentSessionId === undefined && mutation.summary.parentSessionId !== undefined
           ? { parentSessionId: mutation.summary.parentSessionId } : {}),
+        ...(existing.origin === undefined && mutation.summary.origin !== undefined
+          ? { origin: mutation.summary.origin } : {}),
       }
       if (filled.cwd === existing.cwd && filled.parentSessionId === existing.parentSessionId
-        && filled.blank === existing.blank) return [...summaries]
+        && filled.origin === existing.origin && filled.blank === existing.blank) return [...summaries]
       return summaries.map(summary => summary.sessionId === mutation.summary.sessionId ? filled : summary)
     }
     case 'remove':

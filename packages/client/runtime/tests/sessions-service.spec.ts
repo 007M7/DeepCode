@@ -28,7 +28,14 @@ function bench(): Bench {
 }
 
 /** Refresh the manager list from programmable rows and flush the microtask batch. */
-type FeedRow = { id: string; cwd?: string; parentId?: string; running?: boolean; blank?: boolean }
+type FeedRow = {
+  id: string
+  cwd?: string
+  parentId?: string
+  origin?: 'subagent'
+  running?: boolean
+  blank?: boolean
+}
 
 async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
   b.api.onList = () => Promise.resolve(ok({
@@ -36,6 +43,7 @@ async function feedList(b: Bench, rows: FeedRow[]): Promise<void> {
       sessionId: sid(r.id), updatedAt: 1, running: r.running ?? false, blank: r.blank ?? false,
       ...(r.cwd !== undefined ? { cwd: r.cwd } : {}),
       ...(r.parentId !== undefined ? { parentSessionId: sid(r.parentId) } : {}),
+      ...(r.origin !== undefined ? { origin: r.origin } : {}),
     })),
   }) as never)
   await b.svc.refresh()
@@ -51,12 +59,14 @@ describe('list store projection', () => {
     })
     await feedList(b, [
       { id: 's1', cwd: '/home/u/proj-a/' },
-      { id: 's2', parentId: 's1', running: true },
+      { id: 's2', parentId: 's1', origin: 'subagent', running: true },
     ])
     const state = b.svc.list.getSnapshot()
     expect(state.ids).toEqual(['s1', 's2'])
     expect(state.byId[sid('s1')]).toMatchObject({ title: 'Durable title', displayTitle: 'Durable title', cwd: '/home/u/proj-a/' })
-    expect(state.byId[sid('s2')]).toMatchObject({ displayTitle: 's2', parentId: 's1', running: true })
+    expect(state.byId[sid('s2')]).toMatchObject({
+      displayTitle: 's2', parentId: 's1', origin: 'subagent', running: true,
+    })
     expect(state.byId[sid('s2')]?.title).toBeUndefined()
   })
 

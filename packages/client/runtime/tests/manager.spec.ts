@@ -12,7 +12,13 @@ import { entries, plainTurn } from './event-script.ts'
 const S1 = 'fk-m1' as SessionId
 const S2 = 'fk-m2' as SessionId
 
-type SummaryOver = Partial<{ updatedAt: number; running: boolean; blank: boolean; parentSessionId: SessionId }>
+type SummaryOver = Partial<{
+  updatedAt: number
+  running: boolean
+  blank: boolean
+  parentSessionId: SessionId
+  origin: 'subagent'
+}>
 
 function summary(sessionId: SessionId, over: SummaryOver = {}) {
   return { sessionId, updatedAt: 100, running: false, blank: false, ...over }
@@ -273,10 +279,11 @@ describe('host frame routing', () => {
 })
 
 describe('subagent catalogs', () => {
-  it('selects only a catalog-discovered child and keeps its durable address across status frames', async () => {
+  it('keeps a catalog-discovered child address across ordinary selection and status frames', async () => {
     const api = new FakeApiClient()
     api.onList = () => Promise.resolve(ok({ items: [
       summary(S1),
+      summary(S2, { parentSessionId: S1, origin: 'subagent' }),
     ] as never[] }))
     api.onSubagentList = () => Promise.resolve(ok({
       entries: [{ kind: 'child', id: S2, label: 'worker', activity: 'running' }] as never[],
@@ -294,6 +301,26 @@ describe('subagent catalogs', () => {
       address: { parentSessionId: S1, childSessionId: S2 },
       parentAvailable: true,
     })
+    // Clicking the same child through an ordinary list-selection path must not
+    // erase the catalog-derived address and fall back to session.* transport.
+    manager.select(S2)
+    expect(manager.getListSnapshot().currentAddress).toEqual({
+      parentSessionId: S1, childSessionId: S2,
+    })
+    expect(manager.get(S2).getSnapshot().subagent).toEqual({
+      address: { parentSessionId: S1, childSessionId: S2 },
+      parentAvailable: true,
+    })
+    await manager.get(S2).open()
+    await manager.get(S2).prompt([{ type: 'text', text: 'continue' }], 'queue')
+    expect(api.callsOf('subagent.history')).toEqual([
+      { parentSessionId: S1, childSessionId: S2, maxMessages: 50 },
+    ])
+    expect(api.callsOf('subagent.prompt')).toEqual([
+      { parentSessionId: S1, childSessionId: S2, content: [{ type: 'text', text: 'continue' }] },
+    ])
+    expect(api.callsOf('session.history')).toEqual([])
+    expect(api.callsOf('session.prompt')).toEqual([])
     const listCalls = api.callsOf('subagent.list').length
     manager.handleHostEnvelope({
       rpcId: 'child-complete' as never,
@@ -490,9 +517,17 @@ describe('remaining branches', () => {
     const api = new FakeApiClient()
     const manager = new SessionManager(api)
     manager.handleHostEnvelope({ rpcId: 'h1' as never, payload: { type: 'host/session-added', blank: true, sessionId: S1 } })
-    manager.handleHostEnvelope({ rpcId: 'h2' as never, payload: { type: 'host/session-added', blank: true, sessionId: S2, parentSessionId: S1 } })
+    manager.handleHostEnvelope({
+      rpcId: 'h2' as never,
+      payload: {
+        type: 'host/session-added', blank: true, sessionId: S2,
+        parentSessionId: S1, origin: 'subagent',
+      },
+    })
     const items = manager.getListSnapshot().items
-    expect(items.find(e => e.sessionId === S2)).toMatchObject({ parentSessionId: S1, depth: 1 })
+    expect(items.find(e => e.sessionId === S2)).toMatchObject({
+      parentSessionId: S1, origin: 'subagent', depth: 1,
+    })
   })
 })
 

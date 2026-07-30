@@ -175,13 +175,16 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
-  it('persists the child depth in its session header', async () => {
+  it('persists the child origin and depth in its session header', async () => {
     const { ctx, parent } = await setup([textResponse('child answer')])
     const run = await startInProcessRun(request(parent), {})
     await run.result
     // The recursion budget is durable session data, not only runtime options —
     // a depth that lived only in AgentOptions would reset to 0 on resume.
-    expect(ctx.agents.get(run.id)!.session.header.delegationDepth).toBe(1)
+    expect(ctx.agents.get(run.id)!.session.header).toMatchObject({
+      origin: 'subagent',
+      delegationDepth: 1,
+    })
     await run.dispose()
   })
 

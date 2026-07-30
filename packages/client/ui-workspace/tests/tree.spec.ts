@@ -69,6 +69,22 @@ describe('deriveGroups', () => {
     expect(strayGroups.map(group => group.key)).toEqual(['first'])
   })
 
+  it('hides subagent-origin sessions without hiding ordinary forks', () => {
+    const parent = summary('parent', 1)
+    const fork = { ...summary('fork', 2), parentId: parent.id }
+    const subagent = { ...summary('subagent', 3), parentId: parent.id, origin: 'subagent' as const }
+    const sessions = { ...list(parent, fork, subagent), current: subagent.id }
+    const groups = deriveGroups(
+      sessions,
+      [workspace('first', ['parent', 'fork', 'subagent'])],
+      noArchive,
+      view(['first']),
+    )
+
+    expect(groups[0]!.sessions.map(node => node.id)).toEqual([parent.id, fork.id])
+    expect(groups[0]!.sessionCount).toBe(2)
+  })
+
   it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
     const parent = summary('parent', 1)
     const oldChild = { ...summary('old-child', 10), parentId: parent.id }
@@ -141,6 +157,17 @@ describe('deriveFlat', () => {
     const tieA = summary('tie-a', 20)
     const rows = deriveFlat(list(parent, child, tieB, tieA), noArchive)
     expect(rows.map(row => row.id)).toEqual([sid('child'), sid('tie-a'), sid('tie-b'), sid('parent')])
+  })
+
+  it('hides subagent-origin rows but keeps ordinary forks', () => {
+    const parent = summary('parent', 1)
+    const fork = { ...summary('fork', 2), parentId: parent.id }
+    const subagent = { ...summary('subagent', 3), parentId: parent.id, origin: 'subagent' as const }
+    const rows = deriveFlat(
+      { ...list(parent, fork, subagent), current: subagent.id },
+      noArchive,
+    )
+    expect(rows.map(row => row.id)).toEqual([fork.id, parent.id])
   })
 
   it('tolerates ids whose summary has not landed yet', () => {
