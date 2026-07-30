@@ -6,7 +6,6 @@ import type {
   ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
   SessionListState, SessionProvideDescriptor, SessionSearchResultItem, SessionSummary, SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type { RpcResult } from '@deepseek-ai/dsh-client-connection/client'
 // The double reports the wire schema's own search bound, like the production
 // service — a transport-varying limit would be a fiction no client can see.
 import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -410,10 +409,7 @@ export class TestSessions implements ISessions {
    * @param signal - cancellation for a superseded search (recorded and forwarded).
    * @returns the stubbed or empty result page.
    */
-  search(
-    query: string,
-    signal: AbortSignal,
-  ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
+  search(query: string, signal: AbortSignal): ReturnType<ISessions['search']> {
     this.calls.push({ method: 'search', args: [query, signal] })
     return Promise.resolve({ ok: true, value: this.searchStub?.(query, signal) ?? { items: [], hasMore: false } })
   }

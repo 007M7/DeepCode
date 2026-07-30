@@ -24,9 +24,6 @@
       "path": "../../support/invariants"
     },
     {
-      "path": "../connection"
-    },
-    {
       "path": "../../host/apiproxy"
     }
   ]
