@@ -65,7 +65,7 @@ function InformationIcon(): ReactNode {
       data-role-icon="information"
       aria-hidden="true"
     >
-      <circle cx="8" cy="8" r="5.6" />
+      <circle cx="8" cy="8" r="6" />
       <circle cx="8" cy="5.5" r=".85" fill="currentColor" stroke="none" />
       <path d="M8 7.75v3.4" strokeWidth="1.8" />
     </svg>
