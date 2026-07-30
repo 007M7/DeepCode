@@ -11,7 +11,7 @@
   - img
 - button "Search sessions":
   - img
-- textbox "Search names or content…"
+- textbox "Search name, keywords..."
 - tree "Sessions":
   - treeitem "workspace 1 session" [expanded]:
     - img
