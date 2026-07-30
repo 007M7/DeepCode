@@ -62,9 +62,9 @@ export type MuxFrame =
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * Complete next-turn queue baseline emitted when a mux stream opens. Live
-   * mutations arrive through durable `agent/inbox/spliced` session events.
-   * Pending next-step input is outside this Web queue projection.
+   * Complete next-turn queue snapshot emitted when a mux stream opens and
+   * after every live next-turn mutation. Pending next-step input is outside
+   * this Web queue projection.
    */
   | { type: 'session/queue'; sessionId: SessionId; items: UserMessage[] }
   /**

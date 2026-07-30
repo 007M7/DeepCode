@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import { z } from 'zod'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -53,9 +53,8 @@ async function harness(withRegistry: boolean): Promise<{ ctx: Context; session: 
   await ctx.plugin(AgentRegistry)
   if (withRegistry) await ctx.plugin(SessionProjectionRegistry)
   const session = ctx.sessions.create()
-  // history resolves the agent first; a live structural stub is enough (only
-  // .session is read on this path).
-  ctx.agents.register({ id: session.id, session, status: 'idle', ctx } as Agent)
+  // The gateway reads both the session and durable inbox baseline.
+  ctx.agents.register({ id: session.id, session, inbox: new Inbox(session), status: 'idle', ctx } as Agent)
   return { ctx, session }
 }
 

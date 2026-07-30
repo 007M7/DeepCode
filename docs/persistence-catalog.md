@@ -87,7 +87,11 @@ Sources: [`packages/core/session/src/types.ts:258`](../packages/core/session/src
 #### `agent/inbox/spliced` — log-only
 
 ```ts persistence-catalog
-/** One normalized mutation of an agent's durable pending-message lists. */
+/**
+ * One normalized mutation of an agent's durable pending-message lists.
+ * Live dispatch precedes projection mutation, so synchronous observers may
+ * read the pre-splice inbox to recover the removed messages.
+ */
 'agent/inbox/spliced': {
   target: InboxTarget
   start: number
@@ -97,7 +101,7 @@ Sources: [`packages/core/session/src/types.ts:258`](../packages/core/session/src
 }
 ```
 
-Source: [`packages/core/agent/src/types.ts:268`](../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:272`](../packages/core/agent/src/types.ts)
 
 ### `approval/*`
 

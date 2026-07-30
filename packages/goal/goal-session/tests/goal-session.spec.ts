@@ -735,7 +735,7 @@ describe('same-session goal driving', () => {
       activation: 'disarmed',
       roundsStarted: 1,
     })
-    await test.agent.whenIdle()
+    expect(test.agent.status).toBe('idle')
     expect(test.adapter.requests).toHaveLength(1)
   })
 

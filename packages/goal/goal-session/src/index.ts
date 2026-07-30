@@ -418,6 +418,7 @@ export function apply(ctx: Context): void {
           attempt.stale = true
           if (attempt.phase === 'admitted' && state.agent.status === 'running') {
             state.agent.cancel({ kind: 'parent' })
+            waits.push(state.agent.whenIdle())
           }
         }
         if (state.run !== undefined) waits.push(state.run)

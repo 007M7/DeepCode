@@ -144,10 +144,10 @@ export class ReactLoopAgent implements Agent {
   }
 
   private async admit(onTurnBoundary: boolean): Promise<Admission> {
-    if (this.phase.kind !== 'running') throw new Error()
+    if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": admit outside running phase`)
     const signal = this.phase.abort.signal
     const claimed = [...this.inbox.nextStep]
-    const outboxLength = this.inbox.nextStep.length
+    const outboxLength = claimed.length
     const queued = onTurnBoundary ? this.inbox.nextTurn[0] : undefined
     if (queued !== undefined) claimed.push(queued)
     if (claimed.length === 0) return { kind: 'empty' }
@@ -167,7 +167,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Admitted input stays unowned until `turn/start` commits. */
   private async turn(): Promise<boolean> {
-    if (this.phase.kind === 'idle') throw new Error()
+    if (this.phase.kind === 'idle') throw new Error(`agent "${this.id}": turn without driver reservation`)
     const abort = this.phase.kind === 'collecting' ? this.phase.abort : new AbortController()
     const { signal } = abort
     const lastTurn = this.phase.kind === 'collecting' ? this.phase.lastTurn : this.phase.turn
@@ -227,7 +227,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   private async step(): Promise<TurnEndReason | null> {
-    if (this.phase.kind !== 'running') throw new Error()
+    if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
     const { turn, step, abort: { signal } } = this.phase
     signal.throwIfAborted()
     await this.loopCtx.serial(agentCarrier(this), 'agent/step', this, turn, step, signal)

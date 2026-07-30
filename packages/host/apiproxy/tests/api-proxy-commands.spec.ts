@@ -20,7 +20,7 @@ import ToolRegistry from '@deepseek-ai/dsh-tools'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import CommandService from '@deepseek-ai/dsh-commands'
 import SkillService from '@deepseek-ai/dsh-skill'
-import type { HostFrame, MuxFrame } from '../src/api/index.ts'
+import type { HostFrame } from '../src/api/index.ts'
 import type { RpcRequest, RpcResponse } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { createApiProxy } from '../src/api-proxy.ts'
@@ -83,6 +83,13 @@ async function collect<F>(iterable: AsyncIterable<RpcRequest<F>>, count: number,
     if (frames.length >= count) abort.abort()
   }
   return frames
+}
+
+/** Read the next payload from an open stream. */
+async function nextFrame<F>(iterator: AsyncIterator<RpcRequest<F>>): Promise<F> {
+  const result = await iterator.next()
+  if (result.done) throw new Error('stream ended')
+  return result.value.payload
 }
 
 describe('command.list', () => {
@@ -332,23 +339,40 @@ describe('session.updateQueue', () => {
 })
 
 describe('session/queue frames', () => {
-  it('publishes the durable next-turn baseline without duplicating message identity', async () => {
+  it('publishes authoritative next-turn snapshots without duplicating message identity', async () => {
     const ctx = await harness()
     const api = createApiProxy(ctx, DEFAULTS)
     const agent = stubAgent(ctx)
     const queued = inboxMessage('m-1', 'queued prompt')
+    const edited = inboxMessage('m-1', 'edited prompt')
     const steering = inboxMessage('m-2', 'steering prompt')
     agent.inbox.splice('next-turn', 0, 0, [queued])
     agent.inbox.splice('next-step', 0, 0, [steering])
 
     const abort = new AbortController()
-    const frames = await collect<MuxFrame>(
-      api.events.mux({ rpcId: RpcId('t-mux-baseline'), payload: {} }, abort.signal), 2, abort)
+    const iterator = api.events.mux({
+      rpcId: RpcId('t-mux-baseline'),
+      payload: {},
+    }, abort.signal)[Symbol.asyncIterator]()
+    const frames = [
+      await nextFrame(iterator),
+      await nextFrame(iterator),
+    ]
+    agent.inbox.splice('next-turn', 0, 1, [edited])
+    frames.push(await nextFrame(iterator), await nextFrame(iterator))
+    abort.abort()
+    await iterator.return?.()
+
     expect(frames.filter(frame => frame.type === 'session/queue')).toEqual([
       {
         type: 'session/queue',
         sessionId: agent.id,
         items: [queued],
+      },
+      {
+        type: 'session/queue',
+        sessionId: agent.id,
+        items: [edited],
       },
     ])
   })

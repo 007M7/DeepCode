@@ -44,6 +44,9 @@ export class Inbox {
 
   /**
    * Apply standard splice semantics and durably record the normalized result.
+   * The durable event commits before the live projection mutates, so synchronous
+   * `session/event` observers see the pre-splice lists and can reconstruct the
+   * removed messages from the normalized coordinates.
    * @param target - pending list to mutate.
    * @param start - splice position.
    * @param deleteCount - maximum number of messages to remove.
@@ -59,12 +62,14 @@ export class Inbox {
     outcome?: 'admitted' | 'canceled',
   ): UserMessage[] {
     const inbox = this.state[target]
-    const offset = Math.trunc(start) || 0
+    const truncatedStart = Math.trunc(start)
+    const offset = Number.isNaN(truncatedStart) ? 0 : truncatedStart
     const actualStart = offset < 0
       ? Math.max(inbox.length + offset, 0)
       : Math.min(offset, inbox.length)
+    const truncatedDeleteCount = Math.trunc(deleteCount)
     const actualDeleteCount = Math.min(
-      Math.max(Math.trunc(deleteCount) || 0, 0),
+      Math.max(Number.isNaN(truncatedDeleteCount) ? 0 : truncatedDeleteCount, 0),
       inbox.length - actualStart,
     )
     if (actualDeleteCount === 0 && inserted.length === 0) return []

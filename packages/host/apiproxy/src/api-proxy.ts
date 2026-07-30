@@ -1502,6 +1502,20 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             const view = viewFor(ctx, event, callId =>
               openCalls.get(session.id)?.get(callId) ?? backscanArgs(session.events, callId))
             queue.push(frame({ type: 'session/event', sessionId: session.id, event, ...view === undefined ? {} : { view } }))
+            if (event.type === 'agent/inbox/spliced' && event.data.target === 'next-turn') {
+              const agent = ctx.agents.get(session.id)
+              if (agent?.session === session) {
+                queue.push(frame({
+                  type: 'session/queue',
+                  sessionId: session.id,
+                  items: agent.inbox.nextTurn.toSpliced(
+                    event.data.start,
+                    event.data.removedCount ?? 0,
+                    ...event.data.inserted,
+                  ),
+                }))
+              }
+            }
           }),
           ctx.on('session/created', (session: Session) => {
             subscribeSession(queue, session)

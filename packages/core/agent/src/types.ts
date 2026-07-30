@@ -264,7 +264,11 @@ declare module 'cordis' {
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
-    /** One normalized mutation of an agent's durable pending-message lists. */
+    /**
+     * One normalized mutation of an agent's durable pending-message lists.
+     * Live dispatch precedes projection mutation, so synchronous observers may
+     * read the pre-splice inbox to recover the removed messages.
+     */
     'agent/inbox/spliced': {
       target: InboxTarget
       start: number
