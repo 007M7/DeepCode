@@ -637,6 +637,12 @@ describe('config unary surface', () => {
     expect(updated.result).toEqual({ ok: true, value: view })
     const replaced = await c.settings.replace({ ns: 'llm-deepseek', section: {} })
     expect(replaced.result).toEqual({ ok: true, value: view })
+    const mutated = await c.settings.mutate({
+      ns: 'llm-deepseek',
+      ops: [{ op: 'unset', path: ['baseURL'] }],
+      expectedRevision: 0,
+    })
+    expect(mutated.result).toEqual({ ok: true, value: view })
     const creds = await c.credentials.describe({ refs: ['OPENAI_API_KEY'] })
     expect(creds.result).toEqual({ ok: true, value: { credentials: { OPENAI_API_KEY: { configured: true, source: 'file', writable: true } } } })
     expect((await c.credentials.set({ ref: 'OPENAI_API_KEY', value: 'sk-x' })).result).toEqual({ ok: true, value: {} })
@@ -647,12 +653,14 @@ describe('config unary surface', () => {
     expect(models.result).toEqual({ ok: true, value: { groups: [group], failures: [] } })
 
     expect(seen.map(call => call.method)).toEqual([
-      'settings.describe', 'settings.update', 'settings.replace',
+      'settings.describe', 'settings.update', 'settings.replace', 'settings.mutate',
       'credentials.describe', 'credentials.set', 'credentials.unset',
       'llm.providers', 'llm.models',
     ])
     expect(seen[1]?.payload).toEqual({ ns: 'llm-deepseek', patch: { baseURL: 'https://next' } })
-    expect(seen[4]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
+    expect(seen[3]?.payload)
+      .toEqual({ ns: 'llm-deepseek', ops: [{ op: 'unset', path: ['baseURL'] }], expectedRevision: 0 })
+    expect(seen[5]?.payload).toEqual({ ref: 'OPENAI_API_KEY', value: 'sk-x' })
   })
 
   it('rejects an invalid credential reference name at the carrier boundary', async () => {
