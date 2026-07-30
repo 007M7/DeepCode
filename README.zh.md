@@ -85,3 +85,5 @@ DeepSeek Harness 目前处于预发布阶段。
 ## 许可证
 
 [BSD 3-Clause](LICENSE)
+
+第三方依赖及其许可证在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中披露。
