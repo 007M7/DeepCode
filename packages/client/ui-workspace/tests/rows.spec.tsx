@@ -59,11 +59,11 @@ describe('workspace browser rows', () => {
   it('renders and operates selected, running, recursive Session nodes', () => {
     const child: SessionNode = {
       id: sid('child'), title: 'Child', children: [], hasChildren: false,
-      expanded: false, running: false, updatedAt: 0,
+      expanded: false, waitingApproval: false, running: false, updatedAt: 0,
     }
     const parent: SessionNode = {
       id: sid('parent'), title: 'Parent', children: [child], hasChildren: true,
-      expanded: true, running: true, updatedAt: 0,
+      expanded: true, waitingApproval: false, running: true, updatedAt: 0,
     }
     const onOpen = vi.fn()
     const onToggle = vi.fn()
@@ -142,7 +142,7 @@ describe('workspace browser rows', () => {
     const onRename = vi.fn()
     const node: SessionNode = {
       id: sid('s1'), title: 'One', children: [], hasChildren: false,
-      expanded: false, running: false, updatedAt: 0,
+      expanded: false, waitingApproval: false, running: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={onOpen}
       onRename={onRename} onToggle={vi.fn()} />)
@@ -169,7 +169,7 @@ describe('workspace browser rows', () => {
   it('flat variant renders no twist even for a parent and ignores toggling', () => {
     const node: SessionNode = {
       id: sid('p'), title: 'Parent', children: [], hasChildren: true,
-      expanded: false, running: false, updatedAt: 0,
+      expanded: false, waitingApproval: false, running: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
       onRename={vi.fn()} onToggle={vi.fn()} flat />)
@@ -181,7 +181,7 @@ describe('workspace browser rows', () => {
     try {
       const node: SessionNode = {
         id: sid('s1'), title: 'Hovered', children: [], hasChildren: false,
-        expanded: false, running: true, updatedAt: 0,
+        expanded: false, waitingApproval: false, running: true, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={60_000} onOpen={vi.fn()}
         onRename={vi.fn()} onToggle={vi.fn()} />)
@@ -203,12 +203,34 @@ describe('workspace browser rows', () => {
     }
   })
 
+  it('shows approval waiting as warning ahead of the running state', () => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid('approval'), title: 'Needs approval', children: [], hasChildren: false,
+        expanded: false, waitingApproval: true, running: true, updatedAt: 0,
+      }
+      render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onToggle={vi.fn()} />)
+      const row = screen.getByRole('treeitem')
+      expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
+      expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
+
+      fireEvent.pointerEnter(row.parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getByText('Waiting for approval')).toBeTruthy()
+      expect(document.querySelectorAll('[data-state="warning"]')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('idle hover card shows the Idle status line', () => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
         id: sid('s1'), title: 'Quiet', children: [], hasChildren: false,
-        expanded: false, running: false, updatedAt: 0,
+        expanded: false, waitingApproval: false, running: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} depth={0} currentId={undefined} now={0} onOpen={vi.fn()}
         onRename={vi.fn()} onToggle={vi.fn()} />)
@@ -224,7 +246,7 @@ describe('workspace browser rows', () => {
   it('draggable row wires start/end and gates hover/drop on an active same-group drag', () => {
     const node: SessionNode = {
       id: sid('s1'), title: 'Drag me', children: [], hasChildren: false,
-      expanded: false, running: false, updatedAt: 0,
+      expanded: false, waitingApproval: false, running: false, updatedAt: 0,
     }
     const inactive = dragProps()
     const { rerender } = render(

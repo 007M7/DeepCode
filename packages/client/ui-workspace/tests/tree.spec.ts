@@ -33,6 +33,14 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('older'), sid('newer')])
   })
 
+  it('projects approval-waiting state into grouped and flat rows', () => {
+    const awaiting = { ...summary('awaiting', 10), waitingApproval: true, running: true }
+    const sessions = list(awaiting)
+    const grouped = deriveGroups(sessions, [workspace('project', ['awaiting'])], view(['project']))
+    expect(grouped[0]!.sessions[0]).toMatchObject({ waitingApproval: true, running: true })
+    expect(deriveFlat(sessions, { query: '' })[0]).toMatchObject({ waitingApproval: true, running: true })
+  })
+
   it('puts only real unaccounted Sessions in the trailing Ungrouped group', () => {
     const sessions = list(summary('owned', 1, '/projects/first'), summary('loose', 9, '/other'))
     const groups = deriveGroups(sessions, [workspace('first', ['owned'])], view([UNGROUPED_KEY]))

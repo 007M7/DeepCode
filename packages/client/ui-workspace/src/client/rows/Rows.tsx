@@ -121,15 +121,23 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
  * @param props.onToggle - unfold/fold a subtree by id.
  * @returns the node's row followed by its children.
  */
-/** Hover-card body: full title, relative time, and the status line (running/idle until wire status lands). */
+/** Session status presentation; approval waiting outranks the underlying running state. */
+function sessionStatus(node: SessionNode): { state: 'warning' | 'ongoing' | 'done'; label: string } {
+  if (node.waitingApproval) return { state: 'warning', label: 'Waiting for approval' }
+  if (node.running) return { state: 'ongoing', label: 'Running' }
+  return { state: 'done', label: 'Idle' }
+}
+
+/** Hover-card body: full title, relative time, and approval/running/idle status. */
 function SessionHoverContent({ node, now }: { node: SessionNode; now: number }) {
+  const status = sessionStatus(node)
   return (
     <div className={css.hoverContent}>
       <div className={css.hoverTitle}>{node.title}</div>
       <div className={css.hoverTime}>{`${formatRelativeTime(node.updatedAt, now)} ago`}</div>
       <div className={css.hoverStatus}>
-        <StateDot state={node.running ? 'ongoing' : 'done'} />
-        <span>{node.running ? 'Running' : 'Idle'}</span>
+        <StateDot state={status.state} />
+        <span>{status.label}</span>
       </div>
     </div>
   )
@@ -175,6 +183,7 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename,
 }) {
   const row = node
   const selected = node.id === currentId
+  const status = sessionStatus(node)
   const [menuOpen, setMenuOpen] = useState(false)
   // Rail (figma session cell: pad 8, twist slot 16, status slot 16, gap 4 to
   // the title): both slots are always reserved so titles align whether or not
@@ -226,7 +235,7 @@ export function SessionNodeItem({ node, depth, currentId, now, onOpen, onRename,
           </button>
         )
         : null}
-      <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
+      <span className={css.slot}>{(row.waitingApproval || row.running) && <StateDot state={status.state} />}</span>
       <span className={css.title}>{row.title}</span>
       <span className={css.time}>{formatRelativeTime(row.updatedAt, now)}</span>
       <span className={css.rowActions}>
