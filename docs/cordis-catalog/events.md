@@ -32,7 +32,7 @@ Effective broad cancellation was requested, before queued/outbox work is cleared
 
 Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:289`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -54,7 +54,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:221`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -74,7 +74,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -96,7 +96,7 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:403`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:433`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -108,18 +108,16 @@ The driver claimed one item out of the inbox: a queued item at a turn boundary, 
  * boundary, or steering drained between steps. Fires after the item leaves
  * its FIFO and before it becomes a durable message.
  * @param agent - the agent whose inbox item was claimed.
- * @param message - the claimed message.
- * @param placement - the FIFO that claimed this occurrence; together with
- *   `message.id`, it matches the earliest outstanding enqueue in that FIFO.
+ * @param item - the exact claimed occurrence.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/dequeue'( this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement, ): void
+'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [InboxPlacement](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:262`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:297`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discard` — emit
 
@@ -133,16 +131,16 @@ Pending inbox items were dropped without delivering them, so every enqueue occur
  * emits this after `agent/cancel-requested` when applicable and before
  * aborting the active work. Fires once per drop with every dropped item.
  * @param agent - the agent whose inbox items were dropped.
- * @param messages - the discarded messages in FIFO order (queued then steering); never empty.
+ * @param items - the discarded occurrences in FIFO order (queued then steering); never empty.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[]): void
+'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, items: InboxItem[]): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:279`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:309`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/enqueue` — emit
 
@@ -154,17 +152,36 @@ An item entered the queued or steering inbox. `placement` is the acceptance-time
  * acceptance-time routing result; listeners must not reconstruct it from
  * later agent or session state.
  * @param agent - the owning agent.
- * @param message - accepted content, source, and correlation identity.
- * @param placement - resolved queued or steering placement.
+ * @param item - accepted occurrence, message, and resolved placement.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode emit
  */
-'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, message: UserMessage, placement: InboxPlacement): void
+'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [InboxPlacement](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:278`](../../packages/core/agent/src/types.ts)
+
+### `agent/inbox/update` — emit
+
+A still-pending queued item changed content. The item id, placement, and position remain stable while the event carries the replacement message.
+
+```ts cordis-catalog
+/**
+ * A still-pending queued item changed content. The item id, placement, and
+ * position remain stable while the event carries the replacement message.
+ * @param agent - the owning agent.
+ * @param item - the complete post-update occurrence.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/update'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
+
+Source: [`packages/core/agent/src/types.ts:287`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -187,7 +204,7 @@ Allow, rewrite, or block one claimed prompt before it becomes a user message or 
 
 Types: [Agent](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:316`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -211,7 +228,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:342`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:372`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -241,7 +258,7 @@ Handle a model-request failure after its failed step has closed but before the f
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:361`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:391`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -263,7 +280,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:302`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
 
 ### `agent/settled` — emit
 
@@ -288,7 +305,7 @@ One drain chain reached its terminal turn: that turn's `turn/end` is already com
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:390`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:420`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -308,7 +325,7 @@ Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` s
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:239`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:268`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step` — serial
 
@@ -332,7 +349,7 @@ Awaited serial checkpoint before EVERY request of a turn is built (the first as 
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:329`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -358,7 +375,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:376`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:406`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

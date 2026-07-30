@@ -1,30 +1,114 @@
-/* Neutral stacked strip above the input (queue rows are informational, not a warn state). */
+/* Figma .FileContainerText 1:791: 776px wrapper around the inset 752px panel. */
 
 .dock {
-  margin: 6px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--dsw-alias-separator-primary);
-  border-radius: 10px;
-  background: var(--dsw-alias-bg-base);
+  box-sizing: border-box;
+  flex: none;
+  width: 100%;
+  max-width: 776px;
+  /* Eat InputBar's 6px top padding and tuck the panel 2px under the card;
+     the later composer sibling paints its surface and shadow over this edge. */
+  margin: 0 auto -10px;
+  padding: 2px 12px;
 }
 
-.title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-secondary);
+.panel {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  padding-top: 2px;
+  border-radius: 14px 14px 0 0;
+  background: var(--dsw-specific-tip);
+}
+
+.panel::after {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-bottom: none;
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
 }
 
 .list {
-  margin: 4px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  padding: 4px 5px 4px 12px;
+  border-radius: 8px;
+}
+
+.preview,
+.editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: var(--dsw-font-xs-13);
+  font-family: Inter, var(--dsw-font-family);
+}
+
+.preview {
   overflow: hidden;
-  font-size: 12px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-  white-space: nowrap;
+  color: var(--dsw-alias-label-primary-dimmed);
   text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-word;
+}
+
+.editor {
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  outline: none;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+.editor:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.action {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-tertiary);
+  outline-offset: -2px;
+}
+
+.action:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
