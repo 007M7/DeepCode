@@ -326,10 +326,24 @@ export function apply(ctx: Context, config: AcpConfig): void {
     closed = true
     const records = [...sessions.values()]
     sessions.clear()
-    quiescing = Promise.all(records.map(async (record) => {
-      settlePrompt(record, 'cancelled')
-      await record.dispose()
-    })).then(() => {})
+    quiescing = (async () => {
+      // Continuable subagents outlive the turn that started them, and their
+      // Activations own descendant teardown. Drain that forest child-first
+      // BEFORE disposing the top-level agents, so no descendant is left holding
+      // a runtime its owner already released.
+      const subagents = ctx.get('subagents')
+      if (subagents !== undefined) {
+        try {
+          await subagents.drainContinuable()
+        } catch (error: unknown) {
+          logger.warn(`acp: continuable subagent teardown failed: ${String(error)}`)
+        }
+      }
+      await Promise.all(records.map(async (record) => {
+        settlePrompt(record, 'cancelled')
+        await record.dispose()
+      }))
+    })()
     return quiescing
   }
 
