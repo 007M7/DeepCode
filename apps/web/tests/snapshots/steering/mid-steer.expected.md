@@ -11,40 +11,28 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
-- text: "Tool call ask_user_question · {\"questions\": [{\"id\": \"checkpoint\", \"question\": \"Ready to continue?\", \"header\": \"Checkpoint\", \"options\": [{\"label\": \"Yes\"}, {\"label\": \"No\"}]}]} cache hit 98% · 7,946 tokens · 1 turns · 1 steps"
+- text: Ask question waiting
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]
-  - text: 1 / 1
-  - button "上一题" [disabled]:
-    - img
-  - button "下一题" [disabled]:
-    - img
-  - button "放弃整组问题":
+  - button "Dismiss all questions":
     - img
   - radiogroup:
-    - radio "Yes":
-      - text: 1 Yes
-      - img
-    - radio "No":
-      - text: 2 No
-      - img
-    - button "其他，请填写自定义答案":
-      - img
-      - text: 其他，请填写自定义答案
+    - radio "Yes": 1 Yes
+    - radio "No": 2 No
+    - textbox "Type your answer"
+  - button "Previous question" [disabled]:
+    - img
+  - text: 1 / 1
+  - button "Next question" [disabled]:
+    - img
   - status
-  - button "跳过本题"
-  - button "提交" [disabled]
+  - button "Skip this question"
+  - button "Submit" [disabled]

@@ -11,7 +11,7 @@
 
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
@@ -31,6 +31,8 @@ const testsDir = dirOf(import.meta.url)
 const snapshotsDir = join(testsDir, 'snapshots')
 const liveConfig = join(testsDir, '..', 'cordis.yml')
 const replayConfig = join(testsDir, '..', 'cordis.snapshot.yml')
+const persistentToolsLiveConfig = join(testsDir, '..', 'persistent-tools.cordis.yml')
+const persistentToolsReplayConfig = join(testsDir, '..', 'persistent-tools.snapshot.cordis.yml')
 const runtimeBin = fileURLToPath(new URL('../../../packages/examples/jsonrpc-demo/src/bin.ts', import.meta.url))
 const repoTsconfig = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 
@@ -51,6 +53,12 @@ interface SdkScenario {
   sessionId: string
   /** How many child sessions the turn persists (subagent scenarios). */
   children: number
+  /** Optional scenario-specific live and replay compositions. */
+  configs?: { live: string; replay: string }
+  /** Cwd-relative files whose final contents are part of the scenario contract. */
+  expectedFiles?: Readonly<Record<string, string>>
+  /** Assembled model-facing tool names and required argument keys. */
+  expectedTools?: Readonly<Record<string, readonly string[]>>
 }
 
 const SCENARIOS: SdkScenario[] = [
@@ -72,12 +80,25 @@ const SCENARIOS: SdkScenario[] = [
     sessionId: 'sdk-snapshot-subagent',
     children: 1,
   },
+  {
+    name: 'persistent-tools',
+    prompt: 'Prove that bash state persists. Then create {{cwd}}/note.txt with a tab-indented line, view it, replace that literal tab-indented line, and make the persistent shell exit with code 9.',
+    sessionId: 'persistent-tools-snapshot',
+    children: 0,
+    configs: { live: persistentToolsLiveConfig, replay: persistentToolsReplayConfig },
+    expectedFiles: { 'note.txt': 'target:\n\tnew\n' },
+    expectedTools: { bash: ['command'], str_replace_editor: ['command', 'path'] },
+  },
 ]
 
 interface PersistedLog {
   readonly path: string
   readonly content: string
   readonly header: Record<string, unknown>
+}
+
+interface MissingFile {
+  readonly missing: true
 }
 
 async function jsonlFiles(dir: string): Promise<string[]> {
@@ -94,6 +115,20 @@ async function persistedLogs(sessionsRoot: string): Promise<PersistedLog[]> {
   }))
 }
 
+interface LoggedRequestHeader {
+  type?: string
+  data?: { header?: { tools?: Array<{ name: string; parameters: { required?: string[] } }> } }
+}
+
+function assembledToolRequirements(log: PersistedLog): Record<string, string[]> {
+  const event = log.content.trimEnd().split('\n')
+    .map(line => JSON.parse(line) as LoggedRequestHeader)
+    .find(candidate => candidate.type === 'request/header')
+  const tools = event?.data?.header?.tools
+  if (tools === undefined) throw new Error('session log has no request/header tools')
+  return Object.fromEntries(tools.map(tool => [tool.name, tool.parameters.required ?? []]))
+}
+
 function contextOf(logs: readonly { content: string; header: Record<string, unknown> }[], cwd: string): NormalizeContext {
   return {
     sessionIds: logs.flatMap(log => typeof log.header.id === 'string' ? [log.header.id] : []),
@@ -106,6 +141,25 @@ function contextOfContents(contents: readonly string[]): NormalizeContext {
   return {
     sessionIds: headers.flatMap(header => typeof header.id === 'string' ? [header.id] : []),
     cwd: typeof headers[0]?.cwd === 'string' ? headers[0].cwd : '\0no-cwd\0',
+  }
+}
+
+async function hydrateReplayFixtures(scenario: SdkScenario, cwd: string): Promise<string[]> {
+  const root = join(cwd, '.replay-fixtures')
+  await mkdir(root, { recursive: true })
+  return Promise.all(fixtureFiles(scenario).map(async (source) => {
+    const destination = join(root, basename(source))
+    await writeFile(destination, (await readFile(source, 'utf8')).replaceAll('{{cwd}}', cwd))
+    return destination
+  }))
+}
+
+async function readExpectedFile(path: string): Promise<string | MissingFile> {
+  try {
+    return await readFile(path, 'utf8')
+  } catch (error: unknown) {
+    if (error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT') return { missing: true }
+    throw error
   }
 }
 
@@ -147,30 +201,30 @@ async function runScenario(scenario: SdkScenario): Promise<{
   result: TurnResult
   notifications: HarnessNotification[]
   logs: PersistedLog[]
+  observedFiles: Record<string, string | MissingFile>
   cwd: string
 }> {
   const cwd = await mkdtemp(join(tmpdir(), `sdk-snapshot-${scenario.name}-`))
   const sessionsRoot = join(cwd, '.sessions')
-  const scenarioDir = join(snapshotsDir, scenario.name)
+  const replayFixtures = recording ? [] : await hydrateReplayFixtures(scenario, cwd)
   const launch = resolveExampleLaunch({
     srcBin: runtimeBin,
     configArgs: [],
     tsconfigPath: repoTsconfig,
   })
-  const childFixtures = Array.from(
-    { length: scenario.children },
-    (_, index) => join(scenarioDir, `session.${index + 1}.jsonl`),
-  )
+  const [parentFixture, ...childFixtures] = replayFixtures
   const env: Record<string, string> = {
     ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
     ...Object.fromEntries(Object.entries(launch.env).filter(([, value]) => value !== undefined)) as Record<string, string>,
-    DSH_CORDIS_CONFIG: recording ? liveConfig : replayConfig,
+    DSH_CORDIS_CONFIG: recording
+      ? scenario.configs?.live ?? liveConfig
+      : scenario.configs?.replay ?? replayConfig,
     DSH_SESSION_ROOT: sessionsRoot,
     DSH_CWD: cwd,
     DSH_SNAPSHOT: mode,
     NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
-    ...recording ? {} : {
-      DSH_SNAPSHOT_FILE: join(scenarioDir, 'session.jsonl'),
+    ...parentFixture === undefined ? {} : {
+      DSH_SNAPSHOT_FILE: parentFixture,
       ...childFixtures.length > 0 ? { DSH_SNAPSHOT_CHILD_FILES: childFixtures.join(delimiter) } : {},
     },
   }
@@ -189,13 +243,19 @@ async function runScenario(scenario: SdkScenario): Promise<{
   })
   try {
     const notifications: HarnessNotification[] = []
-    const result = await harness.run(scenario.prompt, {
+    const result = await harness.run(scenario.prompt.replaceAll('{{cwd}}', cwd), {
       sessionId: scenario.sessionId,
       onNotification: (notification) => { notifications.push(notification) },
     })
     await harness.close()
     const logs = await persistedLogs(sessionsRoot)
-    return { result, notifications, logs, cwd }
+    const observedFiles = Object.fromEntries(await Promise.all(
+      Object.keys(scenario.expectedFiles ?? {}).map(async (path): Promise<[string, string | MissingFile]> => [
+        path,
+        await readExpectedFile(join(cwd, path)),
+      ]),
+    ))
+    return { result, notifications, logs, observedFiles, cwd }
   } finally {
     await harness.close()
     await rm(cwd, { recursive: true, force: true })
@@ -227,7 +287,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       const notificationsExpectedPath = join(scenarioDir, 'notifications.expected.jsonl')
       const resultExpectedPath = join(scenarioDir, 'result.expected.json')
 
-      const { result, notifications, logs, cwd } = await runScenario(scenario)
+      const { result, notifications, logs, observedFiles, cwd } = await runScenario(scenario)
       const ordered = orderLogs(logs, scenario)
       const actualContext = contextOf(ordered, cwd)
 
@@ -293,6 +353,12 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       // Wire-shape invariants that must hold in every mode.
       expect(result.status).toBe('ok')
       expect(notifications.at(-1)?.method).toBe('session.finished')
+      expect(observedFiles).toEqual(scenario.expectedFiles ?? {})
+      if (scenario.expectedTools !== undefined) {
+        const parent = ordered[0]
+        if (parent === undefined) throw new Error(`${scenario.name} has no parent session log`)
+        expect(assembledToolRequirements(parent)).toEqual(scenario.expectedTools)
+      }
       if (scenario.children > 0) {
         expect(notifications.some(n => n.method === 'subagent.started')).toBe(true)
         expect(notifications.some(n => n.method === 'subagent.finished')).toBe(true)

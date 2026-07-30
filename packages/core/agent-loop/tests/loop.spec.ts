@@ -1221,8 +1221,9 @@ describe('agent loop', () => {
 
     const replayed = ctx.sessions.create(SessionId('replayed'), { seed: [...agent.session.events] })
     expect(replayed.deriveMessages()).toEqual(agent.session.deriveMessages())
-    // event-by-event identity of types
-    expect(replayed.events.map(e => e.type)).toEqual(
+    // event-by-event identity of types over the inherited prefix
+    expect(replayed.events.slice(0, agent.session.seq).map(e => e.type)).toEqual(
       agent.session.events.map(e => e.type))
+    expect(replayed.events.at(-1)?.type).toBe('session/end-seed')
   })
 })
