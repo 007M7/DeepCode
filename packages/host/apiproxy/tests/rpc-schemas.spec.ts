@@ -399,6 +399,17 @@ describe('events frame schemas', () => {
     expect(() => muxFrameSchema.parse({ type: 'question/requested', sessionId: 's', questions: [] })).toThrow()
   })
 
+  it('carries a question presentation intent through, and rejects an unknown one', () => {
+    const intent = { kind: 'plan-review', approve: 'Approve' }
+    expect(askUserQuestionItemSchema.parse({
+      id: 'plan-review', question: 'Approve?', detail: '# Plan', options: [{ label: 'Approve' }], intent,
+    }).intent).toEqual(intent)
+    // An unrecognised tag is a rejected frame, not a silently generic render.
+    for (const invalid of [{ kind: 'plan-review' }, { kind: 'poll', approve: 'Approve' }, { approve: 'Approve' }]) {
+      expect(() => askUserQuestionItemSchema.parse({ id: 'q', question: 'Q?', intent: invalid })).toThrow()
+    }
+  })
+
   it('rejects a queue snapshot with malformed items', () => {
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: 'x' })).toThrow()
     expect(() => muxFrameSchema.parse({ type: 'session/queue', sessionId: 's', items: [{ id: '', message: {} }] })).toThrow()
