@@ -8,9 +8,13 @@ English | [中文](2026-07-27-stable-snapshot-refresh-volatiles.zh.md)
 
 ACP snapshot comparison normalizes generated UUIDs, cwd aliases, spill locators, embedded event times, and omitted-byte counts, but refresh write-back persisted the fresh raw values. A behaviorally unchanged refresh therefore rewrote fixtures with new randomness or host-specific path spellings even though the comparison contract considered both logs equal.
 
+Message identity needs a weaker structural precondition than aligned records: an unrelated log event can break record alignment while an inherited message's identity-free value remains unchanged across parent and child logs. Record mode also begins with freshly minted message UUIDs when it replaces an existing fixture.
+
 ## Decision
 
-Refresh write-back uses `normalizeSessionLog` as its sole volatile-value authority. It normalizes the original harvested records with the fresh run's ids, cwd, and every cwd alias, while normalizing fixture records with the fixture header context; literal replacements affect only the raw values being written. After existing record alignment, it recursively compares fresh and existing leaves through those normalized records: normalized-equivalent leaves retain the existing raw value, while normalized-distinct leaves retain the fresh semantic value.
+Before record or refresh writes fixtures, the suite fingerprints every complete surface message with its top-level `id` removed and groups occurrences across all parent/child logs. It reuses an existing UUID only when one fingerprint resolves to exactly one fresh ID and one existing ID, then applies that mapping to every fresh log. Repeated inherited occurrences with the same ID remain one candidate, while new, changed, duplicate-content, malformed, and conflicting messages keep their fresh IDs.
+
+Refresh write-back uses `normalizeSessionLog` as its volatile-value authority for aligned leaves. It normalizes the original harvested records with the fresh run's ids, cwd, and every cwd alias, while normalizing fixture records with the fixture header context; literal replacements affect only the raw values being written. After existing record alignment, it recursively compares fresh and existing leaves through those normalized records: normalized-equivalent leaves retain the existing raw value, while normalized-distinct leaves retain the fresh semantic value.
 
 Before reuse, the complete logical-record layout must align, apart from the existing packed-chunk and inserted-title equivalences. Normalized-equivalent changed strings form a log-wide bijection: one fresh string maps to exactly one existing string and vice versa, so repeated IDs remain correlated across records. An unexplained record mismatch or conflicting mapping disables normalized string reuse for that log.
 
@@ -26,6 +30,6 @@ Object fields align by key. Array elements align only when all corresponding arr
 
 ## Consequences
 
-Repeated refreshes no longer rewrite aligned fixture values solely because the normalizer classifies them as volatile, and new volatile categories added to the normalizer automatically inherit the write-back behavior. Structural ambiguity remains conservative: unmatched records, conflicting string mappings, resized arrays, and strings containing both semantic and volatile changes use fresh values rather than risk reusing misaligned data.
+Record and refresh no longer rewrite an unchanged unique message UUID solely because another event changed the surrounding record layout. Repeated refreshes also retain aligned fixture values that the normalizer classifies as volatile, and new volatile categories added to the normalizer automatically inherit that write-back behavior. Structural ambiguity remains conservative: unmatched records, conflicting string mappings, resized arrays, strings containing both semantic and volatile changes, and non-unique message fingerprints use fresh values rather than risk reusing misaligned data.
 
-Focused unit coverage pins recursive object/array behavior, correlated IDs, ambiguous-layout fallback, conflicting mappings, fresh cwd aliases, volatile strings, and fresh semantic fields. Keyless refresh coverage proves approval UUIDs, cwd aliases, spill paths, and event-read volatility leave their committed fixtures byte-identical.
+Focused unit coverage pins scenario-wide parent/child message correlation, unrelated event insertion, record write-back, new/changed/ambiguous messages, recursive object/array behavior, conflicting mappings, fresh cwd aliases, volatile strings, and fresh semantic fields. Keyless refresh coverage proves approval UUIDs, cwd aliases, spill paths, and event-read volatility leave their committed fixtures byte-identical.

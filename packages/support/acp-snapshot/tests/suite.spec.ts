@@ -193,6 +193,18 @@ describe('defineAcpSnapshotSuite: record inventory write-back', () => {
     expect(fixture).toContain('"cwd":"{{cwd}}"')
     expect(() => readFileSync(join(recordDir, 'rec-child', 'session.2.jsonl'), 'utf8')).toThrow()
   })
+
+  it('retains an unchanged message id across the recorded parent and child fixtures', () => {
+    const existingMessageId = '22222222-2222-4222-8222-222222222222'
+    const freshMessageId = '11111111-1111-4111-8111-111111111111'
+    const fixtures = ['session.jsonl', 'session.1.jsonl']
+      .map(file => readFileSync(join(recordDir, 'rec-child', file), 'utf8'))
+
+    for (const fixture of fixtures) {
+      expect(fixture).toContain(`"id":"${existingMessageId}"`)
+      expect(fixture).not.toContain(freshMessageId)
+    }
+  })
 })
 
 describe('defineAcpSnapshotSuite: registration contract', () => {
@@ -663,6 +675,78 @@ describe('refreshFixtureReplacements', () => {
       { from: freshBash, to: oldBash },
     ])
   })
+
+  it('maps one inherited message id across parent and child logs', () => {
+    const freshMessageId = '11111111-1111-4111-8111-111111111111'
+    const existingMessageId = '22222222-2222-4222-8222-222222222222'
+    const content = [{ type: 'text', text: 'inherited' }]
+    const log = (sessionId: string, messageId: string): string => [
+      JSON.stringify({ type: 'session', id: sessionId, cwd: '/same' }),
+      JSON.stringify({
+        type: 'user/message',
+        data: { role: 'user', content, source: { kind: 'user' }, id: messageId },
+      }),
+      '',
+    ].join('\n')
+    const harvested = (content: string): HarvestedLog => ({ id: 'diagnostic', createdAt: 1, content })
+
+    const replacements = refreshFixtureReplacements(
+      [harvested(log('fresh-parent', freshMessageId)), harvested(log('fresh-child', freshMessageId))],
+      [log('old-parent', existingMessageId), log('old-child', existingMessageId)],
+    )
+
+    expect(replacements.filter(replacement => replacement.from === freshMessageId)).toEqual([
+      { from: freshMessageId, to: existingMessageId },
+    ])
+  })
+
+  it('keeps fresh ids for new, changed, and ambiguous messages', () => {
+    const ids = {
+      new: '11111111-1111-4111-8111-111111111111',
+      changed: '22222222-2222-4222-8222-222222222222',
+      ambiguousA: '33333333-3333-4333-8333-333333333333',
+      ambiguousB: '44444444-4444-4444-8444-444444444444',
+      oldChanged: '55555555-5555-4555-8555-555555555555',
+      oldAmbiguous: '66666666-6666-4666-8666-666666666666',
+      stable: '77777777-7777-4777-8777-777777777777',
+    } as const
+    const message = (id: string, text: string): Record<string, unknown> => ({
+      type: 'user/message',
+      data: { role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' }, id },
+    })
+    const log = (messages: Record<string, unknown>[]): string => [
+      JSON.stringify({ type: 'session', id: 'same', cwd: '/same' }),
+      ...messages.map(record => JSON.stringify(record)),
+      '',
+    ].join('\n')
+    const fresh = log([
+      message(ids.new, 'new'),
+      message(ids.changed, 'changed'),
+      message(ids.changed, 'changed again'),
+      message(ids.ambiguousA, 'duplicate'),
+      message(ids.ambiguousB, 'duplicate'),
+      message(ids.stable, 'stable'),
+    ])
+    const existing = log([
+      message(ids.oldChanged, 'before'),
+      message(ids.oldAmbiguous, 'duplicate'),
+      message(ids.stable, 'stable'),
+    ])
+
+    const replacements = refreshFixtureReplacements(
+      [{ id: 'diagnostic', createdAt: 1, content: fresh }],
+      [existing],
+    )
+
+    const replacedIds = replacements.map(replacement => replacement.from)
+    for (const id of [
+      ids.new,
+      ids.changed,
+      ids.ambiguousA,
+      ids.ambiguousB,
+      ids.stable,
+    ]) expect(replacedIds).not.toContain(id)
+  })
 })
 
 describe('stabilizeRefreshLog', () => {
@@ -763,6 +847,50 @@ describe('stabilizeRefreshLog', () => {
       '{"type":"request/header","seq":4,"time":14}',
       '',
     ].join('\n'))
+  })
+
+  it('retains unchanged message ids across an unrelated inserted event', () => {
+    const freshUserId = '11111111-1111-4111-8111-111111111111'
+    const existingUserId = '22222222-2222-4222-8222-222222222222'
+    const freshAssistantId = '33333333-3333-4333-8333-333333333333'
+    const existingAssistantId = '44444444-4444-4444-8444-444444444444'
+    const user = (id: string): Record<string, unknown> => ({
+      type: 'user/message',
+      data: { role: 'user', content: [{ type: 'text', text: 'same user' }], source: { kind: 'user' }, id },
+    })
+    const assistant = (id: string): Record<string, unknown> => ({
+      type: 'assistant/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'same assistant' }],
+          source: { kind: 'model', provider: 'fake', model: 'fake' },
+          id,
+        },
+      },
+    })
+    const lines = (records: Record<string, unknown>[]): string => [
+      JSON.stringify({ type: 'session', id: 'same', createdAt: 1, cwd: '/same' }),
+      ...records.map(record => JSON.stringify(record)),
+      '',
+    ].join('\n')
+    const fresh = lines([
+      user(freshUserId),
+      { type: 'session/inherited', data: {} },
+      assistant(freshAssistantId),
+    ])
+    const existing = lines([user(existingUserId), assistant(existingAssistantId)])
+    const replacements = refreshFixtureReplacements(
+      [{ id: 'diagnostic', createdAt: 1, content: fresh }],
+      [existing],
+    )
+    const output = stabilize(fresh, existing, replacements).trim().split('\n')
+      .map(line => JSON.parse(line) as Record<string, unknown>)
+
+    expect((output[1]?.data as { id: string }).id).toBe(existingUserId)
+    expect(((output[3]?.data as { message: { id: string } }).message).id).toBe(existingAssistantId)
   })
 
   it('keeps volatile fixture fields while preserving fresh meaningful payloads', () => {

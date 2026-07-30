@@ -48,6 +48,9 @@ const TOOLS_TOKEN = '{{tools}}'
 
 const PACKED_CHUNK_ROW_TYPES = new Set(['text-chunks', 'reasoning-chunks', 'tool-call-chunks'])
 
+/** Canonical UUID spelling minted for ordinary message identities. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /** A snapshot scenario and how its fixtures are produced. */
 export interface Scenario {
   name: string
@@ -480,9 +483,9 @@ export function headerChangeCount(rawLog: string): number {
     .length
 }
 
-/** A literal string replacement used to carry an existing fixture's volatile value into a refreshed log. */
+/** A literal string replacement used to carry an existing fixture value into fresh write-back. */
 export interface FixtureReplacement {
-  /** The fresh replay-run value to replace. */
+  /** The fresh run's value to replace. */
   from: string
   /** The existing fixture value to keep. */
   to: string
@@ -492,6 +495,82 @@ function parseJsonlRecords(text: string): Record<string, unknown>[] {
   return text.split('\n')
     .filter(line => line.trim().length > 0)
     .map(line => JSON.parse(line) as Record<string, unknown>)
+}
+
+/** Return the complete identified message carried by one surface event. */
+function eventMessage(record: Record<string, unknown>): Record<string, unknown> | undefined {
+  const data = record.data
+  if (!isRecord(data)) return undefined
+  const message = record.type === 'user/message'
+    ? data
+    : record.type === 'assistant/message' || record.type === 'tool/result' || record.type === 'steering/message'
+      ? data.message
+      : undefined
+  if (
+    !isRecord(message)
+    || typeof message.id !== 'string'
+    || !UUID_RE.test(message.id)
+    || typeof message.role !== 'string'
+    || !Array.isArray(message.content)
+    || !isRecord(message.source)
+  ) return undefined
+  return message
+}
+
+/** Serialize parsed JSON by value rather than insertion order. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+/** Index each unambiguous identity-free message value by its sole message id. */
+function uniqueMessageIds(logs: readonly string[]): Map<string, string | undefined> {
+  const fingerprintsById = new Map<string, string | undefined>()
+  for (const log of logs) {
+    for (const record of parseJsonlRecords(log)) {
+      const message = eventMessage(record)
+      if (message === undefined) continue
+      const { id, ...withoutId } = message
+      const messageId = id as string
+      const fingerprint = canonicalJson(withoutId)
+      if (!fingerprintsById.has(messageId)) fingerprintsById.set(messageId, fingerprint)
+      else if (fingerprintsById.get(messageId) !== fingerprint) fingerprintsById.set(messageId, undefined)
+    }
+  }
+
+  const idsByFingerprint = new Map<string, string | undefined>()
+  for (const [id, fingerprint] of fingerprintsById) {
+    if (fingerprint === undefined) continue
+    if (!idsByFingerprint.has(fingerprint)) idsByFingerprint.set(fingerprint, id)
+    else idsByFingerprint.set(fingerprint, undefined)
+  }
+  return idsByFingerprint
+}
+
+/**
+ * Match unchanged complete messages across a scenario's fresh and existing logs.
+ * New, changed, repeated, or otherwise ambiguous messages keep their fresh ids.
+ */
+function fixtureMessageIdReplacements(logs: HarvestedLog[], fixtures: string[]): FixtureReplacement[] {
+  const freshIds = uniqueMessageIds(logs.map(log => log.content))
+  const existingIds = uniqueMessageIds(fixtures)
+  const replacements: FixtureReplacement[] = []
+  for (const [fingerprint, fresh] of freshIds) {
+    const existing = existingIds.get(fingerprint)
+    if (fresh === undefined || existing === undefined || fresh === existing) continue
+    replacements.push({ from: fresh, to: existing })
+  }
+  return replacements
+}
+
+/** Apply literal fixture replacements without changing any other fresh value. */
+function applyFixtureReplacements(content: string, replacements: readonly FixtureReplacement[]): string {
+  let stable = content
+  for (const { from, to } of replacements) stable = stable.split(from).join(to)
+  return stable
 }
 
 /** One packed row's member times, or `undefined` for an ordinary record. */
@@ -539,14 +618,15 @@ export function unknownToolCallIds(rawLog: string): string[] {
 }
 
 /**
- * Build the cross-log id/cwd/spill-path replacements used by refresh write-back.
+ * Build refresh write-back replacements: scenario-wide unchanged message ids,
+ * plus per-log session ids, cwd values, and spill paths.
  *
  * @param logs The freshly harvested logs, in fixture order.
  * @param fixtures The existing fixture contents, in matching order.
- * @returns Literal replacements from fresh volatile values to the fixture's old values.
+ * @returns Literal replacements from fresh values to the fixture's existing values.
  */
 export function refreshFixtureReplacements(logs: HarvestedLog[], fixtures: string[]): FixtureReplacement[] {
-  const replacements: FixtureReplacement[] = []
+  const replacements = fixtureMessageIdReplacements(logs, fixtures)
   for (let i = 0; i < logs.length; i++) {
     const fresh = parseJsonlRecords((logs[i] as HarvestedLog).content)[0]
     const existing = parseJsonlRecords(fixtures[i] ?? '')[0]
@@ -823,8 +903,7 @@ export function stabilizeRefreshLog(
   freshContext: NormalizeContext,
 ): string {
   const freshRecords = parseJsonlRecords(fresh)
-  let stable = fresh
-  for (const { from, to } of replacements) stable = stable.split(from).join(to)
+  const stable = applyFixtureReplacements(fresh, replacements)
   const existingRecords = logicalRecords(parseJsonlRecords(existing))
   const records = parseJsonlRecords(stable)
   const existingContext = fixtureContext(existing)
@@ -1016,10 +1095,6 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const portableFixture = scenario.workspaceParent === undefined
           ? tokenizeSessionFixtureCwd
           : (log: string): string => log
-        const existingFixtures = REFRESHING
-          ? await Promise.all(fixtureFiles.map(file => readFile(join(dir, file), 'utf8')))
-          : []
-        const replacements = REFRESHING ? refreshFixtureReplacements(result.sessionLogs, existingFixtures) : []
         const writesSessionFixtures = (RECORDING && scenario.recorded && scenario.hasModelTurn)
           || (REFRESHING && comparesLog)
         if (writesSessionFixtures) {
@@ -1032,14 +1107,25 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             'session.jsonl',
             ...Array.from({ length: result.sessionLogs.length - 1 }, (_, i) => `session.${i + 1}.jsonl`),
           ]
+          const existingFixtures = await Promise.all(outputFixtureFiles.map(async (file) => {
+            const path = join(dir, file)
+            return existsSync(path) ? readFile(path, 'utf8') : ''
+          }))
+          const replacements = REFRESHING
+            ? refreshFixtureReplacements(result.sessionLogs, existingFixtures)
+            : fixtureMessageIdReplacements(result.sessionLogs, existingFixtures)
           const primary = (result.sessionLogs[0] as HarvestedLog).content
           await writeFile(join(dir, outputFixtureFiles[0] as string), scrub(portableFixture(
-            REFRESHING ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements, ctx) : primary,
+            REFRESHING
+              ? stabilizeRefreshLog(primary, existingFixtures[0] as string, replacements, ctx)
+              : applyFixtureReplacements(primary, replacements),
           )))
           for (let i = 1; i < result.sessionLogs.length; i++) {
             const child = (result.sessionLogs[i] as HarvestedLog).content
             await writeFile(join(dir, outputFixtureFiles[i] as string), scrub(portableFixture(
-              REFRESHING ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements, ctx) : child,
+              REFRESHING
+                ? stabilizeRefreshLog(child, existingFixtures[i] as string, replacements, ctx)
+                : applyFixtureReplacements(child, replacements),
             )))
           }
           if (RECORDING) {
