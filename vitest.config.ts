@@ -156,9 +156,11 @@ export default defineConfig({
         'packages/client/ui-sidebar/src/client/index.ts',
         'packages/client/ui-skill/src/client/index.ts',
         'packages/client/ui-workspace/src/client/index.ts',
-        'packages/typert/generator/src/analyzer.ts',
-        'packages/typert/generator/src/renderer.ts',
-        'packages/typert/generator/src/cordis-catalog.ts',
+        // Typert generator: correctness is pinned by its fixture suites and
+        // the byte-for-byte catalog reproduction test; per-file coverage
+        // would put whole-workspace compiler analysis under v8
+        // instrumentation — the coverage lane's longest tail.
+        'packages/typert/generator/src/*.ts',
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
         'packages/host/apiproxy/src/api-proxy.ts',
