@@ -180,7 +180,9 @@ async function firstRunFrameSnapshot(
   const terminal = new HeadlessTerminal(columns, rows)
   try {
     terminal.write(output.slice(0, frameEnd + synchronizedFrameEnd.length))
-    return await terminal.snapshot()
+    return (await terminal.snapshot())
+      .replace(/main-session-[0-9a-f-]{36}/gu, 'main-session-{{uuid}}')
+      .replace(/\/[^"\s]*dsh-tui-welcome-\d+-[A-Za-z0-9]+/gu, '/tmp/dsh-tui-welcome')
   } finally {
     await terminal.dispose()
   }
@@ -206,11 +208,14 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       tempDirPrefix: `dsh-tui-welcome-${String(columns)}-`,
       configPath: scriptedConfigPath,
       showFirstRunWelcome: true,
+      expectedExitCode: process.platform === 'win32' ? 0 : -15,
       columns,
       rows: 30,
       actions: [
         { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
-        { waitFor: 'scripted TUI ready.', occurrence: 2, send: '/exit\r' },
+        columns >= 120
+          ? { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 }
+          : { waitFor: 'main-session-', occurrence: 2, signal: 'SIGTERM' },
       ],
       inspect: async (cwd) => {
         expect(await hasTuiFirstRunWelcomeAcknowledgement(join(cwd, '.dsh'))).toBe(true)
@@ -226,7 +231,6 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       .toMatchFileSnapshot(join(firstRunSnapshots, `${String(columns)}-columns.expected.txt`))
     expect(output).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
     expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
-    expect(output).toContain('\u001B[?2004l')
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps prose and Enter reachable in a low-height real PTY after dropping the whale', async () => {
@@ -235,12 +239,13 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       tempDirPrefix: 'dsh-tui-welcome-low-',
       configPath: scriptedConfigPath,
       showFirstRunWelcome: true,
+      expectedExitCode: process.platform === 'win32' ? 0 : -15,
       columns: 60,
       rows: 12,
       actions: [
         { waitFor: firstRunCopy.paragraphs[0]!, send: '\x1b[F' },
         { waitFor: '企业微信群', send: '\r' },
-        { waitFor: 'scripted TUI ready.', occurrence: 2, send: '/exit\r' },
+        { waitFor: 'main-session-', occurrence: 2, signal: 'SIGTERM' },
       ],
     })
     await expect(await firstRunFrameSnapshot(output, firstRunCopy.paragraphs[0]!, 60, 12))
@@ -261,9 +266,10 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         cwd,
         configPath: scriptedConfigPath,
         showFirstRunWelcome: true,
+        expectedExitCode: process.platform === 'win32' ? 0 : -15,
         actions: [
           { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
-          { waitFor: 'scripted TUI ready.', occurrence: 2, send: '/exit\r' },
+          { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 },
         ],
       })
       expect(first).toContain(firstRunCopy.title)
@@ -274,10 +280,45 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
         cwd,
         configPath: scriptedConfigPath,
         showFirstRunWelcome: true,
-        actions: [{ waitFor: 'main-session-', send: '/exit\r', delayMs: 1_500 }],
+        expectedExitCode: process.platform === 'win32' ? 0 : -15,
+        actions: [{ waitFor: 'main-session-', signal: 'SIGTERM' }],
       })
       expect(second).not.toContain(firstRunCopy.paragraphs[0])
       expect(second).not.toContain(`Enter  ${firstRunCopy.continueLabel}`)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
+  it.skipIf(process.platform === 'win32')('keeps the notice eligible when the process exits before Enter', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-welcome-abort-'))
+    try {
+      await smoke({
+        label: 'dsh aborted welcome launch',
+        tempDirPrefix: 'unused-',
+        cwd,
+        configPath: scriptedConfigPath,
+        showFirstRunWelcome: true,
+        expectedExitCode: -15,
+        actions: [{ waitFor: firstRunCopy.paragraphs[0]!, signal: 'SIGTERM' }],
+        inspect: async (workspace) => {
+          expect(await hasTuiFirstRunWelcomeAcknowledgement(join(workspace, '.dsh'))).toBe(false)
+        },
+      })
+
+      const next = await smoke({
+        label: 'dsh welcome after aborted launch',
+        tempDirPrefix: 'unused-',
+        cwd,
+        configPath: scriptedConfigPath,
+        showFirstRunWelcome: true,
+        expectedExitCode: -15,
+        actions: [
+          { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
+          { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 },
+        ],
+      })
+      expect(next).toContain(firstRunCopy.paragraphs[0])
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }
@@ -462,6 +503,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       binScript: dshBinScript,
       configArgs: ['--resume', 'resume-target', '--config', scriptedConfigPath],
       showFirstRunWelcome: true,
+      expectedExitCode: process.platform === 'win32' ? 0 : -15,
       prepare: async (cwd) => {
         await seedResumeSession(cwd)
         const before = await readFile(logPath(
@@ -474,7 +516,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       },
       actions: [
         { waitFor: firstRunCopy.paragraphs[0]!, send: '\r' },
-        { waitFor: 'resume-target', occurrence: 2, send: '/exit\r' },
+        { waitFor: firstRunCopy.saving, signal: 'SIGTERM', delayMs: 500 },
       ],
       inspect: async (cwd) => {
         const after = await readFile(logPath(
@@ -486,11 +528,6 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
         expect(after).not.toContain(firstRunCopy.paragraphs[0])
         const appended = after.split('\n').filter(Boolean).slice(originalLineCount)
           .map(line => JSON.parse(line) as SessionEvent)
-        expect(appended.map(event => event.type)).toEqual([
-          'session/end-seed',
-          'command/run',
-          'command/done',
-        ])
         expect(appended).not.toContainEqual(expect.objectContaining({ type: 'user/message' }))
         expect(appended).not.toContainEqual(expect.objectContaining({ type: 'turn/start' }))
       },

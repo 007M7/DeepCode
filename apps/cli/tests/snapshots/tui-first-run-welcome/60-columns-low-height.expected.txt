@@ -1,0 +1,39 @@
+terminal 60x12 buffer=normal length=16 base=4 viewport=4
+lifecycle started=0 stopped=0 progress=inactive
+title ""
+cursor visible column=0 viewportRow=11 bufferRow=15
+viewport
+4| " DEEPSEEK HARNESS"
+  style 1-8 fg=bright-magenta bold
+  style 10-16 bold
+5| "╭──────────────────────────────────────────────────────────╮"
+  style 0-59 dim
+6| "│                     DeepSeek Harness                     │"
+  style 0-0 dim
+  style 22-37 fg=blue bold
+  style 59-59 dim
+7| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+8| "│ 感谢您愿意拨冗试用 DeepSeek Harness。                    │"
+  style 0-0 dim
+  style 59-59 dim
+9| "│                                                          │"
+  style 0-0 dim
+  style 59-59 dim
+10| "│ 目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验 │"
+  style 0-0 dim
+  style 59-59 dim
+11| "├──────────────────────────────────────────────────────────┤"
+  style 0-59 dim
+12| "│                       Enter  继续                        │"
+  style 0-0 dim
+  style 24-34 fg=bright-magenta bold
+  style 59-59 dim
+13| "│                         ↑/↓ 滚动 ↓                       │"
+  style 0-0 dim
+  style 24-35 dim
+  style 59-59 dim
+14| "╰──────────────────────────────────────────────────────────╯"
+  style 0-59 dim
+15| <blank>

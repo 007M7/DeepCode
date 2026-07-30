@@ -44,7 +44,9 @@ while time.monotonic() < deadline:
         action = actions[action_index]
         if action.get("delayMs", 0) > 0:
             time.sleep(action["delayMs"] / 1000)
-        if "writeFile" in action:
+        if "signal" in action:
+            os.kill(pid, getattr(signal, action["signal"]))
+        elif "writeFile" in action:
             target = os.path.join(cwd, action["writeFile"]["path"])
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, "w", encoding="utf-8") as handle:
@@ -75,6 +77,7 @@ if actual_exit != int(expected_exit):
 /** One terminal input or workspace mutation performed after its marker renders. */
 type TuiPtyAction =
   | { readonly waitFor: string; readonly occurrence?: number; readonly send: string; readonly delayMs?: number }
+  | { readonly waitFor: string; readonly occurrence?: number; readonly signal: 'SIGTERM'; readonly delayMs?: number }
   | {
     readonly waitFor: string
     readonly occurrence?: number
@@ -190,7 +193,9 @@ async function runWindowsPtySmoke(
         && output.split(actions[actionIndex]!.waitFor).length - 1 >= (actions[actionIndex]!.occurrence ?? 1)
       ) {
         const action = actions[actionIndex]!
-        if ('writeFile' in action) {
+        if ('signal' in action) {
+          terminal.kill(action.signal)
+        } else if ('writeFile' in action) {
           const target = join(cwd, action.writeFile.path)
           mkdirSync(dirname(target), { recursive: true })
           writeFileSync(target, action.writeFile.content)

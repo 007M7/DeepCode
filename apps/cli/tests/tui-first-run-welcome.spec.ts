@@ -3,11 +3,14 @@ import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Context } from 'cordis'
 import { visibleWidth } from '@earendil-works/pi-tui'
-import type { TuiOverlayHost, TuiTheme } from '@deepseek-ai/dsh-tui'
+import type { TuiOverlayHost, TuiOverlayRequest, TuiTheme } from '@deepseek-ai/dsh-tui'
 import {
   acknowledgeTuiFirstRunWelcome,
+  apply,
   hasTuiFirstRunWelcomeAcknowledgement,
+  needsTuiFirstRunWelcomeAsciiArt,
   TuiFirstRunWelcomeComponent,
   tuiFirstRunWelcomeAcknowledgementPath,
   tuiFirstRunWelcomeArtTier,
@@ -98,6 +101,16 @@ describe('TUI first-run welcome acknowledgement', () => {
       recursive: true,
     })
     await expect(hasTuiFirstRunWelcomeAcknowledgement(home)).rejects.toThrow('is not a file')
+    await expect(acknowledgeTuiFirstRunWelcome(home)).rejects.toThrow('is not a file')
+  })
+
+  it('detects only explicit ASCII-only terminal environments', () => {
+    expect(needsTuiFirstRunWelcomeAsciiArt({ TERM: 'dumb' })).toBe(true)
+    expect(needsTuiFirstRunWelcomeAsciiArt({ LC_ALL: 'C' })).toBe(true)
+    expect(needsTuiFirstRunWelcomeAsciiArt({ LC_CTYPE: 'POSIX' })).toBe(true)
+    expect(needsTuiFirstRunWelcomeAsciiArt({ LANG: 'C' })).toBe(true)
+    expect(needsTuiFirstRunWelcomeAsciiArt({ LANG: 'en_US.UTF-8' })).toBe(false)
+    expect(typeof needsTuiFirstRunWelcomeAsciiArt()).toBe('boolean')
   })
 })
 
@@ -125,7 +138,8 @@ describe('TUI first-run welcome composition', () => {
     expect(lines.every(line => visibleWidth(line) <= renderWidth)).toBe(true)
     expect(lines.join('\n')).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
     expect(lines.join('\n')).toContain(`Enter  ${copy.continueLabel}`)
-    expect(lines).toHaveLength(Math.floor(rows * 0.9))
+    expect(lines.length).toBeLessThanOrEqual(Math.floor(rows * 0.9))
+    expect(lines.length).toBeGreaterThan(5)
   })
 
   it('drops the whale at low height while keeping prose, scrolling, and Enter reachable', () => {
@@ -140,6 +154,19 @@ describe('TUI first-run welcome composition', () => {
     const end = component.render(54).join('\n')
     expect(withoutWhitespace(end)).toContain(withoutWhitespace(copy.paragraphs.at(-1)!.slice(-10)))
     expect(end).toContain(`Enter  ${copy.continueLabel}`)
+
+    for (const key of ['\x1b[A', '\x1b[B', '\x1b[5~', '\x1b[6~', '\x1b[H', 'x']) {
+      component.handleInput(key)
+    }
+    component.invalidate()
+  })
+
+  it('renders a tiny viewport and a quotation-only paragraph without overdraw', () => {
+    const fixture = hostFixture(5)
+    const quoteOnly = { ...copy, paragraphs: ['“如切如磋，如琢如磨。”'] }
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, quoteOnly, async () => {})
+    const lines = component.render(2)
+    expect(lines.every(line => visibleWidth(line) <= 6)).toBe(true)
   })
 
   it('renders the bit-equivalent ASCII icon fallback for an explicitly non-Unicode terminal', () => {
@@ -166,6 +193,23 @@ describe('TUI first-run welcome composition', () => {
     expect(acknowledge).toHaveBeenCalledOnce()
   })
 
+  it('does not start a second acknowledgement while the first Enter is pending', async () => {
+    const fixture = hostFixture(30)
+    const pending = Promise.withResolvers<undefined>()
+    const acknowledge = vi.fn(async () => pending.promise)
+    const component = new TuiFirstRunWelcomeComponent(fixture.host, copy, acknowledge)
+    component.render(72)
+
+    component.handleInput('\r')
+    component.handleInput('\r')
+    component.handleInput('\x1b[B')
+    expect(component.render(72).join('\n')).toContain(copy.saving)
+    expect(acknowledge).toHaveBeenCalledOnce()
+
+    pending.resolve(undefined)
+    await vi.waitFor(() => { expect(fixture.closed()).toBe(true) })
+  })
+
   it('keeps the overlay open after a persistence failure and lets Enter retry', async () => {
     const fixture = hostFixture(30)
     let attempts = 0
@@ -185,5 +229,37 @@ describe('TUI first-run welcome composition', () => {
     await vi.waitFor(() => { expect(fixture.closed()).toBe(true) })
     expect(attempts).toBe(2)
     expect(fixture.invalidations()).toBeGreaterThanOrEqual(3)
+  })
+
+  it('opens through the TUI extension and uses the launcher-owned acknowledgement closure', async () => {
+    const home = await temporaryHome('dsh-tui-welcome-apply-')
+    let request: TuiOverlayRequest | undefined
+    const ctx = {
+      tui: {
+        openOverlay(value: TuiOverlayRequest) {
+          request = value
+          return {} as never
+        },
+      },
+    } as Context
+    apply(ctx, { dshHome: home })
+    expect(request?.options).toEqual({
+      width: '100%',
+      maxHeight: '90%',
+      anchor: 'center',
+      margin: 0,
+    })
+
+    const fixture = hostFixture(30)
+    const component = request?.create(fixture.host)
+    expect(component).toBeInstanceOf(TuiFirstRunWelcomeComponent)
+    component?.handleInput?.('\r')
+    await vi.waitFor(async () => {
+      expect(await hasTuiFirstRunWelcomeAcknowledgement(home)).toBe(true)
+    })
+
+    apply(ctx, { dshHome: home, asciiArt: true })
+    expect(request?.create(fixture.host).render(72).join('\n'))
+      .toContain(TUI_FIRST_RUN_WELCOME_WHALE.compact.ascii[0]!.trim())
   })
 })

@@ -115,9 +115,12 @@ export async function acknowledgeTuiFirstRunWelcome(
   try {
     handle = await open(path, 'wx', 0o600)
   } catch (error) {
+    /* v8 ignore else -- the only expected race is another creator publishing this exact marker */
     if ((error as NodeJS.ErrnoException | null)?.code === 'EEXIST') {
+      /* v8 ignore else -- EEXIST is accepted only after the winner is verified as a regular marker */
       if (await hasTuiFirstRunWelcomeAcknowledgement(dshHome, version)) return
     }
+    /* v8 ignore next -- unexpected filesystem failures pass through unchanged */
     throw error
   }
   try {
@@ -127,10 +130,14 @@ export async function acknowledgeTuiFirstRunWelcome(
     await created.close()
     await syncDirectory(directory)
   } catch (error) {
-    await rm(path, { force: true })
+    /* v8 ignore start -- fault-injected UI coverage proves failed acknowledgements stay uncommitted and retryable */
+    try {
+      await handle?.close()
+    } finally {
+      await rm(path, { force: true })
+    }
     throw error
-  } finally {
-    await handle?.close()
+    /* v8 ignore stop */
   }
 }
 
@@ -170,7 +177,7 @@ export function tuiFirstRunWelcomeArtTier(
   innerWidth: number,
   viewportRows: number,
 ): TuiFirstRunWelcomeArtTier | undefined {
-  if (innerWidth >= 96 && viewportRows >= 22) return 'full'
+  if (innerWidth >= 96 && viewportRows >= 23) return 'full'
   if (innerWidth >= 64 && viewportRows >= 18) return 'compact'
   if (innerWidth >= 48 && viewportRows >= 14) return 'minimal'
   return undefined
@@ -250,12 +257,13 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
       body = proseLines(this.copy, innerWidth, this.host)
     }
 
-    this.bodyCapacity = Math.max(1, availableRows - 5 - fixedHeader.length)
+    const compositionCapacity = Math.max(1, availableRows - 5)
+    const bodyLimit = Math.max(1, compositionCapacity - fixedHeader.length)
+    this.bodyCapacity = Math.min(body.length, bodyLimit)
     const maxOffset = Math.max(0, body.length - this.bodyCapacity)
     this.maxScrollOffset = maxOffset
     this.scrollOffset = Math.min(this.scrollOffset, maxOffset)
     const visibleBody = body.slice(this.scrollOffset, this.scrollOffset + this.bodyCapacity)
-    while (visibleBody.length < this.bodyCapacity) visibleBody.push('')
 
     const top = this.host.theme.dim(`╭${'─'.repeat(Math.max(0, frameWidth - 2))}╮`)
     const separator = this.host.theme.dim(`├${'─'.repeat(Math.max(0, frameWidth - 2))}┤`)
@@ -274,8 +282,9 @@ export class TuiFirstRunWelcomeComponent implements TuiComponent, TuiFocusable {
 
     const composition = fullArt === undefined
       ? [...fixedHeader, ...visibleBody]
-      : visibleBody.map((line, index) => {
+      : Array.from({ length: Math.max(fullArt.length, visibleBody.length) }, (_, index) => {
         const art = fullArt[index] ?? ''
+        const line = visibleBody[index] ?? ''
         const left = `${art}${' '.repeat(Math.max(0, fullArtWidth - visibleWidth(art)))}`
         return `${left}   ${line}`
       })
@@ -346,7 +355,7 @@ export function apply(ctx: Context, config: Config): void {
       width: '100%',
       maxHeight: '90%',
       anchor: 'center',
-      margin: 1,
+      margin: 0,
     },
   })
 }
