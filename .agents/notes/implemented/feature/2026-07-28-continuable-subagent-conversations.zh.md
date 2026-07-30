@@ -1,6 +1,6 @@
 # Agent Note（agent 决策记录）：可继续的 subagent
 
-Status: proposed
+Status: implemented
 
 [English](2026-07-28-continuable-subagent-conversations.md) | 中文
 
@@ -16,7 +16,7 @@ Status: proposed
 
 用户和 parent Agent 还需要在不改变当前轮次的前提下，向同一个在线 child 发送后续工作。将每条继续执行消息作为 follow-up 排队，可以让两类发送方遵循同一项排序规则。
 
-## 提案
+## 决策
 
 一个可继续 subagent 拥有一个持久化会话，并且至多拥有一个进程内激活：
 
@@ -34,7 +34,7 @@ persisted Session
 
 ### 物化与公开操作
 
-具名 subagent 提供方只参与准备初始创建规格，此时 `spawn` 与 `fork` 有所区别。其可选的 `prepareContinuable(request): Promise<ContinuableCreateSpec>` 方法就是可继续创建能力。返回的规格只包含与 Agent 实例分离且由提供方决定的创建输入，例如可选的 parent 历史种子；它不包含 Agent、`AgentHandle`、提示词投递、结果、dispose 或恢复操作。管理器会预留 child 身份，解析持久化描述符和通用 Agent 配置，通过私有 activation-owner 作用域调用 `ctx.agents.create()`，将返回的 `AgentHandle` 安装到激活中，建立适用的可继续 parent 所有权，然后调用 `Agent.followup(initialPrompt)`。inbox 接受消息后会产生一个 `AgentMessageId`；`ctx.subagents.startContinuable()` 在此边界返回 `{ childId, messageId }`，不等待轮次开始，也不等待消息写入会话日志。
+具名 subagent 提供方只参与准备初始创建规格，此时 `spawn` 与 `fork` 有所区别。其可选的 `prepareContinuable(request): Promise<ContinuableCreateSpec>` 方法就是可继续创建能力。返回的规格只包含与 Agent 实例分离且由提供方决定的创建输入，例如可选的 parent 历史种子；它不包含 Agent、`AgentHandle`、提示词投递、结果、dispose 或恢复操作。管理器会预留 child 身份，解析持久化描述符和通用 Agent 配置，通过私有 activation-owner 作用域调用 `ctx.agents.create()`，将返回的 `AgentHandle` 安装到激活中，建立适用的可继续 parent 所有权，然后调用 `Agent.followup(initialPrompt)`。inbox 接受消息后会产生一个 `MessageId`；`ctx.subagents.startContinuable()` 在此边界返回 `{ childId, messageId }`，不等待轮次开始，也不等待消息写入会话日志。
 
 inbox 接受消息前发生任何失败，操作都会在不返回任何 id 的情况下被拒绝。Agent 创建流程负责 handle 移交前的回滚；移交后，管理器会先 dispose 已创建的 handle、移除激活并回滚 parent `ownedChildren` 中的任何成员关系，再拒绝操作。
 
@@ -44,9 +44,9 @@ inbox 接受消息前发生任何失败，操作都会在不返回任何 id 的�
 
 `SubagentProvider.start()` 和 `SubagentRun` 只保留在不变的 one-shot 路径上。可继续激活直接持有自身的 `AgentHandle`，绝不创建、包装或保留 `SubagentRun`；因此，`SubagentRun.steer?()` 不存在。
 
-`ctx.subagents.followup(authority, childId, content, { source, signal })` 仍是唯一的继续执行消息操作。`authority` 可以是 `{ kind: 'parent', agent }` 或 `{ kind: 'user' }`；parent 变体仅能从确切的在线 Agent 工具上下文通过准入，只有可信宿主适配器才能提供用户权限。`source` 仍是持久化来源信息，不赋予任何权限。面向模型的 `send_message` 工具只保留稳定的 `subagent_id` 和 `message` 字段，并始终提交一个 follow-up 轮次。start 和 follow-up 都返回已接受的 `AgentMessageId`，两者都不报告管理器如何物化激活。
+`ctx.subagents.followup(authority, childId, content, { source, signal })` 仍是唯一的继续执行消息操作。`authority` 可以是 `{ kind: 'parent', agent }` 或 `{ kind: 'user' }`；parent 变体仅能从确切的在线 Agent 工具上下文通过准入，只有可信宿主适配器才能提供用户权限。`source` 仍是持久化来源信息，不赋予任何权限。面向模型的 `send_message` 工具只保留稳定的 `subagent_id` 和 `message` 字段，并始终提交一个 follow-up 轮次。start 和 follow-up 都返回已接受的 `MessageId`，两者都不报告管理器如何物化激活。
 
-对于 start 和 follow-up，调用方 signal 只在 inbox 接受消息前持有查找、物化和准入。操作返回 `AgentMessageId` 后，管理器会独立持有该激活；调用方之后的取消不会取消已接受的轮次，也不会 dispose child。
+对于 start 和 follow-up，调用方 signal 只在 inbox 接受消息前持有查找、物化和准入。操作返回 `MessageId` 后，管理器会独立持有该激活；调用方之后的取消不会取消已接受的轮次，也不会 dispose child。
 
 ### 持久化会话与在线激活
 
@@ -95,7 +95,7 @@ Agent inbox 是唯一队列。每条继续执行消息都使用 `Agent.followup(
 | `waiting` | parent 或 user | 唤醒同一激活 |
 | 无激活 | parent 或 user | 冷恢复新激活 |
 
-继续执行层不定义单独的投递路由结果。成功投递 `ctx.subagents.followup()` 或 `send_message` 时会返回已接受的 `AgentMessageId`，投递失败则会抛出异常。现有的 `agent/inbox/enqueue`、`agent/inbox/dequeue` 和 `agent/inbox/discard` 事件仍用于观测消息生命周期；适配器可以呈现通用的接受确认，但不暴露 `started`、`queued`、`resumed` 或其他 subagent 专属路由词汇。
+继续执行层不定义单独的投递路由结果。成功投递 `ctx.subagents.followup()` 或 `send_message` 时会返回已接受的 `MessageId`，投递失败则会抛出异常。现有的 `agent/inbox/enqueue`、`agent/inbox/dequeue` 和 `agent/inbox/discard` 事件仍用于观测消息生命周期；适配器可以呈现通用的接受确认，但不暴露 `started`、`queued`、`resumed` 或其他 subagent 专属路由词汇。
 
 ### child 所有权
 
@@ -171,22 +171,24 @@ MVP 不新增 subagent steering 操作、报告工具、从 child 到 parent 的
 
 **在 MVP 中暴露 subagent steering。** 用户 steering 可以是严格且仅限在线使用的宿主操作，但 parent steering 需要当前轮次控制方状态，以保护由用户控制的轮次。首个版本将每条继续执行消息都排队，可以避免引入该状态及其准入竞争。后续 UI 可以新增一项仅限用户的独立操作，而不改变 follow-up 排序。
 
-**返回 subagent 专属的投递路由。** `started`、`queued` 和 `resumed` 等标签重复了激活与 inbox 状态，却没有给调用方提供独立结果。复用 `AgentMessageId` 和现有 inbox 事件，可以让投递关联继续由其所属的 Agent 契约承载。
+**返回 subagent 专属的投递路由。** `started`、`queued` 和 `resumed` 等标签重复了激活与 inbox 状态，却没有给调用方提供独立结果。复用 `MessageId` 和现有 inbox 事件，可以让投递关联继续由其所属的 Agent 契约承载。
 
 **使用 child 引用计数。** 计数无法识别哪个 child 仍持有拆卸工作，也允许重复递减错误。身份集合会显式保留取消和 dispose 义务。
 
-## 验收标准
+## 影响
+
+本实现固定了以下行为：
 
 - 可继续 child 至多拥有一个在线激活和一个 Agent inbox；继续执行管理器没有激活 FIFO 或 queued 激活状态。
 - `SubagentProvider.prepareContinuable?()` 只返回分离式 `ContinuableCreateSpec`；配置为 continuable 时要求具备该能力，而 `backgroundMode` 仍是独立的策略选择。
-- 管理器通过私有 activation-owner 作用域调用 `ctx.agents.create()`，安装返回的 `AgentHandle` 并建立 parent 所有权，调用 `Agent.followup(initialPrompt)`，然后在 inbox 接受消息并产生 `AgentMessageId` 时返回 `{ childId, messageId }`，而不等待轮次开始或消息写入会话日志。
+- 管理器通过私有 activation-owner 作用域调用 `ctx.agents.create()`，安装返回的 `AgentHandle` 并建立 parent 所有权，调用 `Agent.followup(initialPrompt)`，然后在 inbox 接受消息并产生 `MessageId` 时返回 `{ childId, messageId }`，而不等待轮次开始或消息写入会话日志。
 - 初始提示词被 inbox 接受前的每条失败路径都会导致操作被拒绝且不返回 id，并回滚已创建的任何 handle、激活和 parent `ownedChildren` 成员关系。
 - 冷恢复由继续执行管理器调用 `ctx.agents.resume()`，绝不通过初始 subagent 提供方分发；`SubagentProvider.resume?()` 和 `SubagentProviderResumeRequest` 均不存在。
 - 可继续激活直接持有 `AgentHandle`，绝不创建、包装或保留 `SubagentRun`；`SubagentProvider.start()` 和 `SubagentRun` 只用于 one-shot，且没有 `SubagentRun.steer?()`。
 - 用户可以在不加载历史 parent 的前提下冷恢复持久化 child。
 - `followup()` 只接受可信 parent 或用户权限；持久化消息来源信息不能授权投递。
 - Parent 和用户的继续执行消息始终使用 `Agent.followup()` 并共享其 inbox FIFO，包括一种来源排在另一种来源之后，以及 child 已有开放轮次的情况。
-- `ctx.subagents.followup()` 及其 `send_message` 适配器只返回已接受的 `AgentMessageId`；继续执行层不接受投递 target，也不定义 subagent 专属路由结果。
+- `ctx.subagents.followup()` 及其 `send_message` 适配器只返回已接受的 `MessageId`；继续执行层不接受投递 target，也不定义 subagent 专属路由结果。
 - MVP 不暴露公开 subagent 取消操作；调用方 signal 只能在 inbox 接受消息前停止 start 和 follow-up，宿主和管理器拆卸则保留 child-first 全局清理。
 - MVP 不暴露 subagent steering 操作或当前轮次控制方状态。
 - 带有在线所持 child 的空闲 Agent 会产生 `waiting` 激活，其 `AgentHandle` 继续保留。
@@ -198,10 +200,10 @@ MVP 不新增 subagent steering 操作、报告工具、从 child 到 parent 的
 - 会话日志只能根据准入来源重建实际写入的消息；已被 inbox 接受但未写入日志的消息没有重启保证。
 - 可继续 subagent 路径不创建或依赖 Task、`TaskId`、Task 完成通知、Task 取消或中间的带结果执行包装层。
 - 单元覆盖固定 `startContinuable()` 在 inbox 接受消息时的返回边界、每条接受前失败路径的完整回滚、接受前后两个阶段的调用方 signal 所有权，以及已接受但未写入日志的消息不会自动回放。
-- 单元覆盖固定仅由驻留状态决定的路由表、单 inbox 顺序、通过 inbox 事件关联 `AgentMessageId`、在开放轮次期间 follow-up、等待唤醒、冷恢复、所有权注册与释放、child-first dispose、发送与 dispose 的竞争、最终持久性检查点返回 `false` 和 rejection 时都不泄漏所有权，以及不存在公开 subagent 取消、steering 和报告工具这一事实。
+- 单元覆盖固定仅由驻留状态决定的路由表、单 inbox 顺序、通过 inbox 事件关联 `MessageId`、在开放轮次期间 follow-up、等待唤醒、冷恢复、所有权注册与释放、child-first dispose、发送与 dispose 的竞争、最终持久性检查点返回 `false` 和 rejection 时都不泄漏所有权，以及不存在公开 subagent 取消、steering 和报告工具这一事实。
 - 一项无密钥整套应用快照覆盖 parent 委派、parent 与用户混合的 follow-up 排队、不存在 subagent steering、报告投递和自动唤醒 parent、保留等待中的 `AgentHandle` 以及 child-first dispose。
 
-## 风险
+### 已接受的代价
 
 移除 Task 会放弃通用后台工作检查、结果收集和精确 Task 取消。如果这些产品功能成为需求，就需要不会重新引入第二条执行队列的请求 ticket 或 inbox 能力。
 

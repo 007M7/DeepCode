@@ -1,6 +1,6 @@
 # Agent Note: Continuable subagents
 
-Status: proposed
+Status: implemented
 
 English | [中文](2026-07-28-continuable-subagent-conversations.zh.md)
 
@@ -16,7 +16,7 @@ The runtime lifetime is also wider than one turn. A subagent can finish its own 
 
 Users and parent Agents also need to send later work to the same live child without changing its current turn. Queueing every continuation message as a follow-up preserves one ordering rule for both senders.
 
-## Proposal
+## Decision
 
 A continuable subagent has one durable Session and at most one process-local Activation:
 
@@ -34,7 +34,7 @@ The continuation manager owns activation admission, authority checks, the live o
 
 ### Materialization and public operations
 
-The named subagent provider participates only in preparing the initial creation spec, where `spawn` and `fork` differ. Its optional `prepareContinuable(request): Promise<ContinuableCreateSpec>` method is the continuable-creation capability. The returned spec contains only detached provider-specific creation inputs such as the optional parent-history seed; it contains no Agent, `AgentHandle`, prompt delivery, result, disposal, or resume operation. The manager reserves the child identity, resolves the durable descriptor and common Agent setup, calls `ctx.agents.create()` through a private activation-owner scope, installs the returned `AgentHandle` into the Activation, establishes any continuable-parent ownership, and then calls `Agent.followup(initialPrompt)`. Inbox acceptance yields an `AgentMessageId`; at that boundary `ctx.subagents.startContinuable()` returns `{ childId, messageId }` without waiting for the turn to start or for the message to enter the Session log.
+The named subagent provider participates only in preparing the initial creation spec, where `spawn` and `fork` differ. Its optional `prepareContinuable(request): Promise<ContinuableCreateSpec>` method is the continuable-creation capability. The returned spec contains only detached provider-specific creation inputs such as the optional parent-history seed; it contains no Agent, `AgentHandle`, prompt delivery, result, disposal, or resume operation. The manager reserves the child identity, resolves the durable descriptor and common Agent setup, calls `ctx.agents.create()` through a private activation-owner scope, installs the returned `AgentHandle` into the Activation, establishes any continuable-parent ownership, and then calls `Agent.followup(initialPrompt)`. Inbox acceptance yields an `MessageId`; at that boundary `ctx.subagents.startContinuable()` returns `{ childId, messageId }` without waiting for the turn to start or for the message to enter the Session log.
 
 Any failure before inbox acceptance rejects without returning either id. Agent creation provides rollback before handle transfer; after transfer, the manager disposes the created handle, removes the Activation, and rolls back any parent `ownedChildren` membership before rejecting.
 
@@ -44,9 +44,9 @@ Cold resume does not dispatch through a subagent provider. The continuation mana
 
 `SubagentProvider.start()` and `SubagentRun` remain exclusively on the unchanged one-shot path. A continuable Activation directly owns its `AgentHandle` and never creates, wraps, or retains a `SubagentRun`; `SubagentRun.steer?()` is therefore absent.
 
-`ctx.subagents.followup(authority, childId, content, { source, signal })` remains the sole continuation-message operation. `authority` is either `{ kind: 'parent', agent }` or `{ kind: 'user' }`; the parent variant is admitted only from an exact live Agent tool context, while only a trusted host adapter can supply user authority. `source` remains durable provenance and grants no authority. The model-facing `send_message` tool keeps only its stable `subagent_id` and `message` fields and always submits a follow-up turn. Both start and follow-up return the accepted `AgentMessageId`, and neither reports how the manager materialized the Activation.
+`ctx.subagents.followup(authority, childId, content, { source, signal })` remains the sole continuation-message operation. `authority` is either `{ kind: 'parent', agent }` or `{ kind: 'user' }`; the parent variant is admitted only from an exact live Agent tool context, while only a trusted host adapter can supply user authority. `source` remains durable provenance and grants no authority. The model-facing `send_message` tool keeps only its stable `subagent_id` and `message` fields and always submits a follow-up turn. Both start and follow-up return the accepted `MessageId`, and neither reports how the manager materialized the Activation.
 
-For start and follow-up, the caller signal owns lookup, materialization, and admission only until inbox acceptance. After the operation returns its `AgentMessageId`, the manager owns the Activation independently; later caller cancellation does not cancel the accepted turn or dispose the child.
+For start and follow-up, the caller signal owns lookup, materialization, and admission only until inbox acceptance. After the operation returns its `MessageId`, the manager owns the Activation independently; later caller cancellation does not cancel the accepted turn or dispose the child.
 
 ### Durable Session and live Activation
 
@@ -95,7 +95,7 @@ Routing depends only on Activation residency:
 | `waiting` | parent or user | wake the same Activation |
 | no Activation | parent or user | cold-resume a new Activation |
 
-The continuation layer defines no separate delivery-route result. Successful `ctx.subagents.followup()` and `send_message` delivery returns the accepted `AgentMessageId`, while delivery failure throws. Existing `agent/inbox/enqueue`, `agent/inbox/dequeue`, and `agent/inbox/discard` events remain the message-lifecycle observations; adapters may render a generic acceptance but do not expose `started`, `queued`, `resumed`, or another subagent-specific route vocabulary.
+The continuation layer defines no separate delivery-route result. Successful `ctx.subagents.followup()` and `send_message` delivery returns the accepted `MessageId`, while delivery failure throws. Existing `agent/inbox/enqueue`, `agent/inbox/dequeue`, and `agent/inbox/discard` events remain the message-lifecycle observations; adapters may render a generic acceptance but do not expose `started`, `queued`, `resumed`, or another subagent-specific route vocabulary.
 
 ### Child ownership
 
@@ -171,22 +171,24 @@ The MVP adds no subagent steering operation, report tool, child-to-parent conten
 
 **Expose subagent steering in the MVP.** User steering can be a strict live-only host action, but parent steering needs current-turn controller state to protect a user-controlled turn. Queueing every first-version continuation avoids that state and its admission race. A later UI can add a distinct user-only action without changing follow-up ordering.
 
-**Return a subagent-specific delivery route.** Labels such as `started`, `queued`, and `resumed` duplicate Activation and inbox state without giving the caller an independent result. Reusing `AgentMessageId` and the existing inbox events keeps delivery correlation on the Agent contract that owns it.
+**Return a subagent-specific delivery route.** Labels such as `started`, `queued`, and `resumed` duplicate Activation and inbox state without giving the caller an independent result. Reusing `MessageId` and the existing inbox events keeps delivery correlation on the Agent contract that owns it.
 
 **Use a child reference count.** A count cannot identify which child still owns teardown work and permits duplicate decrement errors. An identity set retains cancellation and disposal obligations explicitly.
 
-## Acceptance criteria
+## Consequences
+
+The implementation pins these behaviors:
 
 - A continuable child has at most one live Activation and one Agent inbox; the continuation manager has no Activation FIFO or queued Activation state.
 - `SubagentProvider.prepareContinuable?()` returns only a detached `ContinuableCreateSpec`; configured continuable mode requires that capability, while `backgroundMode` remains an independent policy choice.
-- The manager calls `ctx.agents.create()` through its private activation-owner scope, installs the returned `AgentHandle` and parent ownership, calls `Agent.followup(initialPrompt)`, and returns `{ childId, messageId }` when inbox acceptance yields the `AgentMessageId`, without waiting for turn start or a Session-log write.
+- The manager calls `ctx.agents.create()` through its private activation-owner scope, installs the returned `AgentHandle` and parent ownership, calls `Agent.followup(initialPrompt)`, and returns `{ childId, messageId }` when inbox acceptance yields the `MessageId`, without waiting for turn start or a Session-log write.
 - Every failure before initial-prompt inbox acceptance rejects without ids and rolls back any created handle, Activation, and parent `ownedChildren` membership.
 - Cold resume calls `ctx.agents.resume()` from the continuation manager and never dispatches through the initial subagent provider; `SubagentProvider.resume?()` and `SubagentProviderResumeRequest` are absent.
 - A continuable Activation directly owns `AgentHandle` and never creates, wraps, or retains `SubagentRun`; `SubagentProvider.start()` and `SubagentRun` remain one-shot-only, without `SubagentRun.steer?()`.
 - A user can cold-resume a persisted child without loading its historical parent.
 - `followup()` accepts only trusted parent or user authority; durable message provenance cannot authorize delivery.
 - Parent and user continuation messages always use `Agent.followup()` and share its inbox FIFO, including when one origin queues behind the other or the child already has an open turn.
-- `ctx.subagents.followup()` and its `send_message` adapter return only the accepted `AgentMessageId`; the continuation layer accepts no delivery target and defines no subagent-specific route result.
+- `ctx.subagents.followup()` and its `send_message` adapter return only the accepted `MessageId`; the continuation layer accepts no delivery target and defines no subagent-specific route result.
 - The MVP exposes no public subagent cancellation operation; caller signals stop start and follow-up only before inbox acceptance, while host and manager teardown retains child-first global cleanup.
 - The MVP exposes no subagent steering operation or current-turn controller state.
 - An idle Agent with live owned children yields a `waiting` Activation whose `AgentHandle` remains retained.
@@ -198,10 +200,10 @@ The MVP adds no subagent steering operation, report tool, child-to-parent conten
 - Session logs reconstruct only messages that were actually written, with their admitted provenance; inbox-accepted but unlogged messages have no restart guarantee.
 - No continuable-subagent path creates or depends on a Task, `TaskId`, Task completion notice, Task cancellation, or intermediate result-bearing execution wrapper.
 - Unit coverage pins the `startContinuable()` inbox-acceptance return boundary, complete rollback for each pre-acceptance failure, caller-signal ownership on both sides of acceptance, and the absence of automatic replay for accepted-but-unlogged messages.
-- Unit coverage pins the residency-only routing table, single-inbox ordering, `AgentMessageId` correlation through inbox events, follow-up during an open turn, waiting wakeup, cold resume, ownership registration and release, child-first disposal, send-versus-dispose races, both `false` and rejection from the final durability checkpoint without ownership leaks, and the absence of public subagent cancellation, steering, and report tools.
+- Unit coverage pins the residency-only routing table, single-inbox ordering, `MessageId` correlation through inbox events, follow-up during an open turn, waiting wakeup, cold resume, ownership registration and release, child-first disposal, send-versus-dispose races, both `false` and rejection from the final durability checkpoint without ownership leaks, and the absence of public subagent cancellation, steering, and report tools.
 - A keyless assembled-app snapshot covers parent delegation, mixed parent/user follow-up queueing, the absence of subagent steering, report delivery, and automatic parent wakeup, retained waiting `AgentHandle`, and child-first disposal.
 
-## Risks
+### Accepted costs
 
 Removing Tasks gives up generic background-work inspection, result collection, and exact Task cancellation. If those product features become requirements, they need a request ticket or inbox capability that does not reintroduce a second execution queue.
 
