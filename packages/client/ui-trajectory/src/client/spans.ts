@@ -45,7 +45,7 @@ export interface SpanStats {
  * Fold snapshot nodes into per-turn spans. Only assistant nodes carry a turn
  * number; user/steering/context/tool nodes attach to the turn last seen in
  * sequence order (turn 0 collects the pre-assistant prologue).
- * @param nodes - snapshot nodes in surface order.
+ * @param nodes - snapshot nodes in human transcript order.
  * @returns spans ordered by first appearance.
  */
 export function deriveSpans(nodes: ConversationSnapshot['nodes']): readonly TurnSpan[] {

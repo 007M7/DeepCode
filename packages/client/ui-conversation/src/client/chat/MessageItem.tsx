@@ -1,20 +1,21 @@
-// MessageItem: the four simple node kinds — user bubble (right-aligned, with
+// MessageItem: the five simple node kinds — user bubble (right-aligned, with
 // clock + copy / branch / edit IconActions), steering (badged bubble), context
-// injection and unknown-surface JSON rows. Props are frozen node slices off
-// the snapshot cache; memo holds across streaming because unchanged nodes
-// keep their references.
+// injection, the compaction marker, and unknown-surface JSON rows. Props are
+// frozen node slices off the snapshot cache; memo holds across streaming
+// because unchanged nodes keep their references.
 
 import { memo } from 'react'
 import type { ReactNode } from 'react'
 import type {
-  ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
+  CompactionSummaryNode, ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CompactionItem } from './CompactionItem.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 export interface MessageItemProps {
-  node: UserMessageNode | SteeringMessageNode | ContextMessageNode | UnknownSurfaceNode
+  node: UserMessageNode | SteeringMessageNode | ContextMessageNode | CompactionSummaryNode | UnknownSurfaceNode
 }
 
 function contentText(content: readonly unknown[]): { text: string; rest: unknown[] } {
@@ -98,6 +99,8 @@ export const MessageItem = memo(function MessageItem({ node }: MessageItemProps)
           <JsonBlock label="上下文注入" payload={{ content: node.content, source: node.source }} />
         </div>
       )
+    case 'compaction':
+      return <CompactionItem node={node} />
     default:
       return (
         <div className={css.contextRow}>

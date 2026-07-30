@@ -111,6 +111,24 @@ export interface ToolResultNode {
   resultView: ToolResultView | null
 }
 
+/**
+ * One landed compaction, marked at the checkpoint's own log position. The
+ * conversation it shadowed on the model surface stays in the transcript above
+ * it: the marker reports where the model stopped seeing that history, it does
+ * not replace it. The framed checkpoint payload is an instruction envelope
+ * written for the model and never renders.
+ */
+export interface CompactionSummaryNode {
+  kind: 'compaction'
+  /** Seq of the replacement `user/message` that landed the checkpoint. */
+  seq: number
+  /** Unix epoch ms of the checkpoint event. */
+  time: number
+  /** Summary text from the checkpoint's `compact/summary` provenance; null when
+   *  the window cut left that provenance outside (the marker is then not expandable). */
+  summary: string | null
+}
+
 /** Fallback for surface events this UI version does not know. */
 export interface UnknownSurfaceNode {
   kind: 'unknown'
@@ -124,7 +142,7 @@ export interface UnknownSurfaceNode {
 /**
  * One slash-command lifecycle folded from the log-only `command/run` /
  * `command/done` pair (paired by commandId, mirroring tool call↔result).
- * Log-only events never enter the surface fold, so the FoldAdapter indexes
+ * Log-only events are not surface events, so the TranscriptAdapter indexes
  * them separately and merges the nodes into the flow by seq. A window cut
  * between the pair soft-falls like tool pairs: a done with no in-window run
  * still builds a node (name/args null), and a run with no done renders as
@@ -154,6 +172,7 @@ export type ConversationNode =
   | ContextMessageNode
   | ToolResultNode
   | CommandNode
+  | CompactionSummaryNode
   | UnknownSurfaceNode
 
 /**
@@ -163,7 +182,7 @@ export type ConversationNode =
  * {@link RunningToolCall} (rows derive the running state from the shape,
  * exactly as for native calls) and its `tool/code-dispatch` settlement
  * replaces it in place with the {@link ToolResultNode} form. Never part of
- * the surface `nodes` flow — sub-calls live under their parent via
+ * the transcript `nodes` flow — sub-calls live under their parent via
  * {@link ConversationSnapshot.codeDispatches}. `callId` is the deterministic
  * sub-call id (`<parent>:code:<n>`); the call side carries the sub-tool name
  * and its JSON-stringified logged arguments; `content`/`isError` are the
@@ -232,10 +251,8 @@ export interface PromptError {
 /** The immutable snapshot contract Session hands to uSES (see the web client architecture RFC). */
 export interface ConversationSnapshot {
   sessionId: SessionId
-  /** Surface fold product (finalized conversation nodes in surface order). */
+  /** Human transcript (finalized conversation nodes in log order). */
   nodes: readonly ConversationNode[]
-  /** Fold degradation flag (cross-window replace defense): when true, nodes come from the lenient linear scan. */
-  foldDegraded: boolean
   partial: PartialAssistant | null
   runningCalls: readonly RunningToolCall[]
   /**

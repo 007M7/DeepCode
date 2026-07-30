@@ -38,8 +38,8 @@ export type {
   EngineStoreHandle, EngineStoreInstance, ObservableSnapshot, SnapshotStore,
 } from './contract/store.ts'
 export type {
-  AssistantBlock, AssistantMessageNode, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
-  ConversationSnapshot, QueuedMessage, RunningToolCall,
+  AssistantBlock, AssistantMessageNode, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,
+  ContextMessageNode, ConversationNode, ConversationSnapshot, QueuedMessage, RunningToolCall,
   SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export { PendingWait } from './sessions/pending.ts'

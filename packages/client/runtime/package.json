@@ -48,6 +48,7 @@
     "cordis": "^4.0.0-rc.7"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-compact": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@types/react": "~18.3.1",
     "cordis": "^4.0.0-rc.7"

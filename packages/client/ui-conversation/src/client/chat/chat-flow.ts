@@ -24,7 +24,7 @@ function rendersNothing(node: ConversationNode): boolean {
 
 /**
  * Group finalized nodes into the step-summary flow.
- * @param nodes - snapshot nodes (surface order).
+ * @param nodes - snapshot nodes (human transcript order).
  * @returns flow items; consecutive tool-results merged into one group keyed by the first seq.
  */
 export function deriveChatFlow(nodes: readonly ConversationNode[]): ChatFlowItem[] {

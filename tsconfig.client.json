@@ -36,6 +36,12 @@
     // client-side Context merges keep it out of the host program.
     { "path": "./packages/host/directory-picker-native" },
     { "path": "./packages/host/directory-picker-browse" },
+    // Test-only leaf: the client-runtime drift trap for the compaction
+    // checkpoint source reads the seam's canonical const. It may appear HERE
+    // but never in a packages/client/* package project — dsh-compact's root
+    // reaches dsh-session's root, whose Context merge declares the host
+    // `sessions: SessionStore` and collides with the client's `ISessions`.
+    { "path": "./packages/compact/compact" },
     { "path": "./packages/client/ui-slots" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },

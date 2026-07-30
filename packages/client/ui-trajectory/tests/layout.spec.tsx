@@ -176,7 +176,7 @@ describe('deriveTrajectoryLayout', () => {
     })
   })
 
-  it('advances the duration cursor over context nodes', () => {
+  it('advances the duration cursor over context and compaction nodes', () => {
     const nodes = [
       { kind: 'user', seq: 1, time: 1_000, content: [{ type: 'text', text: 'hi' }], source: null },
       {
@@ -192,17 +192,21 @@ describe('deriveTrajectoryLayout', () => {
         kind: 'context', seq: 4, time: 9_000,
         content: [{ type: 'text', text: 'extra' }], source: null,
       },
+      // A landed compaction renders no cell either, but is still a real log
+      // position, so it moves the cursor the same way a context row does.
+      { kind: 'compaction', seq: 5, time: 9_500, summary: 'checkpoint facts' },
       {
-        kind: 'assistant', seq: 5, time: 10_000, turn: 1, step: 0,
+        kind: 'assistant', seq: 6, time: 10_000, turn: 1, step: 0,
         blocks: [{ kind: 'text', text: 'done' }],
       },
     ] as unknown as ConversationSnapshot['nodes']
     const turns = deriveTrajectoryLayout({ codeDispatches: new Map(), nodes, partial: null, runningCalls: [] })
-    const message = turns[0]?.groups
-      .flatMap(g => g.cells)
-      .find(c => c.kind === 'message' && c.text === 'done')
-    // From context at 9s, not from the earlier user/tool surfaces.
-    expect(message?.timeSeconds).toBe(1)
+    const cells = turns[0]?.groups.flatMap(g => g.cells) ?? []
+    const message = cells.find(c => c.kind === 'message' && c.text === 'done')
+    // From the compaction marker at 9.5s, not from context at 9s or the earlier surfaces.
+    expect(message?.timeSeconds).toBe(0.5)
+    // Neither the context row nor the marker contributed a cell.
+    expect(cells).toHaveLength(3)
   })
 })
 

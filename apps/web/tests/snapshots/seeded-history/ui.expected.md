@@ -36,7 +36,11 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}} cache hit 98% · 15,962 tokens · 1 turns · 2 steps
+- text: {{clock}}
+- button "上下文已压缩 点击查看压缩摘要":
+  - img
+  - text: 上下文已压缩 点击查看压缩摘要
+- text: cache hit 98% · 15,962 tokens · 1 turns · 2 steps
 - textbox "Message the agent"
 - button "Add attachment":
   - img

@@ -110,8 +110,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       lastAssistantTurn = node.turn
       continue
     }
-    if (node.kind === 'context') {
-      // No trajectory cell, but the surface still advances the duration cursor.
+    if (node.kind === 'context' || node.kind === 'compaction') {
+      // No trajectory cell, but transcript metadata still advances the duration cursor.
       prevAbsTime = finiteTime(node.time) ?? prevAbsTime
       continue
     }
