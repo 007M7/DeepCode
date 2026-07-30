@@ -31,6 +31,10 @@
 - button "在新对话中分支":
   - img
 - text: {{clock}}
+- button "上下文注入":
+  - img
+  - img
+  - text: 上下文注入
 - img
 - text: permission preset workspace-write
 - textbox "Message the agent"
