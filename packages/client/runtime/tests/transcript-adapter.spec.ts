@@ -225,7 +225,7 @@ describe('TranscriptAdapter', () => {
 
     it.each([
       ['absent provenance', undefined],
-      ['malformed summary blocks', compactSummary(1, [{ type: 'image', data: 'nope' }])],
+      ['text-less summary blocks', compactSummary(1, [{ type: 'image', data: 'nope' }])],
       ['a whitespace-only summary', compactSummary(1, [{ type: 'text', text: '   ' }])],
       ['an empty summary array', compactSummary(1, [])],
       ['a non-array summary', compactSummary(1, 'plain string')],
@@ -237,6 +237,19 @@ describe('TranscriptAdapter', () => {
       ])
       expect(adapter.nodes()).toEqual([
         { kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: null },
+      ])
+    })
+
+    it('keeps the text of a mixed-block summary, skipping the blocks it cannot render', () => {
+      // ContentBlock is merge-extensible and the payload type is ContentBlock[],
+      // so a non-text block must not discard recoverable text beside it.
+      const adapter = new TranscriptAdapter()
+      adapter.reset([
+        compactSummary(1, [{ type: 'text', text: '可用摘要' }, { type: 'image', data: 'nope' }]),
+        checkpoint(2, 1, { start: 0, end: 0, sourceEventSeqs: [1, 0] }),
+      ])
+      expect(adapter.nodes()).toEqual([
+        { kind: 'compaction', seq: 2, time: 1_700_000_000_002, summary: '可用摘要' },
       ])
     })
 

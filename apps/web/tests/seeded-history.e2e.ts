@@ -43,6 +43,7 @@ function withCompaction(raw: string): string {
     seq: number
     time: number
     surfaceOp?: unknown
+    data?: { turn?: unknown }
   })
   const surfaceSeqs = events
     .filter(event => event.surfaceOp === 'append'
@@ -57,44 +58,56 @@ function withCompaction(raw: string): string {
   if (first === undefined || last === undefined || tail === undefined) {
     throw new Error('seeded-history compaction requires a non-empty closed surface')
   }
+  // The transaction opens the turn after the recording's last closed one; read
+  // it from the fixture so a re-recording with a different turn count stays
+  // valid instead of appending a duplicate turn number.
+  const lastTurn = events.filter(event => event.type === 'turn/end').at(-1)?.data?.turn
+  if (typeof lastTurn !== 'number') {
+    throw new Error('seeded-history compaction requires a recording ending on a closed turn')
+  }
+  const turn = lastTurn + 1
   let seq = tail.seq + 1
   let time = tail.time + 1
-  const at = (event: Record<string, unknown>): string => JSON.stringify({ ...event, seq: seq++, time: time++ })
-  // The checkpoint's provenance names the two events appended before it.
-  const startSeq = seq + 1
-  const summarySeq = seq + 2
-  lines.push(
-    at({ type: 'turn/start', data: { turn: 2, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'compact' } } } }),
-    at({ type: 'compact/start', data: { turn: 2 } }),
-    at({
-      type: 'compact/summary',
-      data: {
-        summary: [{
-          type: 'text',
-          text: '## Cold resume compact summary\n\n- The exact summary remains available.',
-        }],
-        shadowedRange: { start: first, end: last },
-        shadowedSeqs: surfaceSeqs,
-        shadowedTokenCount: 10_000,
-        provider: 'snapshot',
-        model: 'snapshot-compactor',
-      },
-    }),
-    at({
-      type: 'user/message',
-      data: {
-        content: [{
-          type: 'text',
-          text: '<context_checkpoint>Model-only compact checkpoint.</context_checkpoint>',
-        }],
-        source: { kind: 'plugin', plugin: 'compact' },
-      },
-      surfaceOp: { op: 'replace', start: first, end: last },
-      sourceEventSeqs: [startSeq, summarySeq, ...surfaceSeqs],
-    }),
-    at({ type: 'compact/end', data: { turn: 2 } }),
-    at({ type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } }),
-  )
+  /**
+   * Append one event at the next seq/time.
+   * @param event - the event body, without seq/time.
+   * @returns the seq it took, so provenance cites the push instead of arithmetic over the push order below.
+   */
+  const at = (event: Record<string, unknown>): number => {
+    const taken = seq++
+    lines.push(JSON.stringify({ ...event, seq: taken, time: time++ }))
+    return taken
+  }
+  at({ type: 'turn/start', data: { turn, trigger: { kind: 'injection', source: { kind: 'plugin', plugin: 'compact' } } } })
+  const startSeq = at({ type: 'compact/start', data: { turn } })
+  const summarySeq = at({
+    type: 'compact/summary',
+    data: {
+      summary: [{
+        type: 'text',
+        text: '## Cold resume compact summary\n\n- The exact summary remains available.',
+      }],
+      shadowedRange: { start: first, end: last },
+      shadowedSeqs: surfaceSeqs,
+      shadowedTokenCount: 10_000,
+      provider: 'snapshot',
+      model: 'snapshot-compactor',
+    },
+  })
+  at({
+    type: 'user/message',
+    data: {
+      content: [{
+        type: 'text',
+        text: '<context_checkpoint>Model-only compact checkpoint.</context_checkpoint>',
+      }],
+      source: { kind: 'plugin', plugin: 'compact' },
+    },
+    surfaceOp: { op: 'replace', start: first, end: last },
+    sourceEventSeqs: [startSeq, summarySeq, ...surfaceSeqs],
+  })
+  at({ type: 'compact/end', data: { turn } })
+  at({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   return `${lines.join('\n')}\n`
 }
 

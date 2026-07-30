@@ -18,7 +18,7 @@ SlotsService 分别为 renderer 提供 `useSessions` 与 `useWorkspaces` 的裸 
 
 ## 人类对话记录
 
-`ConversationSnapshot.nodes` 是人类对话记录，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口——每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，外加每次落地的压缩检查点贡献一个 `CompactionSummaryNode` 标记——且从不查询 surface 顺序。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩缝隙插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。该来源字面量在本地重述，因为 `dsh-compact` 在两个方向上都无法从本程序到达（客户端纯度门禁拒绝值导入；仅类型导入会与 host 的 `Context.sessions` 合并冲突）——`tests/compact-checkpoint-pin.spec.ts` 是漂移陷阱。
+`ConversationSnapshot.nodes` 是人类对话记录，不是模型 surface。`TranscriptAdapter` 按日志顺序投影原始窗口——每个 append 来源的 surface 事件（`isAppendSurfaceEvent`）落在它自己的日志位置上，外加每次落地的压缩检查点贡献一个 `CompactionSummaryNode` 标记——且从不查询 surface 顺序。于是一次落地的压缩会保留它在模型侧遮蔽掉的对话：标记报告模型从哪里开始看不见那段历史，而不是把它抹掉。仅模型可见的 replacement 副本不进入记录：被裁剪的 `tool/result` 和重新生成的 `assistant/message` 只为模型重写一个节点，不标记任何边界。检查点是携带压缩缝隙插件来源、且**替换**了一段 surface 范围的 `user/message`；一条 append 的插件来源 `user/message` 是注入上下文，不是压缩。适配器的插件字面量通过对无 cordis 的 [`dsh-compact/checkpoint`](../../compact/compact/README.md) 叶子做仅类型导入，钉在压缩缝隙自己的声明上：在那里改名会让此处 `tsc` 失败；而对该包做**值**导入会被客户端纯度门禁拒绝，包的**根**即便作为类型也无法到达（它会到达 `dsh-session` 的根，其 `Context` 合并会让 host 的 `sessions` 与本程序的冲突）。`tests/compact-checkpoint-pin.spec.ts` 从行为侧覆盖同一漂移。
 
 由于投影按日志顺序，节点数组天然按 seq 单调：仅日志的 `command/run` / `command/done` 节点按 seq 插入，`Session` 按分数 seq 归并被打断的冻结节点，而检查点所引范围落在窗口之外的窗口会渲染出标记且不打印任何日志。标记的摘要文本来自检查点的 `compact/summary` 溯源；窗口切分把溯源留在窗口外时该行不可展开而非空白，后续补上溯源的分页会解析出文本。性能契约：一次追加物化一个节点，不改变任何节点的事件保持上一次的数组引用（分片风暴零成本），未变化的节点保持其对象标识。
 

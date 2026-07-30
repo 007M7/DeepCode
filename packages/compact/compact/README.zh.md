@@ -59,6 +59,10 @@
 
 继承 `CompactService`，实现 `compactIfNeeded` 与 `compactRegion`，再将子类作为插件加载：它会注册为 `ctx.compact`。每个成功后端都在替换 user 消息上使用 `COMPACT_CHECKPOINT_SOURCE`；`isCompactCheckpointSource()` 可在持久化或克隆后识别该标记，无需依赖后端身份。基于模板或模型的实现可以放在同级包中，不需更改调用方或共享 token meter。
 
+## 在 host 程序之外识别检查点（`./checkpoint`）
+
+`COMPACT_CHECKPOINT_SOURCE` 与 `isCompactCheckpointSource()` 声明在 `@deepseek-ai/dsh-compact/checkpoint` 子路径上，并由包根重新导出，因此 host 侧消费方仍从根读取它们。该叶子不导入 cordis、也不声明任何模块增强（即 [`dsh-commands/brand`](../../ui/commands/README.md) 的形状），这正是客户端或 wire 程序能够命名该检查点来源的原因：包的**根**根本无法进入这类程序，因为它会到达 `dsh-session` 的根，而那处 `Context` 合并会让 host 的 `sessions` 服务与客户端自己的冲突（`TS2717`——每侧一个程序，见 [development.md](../../../docs/development.md#typescript-project-layout)）。Web 客户端的对话记录适配器用仅类型导入把它的插件字面量钉在该叶子上，因此在此处改插件 id 会让那边编译失败。
+
 ## 模型体验
 
 ### 调用后端时的会话历史

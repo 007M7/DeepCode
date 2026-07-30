@@ -12,25 +12,26 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // browser bundle cannot resolve; surface.ts has no Node dependencies.
 import { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+// Cordis-free leaf subpath (the dsh-commands/brand shape): the seam's own
+// declaration of the checkpoint source, reachable as a TYPE from this program.
+// The package ROOT is not — it reaches dsh-session's root, whose Context merge
+// declares the HOST `sessions: SessionStore` against this program's
+// `sessions: ISessions` (TS2717, the one-program-per-side rule in
+// docs/development.md).
+import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
 import type { ToolCallView, ToolEventView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
 import type { CommandNode, CompactionSummaryNode, ConversationNode } from './conversation.ts'
 import { toAssistantBlocks } from './conversation.ts'
 
 /**
- * The compaction seam's checkpoint plugin, restated locally.
- *
- * `dsh-compact` cannot be reached from this program in any form. A VALUE import
- * fails the client purity gate (`packages/client/tsdown.client.ts`) and would
- * pull the cordis `Service` base into the browser bundle; a TYPE-ONLY import of
- * its `COMPACT_CHECKPOINT_SOURCE` fails typecheck, because `dsh-compact`'s root
- * reaches `dsh-session`'s root, whose `Context` merge declares the HOST
- * `sessions: SessionStore` against this program's `sessions: ISessions`
- * (`TS2717` — the one-program-per-side rule in docs/development.md). The
- * literal is pinned to the canonical const by
- * `tests/compact-checkpoint-pin.spec.ts`, which runs in the client TEST program
- * where that collision does not apply.
+ * The compaction seam's checkpoint plugin, pinned to the seam's own declaration
+ * at COMPILE time: renaming it there fails this annotation (`TS2322`). The
+ * import stays type-only because a value import would fail the client purity
+ * gate (`packages/client/tsdown.client.ts`) — cross-plugin value imports are
+ * forbidden in a browser bundle — while an erased type never reaches it.
+ * `tests/compact-checkpoint-pin.spec.ts` covers the same drift behaviorally.
  */
-const COMPACT_PLUGIN = 'compact'
+const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
 
 /** In-window tool/call index entry (result-card backfill + runningCalls material). */
 export interface CallIndexEntry {
@@ -126,14 +127,20 @@ function isTranscriptEvent(event: SessionEvent): boolean {
   return isAppendSurfaceEvent(event) || isCompactCheckpoint(event)
 }
 
-/** Concatenated text of a `compact/summary` payload, or null when it carries no usable text. */
+/**
+ * Concatenated text of a `compact/summary` payload, or null when it carries no
+ * usable text. The payload is a `ContentBlock[]` whose union is
+ * merge-extensible, so a non-text block is skipped rather than discarding the
+ * text beside it; a payload with no text block at all falls to null through the
+ * empty check.
+ */
 function compactSummaryText(event: SessionEvent): string | null {
   const summary = (event.data as unknown as { summary?: unknown }).summary
-  if (!Array.isArray(summary) || summary.length === 0) return null
+  if (!Array.isArray(summary)) return null
   let text = ''
   for (const block of summary as readonly unknown[]) {
     const candidate = block as { type?: unknown; text?: unknown }
-    if (candidate.type !== 'text' || typeof candidate.text !== 'string') return null
+    if (candidate.type !== 'text' || typeof candidate.text !== 'string') continue
     text += candidate.text
   }
   return text.trim() === '' ? null : text

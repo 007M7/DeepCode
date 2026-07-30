@@ -22,18 +22,24 @@ The marker's summary text comes from the checkpoint's own `compact/summary` prov
 
 No persisted event, RPC envelope, compaction transaction, or model-visible surface changed, and no migration is required.
 
-## Recognizing a checkpoint: the local literal and its drift trap
+## Recognizing a checkpoint: one declaration, pinned at compile time
 
 Recognition needs all three conditions, as in the terminal: `event.type === 'user/message'`, the compaction seam's checkpoint plugin source, **and** `isReplacementSurfaceEvent(event)`. A plugin-sourced `user/message` that *appends* is injected context — a session-reference card — not a compaction.
 
-The client restates that plugin source as a local literal, because `dsh-compact` is unreachable from `packages/client/runtime`'s program in **both** directions:
+What is unreachable from a `packages/client/*` program is `dsh-compact`'s **root**, not the package. The root reaches `dsh-session`'s root, whose cordis `Context` merge declares the host `sessions: SessionStore` against the client's `sessions: ISessions` — `TS2717`, the one-program-per-side rule in [development.md](../../../../docs/development.md#typescript-project-layout) — and that holds for a type-only import too, because the collision is a compiler fact rather than a bundler one.
 
-- a **value** import fails the client purity gate (`packages/client/tsdown.client.ts`), and `dsh-compact`'s root value-imports cordis, so admitting it would pull `CompactService` into the browser bundle;
-- a **type-only** import fails typecheck. `dsh-compact`'s root reaches `dsh-session`'s root, whose cordis `Context` merge declares the host `sessions: SessionStore` against this program's `sessions: ISessions` — `TS2717`, the one-program-per-side rule in [development.md](../../../../docs/development.md#typescript-project-layout). This was expected to work and does not; `import type` is erased before the *bundler* runs, but not before the *compiler* does, and the collision is a compiler fact.
+The repo's answer to exactly this is a cordis-free leaf subpath, and this change adds one: `COMPACT_CHECKPOINT_SOURCE` and `isCompactCheckpointSource` now live in `packages/compact/compact/src/checkpoint.ts`, which imports no cordis and augments no module (the `dsh-commands/brand` / `dsh-llm/message` shape), and the root re-exports both so every host-side consumer — the terminal's chat helpers, `dsh-session-reference`'s projection — is unchanged. The adapter pins its literal to that declaration with a type-only import:
 
-The drift protection therefore lives in a test, not in a type: `packages/client/runtime/tests/compact-checkpoint-pin.spec.ts` runs in the client **test** program, which carries no such collision, and drives the adapter with a checkpoint built from the canonical `COMPACT_CHECKPOINT_SOURCE` itself. Renaming the seam's plugin fails there instead of silently deleting every compaction marker from the web transcript. `dsh-compact` is a `devDependency` of `dsh-client-runtime` and a reference of `tsconfig.client.json` only — never of a `packages/client/*` package project.
+```ts
+import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
+const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
+```
 
-That is a deliberate divergence from the terminal, which value-imports `isCompactCheckpointSource` directly because no gate applies host-side.
+Renaming the seam's plugin id is now a compile error in the client: `TS2322: Type '"compact"' is not assignable to type '"compaction"'`. The import must stay **type-only** — a value import of any `@deepseek-ai` package that is neither a platform module nor an inline-safe wire layer is rejected by the client purity gate (`packages/client/tsdown.client.ts`), whose own message records that type-only imports are erased and never reach it. A type-only leaf import needs both a `tsconfig.base.json` `paths` entry and `{"path": "../../compact/compact"}` in `packages/client/runtime/tsconfig.json` `references`: composite `rootDir` rules apply to erased imports as well, and without the reference the diagnostic is `TS6059`/`TS6307`.
+
+`packages/client/runtime/tests/compact-checkpoint-pin.spec.ts` stays as the behavioral half, driving the adapter with a checkpoint built from the canonical **value**. It runs in the client **test** program, which may value-import the root; a `packages/client/*` package program may not.
+
+The divergence from the terminal is therefore narrow: both frontends recognize a checkpoint from the same declaration — the terminal value-imports `isCompactCheckpointSource` host-side, where no gate applies, and the client pins the type.
 
 ## What #835's positional anchors were for, and why they are dissolved rather than lost
 
@@ -41,7 +47,7 @@ The unmerged manual-compaction-queueing branch fixes the same interleaving bug b
 
 ## Alternatives considered
 
-**Add `dsh-compact` to the client `INLINE_SAFE` allowlist** and move the predicate to a cordis-free subpath. Rejected: `INLINE_SAFE` matches on specifier *prefix*, so admitting the package admits its cordis-importing root too; the allowlist is a reviewer promise about client-facing subpaths, not a purity proof. It also needs a new export and a `files` fix, and it would not have helped — the blocking collision turned out to be in the compiler, which an allowlist does not touch.
+**Value-import the predicate** from the new leaf and add `dsh-compact` to the client `INLINE_SAFE` allowlist. Rejected: the client needs the plugin id, not the predicate — a type is enough, and an erased import never reaches the purity gate, so nothing has to be admitted to it. The allowlist would only matter for a value import, and there it is a poor trade: `INLINE_SAFE` matches on specifier *prefix*, so admitting the package admits its cordis-importing root along with the leaf.
 
 **A bare shape rule** — any replacement `user/message` is a compaction. Rejected: correct today only because compaction is the sole producer of replacement `user/message`s, with nothing to catch it if that changes. The pinning spec costs one file and removes exactly that risk.
 

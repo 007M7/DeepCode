@@ -22,18 +22,24 @@ surface 顺序还让另外两个问题成为结构性的。一次替换之后它
 
 没有任何持久化事件、RPC 信封、压缩事务或模型可见 surface 发生变化，也不需要迁移。
 
-## 识别检查点：本地字面量与它的漂移陷阱
+## 识别检查点：同一份声明，在编译期钉住
 
 识别需要三个条件同时成立，与终端一致：`event.type === 'user/message'`、压缩缝隙的检查点插件来源，**以及** `isReplacementSurfaceEvent(event)`。一条 append 的插件来源 `user/message` 是注入上下文——跨会话引用卡片——不是压缩。
 
-客户端把该插件来源重述为一个本地字面量，因为 `dsh-compact` 在**两个**方向上都无法从 `packages/client/runtime` 的程序到达：
+从 `packages/client/*` 程序无法到达的是 `dsh-compact` 的**根部**，而不是这个包。根部会到达 `dsh-session` 的根部，后者的 cordis `Context` 合并声明了宿主侧 `sessions: SessionStore`，与客户端的 `sessions: ISessions` 冲突——`TS2717`，即 [development.md](../../../../docs/development.md#typescript-project-layout) 中每侧一个 program 的规则；这一点对仅类型导入同样成立，因为该冲突是编译器事实而非打包器事实。
 
-- **值**导入会失败于客户端纯度门禁（`packages/client/tsdown.client.ts`），而 `dsh-compact` 的根部会值导入 cordis，因此放行它就会把 `CompactService` 拉进浏览器产物；
-- **仅类型**导入会失败于类型检查。`dsh-compact` 的根部会到达 `dsh-session` 的根部，后者的 cordis `Context` 合并声明了宿主侧 `sessions: SessionStore`，与本程序的 `sessions: ISessions` 冲突——`TS2717`，即 [development.md](../../../../docs/development.md#typescript-project-layout) 中每侧一个 program 的规则。这一点原本预期可行，实际不可行：`import type` 在**打包器**运行前被擦除，但不在**编译器**运行前被擦除，而该冲突是编译器事实。
+本仓库对这一情形的既有答案是不含 cordis 的叶子子路径，本次变更就新增了一个：`COMPACT_CHECKPOINT_SOURCE` 与 `isCompactCheckpointSource` 现在住在 `packages/compact/compact/src/checkpoint.ts`，它不导入 cordis、也不增强任何模块（即 `dsh-commands/brand` / `dsh-llm/message` 的形状），而包根重新导出两者，因此每个宿主侧消费方——终端的 chat helper、`dsh-session-reference` 的投影——都不需改动。适配器用仅类型导入把它的字面量钉在该声明上：
 
-因此漂移保护住在一个测试里，而不是一个类型里：`packages/client/runtime/tests/compact-checkpoint-pin.spec.ts` 运行在客户端**测试**程序中——那里不存在这一冲突——并用由权威 `COMPACT_CHECKPOINT_SOURCE` 本身构造的检查点驱动适配器。重命名缝隙的插件会在那里失败，而不是无声地把每个压缩标记从 Web 记录中删除。`dsh-compact` 只是 `dsh-client-runtime` 的 `devDependency` 以及 `tsconfig.client.json` 的一条引用——绝不是任何 `packages/client/*` 包工程的引用。
+```ts
+import type { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact/checkpoint'
+const COMPACT_PLUGIN: typeof COMPACT_CHECKPOINT_SOURCE.plugin = 'compact'
+```
 
-这是与终端的一次刻意分歧：终端直接值导入 `isCompactCheckpointSource`，因为宿主侧不适用任何门禁。
+重命名缝隙的插件 id 现在会在客户端产生编译错误：`TS2322: Type '"compact"' is not assignable to type '"compaction"'`。该导入必须保持**仅类型**——任何既非平台模块又非 inline-safe wire 层的 `@deepseek-ai` 包值导入都会被客户端纯度门禁（`packages/client/tsdown.client.ts`）拒绝，而它自己的报错信息就记录着仅类型导入会被擦除、永不抵达该门禁。仅类型的叶子导入同时需要 `tsconfig.base.json` 的一条 `paths` 条目和 `packages/client/runtime/tsconfig.json` `references` 中的 `{"path": "../../compact/compact"}`：composite 的 `rootDir` 规则同样适用于被擦除的导入，缺少该引用时的诊断是 `TS6059`/`TS6307`。
+
+`packages/client/runtime/tests/compact-checkpoint-pin.spec.ts` 作为行为侧的另一半保留，用由权威**值**构造的检查点驱动适配器。它运行在客户端**测试**程序中，那里可以值导入包根；`packages/client/*` 包工程不可以。
+
+因此与终端的分歧很窄：两个前端都从同一份声明识别检查点——终端在宿主侧值导入 `isCompactCheckpointSource`（那里不适用任何门禁），客户端钉住类型。
 
 ## #835 的位置锚点是为什么而存在，以及为什么它是被溶解而非丢失
 
@@ -41,7 +47,7 @@ surface 顺序还让另外两个问题成为结构性的。一次替换之后它
 
 ## Alternatives considered
 
-**把 `dsh-compact` 加入客户端 `INLINE_SAFE` 白名单**，并把谓词搬到一个不含 cordis 的子路径。已拒绝：`INLINE_SAFE` 按标识符*前缀*匹配，因此放行该包也就放行了它那个会导入 cordis 的根部；该白名单是对面向客户端子路径的评审承诺，不是纯度证明。它还需要一个新导出与一处 `files` 修正，而且本来也帮不上忙——真正阻塞的冲突出在编译器，白名单碰不到那里。
+**从新叶子值导入该谓词**，并把 `dsh-compact` 加入客户端 `INLINE_SAFE` 白名单。已拒绝：客户端需要的是插件 id，不是谓词——一个类型就够了，而被擦除的导入根本不会抵达纯度门禁，因此无需向它放行任何东西。白名单只在值导入时才有意义，而在那里它是笔糟糕的交换：`INLINE_SAFE` 按标识符*前缀*匹配，因此放行该包会连它那个会导入 cordis 的根部一起放行。
 
 **一条纯形状规则**——任何 replacement `user/message` 都是压缩。已拒绝：它今天正确只因为压缩是 replacement `user/message` 的唯一生产者，一旦这点改变便无任何机制能捕获。那个 pin 测试只花一个文件，就精确消除了这一风险。
 

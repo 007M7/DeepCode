@@ -1,17 +1,15 @@
 /**
- * Drift trap for the compaction-checkpoint recognition rule.
+ * Behavioral half of the compaction-checkpoint drift trap.
  *
- * `TranscriptAdapter` restates the compaction seam's checkpoint source as a
- * local literal because it cannot import `dsh-compact` in any form: a VALUE
- * import fails the client purity gate, and a TYPE-ONLY import fails typecheck —
- * `dsh-compact`'s root reaches `dsh-session`'s root, whose cordis `Context`
- * merge declares the HOST `sessions: SessionStore` against the client program's
- * `sessions: ISessions` (`TS2717`). This spec runs in the client TEST program,
- * which does not carry that collision, and it is the only thing keeping the two
- * implementations from drifting: it drives the adapter with a checkpoint built
- * from the canonical `COMPACT_CHECKPOINT_SOURCE` itself, so renaming the seam's
- * plugin fails HERE instead of silently deleting every compaction marker from
- * the web transcript.
+ * `TranscriptAdapter` pins its plugin literal to the seam's own declaration at
+ * compile time through a type-only import of `dsh-compact/checkpoint`, so
+ * renaming the seam's plugin already fails `tsc`. This spec covers the same
+ * drift from the other side — end to end through the adapter, driving it with a
+ * checkpoint built from the canonical `COMPACT_CHECKPOINT_SOURCE` **value** and
+ * checking the seam's own predicate agrees. It runs in the client TEST program,
+ * which can value-import the package root; a `packages/client/*` package
+ * program cannot, because that root reaches `dsh-session`'s root and collides
+ * the host `Context.sessions` merge (`TS2717`).
  */
 
 import { COMPACT_CHECKPOINT_SOURCE, isCompactCheckpointSource } from '@deepseek-ai/dsh-compact'
