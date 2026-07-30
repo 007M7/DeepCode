@@ -16,10 +16,6 @@ Shared filesystem path helpers for DeepSeek Harness user data.
 
 `expandHomePath()` expands `~`, `~/...`, and Windows-style `~\...` prefixes against the operating-system home directory. It leaves non-tilde paths and `~user/...` untouched.
 
-## Session store
-
-`resolveSessionsRoot()` resolves the shared session-store root under the Harness home, by the same precedence as `resolveDshHome()`. `SESSIONS_DIR_NAME` owns its directory name: `sessions`. Every surface that persists sessions resolves this one directory, so history is shared across working directories instead of scattered per project; a persistence backend may still partition inside it. Two surfaces resolving different roots would silently split one user's history into disjoint stores, which is why the location is owned here rather than joined per caller.
-
 This package is intentionally small and harness-dep-free so product packages can share user-data path conventions without depending on one another.
 
 ## Known Limitations and Deferred Work
