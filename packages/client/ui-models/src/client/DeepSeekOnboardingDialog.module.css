@@ -1,0 +1,54 @@
+.dialog {
+  width: min(420px, 100%);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.input > input {
+  width: 100%;
+}
+
+.advanced {
+  align-self: flex-start;
+  padding-inline: 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.diagnostic {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.primary {
+  width: 100%;
+}

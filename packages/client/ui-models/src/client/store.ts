@@ -25,6 +25,8 @@ export interface ProviderRow {
   apiKeyEnv: string | undefined
   /** Credential state for {@link apiKeyEnv}, once described. */
   credential: CredentialView | undefined
+  /** Whether the redacted secret sidecar reports an effective literal `apiKey`. */
+  literalApiKeyConfigured: boolean
 }
 
 /** Page snapshot. */
@@ -32,6 +34,8 @@ export interface ModelsSettingsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** Whole-load failure text; row-level write failures stay in the editor. */
   error: string | null
+  /** Credential enrichment failure; provider/settings rows remain usable. */
+  credentialError: string | null
   /** Whether the settings provider accepts writes. */
   writable: boolean
   /** Every configurable provider joined with its configured/credential state. */
@@ -49,11 +53,29 @@ function apiKeyEnvOf(namespace: SettingsNamespaceView | undefined, path: readonl
   return typeof ref === 'string' && ref.length > 0 ? ref : undefined
 }
 
+/** Whether one namespace's redacted sidecar reports a set literal API key. */
+function literalApiKeyConfigured(
+  namespace: SettingsNamespaceView | undefined,
+  path: readonly string[],
+): boolean {
+  if (namespace === undefined) return false
+  const secretPath = [...path, 'apiKey']
+  return namespace.secrets.some(secret =>
+    secret.set
+    && secret.path.length === secretPath.length
+    && secret.path.every((key, index) => key === secretPath[index]))
+}
+
+/** Safe display text for a rejected transport or business response. */
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** The models settings page controller (one per settings surface). */
 export class ModelsSettingsStore {
   /** The snapshot the section renders from (uSES-safe store). */
   readonly store: SnapshotStore<ModelsSettingsState> = createSnapshotStore<ModelsSettingsState>({
-    status: 'idle', error: null, writable: false, rows: [], namespaces: new Map(),
+    status: 'idle', error: null, credentialError: null, writable: false, rows: [], namespaces: new Map(),
   })
 
   /** Latest load wins; an older response never overwrites a newer one. */
@@ -109,20 +131,28 @@ export class ModelsSettingsStore {
         removable,
         apiKeyEnv: apiKeyEnvOf(namespace, entry.settingsPath),
         credential: undefined,
+        literalApiKeyConfigured: literalApiKeyConfigured(namespace, entry.settingsPath),
       }
     })
     const refs = [...new Set(rows.flatMap(row => row.apiKeyEnv === undefined ? [] : [row.apiKeyEnv]))]
     let credentials: Record<string, CredentialView> = {}
+    let credentialError: string | null = null
     if (refs.length > 0) {
-      const response = await this.api.credentials.describe({ refs })
-      // Credential state is an enrichment: rows render without it, so a
-      // missing credential provider degrades the badge, not the page.
-      if (response.result.ok) credentials = response.result.value.credentials
+      try {
+        const response = await this.api.credentials.describe({ refs })
+        // Credential state is an enrichment for the Models page, while the
+        // onboarding readiness projection below reports its failure.
+        if (response.result.ok) credentials = response.result.value.credentials
+        else credentialError = response.result.error.message
+      } catch (error) {
+        credentialError = errorText(error)
+      }
     }
     if (generation !== this.generation) return
     this.store.update((s) => {
       s.status = 'ready'
       s.error = null
+      s.credentialError = credentialError
       s.writable = writable
       s.rows = rows.map(row => ({
         ...row,
@@ -132,5 +162,100 @@ export class ModelsSettingsStore {
       }))
       s.namespaces = namespaces
     })
+  }
+}
+
+/** DeepSeek onboarding readiness derived only from the shared Models join. */
+export type DeepSeekReadiness =
+  | { kind: 'loading' }
+  | { kind: 'adapter-absent' }
+  | { kind: 'configured'; source: 'literal' | 'credential'; ref?: string; credential?: CredentialView }
+  | { kind: 'credential-missing'; displayName: string; ref: string }
+  | {
+    kind: 'unavailable'
+    reason:
+      | 'provider-inactive'
+      | 'settings-unavailable'
+      | 'credential-ref-unavailable'
+      | 'credentials-unavailable'
+      | 'credential-read-only'
+    message: string
+  }
+
+/**
+ * Project official-DeepSeek readiness from the provider/settings/credential
+ * join used by the Models page. A missing directory entry means the adapter
+ * is not mounted and therefore cannot be repaired by a key form.
+ * @param state - current shared Models join snapshot.
+ * @returns the onboarding state without reading a parallel fact source.
+ */
+export function deepSeekReadiness(state: ModelsSettingsState): DeepSeekReadiness {
+  if ((state.status === 'idle' || state.status === 'loading') && state.rows.length === 0) {
+    return { kind: 'loading' }
+  }
+  if (state.status === 'error') {
+    return {
+      kind: 'unavailable',
+      reason: 'settings-unavailable',
+      message: state.error ?? 'provider/settings describe failed',
+    }
+  }
+  const row = state.rows.find(candidate => candidate.entry.provider === 'deepseek-official')
+  if (row === undefined) return { kind: 'adapter-absent' }
+  if (!row.entry.active) {
+    return {
+      kind: 'unavailable',
+      reason: 'provider-inactive',
+      message: 'the deepseek-official route is not active',
+    }
+  }
+  if (!row.configured) {
+    return {
+      kind: 'unavailable',
+      reason: 'settings-unavailable',
+      message: `settings namespace "${row.entry.settingsNs}" did not resolve the provider profile`,
+    }
+  }
+  if (row.literalApiKeyConfigured) return { kind: 'configured', source: 'literal' }
+  if (row.apiKeyEnv === undefined) {
+    return {
+      kind: 'unavailable',
+      reason: 'credential-ref-unavailable',
+      message: 'the resolved DeepSeek settings do not name an apiKeyEnv credential reference',
+    }
+  }
+  if (state.credentialError !== null) {
+    return {
+      kind: 'unavailable',
+      reason: 'credentials-unavailable',
+      message: state.credentialError,
+    }
+  }
+  if (row.credential === undefined) {
+    return {
+      kind: 'unavailable',
+      reason: 'credentials-unavailable',
+      message: `credential reference "${row.apiKeyEnv}" was not described`,
+    }
+  }
+  if (row.credential.configured) {
+    return {
+      kind: 'configured',
+      source: 'credential',
+      ref: row.apiKeyEnv,
+      credential: row.credential,
+    }
+  }
+  if (!row.credential.writable) {
+    return {
+      kind: 'unavailable',
+      reason: 'credential-read-only',
+      message: `credential reference "${row.apiKeyEnv}" is missing and read-only`,
+    }
+  }
+  return {
+    kind: 'credential-missing',
+    displayName: row.entry.displayName,
+    ref: row.apiKeyEnv,
   }
 }

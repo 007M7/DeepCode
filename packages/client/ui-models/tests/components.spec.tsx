@@ -6,7 +6,7 @@ import Schema from 'schemastery'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-client-connection/client'
 import { ModelsSection, removeProviderProfile } from '../src/client/ModelsSection.tsx'
-import type { ModelsSectionInjected } from '../src/client/ModelsSection.tsx'
+import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { ModelsSettingsStore } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
@@ -121,6 +121,12 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
 }
 
 describe('ModelsSection', () => {
+  it('renders nothing before the slot injects its dependencies', () => {
+    const uninjected = {} as ModelsSectionProps
+    render(<ModelsSection {...uninjected} />)
+    expect(document.body.textContent).toBe('')
+  })
+
   it('renders configured rows with status badges and the add vocabulary', async () => {
     await mountSection()
     expect(screen.getByText('DeepSeek')).toBeTruthy()
@@ -133,6 +139,16 @@ describe('ModelsSection', () => {
     const add = screen.getByLabelText<HTMLSelectElement>(en.add)
     expect([...add.options].map(option => option.value)).toEqual(['', 'anthropic', 'broken'])
     expect(screen.getAllByText(en.remove)).toHaveLength(2)
+  })
+
+  it('does not mark a provider with a configured literal key as missing', async () => {
+    const { controller } = await mountSection()
+    controller.store.update((state) => {
+      state.rows = state.rows.map(row => row.entry.provider === 'deepseek-official'
+        ? { ...row, literalApiKeyConfigured: true }
+        : row)
+    })
+    await waitFor(() => { expect(screen.queryByText(en.keyMissing)).toBeNull() })
   })
 
   it('opens the editor, applies an edit as a merge patch, and reloads', async () => {

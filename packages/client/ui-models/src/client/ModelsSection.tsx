@@ -68,7 +68,7 @@ function StatusBadges({ row, t }: { row: ProviderRow; t: ModelsSectionInjected['
       {row.entry.active
         ? <span className={styles['badgeOk']}>{t('active')}</span>
         : <span className={styles['badgeMuted']}>{t('dormant')}</span>}
-      {row.credential !== undefined && !row.credential.configured
+      {!row.literalApiKeyConfigured && row.credential !== undefined && !row.credential.configured
         ? <span className={styles['badgeWarn']}>{t('keyMissing')}</span>
         : null}
     </span>
