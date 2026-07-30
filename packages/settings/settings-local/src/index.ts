@@ -11,7 +11,7 @@ import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
@@ -105,7 +105,6 @@ function isEEXIST(error: unknown): boolean {
 const LOCK_RETRY_INITIAL_MS = 20
 const LOCK_RETRY_MAX_MS = 200
 const LOCK_TIMEOUT_MS = 2_000
-const LOCK_STALE_MS = 5_000
 
 /** File-backed settings provider (`settings.yaml`/`.json`). */
 export class SettingsLocal extends Settings {
@@ -229,15 +228,6 @@ export class SettingsLocal extends Settings {
       } catch (error) {
         if (!isEEXIST(error)) throw error
       }
-      const ageMs = await this.lockAgeMs(lockPath)
-      if (ageMs === undefined) continue
-      if (ageMs > LOCK_STALE_MS) {
-        // TODO(settings-lock-ownership): Replace age-only takeover with ownership-safe
-        // acquisition and release so a slow writer cannot remove a successor's lock.
-        this.ctx.logger.warn('settings-local: breaking a stale writer lock at %s', lockPath)
-        await rm(lockPath, { force: true })
-        continue
-      }
       if (Date.now() >= deadline) {
         throw new Error(`settings-local: timed out waiting for the writer lock at ${lockPath}`)
       }
@@ -248,16 +238,6 @@ export class SettingsLocal extends Settings {
       return await operation()
     } finally {
       await rm(lockPath, { force: true })
-    }
-  }
-
-  /** Age of the writer lock, or `undefined` when it vanished after a failed create. */
-  private async lockAgeMs(lockPath: string): Promise<number | undefined> {
-    try {
-      return Date.now() - (await stat(lockPath)).mtimeMs
-    } catch (error) {
-      if (!isENOENT(error)) throw error
-      return undefined
     }
   }
 
