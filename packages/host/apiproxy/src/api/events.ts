@@ -8,9 +8,8 @@
 
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-interaction/types'
 import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-approval/types'
-import type { Message } from '@deepseek-ai/dsh-llm/types'
-import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { UserMessage } from '@deepseek-ai/dsh-llm/message'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
 import type { RpcError, RpcId, RpcRequest } from './rpc.ts'
@@ -31,14 +30,6 @@ export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presen
 export type ToolEventView =
   | { for: 'call'; view: ToolCallView }
   | { for: 'result'; view: ToolResultView }
-
-/** One pending queued occurrence in an authoritative queue snapshot. */
-export interface QueuedInboxItem {
-  /** Agent-owned occurrence identity used by queue mutations. */
-  id: InboxItemId
-  /** Complete pending message; it is not durable until the Agent claims it. */
-  message: Message
-}
 
 /** Streaming face of the contract: the two SSE stream openers (mux + host). */
 export interface EventsApi {
@@ -71,13 +62,11 @@ export type MuxFrame =
   | { type: 'question/requested'; sessionId: SessionId; questions: AskUserQuestionItem[] }
   | { type: 'question/resolved'; sessionId: SessionId; questionRpcId: RpcId; outcome: 'answered' | 'cancelled' }
   /**
-   * Complete transient queue state after every enqueue, mutation, claim, or
-   * discard. Pending work is not model-visible and therefore has no durable
-   * session event; the whole snapshot makes edit, deletion, cancel, and
-   * reconnect converge through one authoritative signal. Pending steering is
-   * outside this Web queue projection.
+   * Complete next-turn queue baseline emitted when a mux stream opens. Live
+   * mutations arrive through durable `agent/inbox/spliced` session events.
+   * Pending next-step input is outside this Web queue projection.
    */
-  | { type: 'session/queue'; sessionId: SessionId; items: QueuedInboxItem[] }
+  | { type: 'session/queue'; sessionId: SessionId; items: UserMessage[] }
   /**
    * One projection unit's finished value changed (session-projection RFC).
    * Live push state, never logged — replay recomputes on the host (the

@@ -7,10 +7,10 @@
 
 import type { Context } from 'cordis'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
-import type { ContentBlock, LlmCallConfig, LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { AgentCancelCause, Session, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 export type { AgentCancelCause } from '@deepseek-ai/dsh-session'
-import type { InboxItemId } from './brand.ts'
+import type { Inbox, InboxTarget } from './inbox.ts'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 declare module '@deepseek-ai/dsh-system-prompt' {
   interface AssembleContext {
@@ -29,63 +29,12 @@ export interface AgentOptions {
   maxTokens?: number
 }
 
-/**
- * Which inbox queue a {@link Agent.send} item joins:
- * - `next-turn` — the item becomes its own turn, claimed at a turn boundary.
- * - `next-step` — during prompt admission or an open turn, the item stages for
- *   the next safe step boundary; otherwise it is promoted per its `wakeup`
- *   flag.
- */
-export type SendTarget = 'next-turn' | 'next-step'
-
-/** Resolved inbox placement reported when an accepted message is enqueued. */
-export type InboxPlacement = 'queued' | 'steering'
-
-/** One independently addressable accepted occurrence in an agent inbox. */
-export interface InboxItem {
-  /** Agent-loop-minted occurrence identity. */
-  readonly id: InboxItemId
-  /** Identified message delivered by the caller. */
-  readonly message: UserMessage
-  /** Acceptance-time FIFO classification. */
-  readonly placement: InboxPlacement
-}
-
-/** A user-requested mutation of one still-pending queued occurrence. */
-export type InboxAction =
-  | { readonly kind: 'edit'; readonly content: ContentBlock[] }
-  | { readonly kind: 'remove' }
-
-/** Result of applying an inbox action at the synchronous ownership boundary. */
-export type InboxActionResult = 'applied' | 'not-found'
-
-/**
- * Options for the unified {@link Agent.send} primitive over the
- * (`target` × `wakeup`) matrix. Named presets: {@link Agent.followup}
- * (`next-turn`/wakeup), {@link Agent.steer} (`next-step`/wakeup), and
- * {@link Agent.inject} (`next-step`/no-wakeup).
- *
- * The object is complete so routing policy is explicit.
- */
-export interface SendOptions {
-  /** Queue the item joins. */
-  target: SendTarget
-  /**
-   * Whether this item makes the model run: wake a parked driver (`next-turn`)
-   * or force a continuation step (`next-step` while running). A `false`
-   * `next-turn` item queues without waking; a `false`
-   * `next-step` item attaches durable context without forcing another step
-   * (the injection preset).
-   */
-  wakeup: boolean
-}
-
 /** Options for {@link Agent.cancel}. */
 export interface CancelOptions {
   /**
    * Preserve queued and steering inbox items instead of discarding them. The
    * active turn is still aborted, but un-started and pending work survives for a
-   * later turn and no `agent/inbox/canceled` fires.
+   * later turn and no canceled inbox splice is logged.
    */
   keepInbox?: boolean | undefined
 }
@@ -136,29 +85,12 @@ export interface Agent {
   readonly options: AgentOptions
   /** The live session this agent drives; its log is the durable source of truth. */
   readonly session: Session
+  /** The agent-owned projection of durable pending work. */
+  readonly inbox: Inbox
   /** The current lifecycle state, mirrored on every `agent/status` transition. */
   readonly status: AgentStatus
-  /** Whether a next-step send currently remains in the open turn. */
-  readonly acceptsNextStep: boolean
   /** Agent-scoped context; its contributions are agent-local, unwind on disposal, and reject registration afterward. */
   readonly ctx: Context
-
-  /**
-   * The unified delivery primitive over the (`target` × `wakeup`) matrix.
-   * @param message - identified model-facing content and its producer provenance.
-   * @param options - target queue and wakeup decision.
-   */
-  send(message: UserMessage, options: SendOptions): void
-
-  /**
-   * Mutate one still-pending queued occurrence synchronously. Editing preserves
-   * the message identity and queue position; removal publishes its terminal
-   * discard. Steering occurrences and driver-claimed items return `not-found`.
-   * @param id - independently addressable queued occurrence.
-   * @param action - edit or remove operation.
-   * @returns whether the pending occurrence was found and updated.
-   */
-  updateInbox(id: InboxItemId, action: InboxAction): InboxActionResult
 
   /**
    * Clear queued and steering work — unless `keepInbox` — and abort the active
@@ -236,48 +168,6 @@ declare module 'cordis' {
      * @mode emit
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
-    /**
-     * An item entered the queued or steering inbox. `placement` is the
-     * acceptance-time routing result.
-     * @param agent - the owning agent.
-     * @param item - accepted occurrence, message, and resolved placement.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode emit
-     */
-    'agent/inbox/enqueue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
-    /**
-     * A still-pending queued item changed content.
-     * @param agent - the owning agent.
-     * @param item - the complete post-update occurrence.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode emit
-     */
-    'agent/inbox/update'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
-    /**
-     * The driver claimed one item out of the inbox.
-     * @param agent - the agent whose inbox item was claimed.
-     * @param item - the exact claimed occurrence.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode emit
-     */
-    'agent/inbox/dequeue'(this: Scoped<Agent>, agent: Agent, item: InboxItem): void
-    /**
-     * Pending inbox items were dropped without delivery.
-     * @param agent - the agent whose inbox items were dropped.
-     * @param items - the discarded occurrences in FIFO order.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode emit
-     */
-    'agent/inbox/discard'(this: Scoped<Agent>, agent: Agent, items: InboxItem[]): void
-    /**
-     * Effective broad cancellation was requested before pending work clears or
-     * the active turn aborts.
-     * @param agent - the agent whose current work is being cancelled.
-     * @param cause - the explicit typed cancellation cause.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode emit
-     */
-    'agent/cancel-requested'(this: Scoped<Agent>, agent: Agent, cause: AgentCancelCause): void
     // ---- session lifecycle (emit) ----
     /**
      * The session lifecycle began, once before the first turn. Use
@@ -374,7 +264,13 @@ declare module 'cordis' {
 
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
-    /** One message was accepted into the agent inbox. */
-    'agent/inbox/added': UserMessage
+    /** One normalized mutation of an agent's durable pending-message lists. */
+    'agent/inbox/spliced': {
+      target: InboxTarget
+      start: number
+      removedCount?: number
+      inserted: UserMessage[]
+      outcome?: 'admitted' | 'canceled'
+    }
   }
 }

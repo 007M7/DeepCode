@@ -76,8 +76,6 @@ describe('Agent.cancel()', () => {
     const adapter = new MockAdapter([textResponse('reply')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    const canceled: unknown[] = []
-    ctx.on('agent/inbox/canceled', (subject, message) => { if (subject === agent) canceled.push(message) })
 
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: 'preserved' }],
@@ -85,7 +83,8 @@ describe('Agent.cancel()', () => {
     }))
     // Abort the collecting activity while preserving its queued item.
     agent.cancel({ kind: 'user' }, { keepInbox: true })
-    expect(canceled).toEqual([])
+    expect(agent.session.events.some(event =>
+      event.type === 'agent/inbox/spliced' && event.data.outcome === 'canceled')).toBe(false)
 
     // The preserved item still runs once a later follow-up wakes the driver.
     send(agent, 'wake it')

@@ -114,14 +114,13 @@ const liveContexts: Context[] = []
 
 async function harness(script: readonly ScriptEntry[]): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-cli-runner-'))
-  const skillHome = await mkdtemp(join(tmpdir(), 'dsh-cli-runner-skills-'))
   const ctx = new Context()
   liveContexts.push(ctx)
   await ctx.plugin(cliDemo, {
     provider: 'mock',
     model: 'mock',
     persistenceRoot: root,
-    skills: { local: { dshHome: join(skillHome, '.dsh'), agentsHome: join(skillHome, '.agents') } },
+    skills: { enabled: false },
     workspaceContext: false,
   })
   await new Promise(resolve => setTimeout(resolve, 80))
@@ -380,27 +379,92 @@ describe('runOneShot and executeCli', () => {
     expect(result.result).toBe('working')
   })
 
-  it('streams only the correlated main message turn and then the result envelope', async () => {
-    const { ctx, agent } = await harness([textResponse('streamed')])
+  it('observes only the correlated main message turn', async () => {
+    const { ctx, agent } = await harness([
+      textResponse('startup'),
+      textResponse('autonomous'),
+      textResponse('streamed'),
+    ])
     const other = ctx.sessions.create(SessionId('unrelated'))
-    let injected = false
-    ctx.on('agent/inbox/enqueue', (subject) => {
-      if (subject !== agent || injected) return
-      injected = true
-      agent.inject(createUserMessage({ content: [{ type: 'text', text: 'startup injection' }], source: { kind: 'plugin', plugin: 'test' } }))
+    let startupStarted!: () => void
+    const started = new Promise<void>((resolve) => { startupStarted = resolve })
+    const releaseStartup = Promise.withResolvers<undefined>()
+    ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'assistant/message'
+        && event.data.turn === 1) startupStarted()
+    })
+    ctx.on('agent/turn-stopping', async (subject, turn) => {
+      if (subject === agent && turn === 1) await releaseStartup.promise
+    })
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'startup' }],
+      source: { kind: 'plugin', plugin: 'startup' },
+    }))
+    await started
+
+    let replacementQueued = false
+    ctx.on('agent/status', (subject, status) => {
+      if (subject !== agent || status !== 'idle' || replacementQueued) return
+      replacementQueued = true
+      agent.followup(createUserMessage({
+        content: [{ type: 'text', text: 'autonomous' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      }))
       other.append('turn/start', { turn: 1 })
       other.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
     })
-    const output = await invoke(ctx, ['--output-format', 'stream-json', 'task'])
-    const lines = output.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
-    const events = lines.slice(0, -1).map(line => line['event'] as SessionEvent)
-    expect(lines.at(-1)).toMatchObject({ type: 'result', success: true, turn: 1, result: 'streamed' })
-    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 1 } })
-    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 1 } })
-    expect(lines.slice(0, -1).every(line => line['sessionId'] === agent.session.id)).toBe(true)
+    const streamed: { sessionId: string; event: SessionEvent }[] = []
+    const result = runOneShot(ctx, {
+      task: 'task',
+      onEvent: (sessionId, event) => { streamed.push({ sessionId, event }) },
+    })
+    releaseStartup.resolve(undefined)
+
+    const outcome = await result
+    expect(outcome.reason).toEqual({ kind: 'completed' })
+    expect(outcome).toMatchObject({ success: true, turn: 3, result: 'streamed' })
+    const events = streamed.map(item => item.event)
+    expect(events[0]).toMatchObject({ type: 'turn/start', data: { turn: 3 } })
+    expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { turn: 3 } })
+    expect(streamed.every(item => item.sessionId === agent.session.id)).toBe(true)
     expect(events.some(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'test')).toBe(false)
+  })
+
+  it('correlates a task whose admitted history is replaced', async () => {
+    const { ctx } = await harness([textResponse('rewritten answer')])
+    ctx.on('agent/prompt-submit', async () => ({
+      kind: 'allow',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'rewritten task' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))
+
+    await expect(runOneShot(ctx, { task: 'original task' })).resolves.toMatchObject({
+      success: true,
+      result: 'rewritten answer',
+    })
+  })
+
+  it('rejects tasks blocked before admission, including retained tasks', async () => {
+    const blocked = await harness([])
+    blocked.ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'denied' }))
+    await expect(runOneShot(blocked.ctx, { task: 'task' })).rejects.toThrow('canceled before admission')
+
+    const retained = await harness([])
+    retained.ctx.on('agent/prompt-submit', async () => ({
+      kind: 'block' as const,
+      reason: 'deferred',
+      keepInbox: true,
+    }))
+    await expect(runOneShot(retained.ctx, { task: 'task' })).rejects.toThrow('not admitted')
+    expect(retained.agent.status).toBe('idle')
+
+    const failed = await harness([])
+    failed.ctx.on('agent/prompt-submit', async () => { throw new Error('admission exploded') })
+    await expect(runOneShot(failed.ctx, { task: 'task' })).rejects.toThrow('not admitted')
   })
 
   it('emits partial data and a diagnostic for non-completed turns', async () => {
@@ -498,8 +562,11 @@ describe('runOneShot and executeCli', () => {
 
     const queued = await harness([textResponse('unused')])
     const queuedAbort = new AbortController()
-    queued.ctx.on('agent/inbox/enqueue', (agent) => {
-      if (agent === queued.agent) queuedAbort.abort('cancel queued')
+    queued.ctx.on('session/event', (session, event) => {
+      if (session === queued.agent.session && event.type === 'agent/inbox/spliced'
+        && event.data.inserted.some(message => message.source.kind === 'user')) {
+        queueMicrotask(() => { queuedAbort.abort('cancel queued') })
+      }
     })
     await expect(runOneShot(queued.ctx, { task: 'task', signal: queuedAbort.signal })).rejects.toThrow('cancel queued')
     await queued.agent.whenIdle()

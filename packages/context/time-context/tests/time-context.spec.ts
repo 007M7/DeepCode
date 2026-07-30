@@ -41,10 +41,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     options: {},
     session,
     status: 'running',
-    acceptsNextStep: true,
     ctx: new Context(),
-    send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) {

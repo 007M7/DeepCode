@@ -191,7 +191,7 @@ export interface InputState {
   readonly occurrences: readonly Occurrence[]
   /** Live paste-match attempt (absent when no paste is matchable). */
   readonly paste?: PasteAttemptState
-  /** Read-only queue projection (session/queued frames + connect snapshot). */
+  /** Read-only queue projection from the reconnect baseline and durable inbox events. */
   readonly queue: readonly QueuedMessage[]
 }
 

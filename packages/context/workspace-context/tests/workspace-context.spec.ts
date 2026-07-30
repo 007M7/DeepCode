@@ -177,9 +177,6 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     options: {},
     session,
     status: 'idle',
-    acceptsNextStep: false,
-    send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) {

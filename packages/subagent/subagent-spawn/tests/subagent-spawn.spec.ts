@@ -200,10 +200,14 @@ describe('dsh-subagent-spawn', () => {
     expect(published).toEqual([])
   })
 
-  it('a cancel from agent/inbox/enqueue maps a no-turn child log to aborted', async () => {
+  it('a cancel after the child prompt is queued maps a no-turn child log to aborted', async () => {
     const { ctx, parent } = await setup([])
     const controller = new AbortController()
-    ctx.on('agent/inbox/enqueue', () => { controller.abort('queued-window') })
+    ctx.on('session/event', (_session, event) => {
+      if (event.type === 'agent/inbox/spliced' && event.data.inserted.length > 0) {
+        queueMicrotask(() => { controller.abort('queued-window') })
+      }
+    })
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent, signal: controller.signal })
     const result = await run.result
     expect(result).toMatchObject({ stopReason: 'aborted', output: [] })

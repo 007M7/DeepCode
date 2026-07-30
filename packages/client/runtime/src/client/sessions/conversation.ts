@@ -7,7 +7,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  InboxItemId, RpcError, SessionId, ToolCallView, ToolResultView,
+  MessageId, RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 export type { TodoItem }
@@ -218,7 +218,7 @@ export interface RunningToolCall {
 
 /** One independently addressable row from the transient queue snapshot. */
 export interface QueuedMessage {
-  readonly id: InboxItemId
+  readonly id: MessageId
   readonly preview: string
   /** Complete editable text; null when the message contains non-text blocks. */
   readonly text: string | null

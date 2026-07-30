@@ -4,10 +4,10 @@
  * projection, and snapshot reference stability.
  */
 import { describe, expect, it } from 'vitest'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type {
-  InboxItemId, MuxFrame, RpcId, SessionId,
+  MessageId, MuxFrame, RpcId, SessionId,
 } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { SessionManager } from '../src/client/sessions/manager.ts'
@@ -16,7 +16,7 @@ import { FakeApiClient } from './fake-api.ts'
 const SID = 'fk-q1' as SessionId
 const text = (value: string): ContentBlock[] => [{ type: 'text', text: value }]
 const rid = (id: string): RpcId => id as RpcId
-const iid = (id: string): InboxItemId => id as InboxItemId
+const mid = (id: string): MessageId => id as MessageId
 
 interface QueueFixture {
   id: string
@@ -29,12 +29,12 @@ function queueFrame(items: QueueFixture[]): MuxFrame {
   return {
     type: 'session/queue',
     sessionId: SID,
-    items: items.map(item => ({
-      id: iid(item.id),
-      message: createUserMessage({
+    items: items.map(item => freezeMessage({
+      ...createUserMessage({
         content: item.content ?? text(item.body),
         source: { kind: 'user', rpcId: rid(`rpc-${item.id}`) } as never,
       }),
+      id: mid(item.id),
     })),
   }
 }

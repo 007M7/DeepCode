@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import LlmService, { createUserMessage, CallId, MessageSource, ProviderRequestId, StreamChunk  } from '@deepseek-ai/dsh-llm'
+import LlmService, { createUserMessage, freezeMessage, CallId, MessageSource, ProviderRequestId, StreamChunk  } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionEvent, SessionId, TurnEndReason } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { defineContentToolFixture, type PostToolDecision } from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent, type InboxItem, type InboxPlacement } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { ReactLoopAgent } from '../src/agent.ts'
 import InvariantService from '@deepseek-ai/dsh-invariants'
@@ -53,8 +53,8 @@ function send(agent: Agent, text: string) {
   agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
 }
 
-function inboxText(item: InboxItem): string {
-  return item.message.content
+function inboxText(message: UserMessage): string {
+  return message.content
     .flatMap(block => block.type === 'text' ? [block.text] : [])
     .join('')
 }
@@ -69,42 +69,28 @@ describe('addressable inbox operations', () => {
     const agent = ctx.agentLoop.create(SessionId('inbox-actions'), { provider: 'mock', model: 'mock' })
     const admission = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
-    ctx.on('agent/prompt-submit', async (_subject, message, _signal, next) => {
-      if (message.content[0]?.type === 'text' && message.content[0].text === 'first') {
+    ctx.on('agent/prompt-submit', async (_subject, messages, _signal, next) => {
+      if (messages[0]?.content[0]?.type === 'text' && messages[0].content[0].text === 'first') {
         admission.resolve(undefined)
         await release.promise
       }
       return next()
     })
 
-    const pending: InboxItem[] = []
-    const updates: { id: string; text: string }[] = []
-    const discards: string[][] = []
-    ctx.on('agent/inbox/enqueue', (subject, item) => {
-      if (subject === agent && inboxText(item) !== 'first') pending.push(item)
-    })
-    ctx.on('agent/inbox/update', (subject, item) => {
-      if (subject === agent) updates.push({ id: item.id, text: inboxText(item) })
-    })
-    ctx.on('agent/inbox/discard', (subject, items) => {
-      if (subject === agent) discards.push(items.map(item => item.id))
-    })
-
     send(agent, 'first')
     await admission.promise
     send(agent, 'remove me')
     send(agent, 'edit me')
+    const pending = agent.inbox.nextTurn
     expect(pending.map(inboxText)).toEqual(['remove me', 'edit me'])
 
     const remove = pending[0]!
     const edit = pending[1]!
-    expect(agent.updateInbox(edit.id, {
-      kind: 'edit',
+    expect(agent.inbox.splice('next-turn', 1, 1, [freezeMessage({
+      ...edit,
       content: [{ type: 'text', text: 'edited' }],
-    })).toBe('applied')
-    expect(agent.updateInbox(remove.id, { kind: 'remove' })).toBe('applied')
-    expect(updates).toEqual([{ id: edit.id, text: 'edited' }])
-    expect(discards).toEqual([[remove.id]])
+    })])).toEqual([edit])
+    expect(agent.inbox.splice('next-turn', 0, 1, [])).toEqual([remove])
 
     const idle = waitForIdle(ctx, agent)
     release.resolve(undefined)
@@ -115,46 +101,7 @@ describe('addressable inbox operations', () => {
         ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
         : ''))
       .toEqual(['first', 'edited'])
-    expect(agent.updateInbox(edit.id, { kind: 'remove' })).toBe('not-found')
-  })
-
-  it('does not mutate steering occurrences', async () => {
-    const adapter = new MockAdapter([textResponse('done')])
-    const ctx = await harness(adapter)
-    const agent = ctx.agentLoop.create(SessionId('steering-inbox-actions'), { provider: 'mock', model: 'mock' })
-    const entered = Promise.withResolvers<undefined>()
-    const decision = Promise.withResolvers<{ kind: 'allow' }>()
-    ctx.on('agent/prompt-submit', async () => {
-      entered.resolve(undefined)
-      return decision.promise
-    })
-
-    const pending: InboxItem[] = []
-    ctx.on('agent/inbox/enqueue', (subject, item) => {
-      if (subject === agent && item.placement === 'steering') pending.push(item)
-    })
-
-    const idle = waitForIdle(ctx, agent)
-    send(agent, 'admitted prompt')
-    await entered.promise
-    agent.steer(createUserMessage({ content: [{ type: 'text', text: 'keep me' }], source: { kind: 'user' } }))
-    expect(pending.map(inboxText)).toEqual(['keep me'])
-
-    const steering = pending[0]!
-    expect(agent.updateInbox(steering.id, {
-      kind: 'edit',
-      content: [{ type: 'text', text: 'edited' }],
-    })).toBe('not-found')
-    expect(agent.updateInbox(steering.id, { kind: 'remove' })).toBe('not-found')
-
-    decision.resolve({ kind: 'allow' })
-    await idle
-    expect(agent.session.events
-      .filter(event => event.type === 'steering/message')
-      .map(event => event.type === 'steering/message'
-        ? event.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
-        : ''))
-      .toEqual(['keep me'])
+    expect(agent.inbox.splice('next-turn', 0, 1, [])).toEqual([])
   })
 })
 
@@ -590,7 +537,7 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
     expect(agent.session.deriveMessages().at(-1)?.content).toEqual([{ type: 'text', text: 'routed' }])
   })
 
-  it('agent/inbox/enqueue carries the exact message; steering/message records its source', async () => {
+  it('durable inbox splices carry exact messages and steering/message preserves its source', async () => {
     const adapter = new MockAdapter([toolCallResponse('c1', 'noop', {}), textResponse('done')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
@@ -604,27 +551,30 @@ describe('adapter registration, routing, and accepted-input ownership', () => {
       },
     }))
 
-    const queuedSources: MessageSource[] = []
-    const queuedShapes: string[][] = []
-    const placements: InboxPlacement[] = []
-    ctx.on('agent/inbox/enqueue', (_agent, item) => {
-      queuedSources.push(item.message.source)
-      queuedShapes.push(Object.keys(item.message).sort())
-      placements.push(item.placement)
+    const insertedSources: MessageSource[] = []
+    const insertedShapes: string[][] = []
+    const targets: string[] = []
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'agent/inbox/spliced') return
+      for (const message of event.data.inserted) {
+        insertedSources.push(message.source)
+        insertedShapes.push(Object.keys(message).sort())
+        targets.push(event.data.target)
+      }
     })
 
     send(agent, 'go') // no explicit source → default {kind:'user'} must be visible
     await waitForIdle(ctx, agent)
 
-    expect(queuedSources).toEqual([
+    expect(insertedSources).toEqual([
       { kind: 'user' },
       { kind: 'plugin', plugin: 'goal' },
     ])
-    expect(queuedShapes).toEqual([
+    expect(insertedShapes).toEqual([
       ['content', 'id', 'role', 'source'],
       ['content', 'id', 'role', 'source'],
     ])
-    expect(placements).toEqual(['queued', 'steering'])
+    expect(targets).toEqual(['next-turn', 'next-step'])
     // The drain appends the durable steering/message with the caller's source
     // intact — the log, not a transient emit, is where consumers read it.
     const steeringSources = agent.session.events.flatMap(e => e.type === 'steering/message' ? [e.data.message.source] : [])

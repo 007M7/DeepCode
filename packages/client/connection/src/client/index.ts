@@ -17,7 +17,7 @@ export type {
   ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  InboxItemId, ModelReasoningEffort, ModelTarget, QueueAction, QueuedInboxItem, SessionModels,
+  MessageId, ModelReasoningEffort, ModelTarget, QueueAction, SessionModels,
   RpcRequest, RpcResponse, RpcResult, RpcError, RpcErrorCode,
   ClientRequest, ServerResponse, ServerRequest, ClientResponse, RpcMessage, RpcReceipt,
   IApiClient, SessionId, SessionEvent, ContentBlock, StreamChunk,

@@ -11,7 +11,7 @@ import type { Wire } from './rpc.schema.ts'
 import { rpcErrorSchema, rpcIdSchema } from './rpc.schema.ts'
 import { approvalRequestIdSchema } from './approvals.schema.ts'
 import {
-  contentBlockSchema, inboxItemIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
+  contentBlockSchema, messageIdSchema, sessionEventSchema, sessionIdSchema, toolEventViewSchema,
 } from './sessions.schema.ts'
 import { workspaceIdSchema, workspaceViewSchema } from './workspace.schema.ts'
 
@@ -25,10 +25,10 @@ export const askUserQuestionItemSchema = z.object({
   multiSelect: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<AskUserQuestionItem>>
 
-/** Unified message envelope carried by transient queue frames. */
-const messageSchema = z.object({
-  id: z.string().min(1),
-  role: z.union([z.literal('system'), z.literal('user'), z.literal('assistant')]),
+/** User-message envelope carried by queue baselines. */
+const userMessageSchema = z.object({
+  id: messageIdSchema,
+  role: z.literal('user'),
   content: z.array(contentBlockSchema),
   source: z.looseObject({ kind: z.string() }),
 })
@@ -47,10 +47,7 @@ export const muxFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('session/queue'),
     sessionId: sessionIdSchema,
-    items: z.array(z.object({
-      id: inboxItemIdSchema,
-      message: messageSchema,
-    })),
+    items: z.array(userMessageSchema),
   }),
   // value stays wide: it already passed its unit's own schema on the host,
   // and deep-validating here would import every domain's schema into the carrier.

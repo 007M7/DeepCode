@@ -97,15 +97,12 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     options: {},
     session,
     status: 'running',
-    acceptsNextStep: true,
     ctx: new Context(),
     followup: () => {},
     steer: () => {},
-    updateInbox: () => 'not-found',
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
-    send: () => {},
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

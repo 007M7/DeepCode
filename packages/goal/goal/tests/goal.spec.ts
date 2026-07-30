@@ -46,9 +46,6 @@ function stubAgentForSession(session: Session): StubAgent {
     session,
     ctx: new Context(),
     get status() { return status },
-    get acceptsNextStep() { return status === 'running' },
-    send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) {

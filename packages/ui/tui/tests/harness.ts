@@ -36,8 +36,6 @@ interface FakeAgent extends Agent {
 
 export interface TuiHarnessOptions {
   status?: AgentStatus
-  /** Override the fake agent's next-step capability independently of status. */
-  acceptsNextStep?: boolean
   config?: Config
   /** Leave the session event log empty instead of seeding one turn and step. */
   omitInitialLifecycle?: boolean
@@ -193,9 +191,6 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     options: options.agentOptions ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
     session,
     status: options.status ?? 'idle',
-    get acceptsNextStep() {
-      return options.acceptsNextStep ?? this.status === 'running'
-    },
     ctx,
     sent,
     sentMessages,
@@ -205,13 +200,6 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
     injected,
     injectedOptions,
     cancelled,
-    send(input, options) {
-      sent.push(input.content)
-      sentMessages.push(input)
-      sentOptions.push(options)
-      return input.id
-    },
-    updateInbox: () => 'not-found',
     followup(input) {
       sent.push(input.content)
       sentMessages.push(input)

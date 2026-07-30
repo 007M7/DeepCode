@@ -37,9 +37,6 @@ function liveAgent(ctx: Context, session: Session): Agent {
     session,
     ctx,
     get status() { return status },
-    get acceptsNextStep() { return false },
-    send: () => {},
-    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input: UserMessage) {

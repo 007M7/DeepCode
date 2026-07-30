@@ -39,8 +39,8 @@ function agent(ctx: Context): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId('pty-loader-agent')
   const value: Agent = {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx: scope.ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session: new Session(id), status: 'idle', ctx: scope.ctx,
+    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
   ctx.agents.register(value)
   return value

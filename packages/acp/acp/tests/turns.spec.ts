@@ -70,10 +70,13 @@ describe('ACP prompt lifecycle', () => {
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
     let injected = false
-    harness.ctx.on('agent/inbox/enqueue', (subject) => {
-      if (subject === agent && !injected) {
+    harness.ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'agent/inbox/spliced'
+        && event.data.inserted.some(message => message.source.kind === 'user') && !injected) {
         injected = true
-        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } }))
+        queueMicrotask(() => {
+          agent.inject(createUserMessage({ content: [{ type: 'text', text: 'context' }], source: { kind: 'plugin', plugin: 'test' } }))
+        })
       }
     })
 
@@ -86,28 +89,42 @@ describe('ACP prompt lifecycle', () => {
     harness = await makeBridgeHarness({ script: ['hang'] })
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
-    let inserted = false
-    harness.ctx.on('agent/inbox/enqueue', (subject, item) => {
-      if (subject !== agent || item.message.source.kind !== 'user' || inserted) return
-      inserted = true
-      const source = { kind: 'plugin', plugin: 'test' } as const
-      agent.session.append('turn/start', { turn: 1 })
-      agent.session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: 'autonomous work' }],
-        source,
-      }), { surfaceOp: 'append' })
-      agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    let autonomousStarted!: () => void
+    const started = new Promise<void>((resolve) => { autonomousStarted = resolve })
+    harness.ctx.on('session/event', (session, event) => {
+      if (session === agent.session && event.type === 'assistant/chunk') autonomousStarted()
     })
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'autonomous work' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }))
+    await started
 
     let settled = false
     const prompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })
       .finally(() => { settled = true })
     await vi.waitFor(() => {
-      expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+      expect(agent.session.events.filter(event => event.type === 'agent/inbox/spliced'
+        && event.data.inserted.length > 0)).toHaveLength(2)
     })
     expect(settled).toBe(false)
     await harness.client.cancel({ sessionId })
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
+  })
+
+  it('correlates a prompt whose admitted history is replaced', async () => {
+    harness = await makeBridgeHarness({ script: [textResponse('rewritten answer')] })
+    harness.ctx.on('agent/prompt-submit', async () => ({
+      kind: 'allow',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'rewritten prompt' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'original' }] }))
+      .resolves.toEqual({ stopReason: 'end_turn' })
   })
 
   it('frees the prompt slot when the agent rejects the send synchronously', async () => {
@@ -143,7 +160,8 @@ describe('ACP prompt lifecycle', () => {
     await harness.client.cancel({ sessionId })
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
     await agent.whenIdle()
-    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason).toEqual({ kind: 'aborted' })
+    expect(agent.session.events.findLast(event => event.type === 'turn/end')?.data.reason)
+      .toEqual({ kind: 'aborted', reason: { kind: 'user' } })
   })
 
   it('an idle cancel does not affect the following prompt', async () => {
@@ -202,5 +220,30 @@ describe('ACP prompt lifecycle', () => {
       .resolves.toEqual({ stopReason: 'cancelled' })
     // The blocked prompt opened no turn and streamed nothing.
     expect(messageText(harness)).toBe('')
+  })
+
+  it('discards and settles a turnless prompt retained by its admission policy', async () => {
+    harness = await makeBridgeHarness({ script: [] })
+    harness.ctx.on('agent/prompt-submit', async () => ({
+      kind: 'block' as const,
+      reason: 'defer forever',
+      keepInbox: true,
+    }))
+    const sessionId = await newSession(harness)
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .resolves.toEqual({ stopReason: 'cancelled' })
+    expect(agent.status).toBe('idle')
+    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+  })
+
+  it('settles a prompt when admission fails before opening a turn', async () => {
+    harness = await makeBridgeHarness({ script: [] })
+    harness.ctx.on('agent/prompt-submit', async () => { throw new Error('admission exploded') })
+    const sessionId = await newSession(harness)
+
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
+      .resolves.toEqual({ stopReason: 'cancelled' })
   })
 })

@@ -41,8 +41,8 @@ function config(): ResolvedConfig {
 function agent(ctx: Context): Agent {
   const id = SessionId('agent')
   return {
-    id, options: {}, session: new Session(id), status: 'idle', acceptsNextStep: false, ctx,
-    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+    id, options: {}, session: new Session(id), status: 'idle', ctx,
+    followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
 
@@ -248,8 +248,8 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const providerFiber = await registerStubLocalBackend(ctx, () => stubLocalSession())
@@ -291,8 +291,8 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx: ownerFiber.ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, status: 'idle', ctx: ownerFiber.ctx,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
     const gate = Promise.withResolvers<undefined>()

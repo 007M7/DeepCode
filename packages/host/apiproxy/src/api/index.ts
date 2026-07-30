@@ -35,7 +35,7 @@ export type { DirectoryEntry, DirectoryListing, HostApi } from './host.ts'
 export type { WorkspaceApi, WorkspaceId, WorkspaceView } from './workspace.ts'
 export type { CommandsApi, CommandDescriptor } from './commands.ts'
 export type { SkillsApi, SkillEntry } from './skills.ts'
-export type { EventsApi, MuxFrame, HostFrame, QueuedInboxItem, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
+export type { EventsApi, MuxFrame, HostFrame, ToolCallView, ToolEventView, ToolResultView } from './events.ts'
 export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
 export type { ApprovalResponsePayload } from './approvals.ts'
 export type { QuestionResponsePayload } from './questions.ts'
@@ -56,7 +56,5 @@ export type {
 // ---- Errors and ids ----
 export { RpcId, transportError } from './rpc.ts'
 export type { RpcError, RpcErrorCode, RpcErrorDetailsMap, RpcResult } from './rpc.ts'
-export type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
-
 // ---- Method registry and derived generics ----
 export type { RequestPayload, ResponseValue, RpcMethodMap } from './rpc-map.ts'

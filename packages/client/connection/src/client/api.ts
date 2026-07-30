@@ -12,7 +12,7 @@ export type {
   WorkspaceApi, WorkspaceId, WorkspaceView,
   CommandsApi, CommandDescriptor, SkillsApi, SkillEntry,
   ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  InboxItemId, ModelReasoningEffort, ModelTarget, QueueAction, QueuedInboxItem, SessionModels,
+  ModelReasoningEffort, ModelTarget, QueueAction, SessionModels,
   GoalsApi, GoalRef,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
@@ -27,6 +27,7 @@ export { RpcId, transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 export { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session/types'
+export type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 export type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm/types'
 
 import type { RpcResponse, RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
