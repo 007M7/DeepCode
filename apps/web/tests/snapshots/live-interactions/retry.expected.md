@@ -11,6 +11,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
   - img
   - img
@@ -29,4 +30,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Cache hit 99% Input 7.8K tok · Output 79 tok
+- text: 1 turns · 1 steps Context 6% of 128K Cache hit 99% Input 7.8K tok · Output 79 tok

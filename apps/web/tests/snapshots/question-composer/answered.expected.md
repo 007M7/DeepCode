@@ -11,6 +11,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.":
   - img
   - img
@@ -37,4 +38,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 95% Input 8.6K tok · Output 180 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 3% of 128K Cache hit 95% Input 8.6K tok · Output 180 tok

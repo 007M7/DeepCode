@@ -11,6 +11,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
@@ -40,4 +41,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 52% Input 17.2K tok · Output 252 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 7% of 128K Cache hit 52% Input 17.2K tok · Output 252 tok

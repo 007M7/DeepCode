@@ -11,6 +11,7 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - textbox "Message the agent"
 - button "Add attachment":
   - img
