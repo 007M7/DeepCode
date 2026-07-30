@@ -178,7 +178,7 @@ export function ConversationRoot({
         'conversation.session',
         { wrapActiveBody },
       )}
-      {sessionId === undefined ? composerSeat : null}
+      {sessionId === undefined ? wrapActiveBody(null) : null}
     </div>
   )
 }
