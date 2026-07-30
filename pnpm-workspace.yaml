@@ -39,6 +39,9 @@ allowBuilds:
   node-addon-require-builtin: false
   # JSONL durability calls MoveFileExW with write-through publication on Windows.
   koffi: true
+  # The Python runtime deploy includes the reviewed workspace postinstall that
+  # restores the executable bit on node-pty's macOS spawn helper.
+  '@deepseek-ai/dsh-pty-local@file:packages/pty/pty-local': true
 
 # The Landlock launcher family is our own sibling-repo release, consumed
 # fresh (hours old at each coordinated bump) — the release-age quarantine
@@ -58,3 +61,4 @@ minimumReleaseAgeExclude:
 
 patchedDependencies:
   '@earendil-works/pi-tui@0.80.7': patches/@earendil-works__pi-tui@0.80.7.patch
+  node-pty@1.1.0: patches/node-pty@1.1.0.patch
