@@ -20,7 +20,8 @@ declare module 'cordis' {
 import type { AskUserQuestionAnswer, AskUserQuestionItem } from './types.ts'
 
 export type {
-  AskUserQuestionAnswer, AskUserQuestionAnswerItem, AskUserQuestionItem, AskUserQuestionOption,
+  AskUserQuestionAnswer, AskUserQuestionAnswerItem, AskUserQuestionIntent, AskUserQuestionItem,
+  AskUserQuestionOption,
 } from './types.ts'
 
 /** Request for a human answer. */
@@ -85,6 +86,20 @@ export class UserInteractionService extends Service {
     }
     if (request.questions.length === 0) {
       throw new UserInteractionError('ask_user_question requires at least one question', 'EMPTY_QUESTIONS')
+    }
+    // A presentation intent names an option label the types cannot pin to its
+    // own question's option list. A UI honouring the intent answers with that
+    // label, so a name matching nothing would answer a choice the asker never
+    // offered — caught here, at the asker, rather than in a UI.
+    for (const question of request.questions) {
+      const intent = question.intent
+      if (intent === undefined) continue
+      if (!(question.options ?? []).some(option => option.label === intent.approve)) {
+        throw new UserInteractionError(
+          `question ${question.id} declares intent ${intent.kind} whose approve label `
+          + `${JSON.stringify(intent.approve)} names none of its options`,
+          'BAD_INTENT')
+      }
     }
     if (this.provider === undefined) {
       throw new UserInteractionError('no user-interaction provider is registered', 'NO_PROVIDER')
