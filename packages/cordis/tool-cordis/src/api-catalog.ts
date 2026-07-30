@@ -1345,7 +1345,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'settings/updated',
     mode: 'emit',
     signature: '\'settings/updated\'(ns: SettingsNamespace, next: unknown, prev: unknown, source: SettingsUpdateSource): void',
-    jsDoc: '/**\n * Committed change to one registered namespace\'s resolved value. Emitted\n * after the provider persisted (for `update`) or published (`provider`)\n * the change; never emitted when the resolved value is deep-equal.\n * @param ns - the namespace whose resolved value changed.\n * @param next - the new resolved value.\n * @param prev - the previous resolved value.\n * @param source - whether the change entered through `update()` or the provider.\n * @mode emit\n */',
+    jsDoc: '/**\n * Committed change to one registered namespace\'s resolved value. Emitted\n * after the provider persisted (for `update`) or published (`provider`)\n * the change; never emitted when the resolved value is deep-equal.\n * Listener failures are contained and logged — a sync throw and an async\n * rejection alike — except `INVARIANT`-coded failures, which rethrow\n * after every listener ran; that rethrow reaches the emitter only from\n * synchronous listeners, so invariant checks on this event must not be\n * async functions.\n * @param ns - the namespace whose resolved value changed.\n * @param next - the new resolved value.\n * @param prev - the previous resolved value.\n * @param source - whether the change entered through `update()` or the provider.\n * @mode emit\n */',
     summary: 'Committed change to one registered namespace\'s resolved value.',
   },
   {

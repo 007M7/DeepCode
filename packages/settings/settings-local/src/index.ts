@@ -1,7 +1,9 @@
 /**
  * File-backed settings provider. One YAML or JSON document under the user's
  * harness home carries every namespace section; external edits hot-publish
- * through the seam and `update()` writes back preserving the user's comments.
+ * through the seam, and every write re-reads the document under a
+ * cross-process writer lock before patching it as a comment-preserving
+ * leaf-level diff.
  * @module @deepseek-ai/dsh-settings-local
  */
 
