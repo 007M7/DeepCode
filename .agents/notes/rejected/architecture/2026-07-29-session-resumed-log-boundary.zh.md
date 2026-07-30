@@ -1,6 +1,6 @@
 # Agent Note: 在会话日志中记录恢复的进程边界
 
-Status: rejected — 边界应当落在带种子 `Session` 的构造函数上，那里同时覆盖 fork 与回放；由[继承历史边界](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md)取代
+Status: rejected — 边界应当落在带种子 `Session` 的构造函数上，那里同时覆盖 fork 与回放；由[种子结束边界](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)取代
 
 [English](2026-07-29-session-resumed-log-boundary.md) | 中文
 
@@ -14,7 +14,7 @@ Status: rejected — 边界应当落在带种子 `Session` 的构造函数上，
 
 ## Proposal
 
-`@deepseek-ai/dsh-session-persistence` 声明唯一一个纯日志事件 `session/resumed`，其载荷为空，并在每次冷加载结束时恰好追加一条：与崩溃修复产生的 closers 同处一个 `commitRepair` 批次，且排在它们之后。因此，该边界之下的每个事件都是由一个不再追踪这份日志的写入方写下的。所有权狭窄地落在 `loadCore()`，也就是 `load()` 与 `adopt()` 到达的冷加载路径。`loadLiveSnapshot()` 不追加任何内容，非变更性的 `inspect()`／`readFrom()` 读取也从不写入。
+`@deepseek-ai/dsh-session-persistence` 声明唯一一个纯日志事件 `session/resumed`，其载荷为空，并在每次冷加载结束时恰好追加一条：与崩溃修复产生的 closers 同处一个 `commitRepair` 批次，且排在它们之后。因此，该边界之前的每个事件都有更小的 seq，并且都是由一个不再追踪这份日志的写入方写下的。所有权狭窄地落在 `loadCore()`，也就是 `load()` 与 `adopt()` 到达的冷加载路径。`loadLiveSnapshot()` 不追加任何内容，非变更性的 `inspect()`／`readFrom()` 读取也从不写入。
 
 括号所有方求值的谓词纯粹是日志的函数：未匹配的起始标记之后有 `session/resumed` 的就是陈旧的，之后没有的就是存活的。
 

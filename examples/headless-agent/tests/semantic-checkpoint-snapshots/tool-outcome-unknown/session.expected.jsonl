@@ -7,7 +7,7 @@
 {"type":"tool/result","seq":5,"time":0,"data":{"turn":1,"step":1,"message":{"id":"interrupted-tool-result-unknown-outcome-call-5","role":"user","source":{"kind":"tool","callId":"unknown-outcome-call"},"content":[{"type":"tool-result","toolCallId":"unknown-outcome-call","isError":true,"content":[{"type":"text","text":"The tool call was interrupted after it was recorded, but no result was durably recorded. Its outcome is unknown. Decide whether to retry from the tool semantics: retry only if the operation is read-only or idempotent; if it may have side effects, first verify external state or ask the user. Do not retry blindly."}]}]},"error":{"name":"ToolOutcomeUnknownError","code":"TOOL_OUTCOME_UNKNOWN"}},"surfaceOp":"append","sourceEventSeqs":[4]}
 {"type":"step/end","seq":6,"time":0,"data":{"turn":1,"step":1}}
 {"type":"turn/end","seq":7,"time":0,"data":{"turn":1,"reason":{"kind":"interrupted"}}}
-{"type":"session/inherited","seq":8,"time":0,"data":{}}
+{"type":"session/end-seed","seq":8,"time":0,"data":{}}
 {"type":"turn/start","seq":9,"time":0,"data":{"turn":2,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":10,"time":0,"data":{"content":[{"type":"text","text":"Continue safely from the interrupted operation."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"},"surfaceOp":"append"}
 {"type":"session/title","seq":11,"time":0,"data":{"title":"Perform one side-effecting remote mutati","messageSeqs":[1],"source":{"kind":"fallback"}}}

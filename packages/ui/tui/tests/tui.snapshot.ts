@@ -839,7 +839,7 @@ describe('TUI terminal-state snapshots', () => {
         { type: 'session/title', seq: 7, time: Date.parse(`${day}T00:00:08Z`), data: { title, messageSeqs: [1], source: { kind: 'fallback' } } },
         // A prior pickup, dated well after the work: the picker must still
         // show the work's date, not the pickup's.
-        { type: 'session/inherited', seq: 8, time: Date.parse('2026-07-23T07:59:00.000Z'), data: {} },
+        { type: 'session/end-seed', seq: 8, time: Date.parse('2026-07-23T07:59:00.000Z'), data: {} },
       ],
     })
     const harness = await setupSnapshot({
@@ -913,7 +913,7 @@ describe('TUI terminal-state snapshots', () => {
         // `/status` appends its own `command/run` first, so the boundary is
         // never the tail here. The other two call sites pin it.
         dateNow.mockReturnValue(Date.parse('2026-07-22T10:10:11.000Z'))
-        session.append('session/inherited', {})
+        session.append('session/end-seed', {})
         dateNow.mockReturnValue(Date.parse('2026-07-22T09:10:11.000Z'))
       },
     }, { columns: 92, rows: 32 })

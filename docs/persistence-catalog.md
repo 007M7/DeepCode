@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:278`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:285`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:314`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:346`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:286`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:347`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -404,34 +404,35 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 
 ### `session/*`
 
-#### `session/inherited` — log-only
+#### `session/end-seed` — log-only
 
 ```ts persistence-catalog
 /**
- * Log-only durable projection of {@link Session.firstLiveSeq}: everything
- * below it was inherited through a constructor seed (resume, fork, or replay)
- * and no writer in this lifecycle produced it. Payload is empty — position
- * and `time` carry the meaning.
+ * Marks the end of a constructor seed. Events before it have smaller seq
+ * values and came from the seed (resume, fork, or replay); this lifecycle
+ * produced none of them. This log-only event is the durable projection of
+ * {@link Session.firstLiveSeq}. Its payload is empty — position and `time`
+ * carry the meaning.
  *
- * Locate the LAST one rather than reading `firstLiveSeq`: a seed already
- * ending in a boundary is not re-marked, so reopening an untouched session
- * does not grow its log per pickup.
+ * Locate the LAST one in stored history. A seed already ending in one is not
+ * re-marked, so reopening an untouched session does not grow its log per
+ * pickup and the event need not be at the current `firstLiveSeq`.
  *
  * `Session`'s constructor is the only legitimate writer. The invariant
  * companion deliberately constrains nothing here, so a plugin appending one
- * would silently turn every live bracket below it into dead history.
+ * would silently classify every live bracket before it as seed history.
  *
  * An owner of a standalone open/close bracket (`compact/start` …
- * `compact/end`) reads it because inherited history and live work are
- * otherwise byte-identical: an unmatched opening marker below the boundary
- * belongs to an ended lifecycle, whatever ended it. NOT a liveness signal
- * about other writers — a concurrently live session holds its own boundary
- * elsewhere, so tolerating concurrent writers needs a signal beyond the log.
+ * `compact/end`) reads it because seed history and live work are otherwise
+ * byte-identical: an unmatched opening marker before this event belongs to
+ * an ended lifecycle, whatever ended it. NOT a liveness signal about other
+ * writers — a concurrently live session holds its own boundary elsewhere,
+ * so tolerating concurrent writers needs a signal beyond the log.
  */
-'session/inherited': Record<string, never>
+'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:274`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 

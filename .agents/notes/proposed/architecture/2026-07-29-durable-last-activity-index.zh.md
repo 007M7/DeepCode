@@ -8,11 +8,11 @@ Status: proposed
 
 一个冷会话（已持久化、未附加）对「上次是什么时候在这里面工作过」没有任何已存储的答案。因此 `dsh-host-apiproxy` 的 `summarizeCold()` 在存在日志文件时用它的 mtime 来近似它——`locate()` 为 JSONL 解析出一个逐会话产物，为 SQLite 解析出 `undefined`，而 SQLite 的冷会话会回退到 `createdAt`——而 web 客户端就按由此得到的 `updatedAt` 为自己的会话树排序。这两个后端错的方向正好相反：JSONL 读出来偏新，SQLite 偏旧。
 
-mtime 回答的是另一个问题：这份产物上次是什么时候被写入的。每一次持久写入都会刷新它，包括那些并不是活动的写入：一次对撕裂尾部的截断修复、用来平衡被中断的轮次的那些合成 closer，以及带种子的会话会追加的 [`session/inherited` 边界](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md)。（没有待处理内容的 `flush` 不在其中：协调器在到达后端之前就返回了。）用户可见的后果是稳定的，而且只朝一个方向错：一个被触碰过却没有在里面工作过的会话，会把自己排到用户此后真正工作过的那些会话之前，而且每次触碰都会重新把它排上去一次。「触碰」比「恢复」的范围更宽——`dsh-host-apiproxy` 的 `agentFor()` 会在首次触碰时恢复一个冷会话，而 web 客户端仅仅打开一个会话时 `sessions.history` 就会到达它，因此普通的浏览就够了。
+mtime 回答的是另一个问题：这份产物上次是什么时候被写入的。每一次持久写入都会刷新它，包括那些并不是活动的写入：一次对撕裂尾部的截断修复、用来平衡被中断的轮次的那些合成 closer，以及带种子的会话会追加的 [`session/end-seed` 边界](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)。（没有待处理内容的 `flush` 不在其中：协调器在到达后端之前就返回了。）用户可见的后果是稳定的，而且只朝一个方向错：一个被触碰过却没有在里面工作过的会话，会把自己排到用户此后真正工作过的那些会话之前，而且每次触碰都会重新把它排上去一次。「触碰」比「恢复」的范围更宽——`dsh-host-apiproxy` 的 `agentFor()` 会在首次触碰时恢复一个冷会话，而 web 客户端仅仅打开一个会话时 `sessions.history` 就会到达它，因此普通的浏览就够了。
 
 已附加会话的那个投影有真正的修复办法（`lastActivityTime()` 会跳过边界），但它需要事件日志，而冷路径有意不去读日志。为计算 `updatedAt` 而读取日志，会让只读 header 的列举失去意义，而正是它让 `list()` 的开销随会话数量而非日志体量增长。
 
-[边界那次变更](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md)提高了这个缺陷的出现频率，因为一次拾起如今会在此前完全无写入的路径上产生写入；`dsh-host-apiproxy` 的 README 已在 Known Limitations 中记录该项。它并没有引入这套近似做法，而移除这套近似是一项持久格式决策，因此它的范围划在本文，而不是那里。
+[边界那次变更](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)提高了这个缺陷的出现频率，因为一次拾起如今会在此前完全无写入的路径上产生写入；`dsh-host-apiproxy` 的 README 已在 Known Limitations 中记录该项。它并没有引入这套近似做法，而移除这套近似是一项持久格式决策，因此它的范围划在本文，而不是那里。
 
 ## 提案
 
@@ -25,7 +25,7 @@ mtime 回答的是另一个问题：这份产物上次是什么时候被写入�
 
 实现之前必须回答三个问题，本文对它们都没有定论：
 
-**哪些事件算作活动？** 对日志而言，`lastActivityTime()` 通过排除 `session/inherited` 回答了这个问题。一个已存储字段是在写入时编码这条规则的，而写入方在那里只看到一个批次，不是整份日志。两者不得发生漂移，否则已附加表层与冷表层会对同一个会话给出彼此矛盾的答案。
+**哪些事件算作活动？** 对日志而言，`lastActivityTime()` 通过排除 `session/end-seed` 回答了这个问题。一个已存储字段是在写入时编码这条规则的，而写入方在那里只看到一个批次，不是整份日志。两者不得发生漂移，否则已附加表层与冷表层会对同一个会话给出彼此矛盾的答案。
 
 **该字段引入之前的日志表现如何？** 既有产物里没有这个值。回退到 mtime 能让它们保持今天的准确度；回退到 `createdAt` 是诚实的，但会把选择器和会话树里每一个既有会话都重新排一次序。
 
@@ -37,7 +37,7 @@ mtime 回答的是另一个问题：这份产物上次是什么时候被写入�
 
 **保留 mtime，但把边界的写入排除在它之外。** 否决的理由是做不到，而不是不合意：mtime 属于文件系统，不属于后端。除了在每次边界写入之后把时间戳复原，没有别的办法能保住它，而那样做会与任何并发读取方产生竞态，也会对这份产物撒谎。
 
-**仅在确实发生了修复时才写入边界。** 这能降低出现频率，而[边界 Agent Note](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md)已经否决过它：谓词对有序重启同样必须成立。用一条正确性不变式去换时间戳的准确度，方向是错的。
+**仅在确实发生了修复时才写入边界。** 这能降低出现频率，而[边界 Agent Note](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)已经否决过它：谓词对有序重启同样必须成立。用一条正确性不变式去换时间戳的准确度，方向是错的。
 
 **从投影缓存派生活动时间。** `session-projection-cache` 本就会折叠水位线之后的尾部，因此一个最后活动单元可以搭乘既有机制。它作为主形态被否决，因为该缓存是一个可选的组合项；只有挂载了缓存插件才提供的列举，会让排序取决于如何组合。
 
@@ -61,6 +61,6 @@ mtime 回答的是另一个问题：这份产物上次是什么时候被写入�
 
 ## 相关
 
-- [继承历史日志边界](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md)——mtime 会计入的非活动写入之一；`dsh-session` 拥有 `lastActivityTime()`，也就是一个已存储字段必须与之保持一致的那个日志内投影。
+- [种子结束日志边界](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)——mtime 会计入的非活动写入之一；`dsh-session` 拥有 `lastActivityTime()`，也就是一个已存储字段必须与之保持一致的那个日志内投影。
 - [会话持久化](../../implemented/architecture/2026-06-14-session-persistence.md)——仅追加与绝不重写这两条不变式，正是它们排除了可变的 JSONL header 字段。
 - [共享持久化写入协调器](../../implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md)——一个已存储字段将挂入的那条追加路径。

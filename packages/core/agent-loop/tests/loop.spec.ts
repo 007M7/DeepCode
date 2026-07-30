@@ -1224,6 +1224,6 @@ describe('agent loop', () => {
     // event-by-event identity of types over the inherited prefix
     expect(replayed.events.slice(0, agent.session.seq).map(e => e.type)).toEqual(
       agent.session.events.map(e => e.type))
-    expect(replayed.events.at(-1)?.type).toBe('session/inherited')
+    expect(replayed.events.at(-1)?.type).toBe('session/end-seed')
   })
 })

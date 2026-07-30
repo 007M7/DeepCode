@@ -3,7 +3,7 @@
 {"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"Tighten this session to read-only."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"},"surfaceOp":"append"}
 {"type":"sandbox/mode","seq":2,"time":0,"data":{"mode":"read-only"}}
 {"type":"turn/end","seq":3,"time":0,"data":{"turn":1,"reason":{"kind":"completed"}}}
-{"type":"session/inherited","seq":4,"time":0,"data":{}}
+{"type":"session/end-seed","seq":4,"time":0,"data":{}}
 {"type":"turn/start","seq":5,"time":0,"data":{"turn":2,"trigger":{"kind":"message","source":{"kind":"user"}}}}
 {"type":"user/message","seq":6,"time":0,"data":{"content":[{"type":"text","text":"Delegate the write probe to a subagent."}],"source":{"kind":"user"},"role":"user","id":"{{sessionId}}"},"surfaceOp":"append"}
 {"type":"session/title","seq":7,"time":0,"data":{"title":"Tighten this session to read-only.","messageSeqs":[1],"source":{"kind":"fallback"}}}

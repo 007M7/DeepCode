@@ -1077,7 +1077,7 @@ describe('SQLite reconciliation and source lifecycle', () => {
     await expect(ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'needle' }))
       .rejects.toThrow(expectCode('SESSION_QUERY_INDEX_FAILED'))
     db.exec('PRAGMA query_only = OFF')
-    // seq 2: one-event seed, its boundary, then the message appended above.
+    // seq 2: one-event seed, end-seed, then the live message.
     await expect(ctx.sessionQuery.searchEvents({ sessionId: live.id, query: 'needle' }))
       .resolves.toMatchObject({ items: [{ seq: 2 }] })
   })

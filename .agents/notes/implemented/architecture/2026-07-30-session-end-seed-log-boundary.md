@@ -1,8 +1,8 @@
-# Agent Note: the inherited-history log boundary
+# Agent Note: the end-seed log boundary
 
 Status: implemented
 
-English | [中文](2026-07-30-session-inherited-log-boundary.zh.md)
+English | [中文](2026-07-30-session-end-seed-log-boundary.zh.md)
 
 ## Problem
 
@@ -14,21 +14,21 @@ Crash repair does not close the gap and must not: `interruptedTurnClosers` synth
 
 ## Decision
 
-`Session`'s constructor appends the log-only `session/inherited` event as the seeded session's first live write, at the seq `firstLiveSeq` names. The event is the durable projection of that field: `firstLiveSeq` answers "which prefix did I inherit" for a consumer holding the object, the event answers it for one holding only stored bytes. Its payload is empty — position and `time` carry the whole meaning — and it is not a `SurfaceEventType`, so it produces no message and cannot perturb derived history.
+`Session`'s constructor appends the log-only `session/end-seed` event immediately after a non-empty constructor seed, as the seeded session's first live write at the seq `firstLiveSeq` names. The event is the durable projection of that field: `firstLiveSeq` answers where this lifecycle's writes start for a consumer holding the object, while `session/end-seed` answers the same question for one holding only stored bytes. Its payload is empty — position and `time` carry the whole meaning — and it is not a `SurfaceEventType`, so it produces no message and cannot perturb derived history.
 
-A bracket owner reads it positionally: an unmatched opening marker below the boundary belongs to a lifecycle that has ended and cannot still be running. Core writes the boundary and reads nothing from it; each bracket's vocabulary stays with its owning plugin, so no core predicate helper ships without a consumer to shape it.
+A bracket owner reads it positionally: an unmatched opening marker before `session/end-seed` has a smaller seq, came from the constructor seed, and belongs to a lifecycle that has ended. Core writes the boundary and reads nothing from it; each bracket's vocabulary stays with its owning plugin, so no core predicate helper ships without a consumer to shape it.
 
 The constructor is the placement because it is the single waist every seeded session passes through. All six entry points reach it: `agents.resume()`, config-driven startup on a persisted id (`restoreOrCreateConfigured`), `sessions.fork()`, a subagent fork child, `coordinator.adopt()`'s live-prefix path, and a bare `sessions.create(id, {seed})`. A boundary written at persistence load would miss both fork paths — and a forked child inheriting a still-running parent's open `compact/start` is precisely the case that must be classifiable. A boundary written at loop start would miss `fork()` and `adopt()`, and would have to fire on `SessionStartSource: 'startup'`, which is what a fork child publishes, so that field would stop discriminating.
 
-Two guards keep the marker from becoming noise. An empty seed writes nothing: a boundary with nothing below it marks nothing. A seed already ending in one is not re-marked, which makes the write idempotent. Idempotence is load-bearing rather than tidiness — `agentFor()` resumes a cold session on first touch, so merely opening one in a client is a pickup, and without the guard browsing would grow a log by one event per visit.
+Two guards keep the marker from becoming noise. An empty seed writes nothing because there is no seed to end. A seed already ending in one is not re-marked, which makes the write idempotent. Idempotence is load-bearing rather than tidiness — `agentFor()` resumes a cold session on first touch, so merely opening one in a client is a pickup, and without the guard browsing would grow a log by one event per visit.
 
 ## Persistence needs no changes
 
-The constructor append happens before `enter()`, so the session has no store attachment: the marker never publishes on `session/event`, exactly like the seed events below it. It is instead part of the log `initFor` captures as the creation seed, and persists through the ordinary seed path — `onCreated`'s `createCore` + `appendCore`, or the ownerless-claim suffix write. A consumer that watches the firehose therefore never sees the boundary and must read it from the log.
+The constructor append happens before `enter()`, so the session has no store attachment: the marker never publishes on `session/event`, exactly like the seed events before it. It is instead part of the log `initFor` captures as the creation seed, and persists through the ordinary seed path — `onCreated`'s `createCore` + `appendCore`, or the ownerless-claim suffix write. A consumer that watches the firehose therefore never sees the boundary and must read it from the log.
 
 Consequences for the seam: `load()` stays a pure read, with no revision bump, no `commitRepair` on a balanced log, and no durable mark left by a rejected `append`. **Attaching is not a pure read**, though — a pickup now writes where nothing was written before, so a read-only or full disk fails at `session/created` rather than at the first real turn. That is the one cost this placement adds, and it is narrower than the load-path version's (which failed the load itself).
 
-A crash before the seed write reaches disk loses the boundary, and that costs nothing: the pending batch is written in order, so a lost boundary means every event above it is lost too. The next pickup reads the same bytes the previous one did, appends its own boundary, and classifies the bracket identically. In-process consumers should prefer `firstLiveSeq`, which is exact before any write.
+A crash before the seed write reaches disk loses the boundary, and that costs nothing: the pending batch is written in order, so a lost boundary means every event after it is lost too. The next pickup reads the same bytes the previous one did, appends its own boundary, and classifies the bracket identically. In-process consumers should prefer `firstLiveSeq`, which is exact before any write.
 
 ## Scope of the guarantee
 
@@ -38,7 +38,7 @@ The predicate holds for a bracket *this* session inherited, not as a liveness si
 
 **A boundary written by the persistence coordinator's cold-load path.** Built first, as the [`session/resumed` boundary](../../rejected/architecture/2026-07-29-session-resumed-log-boundary.md), and abandoned before merge. It covers no fork, which is the one case where the inherited bracket's owner may still be running. Because the marker was minted at load it also had to be a durable write on a read path, which spread cost across the seam: a revision bump on every cold load, a `commitRepair` batch on a balanced log with nothing to repair, a stored-time floor to keep the clamp monotonic, and a load that failed against a read-only store.
 
-**A boundary appended at loop start.** The loop is one call above `resumeWith`, so it covers the resume paths, but it misses `fork()` and `adopt()` entirely, and the event would have to fire on `'startup'` — the source a fork child publishes — so `SessionStartSource` would stop discriminating. It also publishes the session before the marker is appended, so a `session/created` listener could observe a seeded log with no boundary.
+**A boundary appended at loop start.** The loop calls `resumeWith`, so it covers the resume paths, but it misses `fork()` and `adopt()` entirely, and the event would have to fire on `'startup'` — the source a fork child publishes — so `SessionStartSource` would stop discriminating. It also publishes the session before the marker is appended, so a `session/created` listener could observe a seeded log with no boundary.
 
 **Reusing `header.seedLength`.** It is the durable *fork-lineage* boundary and deliberately keeps the original fork value across a resume, where the constructor seed is the whole stored log. The two facts differ and conflating them would lose both.
 
@@ -50,6 +50,6 @@ Bought: one boundary, written in one place, correct for all six seeded-start pat
 
 Cost: a seeded session's log is one event longer, which moved seq expectations in tests across nine packages (session, agent-loop, persistence contract, jsonl, session-query, session-title, subagent-inprocess, telemetry, token-meter). Two of those updates are load-bearing rather than mechanical: telemetry's adoption tests now assert the boundary IS exported, because it is this lifecycle's own write, and the property suite's replay invariant is restated as "seed reproduced verbatim, plus one log-only boundary" with idempotence added as its own property.
 
-`session/inherited` joins the on-disk vocabulary. Under the pre-release stance (`SESSION_FORMAT_VERSION` pinned at `0`, no compatibility promise) older logs simply lack it, and a log without a boundary correctly reports nothing as inherited.
+`session/end-seed` joins the on-disk vocabulary. Under the pre-release stance (`SESSION_FORMAT_VERSION` pinned at `0`, no compatibility promise) older logs simply lack it, and a log without a boundary correctly classifies nothing as constructor-seed history.
 
 Not built here: no plugin reads the boundary yet. Wiring the compaction seam's staleness check to it is the follow-up that motivated this boundary; the predicate helper belongs with that seam, where a real consumer decides its shape, rather than shipping into core untested against one.

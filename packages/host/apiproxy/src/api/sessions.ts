@@ -134,7 +134,7 @@ export type QueueAction =
 export interface SessionSummary {
   sessionId: SessionId
   /**
-   * Last activity. Attached: the last non-`session/inherited` event, since a
+   * Last activity. Attached: the last non-`session/end-seed` event, since a
    * pickup is not activity. Cold: the log's mtime, or `createdAt` for a backend
    * with no per-session file (README Known Limitations covers the skew).
    */

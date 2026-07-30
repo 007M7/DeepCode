@@ -8,11 +8,11 @@ English | [中文](2026-07-29-durable-last-activity-index.zh.md)
 
 A cold (persisted, unattached) session has no stored answer to "when was this last worked in". `dsh-host-apiproxy`'s `summarizeCold()` therefore approximates it with the log file's mtime where one exists — `locate()` resolves a per-session artifact for JSONL and `undefined` for SQLite, whose cold sessions fall back to `createdAt` — and the web client sorts its session tree by the resulting `updatedAt`. The two backends are wrong in opposite directions: JSONL reads too new, SQLite too old.
 
-mtime answers a different question: when the artifact was last written. Every durable write refreshes it, including writes that are not activity — a truncate-repair of a torn tail, the synthetic closers that balance an interrupted turn, and the [`session/inherited` boundary](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md) a seeded session appends. (A `flush` with nothing pending is not among them: the coordinator returns without reaching the backend.) The visible consequence is stable and wrong in one direction: a session touched without being worked in promotes itself above sessions the user actually worked in afterwards, and each touch re-promotes it. "Touched" is broader than "resumed" — `dsh-host-apiproxy`'s `agentFor()` resumes a cold session on first touch, and `sessions.history` reaches it when the web client merely opens one, so ordinary browsing is enough.
+mtime answers a different question: when the artifact was last written. Every durable write refreshes it, including writes that are not activity — a truncate-repair of a torn tail, the synthetic closers that balance an interrupted turn, and the [`session/end-seed` boundary](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md) a seeded session appends. (A `flush` with nothing pending is not among them: the coordinator returns without reaching the backend.) The visible consequence is stable and wrong in one direction: a session touched without being worked in promotes itself above sessions the user actually worked in afterwards, and each touch re-promotes it. "Touched" is broader than "resumed" — `dsh-host-apiproxy`'s `agentFor()` resumes a cold session on first touch, and `sessions.history` reaches it when the web client merely opens one, so ordinary browsing is enough.
 
 The attached projection has a real fix — `lastActivityTime()` skips boundaries — but it needs the event log, and the cold path deliberately does not read one. Reading the log to compute `updatedAt` would defeat the header-only listing that keeps `list()` scaling with session count rather than log size.
 
-The [boundary change](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md) raised the frequency of this defect, because a pickup now writes where nothing was written before; `dsh-host-apiproxy`'s README records it under Known Limitations. It did not introduce the approximation, and removing the approximation is a durable-format decision, which is why it is scoped here rather than there.
+The [boundary change](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md) raised the frequency of this defect, because a pickup now writes where nothing was written before; `dsh-host-apiproxy`'s README records it under Known Limitations. It did not introduce the approximation, and removing the approximation is a durable-format decision, which is why it is scoped here rather than there.
 
 ## Proposal
 
@@ -25,7 +25,7 @@ The two shipped backends have opposite constraints, and the proposal is delibera
 
 Three questions must be answered before implementation, and none of them is settled here:
 
-**Which events count as activity?** `lastActivityTime()` answers this for the log by excluding `session/inherited`. A stored field encodes the rule at write time, where the writer sees one batch rather than the whole log. The two must not drift, or the attached and cold surfaces will disagree about the same session.
+**Which events count as activity?** `lastActivityTime()` answers this for the log by excluding `session/end-seed`. A stored field encodes the rule at write time, where the writer sees one batch rather than the whole log. The two must not drift, or the attached and cold surfaces will disagree about the same session.
 
 **How do pre-field logs behave?** Existing artifacts have no value. Falling back to mtime keeps them at today's accuracy; falling back to `createdAt` is honest but reorders every existing session in the picker and the tree.
 
@@ -37,7 +37,7 @@ Three questions must be answered before implementation, and none of them is sett
 
 **Keep mtime and exclude boundary writes from it.** Rejected as impossible rather than undesirable: mtime is the filesystem's, not the backend's. Nothing short of restoring the timestamp after every boundary write would preserve it, and that races any concurrent reader and lies about the artifact.
 
-**Write the boundary only when repair occurred.** Would reduce the frequency, and the [boundary note](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md) already rejected it: the predicate must hold for an orderly restart too. Trading a correctness invariant for timestamp accuracy is the wrong direction.
+**Write the boundary only when repair occurred.** Would reduce the frequency, and the [boundary note](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md) already rejected it: the predicate must hold for an orderly restart too. Trading a correctness invariant for timestamp accuracy is the wrong direction.
 
 **Derive activity from a projection cache.** `session-projection-cache` already folds tails past a watermark, so a last-activity unit would ride existing machinery. Rejected as the primary shape because the cache is an optional composition entry; a listing served only when a cache plugin is mounted makes ordering depend on composition.
 
@@ -61,6 +61,6 @@ Three questions must be answered before implementation, and none of them is sett
 
 ## Related
 
-- [The inherited-history log boundary](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md) — one of the non-activity writes mtime counts; `dsh-session` owns `lastActivityTime()`, the in-log projection a stored field must agree with.
+- [The end-seed log boundary](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md) — one of the non-activity writes mtime counts; `dsh-session` owns `lastActivityTime()`, the in-log projection a stored field must agree with.
 - [Session persistence](../../implemented/architecture/2026-06-14-session-persistence.md) — the append-only and never-rewrite invariants that rule out a mutable JSONL header field.
 - [Shared persistence write coordinator](../../implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md) — the append path a stored field would hook into.

@@ -275,8 +275,8 @@ describe('interruptedTurnClosers', () => {
 })
 
 describe('lastActivityTime', () => {
-  const inheritedAt = (seq: number, time: number): SessionEvent =>
-    ({ type: 'session/inherited', seq, time, data: {} })
+  const endSeedAt = (seq: number, time: number): SessionEvent =>
+    ({ type: 'session/end-seed', seq, time, data: {} })
 
   it('has no answer for an empty log', () => {
     expect(lastActivityTime([])).toBeUndefined()
@@ -294,16 +294,16 @@ describe('lastActivityTime', () => {
     const events: SessionEvent[] = [
       userTurnStart(1, 0),
       { type: 'turn/end', seq: 1, time: 500, data: { turn: 1, reason: { kind: 'completed' } } },
-      inheritedAt(2, 9_000),
+      endSeedAt(2, 9_000),
     ]
     // Resumed long after the work, but never worked in again.
     expect(lastActivityTime(events)).toBe(500)
   })
 
-  it('reports work done above a boundary', () => {
+  it('reports work appended after end-seed', () => {
     const events: SessionEvent[] = [
       userTurnStart(1, 0),
-      inheritedAt(1, 9_000),
+      endSeedAt(1, 9_000),
       { type: 'turn/end', seq: 2, time: 9_500, data: { turn: 1, reason: { kind: 'completed' } } },
     ]
     expect(lastActivityTime(events)).toBe(9_500)
@@ -311,6 +311,6 @@ describe('lastActivityTime', () => {
 
   it('has no answer for a log of nothing but boundaries', () => {
     // Unreachable via the constructor, but the projection is a pure function.
-    expect(lastActivityTime([inheritedAt(0, 1), inheritedAt(1, 2)])).toBeUndefined()
+    expect(lastActivityTime([endSeedAt(0, 1), endSeedAt(1, 2)])).toBeUndefined()
   })
 })

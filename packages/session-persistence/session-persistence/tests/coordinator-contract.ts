@@ -218,9 +218,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         live.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
         await ctx.sessions.flush(live)
         const loaded = await ctx.sessionPersistence.load(id)
-        // The seeded constructor's boundary persisted between the stored
+        // The constructor's end-seed event persisted between the stored
         // turn/start and the turn/end appended live.
-        expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'session/inherited', 'turn/end'])
+        expect(loaded.events.map(event => event.type)).toEqual(['turn/start', 'session/end-seed', 'turn/end'])
         expect(loaded.events.at(-1)).toMatchObject({
           type: 'turn/end',
           data: { reason: { kind: 'completed' } },
@@ -482,7 +482,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         // Fork is where the marker earns its keep: the inherited prefix may
         // carry a bracket the still-running parent owns.
         expect(loaded.events.slice(0, seed.length)).toEqual(seed)
-        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/inherited', seq: seed.length })
+        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed', seq: seed.length })
         // A flush with no NEW events must not double-write.
         await ctx.sessions.flush(forked)
         const reloaded = await ctx.sessionPersistence.load(SessionId('forked'))
@@ -515,9 +515,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await second.ctx.sessions.flush(s2)
 
         const reloaded = await second.ctx.sessionPersistence.load(SessionId('resumed'))
-        // 0-5 the resumed seed, 6 the boundary, 7-8 the new turn.
+        // 0-5 the resumed seed, 6 end-seed, 7-8 the new turn.
         expect(reloaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
-        expect(reloaded.events[6]).toMatchObject({ type: 'session/inherited' })
+        expect(reloaded.events[6]).toMatchObject({ type: 'session/end-seed' })
       } finally {
         await second.fiber.dispose()
         await fix.cleanup()
@@ -798,9 +798,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         const live = ctx.sessions.create(SessionId('lazy-claim'), { seed: oneTurnLog(), meta: { cwd: WORK } })
         await expect(ctx.sessions.flush(live)).resolves.toBeUndefined()
         const loaded = await ctx.sessionPersistence.load(SessionId('lazy-claim'))
-        // Seeded 0-5 plus the constructor's boundary at 6.
+        // Seeded 0-5 plus the constructor's end-seed event at 6.
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6])
-        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/inherited' })
+        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed' })
       } finally {
         await fiber.dispose()
         await fix.cleanup()
@@ -853,9 +853,9 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         }, { inject: ['sessions'] }))
         await ctx.sessions.flush(cont)
         const loaded = await ctx.sessionPersistence.load(SessionId('claim'))
-        // 6-7 the claimed suffix; 8 the boundary over the whole seed.
+        // 6-7 the claimed suffix; 8 end-seed after the whole seed.
         expect(loaded.events.map(e => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8])
-        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/inherited' })
+        expect(loaded.events.at(-1)).toMatchObject({ type: 'session/end-seed' })
         expect(loaded.meta).toEqual(durableMeta)
         expect(loaded.meta.createdAt).toBe(1000)
 

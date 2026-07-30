@@ -1,6 +1,6 @@
 # Agent Note: Record the resume process boundary in the session log
 
-Status: rejected — the boundary belongs at the seeded-`Session` constructor, which also covers fork and replay; superseded by [the inherited-history boundary](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md)
+Status: rejected — the boundary belongs at the seeded-`Session` constructor, which also covers fork and replay; superseded by [the end-seed boundary](../../implemented/architecture/2026-07-30-session-end-seed-log-boundary.md)
 
 English | [中文](2026-07-29-session-resumed-log-boundary.zh.md)
 
@@ -14,7 +14,7 @@ The pressure to fix this is immediate: moving `compact/start` to its real time p
 
 ## Proposal
 
-`@deepseek-ai/dsh-session-persistence` declares one log-only `session/resumed` with an empty payload and appends exactly one at the end of every cold load, in the same `commitRepair` batch as any crash-repair closers and positioned after them — so every event below the boundary was written by a writer that is no longer tracking this log. Ownership lands narrowly on `loadCore()`, the cold-load path reached by `load()` and by `adopt()`. `loadLiveSnapshot()` appends nothing, and the non-mutating `inspect()`/`readFrom()` reads never write one.
+`@deepseek-ai/dsh-session-persistence` declares one log-only `session/resumed` with an empty payload and appends exactly one at the end of every cold load, in the same `commitRepair` batch as any crash-repair closers and positioned after them — so every event before the boundary has a smaller seq and was written by a writer that is no longer tracking this log. Ownership lands narrowly on `loadCore()`, the cold-load path reached by `load()` and by `adopt()`. `loadLiveSnapshot()` appends nothing, and the non-mutating `inspect()`/`readFrom()` reads never write one.
 
 The predicate a bracket owner evaluates is purely a function of the log: an unmatched opening marker with a `session/resumed` after it is stale, and one with no `session/resumed` after it is live.
 

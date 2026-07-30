@@ -165,7 +165,7 @@ function sessionBlank(session: Session): boolean {
 function summarize(session: Session, running: boolean): SessionSummary {
   return {
     sessionId: session.id,
-    // Excludes the inherited-history boundary: a resumed-but-untouched session
+    // Excludes end-seed: a resumed-but-untouched session
     // must not sort as freshly worked in.
     updatedAt: lastActivityTime(session.events) ?? session.header.createdAt,
     running,

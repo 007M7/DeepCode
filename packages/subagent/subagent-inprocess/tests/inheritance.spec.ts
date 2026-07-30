@@ -126,7 +126,7 @@ describe('in-process policy inheritance', () => {
 
       expect(child.session.header.seedLength).toBe(1)
       expect(child.session.firstLiveSeq).toBe(seed.length)
-      // seq 1 is the inherited-history boundary.
+      // seq 1 is the constructor's end-seed marker.
       expect(child.session.events.filter(event => event.type === 'sandbox/mode')).toMatchObject([
         { seq: 0, data: { mode: 'workspace-write' } },
         { seq: 2, data: { mode: 'read-only', source: 'delegation' } },

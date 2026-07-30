@@ -678,8 +678,8 @@ describe('malformed replay and listener lifecycle', () => {
       content: [{ type: 'text', text: 'one' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    // Seed, constructor boundary, then the append above. Only the last
-    // published: the boundary predates store attachment, like the seed.
+    // Seed, end-seed, then one live append. Only the last event published:
+    // end-seed predates store attachment, like the seed.
     expect(revisions).toEqual([3])
     expect(activeMeter.measure(session).logRevision).toBe(3)
 

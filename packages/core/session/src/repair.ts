@@ -2,7 +2,7 @@
  * Crash-recovery repair for an interrupted session log. It preserves a fully
  * written final turn and supplies the missing tool, step, and turn boundaries
  * needed to resume with a provider-valid transcript, plus the activity-time
- * read that must skip the inherited-history boundary — which this module does
+ * read that must skip the end-seed boundary — which this module does
  * not write (`Session`'s constructor does) but whose synthetic closers can
  * inherit that boundary's timestamp, the one real coupling between the two.
  * @module @deepseek-ai/dsh-session/repair
@@ -14,7 +14,7 @@ import type { SessionEvent } from './types.ts'
 
 /**
  * The `time` of the log's last event representing actual work, skipping the
- * `session/inherited` boundary — picking a session up is not activity, so
+ * `session/end-seed` boundary — picking a session up is not activity, so
  * activity ordering must exclude it.
  *
  * Excluded by type, so a pickup time still leaks when a boundary is the last
@@ -25,7 +25,7 @@ import type { SessionEvent } from './types.ts'
  * @returns the latest non-boundary event's `time`, or undefined when there is none.
  */
 export function lastActivityTime(events: readonly SessionEvent[]): number | undefined {
-  return events.findLast(event => event.type !== 'session/inherited')?.time
+  return events.findLast(event => event.type !== 'session/end-seed')?.time
 }
 
 /** Recovery code for an assistant tool request that never reached a recorded call start. */

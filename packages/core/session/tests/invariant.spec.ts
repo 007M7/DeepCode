@@ -382,7 +382,7 @@ describe('session-log invariants', () => {
       .toThrow(/turn 1 is still open/)
   })
 
-  it('accepts the inherited boundary whether or not a turn is open', async () => {
+  it('accepts end-seed whether or not a turn is open', async () => {
     const { ctx } = await setup()
     // Balanced seed: between turns.
     expect(() => ctx.sessions.create(SessionId('inherited-between-turns'), { seed: [
@@ -393,7 +393,7 @@ describe('session-log invariants', () => {
     const open = ctx.sessions.create(SessionId('inherited-inside-open-turn'), { seed: [
       { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
     ] })
-    expect(open.events.map(event => event.type)).toEqual(['turn/start', 'session/inherited'])
+    expect(open.events.map(event => event.type)).toEqual(['turn/start', 'session/end-seed'])
     // Still open afterwards: the boundary moves no cursor.
     expect(() => open.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } }))
       .toThrow(/turn 1 is still open/)

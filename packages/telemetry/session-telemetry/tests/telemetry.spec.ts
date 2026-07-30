@@ -186,12 +186,12 @@ describe('TelemetryCoordinator adoption', () => {
 
     const seqs = backend.ledger().map(r => [r.attributes['session.id'], r.attributes['event.seq']])
     expect(seqs).toEqual(expect.arrayContaining([['seed-parent', 0], ['seed-parent', 1]]))
-    // 2 the boundary, 3 the turn/end: both this lifecycle's own writes, while
+    // 2 end-seed, 3 turn/end: both this lifecycle's own writes, while
     // inherited 0-1 stay with the parent stream.
     expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2], ['seeded', 3]])
   })
 
-  it('resume shape: a full-log seed exports only its own boundary and rebuilds the chunk projection', async () => {
+  it('resume shape: a full-log seed exports only its own end-seed and rebuilds the chunk projection', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -208,7 +208,7 @@ describe('TelemetryCoordinator adoption', () => {
       .filter(r => r.attributes['session.id'] === 'resumed')
       .map(r => r.attributes['event.seq'])
     // Nothing inherited is re-exported; seq 2 is this session's own first
-    // write — the boundary its constructor appended over the seed.
+    // write — the end-seed event its constructor appended after the seed.
     expect(ofResumed()).toEqual([2])
     // The seed fed the projection: the (turn 1, step 1) first chunk already
     // shipped from the original process, so its continuation is re-dropped…

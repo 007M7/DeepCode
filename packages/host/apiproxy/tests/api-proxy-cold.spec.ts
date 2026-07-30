@@ -78,7 +78,7 @@ describe('sessions.list cold merge', () => {
   })
 })
 
-describe('attached updatedAt excludes the inherited-history boundary', () => {
+describe('attached updatedAt excludes end-seed', () => {
   it('reports the last real work, not the pickup, so a resumed-untouched session does not float', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -97,7 +97,7 @@ describe('attached updatedAt excludes the inherited-history boundary', () => {
     })
     ctx.agents.register({ id: resumed.id, session: resumed, status: 'idle', ctx } as Agent)
     const boundary = resumed.events.at(-1)
-    expect(boundary?.type).toBe('session/inherited')
+    expect(boundary?.type).toBe('session/end-seed')
     expect(boundary?.time).toBeGreaterThan(worked)
 
     const listed = await api.sessions.list(request({}))
@@ -105,7 +105,7 @@ describe('attached updatedAt excludes the inherited-history boundary', () => {
     const summary = listed.result.value.items.find(item => item.sessionId === 'resumed-untouched')
     expect(summary?.updatedAt).toBe(worked)
 
-    // Real work above the boundary does move it.
+    // Real work appended after end-seed does move it.
     resumed.append('turn/start', { turn: 2, trigger: { kind: 'message', source: { kind: 'user' } } })
     const after = await api.sessions.list(request({}))
     if (!after.result.ok) throw new Error('list failed')

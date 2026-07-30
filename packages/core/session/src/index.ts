@@ -382,25 +382,25 @@ export class Session {
 
   /**
    * The first seq appended IN THIS PROCESS: the length of the constructor
-   * seed (0 without one). Events below it entered through construction —
-   * replay, fork, or resume — and were never published on the `session/event`
-   * firehose (constructor seeds do not emit), so consumers that replay the
-   * log as a publication substitute (telemetry adoption) start here. Distinct
-   * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
-   * session's constructor seed is its full stored log, while its header keeps
-   * the original fork value — this field is the in-process construction fact.
+   * seed (0 without one). Events with smaller seq values entered through
+   * construction — replay, fork, or resume — and were never published on the
+   * `session/event` firehose (constructor seeds do not emit), so consumers
+   * that replay the log as a publication substitute (telemetry adoption)
+   * start here. Distinct from `header.seedLength`, the DURABLE fork-lineage
+   * boundary: a resumed session's constructor seed is its full stored log,
+   * while its header keeps the original fork value — this field is the
+   * in-process construction fact.
    *
    * Not persisted itself: a seeded session projects it into the log as the
-   * `session/inherited` event, which is what a consumer reading STORED history
-   * reads. Locate that event as the log's LAST boundary, not at this seq — a
+   * `session/end-seed` event, which is what a consumer reading STORED history
+   * reads. Locate the LAST such event, not necessarily one at this seq — a
    * seed already ending in one is not re-marked, so reopening an untouched
-   * session leaves the boundary below `firstLiveSeq`. Prefer this field
-   * in-process: it is exact before the marker's write reaches storage.
+   * session leaves that event at a smaller seq than `firstLiveSeq`. Prefer
+   * this field in-process: it is exact before the marker reaches storage.
    *
-   * When this lifecycle did append a boundary it sits at this seq, appended
-   * before the store attached, so that event did not publish either — the
-   * firehose gap then runs through `firstLiveSeq` rather than stopping below
-   * it. Otherwise this seq holds an ordinary published write.
+   * When this lifecycle appends the marker, it occupies this seq before the
+   * store attaches and therefore does not publish either. Otherwise this seq
+   * holds an ordinary published write.
    */
   readonly firstLiveSeq: number
 
@@ -442,8 +442,8 @@ export class Session {
     // captures the creation seed: no load-time write. Re-marking is skipped
     // because a cold session is resumed on first touch, so repeatedly opening
     // one must not grow its log per open.
-    if (this.firstLiveSeq > 0 && this.log.at(-1)?.type !== 'session/inherited') {
-      this.append('session/inherited', {})
+    if (this.firstLiveSeq > 0 && this.log.at(-1)?.type !== 'session/end-seed') {
+      this.append('session/end-seed', {})
     }
   }
 

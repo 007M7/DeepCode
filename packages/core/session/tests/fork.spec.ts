@@ -52,11 +52,11 @@ function lastSeq(session: Session): number {
   return event.seq
 }
 
-/** A seeded child's inherited prefix: its log minus the constructor's boundary. */
+/** A seeded child's constructor seed: its log minus the end-seed marker. */
 function inherited(session: Session): readonly SessionEvent[] {
   const events = session.events
   const last = events.at(-1)
-  if (last?.type !== 'session/inherited') throw new Error('seeded child is missing its inherited boundary')
+  if (last?.type !== 'session/end-seed') throw new Error('seeded child is missing its end-seed marker')
   return events.slice(0, -1)
 }
 
@@ -166,12 +166,12 @@ describe('SessionStore.fork', () => {
 
     const child = sessions.fork(parent, undefined, SessionId('bracket-child'))
 
-    // Parent: nothing above the bracket, so its owner must treat it as live.
+    // Parent: no end-seed event follows the bracket, so its owner treats it as live.
     expect(parent.events.at(-1)).toBe(open)
-    expect(parent.events.some(event => event.type === 'session/inherited')).toBe(false)
-    // Child: the same bracket sits below its boundary, so it is dead history.
+    expect(parent.events.some(event => event.type === 'session/end-seed')).toBe(false)
+    // Child: the same bracket is before end-seed, so it belongs to the seed.
     const boundary = child.events.at(-1)
-    expect(boundary).toMatchObject({ type: 'session/inherited' })
+    expect(boundary).toMatchObject({ type: 'session/end-seed' })
     expect(boundary!.seq).toBeGreaterThan(open.seq)
     expect(child.firstLiveSeq).toBe(open.seq + 1)
     expect(inherited(child).at(-1)).toMatchObject({ type: 'test/bracket-open', data: { id: 'op-1' } })

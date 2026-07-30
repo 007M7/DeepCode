@@ -118,7 +118,7 @@ describe('Session properties', () => {
     }))
   })
 
-  it('replaying an already-inherited log adds no further boundary', () => {
+  it('replaying a log that already ends in end-seed adds no further marker', () => {
     fc.assert(fc.property(logArb, (events) => {
       const original = build(events)
       const once = new Session(SessionId(`idem-a-${counter++}`), [...original.events])

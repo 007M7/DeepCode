@@ -188,7 +188,7 @@ describe('Session', () => {
 
     const replayed = new Session(SessionId('s3-replay'), [...original.events])
     expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
-    // The seed verbatim, plus the boundary the constructor appends over it.
+    // The seed verbatim, plus the end-seed event the constructor appends.
     expect(replayed.events.slice(0, original.seq)).toEqual(original.events)
     expect(replayed.seq).toBe(original.seq + 1)
     expect(replayed.firstLiveSeq).toBe(original.seq)
