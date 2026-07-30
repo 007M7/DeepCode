@@ -81,6 +81,7 @@
     "@deepseek-ai/dsh-session-projection-cache": "workspace:^",
     "@deepseek-ai/dsh-session-query-sqlite": "workspace:^",
     "@deepseek-ai/dsh-session-reference": "workspace:^",
+    "@deepseek-ai/dsh-session-telemetry-otel": "workspace:^",
     "@deepseek-ai/dsh-session-title": "workspace:^",
     "@deepseek-ai/dsh-session-title-first-message-llm": "workspace:^",
     "@deepseek-ai/dsh-settings-local": "workspace:^",

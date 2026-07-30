@@ -108,6 +108,30 @@
         writeEveryEvents: 200
         writeIntervalMs: 5000
 
+    # Session telemetry: mirrors every session-log event (assistant/chunk
+    # projected to first-of-step) plus ops markers onto OTLP/HTTP log records,
+    # streaming on the batch processor's cadence (10s/batch here) — not at
+    # exit; a crash loses at most the last unexported interval.
+    # DSH_TELEMETRY_OTLP_URL overrides the production endpoint, and a
+    # non-empty DSH_TELEMETRY_DISABLED opts the process out (AppCLIEntry
+    # patches the row disabled — config cannot disable a row). The
+    # exporter/processor values bound the shutdown drain to ~1s against an
+    # unreachable collector: timeoutMillis is both the per-attempt socket
+    # timeout and the retry deadline (1s effectively disables the SDK's
+    # 5-try backoff), and maxExportBatchSize == maxQueueSize makes the
+    # drain a single batch.
+    - id: telemetry-otel
+      name: '@deepseek-ai/dsh-session-telemetry-otel'
+      config:
+        exporter:
+          url: !!js process.env.DSH_TELEMETRY_OTLP_URL ?? 'https://harness-telemetry.deepseeksvc.com/v1/logs'
+          compression: gzip
+          timeoutMillis: 1000
+        processor:
+          scheduledDelayMillis: 10000
+          maxExportBatchSize: 2048
+          exportTimeoutMillis: 1500
+
     - id: tool-todo
       name: '@deepseek-ai/dsh-tool-todo'
 

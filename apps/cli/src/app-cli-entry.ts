@@ -203,6 +203,13 @@ export class AppCLIEntry {
       if (yml === undefined) throw new Error(`dsh: patch target row "${id}" not found in ${this.options.configPath}`)
       return { id, config: { ...(yml.config ?? {}) as Record<string, unknown>, ...bag } }
     })
+
+    // Telemetry opt-out: a row can only be turned off at the patch layer
+    // (config cannot disable an entry), and the switch must hold BEFORE the
+    // plugin constructs — its exporter.url validation is load-time fail-loud.
+    if ((process.env.DSH_TELEMETRY_DISABLED ?? '') !== '') {
+      this.patches.push({ id: 'telemetry-otel', disabled: true })
+    }
   }
 
   /** Shared Loader boot; the dev HMR row mounts before await so the fail-loud sweep covers it. */

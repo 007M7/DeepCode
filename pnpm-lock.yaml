@@ -318,6 +318,9 @@ importers:
       '@deepseek-ai/dsh-session-reference':
         specifier: workspace:^
         version: link:../../packages/context/session-reference
+      '@deepseek-ai/dsh-session-telemetry-otel':
+        specifier: workspace:^
+        version: link:../../packages/telemetry/session-telemetry-otel
       '@deepseek-ai/dsh-session-title':
         specifier: workspace:^
         version: link:../../packages/session-title/session-title
