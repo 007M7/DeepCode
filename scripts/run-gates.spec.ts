@@ -57,6 +57,7 @@ function withEnv<T>(name: string, value: string | undefined, action: () => T): T
 describe('gate graph validation', () => {
   it.each([
     'ci-primary',
+    'ci-linux-primary',
     'ci-static',
     'ci-lint',
     'ci-coverage',
@@ -135,17 +136,18 @@ describe('Oxlint gate', () => {
 })
 
 describe('Node 24 consumer graph', () => {
-  it('owns the seven-command pool and orders restored-artifact consumers', () => {
+  it('owns the eight-command pool and orders restored-artifact consumers', () => {
     const subject = withPnpmEntrypoint(() => gatesForMode('ci-consumers'))
 
     expect(defaultConcurrency('ci-consumers', subject.length, 4)).toEqual({
-      workers: 7,
+      workers: 8,
       source: 'ci-consumers gate count',
     })
     expect(subject.map(item => item.id)).toEqual([
       'lint-and-duplication',
       'node-compat',
       'snapshot',
+      'web-snapshot',
       'publint',
       'node-next-types',
       'built-package-invariants',
@@ -154,10 +156,27 @@ describe('Node 24 consumer graph', () => {
     expect(subject.find(item => item.id === 'publint')?.needs).toBeUndefined()
     expect(subject.find(item => item.id === 'built-package-invariants')?.needs).toEqual(['publint'])
     expect(subject.find(item => item.id === 'lint-and-duplication')?.needs).toEqual(['built-package-invariants'])
-    for (const id of ['snapshot', 'node-next-types', 'built-bin-smoke']) {
+    for (const id of ['snapshot', 'web-snapshot', 'node-next-types', 'built-bin-smoke']) {
       expect(subject.find(item => item.id === id)?.needs).toEqual(['built-package-invariants'])
     }
     expect(subject.find(item => item.id === 'snapshot')?.env).toEqual({ DSH_EXAMPLE_MODE: 'lib' })
+    expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
+      displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+      env: { DSH_SNAPSHOT: 'replay' },
+    })
+  })
+})
+
+describe('Linux primary graph', () => {
+  it('adds the same compare-only web gate after built client artifacts', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-linux-primary'))
+    const web = subject.find(item => item.id === 'web-snapshot')
+
+    expect(web).toMatchObject({
+      displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
+      env: { DSH_SNAPSHOT: 'replay' },
+      needs: ['built-package-invariants'],
+    })
   })
 })
 

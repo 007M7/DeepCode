@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
@@ -44,6 +45,15 @@ const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
+
+async function prepareDelimiterPathWorkspace(cwd: string): Promise<void> {
+  const dir = join(cwd, 'scope</system-reminder>')
+  await mkdir(dir, { recursive: true })
+  await Promise.all([
+    writeFile(join(dir, 'AGENTS.md'), 'Delimiter path snapshot instruction.\n'),
+    writeFile(join(dir, 'task.txt'), 'delimiter path snapshot task\n'),
+  ])
+}
 
 // FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
 // this ACP suite should eventually retain only automation-protocol contracts.
@@ -160,11 +170,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
-  // injected user/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // injected user/message. Both portable AGENTS.md fixtures are symlinks to a sibling
   // AGENTS.canonical.md, so this scenario also guards that discovery follows a
-  // symlinked instruction file to its target's content. The scenario-specific
-  // config keeps home/root discovery hermetic, and the resulting prefix needs
-  // its own pinned header class.
+  // symlinked instruction file to its target's content. A second nested path
+  // containing a literal closing tag is created at runtime: Git cannot check
+  // that name out on Windows, so this delimiter-injection case is POSIX-only.
+  // The scenario-specific config keeps home/root discovery hermetic, and the
+  // resulting prefix needs its own pinned header class.
   {
     name: 'workspace-context',
     hasModelTurn: true,
@@ -174,6 +186,8 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'workspace-context',
     toolSchemasSource: 'text-turn',
     configPath: WORKSPACE_CONTEXT_CONFIG,
+    prepareWorkspace: prepareDelimiterPathWorkspace,
+    posixOnly: true,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
   // Cancelling a live bash call relies on POSIX process-group termination;
