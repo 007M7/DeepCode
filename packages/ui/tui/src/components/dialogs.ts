@@ -23,6 +23,7 @@ import {
   type AgentLlmTarget,
 } from '@deepseek-ai/dsh-agent'
 import type { LlmModelInfo, LlmModelReasoningInfo, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { foldGoal, type GoalPhase } from '@deepseek-ai/dsh-goal'
 import { foldSessionTitle } from '@deepseek-ai/dsh-session-title'
@@ -512,7 +513,8 @@ export function summarizeResumeCandidate(
   return {
     record,
     title,
-    lastActivityAt: snapshot.events.at(-1)?.time ?? snapshot.session.createdAt,
+    // Excludes a prior pickup's boundary, or every browsed session floats up.
+    lastActivityAt: lastActivityTime(snapshot.events) ?? snapshot.session.createdAt,
     lastTurn: resumeTurnLabel(snapshot),
     currentWorkspace: record.header.cwd === cwd,
     workspaceLabel: formatWorkspace(record.header.cwd),
