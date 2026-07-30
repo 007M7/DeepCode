@@ -469,13 +469,48 @@ describe('timeline projection', () => {
       end: 3,
       spans: [
         {
-          index: 1, kind: 'message', label: 'assistant', lane: 1, start: 0, end: 1,
+          index: 1, isError: false, kind: 'message', label: 'assistant',
+          lane: 1, start: 0, end: 1,
         },
-        { index: 2, kind: 'tool', label: 'bash', lane: 2, start: 1, end: 2 },
-        { index: 3, kind: 'user', label: 'unknown', lane: 0, start: 2, end: 3 },
+        {
+          index: 2, isError: false, kind: 'tool', label: 'bash',
+          lane: 2, start: 1, end: 2,
+        },
+        {
+          index: 3, isError: false, kind: 'user', label: 'unknown',
+          lane: 0, start: 2, end: 3,
+        },
       ],
       turnBoundaries: [{ turn: 1, time: 0 }],
     })
+  })
+
+  it('marks error records directly on timeline spans', () => {
+    const errorTurns = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'tool' as const,
+          text: 'failed tool',
+          timeSeconds: 0.1,
+          isError: true,
+        }],
+      }],
+    }] satisfies readonly TrajectoryTurnModel[]
+    const view = render(
+      <TrajectoryTimeline
+        turns={errorTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={() => {}}
+      />,
+    )
+
+    expect(view.container.querySelector(
+      '[data-timeline-span="tool"][data-error="true"]',
+    )).toBeTruthy()
   })
 
   it('ignores durations and idle gaps while retaining turn boundaries', () => {

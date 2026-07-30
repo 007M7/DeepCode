@@ -144,8 +144,10 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('Pending')).toBeTruthy()
     fireEvent.click(screen.getByRole('row', { name: /TOOL, bash \{"command":"false"\}/ }))
     expect(screen.getByText('Failed')).toBeTruthy()
+    expect(screen.getByText('Failed').className).toContain('error')
     fireEvent.click(screen.getByRole('tab', { name: 'Result' }))
-    expect(screen.getByText('ToolError: non_zero_exit')).toBeTruthy()
+    const errorResult = screen.getByText('ToolError: non_zero_exit')
+    expect(errorResult.closest('[class*="errorPayload"]')).toBeTruthy()
   })
 
   it('renders responsive role icons with a custom tooltip', () => {

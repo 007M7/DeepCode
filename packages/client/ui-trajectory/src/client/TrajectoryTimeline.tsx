@@ -467,6 +467,7 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
                     className={css.span}
                     data-timeline-span={span.kind}
                     data-timeline-record-index={span.index}
+                    data-error={span.isError || undefined}
                     data-equal-duration={mode === 'time' || undefined}
                     data-current={span.index === selectedIndex || undefined}
                     data-hovered={hover?.recordIndex === span.index || undefined}

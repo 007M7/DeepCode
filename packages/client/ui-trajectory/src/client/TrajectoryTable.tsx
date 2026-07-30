@@ -1123,13 +1123,20 @@ function SystemPromptDiff({
 
 function ToolOutputBlocks({
   blocks,
+  error,
   preview,
 }: {
   blocks: readonly TrajectorySourceBlock[]
+  error: boolean
   preview: boolean
 }) {
   return (
-    <div className={preview ? `${css.resultBlocks} ${css.resultBlocksPreview}` : css.resultBlocks}>
+    <div className={[
+      css.resultBlocks,
+      preview ? css.resultBlocksPreview : undefined,
+      error ? css.errorPayload : undefined,
+    ].filter((value): value is string => value !== undefined).join(' ')}
+    >
       {blocks.map((block, index) => (
         block.imageSrc !== undefined
           ? <PanelImage block={block} preview={preview} key={index} />
@@ -1302,6 +1309,9 @@ function RecordPayload({
     ? 'No payload captured'
     : 'No result captured'
   if (!value) return <p className={css.noPayload}>{missing}</p>
+  const error = direction === 'output' && record.cell.isError === true
+  const payloadClass = preview ? css.jsonPreview : css.jsonPayload
+  const payloadClassName = error ? `${payloadClass} ${css.errorPayload}` : payloadClass
 
   const json = parseJsonContainer(value)
   const singleTextResult = direction === 'output'
@@ -1312,7 +1322,7 @@ function RecordPayload({
       <JsonTree
         data={json}
         label="Result JSON"
-        className={preview ? css.jsonPreview : css.jsonPayload}
+        className={payloadClassName}
       />
     )
   }
@@ -1325,6 +1335,7 @@ function RecordPayload({
     return (
       <ToolOutputBlocks
         blocks={record.cell.outputBlocks}
+        error={error}
         preview={preview}
       />
     )
@@ -1338,7 +1349,11 @@ function RecordPayload({
   )
   if (markdown) {
     return (
-      <div className={preview ? css.markdownPreview : css.markdownPayload}>
+      <div className={[
+        preview ? css.markdownPreview : css.markdownPayload,
+        error ? css.errorPayload : undefined,
+      ].filter((className): className is string => className !== undefined).join(' ')}
+      >
         <MarkdownText text={value} />
       </div>
     )
@@ -1348,7 +1363,7 @@ function RecordPayload({
       <JsonTree
         data={json}
         label={`${direction === 'input' ? 'Payload' : 'Result'} JSON`}
-        className={preview ? css.jsonPreview : css.jsonPayload}
+        className={payloadClassName}
       />
     )
   }
@@ -1356,7 +1371,7 @@ function RecordPayload({
     <pre className={[
       css.payload,
       preview ? css.payloadPreview : undefined,
-      record.cell.isError ? css.error : undefined,
+      error ? css.errorPayload : undefined,
       value === 'No output' ? css.noOutputText : undefined,
     ].filter((value): value is string => value !== undefined).join(' ')}
     >
@@ -2078,7 +2093,9 @@ export function TrajectoryTable({
                 <dl className={css.overview}>
                   <div>
                     <dt>Status</dt>
-                    <dd>{statusLabel(selectedRequestState)}</dd>
+                    <dd className={selectedRequestState === 'error' ? css.error : undefined}>
+                      {statusLabel(selectedRequestState)}
+                    </dd>
                   </div>
                   {selectedRequestInfo?.purpose === 'compaction' && (
                     <div>
@@ -2119,7 +2136,7 @@ export function TrajectoryTable({
                   {selectedRequestInfo?.error !== undefined && (
                     <div>
                       <dt>Error</dt>
-                      <dd>{selectedRequestInfo.error}</dd>
+                      <dd className={css.error}>{selectedRequestInfo.error}</dd>
                     </div>
                   )}
                   {selectedRequestInfo?.retry !== undefined && (
@@ -2227,7 +2244,9 @@ export function TrajectoryTable({
                 <dl className={css.overview}>
                   <div>
                     <dt>Status</dt>
-                    <dd>{statusLabel(selectedState)}</dd>
+                    <dd className={selectedState === 'error' ? css.error : undefined}>
+                      {statusLabel(selectedState)}
+                    </dd>
                   </div>
                   <div>
                     <dt>Duration</dt>
@@ -2330,7 +2349,9 @@ export function TrajectoryTable({
                   )}
                   <div>
                     <dt>Status</dt>
-                    <dd>{statusLabel(selectedState)}</dd>
+                    <dd className={selectedState === 'error' ? css.error : undefined}>
+                      {statusLabel(selectedState)}
+                    </dd>
                   </div>
                   {selected.cell.kind === 'message' && (
                     <TokenRows cell={selected.cell} />

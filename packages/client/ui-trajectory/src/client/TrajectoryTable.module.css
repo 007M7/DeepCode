@@ -236,6 +236,18 @@
   width: 3px;
 }
 
+.table tbody tr[data-error='true'] .turnRail {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 22%,
+    var(--dsw-alias-bg-layer-1)
+  );
+}
+
+.table tbody tr[data-error='true'] .selectionRail {
+  background: var(--dsw-alias-state-error-primary);
+}
+
 .table tbody tr[data-turn-start='true'] td {
   position: relative;
   overflow: visible;
@@ -634,6 +646,28 @@
 
 .error {
   color: var(--dsw-alias-state-error-primary);
+}
+
+.overview dd.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.details .errorPayload {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.details .errorPayload .resultBlockText {
+  color: inherit;
+}
+
+.details .jsonPayload.errorPayload,
+.details .jsonPreview.errorPayload {
+  --json-tree-property: var(--dsw-alias-state-error-primary);
+  --json-tree-string: var(--dsw-alias-state-error-primary);
+  --json-tree-number: var(--dsw-alias-state-error-primary);
+  --json-tree-keyword: var(--dsw-alias-state-error-primary);
+  --json-tree-punctuation: var(--dsw-alias-state-error-primary);
+  --json-tree-icon: var(--dsw-alias-state-error-primary);
 }
 
 .details {

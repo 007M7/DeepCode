@@ -146,6 +146,10 @@
   );
 }
 
+.span[data-error='true'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+
 .span[data-equal-duration='true'] {
   width: 8px;
   min-width: 8px;
