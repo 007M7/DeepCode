@@ -137,13 +137,11 @@ export function serializeMessages(messages: Message[]): WireMessage[] {
  * provider defaults apply.
  * @param options - the harness request (model, history, system, tools, sampling).
  * @param defaults - adapter-level thinking defaults; undefined fields put nothing on the wire.
- * @param defaultMaxTokens - adapter output default used only when the request omits a cap.
  * @returns the chat-completions request body.
  */
 export function serializeRequest(
   options: GenerateOptions,
   defaults: RequestDefaults = {},
-  defaultMaxTokens?: number,
 ): WireRequest {
   const messages: WireMessage[] = []
   if (options.system !== undefined) {
@@ -162,7 +160,6 @@ export function serializeRequest(
   // A short title budget must produce visible text; conversation and
   // compaction calls continue to inherit the adapter's thinking defaults.
   const resolvedThinking = resolveThinking(options, defaults)
-  const maxTokens = options.maxTokens ?? defaultMaxTokens
 
   return {
     model: options.model,
@@ -175,7 +172,7 @@ export function serializeRequest(
       : {},
     ...tools !== undefined && tools.length > 0 ? { tools } : {},
     ...options.temperature !== undefined ? { temperature: options.temperature } : {},
-    ...maxTokens === undefined ? {} : { max_tokens: maxTokens },
+    ...options.maxTokens === undefined ? {} : { max_tokens: options.maxTokens },
     ...options.stop !== undefined ? { stop: options.stop } : {},
   }
 }

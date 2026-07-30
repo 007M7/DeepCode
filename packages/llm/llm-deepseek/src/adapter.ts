@@ -244,7 +244,7 @@ export class DeepSeekAdapter extends LlmAdapter {
   }
 
   private async * request(options: GenerateOptions, signal: AbortSignal): AsyncIterable<StreamChunk> {
-    const body = serializeRequest(options, this.options.defaults, this.maxTokens)
+    const body = serializeRequest(options, this.options.defaults)
     // Prepared outside the try so the TRANSPORT label below covers exactly the
     // transport boundary, never a serialization failure.
     const payload = JSON.stringify(body)

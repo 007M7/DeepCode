@@ -37,7 +37,7 @@
       factual.
 
 # Shipped default: full thinking at max effort on every request. Exact-model
-# resolution materializes the effort before the request header is logged.
+# resolution materializes request defaults before the request header is logged.
 - id: llm-deepseek
   config:
     apiKey: !!js process.env.DEEPSEEK_API_KEY

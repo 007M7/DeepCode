@@ -906,7 +906,12 @@ describe('LlmService', () => {
       { id: 'route', name: 'Route' },
       [],
       {},
-      { model: source },
+      {
+        model: source,
+        providerDefault: {
+          efforts: [{ id: ReasoningEffortId('standard'), name: 'Standard' }],
+        },
+      },
     ))
 
     const resolved = await ctx.llm.resolveModelInfo('route', 'model')
@@ -920,6 +925,8 @@ describe('LlmService', () => {
     })
     const explicit = { provider: 'route', model: 'model', reasoningEffort: ReasoningEffortId('ultra') }
     await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+    const providerDefault = { provider: 'route', model: 'providerDefault' }
+    await expect(ctx.llm.resolveCallConfig(providerDefault)).resolves.toBe(providerDefault)
   })
 
   it('materializes an adapter-owned maxTokens default while preserving an explicit cap', async () => {
@@ -941,8 +948,12 @@ describe('LlmService', () => {
       model: 'model',
       maxTokens: 256_000,
     })
+    const preparedDefault = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    expect(preparedDefault.adapterDefaults).toEqual({ maxTokens: true })
     const explicit = { provider: 'route', model: 'model', maxTokens: 8_192 }
     await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+    const preparedExplicit = await ctx.llm.prepareCall(explicit)
+    expect(preparedExplicit.adapterDefaults).toEqual({})
   })
 
   it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
@@ -1106,6 +1117,8 @@ describe('LlmService', () => {
     ctx.llm.registerAdapter(['route'], adapter)
     const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
     expect(Object.isFrozen(prepared.config)).toBe(true)
+    expect(Object.isFrozen(prepared.adapterDefaults)).toBe(true)
+    expect(prepared.adapterDefaults).toEqual({ reasoningEffort: true })
     const stream = prepared.stream({
       ...prepared.config,
       model: 'other',

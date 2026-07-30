@@ -170,13 +170,6 @@ describe('serializeRequest', () => {
     expect(wire.stop).toEqual(['END'])
   })
 
-  it('uses the adapter maxTokens default only when the request omits a cap', () => {
-    expect(serializeRequest(request({ messages: history }), {}, 256_000).max_tokens)
-      .toBe(256_000)
-    expect(serializeRequest(request({ messages: history, maxTokens: 8_192 }), {}, 256_000).max_tokens)
-      .toBe(8_192)
-  })
-
   it('maps tools to the wire function shape', () => {
     const wire = serializeRequest(request({
       messages: history,

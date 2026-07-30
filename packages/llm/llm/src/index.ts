@@ -20,7 +20,7 @@ import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
 import type { ProviderRequestId } from './brand.ts'
 import { callConfigEquals, deepFreeze } from './call-config.ts'
-import type { LlmCallConfig } from './call-config.ts'
+import type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 import { HarnessError } from './error.ts'
 import { bindAdapterFailureScope, markLlmAdapterFailure } from './adapter-failure.ts'
 import type { AdapterFailureScope } from './adapter-failure.ts'
@@ -34,7 +34,7 @@ export * from './message.ts'
 export * from './retry-policy.ts'
 export { BlockAssembler } from './assembler.ts'
 export { callConfigEquals, deepFreeze, isAgentLoopRequest, markAgentLoopRequest } from './call-config.ts'
-export type { LlmCallConfig } from './call-config.ts'
+export type { LlmCallConfig, LlmCallConfigAdapterDefaults } from './call-config.ts'
 export { isLlmAdapterFailure, llmFailureOf, llmRetryPolicyOf } from './adapter-failure.ts'
 
 declare module 'cordis' {
@@ -113,6 +113,8 @@ export class LlmError extends HarnessError {
 export interface PreparedLlmCall {
   /** Detached, deep-frozen config with any adapter-owned default materialized. */
   readonly config: LlmCallConfig
+  /** Config fields materialized by the captured adapter rather than proposed by the caller. */
+  readonly adapterDefaults: LlmCallConfigAdapterDefaults
   /**
    * Dispatch this call once through the registration captured during
    * preparation. The request's call-config fields must match {@link config};
@@ -447,12 +449,20 @@ export class LlmService extends Service {
    */
   async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall> {
     const registration = this.registration(config.provider)
-    const resolvedConfig = deepFreeze(structuredClone(
-      await this.resolveCallConfigFor(registration, config, signal),
-    ))
+    const resolved = await this.resolveCallConfigFor(registration, config, signal)
+    const resolvedConfig = deepFreeze(structuredClone(resolved))
+    const adapterDefaults = deepFreeze<LlmCallConfigAdapterDefaults>({
+      ...config.reasoningEffort === undefined && resolved.reasoningEffort !== undefined
+        ? { reasoningEffort: true }
+        : {},
+      ...config.maxTokens === undefined && resolved.maxTokens !== undefined
+        ? { maxTokens: true }
+        : {},
+    })
     let dispatched = false
     return Object.freeze({
       config: resolvedConfig,
+      adapterDefaults,
       stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
         if (dispatched) {
           throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')

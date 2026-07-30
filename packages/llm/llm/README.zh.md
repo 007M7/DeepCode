@@ -25,7 +25,7 @@
 
 确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型，缺少 `context`、`defaultMaxTokens` 或 `reasoning` 字段会分别保留未知容量、提供方持有的输出默认值或不可用的推理能力。无效的身份、上下文、输出默认值或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT`、`INVALID_MODEL_MAX_TOKENS` 或 `INVALID_MODEL_REASONING` 失败。
 
-`defaultMaxTokens` 是适配器配置的单次请求输出上限，不是模型硬上限。仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值；显式上限优先。推理标识符是由适配器持有的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 signal，并且必须在取消后迅速结束。`prepareCall()` 还会让精确适配器注册跨越请求头记录和最终分派，因此 HMR（热模块替换）不会将一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
+`defaultMaxTokens` 是适配器配置的单次请求输出上限，不是模型硬上限。仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值；显式上限优先。推理标识符是由适配器持有的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 signal，并且必须在取消后迅速结束。`prepareCall()` 还会通过 `adapterDefaults` 报告它填入了哪些 `maxTokens` 和 `reasoningEffort` 字段，并让精确适配器注册跨越请求头记录和最终分派，因此 HMR（热模块替换）不会将一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 
 ### 事件
 
@@ -48,7 +48,7 @@
 
 ### 调用配置（`call-config.ts`）
 
-`LlmCallConfig` 是一个会话中各次请求的提供方、模型、可选的适配器持有推理强度和采样标量（`provider`、`model`、`reasoningEffort`、`temperature`、`maxTokens`、`stop`，每个都与同名 `GenerateOptions` 字段 1:1 映射）。它是作为请求标头一部分记录在会话日志中的每会话状态（见 dsh-session `request/header` 事件），绝不是可静默调整的每次调用旋钮：`agent/request` waterfall 会提议替换，`prepareCall()` 在轮次 signal 控制下校验它并填入适配器默认值，loop 随后记录生效值，再使用已准备调用中与注册绑定的流。`callConfigEquals(a, b)` 是逐字段真实变更检测器；`deepFreeze(value)` 是 loop 在 dispatch 前对每个已构建请求应用的所有权 helper（`llm/stream` listener 与适配器只读，绝不改写）。`markAgentLoopRequest()` 为该精确对象添加进程本地 loop 溯源，`isAgentLoopRequest()` 让观测方可以将其与同样可能冻结并关联会话、但独立记录的辅助调用区分。`GenerateOptions.purpose` 对已记录辅助压缩与会话标题调用分类，让适配器可以应用目的特定传输策略，而不改变普通会话请求。
+`LlmCallConfig` 是一个会话中各次请求的提供方、模型、可选的适配器持有推理强度和采样标量（`provider`、`model`、`reasoningEffort`、`temperature`、`maxTokens`、`stop`，每个都与同名 `GenerateOptions` 字段 1:1 映射）。它是作为请求标头一部分记录在会话日志中的每会话状态（见 dsh-session `request/header` 事件），绝不是可静默调整的每次调用旋钮：`agent/request` waterfall 会提议替换，`prepareCall()` 在轮次 signal 控制下校验它并填入适配器默认值，loop 随后记录生效值及适配器默认值来源，再使用已准备调用中与注册绑定的流。下一次提议会省略带标记的默认值，使变更后的路由解析自身的值；未带标记的显式字段会保留。`callConfigEquals(a, b)` 是逐字段真实变更检测器；`deepFreeze(value)` 是 loop 在 dispatch 前对每个已构建请求应用的所有权 helper（`llm/stream` listener 与适配器只读，绝不改写）。`markAgentLoopRequest()` 为该精确对象添加进程本地 loop 溯源，`isAgentLoopRequest()` 让观测方可以将其与同样可能冻结并关联会话、但独立记录的辅助调用区分。`GenerateOptions.purpose` 对已记录辅助压缩与会话标题调用分类，让适配器可以应用目的特定传输策略，而不改变普通会话请求。
 
 ### 应用归因（`attribution.ts`）
 

@@ -201,18 +201,43 @@ function assertCurrentLlmShape(event: Record<string, unknown>, index: number): v
     : undefined
   if (event['type'] === 'request/header') {
     const header = record?.['header']
-    const config = typeof header === 'object' && header !== null ? (header as Record<string, unknown>)['config'] : undefined
+    const headerRecord = typeof header === 'object' && header !== null && !Array.isArray(header)
+      ? header as Record<string, unknown>
+      : undefined
+    const config = headerRecord?.['config']
     if (!hasProviderModel(config)) throw new Error(`seed request/header at index ${index} lacks provider/model`)
-    const reasoningEffort = (config as Record<string, unknown>)['reasoningEffort']
+    const configRecord = config as Record<string, unknown>
+    const reasoningEffort = configRecord['reasoningEffort']
     if (reasoningEffort !== undefined
       && (typeof reasoningEffort !== 'string' || reasoningEffort.length === 0)) {
       throw new Error(`seed request/header at index ${index} has an invalid reasoningEffort`)
     }
+    assertAdapterDefaults(headerRecord?.['adapterDefaults'], configRecord, index)
   }
   const type = event['type']
   if (type !== 'user/message' && type !== 'assistant/message'
     && type !== 'tool/result' && type !== 'steering/message') return
   assertMessageEventShape(event, `seed ${type} at index ${index}`)
+}
+
+/** Validate adapter-default provenance imported from a durable request header. */
+function assertAdapterDefaults(
+  value: unknown,
+  config: Record<string, unknown>,
+  index: number,
+): void {
+  if (value === undefined) return
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
+  }
+  const defaults = value as Record<string, unknown>
+  const allowed = new Set(['reasoningEffort', 'maxTokens'])
+  if (Object.keys(defaults).some(key => !allowed.has(key))
+    || Object.values(defaults).some(marker => marker !== true)
+    || defaults['reasoningEffort'] === true && config['reasoningEffort'] === undefined
+    || defaults['maxTokens'] === true && config['maxTokens'] === undefined) {
+    throw new Error(`seed request/header at index ${index} has invalid adapterDefaults`)
+  }
 }
 
 /** Validate only the event-specific invariants needed to safely replay a message. */
