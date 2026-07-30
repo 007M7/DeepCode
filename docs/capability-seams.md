@@ -38,6 +38,9 @@ flowchart LR
   pkg_tool_bash["tool-bash"]
   pkg_hooks_claude["hooks-claude"]
   pkg_hooks_codex["hooks-codex"]
+  pkg_settings["settings"]
+  svc_settings["ctx.settings<br/>User-settings seam"]
+  pkg_settings_local["settings-local"]
   pkg_session_telemetry["session-telemetry"]
   svc_telemetry["ctx.telemetry<br/>Session telemetry seam"]
   pkg_session_telemetry_otel["session-telemetry-otel"]
@@ -205,6 +208,8 @@ flowchart LR
   pkg_session_title --> svc_sessionTitle
   pkg_session_title_all_messages_llm --> svc_sessionTitle
   pkg_session_title_first_message_llm --> svc_sessionTitle
+  pkg_settings --> svc_settings
+  pkg_settings_local --> svc_settings
   pkg_skill --> svc_skills
   pkg_skill_local --> svc_skills
   pkg_spill --> svc_spillStore
@@ -341,6 +346,7 @@ flowchart LR
 | `ctx.invariants` | `core` | [`invariants`](../packages/support/invariants) | - | [`session`](../packages/core/session), [`agent`](../packages/core/agent), [`scope`](../packages/core/scope), [`agent-loop`](../packages/core/agent-loop) | - | Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures. |
 | `ctx.typert` | `core` | [`typert-registry`](../packages/typert/registry) | - | [`typert-loader`](../packages/typert/loader) | - | Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges. |
 | `ctx.sessionPersistence` | `seam` | [`session-persistence`](../packages/session-persistence/session-persistence) | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl), [`session-persistence-sqlite`](../packages/session-persistence/session-persistence-sqlite) | [`agent-loop`](../packages/core/agent-loop), [`tool-bash`](../packages/bash/tool-bash), [`hooks-claude`](../packages/hooks/hooks-claude), [`hooks-codex`](../packages/hooks/hooks-codex), [`session-query`](../packages/session-query/session-query), [`session-query-sqlite`](../packages/session-query/session-query-sqlite) | - | Backends persist the same SessionEvent vocabulary; apps choose a backend at composition time. |
+| `ctx.settings` | `seam` | [`settings`](../packages/settings/settings) | [`settings-local`](../packages/settings/settings-local) | - | - | Plugins register namespace schemas and resolve layered values; providers store the raw document. No production consumer is migrated yet. |
 | `ctx.telemetry` | `seam` | [`session-telemetry`](../packages/telemetry/session-telemetry) | [`session-telemetry-otel`](../packages/telemetry/session-telemetry-otel) | - | - | The seam captures, redacts, and hands session records to one backend; nothing else consumes the service — its output leaves the process. |
 | `ctx.storage` | `seam` | [`storage`](../packages/storage/storage) | [`storage-json`](../packages/storage/storage-json), [`storage-sqlite`](../packages/storage/storage-sqlite) | [`storage-domain`](../packages/storage/storage-domain) | - | Backends register side by side under names; data forms (domain first) mount on the hub and translate typed operations into opaque KV-unit primitives. |
 | `ctx.storageDomain` | `core` | [`storage-domain`](../packages/storage/storage-domain) | - | [`workspace`](../packages/workspace/workspace) | - | Waits for every configured backend, then publishes the domain form as one lifecycle-bound service for typed durable state. |
