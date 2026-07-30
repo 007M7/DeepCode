@@ -18,6 +18,8 @@ Linux PR 的 `node 24 / snapshots and artifacts` 必须运行完整 Web 浏览�
 
 对 PR 而言，门禁仅在 Linux 消费方 job 中运行：这些场景面向 POSIX，其他 PR job 不供给 Chromium。托管和自托管的默认分支 Linux 串行聚合作业也包含该比较，而 macOS 和 Windows 串行 job 仍不使用浏览器。PR 的 `all checks passed` 已依赖消费方 job，因此浏览器比较失败会阻止合并，无需新增 branch-protection check 名称。
 
+一次自托管消费方运行中，`web-snapshot` 实测耗时 112.15 秒，完整消费方聚合实测耗时 114.97 秒。gate 调度器会在 `built-package-invariants` 成功后立即启动它，并发运行彼此独立的 gate，因此既不需要专用 job 超时，也不需要手动制定 YAML 顺序规则。
+
 ## 曾考虑的替代方案
 
 **继续只要求本地运行。** 已否决：执行依赖开发者记忆，正是旧 golden 跨 PR 漂移的原因，不能保证产生行为变化的 PR 自己携带 expected diff。

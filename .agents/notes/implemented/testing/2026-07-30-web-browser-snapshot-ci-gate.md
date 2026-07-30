@@ -18,6 +18,8 @@ Local `pnpm run test:web` continues to build first and then run the full browser
 
 For pull requests, the gate runs only in the Linux consumer job: these scenarios target POSIX, and the other PR jobs do not provision Chromium. The hosted and self-hosted default-branch Linux serial aggregates also include the comparison, while the macOS and Windows serial jobs remain browser-free. A PR's `all checks passed` verdict already depends on the consumer job, so a browser compare failure blocks the merge without requiring a new branch-protection check name.
 
+An observed self-hosted consumer run measured `web-snapshot` at 112.15 seconds and the full consumer aggregate at 114.97 seconds. The gate scheduler starts it as soon as `built-package-invariants` succeeds and runs independent gates concurrently, so it needs neither a dedicated job timeout nor a manual YAML ordering rule.
+
 ## Alternatives considered
 
 **Continue requiring only local runs.** Rejected: execution depends on developer memory, which is precisely why stale goldens drift across PRs, and cannot guarantee that the PR introducing a behavior change carries its own expected-output diff.
