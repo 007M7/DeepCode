@@ -19,6 +19,7 @@ import { createUserMessage,
 } from '@deepseek-ai/dsh-llm'
 import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
+import { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
 import SkillService, { type SkillCatalogSnapshot, type SkillDefinition, type SkillProvider, type SkillSummary } from '@deepseek-ai/dsh-skill'
@@ -4661,10 +4662,10 @@ describe('tool cards and surface replay', () => {
     await dispose(result)
   })
 
-  it('rebuilds after a surface replacement and hides shadowed tool calls', async () => {
+  it('keeps append-origin history and marks a landed compaction, live and on rebuild', async () => {
     const result = await setup({ tools })
     appendUser(result.session, 'old prompt')
-    const assistant = result.session.append('assistant/message', {
+    result.session.append('assistant/message', {
       turn: 1,
       step: 1,
       message: createMessage({
@@ -4687,21 +4688,116 @@ describe('tool cards and surface replay', () => {
         isError: false,
       }),
     }, { surfaceOp: 'append' })
-    const start = result.session.surface.nodes[0] as number
-    result.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'summary replacement' }],
-      source: { kind: 'plugin', plugin: 'compact' },
-    }), {
-      surfaceOp: { op: 'replace', start, end: toolResult.seq },
-      sourceEventSeqs: [start, assistant.seq, toolResult.seq],
+    // Result pruning rewrites one node's content in place: model-only, and no
+    // boundary in the conversation, so the terminal keeps the full output.
+    const originalResult = toolResult.data.message.content[0]
+    result.session.append('tool/result', {
+      ...toolResult.data,
+      message: freezeMessage({
+        ...toolResult.data.message,
+        content: [{ ...originalResult, content: [{ type: 'text', text: 'pruned result copy' }] }] as [typeof originalResult],
+      }),
+    }, {
+      surfaceOp: { op: 'replace', start: toolResult.seq, end: toolResult.seq },
+      sourceEventSeqs: [toolResult.seq],
     })
+    const nodes = [...result.session.surface.nodes]
+    const checkpoint = result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<context_checkpoint>model-only summary payload</context_checkpoint>' }],
+      source: COMPACT_CHECKPOINT_SOURCE,
+    }), {
+      surfaceOp: { op: 'replace', start: nodes[0] as number, end: nodes.at(-1) as number },
+      sourceEventSeqs: nodes,
+    })
+    // A regenerated assistant message replaces one node without summarizing
+    // anything, so it marks no boundary either.
+    const generic = result.session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'generic replacement copy' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+        },
+      }),
+    }, { surfaceOp: { op: 'replace', start: checkpoint.seq, end: checkpoint.seq }, sourceEventSeqs: [checkpoint.seq] })
+    // Only a checkpoint carrying the compaction seam's source marks a boundary:
+    // another plugin replacing a node is model-only.
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'foreign plugin replacement copy' }],
+      source: { kind: 'plugin', plugin: 'other' },
+    }), { surfaceOp: { op: 'replace', start: generic.seq, end: generic.seq }, sourceEventSeqs: [generic.seq] })
     await tick()
 
     result.terminal.resize(89)
     await tick()
-    const lastFullRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
-    expect(lastFullRender).toContain('summary replacement')
-    expect(lastFullRender).not.toContain('old output')
+    const liveRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(liveRender).toContain('old prompt')
+    // The shadowed step keeps its card: one call row, one full result, no
+    // second card from the pruned copy.
+    expect(liveRender.split('$ printf hello')).toHaveLength(2)
+    expect(liveRender).toContain('third')
+    expect(liveRender.split('[exit 0]')).toHaveLength(2)
+    expect(liveRender.split('… earlier context was compacted …')).toHaveLength(2)
+    expect(liveRender).not.toContain('model-only summary payload')
+    expect(liveRender).not.toContain('generic replacement copy')
+    expect(liveRender).not.toContain('foreign plugin replacement copy')
+
+    // Ctrl+R toggles reasoning, which rebuilds the transcript from the log; the
+    // replayed projection matches what the live appends produced, including the
+    // shadowed assistant message's tool card.
+    result.terminal.send('\x12')
+    await tick()
+    result.terminal.resize(90)
+    await tick()
+    const replayRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(replayRender).toContain('old prompt')
+    expect(replayRender.split('$ printf hello')).toHaveLength(2)
+    expect(replayRender).toContain('third')
+    expect(replayRender.split('[exit 0]')).toHaveLength(2)
+    expect(replayRender.split('… earlier context was compacted …')).toHaveLength(2)
+    expect(replayRender).not.toContain('model-only summary payload')
+    expect(replayRender).not.toContain('generic replacement copy')
+    expect(replayRender).not.toContain('foreign plugin replacement copy')
+    await dispose(result)
+  })
+
+  it('replays a stored compaction as preserved history plus its marker', async () => {
+    const result = await setup({
+      beforeMount(session) {
+        appendUser(session, 'prompt before compaction')
+        session.append('assistant/message', {
+          turn: 1,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'reply before compaction' }],
+            source: {
+              kind: 'model',
+              ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+            },
+          }),
+        }, { surfaceOp: 'append' })
+        const nodes = [...session.surface.nodes]
+        session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: '<context_checkpoint>stored model-only payload</context_checkpoint>' }],
+          source: COMPACT_CHECKPOINT_SOURCE,
+        }), {
+          surfaceOp: { op: 'replace', start: nodes[0] as number, end: nodes.at(-1) as number },
+          sourceEventSeqs: nodes,
+        })
+      },
+    })
+    result.terminal.resize(89)
+    await tick()
+
+    const mounted = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(mounted).toContain('prompt before compaction')
+    expect(mounted).toContain('reply before compaction')
+    expect(mounted.split('… earlier context was compacted …')).toHaveLength(2)
+    expect(mounted).not.toContain('stored model-only payload')
     await dispose(result)
   })
 })
