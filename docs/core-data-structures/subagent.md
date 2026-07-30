@@ -4,24 +4,25 @@ English | [中文](subagent.zh.md)
 
 The subagent seam — an agent delegating work to a child agent. Like [bash](bash.md) it is **one optional capability**, not part of the agent-loop spine, so its vocabulary lives here rather than in [core.md](core.md). But it differs from every other seam on one axis: **multiple provider implementations coexist** in one context, registered by name (`ctx.subagents`), where bash allows only one executor. The registry shape mirrors the [LLM adapter registry](llm-streaming.md), not the single-service bash executor.
 
-Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumers are [dsh-tool-subagent](../../packages/subagent/tool-subagent) (per-provider delegation) and [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) (the optional global `send_message`). The same `ctx.subagents` service owns continuable-child orchestration through an internal Task-backed manager. The rationale lives in [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), [the continuable background subagents Agent Note](../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md), and [the merged-service Agent Note](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md).
+Interface: [dsh-subagent](../../packages/subagent/subagent) (`ctx.subagents` + the vocabulary below). Implementations are sibling packages (`dsh-subagent-spawn`, `-fork`, `-acp`); the model-facing consumers are [dsh-tool-subagent](../../packages/subagent/tool-subagent) (per-provider delegation) and [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control) (the optional global `send_message`). The same `ctx.subagents` service owns continuable-child orchestration through an internal activation manager. The rationale lives in [the subagent Agent Note](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md), [the continuable subagents Agent Note](../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md), and [the merged-service Agent Note](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md).
 
 Sources: [`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts), [`packages/subagent/subagent/src/index.ts`](../../packages/subagent/subagent/src/index.ts), and [`packages/subagent/subagent/src/continuation.ts`](../../packages/subagent/subagent/src/continuation.ts)
 
 ## Two kinds of capability, discovered two ways
 
-A provider advertises its **start-time** features on a static descriptor the service checks BEFORE a run exists; a request that needs one the provider lacks is rejected loud (`SubagentError('UNSUPPORTED_CAPABILITY')`), never accepted-then-ignored. **Runtime** features are instead optional methods whose presence IS the capability, with TS narrowing as the discovery mechanism: confirmed live steering is [`SubagentRun.steer`](#a-live-run-subagentrun) and persisted cold resume is [`SubagentProvider.resume`](#the-provider-seam-subagentprovider).
+A provider advertises its **start-time** features on a static descriptor the service checks BEFORE a one-shot run exists; a request that needs one the provider lacks is rejected loud (`SubagentError('UNSUPPORTED_CAPABILITY')`), never accepted-then-ignored. Those flags describe only the one-shot [`start()`](#the-provider-seam-subagentprovider) path, where the provider composes the child. **Continuable** children are composed by the continuation manager itself, so they are gated by one optional method whose presence IS the capability, with TS narrowing as the discovery mechanism: [`SubagentProvider.prepareContinuable`](#the-provider-seam-subagentprovider).
 
 ```ts type-equiv
 /**
  * Which START-TIME features a provider supports. Checked by the service before delegating to
  * {@link SubagentProvider.start}: a request that needs a capability the chosen provider lacks
  * is rejected with a typed error rather than accepted-then-ignored (the "fail loud, no silent
- * degradation" rule). These static flags cover features needed before a run exists; runtime
- * capabilities are optional methods whose presence is the capability — confirmed live steering
- * is {@link SubagentRun.steer} and persisted cold resume is {@link SubagentProvider.resume}. Each
- * flag corresponds one-to-one to a {@link SubagentStartRequest} option: `depthLimit` to
- * `maxDepth`; the other names match.
+ * degradation" rule). These flags describe the ONE-SHOT
+ * {@link SubagentProvider.start} path, where the provider composes the child;
+ * continuable children are composed by the continuation manager itself and are
+ * gated by {@link SubagentProvider.prepareContinuable} instead. Each flag
+ * corresponds one-to-one to a {@link SubagentStartRequest} option: `depthLimit`
+ * to `maxDepth`; the other names match.
  */
 interface SubagentCapabilities {
   readonly outputSchema: boolean
@@ -31,16 +32,16 @@ interface SubagentCapabilities {
 }
 ```
 
-## The start request
+## The one-shot start request
 
 The tool layer builds this request from the model input and its own config; the service validates it against the named provider before `start`. Required `parent` supplies the session cwd, lineage, and delegation depth. Optional output schema, depth, tool filter, and persona require matching capability flags. Unsupported schemas fail at start; in-process backends scope filters and personas to child creation and implement the supported object-rooted schema with a forced capture tool.
 
 ```ts type-equiv
 /**
- * What a caller asks for when starting a subagent. The tool layer builds this
- * from the model's `{ description, prompt }` plus its own config; the service
- * validates {@link SubagentCapabilities} against the named provider and
- * resolves a {@link SubagentProviderStartRequest} for dispatch.
+ * What a caller asks for when starting a ONE-SHOT subagent. The tool layer
+ * builds this from the model's `{ description, prompt }` plus its own config;
+ * the service validates {@link SubagentCapabilities} against the named provider
+ * before dispatching to {@link SubagentProvider.start}.
  */
 interface SubagentStartRequest {
   /** Content delivered as the child's user message. */
@@ -94,31 +95,41 @@ interface SubagentStartRequest {
 
 `signal` is the single cancellation channel before and after readiness. The [subagent composition-controls Agent Note](../../.agents/notes/implemented/feature/2026-07-12-subagent-persona-tool-filter-and-depth.md) owns the persona, live global-tool filter, absolute-depth, and visibility-not-authority rationale.
 
-Providers receive a separate resolved shape. The `SubagentService.start()` parameter type excludes continuation state, while `startContinuable()` alone supplies the service-allocated identity and descriptor.
+Providers receive exactly this request: one-shot delegation has no service-resolved continuation state, because a continuable child never reaches `SubagentProvider.start()`.
 
-```ts type-equiv
-/**
- * Provider-facing start request after the service resolves optional
- * continuation state. Ordinary callers use {@link SubagentStartRequest}; only
- * the Task-backed continuation path can attach a stable child identity and
- * durable descriptor.
- */
-interface SubagentProviderStartRequest extends SubagentStartRequest {
-  /**
-   * Continuable-child state resolved by `ctx.subagents` before provider dispatch.
-   * The provider MUST publish exactly `sessionId` as the child identity
-   * instead of allocating one internally, and MUST append the snapshotted,
-   * model-hidden `subagent/descriptor` before the initial prompt is admitted.
-   * Requires {@link SubagentProvider.resume} (the
-   * continuation capability); the service rejects the request otherwise.
-   */
-  readonly continuation?: SubagentContinuation | undefined
-}
+## Continuable children and activations
+
+A **continuable background subagent** is one durable child Session with at most one process-local **Activation** — a residency epoch for a reconstructed child Agent. An Activation is not a request, result, cancellation, or Task boundary: it may execute many FIFO turns and stays resident while descendants it created are still running. The continuation manager owns activation admission, authority, the live ownership graph, cold resume, and child-first disposal; the Agent loop owns all turn ordering and execution. No continuable path creates a Task or an intermediate result-bearing wrapper.
+
+```text
+persisted Session
+  -> optional live Activation
+       -> one retained AgentHandle
+       -> Agent inbox as the only turn FIFO
+       -> zero or more owned child Activations
 ```
 
-## Continuable children and provider resume
+`SubagentService.startContinuable()` reserves the stable child id, snapshots the versioned `subagent/descriptor` payload, asks the named provider for its detached `ContinuableCreateSpec`, creates the child Agent through a private activation-owner scope, establishes any continuable-parent ownership, and submits the initial prompt. It resolves with `{ childId, messageId }` when inbox acceptance yields the message id — without waiting for the turn to start or for the message to enter the Session log. Every failure before that acceptance rejects with neither id, disposing any created handle and rolling back the Activation and parent ownership.
 
-A **continuable background subagent** is a durable child session with a series of Task-backed activations. `SubagentService.startContinuable()` allocates the stable child id, snapshots the versioned `subagent/descriptor` payload, and passes both through the provider-facing start request; the provider publishes exactly that id and appends the descriptor before the initial prompt is admitted. `SubagentService.followup()` mirrors the intent verb on `Agent`: it steers a live activation or privately dispatches a resolved provider resume after loading and authorizing a stopped child. An internal manager owns descriptor lookup and Task association only while `ctx.tasks` and `ctx.agents` exist; persistence is required per continuation operation, not to load the provider registry. `startContinuable()` returns both identities, while `followup()` reports whether the content `steered` the existing Task or `started` a fresh one. Every sender supplies a `MessageSource` and cancellation signal through one options object; abort while live delivery awaits admission cancels the shared activation and rejects after quiescence. The optional model-facing tool uses `CoordinatorMessageSource` and its tool-execution signal, while a human adapter uses `{ kind: 'user' }` and its interaction signal.
+`SubagentService.followup()` is the sole continuation-message operation, and routing depends only on Activation residency:
+
+| Activation state | Sender | `followup` |
+|---|---|---|
+| `running` | parent or user | enqueue in the same Activation |
+| `waiting` | parent or user | wake the same Activation |
+| no Activation | parent or user | cold-resume a new Activation |
+
+`running` means the Agent has an active admission or turn, or waking inbox work; `waiting` means it is quiescent but still owns at least one child Activation that has not completed disposal; `settled` means quiescent with every owned child disposed, at which point the manager disposes the `AgentHandle` and removes the Activation. The manager derives these from Agent quiescence and the owned-child set rather than maintaining a second execution state machine, and `activationState()` reports the current value (`undefined` when no Activation is live).
+
+The Agent inbox is the only queue. Every continuation message becomes one `Agent.followup()` FIFO turn, so parent and user messages share one observable order and a follow-up cannot redirect a turn already underway. Successful delivery returns the accepted `MessageId`; the existing `agent/inbox/enqueue`, `agent/inbox/dequeue`, and `agent/inbox/discard` events remain the message-lifecycle observations, and the continuation layer defines no subagent-specific delivery route.
+
+Authority is supplied by a trusted host interaction or an exact live Agent tool context. The parent variant is admitted only when the authenticated Agent is the durable child's direct parent recorded in `SessionHeader.parentSession`; only a trusted host adapter can supply user authority. `MessageSource` and `senderSessionId` are durable provenance after admission and grant no authority — the optional model-facing tool uses `CoordinatorMessageSource`, while a host adapter uses `{ kind: 'user' }`. User authority may cold-resume a child without loading its historical parent.
+
+For both operations the caller signal owns lookup, materialization, and admission only until inbox acceptance. Afterwards the manager owns the Activation independently: later caller cancellation neither cancels the accepted turn nor disposes the child, and the seam exposes no public subagent cancellation or steering operation.
+
+Every Activation owns its `AgentHandle` and an `ownedChildren: Set<SessionId>`; because one Session has at most one live Activation, the child Session id identifies the live child without another runtime-incarnation reference. Starting a child or submitting parent-originated work registers the child in a continuation-managed parent's set before the child can run, and that parent cannot settle while the set is non-empty. A top-level or other non-continuation Agent has no Activation and stays outside the waiting graph. Child release happens only after the child Agent is quiescent, every child of that child is disposed, the final durability checkpoint settles, and the child's `AgentHandle` completes disposal.
+
+Only `ctx.sessions.flush(session) === true` confirms durability; `false` or rejection reports `DURABILITY_FAILED`. Either way the manager still disposes the handle and releases ownership, because retaining a failed child would permanently pin its ancestors in `waiting` — the persisted child state may then be missing or stale on a later resume. `drainContinuable()` is the lifecycle-wide stop path: it closes admission synchronously, then disposes every live Activation forest child-first, awaiting every branch despite individual failures. Durable child Sessions survive that process-local teardown.
 
 ```ts type-equiv
 /** Attribution for a model coordinator's follow-up to one of its children. */
@@ -131,80 +142,94 @@ interface CoordinatorMessageSource {
 
 ```ts type-equiv
 /**
- * Options for following up with one continuable child.
+ * Who authorizes one continuable-subagent operation. Authority comes from a
+ * trusted host interaction or an exact live Agent tool context; durable
+ * {@link MessageSource} provenance never authorizes delivery.
  */
+type SubagentAuthority =
+  /** The exact live parent Agent whose tool context is making the call. */
+  | { readonly kind: 'parent'; readonly agent: Agent }
+  /** A trusted host adapter acting for the human user. */
+  | { readonly kind: 'user' }
+```
+
+```ts type-equiv
+/** Options for following up with one continuable child. */
 interface SubagentFollowupOptions {
-  /** Durable attribution retained on either live or resumed delivery. */
+  /** Durable attribution retained on the delivered message; it grants no authority. */
   readonly source: MessageSource
-  /** Caller cancellation for a live-delivery admission wait. */
+  /** Caller cancellation, owning the operation only until inbox acceptance. */
   readonly signal: AbortSignal
 }
 ```
 
 ```ts type-equiv
-/**
- * How a continuable follow-up was routed:
- * `steered` joined the running activation's existing Task without creating a
- * Task of its own; `started` created a fresh Task that cold-resumes the
- * durable child with the content. Failure is an exception, never a result —
- * undelivered content throws.
- */
-type SubagentFollowupResult =
-  | { readonly route: 'steered'; readonly taskId: TaskId }
-  | { readonly route: 'started'; readonly taskId: TaskId }
-```
-
-```ts type-equiv
-/**
- * The resolved continuable-child identity and durable composition record the
- * service attaches before provider dispatch.
- */
-interface SubagentContinuation {
-  /** Service-allocated stable child session id, published verbatim. */
-  readonly sessionId: SessionId
-  /** Snapshotted descriptor persisted in the child log for cold resume. */
-  readonly descriptor: SubagentDescriptorData
+/** Identities returned once a continuable child accepted its initial prompt. */
+interface ContinuableStart {
+  /** The durable child session id, stable across activations. */
+  readonly childId: SessionId
+  /** The accepted initial prompt's inbox message id. */
+  readonly messageId: MessageId
 }
 ```
 
 ```ts type-equiv
 /**
- * Provider-facing request for reconstructing a persisted continuable child.
- * The continuation manager loads the child log, folds and authorizes its
- * descriptor, then privately dispatches this resolved request to
- * {@link SubagentProvider.resume}. The provider reconstructs the declared
- * composition under the live parent's scope and drives one turn with `prompt`.
+ * The public residency state of one continuable child, derived from Agent
+ * quiescence and the owned-child set rather than a second state machine:
+ * `running` — the Agent has an active admission or turn, or waking inbox work;
+ * `waiting` — the Agent is quiescent but still owns undisposed children;
+ * `settled` — quiescent with every owned child disposed, so the manager
+ * disposes the `AgentHandle` and removes the Activation.
  */
-interface SubagentProviderResumeRequest {
-  /** The persisted child session id to resume. */
+type ActivationState = 'running' | 'waiting' | 'settled'
+```
+
+The provider participates only in preparing the initial creation spec, where `spawn` and `fork` differ. Its returned spec carries only detached provider-specific creation inputs — today the optional parent-history seed — and no Agent, `AgentHandle`, prompt delivery, result, disposal, or resume operation. Cold resume does not dispatch through a provider at all: the manager folds the generic descriptor, calls `ctx.agents.resume()` through the same activation-owner scope, and submits the waiting turn.
+
+```ts type-equiv
+/**
+ * What the continuation manager asks a provider for while materializing one
+ * continuable child's FIRST activation. The manager has already reserved the
+ * durable child identity and owns every later operation, so this request
+ * carries only what distinguishes a fresh child from one seeded with parent
+ * history.
+ */
+interface ContinuableCreateRequest {
+  /** The reserved durable child session id, for provider diagnostics. */
   readonly sessionId: SessionId
-  /** The follow-up message that starts the resumed activation's turn. */
-  readonly prompt: ContentBlock[]
-  /** Attribution retained when the follow-up becomes the resumed turn's user-role message. */
-  readonly source: MessageSource
-  /**
-   * The live parent agent — the direct parent recorded in the persisted child
-   * header. In-process backends reconstruct the child under this agent's
-   * currently loaded scope.
-   */
+  /** The delegating parent agent whose history a seeding provider reads. */
   readonly parent: Agent
   /**
-   * Activation-owned cancellation signal, created before descriptor lookup.
-   * Same pre/post-publication contract as {@link SubagentStartRequest.signal}:
-   * an abort before publication rejects after rollback quiescence, and an
-   * abort afterward cancels the published child turn.
+   * Caller cancellation, which owns preparation only until the manager accepts
+   * the initial prompt into the child's inbox.
    */
   readonly signal: AbortSignal
-  /** The folded durable descriptor whose composition the provider reconstructs. */
-  readonly descriptor: SubagentDescriptorData
 }
 ```
 
-The descriptor (`SubagentDescriptorData` in [descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts)) snapshots explicit fields — provider name, resolved child `agentOptions.provider`/`model`, optional `persona`/`toolFilter` — never the merge-extensible `AgentOptions` object, so an unrelated extension value cannot break continuation and a later composition input is a deliberate version change. It omits `subagentDepth` (cold resume trusts the persisted header's `delegationDepth` as the monotone floor) and `outputSchema` (an activation's result contract, not durable composition). The `subagent/descriptor` event is log-only: no `surfaceOp`, never in model history, and retained across compaction by the append-only log.
+```ts type-equiv
+/**
+ * A provider's detached contribution to one continuable child's creation. This
+ * is DATA, never a capability: it carries no Agent, `AgentHandle`, prompt
+ * delivery, result, disposal, or resume operation, because the continuation
+ * manager owns the child's whole lifecycle after preparation.
+ */
+interface ContinuableCreateSpec {
+  /**
+   * Completed-turn prefix of the parent's log to seed the child session with,
+   * or absent for a fresh child. Same durable contract as
+   * `CreateAgentOptions.seed`: contiguous from seq 0, lossless JSON, balanced.
+   */
+  readonly seed?: readonly SessionEvent[]
+}
+```
+
+The descriptor (`SubagentDescriptorData` in [descriptor.ts](../../packages/subagent/subagent/src/descriptor.ts)) snapshots explicit fields — provider name, resolved child `agentOptions.provider`/`model`, optional `persona`/`toolFilter` — never the merge-extensible `AgentOptions` object, so an unrelated extension value cannot break continuation and a later composition input is a deliberate version change. It omits `subagentDepth` (cold resume trusts the persisted header's `delegationDepth` as the monotone floor) and `outputSchema` (a one-shot result contract, not durable composition). The continuation manager appends the model-hidden `subagent/descriptor` event after any provider-supplied lineage and before the initial prompt is admitted; `header.seedLength` remains the fork-lineage boundary, so descriptor lookup reads the child's own suffix. The event is log-only: no `surfaceOp`, never in model history, and retained across compaction by the append-only log.
 
 ## The terminal result: `SubagentResult`
 
-The outcome of a run, resolved by `SubagentRun.result`. `structured` is present only after a requested `outputSchema` was successfully satisfied; requesting a schema does not guarantee it, and a provider may return `stopReason: 'error'` when the child fails or finishes without a valid capture. A non-`completed` `stopReason` means `output` may be partial — the consumer maps it to an `isError` tool result rather than reporting partial output as success.
+The outcome of a one-shot run, resolved by `SubagentRun.result`. `structured` is present only after a requested `outputSchema` was successfully satisfied; requesting a schema does not guarantee it, and a provider may return `stopReason: 'error'` when the child fails or finishes without a valid capture. A non-`completed` `stopReason` means `output` may be partial — the consumer maps it to an `isError` tool result rather than reporting partial output as success.
 
 ```ts type-equiv
 /**
@@ -249,15 +274,18 @@ interface SubagentStopReasonMap {
 }
 ```
 
-## A live run: `SubagentRun`
+## A one-shot run: `SubagentRun`
 
-`SubagentRun` is the consumer-owned handle for a ready child — one disposable activation, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A completed continuable result additionally means the provider confirmed the activation's final state durable; a failed required checkpoint rejects. The optional confirmed `steer` method advertises live delivery by presence and fulfills only after a request snapshot admits the message. Cold resume is a provider-level operation: `SubagentProvider.resume` reconstructs a fresh run from the child's persisted session because the process-local run ceases to exist after disposal or process restart.
+`SubagentRun` is the consumer-owned handle for a ready one-shot child — one disposable foreground delegation with one result, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A run has no steering and no resume: continuable conversations have no run at all, because the continuation manager holds their `AgentHandle` directly and orders every turn through the child's own inbox.
 
 ```ts type-equiv
 /**
- * Child handle returned only after readiness. Consumers await {@link result} and must always
- * {@link dispose} to cancel remaining work and reach quiescence. Optional methods are runtime
- * capability discovery; narrow their presence before calling.
+ * ONE-SHOT child handle returned only after readiness. Consumers await
+ * {@link result} and must always {@link dispose} to cancel remaining work and
+ * reach quiescence. A run is one disposable foreground delegation with one
+ * result; continuable conversations have no run — the continuation manager
+ * holds their `AgentHandle` directly and orders every turn through the child's
+ * own inbox.
  */
 interface SubagentRun {
   /**
@@ -276,10 +304,8 @@ interface SubagentRun {
    * Resolves with the child's terminal {@link SubagentResult} when the run
    * settles. Does NOT reject on a child-level failure — a model/transport
    * failure resolves with `stopReason: 'error'` so the consumer maps it to an
-   * `isError` tool result. For a continuable activation, a completed result
-   * also means the provider confirmed the activation's final state durable.
-   * Rejects on an infrastructure fault the seam cannot represent as a stop
-   * reason, including a failed required durability checkpoint.
+   * `isError` tool result. Rejects on an infrastructure fault the seam cannot
+   * represent as a stop reason.
    */
   readonly result: Promise<SubagentResult>
   /**
@@ -287,25 +313,14 @@ interface SubagentRun {
    * Idempotent.
    */
   dispose(): Promise<void>
-  /**
-   * OPTIONAL (confirmed live-steering capability): submit additional content
-   * to the active child and fulfill only after a committed request snapshot
-   * admits it. Rejects when terminal policy, cancellation, disposal, or a lost
-   * settlement race prevents admission; it never falls through to a queued
-   * untracked turn or cold resume. A run represents one disposable activation,
-   * so resuming a settled child goes through {@link SubagentProvider.resume}.
-   * `source` is retained on the admitted steering message without changing its
-   * user role in model history.
-   */
-  steer?(content: ContentBlock[], source: MessageSource): Promise<void>
 }
 ```
 
-A local run MUST publish an ordinary child agent/session before `start()` fulfills, return that child session id as `SubagentRun.id`, expose the exact child as `localAgent`, and record `request.parent.session.id` in the child's `parentSession` header. Runtime ownership may place the child under the parent, provider, or root scope. A remote provider instead returns a parent-scoped lifecycle id and `localAgent: undefined`.
+A local one-shot run MUST publish an ordinary child agent/session before `start()` fulfills, return that child session id as `SubagentRun.id`, expose the exact child as `localAgent`, and record `request.parent.session.id` in the child's `parentSession` header. Runtime ownership may place the child under the parent, provider, or root scope. A remote provider instead returns a parent-scoped lifecycle id and `localAgent: undefined`.
 
 ## The provider seam: `SubagentProvider`
 
-Each provider is a named child-agent transport, and multiple providers may coexist. The service validates requested start-time capabilities before `start()`. `inheritsParentContext` describes only conversation seeding (`fork`: true; `spawn` and `acp`: false), allowing consumers to generate accurate model-facing wording without implying inherited tools, services, or authority.
+Each provider is a named child-agent transport, and multiple providers may coexist. The service validates requested start-time capabilities before `start()`, and rejects a continuable start on a provider without `prepareContinuable`. `inheritsParentContext` describes only conversation seeding (`fork`: true; `spawn` and `acp`: false), allowing consumers to generate accurate model-facing wording without implying inherited tools, services, or authority.
 
 ```ts type-equiv
 /**
@@ -325,33 +340,37 @@ interface SubagentProvider {
    */
   readonly inheritsParentContext: boolean
   /**
-   * Establish a child and return its handle only after publication. The
-   * service has already validated that every requested start-time capability
-   * is supported, so an implementation may assume e.g. `request.maxDepth` is
-   * honorable when present. If setup fails or `request.signal` aborts before
-   * fulfillment, the provider owns and cleans all partial resources before this
-   * promise rejects. Ownership transfers to the caller only on fulfillment.
+   * Establish a ONE-SHOT child and return its handle only after publication.
+   * The service has already validated that every requested start-time
+   * capability is supported, so an implementation may assume e.g.
+   * `request.maxDepth` is honorable when present. If setup fails or
+   * `request.signal` aborts before fulfillment, the provider owns and cleans
+   * all partial resources before this promise rejects. Ownership transfers to
+   * the caller only on fulfillment.
    */
-  start(request: SubagentProviderStartRequest): Promise<SubagentRun>
+  start(request: SubagentStartRequest): Promise<SubagentRun>
   /**
-   * OPTIONAL (continuation capability): reconstruct a persisted continuable
-   * child from its own transcript and declared descriptor, drive one
-   * follow-up turn, and return a fresh run. Method presence is the capability
-   * — the service rejects continuable starts and cold-resume dispatch on
-   * providers without it. Same publication contract as {@link start}: if
-   * reconstruction fails or `request.signal` aborts before fulfillment, the
-   * provider rolls its creation transaction back to quiescence before
-   * rejecting; after fulfillment the same signal cancels the published run.
+   * OPTIONAL (continuable-creation capability): contribute the detached
+   * creation inputs that distinguish this provider's continuable children —
+   * today only whether the child session is seeded with parent history. Method
+   * presence IS the capability: the service rejects continuable starts on
+   * providers without it, while a provider that has it may still serve
+   * ordinary one-shot delegations.
+   *
+   * This is the provider's ONLY participation in a continuable child. The
+   * continuation manager owns identity reservation, composition, Agent
+   * creation, prompt delivery, cold resume, ownership, and disposal, so a
+   * provider never sees the child's Agent, handle, turns, or teardown.
    */
-  resume?(request: SubagentProviderResumeRequest): Promise<SubagentRun>
+  prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>
 }
 ```
 
-Provider `start()` fulfills only with a ready run; provider `resume()` shares the same publication and lifecycle-observation contract but is dispatched only by the continuation manager. The service mints a unique `runId`, snapshots `local` from the provider's exact `localAgent`, observes the result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. The paired `subagent/end` carries the same identity and the final output or infrastructure failure. Both events are observe-only and contain listener exceptions.
+Provider `start()` fulfills only with a ready run. The service mints a unique `runId`, snapshots `local` from the provider's exact `localAgent`, observes the result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. Each continuable Activation emits the same observe-only pair for its residency epoch, so a cold resume is a new epoch with its own `runId`. The paired `subagent/end` carries the same identity and the final output or infrastructure failure. Both events are observe-only and contain listener exceptions.
 
 ## In-process backends: depth and seed
 
-The spawn and fork backends create an ordinary agent through `parent.ctx`, pass cancellation into core creation, and dispose through `AgentHandle`. Provider removal blocks new starts without revoking accepted runs. Each child gets a new flat scope rather than inheriting parent registrations. Depth and fork seeding reuse existing agent and session vocabulary:
+The spawn and fork backends create an ordinary one-shot agent through `parent.ctx`, pass cancellation into core creation, and dispose through `AgentHandle`; a continuable child is instead created by the continuation manager through its own activation-owner scope. Provider removal blocks new starts without revoking accepted runs. Each child gets a new flat scope rather than inheriting parent registrations. Depth and fork seeding reuse existing agent and session vocabulary:
 
-- **Delegation depth** is durable `SessionHeader.delegationDepth` plus the merge-extensible runtime field `AgentOptions.subagentDepth`; absence means top-level depth zero, and the greater present value is authoritative. The seam owns both fields — the loop neither sets nor reads them — so an in-process child persists parent depth + 1, resume cannot lower it, and every start rejects a derived depth outside the safe-integer domain or above a defined absolute `request.maxDepth` cap.
-- **Fork seeding** uses `CreateAgentOptions.seed` (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `resume` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the [invariants](../../packages/support/invariants) replay accepts it (the in-flight, unbalanced turn is excluded).
+- **Delegation depth** is durable `SessionHeader.delegationDepth` plus the merge-extensible runtime field `AgentOptions.subagentDepth`; absence means top-level depth zero, and the greater present value is authoritative. The seam owns both fields — the loop neither sets nor reads them — so an in-process child persists parent depth + 1, cold resume cannot lower it, and every start rejects a derived depth outside the safe-integer domain or above a defined absolute `request.maxDepth` cap.
+- **Fork seeding** uses `CreateAgentOptions.seed` (a `SessionEvent[]` prefix threaded through `AgentLoop.createAgent` → `ctx.sessions.prepare({ seed })`, the same primitive `ctx.agents.resume()` uses). The fork backend passes a *balanced completed-turn prefix* of the parent's log — the parent's events up to and including its last `turn/end` — so the seed is contiguous-from-0 and the [invariants](../../packages/support/invariants) replay accepts it (the in-flight, unbalanced turn is excluded).
