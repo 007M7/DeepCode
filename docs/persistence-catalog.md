@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:263`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:292`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:276`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:312`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:344`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -403,6 +403,33 @@ Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/
 Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/sandbox/sandbox-policy/src/session-mode.ts)
 
 ### `session/*`
+
+#### `session/inherited` — log-only
+
+```ts persistence-catalog
+/**
+ * The log-only durable projection of {@link Session.firstLiveSeq}: everything
+ * BELOW it was inherited through a constructor seed — resume, fork, or replay
+ * — and no writer in this session's lifecycle produced it. Appended as the
+ * first live event of every seeded session.
+ *
+ * A plugin owning a standalone open/close bracket (`compact/start` …
+ * `compact/end`) needs it because inherited history and live work are
+ * otherwise byte-identical: an unmatched opening marker below this boundary
+ * belongs to an ended lifecycle, so it is dead whether the writer crashed,
+ * the process succeeded it, or the events were forked out of a parent that is
+ * still running. Read it through `isInheritedSeq`.
+ *
+ * NOT a liveness signal about other writers: a concurrently live session may
+ * hold an open bracket over the same stored history with its own boundary
+ * elsewhere, so tolerating concurrent writers needs a signal beyond the log.
+ *
+ * The payload is empty by design — position and `time` carry the meaning.
+ */
+'session/inherited': Record<string, never>
+```
+
+Source: [`packages/core/session/src/types.ts:272`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 

@@ -250,6 +250,26 @@ export interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * The log-only durable projection of {@link Session.firstLiveSeq}: everything
+   * BELOW it was inherited through a constructor seed — resume, fork, or replay
+   * — and no writer in this session's lifecycle produced it. Appended as the
+   * first live event of every seeded session.
+   *
+   * A plugin owning a standalone open/close bracket (`compact/start` …
+   * `compact/end`) needs it because inherited history and live work are
+   * otherwise byte-identical: an unmatched opening marker below this boundary
+   * belongs to an ended lifecycle, so it is dead whether the writer crashed,
+   * the process succeeded it, or the events were forked out of a parent that is
+   * still running. Read it through `isInheritedSeq`.
+   *
+   * NOT a liveness signal about other writers: a concurrently live session may
+   * hold an open bracket over the same stored history with its own boundary
+   * elsewhere, so tolerating concurrent writers needs a signal beyond the log.
+   *
+   * The payload is empty by design — position and `time` carry the meaning.
+   */
+  'session/inherited': Record<string, never>
 }
 
 /** The appendable event-type keys of {@link SessionEventMap}, plugin-merged extensions included. */

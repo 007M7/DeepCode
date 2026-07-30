@@ -35,6 +35,7 @@ import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
+  lastActivityTime,
   SessionId,
   type SessionEvent,
   type UserMessage,
@@ -985,7 +986,7 @@ export function createTuiChat(
     const systemPrompt = displayText(renderPrompt(assembly)) || '(empty)'
     const registeredTools = assembly.tools.map(tool => displayText(tool.name)).join(', ') || '(none)'
     const events = agent.session.events
-    const latestActivity = events.at(-1)?.time ?? agent.session.header.createdAt
+    const latestActivity = lastActivityTime(events) ?? agent.session.header.createdAt
     const usedContext = Math.max(0, Math.round(ctx.tokenMeter.measure(agent.session).totalTokens))
     let context = `${formatDiagnosticNumber(usedContext)} used · capacity unknown`
     const contextWindow = modelController.contextWindow()

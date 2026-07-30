@@ -23,7 +23,7 @@ export * from './types.ts'
 export type { AssistantMessage, ToolResultMessage, UserMessage } from '@deepseek-ai/dsh-llm'
 export { isJsonValue, snapshotJsonValue } from './json.ts'
 export type { JsonValue } from './json.ts'
-export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
+export { interruptedTurnClosers, isInheritedSeq, lastActivityTime, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'
 export { decodeStorageRecord, packChunkRuns } from './chunk-rows.ts'
 export type { ChunkRow, StorageRecord } from './chunk-rows.ts'
 export type { SessionSurface, SurfaceFoldReplacement, SurfaceFoldResult } from './surface.ts'
@@ -388,8 +388,12 @@ export class Session {
    * log as a publication substitute (telemetry adoption) start here. Distinct
    * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
    * session's constructor seed is its full stored log, while its header keeps
-   * the original fork value — this field is the in-process construction fact
-   * and is deliberately not persisted.
+   * the original fork value — this field is the in-process construction fact.
+   *
+   * Not persisted itself: a nonzero value is projected into the log as the
+   * `session/inherited` event at this seq, which is what a consumer reading
+   * STORED history reads. Prefer this field in-process — it is exact before
+   * the marker's write reaches storage.
    */
   readonly firstLiveSeq: number
 
@@ -427,6 +431,13 @@ export class Session {
     }
     this.firstLiveSeq = this.log.length
     this.header = snapshotSessionHeader(id, header)
+    // Appended here so the marker is already in `events` when a backend
+    // captures the creation seed: no load-time write. Re-marking is skipped
+    // because a cold session is resumed on first touch, so repeatedly opening
+    // one must not grow its log per open.
+    if (this.firstLiveSeq > 0 && this.log.at(-1)?.type !== 'session/inherited') {
+      this.append('session/inherited', {})
+    }
   }
 
   /** Cached immutable public snapshot of the private append-only log. */

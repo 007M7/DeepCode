@@ -50,6 +50,14 @@ function lastSeq(session: Session): number {
   return event.seq
 }
 
+/** A seeded child's inherited prefix: its log minus the constructor's boundary. */
+function inherited(session: Session): readonly SessionEvent[] {
+  const events = session.events
+  const last = events.at(-1)
+  if (last?.type !== 'session/inherited') throw new Error('seeded child is missing its inherited boundary')
+  return events.slice(0, -1)
+}
+
 describe('SessionStore.fork', () => {
   it('forks an empty live session as an empty child with lineage metadata', async () => {
     const { ctx, sessions } = await setup()
@@ -73,7 +81,7 @@ describe('SessionStore.fork', () => {
 
     const child = sessions.fork(SessionId('parent'), undefined, SessionId('child'))
 
-    expect(child.events).toEqual(source.events)
+    expect(inherited(child)).toEqual(source.events)
     expect(child.events).not.toBe(source.events)
     expect(child.events[1]).not.toBe(source.events[1])
     expect(() => {
@@ -97,8 +105,8 @@ describe('SessionStore.fork', () => {
 
     const child = sessions.fork(source, undefined, SessionId('log-only-child'))
 
-    expect(child.events).toEqual(source.events)
-    expect(child.events.at(-1)).toMatchObject({
+    expect(inherited(child)).toEqual(source.events)
+    expect(inherited(child).at(-1)).toMatchObject({
       type: 'test/log-only',
       data: { value: 'after execution' },
     })
@@ -114,7 +122,7 @@ describe('SessionStore.fork', () => {
 
     const child = sessions.fork(source, firstBoundary, SessionId('child-from-first'))
 
-    expect(child.events).toEqual(source.events.slice(0, firstBoundary + 1))
+    expect(inherited(child)).toEqual(source.events.slice(0, firstBoundary + 1))
     expect(child.header.seedLength).toBe(firstBoundary + 1)
     expect(child.deriveMessages()).toEqual([{
       id: expect.any(String) as unknown,
@@ -141,7 +149,7 @@ describe('SessionStore.fork', () => {
 
       const child = sessions.fork(source, lastSeq(source), SessionId(`child-${reason.kind}`))
 
-      expect(child.events.at(-1)?.type).toBe('turn/end')
+      expect(inherited(child).at(-1)?.type).toBe('turn/end')
       expect(child.header.seedLength).toBe(source.events.length)
     }
   })

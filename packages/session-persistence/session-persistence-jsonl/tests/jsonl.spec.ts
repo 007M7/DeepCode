@@ -378,7 +378,9 @@ describe('SessionPersistenceJsonl: durability and crash semantics', () => {
     await ctx.sessions.flush(child)
     const loaded = await ctx.sessionPersistence.load(child.id)
 
-    expect(loaded.events).toEqual(source.events)
+    // The inherited prefix reaches disk verbatim, then the child's boundary.
+    expect(loaded.events.slice(0, source.events.length)).toEqual(source.events)
+    expect(loaded.events.at(-1)).toMatchObject({ type: 'session/inherited', seq: source.events.length })
     expect(loaded.meta).toMatchObject({
       id: SessionId('persist-child'),
       cwd: '/workspace',

@@ -91,6 +91,26 @@ interface SessionEventMap {
    * It is log-only; the latest snapshot reconstructs the request header.
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
+  /**
+   * The log-only durable projection of {@link Session.firstLiveSeq}: everything
+   * BELOW it was inherited through a constructor seed — resume, fork, or replay
+   * — and no writer in this session's lifecycle produced it. Appended as the
+   * first live event of every seeded session.
+   *
+   * A plugin owning a standalone open/close bracket (`compact/start` …
+   * `compact/end`) needs it because inherited history and live work are
+   * otherwise byte-identical: an unmatched opening marker below this boundary
+   * belongs to an ended lifecycle, so it is dead whether the writer crashed,
+   * the process succeeded it, or the events were forked out of a parent that is
+   * still running. Read it through `isInheritedSeq`.
+   *
+   * NOT a liveness signal about other writers: a concurrently live session may
+   * hold an open bracket over the same stored history with its own boundary
+   * elsewhere, so tolerating concurrent writers needs a signal beyond the log.
+   *
+   * The payload is empty by design — position and `time` carry the meaning.
+   */
+  'session/inherited': Record<string, never>
 }
 ```
 
@@ -326,8 +346,12 @@ declare class Session {
    * log as a publication substitute (telemetry adoption) start here. Distinct
    * from `header.seedLength`, the DURABLE fork-lineage boundary: a resumed
    * session's constructor seed is its full stored log, while its header keeps
-   * the original fork value — this field is the in-process construction fact
-   * and is deliberately not persisted.
+   * the original fork value — this field is the in-process construction fact.
+   *
+   * Not persisted itself: a nonzero value is projected into the log as the
+   * `session/inherited` event at this seq, which is what a consumer reading
+   * STORED history reads. Prefer this field in-process — it is exact before
+   * the marker's write reaches storage.
    */
   readonly firstLiveSeq: number;
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);
@@ -506,6 +530,14 @@ interface TurnEndReasonMap {
 A turn encloses one model-loop execution, not the whole session log. Idle injected `user/message` events and plugin-owned log-only events may appear between `turn/end` and the next `turn/start`; they consume event seqs without incrementing turn numbers. Persistence eagerly records every contiguous accepted event, while crash repair closes only a genuinely open trailing turn. A producer that needs a durability barrier explicitly awaits `ctx.sessions.flush(session)`.
 
 The optional `dsh-session/invariant` companion enforces the relations owned by core: turn and step numbering, execution-event enclosure, and same-step tool call/result pairing. Merge-extensible event relations belong to the plugin that declares them, so core does not reject an unknown event merely because no turn is open. See [the standalone-event decision](../../.agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md).
+
+## The inherited-history boundary: `session/inherited`
+
+A seeded session — resume, fork, or replay — appends this log-only event as its first live write, at the seq its `firstLiveSeq` names. It is the durable projection of that field: `firstLiveSeq` answers "which prefix did I inherit" for a consumer holding the object, this event for one holding only stored bytes. The payload is empty, so position and `time` carry the whole meaning, and it produces no message. An empty seed writes nothing, and a seed already ending in one is not re-marked, so reopening an untouched session does not grow its log per open.
+
+It exists because inherited history and live work are otherwise byte-identical, which defeats any plugin owning a standalone open/close bracket: an unmatched `compact/start` reads the same whether the writer crashed mid-compaction or is compacting right now. `isInheritedSeq(events, seq)` is the predicate a bracket owner calls — true means the opening marker belongs to an ended lifecycle, whatever ended it (a crash, a succeeding process, or a fork out of a still-running parent). It classifies only brackets *this* session inherited: a concurrently live session holding an open bracket over the same history has its own boundary elsewhere, so tolerating concurrent writers needs a liveness signal beyond the log. Core writes the boundary and reads nothing from it — a bracket's vocabulary stays with its owning plugin, which is why crash repair closes turn/step/tool boundaries and never `compact/*`.
+
+Activity ordering excludes the boundary through `lastActivityTime(events)`: picking a session up is not work, and lazy resume means browsing writes one, so a resume picker or session list ordering by log tail would float every opened session to the top.
 
 ## Plugin-contributed log-only events
 
