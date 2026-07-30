@@ -5,10 +5,12 @@
  * breadcrumb, and a click-to-edit path zone; below it a Miller view — one
  * full-width level until a row is selected, then two columns splitting the
  * row evenly (256px floor; level | selected folder's children) around a
- * hairline divider. Navigations land selection-anchored: a crumb jump or a
- * submitted path commits the target immediately, then re-selects it in its
- * parent level once that level arrives, so stepping back keeps two panes
- * away from the display root. Selecting in the
+ * hairline divider. Navigations land selection-anchored and quiet: the
+ * previous view keeps rendering while a crumb jump or a submitted path is
+ * scanned, then target and parent legs land as one two-pane frame (a slow
+ * parent leg falls back to landing the target alone and upgrading in
+ * place), so stepping back keeps two panes away from the display root and
+ * navigation never flashes an intermediate frame. Selecting in the
  * right column shifts the view one level deeper. "New folder" opens a nested
  * create dialog targeting the selected folder (or the level itself) and
  * selects the created folder. Open adopts the selected folder, falling back
@@ -54,6 +56,24 @@ function failureText(error: unknown): string {
   if (error instanceof DirectoryBrowseError) return error.rpcError.message
   return error instanceof Error ? error.message : String(error)
 }
+
+/**
+ * How long a scan may stay visually silent before the floating "Loading…"
+ * pill appears. The stale view keeps rendering while a scan is in flight, so
+ * a listing that settles inside this window swaps the panes with no
+ * intermediate frame at all; only a genuinely slow host (a network mount, a
+ * cold disk) surfaces the indicator.
+ */
+const SLOW_SCAN_DELAY_MS = 300
+
+/**
+ * How long a navigation landing waits for its parent leg before committing
+ * the target alone. Inside the window both legs land as ONE two-pane frame —
+ * no single-pane flash between them; past it the target commits single-pane
+ * at once (an Enter-submitted navigation is never held hostage by a stalled
+ * parent) and the late parent leg upgrades the landing in place.
+ */
+const PARENT_LEG_WAIT_MS = 200
 
 /**
  * Breadcrumb rows for display: inside the home subtree the chain starts at a
@@ -166,6 +186,14 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const [selected, setSelected] = useState<DirectoryEntry | null>(null)
   const [child, setChild] = useState<DirectoryListing | null>(null)
   const [loading, setLoading] = useState(false)
+  // Derived from `loading` and `scanWindow` by the slow-scan effect below:
+  // true only once the current listing call has been in flight for
+  // SLOW_SCAN_DELAY_MS, so fast listings never render the indicator at all.
+  const [slowScan, setSlowScan] = useState(false)
+  // Every listing call owns a fresh silence window. `loading` may stay true
+  // across a superseding row pick or across a navigation's target and parent
+  // legs, so its boolean edge cannot identify the start of each scan.
+  const [scanWindow, setScanWindow] = useState(0)
   const [error, setError] = useState<string | null>(null)
   // Path-edit state: null = breadcrumb mode; a string = the draft being typed.
   const [pathDraft, setPathDraft] = useState<string | null>(null)
@@ -209,13 +237,20 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     return ++requestSeq.current
   }, [])
 
+  /** Hide any prior indicator and start a fresh silence window for one listing call. */
+  const restartSlowScanWindow = useCallback((): void => {
+    setSlowScan(false)
+    setScanWindow(value => value + 1)
+  }, [])
+
   /** Launch one listing under a fresh controller so a later supersession can abort it. */
   const launchListing = useCallback((path: string | undefined): { seq: number; scan: Promise<DirectoryListing> } => {
     const seq = supersede()
     const controller = new AbortController()
     scanController.current = controller
+    restartSlowScanWindow()
     return { seq, scan: listDirectory(path, controller.signal) }
-  }, [supersede, listDirectory])
+  }, [supersede, restartSlowScanWindow, listDirectory])
 
   /**
    * Launch a follow-up listing under the CURRENT supersession seq: a newer
@@ -224,21 +259,25 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const continueScan = useCallback((path: string): Promise<DirectoryListing> => {
     const controller = new AbortController()
     scanController.current = controller
+    restartSlowScanWindow()
     return listDirectory(path, controller.signal)
-  }, [listDirectory])
+  }, [restartSlowScanWindow, listDirectory])
 
   /**
-   * Replace the whole view with a freshly navigated level. The target level
-   * commits the moment it arrives (single wide level: the editor closes and
-   * loading ends on this first settlement, so an Enter-submitted navigation
-   * is never withdrawn waiting on anything further). Away from the display
-   * root — the same collapse the crumb header renders, so crumbs and pane
-   * shape never disagree — a parent leg then upgrades the landing in place:
-   * the target's ACTUAL parent-level entry re-selected (left pane = parent,
-   * right pane = the target), so a crumb jump reads as stepping back one
-   * pane. A failed parent leg, or a truncated parent window that lacks the
-   * target, leaves the committed single-pane landing — the upgrade must
-   * never orphan the selection it exists to anchor.
+   * Replace the whole view with a freshly navigated level. Away from the
+   * display root — the same collapse the crumb header renders, so crumbs and
+   * pane shape never disagree — the landing is two-pane: the target's ACTUAL
+   * parent-level entry re-selected (left pane = parent, right pane = the
+   * target), so a crumb jump reads as stepping back one pane. Both legs land
+   * as one frame when the parent leg settles within
+   * {@link PARENT_LEG_WAIT_MS}; past that bound (or at the display root) the
+   * target commits alone — single wide level, the editor closes, loading
+   * ends — and a late parent leg still upgrades the landing in place. A
+   * failed parent leg, or a truncated parent window that lacks the target,
+   * leaves the single-pane landing — the upgrade must never orphan the
+   * selection it exists to anchor. Until whichever commit comes first, the
+   * previous view keeps rendering: navigation swaps the panes, it never
+   * blanks them.
    */
   const navigate = useCallback((path?: string) => {
     const { seq, scan } = launchListing(path)
@@ -246,16 +285,23 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
     setError(null)
     scan.then((target) => {
       if (seq !== requestSeq.current) return
-      setParent(target)
-      setSelected(null)
-      setChild(null)
-      setLoading(false)
-      setPathDraft(null)
+      // The single-pane landing; `landed` makes it first-commit-only, while
+      // the two-pane commit below may still upgrade an already-landed view.
+      let landed = false
+      const landSingle = (): void => {
+        if (landed || seq !== requestSeq.current) return
+        landed = true
+        setParent(target)
+        setSelected(null)
+        setChild(null)
+        setLoading(false)
+        setPathDraft(null)
+      }
       // Arity is label-independent: only the collapsed chain's depth decides.
-      if (displayCrumbs(target, '').length < 2) return
+      if (displayCrumbs(target, '').length < 2) { landSingle(); return }
       const parentCrumb = target.crumbs.at(-2)
       /* v8 ignore next -- narrowing: a two-deep display chain implies a parent crumb (root-to-target inclusive). */
-      if (parentCrumb === undefined) return
+      if (parentCrumb === undefined) { landSingle(); return }
       continueScan(parentCrumb.path).then((parentLevel) => {
         if (seq !== requestSeq.current) return
         // Windows resolves a typed path preserving its case; anchor on the
@@ -263,15 +309,23 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         const sep = separatorOf(parentLevel)
         const fold = (value: string): string => (sep === '\\' ? value.toLowerCase() : value)
         const match = parentLevel.entries.find(entry => fold(entry.path) === fold(target.path))
-        if (match === undefined) return
+        if (match === undefined) { landSingle(); return }
+        landed = true
         setParent(parentLevel)
         setSelected(match)
         setChild(target)
+        // Idempotent on a late upgrade of a timed-out landing: reopening the
+        // editor or starting a newer scan supersedes this seq, so reaching
+        // here means the draft is closed and the loading flag is this
+        // navigation's own.
+        setLoading(false)
+        setPathDraft(null)
       }, () => {
-        // Swallows the parent-leg failure (its abort included): the
-        // committed single-pane landing stands, and nobody asked to see
-        // the parent level.
+        // The parent-leg failure (its abort included) never surfaces: the
+        // target listed fine, and nobody asked to see the parent level.
+        landSingle()
       })
+      window.setTimeout(landSingle, PARENT_LEG_WAIT_MS)
     }, (reason: unknown) => {
       if (seq !== requestSeq.current) return
       setLoading(false)
@@ -289,7 +343,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
   const pathInputRef = useRef<HTMLInputElement | null>(null)
   const editZoneRef = useRef<HTMLButtonElement | null>(null)
 
-  /** Select a row of the listed level and preview its children on the right. */
+  /**
+   * Select a row of the listed level and preview its children on the right.
+   * Deliberately NOT one-frame like navigate(): a pick's first duty is the
+   * immediate selected state on the clicked row, and the pane split IS that
+   * feedback (aria-current pill, crumbs following the selection) — holding
+   * it back for the child listing would make clicks feel dropped. The quiet
+   * rule governs whole-view replacement, where nothing acknowledges the
+   * click but the swap itself.
+   */
   const select = useCallback((entry: DirectoryEntry) => {
     const { seq, scan } = launchListing(entry.path)
     // A pick while the path editor is open adopts the (filtered) row and
@@ -360,6 +422,11 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       return
     }
     supersede()
+    // Closing mid-scan leaves nothing to load: without this edge the
+    // slow-scan effect keeps arming while hidden and the reopened dialog
+    // would show the indicator on its first frame instead of waiting out a
+    // fresh silence window (reopen's navigate() produces no loading edge).
+    setLoading(false)
     setError(null)
     setPathDraft(null)
     setFolderDraft(null)
@@ -396,6 +463,10 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       // create target becomes the listed level and the new folder its selection.
       const { seq, scan } = launchListing(targetPath)
       setLoading(true)
+      // Symmetric with navigate/select: a launched scan clears the stale
+      // failure text (and keeps the floating indicator's corner the only
+      // occupant of the content's right edge while it shows).
+      setError(null)
       scan.then((level) => {
         /* v8 ignore next -- same fence as navigate/select; the modal blocks superseding input */
         if (seq !== requestSeq.current) return
@@ -414,6 +485,19 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
       setCreateError(failureText(reason))
     })
   }
+
+  // The slow-scan gate for the loading indicator: each listing call restarts
+  // the timer even when a superseding scan or a navigation's parent leg keeps
+  // `loading` continuously true. A settle inside its own window means the swap
+  // happened with nothing shown.
+  useEffect(() => {
+    if (!loading) {
+      setSlowScan(false)
+      return
+    }
+    const timer = window.setTimeout(() => { setSlowScan(true) }, SLOW_SCAN_DELAY_MS)
+    return () => { window.clearTimeout(timer) }
+  }, [loading, scanWindow])
 
   // After the hooks: a closed dialog renders nothing and evaluates no copy.
   const crumbSource = child ?? parent
@@ -649,11 +733,15 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
               />
             )}
           </div>
-          {loading && <div className={css.status} role="status">{t('browser.loading')}</div>}
+          {loading && slowScan
+          && <div className={clsx(css.status, css.loadingFloat)} role="status">{t('browser.loading')}</div>}
           {/* The backend bounds a level at its complete-result limit; say so
           * whenever a visible pane was cut instead of letting the tail of a
-          * huge directory go silently missing. */}
-          {(parent?.truncated === true || child?.truncated === true) && !loading
+          * huge directory go silently missing. The note describes the panes
+          * on screen, so an in-flight scan leaves it alone — hiding it while
+          * the stale view still shows the cut level would shift the columns
+          * on every navigation away from it. */}
+          {(parent?.truncated === true || child?.truncated === true)
           && <div className={css.status} role="status">{t('browser.truncated')}</div>}
           {error !== null && <div className={css.error} role="alert">{error}</div>}
         </div>
