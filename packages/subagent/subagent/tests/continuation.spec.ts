@@ -461,6 +461,23 @@ describe('continuable durability and teardown', () => {
     })
   })
 
+  it('reports DURABILITY_FAILED when the final checkpoint rejects', async () => {
+    const { ctx, parent } = await setup([textResponse('answer')])
+    const warnings: string[] = []
+    ctx.logger.warn = (message: string) => { warnings.push(message) }
+    // A listener that throws makes flush reject rather than return false.
+    ctx.on('session/flush', (session) => {
+      if (session.header.parentSession !== undefined) throw new Error('disk full')
+    })
+
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    // The handle is still disposed and ownership released, so nothing is pinned.
+    await waitNoActivation(ctx, started.childId)
+    await vi.waitFor(() => {
+      expect(warnings.some(warning => warning.includes('durability checkpoint failed'))).toBe(true)
+    })
+  })
+
   it('disposes every live Activation forest child-first on manager teardown', async () => {
     const hold = Promise.withResolvers<void>()
     const adapter = new GatedAdapter([
