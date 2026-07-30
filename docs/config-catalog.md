@@ -1682,8 +1682,10 @@ Source: [`packages/fs/tool-fs/src/index.ts:24`](../packages/fs/tool-fs/src/index
 Requires: `tools` · `systemPrompt` · `bash`
 
 ```ts config-catalog
-/** Plugin config (all optional — `Config` supplies the defaults). */
+/** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
 export interface Config {
+  /** Whether an over-cap `glob` page is sampled across top-level entries instead of taking the modification-time head. */
+  sampleOverCapGlobResults: boolean
   /** Max paths one `glob` call retains inline; later paths go to the formatted spill file. */
   globMaxResults?: number
   /** Max flat matches one `grep` call retains inline; later matches go to the formatted spill file. */
@@ -1907,7 +1909,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/tool-web/src/index.ts:35`](../packages/web/tool-web/src/index.ts)
+Source: [`packages/web/tool-web/src/index.ts:37`](../packages/web/tool-web/src/index.ts)
 
 ## `@deepseek-ai/dsh-tool-workflow`
 
@@ -1953,7 +1955,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:578`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:582`](../packages/core/tools/src/index.ts)
 
 ## `@deepseek-ai/dsh-tui`
 

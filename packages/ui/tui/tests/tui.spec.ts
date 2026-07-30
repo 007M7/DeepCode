@@ -4376,6 +4376,14 @@ describe('tool cards and surface replay', () => {
       name: 'knownXml', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Known XML' }),
     },
+    // A web card carries no `content` copy, so it falls back to the raw result
+    // content, which must still render through the dim Markdown path (bold
+    // markers stripped) rather than as bare text.
+    webCard: {
+      name: 'webCard', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      presentCall: () => ({ card: 'generic', title: 'Fetch page', kind: 'fetch' }),
+      presentResult: () => ({ card: 'web', kind: 'fetch', title: 'https://a.test', url: 'https://a.test', statusCode: 200, truncated: false }),
+    },
   }
 
   it('uses terminal, diff, generic, fallback, and collapsed tool presentations', async () => {
@@ -4396,6 +4404,7 @@ describe('tool cards and surface replay', () => {
       ['c11', 'terminalResult', '{}'],
       ['c12', 'symbolic', '{}'],
       ['c13', 'knownXml', '{}'],
+      ['c16', 'webCard', '{}'],
     ] as const
     appendAssistant(result.session, [
       { type: 'text', text: 'Calling tools' },
@@ -4490,6 +4499,14 @@ describe('tool cards and surface replay', () => {
       }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c16' as never,
+        content: [{ type: 'text', text: 'Fetched **body** text' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('tool/result', {
       turn: 1,
       step: 1,
       message: createToolResultMessage({
@@ -4538,6 +4555,11 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('Empty card')
     expect(output).toContain('converted terminal')
     expect(output).toContain('<known><value>literal</value></known>')
+    // A web card carries no `content` copy, so it falls back to the raw result
+    // content, which still renders through the dim Markdown path: the bold
+    // markers are stripped rather than shown literally.
+    expect(output).toContain('Fetched body text')
+    expect(output).not.toContain('Fetched **body** text')
     expect(output).toContain('path: /tmp/a.txt')
     expect(output).toContain('line (number="1"): hello')
     expect(output).not.toContain('<result>')
