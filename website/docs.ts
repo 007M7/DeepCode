@@ -257,6 +257,7 @@ const coreDataReference = pairedPages(([
   ['web.md', 'Web 访问', 'Web access', 19],
   ['persistence.md', '会话持久化', 'Session persistence', 20],
   ['settings.md', '用户设置', 'User settings', 21],
+  ['credentials.md', '用户凭据', 'User credentials', 22],
 ] as const).map(([file, rootLabel, enLabel, order]): PairedPage => ({
   source: `docs/core-data-structures/${file}`,
   route: `reference/core-data-structures/${file}`,

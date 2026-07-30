@@ -1,6 +1,6 @@
 // GenericCommandCard: the default command row — a stripped-down
-// GenericToolCard rendering the dispatched command line and the settlement
-// text. Supplied by the chat view as the keyed commandview slot's render-site
+// GenericToolCard rendering the command name and its settlement text.
+// Supplied by the chat view as the keyed commandview slot's render-site
 // fallback (an unregistered command name lands here); registrants may compose
 // it as a base, feeding the same owner payload through.
 
@@ -20,10 +20,11 @@ export function GenericCommandCard({ node }: CommandRowOwnerProps) {
   const summary = node.outcome === null
     ? '执行中…'
     : text ?? (node.outcome.kind === 'error' ? '命令失败' : '已完成')
-  // Display line rebuilt from the structured payload (args carries its own
-  // separator whitespace verbatim); a cross-window node whose run page fell
-  // out of the window has neither.
-  const title = node.name === null ? '命令' : `/${node.name}${node.args ?? ''}`
+  // Title is the bare command name: the row already reads `name · outcome`,
+  // and the dispatched line's own `/` and arguments only restate what the
+  // settlement text says (`permission · preset workspace-write`). A
+  // cross-window node whose run page fell out of the window has no name.
+  const title = node.name ?? '命令'
   return (
     <ToolRow
       variant="others"

@@ -1,0 +1,33 @@
+# Agent Note: official DeepSeek first-run credential setup
+
+Status: implemented
+
+English | [中文](2026-07-30-deepseek-onboarding-credential-setup.zh.md)
+
+## Problem
+
+The [web configuration plane](../architecture/2026-07-30-web-config-plane.md) makes provider settings and credentials live-editable, but a first-time user still lands on the empty conversation Hero without an actionable explanation when the shipped `deepseek-official` route has no credential. The Models page can repair that state, yet requiring the user to discover it weakens onboarding. A prompt must not confuse a missing credential with a missing adapter: the browser can store a value for an existing credential reference, but it cannot dynamically mount the `llm-deepseek` Cordis plugin.
+
+## Decision
+
+**One readiness projection owns both Models and onboarding facts.** `ui-models` keeps a single store that joins `llm.providers({})`, redacted `settings.describe({})`, and batched `credentials.describe({refs})`. The onboarding projection selects the `deepseek-official` configurable-provider entry owned by the `llm-deepseek` namespace and empty settings path, reads the effective `apiKeyEnv`, and evaluates the matching credential descriptor. A live route with the same provider id but no matching configurable-provider declaration is adapter-absent for onboarding. A configured literal `apiKey` secret sidecar is also ready, so compatibility configuration does not trigger a false prompt; a configured process-environment credential is ready and remains read-only.
+
+**The settings shell contributes navigation state, not provider policy.** `ui-settings` declares a root-scoped `settings.onboarding` list slot and tells registrants whether the current surface is the empty Hero. Its private `openSection(id)` callback opens the settings panel on one registered section. `ui-models` registers the DeepSeek overlay through the same declaration-aware deferred-registration path as its Models section, so plugin load order does not become a contract.
+
+**The prompt routes to the one credential editor.** A mounted, active adapter with a resolved, writable, unconfigured reference presents one action that opens Settings on Models. The existing DeepSeek setup card there exclusively owns the password input, `credentials.set({ref, value})`, write failures, and post-write refresh; the onboarding overlay never holds or submits a secret.
+
+**Unavailable states do not capture the product.** An absent configurable-provider entry, inactive route, failed initial join, read-only deployment, or unresolved settings or credential capability suppresses the modal because the onboarding action cannot repair that state. The Models page remains the deployment diagnostic and retry surface. Configure later dismisses a missing-credential overlay for the current mounted surface and writes no completion fact. Settings, credential, provider-topology, and connection invalidations all refresh the shared join, so an external credential update closes an open prompt without a reload.
+
+## Alternatives considered
+
+**A separate onboarding store and readiness RPC sequence** — rejected because it would create a second client-side interpretation of provider identity, settings paths, secret sidecars, credential references, and invalidation ordering beside the Models page.
+
+**A second API-key editor inside onboarding** — rejected because the Models page already renders its DeepSeek setup card for exactly this state. Duplicating its secret draft, write errors, and configured-state convergence would add a second security-sensitive UI without another user capability.
+
+**Writing the API key into provider settings** — rejected because a literal secret would enter the settings mutation path and whole-section replacement cannot safely reconstruct redacted values. Credential storage is already the product seam and supplies immediate invalidation.
+
+**Showing the prompt when `llm-deepseek` is absent** — rejected because browser navigation has no supported operation that mounts the missing Cordis plugin.
+
+## Consequences
+
+The first-run flow leads to the shipped adapter's existing editor without restarting: a keyless browser test boots the real Web composition under an isolated harness home, follows the prompt to Models, stores a generated key through that page into the home's `.env`, verifies no key reaches DOM, ARIA, or browser console output, and confirms the running page reports configured. The full keyless Web replay lane also pins that a non-configurable replay route with the same provider id does not block unrelated journeys. Pure readiness and React tests pin literal, file, process-environment, missing-provider, missing-capability, navigation, cancellation, and external-invalidation behavior. The flow deliberately inherits the configuration plane's documented base limitations rather than adding local secret storage, redaction, or settings replacement workarounds.

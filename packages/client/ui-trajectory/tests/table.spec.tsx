@@ -83,6 +83,31 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('15 tok')).toBeTruthy()
   })
 
+  it('keeps long thinking collapsed until the user asks to render it', () => {
+    const thinking = 'private chain '.repeat(1_000)
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'message',
+          text: 'private chain…',
+          thinkingDetail: thinking,
+          timeSeconds: 1,
+        }],
+      }],
+    }]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
+    const toggle = screen.getByRole('button', { name: 'Thinking ...' })
+    expect(screen.queryByText(thinking)).toBeNull()
+
+    fireEvent.click(toggle)
+    expect(toggle.parentElement?.textContent?.length).toBeGreaterThan(thinking.length)
+  })
+
   it('keeps raw HTML tags in a Markdown-derived context preview', () => {
     const html = [
       '<background-task-complete id="trajectory-ui-watch">',
@@ -144,8 +169,53 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('Pending')).toBeTruthy()
     fireEvent.click(screen.getByRole('row', { name: /TOOL, bash \{"command":"false"\}/ }))
     expect(screen.getByText('Failed')).toBeTruthy()
+    expect(screen.getByText('Failed').className).toContain('error')
     fireEvent.click(screen.getByRole('tab', { name: 'Result' }))
-    expect(screen.getByText('ToolError: non_zero_exit')).toBeTruthy()
+    const errorResult = screen.getByText('ToolError: non_zero_exit')
+    expect(errorResult.closest('[class*="errorPayload"]')).toBeTruthy()
+  })
+
+  it('renders responsive role icons with a custom tooltip', () => {
+    const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
+    const toolTag = view.container.querySelector<HTMLElement>('[data-role-kind="tool"]')
+
+    expect(toolTag).not.toBeNull()
+    expect(toolTag?.getAttribute('title')).toBeNull()
+    expect(toolTag?.querySelector('[data-role-icon="wrench"]')).toBeTruthy()
+
+    fireEvent.mouseEnter(toolTag as HTMLElement)
+    expect(screen.getByRole('tooltip').textContent).toBe('TOOL')
+    fireEvent.mouseLeave(toolTag as HTMLElement)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('uses information and compression glyphs for injected and compacted context', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Context',
+        cells: [
+          { index: 1, kind: 'context', text: 'Workspace context', timeSeconds: 0 },
+          { index: 2, kind: 'compacted', text: 'Compacted history', timeSeconds: 0 },
+        ],
+      }],
+    }]
+    const view = render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+
+    expect(view.container.querySelector(
+      '[data-role-kind="context"] [data-role-icon="information"]',
+    )).toBeTruthy()
+    expect(view.container.querySelector(
+      '[data-role-kind="compacted"] [data-role-icon="compacted"]',
+    )).toBeTruthy()
+  })
+
+  it('keeps a compact turn label available for narrow layouts', () => {
+    render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
+    const turnLabel = screen.getByLabelText('Turn 1')
+
+    expect(turnLabel.textContent).toContain('Turn 1')
+    expect(turnLabel.textContent).toContain('#1')
   })
 
   it('renders a single-text JSON tool result as a JSON tree', () => {
