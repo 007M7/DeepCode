@@ -89,7 +89,6 @@ export function ToolRow({
     event.stopPropagation()
     if (filePath !== undefined) onOpenFile?.(filePath)
   }
-
   return (
     <div className={css.root} data-variant={variant} data-tool={toolName} data-state={state}>
       <DisclosureRow

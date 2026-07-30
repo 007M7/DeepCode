@@ -8,6 +8,10 @@
   padding-bottom: 4px;
 }
 
+.chevron {
+  color: var(--dsw-alias-label-secondary);
+}
+
 .body {
   box-sizing: border-box;
   width: calc(100% - 22px);

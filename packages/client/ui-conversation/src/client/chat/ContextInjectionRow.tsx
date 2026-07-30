@@ -68,6 +68,7 @@ export function ContextInjectionRow({ content, source }: ContextInjectionRowProp
     <DisclosureRow
       className={css.root}
       icon={<IconBrowseOutline16 size={14} />}
+      chevronClassName={css.chevron}
       title="上下文注入"
       open={open}
       expandable

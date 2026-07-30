@@ -19,6 +19,7 @@ export interface DisclosureRowProps {
   className?: string | undefined
   rowClassName?: string | undefined
   leadingClassName?: string | undefined
+  chevronClassName?: string | undefined
   titleClassName?: string | undefined
 }
 
@@ -40,6 +41,7 @@ export function DisclosureRow({
   className,
   rowClassName,
   leadingClassName,
+  chevronClassName,
   titleClassName,
 }: DisclosureRowProps) {
   const rowExpands = expandable && expandOnRowClick
@@ -56,12 +58,12 @@ export function DisclosureRow({
     ? (
       <>
         <span className={css.iconIdle}>{icon}</span>
-        <IconChevronDownOutline14 className={clsx(css.chevron, css.chevronHover)} />
+        <IconChevronDownOutline14 className={clsx(chevronClassName, css.chevronHover)} />
       </>
     )
     : icon
   const leading = open
-    ? <IconChevronDownOutline14 className={css.chevron} />
+    ? <IconChevronDownOutline14 className={chevronClassName} />
     : collapsedLeading
 
   return (

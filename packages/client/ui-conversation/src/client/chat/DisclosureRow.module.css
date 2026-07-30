@@ -39,10 +39,6 @@ button.leading {
   cursor: pointer;
 }
 
-.chevron {
-  color: var(--dsw-alias-label-secondary);
-}
-
 .iconIdle {
   display: inline-flex;
   opacity: 1;

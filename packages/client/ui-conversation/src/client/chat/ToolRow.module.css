@@ -41,12 +41,6 @@
   flex-shrink: 0;
 }
 
-/* The others-variant sparkle glyph is one gray step darker than the icon
-   family in the source design. */
-.root[data-variant='others'] .leading {
-  color: var(--dsw-alias-label-secondary);
-}
-
 /* Cordis lifecycle tools retain their generic row mechanics while carrying a
    shared product accent and tool-owned action title. */
 .root[data-tool^='cordis_'] .leading,
