@@ -160,10 +160,11 @@ export class Entry {
     } finally {
       this._initTask = undefined
     }
-    this.fiber?.await().finally(() => {
+    const notify = () => {
       if (this.loader.getTasks().length) return
       this.ctx.reflect.notify(['loader'])
-    })
+    }
+    void this.fiber?.await().then(notify, notify)
   }
 
   private async _init() {

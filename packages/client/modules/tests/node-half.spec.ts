@@ -61,7 +61,7 @@ describe('client bundle activation', () => {
     const secondPath = writePackage(secondName)
     expect(() => construct([firstName, secondName])).toThrow([
       'client-modules: 2 client packages failed to compose:',
-      '  client packages requiring a build before source launch:',
+      '  client bundles not found; run `pnpm run build` before launch:',
       `    - package: ${firstName}`,
       `      path: ${firstPath}`,
       `    - package: ${secondName}`,
@@ -79,7 +79,9 @@ describe('client bundle activation', () => {
     } catch (error) {
       thrown = error
     }
+    expect(String(thrown)).toContain('client-modules: 1 client package failed to compose:')
+    expect(String(thrown)).toContain('  other failures:')
     expect(String(thrown)).toContain('EISDIR')
-    expect(String(thrown)).not.toContain('requiring a build before source launch')
+    expect(String(thrown)).not.toContain('pnpm run build')
   })
 })

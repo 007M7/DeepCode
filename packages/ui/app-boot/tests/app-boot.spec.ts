@@ -300,31 +300,28 @@ describe('boot', () => {
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
   })
 
-  it('rejects a settled tree with a pending inject and names every missing service', async () => {
+  it('reports an activation error from a real Loader fiber instead of its numeric state', async () => {
     const dir = tmp()
-    writeFileSync(join(dir, 'waiting.mjs'), "export const inject = ['alpha', 'beta']\nexport function apply() {}\n")
+    writeFileSync(join(dir, 'broken.mjs'), 'export function apply() { throw new Error("real activation failure") }\n')
+    writeFileSync(join(dir, 'cordis.yml'), '- id: broken\n  name: ./broken.mjs\n')
+    let thrown: unknown
+    try {
+      await boot(NAME, join(dir, 'cordis.yml'))
+    } catch (error) {
+      thrown = error
+    }
+    expect(String(thrown)).toContain(`${NAME}: 1 entry did not activate\n./broken.mjs: Error: real activation failure`)
+    expect(String(thrown)).not.toContain('fiber state 3')
+  })
+
+  it('reports a pending real Loader fiber and the service unresolved in its own context', async () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'waiting.mjs'), 'export const inject = ["neverProvided"]\nexport function apply() {}\n')
     writeFileSync(join(dir, 'cordis.yml'), '- id: waiting\n  name: ./waiting.mjs\n')
-    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow('./waiting.mjs: pending (waiting for services: alpha, beta)')
-  })
-
-  it('uses singular diagnostics for one missing pending dependency', () => {
-    const ctx = {
-      loader: { entries: () => [{ disabled: false, options: { name: 'waiting' }, fiber: { state: 0, inject: { alpha: {} } } }] },
-      get: () => undefined,
-    } as unknown as Context
-    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow('waiting: pending (waiting for service: alpha)')
-  })
-
-  it('reports unknown pending dependencies and unexpected fiber states', () => {
-    const entries = [
-      { disabled: false, options: { name: 'unknown' }, fiber: { state: 0, inject: {} } },
-      { disabled: false, options: { name: 'failed' }, fiber: { state: 3, inject: {} } },
-    ]
-    const ctx = {
-      loader: { entries: () => entries },
-      get: () => undefined,
-    } as unknown as Context
-    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow(`${NAME}: 2 entries did not activate\nunknown: pending (waiting for services: unknown)\nfailed: fiber state 3`)
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow([
+      `${NAME}: 1 entry did not activate`,
+      './waiting.mjs: pending (waiting for service: neverProvided)',
+    ].join('\n'))
   })
 })
 

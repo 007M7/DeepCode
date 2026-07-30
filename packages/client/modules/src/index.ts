@@ -58,6 +58,9 @@ interface PkgMeta {
   immediately: boolean
 }
 
+/** Recovery instruction shared by grouped startup and steady-state bundle diagnostics. */
+const CLIENT_BUNDLE_BUILD_INSTRUCTION = 'run `pnpm run build` before launch'
+
 /** Missing built client export, retained as structured data for activation-error grouping. */
 class MissingClientBundleError extends Error {
   constructor(
@@ -66,7 +69,11 @@ class MissingClientBundleError extends Error {
     cause: unknown,
   ) {
     super(
-      `client-modules: ${packageName} needs to be built before source launch; client bundle not found at ${clientPath}`,
+      [
+        `client-modules: client bundle not found; ${CLIENT_BUNDLE_BUILD_INSTRUCTION}:`,
+        `  package: ${packageName}`,
+        `  path: ${clientPath}`,
+      ].join('\n'),
       { cause },
     )
   }
@@ -80,7 +87,7 @@ class ClientPackageCompositionError extends AggregateError {
     const packageNoun = failures.length === 1 ? 'package' : 'packages'
     const lines = [`client-modules: ${String(failures.length)} client ${packageNoun} failed to compose:`]
     if (missingBundles.length > 0) {
-      lines.push('  client packages requiring a build before source launch:')
+      lines.push(`  client bundles not found; ${CLIENT_BUNDLE_BUILD_INSTRUCTION}:`)
       for (const error of missingBundles) {
         lines.push(`    - package: ${error.packageName}`, `      path: ${error.clientPath}`)
       }
@@ -353,7 +360,13 @@ export class ClientModuleHostService extends Service {
     return meta
   }
 
-  /** Read the activation-time bundle revision, translating only a missing build artifact into source-launch guidance. */
+  /**
+   * Read the activation-time bundle revision.
+   * @param pkgName - package that declares the client bundle.
+   * @param clientPath - absolute path of the built client artifact.
+   * @returns the bundle content's short hash for use as its revision.
+   * @throws {MissingClientBundleError} when the read fails with `ENOENT`; other filesystem errors are rethrown unchanged.
+   */
   private initialBundleRevision(pkgName: string, clientPath: string): string {
     try {
       return shortHash(readFileSync(clientPath))

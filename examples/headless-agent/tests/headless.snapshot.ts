@@ -33,6 +33,8 @@ const credentialsScenarioDir = join(snapshotsDir, 'missing-credential')
 const credentialsConfigPath = fileURLToPath(new URL('../credentials.cordis.snapshot.yml', import.meta.url))
 const ralphScenarioDir = join(snapshotsDir, 'ralph-loop')
 const ralphConfigPath = fileURLToPath(new URL('../ralph.cordis.snapshot.yml', import.meta.url))
+const startupFailureConfigPath = fileURLToPath(new URL('./fixtures/startup-activation-error/cordis.yml', import.meta.url))
+const startupFailureExpected = join(snapshotsDir, 'startup-activation-error', 'stderr.expected.txt')
 const binScript = fileURLToPath(new URL('../../../packages/examples/cli-demo/src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const reasoningConfigPath = fileURLToPath(new URL('./fixtures/cli.cordis.yml', import.meta.url))
@@ -167,6 +169,32 @@ async function persistedLogs(cwd: string): Promise<PersistedLog[]> {
 }
 
 describe('headless stream-json snapshots', () => {
+  it('prints the original Loader activation error through the assembled one-shot app', async () => {
+    const label = 'headless startup activation error snapshot'
+    let failure: unknown
+    try {
+      await runLoaderSmoke({
+        label,
+        tempDirPrefix: 'headless-snapshot-startup-error-',
+        binScript,
+        configPath: startupFailureConfigPath,
+        binArgs: ['--config', startupFailureConfigPath, '--output-format', 'stream-json', 'unreachable task'],
+        tsconfigPath,
+      })
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).toBeInstanceOf(Error)
+    const message = (failure as Error).message
+    const prefix = `${label} exited 1. stdout:\n`
+    const stderrMarker = '\nstderr:\n'
+    expect(message.startsWith(prefix)).toBe(true)
+    const stderrAt = message.indexOf(stderrMarker, prefix.length)
+    expect(stderrAt).toBeGreaterThanOrEqual(prefix.length)
+    expect(message.slice(prefix.length, stderrAt)).toBe('')
+    await expect(message.slice(stderrAt + stderrMarker.length)).toMatchFileSnapshot(startupFailureExpected)
+  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+
   it('retries a transient provider failure through the one-shot app', async () => {
     const prompt = await scenarioPrompt(retryScenarioDir, 'provider-retry')
     const streamExpected = join(retryScenarioDir, 'stream-json.expected.jsonl')
