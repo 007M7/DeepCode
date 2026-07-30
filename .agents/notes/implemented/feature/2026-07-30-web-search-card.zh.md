@@ -6,13 +6,13 @@ Status: implemented
 
 ## Problem
 
-`grep` 与 `glob` 工具声明了一个仅在结果阶段存在的 `card: 'search'` render intent（[search render card](2026-07-30-search-render-card.md)）：`SearchMatchesResultView`（`kind: 'matches'`）携带 grep 按文件分组的匹配，或 `SearchPathsResultView`（`kind: 'paths'`）携带 glob 的扁平路径列表，两者都带 `truncated`/`total` 截断信号。该视图已经到达浏览器 —— host、connection、runtime 把它作为 `resultView` 投递到 `ConversationSnapshot` 上 —— 但 Web 客户端忽略了它：每个非终端、非 diff 的工具结果都落到 generic 卡片，渲染面向模型的文本。想把搜索结果渲染成可展开的按文件匹配分组、或可扫读的路径列表的 web 前端，只有那段预格式化文本。
+`grep` 与 `glob` 工具声明了一个仅在结果阶段存在的 `card: 'search'` render intent（[search render card](2026-07-30-search-render-card.md)）：`SearchMatchesResultView`（`shape: 'matches'`）携带 grep 按文件分组的匹配，或 `SearchPathsResultView`（`shape: 'paths'`）携带 glob 的扁平路径列表，两者都带 `truncated`/`total` 截断信号。该视图已经到达浏览器 —— host、connection、runtime 把它作为 `resultView` 投递到 `ConversationSnapshot` 上 —— 但 Web 客户端忽略了它：每个非终端、非 diff 的工具结果都落到 generic 卡片，渲染面向模型的文本。想把搜索结果渲染成可展开的按文件匹配分组、或可扫读的路径列表的 web 前端，只有那段预格式化文本。
 
 这正是 search render card note 指名的后续：那个 PR 是后端契约和它的两个生产者，本 PR 是 web 消费者。
 
 ## Decision
 
-`SearchBlock` 是一个 `ui-primitives` 组件，把一次已完成的搜索渲染成两种形态之一，`grep`/`glob` 调用的 Web 渲染点都通过它消费搜索 render intent。`ui-conversation/src/client/contract/search-card-model.ts` 是把 snapshot 的 `resultView` 转成组件 props 的唯一位置，因此没有渲染点重新推导形态。当结果视图不是搜索卡片时它返回 null（走 generic 路径），包括仍在运行的调用（搜索卡片仅在结果阶段存在，`execute` 前无内容）、`grep`/`glob` 失败或嵌套 `run_code` dispatch 产生的 generic 结果、terminal 结果视图、本客户端版本不认识的 `card` 值、`kind` 是本版本无法编译的 `card: 'search'` 视图，以及 —— 因为 `kind` 和分组/扁平形态与 host schema 只做字符串校验的那同一个不可信 wire 帧同行 —— 一个 `kind` 已知但 `files`/`paths` 缺失或格式错误的视图（否则会让 `SearchBlock` 在 `.reduce`/`.map` 处崩溃）。
+`SearchBlock` 是一个 `ui-primitives` 组件，把一次已完成的搜索渲染成两种形态之一，`grep`/`glob` 调用的 Web 渲染点都通过它消费搜索 render intent。`ui-conversation/src/client/contract/search-card-model.ts` 是把 snapshot 的 `resultView` 转成组件 props 的唯一位置，因此没有渲染点重新推导形态。当结果视图不是搜索卡片时它返回 null（走 generic 路径），包括仍在运行的调用（搜索卡片仅在结果阶段存在，`execute` 前无内容）、`grep`/`glob` 失败或嵌套 `run_code` dispatch 产生的 generic 结果、terminal 结果视图、本客户端版本不认识的 `card` 值、`shape` 是本版本无法编译的 `card: 'search'` 视图，以及 —— 因为 `shape` 和分组/扁平内容与 host schema 只做字符串校验的那同一个不可信 wire 帧同行 —— 一个 `shape` 已知但 `files`/`paths` 缺失或格式错误的视图（否则会让 `SearchBlock` 在 `.reduce`/`.map` 处崩溃）。结果视图的判别键是 `shape`（不是 `kind` —— 后端把 `kind` 留给 call view 的选图标签）；`SearchBlock` 自身的 prop 仍是 `kind`，由本推导从 `shape` 映射得到。
 
 与终端卡片的不对称是刻意的，继承自后端契约：`terminalCardModel` 同时读 `callView` 和 `resultView`，因为命令、cwd、description 在调用时就存在；`searchCardModel` 只读 `resultView`，因为搜索的匹配或路径只在执行后存在。因此运行中的搜索行只显示摘要，没有卡片。
 
@@ -23,7 +23,7 @@ Status: implemented
 - **按文件分组的匹配，逐文件可折叠。** 每个文件是一个头行（加粗路径加它的匹配计数，整行即折叠控件），后面跟它的 `lineNumber: line` 行。折叠一个组会把它的匹配行从压平列表和高度上限的算术里去掉，但绝不从复制文本里去掉。
 - **扁平路径列表。** paths 形态每行一个路径，无头行。
 - **截断指示。** `truncated` 时，横幅摘要把截断前总数折入 —— grep 为 `显示 X / 共 N 处匹配 · K 个文件`，glob 为 `显示 X / 共 N 个路径` —— 因此卡片绝不把一个被截断的页面呈现为完整结果。未 `truncated` 时摘要是一个朴素的结构计数（`{n} 处匹配 · {m} 个文件`，或 `{n} 个路径`）。
-- **被截断结果的恢复脚注。** 卡片只持有保留的那一页，但通往其余部分的定位符 —— grep/glob 的 `Full … stored at: <locator>` 脚注 —— 只存在于结果视图的 `content` 文本里，而非结构化的 matches/paths 中。由于每个渲染点都用卡片替换了原始结果，`searchCardModel` 在（且仅在）结果被截断时把压平后的 `content` 作为 `SearchCardModel.recovery` 暴露出来，每个渲染点把它画在卡片下方。没有它，通往被丢弃行的唯一路径就会从 UI 里消失；未截断的结果携带了每一行，其 `content` 不增加任何信息，因此被丢弃。
+- **被截断结果的恢复脚注。** 卡片只持有保留的那一页，但通往其余部分的定位符 —— grep/glob 的 `Full … stored at: <locator>` 脚注 —— 只存在于原始 `tool/result` 内容里（搜索视图不携带结果文本；没有卡片的 UI 回退到那段原始内容），而非结构化的 matches/paths 中。由于每个渲染点都用卡片替换了原始结果，`searchCardModel` 在（且仅在）结果被截断时把 block 自身压平后的结果文本作为 `SearchCardModel.recovery` 暴露出来，每个渲染点把它画在卡片下方。没有它，通往被丢弃行的唯一路径就会从 UI 里消失；未截断的结果携带了每一行，其原始文本不增加任何信息，因此被丢弃。
 - **不软换行。** 结果行在一个横向滚动的盒子里 `white-space: pre`，因此一条长匹配行或一个深路径横向滚动而不折叠。
 - **带展开控件的高度上限。** 超过 `DEFAULT_SEARCH_MAX_LINES`（16）行时显示一个头/尾切片，中间一个按钮报告被隐藏的行数，形状和算术与 `TerminalBlock` 相同。
 - **复制。** 复制控件写入整个结构化结果 —— 每个文件与匹配，或每个路径 —— 无关高度上限或哪些组被折叠，因此剪贴板携带的是结果本身，而不是卡片此刻恰好显示的内容。

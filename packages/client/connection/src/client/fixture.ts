@@ -435,20 +435,16 @@ function presentResult(name: string, argsRaw: string, resultText: string): ToolR
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
   // Search is result-time only: the call stays a generic search card, and the
-  // result view carries the structured shape the card renders, with the
-  // model-facing text as `content` for a UI without a search card. `total`
-  // exceeds the retained count so the card shows its capped indicator.
+  // result view carries the structured shape the card renders. The view holds no
+  // result text — a UI without a search card falls back to the raw tool/result
+  // content — so the truncation recovery footer rides that raw content (the
+  // `toolTurn` message text), not the view. `total` exceeds the retained count so
+  // the card shows its capped indicator.
   if (name === 'grep') {
-    return {
-      card: 'search', kind: 'matches', files: SEARCH_MATCHES_FIXTURE,
-      truncated: true, total: 42, content: text(resultText),
-    }
+    return { card: 'search', shape: 'matches', files: SEARCH_MATCHES_FIXTURE, truncated: true, total: 42 }
   }
   if (name === 'glob') {
-    return {
-      card: 'search', kind: 'paths', paths: SEARCH_PATHS_FIXTURE,
-      truncated: true, total: 23, content: text(resultText),
-    }
+    return { card: 'search', shape: 'paths', paths: SEARCH_PATHS_FIXTURE, truncated: true, total: 23 }
   }
   switch (call.card) {
     case 'terminal':

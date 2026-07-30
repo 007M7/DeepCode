@@ -38,8 +38,8 @@ const GREP_ARGS = '{"pattern":"foo","path":"src"}'
 const GLOB_ARGS = '{"pattern":"**/*.ts","path":"src"}'
 
 /** A grep result view: matches grouped by file. */
-const resultMatches = (over?: Partial<Extract<ToolResultView, { card: 'search'; kind: 'matches' }>>): ToolResultView => ({
-  card: 'search', kind: 'matches',
+const resultMatches = (over?: Partial<Extract<ToolResultView, { card: 'search'; shape: 'matches' }>>): ToolResultView => ({
+  card: 'search', shape: 'matches',
   files: [
     { path: 'a.ts', matches: [{ lineNumber: 12, line: 'const foo = 1' }, { lineNumber: 40, line: 'return foo' }] },
     { path: 'b.ts', matches: [{ lineNumber: 7, line: 'foo()' }] },
@@ -48,8 +48,8 @@ const resultMatches = (over?: Partial<Extract<ToolResultView, { card: 'search'; 
 })
 
 /** A glob result view: a flat path list. */
-const resultPaths = (over?: Partial<Extract<ToolResultView, { card: 'search'; kind: 'paths' }>>): ToolResultView => ({
-  card: 'search', kind: 'paths', paths: ['src/a.ts', 'src/b.ts'], truncated: false, total: 2, ...over,
+const resultPaths = (over?: Partial<Extract<ToolResultView, { card: 'search'; shape: 'paths' }>>): ToolResultView => ({
+  card: 'search', shape: 'paths', paths: ['src/a.ts', 'src/b.ts'], truncated: false, total: 2, ...over,
 })
 
 const runningGrep = (over?: Partial<RunningToolCall>): RunningToolCall => ({
@@ -90,7 +90,8 @@ describe('searchCardModel', () => {
   })
 
   it('derives a paths card from the glob result view, carrying the truncation signal', () => {
-    expect(searchCardModel(settledGlob({ resultView: resultPaths({ truncated: true, total: 20 }) }))).toEqual({
+    // Empty block content isolates the truncation signal from the recovery arm.
+    expect(searchCardModel(settledGlob({ content: [], resultView: resultPaths({ truncated: true, total: 20 }) }))).toEqual({
       title: undefined,
       recovery: undefined,
       card: { kind: 'paths', paths: ['src/a.ts', 'src/b.ts'], truncated: true, total: 20 },
@@ -118,53 +119,55 @@ describe('searchCardModel', () => {
     expect(searchCardModel(settledGrep({ resultView: future }))).toBeNull()
   })
 
-  it('returns null for a card:search view whose kind this version does not compile', () => {
-    // `kind` rides the same untrusted wire frame as `card`; a subtype this client
+  it('returns null for a card:search view whose shape this version does not compile', () => {
+    // `shape` rides the same untrusted wire frame as `card`; a subtype this client
     // does not know must fall to the generic path, never render as a paths card
     // that would crash SearchBlock on an absent `paths`.
-    const futureKind = {
-      card: 'search', kind: 'future', truncated: false, total: 0,
+    const futureShape = {
+      card: 'search', shape: 'future', truncated: false, total: 0,
     } as unknown as ToolResultView
-    expect(searchCardModel(settledGrep({ resultView: futureKind }))).toBeNull()
+    expect(searchCardModel(settledGrep({ resultView: futureShape }))).toBeNull()
   })
 
-  it('returns null for a known kind whose structured shape is missing or malformed', () => {
-    // The host wire schema checks the `card`/`kind` strings but not the grouped
-    // shape, so a version mismatch could deliver kind:'matches' with no `files`
-    // (or kind:'paths' with no `paths`). Rendering that crashes SearchBlock at
+  it('returns null for a known shape whose structured shape is missing or malformed', () => {
+    // The host wire schema checks the `card`/`shape` strings but not the grouped
+    // shape, so a version mismatch could deliver shape:'matches' with no `files`
+    // (or shape:'paths' with no `paths`). Rendering that crashes SearchBlock at
     // `.reduce`/`.map`; the derivation drops to the generic path instead.
-    const noFiles = { card: 'search', kind: 'matches', truncated: false, total: 0 } as unknown as ToolResultView
+    const noFiles = { card: 'search', shape: 'matches', truncated: false, total: 0 } as unknown as ToolResultView
     expect(searchCardModel(settledGrep({ resultView: noFiles }))).toBeNull()
     const badFile = {
-      card: 'search', kind: 'matches', truncated: false, total: 1,
+      card: 'search', shape: 'matches', truncated: false, total: 1,
       files: [{ path: 'a.ts', matches: [{ lineNumber: 'x', line: 1 }] }],
     } as unknown as ToolResultView
     expect(searchCardModel(settledGrep({ resultView: badFile }))).toBeNull()
-    const noPaths = { card: 'search', kind: 'paths', truncated: false, total: 0 } as unknown as ToolResultView
+    const noPaths = { card: 'search', shape: 'paths', truncated: false, total: 0 } as unknown as ToolResultView
     expect(searchCardModel(settledGlob({ resultView: noPaths }))).toBeNull()
     const badPaths = {
-      card: 'search', kind: 'paths', truncated: false, total: 1, paths: [42],
+      card: 'search', shape: 'paths', truncated: false, total: 1, paths: [42],
     } as unknown as ToolResultView
     expect(searchCardModel(settledGlob({ resultView: badPaths }))).toBeNull()
   })
 
   it('surfaces the recovery text only when the result was capped', () => {
     const recovery = 'a.ts\n  12: const foo = 1\n\n(Full grep result stored at: spill://grep-1. Read it to see every match.)'
-    // Capped: the content (its `Full … stored at …` locator) rides through so the
-    // dropped rows stay reachable.
+    // The recovery locator lives in the raw tool/result content (the view carries
+    // no text), surfaced only when the card capped the result.
     const capped = searchCardModel(settledGrep({
-      resultView: resultMatches({ truncated: true, total: 42, content: [{ type: 'text', text: recovery }] }),
+      content: [{ type: 'text', text: recovery }],
+      resultView: resultMatches({ truncated: true, total: 42 }),
     }))
     expect(capped?.recovery).toBe(recovery)
-    // Not capped: the card holds every match, so the content adds nothing and is
-    // dropped.
+    // Not capped: the card holds every match, so the raw content adds nothing and
+    // is dropped.
     const whole = searchCardModel(settledGrep({
-      resultView: resultMatches({ truncated: false, content: [{ type: 'text', text: recovery }] }),
+      content: [{ type: 'text', text: recovery }],
+      resultView: resultMatches({ truncated: false }),
     }))
     expect(whole?.recovery).toBeUndefined()
-    // Capped but the presenter attached no content: nothing to surface.
-    const noContent = searchCardModel(settledGrep({ resultView: resultMatches({ truncated: true, total: 42 }) }))
-    expect(noContent?.recovery).toBeUndefined()
+    // Capped but the block carries no text: nothing to surface.
+    const noText = searchCardModel(settledGrep({ content: [], resultView: resultMatches({ truncated: true, total: 42 }) }))
+    expect(noText?.recovery).toBeUndefined()
   })
 })
 
@@ -205,7 +208,8 @@ describe('chat row search body (GenericToolCard fallback)', () => {
   it('the expanded body shows the recovery footer below a capped card', () => {
     const recovery = 'a.ts\n  12: const foo = 1\n\n(Full grep result stored at: spill://grep-1. Read it to see every match.)'
     const view = render(<GenericToolCard {...ownerProps(settledGrep({
-      resultView: resultMatches({ truncated: true, total: 42, content: [{ type: 'text', text: recovery }] }),
+      content: [{ type: 'text', text: recovery }],
+      resultView: resultMatches({ truncated: true, total: 42 }),
     }), 'grep')} />)
     fireEvent.click(view.container.querySelector('button')!)
     expect(searchKindOf(view.container)).toBe('matches')
@@ -273,7 +277,8 @@ describe('SearchRow keyed card', () => {
   it('renders the recovery footer below the card when the search was capped', () => {
     const recovery = 'a.ts\n  12: const foo = 1\n\n(Full grep result stored at: spill://grep-1. Read it to see every match.)'
     const view = render(<SearchRow {...rowProps(settledGrep({
-      resultView: resultMatches({ truncated: true, total: 42, content: [{ type: 'text', text: recovery }] }),
+      content: [{ type: 'text', text: recovery }],
+      resultView: resultMatches({ truncated: true, total: 42 }),
     }), 'grep')} />)
     expect(searchKindOf(view.container)).toBe('matches')
     expect(view.getByText(/Full grep result stored at: spill:\/\/grep-1/)).toBeTruthy()
@@ -376,7 +381,7 @@ describe('DetailsPanel Output section (search)', () => {
   it('renders the recovery footer below the card for a capped search', () => {
     const recovery = 'src/a.ts\nsrc/b.ts\n\n(Showing 2 of 23 paths. Full sorted result stored at: spill://glob-7.)'
     const view = mount(snapshot({
-      nodes: [settledGlob({ resultView: resultPaths({ truncated: true, total: 23, content: [{ type: 'text', text: recovery }] }) })],
+      nodes: [settledGlob({ content: [{ type: 'text', text: recovery }], resultView: resultPaths({ truncated: true, total: 23 }) })],
     }), globTarget)
     expect(searchKindOf(view.container)).toBe('paths')
     expect(view.getByText(/Full sorted result stored at: spill:\/\/glob-7/)).toBeTruthy()

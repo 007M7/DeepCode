@@ -14,10 +14,11 @@
  * execution.
  *
  * A capped result also carries a recovery locator (grep/glob's `Full … stored
- * at …` footer) that lives only in the view's `content` text, not in the
- * structured matches/paths. Since both render sites replace the raw result with
- * the card, this derivation surfaces that text as {@link SearchCardModel.recovery}
- * so the one path to the dropped rows is not lost.
+ * at …` footer) in the raw `tool/result` content, not in the structured
+ * matches/paths the view carries. Since both render sites replace that raw
+ * result with the card, this derivation surfaces the block's own result text as
+ * {@link SearchCardModel.recovery} so the one path to the dropped rows is not
+ * lost.
  * @module
  */
 import type { SearchBlockProps, SearchFileGroup } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -62,22 +63,22 @@ export interface SearchCardModel {
    */
   title: string | undefined
   /**
-   * The model-facing result text (the view's `content`, flattened), surfaced
-   * only when the search was capped. The card renders the retained matches or
-   * paths, but the recovery locator a capped result carries — grep/glob's
-   * `Full … stored at: <locator>` footer, the one way to reach the rows the cap
-   * dropped — lives only in this text. A UI that replaces the raw result with
-   * the card would otherwise lose it. Absent when the result was not capped
-   * (the card holds every result) or the presenter supplied no content.
+   * The raw `tool/result` text, flattened, surfaced only when the search was
+   * capped. The card renders the retained matches or paths, but the recovery
+   * locator a capped result carries — grep/glob's `Full … stored at: <locator>`
+   * footer, the one way to reach the rows the cap dropped — lives only in the raw
+   * result text, which the card replaces. A UI that shows the card would
+   * otherwise lose it. Absent when the result was not capped (the card holds
+   * every result) or the block carries no text.
    */
   recovery: string | undefined
 }
 
 /**
  * Whether every file group in a matches view is structurally valid: the wire
- * frame carries `kind` and `card` as strings the host schema checks, but not the
+ * frame carries `shape` and `card` as strings the host schema checks, but not the
  * grouped shape, so a version mismatch or loose producer could deliver
- * `kind: 'matches'` with a missing or malformed `files`. Rendering that would
+ * `shape: 'matches'` with a missing or malformed `files`. Rendering that would
  * crash {@link SearchBlock} at `.reduce`/`.map`; an invalid shape falls to the
  * generic path instead.
  * @param files - the candidate `files` field off the untrusted result view.
@@ -95,15 +96,15 @@ function isValidFiles(files: unknown): files is SearchFileGroup[] {
 }
 
 /**
- * Flatten a result view's `content` blocks to their text, joined by newlines.
- * The search views carry `content` (the model-facing result text) so a UI
- * without a search card can show it; here it is the source of the truncation
- * recovery footer. Non-text blocks (a search result carries none) are skipped.
- * @param content - the result view's optional content blocks.
- * @returns the joined text, or undefined when absent or empty.
+ * Flatten a settled tool result's content blocks to their text, joined by
+ * newlines. The search view carries no result text — a UI without a card falls
+ * back to the raw `tool/result` content — so the truncation recovery footer is
+ * read from the block's own content here. Non-text blocks (a search result
+ * carries none) are skipped.
+ * @param content - the result node's content blocks.
+ * @returns the joined text, or undefined when empty.
  */
-function flattenContent(content: readonly { type: string; text?: string }[] | undefined): string | undefined {
-  if (content === undefined) return undefined
+function flattenContent(content: readonly { type: string; text?: string }[]): string | undefined {
   const text = content
     .filter((block): block is { type: 'text'; text: string } => block.type === 'text' && typeof block.text === 'string')
     .map(block => block.text)
@@ -119,7 +120,7 @@ function flattenContent(content: readonly { type: string; text?: string }[] | un
  * a still-running call (no result view) is null, as is a settled call whose
  * result view is not a search card — including a `card` value this UI version
  * does not know, which arrives over the wire and cannot be trusted to be one of
- * the compiled variants, a `card: 'search'` view whose `kind` is neither
+ * the compiled variants, a `card: 'search'` view whose `shape` is neither
  * `matches` nor `paths` (equally untrusted wire data), and a generic result a
  * `grep`/`glob` failure or nested `run_code` dispatch produces (its text keeps
  * the generic path).
@@ -133,25 +134,25 @@ export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {
   if (result === null) return null
   const common = { truncated: result.truncated, total: result.total }
   // The recovery footer only matters when the tool capped the result: an
-  // uncapped card holds every match/path, so its content adds nothing the card
-  // does not already show. When capped, the content's `Full … stored at …`
+  // uncapped card holds every match/path, so the raw text adds nothing the card
+  // does not already show. When capped, the raw result's `Full … stored at …`
   // locator is the only path to the dropped rows, so surface it.
-  const recovery = result.truncated ? flattenContent(result.content) : undefined
-  if (result.kind === 'matches') {
-    // `files` rides the untrusted wire frame: the host schema checks `card`/`kind`
+  const recovery = result.truncated ? flattenContent(block.content) : undefined
+  if (result.shape === 'matches') {
+    // `files` rides the untrusted wire frame: the host schema checks `card`/`shape`
     // strings but not the grouped shape, so validate it before SearchBlock, which
     // would crash on a missing/malformed `files`. An invalid shape falls to generic.
     if (!isValidFiles(result.files)) return null
     return { title: result.title, recovery, card: { kind: 'matches', files: result.files, ...common } }
   }
-  // `kind` rides the same untrusted wire frame as `card`, so a version mismatch
+  // `shape` rides the same untrusted wire frame as `card`, so a version mismatch
   // or a loose protocol producer could deliver a `card: 'search'` subtype this
-  // client does not compile. Guard the paths shape explicitly: an unknown kind
+  // client does not compile. Guard the paths shape explicitly: an unknown shape
   // falls to the generic path rather than being rendered as a paths card, which
   // would leave SearchBlock calling `.length`/`.map` on an absent `paths`.
-  // oxlint-disable-next-line typescript/no-unnecessary-condition -- kind is wire data; the compiled union cannot prove this exhaustive.
-  if (result.kind !== 'paths') return null
-  // `paths` is likewise unchecked by the wire schema; a known kind with a
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- shape is wire data; the compiled union cannot prove this exhaustive.
+  if (result.shape !== 'paths') return null
+  // `paths` is likewise unchecked by the wire schema; a known shape with a
   // missing/malformed array would crash the paths card at `.map`.
   if (!Array.isArray(result.paths) || !result.paths.every((path): path is string => typeof path === 'string')) return null
   return { title: result.title, recovery, card: { kind: 'paths', paths: result.paths, ...common } }
