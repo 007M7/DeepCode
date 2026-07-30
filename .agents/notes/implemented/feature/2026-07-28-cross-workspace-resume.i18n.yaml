@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-28-cross-workspace-resume.md
-2026-07-28-cross-workspace-resume.md: be455496346b9242585c1aace18f4f55cba905c0
-2026-07-28-cross-workspace-resume.zh.md: 0384cf204e51e4086b05c75e691f59d6b60a7d11
+2026-07-28-cross-workspace-resume.md: 500ada299950f2a4640929a7bac597861b3cc207
+2026-07-28-cross-workspace-resume.zh.md: 01930e8651b6276e366fcfef1bf1d1e0a2a72464

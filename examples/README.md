@@ -14,7 +14,7 @@ Run with: `pnpm run demo:headless "task"` (needs `DEEPSEEK_API_KEY`). See [headl
 
 An **overlay** over the shipped TUI that reduces the model-facing registry to the `run_code` transport, so the model batches tool work into TypeScript programs instead of one call per turn.
 
-Run with: `pnpm run demo:code-mode` (needs `DEEPSEEK_API_KEY`). See [code-mode/README.md](code-mode/README.md). The interactive agent itself is not an example: `pnpm run demo:tui` boots [`apps/cli/config/tui.cordis.yml`](../apps/cli/config/tui.cordis.yml) over the shared base, and its PTY and snapshot scenarios live in `apps/cli/tests/`.
+Run with: `pnpm run demo:code-mode` (needs `DEEPSEEK_API_KEY`). See [../apps/cli/README.md](../apps/cli/README.md). The interactive agent itself is not an example: `pnpm run demo:tui` boots [`apps/cli/config/tui.cordis.yml`](../apps/cli/config/tui.cordis.yml) over the shared base, and its PTY and snapshot scenarios live in `apps/cli/tests/`.
 
 ## jsonrpc-agent
 

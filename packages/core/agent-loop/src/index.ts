@@ -174,7 +174,7 @@ export interface LauncherAgentIdentity {
 }
 
 /** Launcher-selected identities keyed by the configured agent's `id`. */
-export type ConfiguredAgentIdentities = Readonly<Record<string, LauncherAgentIdentity>>
+export interface ConfiguredAgentIdentities extends Readonly<Record<string, LauncherAgentIdentity>> {}
 
 /**
  * Context key a launcher sets before any Loader entry mounts

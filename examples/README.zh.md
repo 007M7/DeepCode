@@ -14,7 +14,7 @@
 
 叠加在交付 TUI 之上的 **overlay**：把面向模型的注册表收敛为 `run_code` 这一个传输，使模型把工具工作批量写进 TypeScript 程序，而不是每轮一次调用。
 
-运行：`pnpm run demo:code-mode`（需要 `DEEPSEEK_API_KEY`）。详见 [code-mode/README.md](code-mode/README.md)。交互式 agent 本身不再是示例：`pnpm run demo:tui` 在共享 base 之上启动 [`apps/cli/config/tui.cordis.yml`](../apps/cli/config/tui.cordis.yml)，其 PTY 与快照场景位于 `apps/cli/tests/`。
+运行：`pnpm run demo:code-mode`（需要 `DEEPSEEK_API_KEY`）。详见 [../apps/cli/README.md](../apps/cli/README.md)。交互式 agent 本身不再是示例：`pnpm run demo:tui` 在共享 base 之上启动 [`apps/cli/config/tui.cordis.yml`](../apps/cli/config/tui.cordis.yml)，其 PTY 与快照场景位于 `apps/cli/tests/`。
 
 ## jsonrpc-agent
 
