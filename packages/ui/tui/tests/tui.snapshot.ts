@@ -909,6 +909,12 @@ describe('TUI terminal-state snapshots', () => {
           messageSeqs: [1],
           source: { kind: 'fallback' },
         })
+        // Renders over a boundary-bearing log. It cannot pin the exclusion:
+        // `/status` appends its own `command/run` first, so the boundary is
+        // never the tail here. The other two call sites pin it.
+        dateNow.mockReturnValue(Date.parse('2026-07-22T10:10:11.000Z'))
+        session.append('session/inherited', {})
+        dateNow.mockReturnValue(Date.parse('2026-07-22T09:10:11.000Z'))
       },
     }, { columns: 92, rows: 32 })
     await renderAfter(harness, () => {

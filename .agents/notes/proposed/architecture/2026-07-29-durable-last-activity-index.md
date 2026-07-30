@@ -12,7 +12,7 @@ mtime answers a different question: when the artifact was last written. Every du
 
 The attached projection has a real fix — `lastActivityTime()` skips boundaries — but it needs the event log, and the cold path deliberately does not read one. Reading the log to compute `updatedAt` would defeat the header-only listing that keeps `list()` scaling with session count rather than log size.
 
-The boundary change raised the frequency of this defect and documented it as a known limitation on `dsh-host-apiproxy`. It did not introduce the approximation, and removing the approximation is a durable-format decision, which is why it is scoped here rather than there.
+The [boundary change](../../implemented/architecture/2026-07-30-session-inherited-log-boundary.md) raised the frequency of this defect, because a pickup now writes where nothing was written before; `dsh-host-apiproxy`'s README records it under Known Limitations. It did not introduce the approximation, and removing the approximation is a durable-format decision, which is why it is scoped here rather than there.
 
 ## Proposal
 

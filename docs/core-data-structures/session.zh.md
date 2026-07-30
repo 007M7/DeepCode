@@ -97,6 +97,10 @@ interface SessionEventMap {
    * and no writer in this lifecycle produced it. Payload is empty — position
    * and `time` carry the meaning.
    *
+   * Locate the LAST one rather than reading `firstLiveSeq`: a seed already
+   * ending in a boundary is not re-marked, so reopening an untouched session
+   * does not grow its log per pickup.
+   *
    * An owner of a standalone open/close bracket (`compact/start` …
    * `compact/end`) reads it because inherited history and live work are
    * otherwise byte-identical: an unmatched opening marker below the boundary
@@ -348,6 +352,10 @@ declare class Session {
    * `session/inherited` event at this seq, which is what a consumer reading
    * STORED history reads. Prefer this field in-process — it is exact before
    * the marker's write reaches storage.
+   *
+   * The marker is appended before the store attaches, so when one exists the
+   * event AT this seq did not publish either: the firehose gap runs through
+   * `firstLiveSeq`, not just below it.
    */
   readonly firstLiveSeq: number;
   constructor(id: SessionId, seed?: readonly SessionEvent[], header?: SessionHeader);

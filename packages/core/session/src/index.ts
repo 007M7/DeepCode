@@ -394,6 +394,10 @@ export class Session {
    * `session/inherited` event at this seq, which is what a consumer reading
    * STORED history reads. Prefer this field in-process — it is exact before
    * the marker's write reaches storage.
+   *
+   * The marker is appended before the store attaches, so when one exists the
+   * event AT this seq did not publish either: the firehose gap runs through
+   * `firstLiveSeq`, not just below it.
    */
   readonly firstLiveSeq: number
 

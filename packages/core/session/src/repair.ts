@@ -14,6 +14,11 @@ import type { SessionEvent } from './types.ts'
  * The `time` of the log's last event representing actual work, skipping the
  * `session/inherited` boundary — picking a session up is not activity, so
  * activity ordering must exclude it.
+ *
+ * Excluded by type, so a pickup time still leaks when a boundary is the last
+ * event of an open turn: {@link interruptedTurnClosers} copies it onto the
+ * synthetic `turn/end`, which this counts as work. Reachable only by seeding an
+ * unbalanced log directly — `load()` balances first.
  * @param events - the log to scan, in seq order.
  * @returns the latest non-boundary event's `time`, or undefined when there is none.
  */

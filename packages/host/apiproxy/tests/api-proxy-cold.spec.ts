@@ -86,8 +86,7 @@ describe('attached updatedAt excludes the inherited-history boundary', () => {
     await ctx.plugin(AgentRegistry)
     const api = createApiProxy(ctx, { provider: 'p', model: 'm', cwd: '/tmp', workspaceRoot: '/tmp' })
 
-    // Old work, resumed just now: the boundary's time is far above the work's,
-    // so reading the log tail would report the pickup as activity.
+    // Old work, resumed just now: the log tail would report the pickup.
     const worked = 1_000_000
     const resumed = ctx.sessions.create(sid('resumed-untouched'), {
       seed: [

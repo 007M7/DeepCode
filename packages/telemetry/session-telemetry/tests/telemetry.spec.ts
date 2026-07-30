@@ -191,7 +191,7 @@ describe('TelemetryCoordinator adoption', () => {
     expect(seqs.filter(([id]) => id === 'seeded')).toEqual([['seeded', 2], ['seeded', 3]])
   })
 
-  it('resume shape: a full-log seed exports nothing yet still rebuilds the chunk projection', async () => {
+  it('resume shape: a full-log seed exports only its own boundary and rebuilds the chunk projection', async () => {
     const backend = new FakeBackend()
     const ctx = new Context()
     await ctx.plugin(SessionStore)

@@ -24,9 +24,11 @@ Two guards keep the marker from becoming noise. An empty seed writes nothing: a 
 
 ## Persistence needs no changes
 
-The marker is in `session.events` before the coordinator captures its creation seed, so it persists through the ordinary seed path — `onCreated`'s `createCore` + `appendCore`, or the ownerless-claim suffix write. No load-path write, no revision bump at load, no durable mark on a rejected `append`, and a read-only store still serves loads.
+The constructor append happens before `enter()`, so the session has no store attachment: the marker never publishes on `session/event`, exactly like the seed events below it. It is instead part of the log `initFor` captures as the creation seed, and persists through the ordinary seed path — `onCreated`'s `createCore` + `appendCore`, or the ownerless-claim suffix write. A consumer that watches the firehose therefore never sees the boundary and must read it from the log.
 
-Being a live event, it reaches disk through the write-behind drain (`session/event` → `live.pending` → `scheduleDrain`) rather than a synchronous commit, so a crash can lose it. That costs nothing: `pending` drains in order, so a lost boundary means every live event above it is lost too, and the next pickup reads the same bytes the previous one did, appends its own boundary, and classifies the bracket identically. In-process consumers should prefer `firstLiveSeq`, which is exact before any write.
+Consequences for the seam: `load()` stays a pure read, with no revision bump, no `commitRepair` on a balanced log, and no durable mark left by a rejected `append`. **Attaching is not a pure read**, though — a pickup now writes where nothing was written before, so a read-only or full disk fails at `session/created` rather than at the first real turn. That is the one cost this placement adds, and it is narrower than the load-path version's (which failed the load itself).
+
+A crash before the seed write reaches disk loses the boundary, and that costs nothing: the pending batch is written in order, so a lost boundary means every event above it is lost too. The next pickup reads the same bytes the previous one did, appends its own boundary, and classifies the bracket identically. In-process consumers should prefer `firstLiveSeq`, which is exact before any write.
 
 ## Scope of the guarantee
 

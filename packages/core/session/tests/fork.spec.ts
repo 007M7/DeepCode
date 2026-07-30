@@ -7,6 +7,8 @@ import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 declare module '@deepseek-ai/dsh-session' {
   interface SessionEventMap {
     'test/log-only': { value: string }
+    /** Stands in for a plugin's open/close bracket (`compact/start`). */
+    'test/bracket-open': { id: string }
   }
 }
 
@@ -152,6 +154,27 @@ describe('SessionStore.fork', () => {
       expect(inherited(child).at(-1)?.type).toBe('turn/end')
       expect(child.header.seedLength).toBe(source.events.length)
     }
+  })
+
+  it('marks a bracket the child inherited from a still-running parent', async () => {
+    // The constructor placement's central claim, unreachable from the
+    // persistence load path.
+    const { ctx, sessions } = await setup()
+    const parent = ctx.sessions.create(SessionId('bracket-parent'), { meta: { cwd: '/workspace' } })
+    appendClosedTurn(parent, 1, 'work')
+    const open = parent.append('test/bracket-open', { id: 'op-1' })
+
+    const child = sessions.fork(parent, undefined, SessionId('bracket-child'))
+
+    // Parent: nothing above the bracket, so its owner must treat it as live.
+    expect(parent.events.at(-1)).toBe(open)
+    expect(parent.events.some(event => event.type === 'session/inherited')).toBe(false)
+    // Child: the same bracket sits below its boundary, so it is dead history.
+    const boundary = child.events.at(-1)
+    expect(boundary).toMatchObject({ type: 'session/inherited' })
+    expect(boundary!.seq).toBeGreaterThan(open.seq)
+    expect(child.firstLiveSeq).toBe(open.seq + 1)
+    expect(inherited(child).at(-1)).toMatchObject({ type: 'test/bracket-open', data: { id: 'op-1' } })
   })
 
   it('rejects invalid boundaries before creating a child', async () => {
