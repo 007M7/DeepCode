@@ -22,6 +22,10 @@ export { JsonTree } from './JsonTree.tsx'
 export type { JsonTreeProps } from './JsonTree.tsx'
 export { TerminalBlock, DEFAULT_TERMINAL_MAX_LINES } from './TerminalBlock.tsx'
 export type { TerminalBlockProps } from './TerminalBlock.tsx'
+export { SearchBlock, DEFAULT_SEARCH_MAX_LINES } from './SearchBlock.tsx'
+export type {
+  SearchBlockProps, SearchMatchesBlockProps, SearchPathsBlockProps, SearchFileGroup, SearchBlockLineMatch,
+} from './SearchBlock.tsx'
 export { CodeBlock } from './markdown/CodeBlock.tsx'
 export { JsonBlock } from './markdown/JsonBlock.tsx'
 export { MarkdownText } from './markdown/MarkdownText.tsx'

@@ -80,12 +80,13 @@ describe('apply wiring', () => {
     await b.runtime.dispose()
   })
 
-  it('mounts the bash sample and the todo row as keyed entries through the load-order seam', async () => {
+  it('mounts the bash sample, the search row (grep + glob), and the todo row as keyed entries through the load-order seam', async () => {
     const b = await bench()
-    // Both registrant plugins' inject: ['slots', 'conversation'] resolved — the
-    // service being present implies the chat entry declared the hole first.
+    // All registrant plugins' inject: ['slots', 'conversation'] resolved — the
+    // service being present implies the chat entry declared the hole first. The
+    // one search row registers under both grep and glob.
     const entries = b.slots.entries('conversation.chat.toolview')
-    expect(entries.map(e => e.options.key)).toEqual(['bash', 'todo_write'])
+    expect(entries.map(e => e.options.key)).toEqual(['bash', 'grep', 'glob', 'todo_write'])
     // Stats stick with the composer (not inside ChatView).
     expect(b.slots.entries('conversation.composer.dock').map(e => e.options.id)).toEqual(['stats'])
     await b.runtime.dispose()

@@ -136,6 +136,60 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
   [TERMINAL_OUTPUT_FIXTURE]: { exitCode: 1 },
 }
 
+/**
+ * Structured grep result for the search sample (turn 67): matches grouped by
+ * file, authored inline because the client-side fixture cannot import the tool
+ * that produces the canonical value. `truncated` with a larger `total` than the
+ * retained match count exercises the search card's capped indicator; the file
+ * with more than CHAT_SEARCH_MAX_LINES rows exercises its head/tail height cap.
+ */
+const SEARCH_MATCHES_FIXTURE: { path: string; matches: { lineNumber: number; line: string }[] }[] = [
+  {
+    path: 'packages/client/ui-primitives/src/SearchBlock.tsx',
+    matches: [
+      { lineNumber: 16, line: 'export const DEFAULT_SEARCH_MAX_LINES = 16' },
+      { lineNumber: 138, line: 'export function SearchBlock(props: SearchBlockProps) {' },
+      { lineNumber: 141, line: '  const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(() => new Set())' },
+    ],
+  },
+  {
+    path: 'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+    matches: [
+      { lineNumber: 24, line: 'export const CHAT_SEARCH_MAX_LINES = 8' },
+      { lineNumber: 60, line: 'export function searchCardModel(block: ToolCallBlock): SearchCardModel | null {' },
+    ],
+  },
+]
+
+/**
+ * The model-facing grep render text for the sample, grouped under file headers
+ * with `Line N:` rows and a spill footer — what a UI without a search card
+ * shows, attached as the view's `content`.
+ */
+const SEARCH_MATCHES_TEXT = [
+  ...SEARCH_MATCHES_FIXTURE.flatMap(file => [
+    file.path,
+    ...file.matches.map(m => `  Line ${m.lineNumber}: ${m.line}`),
+  ]),
+  '',
+  '（已显示 5 处匹配中的前 5 处，共 42 处；其余见溢出文件）',
+].join('\n')
+
+/**
+ * Structured glob result for the search sample (turn 68): a flat path list,
+ * truncated with a larger `total` so the path card shows its capped indicator.
+ */
+const SEARCH_PATHS_FIXTURE = [
+  'packages/client/ui-primitives/src/SearchBlock.tsx',
+  'packages/client/ui-primitives/src/SearchBlock.module.css',
+  'packages/client/ui-conversation/src/client/contract/search-card-model.ts',
+  'packages/client/ui-conversation/src/client/toolviews/search-sample.tsx',
+  'packages/client/ui-conversation/src/client/toolviews/search-sample.module.css',
+]
+
+/** The model-facing glob render text: the newline-joined path list plus a spill footer. */
+const SEARCH_PATHS_TEXT = [...SEARCH_PATHS_FIXTURE, '', '（共 23 个路径，已显示前 5 个）'].join('\n')
+
 const DEEPSEEK_REASONING = {
   efforts: [
     { id: 'off', name: 'Off' },
@@ -296,8 +350,18 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
+  // Turns 66-67: the search card's two shapes. `grep` emits a `card: 'search'`
+  // `kind: 'matches'` result view (grouped-by-file matches, truncated with a
+  // larger `total`), `glob` emits `kind: 'paths'` (a flat path list, likewise
+  // truncated). Both ride the keyed SearchRow registration under their own
+  // names; the render-site fallback row is covered by the model derivation
+  // tests, since every fixture search tool has a keyed row. Ordered before the
+  // todo turn for the same standing-plan reason the bash turn is.
+  toolTurn(66, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(67, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(66, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(68, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -336,6 +400,13 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
       return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
     case 'write':
       return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+    // A search call stays a generic card (kind: 'search'): the structured
+    // matches/paths exist only after execute, so the search card is result-time
+    // only (presentResult builds it). This mirrors the real grep/glob presenters.
+    case 'grep':
+      return { card: 'generic', title: `Grep ${str(args.pattern)}`, kind: 'search', rawInput: args }
+    case 'glob':
+      return { card: 'generic', title: `Glob ${str(args.pattern)}`, kind: 'search', rawInput: args }
     default:
       return undefined // echo et al: the documented no-view fallback path
   }
@@ -344,6 +415,22 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // Search is result-time only: the call stays a generic search card, and the
+  // result view carries the structured shape the card renders, with the
+  // model-facing text as `content` for a UI without a search card. `total`
+  // exceeds the retained count so the card shows its capped indicator.
+  if (name === 'grep') {
+    return {
+      card: 'search', kind: 'matches', files: SEARCH_MATCHES_FIXTURE,
+      truncated: true, total: 42, content: text(resultText),
+    }
+  }
+  if (name === 'glob') {
+    return {
+      card: 'search', kind: 'paths', paths: SEARCH_PATHS_FIXTURE,
+      truncated: true, total: 23, content: text(resultText),
+    }
+  }
   switch (call.card) {
     case 'terminal':
       // The sample's own exit status, authored beside it: re-parsing the

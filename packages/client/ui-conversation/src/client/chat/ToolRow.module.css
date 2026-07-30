@@ -175,14 +175,15 @@ button.leading {
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The two block-shaped expanded bodies: the code variant's run_code program
-   through CodeBlock (shiki-highlighted TypeScript) and a terminal card's
-   command output through TerminalBlock. Both are drawn by the shared
-   primitive, so only the row's indentation is this file's concern — the margin
-   also replaces each primitive's own standalone vertical spacing with the
-   flow's row rhythm. */
+/* The block-shaped expanded bodies: the code variant's run_code program
+   through CodeBlock (shiki-highlighted TypeScript), a terminal card's command
+   output through TerminalBlock, and a search card's grouped matches or path
+   list through SearchBlock. All are drawn by the shared primitive, so only the
+   row's indentation is this file's concern — the margin also replaces each
+   primitive's own standalone vertical spacing with the flow's row rhythm. */
 .codeBody,
-.terminalBody {
+.terminalBody,
+.searchBody {
   margin: 4px 0 4px 22px;
 }
 
