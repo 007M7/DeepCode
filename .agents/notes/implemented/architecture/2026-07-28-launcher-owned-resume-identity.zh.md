@@ -37,7 +37,7 @@ TUI 持有渲染，而非措辞：它在自己的 `palette.muted` 之前先应�
 
 **保留这些键，并在应用组合包中加入内建默认值。** 拒绝：代码中的默认值能在 overlay 下存活，但表达同一事实的两种途径依然并存，而配置作者仍可把键设错——这正是那行陈旧的 `process.env.RESUME_SESSION_ID` 使 resume 失效的方式。
 
-**把应用组合包合并进 `apps/cli` 并彻底删除该槽位。** 此处拒绝，但后来以本 note 未曾设想的形式[被采纳](../simplification/2026-07-29-shared-base-config-overlays.md)：组合被搬进平铺的配置文件（`apps/cli/base.cordis.yml` 加各 surface 一份 overlay），而非搬进 CLI 代码，因此从未进入 `v8 ignore` 进程接线块，overlay 的扩展点也作为普通配置项 patch 保留了下来。槽位本身并未被删除——它迁移到了 `dsh-agent-loop`，因为启动器的事实依然不能经由一个可被整体替换的配置键传递。
+**把应用组合包合并进 `apps/cli` 并彻底删除该槽位。** 此处拒绝，但后来以本 note 未曾设想的形式[被采纳](../simplification/2026-07-29-shared-base-config-overlays.md)：组合被搬进平铺的配置文件（`apps/cli/config/base.cordis.yml` 加各 surface 一份 overlay），而非搬进 CLI 代码，因此从未进入 `v8 ignore` 进程接线块，overlay 的扩展点也作为普通配置项 patch 保留了下来。槽位本身并未被删除——它迁移到了 `dsh-agent-loop`，因为启动器的事实依然不能经由一个可被整体替换的配置键传递。
 
 **把 goodbye 消息放到 `TuiResumeHost` 上。** 拒绝：退出行不是一项移交能力，而一个无法替换自身进程的宿主仍可能想要打印一行。它们是相互独立的槽位。
 

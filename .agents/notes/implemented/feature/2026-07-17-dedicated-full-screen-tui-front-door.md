@@ -14,7 +14,7 @@ The interactive channel must remain a Cordis plugin over the same agent, session
 
 DeepSeek Harness ships [`@deepseek-ai/dsh-tui`](../../../../packages/ui/tui/README.md) as a dedicated Cordis plugin. It owns terminal input and presentation only; agent lifecycle, session persistence, tool execution, and the model-facing question tool remain separate composition entries. The plugin requires both stdin and stdout to be TTYs and fails instead of silently changing to line-oriented behavior.
 
-There is one terminal front door. `@deepseek-ai/dsh-tui` mounts before the configured agent, and `apps/cli/tui.cordis.yml` — an overlay over the shared `base.cordis.yml` — owns the interactive coding composition, with the Code Mode overlay in `examples/code-mode`. Non-interactive tasks use `@deepseek-ai/dsh-cli-demo`; ACP remains a separate automation protocol.
+There is one terminal front door. `@deepseek-ai/dsh-tui` mounts before the configured agent, and `apps/cli/config/tui.cordis.yml` — an overlay over the shared `base.cordis.yml` — owns the interactive coding composition, with the Code Mode overlay in `examples/code-mode`. Non-interactive tasks use `@deepseek-ai/dsh-cli-demo`; ACP remains a separate automation protocol.
 
 The selected front door receives the exact generated or resumed `SessionId` used by the pre-created agent. It mounts before the agent composition, waits for the matching root agent, and enters full-screen mode only after that agent exists. A matching `agent-loop/config-start-failed` event is therefore reported before screen takeover and exits with status 1.
 

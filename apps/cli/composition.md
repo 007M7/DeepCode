@@ -190,6 +190,6 @@ flowchart LR
 | `tui` | `@deepseek-ai/dsh-tui` |
 | `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` |
 
-Source configs: [`apps/cli/base.cordis.yml`](base.cordis.yml), [`apps/cli/tui.cordis.yml`](tui.cordis.yml).
+Source configs: [`apps/cli/config/base.cordis.yml`](config/base.cordis.yml), [`apps/cli/config/tui.cordis.yml`](config/tui.cordis.yml).
 
 Maintenance mode: hybrid: the leaf plugin list is parsed from its shipped config files; app package expansion is curated from package source.

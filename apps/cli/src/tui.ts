@@ -50,8 +50,8 @@ const NAME = 'dsh'
 // The shared core every `dsh` surface mounts, and the TUI's own overlay over
 // it. Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib)
 // sit one directory under apps/cli, so each resolves with the same hop.
-const BASE_CONFIG = fileURLToPath(new URL('../base.cordis.yml', import.meta.url))
-const TUI_OVERLAY = fileURLToPath(new URL('../tui.cordis.yml', import.meta.url))
+const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
+const TUI_OVERLAY = fileURLToPath(new URL('../config/tui.cordis.yml', import.meta.url))
 
 // The `agents` entry in tui.cordis.yml the TUI drives; the launcher binds its
 // session identity by this config id.

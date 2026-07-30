@@ -8,7 +8,7 @@ Harness uses `cordis.yml` to describe which plugins an agent loads and the confi
 
 The repository examples are runnable configurations and the most reliable starting points for a new project:
 
-- [the shared `dsh` base](../../../apps/cli/base.cordis.yml) plus the [`tui.cordis.yml`](../../../apps/cli/tui.cordis.yml) overlay combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
+- [the shared `dsh` base](../../../apps/cli/config/base.cordis.yml) plus the [`tui.cordis.yml`](../../../apps/cli/config/tui.cordis.yml) overlay combines the DeepSeek model, Bash, filesystem, compaction, subagents, workflows, and the interactive TUI.
 - [headless-agent](../../../examples/headless-agent/cordis.yml) exposes the coding composition as a one-shot task.
 - [acp-agent](../../../examples/acp-agent/cordis.yml) exposes fresh sessions to programmatic ACP clients.
 

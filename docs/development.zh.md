@@ -83,7 +83,7 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：
 
-- `pre-commit` 运行对暂存文件的 ESLint 修复，检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
+- `pre-commit` 应用仅用于格式化的 ESLint 修复，使用 Oxlint 验证暂存文件并应用其原生修复，然后检查暂存 diff 中的空白错误，并运行 vendor manifest（元数据清单）守卫；
 - `pre-push` 只运行仓库增量类型检查（对根 solution 执行 `tsc -b`，覆盖 host 与 client 两个聚合）。
 
 vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `vendor/README.md` manifest 更新一起暂存。请在编辑 vendor 代码前先阅读 `vendor/README.md`。
@@ -106,8 +106,8 @@ pnpm run test:coverage  # unit tests with per-file coverage gates
 pnpm run test:e2e       # real-API tests; self-skips without DEEPSEEK_API_KEY
 pnpm run check:all      # comprehensive opt-in gate set; not wired to Git hooks
 pnpm run typecheck      # tsc -b over the root solution: emits package/vendor lib/types, checks both aggregates
-pnpm run lint           # eslint .
-pnpm run lint:fix       # eslint . --fix
+pnpm run lint           # oxlint .
+pnpm run lint:fix       # formatting-only ESLint, then oxlint . --fix
 pnpm run doc-typecheck  # compile checked TypeScript snippets in Markdown docs
 pnpm run gen-cordis-catalog     # regenerate docs/cordis-catalog/events.md + services.md from source
 pnpm run verify-cordis-catalog  # fail if either cordis catalog is stale

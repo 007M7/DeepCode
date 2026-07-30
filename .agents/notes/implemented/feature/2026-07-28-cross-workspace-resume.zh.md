@@ -20,7 +20,7 @@ dsh 启动器通过启动槽位提供其 Harness home 下的同一个会话根�
 
 **存储。** `dsh-paths` 以 `resolveSessionsRoot()` 拥有该位置（按 `resolveDshHome` 的优先级，取 Harness home 下的 `sessions`），但只有启动器假定它：共享存储策略属于 dsh CLI，绝不属于插件。TUI 界面通过 `SESSIONS_ROOT_KEY` 启动槽位（在 Loader 条目挂载前 `ctx.provide`）提供该根目录，`dsh web` 则在 `apps/cli/src/app-cli-entry.ts` 中为同一根目录打补丁。CLI 的两处界面各自独立计算该路径，正是本次改动所修复的那种失败——互不相交的存储——因此这项事实只有一个归属，而不是每个调用方各做一次 `join`，这与 `run` 已有的 `registryRoot()` 先例一致。
 
-共享 base 直接在配置项自身表达这一优先级：`apps/cli/base.cordis.yml` 的 `session-persistence-jsonl` 配置项写作 `root: !!js launcherSessionsRoot ?? './.sessions'`，因此启动器槽位优先，而没有槽位的裸启动则保留项目本地默认值。把它写成配置项自身的 `!!js` 取值、而不是 schemastery 的 `.default()`，其原因与在组合包中相同：schema 默认值会在能够读取槽位之前就物化。若 overlay 或个人 patch 显式声明了根目录，则始终以其为准——对于要求自洽封闭的部署，这仍是正确选择。
+共享 base 直接在配置项自身表达这一优先级：`apps/cli/config/base.cordis.yml` 的 `session-persistence-jsonl` 配置项写作 `root: !!js launcherSessionsRoot ?? './.sessions'`，因此启动器槽位优先，而没有槽位的裸启动则保留项目本地默认值。把它写成配置项自身的 `!!js` 取值、而不是 schemastery 的 `.default()`，其原因与在组合包中相同：schema 默认值会在能够读取槽位之前就物化。若 overlay 或个人 patch 显式声明了根目录，则始终以其为准——对于要求自洽封闭的部署，这仍是正确选择。
 
 **是范围，不是排除。** 当前 workspace 之外的 workspace 是一种展示范围，而不是禁用理由。`showResume()` 汇总每一条记录，`ResumePicker` 持有一个 `'workspace' | 'all'` 的 `scope`，默认为当前 workspace，因此常见场景毫无变化。Tab 切换范围；范围行会说明当前生效的范围，以及另一个范围下的数量；在全 workspace 范围中每一行都报告自己的 workspace，而该标签只在展示它的范围里才加入可搜索文本。切换范围会清空查询和选中项，使高亮行始终属于可见列表；而逐行的 workspace 行会让该范围下的每一行在终端里多占一行，可见条数预算已经把这一点计入。
 

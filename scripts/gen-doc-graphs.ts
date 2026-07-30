@@ -8,8 +8,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import ts from 'typescript'
-import { DEFAULT_SCHEMA, load, Type } from 'js-yaml'
-import { collectEvents, collectServices } from './gen-cordis-catalog.ts'
+import { projectCordisCatalog } from '@deepseek-ai/dsh-typert-generator'
+import { CORDIS_CATALOG_POLICY } from './gen-cordis-catalog.ts'
+import type { EventEntry, ServiceEntry } from '@deepseek-ai/dsh-typert-generator'
 import {
   collectPackageGraph,
   escapeMermaidLabel as escLabel,
@@ -59,6 +60,7 @@ const GROUP_ORDER = [
   'util',
   'llm',
   'core',
+  'typert',
   'goal',
   'process',
   'bash',
@@ -128,6 +130,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     mode: 'core',
     consumers: ['session', 'agent', 'scope', 'agent-loop'],
     note: 'Companion subpaths register owner-local checks; the service owns selection, uniqueness, child fibers, and package-attributed failures.',
+  },
+  {
+    key: 'typert',
+    pkg: 'typert-registry',
+    title: 'Runtime type registry',
+    mode: 'core',
+    consumers: ['typert-loader'],
+    note: 'Plugins register live zod contributions directly or through dsh-typert-loader; runtime consumers query schemas and reflection metadata at their own edges.',
   },
   {
     key: 'sessionPersistence',
@@ -274,7 +284,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'agent',
     title: 'Agent service',
     mode: 'core',
-    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess'],
+    consumers: ['agent-loop', 'acp', 'cli-demo', 'subagent-inprocess', 'tui-demo'],
     note: 'Owns live Agent handles, the create/resume factory seam, and process-local initiator propagation.',
   },
   {
@@ -508,8 +518,8 @@ function tableCell(value: string): string {
   return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>')
 }
 
-function assertServiceRolesComplete(): void {
-  const discovered = new Set(collectServices().map(service => service.key))
+function assertServiceRolesComplete(services: readonly ServiceEntry[]): void {
+  const discovered = new Set(services.map(service => service.key))
   const classified = new Set(SERVICE_ROLES.map(role => role.key))
   const missing = [...discovered].filter(key => !classified.has(key)).sort()
   const stale = [...classified].filter(key => !discovered.has(key)).sort()
@@ -521,8 +531,8 @@ function assertServiceRolesComplete(): void {
   }
 }
 
-function renderCapabilitySeams(pkgs: Pkg[]): string {
-  assertServiceRolesComplete()
+function renderCapabilitySeams(pkgs: Pkg[], services: readonly ServiceEntry[]): string {
+  assertServiceRolesComplete(services)
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'hybrid: services are discovered from Cordis declarations; interface/implementation/consumer roles are classified in `scripts/gen-doc-graphs.ts` with a completeness guard'
   const nodes = new Map<string, string>()
@@ -567,37 +577,38 @@ function renderCapabilitySeams(pkgs: Pkg[]): string {
   return lines.join('\n')
 }
 
-const jsExpressionType = new Type('tag:yaml.org,2002:js', {
-  kind: 'scalar',
-  construct: (value: string | null): string => value ?? '',
-})
-const cordisSchema = DEFAULT_SCHEMA.extend([jsExpressionType])
-
 function parseExampleCordis(rel: string): ExamplePlugin[] {
-  const document = load(readFileSync(resolve(root, rel), 'utf8'), { schema: cordisSchema })
-  if (!Array.isArray(document)) throw new Error(`${rel}: expected a top-level config array`)
+  const text = readFileSync(resolve(root, rel), 'utf8')
   const plugins: ExamplePlugin[] = []
-  const visit = (entries: unknown[]): void => {
-    for (const value of entries) {
-      if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
-      const entry = value as { id?: unknown; name?: unknown; insert?: unknown }
-      if (typeof entry.id === 'string' && typeof entry.name === 'string') {
-        plugins.push({ id: entry.id, name: entry.name })
-      }
-      if (Array.isArray(entry.insert)) visit(entry.insert)
-    }
+  let current: { id: string; name?: string } | null = null
+  const flush = (): void => {
+    if (current?.name) plugins.push({ id: current.id, name: current.name })
   }
-  visit(document)
+  for (const line of text.split('\n')) {
+    const id = /^-\s+id:\s+(.+?)\s*$/.exec(line)
+    if (id?.[1] !== undefined) {
+      flush()
+      current = { id: stripYamlScalar(id[1]) }
+      continue
+    }
+    const name = /^\s+name:\s+(.+?)\s*$/.exec(line)
+    if (name?.[1] !== undefined && current) current.name = stripYamlScalar(name[1])
+  }
+  flush()
   return plugins
+}
+
+function stripYamlScalar(value: string): string {
+  return value.trim().replace(/^['"]|['"]$/g, '')
 }
 
 const APP_EXAMPLES = [
   {
     id: 'tui',
-    rel: 'apps/cli/composition.md',
-    title: 'dsh TUI Composition',
-    label: 'apps/cli (dsh)',
-    configs: ['apps/cli/base.cordis.yml', 'apps/cli/tui.cordis.yml'],
+    rel: 'examples/tui-agent/composition.md',
+    title: 'TUI Agent App Composition',
+    label: 'examples/tui-agent',
+    config: 'examples/tui-agent/cordis.yml',
     summary: 'The TUI agent combines the real DeepSeek adapter, coding tools, compaction, subagents, and workflows with the full-screen terminal app package.',
   },
   {
@@ -605,15 +616,23 @@ const APP_EXAMPLES = [
     rel: 'examples/headless-agent/composition.md',
     title: 'Headless Agent App Composition',
     label: 'examples/headless-agent',
-    configs: ['examples/headless-agent/cordis.yml'],
+    config: 'examples/headless-agent/cordis.yml',
     summary: 'The headless demo combines the real DeepSeek adapter and coding capabilities with the one-shot app package, format-pure stdout, and one fresh persisted top-level session.',
+  },
+  {
+    id: 'cordis',
+    rel: 'examples/cordis-agent/composition.md',
+    title: 'Cordis Agent App Composition',
+    label: 'examples/cordis-agent',
+    config: 'examples/cordis-agent/cordis.yml',
+    summary: 'The self-referential demo puts @deepseek-ai/dsh-tool-cordis on the coding spine, letting the agent inspect its current-process runtime and mount or unmount in-memory temporary Plugins.',
   },
   {
     id: 'acp',
     rel: 'examples/acp-agent/composition.md',
     title: 'ACP Automation App Composition',
     label: 'examples/acp-agent',
-    configs: ['examples/acp-agent/cordis.yml'],
+    config: 'examples/acp-agent/cordis.yml',
     summary: 'The ACP demo exposes fresh baseline-prompt agent sessions to programmatic clients over JSON-RPC stdio, with no stdout logger, human UI, or pre-created agent.',
   },
 ]
@@ -625,7 +644,9 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
   const jsonl = nodeId('bundle', 'jsonl')
   lines.push(`  ${appNode} --> ${agentCore}["@deepseek-ai/dsh-agent-spine-demo"]`)
   lines.push(`  ${appNode} --> ${jsonl}["@deepseek-ai/dsh-session-persistence-jsonl"]`)
-  if (pluginName === '@deepseek-ai/dsh-cli-demo') {
+  if (pluginName === '@deepseek-ai/dsh-tui-demo') {
+    lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'tui')}["@deepseek-ai/dsh-tui<br/>pre-created main agent"]`)
+  } else if (pluginName === '@deepseek-ai/dsh-cli-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'cli')}["one-shot driver<br/>format-pure stdout<br/>fresh top-level agent"]`)
   } else if (pluginName === '@deepseek-ai/dsh-acp-demo') {
     lines.push(`  ${appNode} --> ${nodeId('frontdoor', 'acp')}["@deepseek-ai/dsh-acp<br/>automation-only JSON-RPC stdio<br/>fresh sessions created by client"]`)
@@ -639,21 +660,21 @@ function renderAppExpansion(lines: string[], appNode: string, pluginName: string
 }
 
 function renderAppComposition(example: AppExample): string {
-  const plugins = example.configs.flatMap(parseExampleCordis)
-  const maintenance = 'hybrid: the leaf plugin list is parsed from its shipped config files; app package expansion is curated from package source'
+  const plugins = parseExampleCordis(example.config)
+  const maintenance = 'hybrid: the leaf plugin list is parsed from its `cordis.yml`; app package expansion is curated from package source'
   const lines = generatedHeader(example.title)
   lines.push(
     example.summary,
     '',
     '```mermaid',
     'flowchart LR',
-    `  cfg["${escLabel(example.label)}<br/>${escLabel(example.configs.map(config => config.split('/').at(-1)).join(' + '))}"]`,
+    `  cfg["${escLabel(example.label)}<br/>cordis.yml"]`,
   )
   for (const plugin of plugins) {
     const pluginNode = nodeId(`plugin_${example.id}`, plugin.id)
     lines.push(`  ${pluginNode}["${escLabel(plugin.id)}<br/>${escLabel(plugin.name)}"]`)
     lines.push(`  cfg --> ${pluginNode}`)
-    if (plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
+    if (plugin.name === '@deepseek-ai/dsh-tui-demo' || plugin.name === '@deepseek-ai/dsh-cli-demo' || plugin.name === '@deepseek-ai/dsh-acp-demo') {
       renderAppExpansion(lines, pluginNode, plugin.name)
     }
   }
@@ -664,7 +685,7 @@ function renderAppComposition(example: AppExample): string {
     '| --- | --- |',
     ...plugins.map(plugin => `| \`${plugin.id}\` | \`${plugin.name}\` |`),
     '',
-    `Source config${example.configs.length === 1 ? '' : 's'}: ${example.configs.map(config => `[\`${config}\`](${linkFromDoc(example.rel, config)})`).join(', ')}.`,
+    `Source config: [\`${example.config}\`](${linkFromDoc(example.rel, example.config)}).`,
   )
   lines.push('', ...maintenanceFooter(maintenance))
   return lines.join('\n')
@@ -960,8 +981,7 @@ function listenerPackages(listeners: Set<string>, pkgsByShort: Map<string, Pkg>)
   return [...listeners].sort().map(pkg => pkgLink(pkgsByShort.get(pkg), pkg)).join(', ')
 }
 
-function renderEventRelations(pkgs: Pkg[]): string {
-  const events = collectEvents()
+function renderEventRelations(pkgs: Pkg[], events: readonly EventEntry[]): string {
   const relations = collectEventRelations()
   const pkgsByShort = new Map(pkgs.map(pkg => [pkg.short, pkg]))
   const maintenance = 'generated: Cordis event declarations and producer/listener edges are resolved from the repository TypeScript Program'
@@ -1150,10 +1170,11 @@ function renderToolPipeline(): string {
 
 function renderDocs(): GraphDoc[] {
   const pkgs = collectPackageGraph(root, GROUP_ORDER, 'gen-doc-graphs')
+  const { model } = projectCordisCatalog(root, CORDIS_CATALOG_POLICY)
   const docs: GraphDoc[] = [
-    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs) },
+    { rel: 'docs/capability-seams.md', content: renderCapabilitySeams(pkgs, model.services) },
     ...APP_EXAMPLES.map(example => ({ rel: example.rel, content: renderAppComposition(example) })),
-    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs) },
+    { rel: 'docs/event-producer-consumer.md', content: renderEventRelations(pkgs, model.events) },
     { rel: 'docs/agent-lifecycle.md', content: renderLifecycle() },
     { rel: 'docs/tool-execution-pipeline.md', content: renderToolPipeline() },
   ]
@@ -1165,7 +1186,8 @@ function renderIndex(docs: GraphDoc[]): string {
   const labels: Record<string, string> = {
     'docs/capability-seams.md': 'capability seams and core services',
     'examples/headless-agent/composition.md': 'headless-agent app composition',
-    'apps/cli/composition.md': 'dsh TUI composition',
+    'examples/tui-agent/composition.md': 'tui-agent app composition',
+    'examples/cordis-agent/composition.md': 'cordis-agent app composition',
     'examples/acp-agent/composition.md': 'acp-agent app composition',
     'docs/event-producer-consumer.md': 'event producer/consumer matrix',
     'docs/agent-lifecycle.md': 'agent turn and step lifecycle',
@@ -1174,7 +1196,8 @@ function renderIndex(docs: GraphDoc[]): string {
   const modes: Record<string, string> = {
     'docs/capability-seams.md': 'hybrid generated',
     'examples/headless-agent/composition.md': 'hybrid generated',
-    'apps/cli/composition.md': 'hybrid generated',
+    'examples/tui-agent/composition.md': 'hybrid generated',
+    'examples/cordis-agent/composition.md': 'hybrid generated',
     'examples/acp-agent/composition.md': 'hybrid generated',
     'docs/event-producer-consumer.md': 'hybrid generated',
     'docs/agent-lifecycle.md': 'curated',

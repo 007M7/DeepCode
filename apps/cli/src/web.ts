@@ -11,8 +11,8 @@ import { resolveConfigPath } from '@deepseek-ai/dsh-app-boot'
 import { AppCLIEntry } from './app-cli-entry.ts'
 
 // The shared core every `dsh` surface mounts, plus this surface's overlay over it.
-const BASE_CONFIG = fileURLToPath(new URL('../base.cordis.yml', import.meta.url))
-const WEB_OVERLAY = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
+const BASE_CONFIG = fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url))
+const WEB_OVERLAY = fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url))
 
 // Display-only mirror of the webserver schema's loopback host: the address the
 // local URL always prints. Not a source of truth — the schema is.

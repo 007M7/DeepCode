@@ -16,7 +16,7 @@ The duplication was the load-bearing problem. Of the 43 shared rows, 38 were byt
 
 One shared base, one overlay per surface, composed as sibling patch lists.
 
-`apps/cli/base.cordis.yml` holds the 43 rows both surfaces mount. `apps/cli/tui.cordis.yml` and `apps/cli/web.cordis.yml` are **patch lists**, not trees: each states the handful of rows whose value is surface-specific and inserts its own rows. The launcher includes the base once and applies every overlay as a sibling patch list at **one** include level, because include patches never cross an include boundary — stacking overlays as nested includes would silently stop reaching base rows.
+`apps/cli/config/base.cordis.yml` holds the 43 rows both surfaces mount. `apps/cli/config/tui.cordis.yml` and `apps/cli/config/web.cordis.yml` are **patch lists**, not trees: each states the handful of rows whose value is surface-specific and inserts its own rows. The launcher includes the base once and applies every overlay as a sibling patch list at **one** include level, because include patches never cross an include boundary — stacking overlays as nested includes would silently stop reaching base rows.
 
 Precedence is list order, last write winning per row: base, then the surface overlay, then either a `--config` overlay or the personal `~/.dsh/config.yaml`, then the launcher's own flag and profile patches.
 

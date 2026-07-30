@@ -145,7 +145,7 @@ export async function startInProcessRun(
   // Close the narrow handoff race before installing the live-run listener.
   // Static analysis does not model the abort that may land between the
   // factory's listener detachment and this continuation.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   if (request.signal.aborted) {
     flags.cancelled = true
     await handle.dispose()

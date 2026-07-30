@@ -16,7 +16,7 @@ Status: implemented
 
 一份共享 base，每个 surface 一份 overlay，以平级 patch 列表的形式组合。
 
-`apps/cli/base.cordis.yml` 持有两个 surface 都会挂载的 43 个配置项。`apps/cli/tui.cordis.yml` 与 `apps/cli/web.cordis.yml` 是 **patch 列表**，不是配置树：各自声明少数取值因 surface 而异的配置项，并 insert 自己的配置项。启动器只 include base 一次，并把每个 overlay 作为**同一** include 层级上的平级 patch 列表应用——因为 include patch 不会跨越 include 边界，把 overlay 堆叠成嵌套 include 会使其静默地无法触达 base 配置项。
+`apps/cli/config/base.cordis.yml` 持有两个 surface 都会挂载的 43 个配置项。`apps/cli/config/tui.cordis.yml` 与 `apps/cli/config/web.cordis.yml` 是 **patch 列表**，不是配置树：各自声明少数取值因 surface 而异的配置项，并 insert 自己的配置项。启动器只 include base 一次，并把每个 overlay 作为**同一** include 层级上的平级 patch 列表应用——因为 include patch 不会跨越 include 边界，把 overlay 堆叠成嵌套 include 会使其静默地无法触达 base 配置项。
 
 优先级即列表顺序，逐配置项后写者胜：base，然后是 surface overlay，接着是 `--config` overlay 或个人 `~/.dsh/config.yaml`，最后是启动器自身的 flag 与 profile patch。
 

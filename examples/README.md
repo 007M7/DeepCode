@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: either a `cordis.yml` tree that picks swappable backends and loads one app package, or an **overlay** — a patch list `dsh --config` applies over the shipped composition ([`apps/cli/base.cordis.yml`](../apps/cli/base.cordis.yml) plus a surface overlay). Bundled compositions live in [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle; the `dsh` surfaces use flat config trees instead. There is no `start.ts`; the terminal `demo:*` scripts boot through the [`dsh`](../apps/cli/README.md) CLI, and the headless/ACP scripts invoke the `cli-demo`/`acp-demo` bins.
+Runnable demos (not workspaces) that showcase how the harness is wired. Each example is a **thin leaf**: either a `cordis.yml` tree that picks swappable backends and loads one app package, or an **overlay** — a patch list `dsh --config` applies over the shipped composition ([`apps/cli/config/base.cordis.yml`](../apps/cli/config/base.cordis.yml) plus a surface overlay). Bundled compositions live in [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo), [`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo), and their shared [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) bundle; the `dsh` surfaces use flat config trees instead. There is no `start.ts`; the terminal `demo:*` scripts boot through the [`dsh`](../apps/cli/README.md) CLI, and the headless/ACP scripts invoke the `cli-demo`/`acp-demo` bins.
 
 ## headless-agent
 
@@ -14,7 +14,7 @@ Run with: `pnpm run demo:headless "task"` (needs `DEEPSEEK_API_KEY`). See [headl
 
 An **overlay** over the shipped TUI that reduces the model-facing registry to the `run_code` transport, so the model batches tool work into TypeScript programs instead of one call per turn.
 
-Run with: `pnpm run demo:code-mode` (needs `DEEPSEEK_API_KEY`). See [code-mode/README.md](code-mode/README.md). The interactive agent itself is not an example: `pnpm run demo:tui` boots [`apps/cli/tui.cordis.yml`](../apps/cli/tui.cordis.yml) over the shared base, and its PTY and snapshot scenarios live in `apps/cli/tests/`.
+Run with: `pnpm run demo:code-mode` (needs `DEEPSEEK_API_KEY`). See [code-mode/README.md](code-mode/README.md). The interactive agent itself is not an example: `pnpm run demo:tui` boots [`apps/cli/config/tui.cordis.yml`](../apps/cli/config/tui.cordis.yml) over the shared base, and its PTY and snapshot scenarios live in `apps/cli/tests/`.
 
 ## jsonrpc-agent
 

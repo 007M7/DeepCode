@@ -75,8 +75,8 @@ async function consumeUntilTurnEnd(frames: AsyncIterable<RpcRequest<MuxFrame>>, 
 export async function runHeadless(task: string): Promise<void> {
   // A missing DEEPSEEK_API_KEY throws here (plugin load is fail-loud, uncaught by design).
   const entry = new AppCLIEntry({
-    configPath: fileURLToPath(new URL('../base.cordis.yml', import.meta.url)),
-    overlayPath: fileURLToPath(new URL('../web.cordis.yml', import.meta.url)),
+    configPath: fileURLToPath(new URL('../config/base.cordis.yml', import.meta.url)),
+    overlayPath: fileURLToPath(new URL('../config/web.cordis.yml', import.meta.url)),
     dev: false,
     port: 0,
   })
