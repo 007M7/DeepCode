@@ -29,6 +29,24 @@ describe('LocaleService', () => {
     expect(t('missing.key')).toBe('missing.key')
   })
 
+  it('falls through to the common vocabulary after the namespace misses (production keys)', () => {
+    const { svc } = make()
+    // The shipped common pair is registered by apply; the bench registers it
+    // directly to pin the production chain: ns -> common -> zh -> key.
+    svc.register('common', 'zh', { retry: '重试' })
+    svc.register('common', 'en', { retry: 'Retry' })
+    svc.register('ns', 'zh', { own: '自有' })
+    const t = svc.bind('ns')
+    expect(t('retry')).toBe('重试')
+    svc.setLocale('en')
+    expect(t('retry')).toBe('Retry')
+    expect(t('own')).toBe('自有')
+    // common itself must not recurse: a miss inside common echoes the key.
+    // (Wide-string ns hits the untyped bind overload — the typed one rejects
+    // unknown keys at compile time, which is the point of the seam.)
+    expect(svc.bind('common' as string)('nope')).toBe('nope')
+  })
+
   it('interpolates {name} params and leaves unknown placeholders intact', () => {
     const { svc } = make()
     svc.register('ns', 'zh', { greet: '你好，{name}！第 {n} 次', partial: '{known} 与 {unknown}' })
@@ -54,6 +72,47 @@ describe('LocaleService', () => {
     expect(t('k')).toBe('v2')
     dispose()
     expect(t('k')).toBe('v2')
+  })
+
+  it('serves the LocaleFace: snapshot revision moves on switch and registration, subscribers fire, unsubscribe stops them', () => {
+    const { svc } = make()
+    const seen: number[] = []
+    const off = svc.subscribe(() => { seen.push(svc.getSnapshot().revision) })
+    expect(svc.getSnapshot()).toBe(svc.getLocale())
+    const r0 = svc.getSnapshot().revision
+    svc.register('ns', 'zh', { k: 'v' })
+    expect(svc.getSnapshot().revision).toBe(r0 + 1)
+    svc.setLocale('en')
+    expect(seen).toEqual([r0 + 1, r0 + 2])
+    off()
+    svc.setLocale('zh')
+    expect(seen).toHaveLength(2)
+  })
+
+  it('isolates a throwing subscriber: the rest still see the new revision', () => {
+    const { svc } = make()
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const seen: number[] = []
+      svc.subscribe(() => { throw new Error('boom') })
+      svc.subscribe(() => { seen.push(svc.getSnapshot().revision) })
+      svc.setLocale('en')
+      expect(seen).toEqual([1])
+      expect(spy).toHaveBeenCalledOnce()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('register disposer republishes (mounted outlets drop the dead dictionary)', () => {
+    const { svc } = make()
+    const dispose = svc.register('ns', 'zh', { k: 'v' })
+    const before = svc.getSnapshot().revision
+    dispose()
+    expect(svc.getSnapshot().revision).toBe(before + 1)
+    // Second run hits the idempotent arm: nothing removed, no republish.
+    dispose()
+    expect(svc.getSnapshot().revision).toBe(before + 1)
   })
 
   it('setLocale persists, republishes an immutable snapshot, and no-ops on same value', () => {

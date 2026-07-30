@@ -4,11 +4,21 @@
  * preference row into the settings General section — the locale feature owns
  * its own settings surface.
  */
+/* oxlint-disable typescript/no-redundant-type-constituents --
+ * `keyof LocaleNamespaceMap & string` is the declare-merge key pattern (see
+ * ui-slots): in THIS unit the map holds only this package's own merges, but
+ * consumers merge more namespaces in and the intersection keeps them
+ * string-typed. The rule fires on the narrow-map view, not real redundancy. */
 import type { Context } from 'cordis'
-import { deferRegistration, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+import {
+  deferRegistration,
+  type BoundActions, type LocaleDictOf, type LocaleNamespaceMap, type Translate, type TranslateNS,
+} from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { en } from '../locales/en.ts'
-import { zh } from '../locales/zh.ts'
+import { en, zh, type CommonKey } from '../locales/index.ts'
+import {
+  en as settingsEn, zh as settingsZh, type SettingsLocaleKey,
+} from '../locales/settings.ts'
 import type { LanguageRowInjected } from './LanguageRow.tsx'
 import { LanguageRow } from './LanguageRow.tsx'
 import { createLanguageRowStore } from './settings-store.ts'
@@ -16,9 +26,21 @@ import { createLanguageRowStore } from './settings-store.ts'
 export type { LanguageRowComponentProps, LanguageRowInjected } from './LanguageRow.tsx'
 export type { LanguageOptionRow, LanguageRowState } from './settings-store.ts'
 export type { SettingsGeneralItemOwnerProps } from './settings-contract.ts'
+export type { CommonKey } from '../locales/index.ts'
 
-/** Translate a key with optional params. */
-export type Translate = (key: string, params?: Record<string, unknown>) => string
+// The translate currency lives in ui-slots (the render machinery synthesizes
+// the seat); re-exported here so dictionary owners import one package.
+// TranslateNS<'model'> is the namespace-addressed developer-facing form.
+export type { Translate, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Shared cross-feature vocabulary, consulted by the lookup chain after the entry's own namespace misses. */
+    common: CommonKey
+    /** This feature's own settings-row copy (the Language row). */
+    'settings.locale': SettingsLocaleKey
+  }
+}
 
 /** Locale dictionary: flat key to template string ({name} placeholders). */
 export type LocaleDict = Record<string, string>
@@ -50,7 +72,10 @@ declare module 'cordis' {
   }
   interface Events {
     /**
-     * Locale state changed (active locale switched or registry updated).
+     * The active locale switched. Dictionary registrations do NOT emit this
+     * event (listeners may re-register slots in response, and boot registers
+     * one namespace per package); continuous render refresh rides the
+     * LocaleFace revision instead.
      * @param snapshot - Current immutable locale snapshot.
      * @mode emit
      */
@@ -77,16 +102,20 @@ const LOCALES: readonly LocaleDefinition[] = Object.freeze([
 ])
 
 /**
- * Dictionary registry plus locale preference. Lookup chain per key: active
- * locale -> zh fallback -> the key itself (missing text stays visible, fail
- * loud in the UI rather than blank). Reads go through {@link getLocale};
- * writes only through {@link setLocale}; continuous sync only through the
- * `locale/change` event.
+ * Dictionary registry plus locale preference. Lookup chain per key: the
+ * entry's namespace in the active locale -> that namespace's zh fallback ->
+ * the shared common namespace (active, then zh) -> the key itself (missing
+ * text stays visible, fail loud in the UI rather than blank). Reads go
+ * through {@link getLocale}; writes only through {@link setLocale};
+ * continuous sync through the `locale/change` event, or through the
+ * LocaleFace getSnapshot/subscribe pair the render machinery consumes
+ * (installed via `ctx.slots.installLocale`).
  */
 export class LocaleService {
   private dicts = new Map<string, Map<string, LocaleDict>>()
   private bound = new Map<string, Translate>()
   private snapshot: LocaleSnapshot
+  private listeners = new Set<() => void>()
   private readonly ctx: Context
 
   /**
@@ -106,6 +135,27 @@ export class LocaleService {
   }
 
   /**
+   * LocaleFace getSnapshot: the current snapshot (carries `revision`; stable
+   * reference between changes, uSES-safe).
+   * @returns the current snapshot.
+   */
+  getSnapshot(): LocaleSnapshot {
+    return this.snapshot
+  }
+
+  /**
+   * LocaleFace subscribe: notified on every snapshot change (locale switch
+   * or dictionary registration — registrations bump the revision so already
+   * rendered outlets pick up late-arriving dictionaries).
+   * @param fn - change callback.
+   * @returns unsubscribe.
+   */
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn)
+    return () => { this.listeners.delete(fn) }
+  }
+
+  /**
    * Switch the active locale — the only preference write entry. Persists the
    * id and emits `locale/change`.
    * @param id - a registered locale id; unknown ids throw.
@@ -114,44 +164,80 @@ export class LocaleService {
     const match = this.snapshot.locales.find(l => l.id === id)
     if (match === undefined) throw new Error(`locale "${id}" is not registered`)
     if (this.snapshot.active === match.id) return
-    this.snapshot = Object.freeze({
-      active: match.id,
-      locales: this.snapshot.locales,
-      revision: this.snapshot.revision + 1,
-    })
     persistPreference(match.id)
-    this.ctx.emit('locale/change', this.snapshot)
+    this.publish(match.id, true)
   }
 
   /**
-   * Register a dictionary for a namespace and locale. Duplicate (ns, locale)
-   * throws (single occupant; a namespace's texts have one owner).
+   * Register a declared namespace's dictionaries, all locales in one call —
+   * the typed form: each dictionary is checked against the namespace's
+   * {@link LocaleNamespaceMap} key union (a missing or extra key is a
+   * compile error), and every shipped locale is required (bilingual balance
+   * enforced at the seam). Duplicate (ns, locale) throws (single occupant; a
+   * namespace's texts have one owner). Registration bumps the revision so
+   * mounted outlets pick up late-arriving dictionaries.
+   * @param ns - a namespace merged into LocaleNamespaceMap.
+   * @param dicts - complete dictionaries keyed by locale id.
+   * @returns disposer removing every locale registered by this call (idempotent).
+   */
+  register<N extends keyof LocaleNamespaceMap & string>(ns: N, dicts: Record<LocaleId, LocaleDictOf<N>>): () => void
+  /**
+   * Single-locale untyped form for namespaces outside the merge table
+   * (dynamic composition, tests).
    * @param ns - namespace.
-   * @param locale - locale tag (zh/en to start).
+   * @param locale - locale tag.
    * @param dict - dictionary.
    * @returns disposer (idempotent).
    */
-  register(ns: string, locale: string, dict: LocaleDict): () => void {
+  register(ns: string, locale: string, dict: LocaleDict): () => void
+  register(ns: string, localeOrDicts: string | Record<string, LocaleDict>, dict?: LocaleDict): () => void {
+    const pairs: [string, LocaleDict][] = typeof localeOrDicts === 'string'
+      // Overload guarantees dict on the single-locale arm.
+      ? [[localeOrDicts, dict as LocaleDict]]
+      : Object.entries(localeOrDicts)
     let locales = this.dicts.get(ns)
     if (!locales) {
       locales = new Map()
       this.dicts.set(ns, locales)
     }
-    if (locales.has(locale)) throw new Error(`locale namespace "${ns}" already has locale "${locale}"`)
-    locales.set(locale, dict)
+    for (const [locale] of pairs) {
+      if (locales.has(locale)) throw new Error(`locale namespace "${ns}" already has locale "${locale}"`)
+    }
+    for (const [locale, entries] of pairs) locales.set(locale, entries)
+    this.publish(this.snapshot.active, false)
     return () => {
       const owner = this.dicts.get(ns)
-      if (owner?.get(locale) === dict) owner.delete(locale)
+      /* v8 ignore next -- defensive: a namespace's locales map is created on
+       * first register and never removed, so the disposer always finds it. */
+      if (!owner) return
+      let removed = false
+      for (const [locale, entries] of pairs) {
+        if (owner.get(locale) === entries) {
+          owner.delete(locale)
+          removed = true
+        }
+      }
+      if (removed) this.publish(this.snapshot.active, false)
     }
   }
 
   /**
-   * Bind a namespace to a translate function. The returned reference is
-   * stable per namespace (repeat binds return the same function), so it can
-   * ride inject surfaces without breaking memoization.
-   * @param ns - namespace.
-   * @returns the translate function (reads the active locale at call time).
+   * Bind a declared namespace to a translate function typed to its
+   * dictionary key union (plus the shared common vocabulary) — the same key
+   * domain the framework-injected `t` seat carries. The returned reference
+   * is stable per namespace (repeat binds return the same function), so it
+   * can ride inject surfaces without breaking memoization.
+   * @param ns - a namespace merged into LocaleNamespaceMap.
+   * @returns the typed translate function (reads the active locale at call time).
    */
+  bind<N extends keyof LocaleNamespaceMap & string>(ns: N): TranslateNS<N>
+  /**
+   * Untyped form for namespaces outside the merge table (dynamic
+   * composition, tests).
+   * @param ns - namespace.
+   * @returns the translate function.
+   */
+  bind(ns: string): Translate
   bind(ns: string): Translate {
     let t = this.bound.get(ns)
     if (!t) {
@@ -163,13 +249,42 @@ export class LocaleService {
   }
 
   private translate(ns: string, key: string, params?: Record<string, unknown>): string {
-    const locales = this.dicts.get(ns)
-    const template = locales?.get(this.snapshot.active)?.[key]
-      ?? locales?.get(FALLBACK_LOCALE)?.[key]
+    const template = this.lookup(ns, key)
+      ?? (ns !== COMMON_NS ? this.lookup(COMMON_NS, key) : undefined)
       ?? key
     if (!params) return template
     return template.replace(/\{(\w+)\}/g, (match, name: string) =>
       name in params ? String(params[name]) : match)
+  }
+
+  private lookup(ns: string, key: string): string | undefined {
+    const locales = this.dicts.get(ns)
+    return locales?.get(this.snapshot.active)?.[key] ?? locales?.get(FALLBACK_LOCALE)?.[key]
+  }
+
+  /**
+   * Advance the snapshot revision and notify LocaleFace subscribers (render
+   * refresh). Only an active-locale switch additionally emits
+   * `locale/change` — dictionary registrations stay off the event so
+   * registration-heavy boot cannot storm event listeners (which may
+   * re-register slots in response).
+   */
+  private publish(active: LocaleId, localeChanged: boolean): void {
+    this.snapshot = Object.freeze({
+      active,
+      locales: this.snapshot.locales,
+      revision: this.snapshot.revision + 1,
+    })
+    if (localeChanged) this.ctx.emit('locale/change', this.snapshot)
+    for (const fn of [...this.listeners]) {
+      try {
+        fn()
+      } catch (error) {
+        // One throwing subscriber must not strand the rest on a stale
+        // revision (outlets would keep the previous language).
+        console.error('locale subscriber crashed:', error)
+      }
+    }
   }
 }
 
@@ -208,11 +323,12 @@ export const inject = ['slots']
  */
 export function apply(ctx: ClientContext): void {
   const locale = new LocaleService(ctx)
-  locale.register(COMMON_NS, 'zh', zh)
-  locale.register(COMMON_NS, 'en', en)
-  locale.register(SETTINGS_NS, 'zh', { 'language.title': '语言' })
-  locale.register(SETTINGS_NS, 'en', { 'language.title': 'Language' })
+  locale.register(COMMON_NS, { zh, en })
+  locale.register(SETTINGS_NS, { zh: settingsZh, en: settingsEn })
   ctx.provide('locale', locale)
+  // The service IS the LocaleFace (bind + getSnapshot/subscribe): install it
+  // so the render machinery can synthesize the `t` standard seat.
+  ctx.slots.installLocale(locale)
 
   const store = createLanguageRowStore()
   let bound: BoundActions<typeof store> | undefined
@@ -230,7 +346,6 @@ export function apply(ctx: ClientContext): void {
     // first render (the store's revision guard drops stale duplicates).
     sync(locale.getLocale())
     return {
-      t: locale.bind(SETTINGS_NS),
       setLocale: (id) => { locale.setLocale(id) },
     }
   }
@@ -241,6 +356,7 @@ export function apply(ctx: ClientContext): void {
         id: 'language',
         order: 0,
         store,
+        locale: SETTINGS_NS,
         inject: injected,
       }, LanguageRow))
     return () => { deferred.dispose() }
