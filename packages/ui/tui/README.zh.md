@@ -75,7 +75,7 @@ Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任
     fileSearchExcludedDirectories: ['.git', 'node_modules', 'dist']
 ```
 
-任一进程流不是 TTY 时，启动会在挂载前失败。组合 app 必须先挂载 TUI，再挂载由配置创建的 agent，使入口能够观察 `agent-loop/config-start-failed`；完全匹配会话的失败会在全屏模式启动前写出并以状态 1 退出，而不是留下空白终端。dispose（资源释放）会停止接收扩展请求，卸载 `ctx.tui` 提供方及其依赖插件，中止运行中的命令，移除 TUI 定义，停止 loader，拒绝待处理问题，排空终端输入，恢复终端状态，注销事件 listener 和用户交互提供方，并且绝不会在 HMR 期间退出替换进程。
+任一进程流不是 TTY 时，启动会在挂载前失败。组合 app 必须先挂载 TUI，再挂载由配置创建的 agent，使入口能够观察 `agent-loop/config-start-failed`；完全匹配会话的失败会在全屏模式启动前写出并以状态 1 退出，而不是留下空白终端。dispose（资源释放）会停止接收扩展请求，卸载 `ctx.tui` 提供方及其依赖插件，中止运行中的命令，移除 TUI 定义，停止 loader，拒绝待处理问题，排空终端输入，恢复终端状态，注销事件 listener 和用户交互提供方，并且绝不会在 HMR 期间退出替换进程。用户退出会先 dispose 应用根上下文以关闭同级资源，再退出进程；五秒兜底可避免某个卡住的 disposer 困住进程。
 
 ## 颜色
 

@@ -7,7 +7,7 @@ This matrix shows which packages dispatch each harness-owned event and which pac
 
 | Event | Mode | Declared in | Dispatchers | Listeners |
 | --- | --- | --- | --- | --- |
-| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:148`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | [`tui`](../packages/ui/tui) |
+| `agent-loop/config-start-failed` | `emit` | [`packages/core/agent-loop/src/index.ts:157`](../packages/core/agent-loop/src/index.ts) | [`agent-loop`](../packages/core/agent-loop) (`events.dispatch`) | [`tui`](../packages/ui/tui) |
 | `agent/cancel-requested` | `emit` | [`packages/core/agent/src/types.ts:319`](../packages/core/agent/src/types.ts) | [`agent-loop`](../packages/core/agent-loop) (`emitAgentEvent`) | [`goal-session`](../packages/goal/goal-session) |
 | `agent/created` | `emit` | [`packages/core/agent/src/types.ts:250`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`goal-session`](../packages/goal/goal-session), [`tui`](../packages/ui/tui) |
 | `agent/disposed` | `emit` | [`packages/core/agent/src/types.ts:259`](../packages/core/agent/src/types.ts) | [`agent`](../packages/core/agent) (`events.dispatch`) | [`agent-loop`](../packages/core/agent-loop), [`goal-session`](../packages/goal/goal-session), [`tui`](../packages/ui/tui) |
