@@ -23,7 +23,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { connectFreshWorkspace, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/live-interactions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
@@ -90,7 +90,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -171,6 +171,29 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // tree — the diff that changes when web-error-surface lands.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(ERROR_EXPECTED, snapshot, MODE)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 120_000)
+
+  it.skipIf(MODE === 'record')('keeps a terminal request marker inside the trajectory table', async () => {
+    await launch(() => ({
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'invalid api key', code: 'AUTH' } }],
+    }))
+    const { settled } = await sendPrompt()
+    await settled
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const tailRequest = page.locator('tr[data-request-only="true"]').last()
+    await tailRequest.waitFor({ timeout: 10_000 })
+    const requestMarker = tailRequest.getByRole('button', { name: /Request #/ })
+
+    const markerWithinTable = await requestMarker.evaluate((element) => {
+      const marker = element.getBoundingClientRect()
+      const table = element.closest('table')?.getBoundingClientRect()
+      if (table === undefined) throw new Error('request marker has no table')
+      return marker.bottom <= table.bottom
+    })
+
+    expect(markerWithinTable).toBe(true)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
