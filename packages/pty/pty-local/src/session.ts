@@ -412,7 +412,7 @@ export class LocalPtySession implements PtyBackendSession {
         return
       }
       const foreground = await this.terminal.inspectForeground()
-      if (this.active !== operation || this.closing) return
+      if (this.active !== operation || this.closing || this.interrupting === operation) return
       const idleFor = Date.now() - this.lastOutputAt
       if (this.promptSeen && foreground !== undefined && this.shellPgid === undefined) {
         this.shellPgid = foreground.processGroupId
@@ -439,7 +439,7 @@ export class LocalPtySession implements PtyBackendSession {
         this.settleActive('inferred_idle')
       }
     } catch (error: unknown) {
-      if (this.active === operation && !this.closing) this.failActive(error)
+      if (this.active === operation && !this.closing && this.interrupting !== operation) this.failActive(error)
     } finally {
       this.polling = false
       const active = this.active
