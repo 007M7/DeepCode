@@ -90,7 +90,7 @@ export class TypertRegistry extends Service {
         for (const record of schemaRecords) schemas.delete(record.key)
       }
     }, 'typert.register()')
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- synchronous cleanup; preserve Cordis disposer identity
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; preserve Cordis disposer identity
     return dispose
   }
 

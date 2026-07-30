@@ -531,7 +531,7 @@ export class LlmService extends Service {
         yield value
       }
     } finally {
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- the iteration catch sets its latch before entering finally.
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the iteration catch sets its latch before entering finally.
       if (!completed && !iterationFailed) {
         const close = iterator.return?.bind(iterator)
         if (close) await close()

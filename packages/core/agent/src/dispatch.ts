@@ -108,12 +108,12 @@ export function agentEvents(ctx: Context, agent: Agent): AgentEventDispatch {
       }
     },
     async serial(name, ...rest) {
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
+      // oxlint-disable-next-line typescript/unbound-method -- the events mixin accessor returns a pre-bound function
       const serial = ctx.serial as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => Promise<never>
       return await serial(carrier, name, agent, ...rest)
     },
     waterfall(name, ...rest) {
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- the events mixin accessor returns a pre-bound function
+      // oxlint-disable-next-line typescript/unbound-method -- the events mixin accessor returns a pre-bound function
       const waterfall = ctx.waterfall as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => never
       return waterfall(carrier, name, agent, ...rest)
     },

@@ -49,7 +49,7 @@ export function selectCompactableRange(
   let accumulated = 0
   let keepFromIdx = pricedNodes.length
   for (let index = pricedNodes.length - 1; index >= 0; index -= 1) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     accumulated += pricedNodes[index]!.tokens
     keepFromIdx = index
     if (accumulated >= retainTokens) break
@@ -57,15 +57,15 @@ export function selectCompactableRange(
   if (keepFromIdx === 0) return null
 
   while (keepFromIdx > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     if (toolPairingBalancedBefore(session, surfaceNodes[keepFromIdx]!)) break
     keepFromIdx -= 1
   }
   if (keepFromIdx === 0) return null
 
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const first = surfaceNodes[0]!
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   const cutoff = surfaceNodes[keepFromIdx - 1]!
   return { start: first, end: cutoff }
 }
@@ -98,11 +98,11 @@ export async function compactSurfaceRegion(
       `compactRegion: start seq ${start} (position ${startIdx}) is after end seq ${end} (position ${endIdx}) on the surface`,
     )
   }
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   if (!toolPairingBalancedBefore(session, nodes[startIdx]!)) {
     throw new Error(`compactRegion: start seq ${start} is not a balanced boundary (would split a step's tool-call/result pair)`)
   }
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  // oxlint-disable-next-line typescript/no-non-null-assertion
   if (!toolPairingBalancedAfter(session, nodes[endIdx]!)) {
     throw new Error(`compactRegion: end seq ${end} is not a balanced boundary (would split a step, or the step is still open)`)
   }
@@ -196,7 +196,7 @@ function buildSummarizationInput(
   const events = session.events
   const regionMessages = shadowedSeqs
     // shadowedSeqs are current surface seqs, so each is a valid log index.
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     .map(seq => session.deriveEventMessage(events[seq]!))
     .filter((message): message is Message => message !== null)
   return {
@@ -213,7 +213,7 @@ function inspectTurnTail(
   let compactionInProgress = false
   let compactionStateKnown = false
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    // oxlint-disable-next-line typescript/no-non-null-assertion
     const event = events[index]!
     if (!compactionStateKnown) {
       if (event.type === 'compact/start') {
