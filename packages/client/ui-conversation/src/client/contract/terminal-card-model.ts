@@ -8,8 +8,34 @@
  * are derived once.
  * @module
  */
-import type { TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { TerminalBlockLabels, TerminalBlockProps } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { resolveToolPath, type ToolCallBlock } from './tool-call-model.ts'
+
+/**
+ * Build the TerminalBlock display copy from the conversation locale seat —
+ * the one place the primitive's label surface pairs with this package's
+ * dictionary, shared by every terminal render site (chat row, bash row,
+ * details panel).
+ * @param t - the render site's conversation locale seat.
+ * @returns the full label set for {@link TerminalBlockProps}'s `labels`.
+ */
+export function terminalBlockLabels(t: TranslateNS<'conversation'>): TerminalBlockLabels {
+  return {
+    signal: signal => t('terminal.signal', { signal }),
+    exitCode: code => t('terminal.exitCode', { code }),
+    running: t('terminal.running'),
+    failed: t('terminal.failed'),
+    done: t('terminal.done'),
+    copy: t('copy'),
+    copied: t('copied'),
+    noOutput: t('terminal.noOutput'),
+    collapseAria: t('terminal.collapseAria'),
+    collapse: t('collapse'),
+    expandAria: hidden => t('terminal.expandAria', { n: hidden }),
+    expand: hidden => t('terminal.expandRest', { n: hidden }),
+  }
+}
 
 /**
  * Output lines the chat row's expanded terminal body shows before collapsing

@@ -72,5 +72,8 @@ export const hostFrameSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('host/workspace-changed'), workspace: workspaceViewSchema }),
   z.object({ type: z.literal('host/workspace-removed'), workspaceId: workspaceIdSchema }),
   z.object({ type: z.literal('host/commands-changed') }),
+  z.object({ type: z.literal('host/settings-changed'), ns: z.string() }),
+  z.object({ type: z.literal('host/credentials-changed'), ref: z.string() }),
+  z.object({ type: z.literal('host/models-changed') }),
   z.object({ type: z.literal('stream/error'), error: rpcErrorSchema }),
 ]) as unknown as z.ZodType<HostFrame>

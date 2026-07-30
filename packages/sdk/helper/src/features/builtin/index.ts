@@ -154,7 +154,7 @@ config:
       ],
       options: [
         {
-          id: 'deepseek',
+          id: 'deepseek-official',
           label: 'DeepSeek search',
           default: true,
           markers: [{ id: 'web-search-deepseek', name: '@deepseek-ai/dsh-web-search-deepseek' }],

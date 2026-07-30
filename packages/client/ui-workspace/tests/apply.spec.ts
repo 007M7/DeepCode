@@ -1,6 +1,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
@@ -26,8 +27,10 @@ async function bench() {
     create, startSession, rename, insertSessionBefore,
   } as never)
   ctx.provide('sessions', { open, clear, binding, fork } as never)
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
   return {
-    ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename,
+    ctx, slots: ctx.get('slots') as SlotsService, locale, create, startSession, rename,
     insertSessionBefore, open, clear, renameSession, binding, fork,
   }
 }
@@ -42,7 +45,7 @@ function declare(slots: SlotsService, ...names: HoleName[]): () => void {
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale'])
   })
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {
@@ -50,6 +53,10 @@ describe('ui-workspace apply', () => {
     declare(before.slots, 'sidebar.workspaces')
     await before.ctx.plugin({ inject: [...inject], apply }).await()
     expect(before.slots.entries('sidebar.workspaces')[0]!.component).toBe(WorkspaceBrowser)
+    // Copy rides the standard locale seat: the entry declares the namespace
+    // and apply registered both dictionaries.
+    expect(before.slots.entries('sidebar.workspaces')[0]!.locale).toBe('workspace')
+    expect(before.locale.bind('workspace')('session.new')).toBe('新会话')
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()

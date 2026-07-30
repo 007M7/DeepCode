@@ -247,7 +247,7 @@ describe('goodbye message and /resume', () => {
     ({ version: 0, id: SessionId(id), createdAt, cwd })
   const resumeEvents = (
     title: string,
-    provider = 'deepseek',
+    provider = 'deepseek-official',
     time = 100,
     reason: TurnEndReason = { kind: 'completed' },
   ): SessionEvent[] => [
@@ -319,8 +319,8 @@ describe('goodbye message and /resume', () => {
       sessionPersistence: {
         list: async () => [older, newer, header('foreign-session', 3000, '/elsewhere')],
         load: async id => id === newer.id
-          ? { meta: newer, events: resumeEvents('Newer product work', 'deepseek', 300) }
-          : { meta: older, events: resumeEvents('Older investigation', 'deepseek', 100) },
+          ? { meta: newer, events: resumeEvents('Newer product work', 'deepseek-official', 300) }
+          : { meta: older, events: resumeEvents('Older investigation', 'deepseek-official', 100) },
       },
     })
     result.terminal.send('/resume')
@@ -419,7 +419,7 @@ describe('goodbye message and /resume', () => {
         list: async () => targets,
         load: async id => ({
           meta: targets.find(target => target.id === id)!,
-          events: resumeEvents(`Paged ${id.slice('paged-'.length)}`, 'deepseek', 1000 - Number(id.slice('paged-'.length)) * 10),
+          events: resumeEvents(`Paged ${id.slice('paged-'.length)}`, 'deepseek-official', 1000 - Number(id.slice('paged-'.length)) * 10),
         }),
       },
     })
@@ -475,7 +475,7 @@ describe('goodbye message and /resume', () => {
       cwd: '/workspace',
       sessionPersistence: {
         list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents(`Turn ${label}`, 'deepseek', 100, reason) }),
+        load: async () => ({ meta: target, events: resumeEvents(`Turn ${label}`, 'deepseek-official', 100, reason) }),
       },
     })
     result.terminal.send('/resume')
@@ -711,7 +711,7 @@ describe('goodbye message and /resume', () => {
   it('falls back to assistant provenance and header creation time for sparse logs', async () => {
     const assistantOnly = header('assistant-route', 20, '/workspace')
     const empty = header('empty-log', 10, '/workspace')
-    const events = resumeEvents('Assistant route', 'deepseek')
+    const events = resumeEvents('Assistant route', 'deepseek-official')
       .filter(event => event.type !== 'request/header')
       .map((event, seq) => ({ ...event, seq })) as SessionEvent[]
     const result = await setup({
@@ -726,7 +726,7 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('deepseek/model-1')
+    expect(result.terminal.output).toContain('deepseek-official/model-1')
     expect(result.terminal.output).toContain(new Date(empty.createdAt).toISOString())
     await dispose(result)
   })
@@ -2397,7 +2397,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       contextWindow: 128_000,
       contextTokens: 42_000,
       config: { showReasoning: false },
-      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
       tools: {
         read: {
           name: 'read', description: 'Read a file', parameters: {},
@@ -2445,7 +2445,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('main-session')
     expect(result.terminal.output).toContain('Inspect status \\x1b]2;unsafe\\x07')
     expect(result.terminal.output).toContain('/workspace/status')
-    expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (effort default; reasoning blocks')
+    expect(result.terminal.output).toContain('deepseek-official/deepseek-v4-pro (effort default; reasoning blocks')
     expect(result.terminal.output).toContain('hidden)')
     // 6 domain events + the /status invocation's own command/run (open turn: joined directly).
     expect(result.terminal.output).toContain('running · 7 events · 1 turn · 1 step · 2 tool calls')
@@ -3601,7 +3601,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const failed = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         listModels: () => Promise.reject(new Error('catalog offline')),
         resolveModelInfo: () => Promise.reject(new Error('capacity offline')),
@@ -3617,8 +3617,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const reasoningFailed = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
-        models: [{ provider: 'deepseek', id: 'model-1', name: 'Model One' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
+        models: [{ provider: 'deepseek-official', id: 'model-1', name: 'Model One' }],
         resolveModelInfo: () => Promise.reject(new Error('reasoning metadata offline')),
       },
     })
@@ -3634,7 +3634,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const deferred = Promise.withResolvers<never[]>()
     const result = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         listModels: () => deferred.promise,
       },
@@ -3650,7 +3650,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const rejected = Promise.withResolvers<never[]>()
     const rejectedResult = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         listModels: () => rejected.promise,
       },
@@ -3667,7 +3667,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const contextResult = await setup({
       contextTokens: 99,
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         resolveModelInfo: () => context.promise.then(value => ({ context: value })),
       },
