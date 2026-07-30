@@ -89,6 +89,17 @@ export const sessionRenameValueSchema = z.object({
   seq: z.number().int().nonnegative(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.rename'>>>
 
+/** session.fork request payload (atSeq anchors the completed-turn cut). */
+export const sessionForkRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  atSeq: z.number().int().nonnegative().optional(),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.fork'>>>
+
+/** session.fork response value (the child session id). */
+export const sessionForkValueSchema = z.object({
+  sessionId: sessionIdSchema,
+}) satisfies z.ZodType<Wire<ResponseValue<'session.fork'>>>
+
 /** session.history request payload (beforeSeq/maxMessages page backwards from the window tail). */
 export const sessionHistoryRequestSchema = z.object({
   sessionId: sessionIdSchema,

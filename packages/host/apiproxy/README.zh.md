@@ -16,7 +16,9 @@
 
 会话标题与其他所有领域一样搭乘这对通用投影机制——历史尾页的 `projections` 块外加 `title` 键下的 `session/projection` 帧（专设的 `session/title` 帧已下线）。标题不会加入 `session.list`；冷会话在其中仍只有元数据，直到打开或恢复操作附加其日志。`session.rename` 接受用户显式标题（冷会话先恢复），委托给 `ctx.sessionTitle.rename`——被接受的 `session/title` 事件将标题钉住、不再被自动生成覆盖——并返回规范化后的标题及其事件 seq，让 client 在推送帧到达前就结算自己的 `title` 投影格；规范化后为空的标题返回 `title-invalid`。
 
-会话模型路由属于会话领域契约。`session.models` 返回选中的提供方／模型／推理（reasoning）目标，以及按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。
+`session.fork` 将可选事件锚点映射到该锚点处或其后的首个 `turn/end`，使消息操作可包含该消息所在的完整轮次。锚点省略或超过末尾时，选择最后一个已完成轮次；若锚点已在日志中，而其所在轮次仍开放，则返回 `fork-unavailable`，不会向较早位置裁剪。发布后的子会话会先继承源会话的种子历史、cwd、日志中最新的提供方／模型／推理（reasoning）目标及谱系，再加入源 Workspace。如果附加到 Workspace 失败，`workspace-attach-failed` 会携带已发布的子会话 id，供客户端对账。[SessionStore fork 决策](../../../.agents/notes/implemented/feature/2026-06-30-session-store-fork-api.md)给出边界设计的理由。
+
+会话模型路由属于会话领域契约。`session.models` 返回选中的提供方／模型／推理目标，以及按提供方分组的建议性模型、精确路由推理元数据和逐提供方查询失败记录。`session.selectModel` 校验由适配器持有的可选推理强度，并替换将在下一提示词组装边界使用的完整目标。目录成员关系不构成校验：适配器可以解析未列出的模型，而不可用路由或不受支持的推理强度会返回 `model-unavailable`。
 
 待处理的 queued 输入属于实时控制平面契约，而非会话历史。网关镜像来自 `agent/inbox/*` 的 queued `InboxItem` 入队项，并在每次 queued 变更和重连时广播权威的 `session/queue` 快照；待处理 steering（中途引导）不进入此 Web 投影。`session.updateQueue` 通过 `InboxItemId` 寻址单个项：编辑会替换待处理内容，移除会将其丢弃。驱动器在接纳前退役寻址标识，因此认领会赢得竞态；之后的操作返回 `queue-item-not-found`。该操作只查询当前已挂载的 Agent，绝不恢复冷会话，因为进程本地 inbox 标识无法在重启或资源释放后存活。客户端绝不根据轮次或状态事件推断项已退役。
 
@@ -43,7 +45,7 @@ Workspace 列表与 Session 列表是相互独立的重连基线。`workspace.cr
 ## 已知限制与延期工作
 
 - **`respond` 路由已经发布，但待处理交互状态仍属宿主侧工作**：协议形状（POST `/api/respond`、`RpcReceipt`）已经定型；使延迟或重复回答具有明确语义的待处理表位于 `src/api-proxy.ts`，目前仍很精简（只支持问题，不支持审批）。
-- **预留 seam 不进入 `RpcMethodMap`**：`session.fork`、`prompt.mode: 'inject'`、`task.list`、`host.listModels` 和描述字段 `hostInstanceId` 都是已记录的预留项；未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
+- **预留 seam 不进入 `RpcMethodMap`**：`prompt.mode: 'inject'`、`task.list`、`host.listModels` 和描述字段 `hostInstanceId` 都是已记录的预留项；未知方法会在信封解析时直接失败，而不会返回「尚未实现」错误码。
 - **没有协议版本字段**：客户端与宿主一同发布；只有出现独立发布的客户端后，`host.describe` 才会增加版本协商字段。
 - **Linux 原生选择器依赖桌面工具**：在 `native` 能力下，Zenity 和 KDialog 均未安装时，`host.pickDirectory` 会给出包含解决建议的错误提示；组合层面的回退是 browse 后端（见 [native 后端 README](../directory-picker-native/README.md)）。
-- **冷会话的 `updatedAt` 会把一次单纯的拾起算作写入（仅逐文件后端）**：已附加投影排除了 `session/end-seed` 边界，因为接手一个会话不算活动；但冷会话的 `updatedAt` 取自其日志文件的 mtime，而每一次持久写入都会刷新它，包括这条边界。`agentFor()` 会在首次触碰时恢复一个冷会话，因此在客户端里仅仅打开一个会话就会写入它。这只适用于 `locate()` 能解析出逐会话产物的场景，即 JSONL；SQLite 返回 `undefined`，因此它的冷会话回退到 `createdAt`，偏差方向相反——偏旧而不是偏新——且与这条边界无关。于是一个被触碰过却没有在里面工作过的会话，在重新附加之前会排在它最后一次真实活动之后。要把两者区分开需要读取日志，而这恰恰是 mtime 路径存在的目的；在索引中存储一个最后活动字段可以从源头修好它，范围见[最后活动索引 Agent Note](../../../.agents/notes/proposed/architecture/2026-07-29-durable-last-activity-index.md)。
+- **冷会话的 `updatedAt` 会把一次单纯的拾起算作写入（仅逐文件后端）**：已附加投影排除了 `session/end-seed` 边界，因为接手一个会话不算活动；但冷会话的 `updatedAt` 取自其日志文件的 mtime，而每一次持久写入都会刷新它，包括这条边界。`agentFor()` 会在首次触碰时恢复一个冷会话，因此在客户端里仅仅打开一个会话就会写入它。这只适用于 `locate()` 能解析出逐会话产物的场景，即 JSONL；SQLite 返回 `undefined`，因此它的冷会话回退到 `createdAt`，偏差方向相反——偏旧而不是偏新——且与这条边界无关。于是一个被触碰过却没有在里面工作过的会话，在重新附加之前会按晚于其最后一次真实活动的时间排序。要把两者区分开需要读取日志，而这恰恰是 mtime 路径存在的目的；在索引中存储一个最后活动字段可以从源头修好它，范围见[最后活动索引 Agent Note（agent 决策记录）](../../../.agents/notes/proposed/architecture/2026-07-29-durable-last-activity-index.md)。
