@@ -2565,7 +2565,7 @@ async resolveByPath(path: string): Promise<Workspace | undefined>
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/workspace/workspace/src/index.ts:90`](../../packages/workspace/workspace/src/index.ts)
+Source: [`packages/workspace/workspace/src/index.ts:92`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 
