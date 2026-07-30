@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from 'cordis'
+import { Context, type FiberState } from 'cordis'
 import { CombinedAutocompleteProvider, visibleWidth, type Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
   agentEvents, assembleContextFor, InboxItemId, type Agent, type InboxItem,
@@ -503,7 +503,7 @@ describe('goodbye message and /resume', () => {
     await dispose(result)
   })
 
-  it('treats a closed session-query provider as unavailable', async () => {
+  it('treats a terminal-state session-query provider as unavailable', async () => {
     let queryCtx: Context | undefined
     const result = await setup({
       cwd: '/workspace',
@@ -518,12 +518,15 @@ describe('goodbye message and /resume', () => {
         })
       },
     })
-    await queryCtx!.fiber.dispose()
+    if (queryCtx === undefined) throw new Error('query provider did not mount')
+    const activeState = queryCtx.fiber.state
+    queryCtx.fiber.state = 5
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('session query is not mounted')
     expect(result.terminal.output).not.toContain('closed database')
+    queryCtx.fiber.state = activeState
     await dispose(result)
   })
 

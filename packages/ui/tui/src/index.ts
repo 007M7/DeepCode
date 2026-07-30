@@ -19,7 +19,7 @@ import {
   type SlashCommand,
   type TerminalColorScheme,
 } from '@earendil-works/pi-tui'
-import { Service, type Context, type Fiber } from 'cordis'
+import { Service, type Context, type Fiber, type FiberState } from 'cordis'
 import {
   assembleContextFor,
   installAgentLlmTarget,
@@ -55,6 +55,7 @@ import {
   TuiExtensionServiceImpl,
   TuiOverlayManager,
 } from './extension/overlay-manager.ts'
+
 import {
   parseTuiPromptTemplate,
   renderTuiPromptTemplate,
@@ -169,6 +170,9 @@ export type {
   TuiTheme,
   TuiViewport,
 } from './extension/types.ts'
+
+/** First terminal Cordis state: FAILED, DISPOSED, and UNLOADING are unusable. */
+const FIBER_FAILED = 3 as FiberState.FAILED
 
 declare module 'cordis' {
   interface Context {
@@ -840,10 +844,14 @@ export function createTuiChat(
     resolved,
     palette,
     overlayManager,
-    // Optional and independently mounted: read at each use so config row order
-    // cannot decide whether /resume works. Strict lookup excludes a closing or
-    // closed provider rather than dispatching into a stale SQLite handle.
-    sessionQuery: () => ctx.get('sessionQuery'),
+    // Optional and independently mounted. Cordis transiently leaves this sibling
+    // non-ACTIVE during command callbacks, so the non-strict read is intentional;
+    // terminal fiber states still exclude failed, closing, and closed providers.
+    sessionQuery: () => {
+      const implementation = ctx.reflect._getImpl('sessionQuery', false)
+      if (implementation === undefined || implementation.fiber.state >= FIBER_FAILED) return undefined
+      return ctx.get('sessionQuery', false)
+    },
     ui,
     editor,
     appendNotice,
