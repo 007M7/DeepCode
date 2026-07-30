@@ -882,15 +882,23 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'subagents',
-    summary: 'Named provider registry with raw and Task-backed continuation operations.',
+    summary: 'Named provider registry with one-shot runs and continuable-child operations.',
     methods: [
       {
-        signature: 'startContinuable(spec: ContinuableStartSpec): ContinuableStart',
-        jsDoc: '/**\n * Start one durable continuable child through a Task-backed initial\n * activation.\n * @param spec - provider, Task label, and delegation request.\n * @returns the stable child id and initial activation Task id.\n */',
+        signature: 'async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>',
+        jsDoc: '/**\n * Establish one durable continuable child and deliver its initial prompt.\n * Resolves when the child\'s inbox accepts that prompt, without waiting for the\n * turn to start or for the message to reach the Session log; any earlier\n * failure rejects with no ids and rolls back the child entirely.\n * @param spec - provider, delegation request, and caller cancellation.\n * @returns the durable child id and the accepted prompt\'s message id.\n * @throws when continuation services are unavailable or materialization fails.\n */',
       },
       {
-        signature: 'followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<SubagentFollowupResult>',
-        jsDoc: '/**\n * Follow up with a continuable child. A live child is steered and fulfillment\n * confirms request admission; an idle child immediately returns a fresh Task\n * whose descriptor lookup, authorization, and cold resume may later fail.\n * @param parent - live direct parent authorizing the operation.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable attribution and caller cancellation; aborting a\n *   live-delivery wait cancels the shared activation and awaits quiescence.\n * @returns the existing steered Task or newly started Task.\n * @throws when continuation services are unavailable or live delivery is not admitted.\n */',
+        signature: 'async followup( authority: SubagentAuthority, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>',
+        jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so parent and user messages\n * share one observable order.\n * @param authority - trusted parent or user authority for this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, authority is rejected,\n *   or the message was not admitted.\n */',
+      },
+      {
+        signature: 'activationState(childId: SessionId): ActivationState | undefined',
+        jsDoc: '/**\n * Read one durable child\'s live residency state.\n * @param childId - durable child session id.\n * @returns its Activation state, or `undefined` when no Activation is live.\n * @throws when continuation services are unavailable.\n */',
+      },
+      {
+        signature: 'async drainContinuable(): Promise<void>',
+        jsDoc: '/**\n * Close continuable admission synchronously, then dispose every live\n * Activation forest child-first. A host calls this before disposing top-level\n * agents so no descendant outlives the runtime that owns its teardown.\n * @returns once every live Activation released its `AgentHandle`.\n * @throws an aggregate error after all branches settle when any failed.\n */',
       },
       {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
@@ -905,7 +913,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * List registered provider names in insertion order.\n * @returns the registered names.\n */',
       },
       {
-        signature: 'async start(name: string, request: SubagentStartRequest & { readonly continuation?: never }): Promise<SubagentRun>',
+        signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
         jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
       },
     ],
@@ -1568,6 +1576,10 @@ export const EVENT_API: readonly EventApiEntry[] = [
 /** Shapes of every exported type the SERVICE_API signatures reference (transitively), sorted by name. */
 export const TYPE_API: readonly TypeApiEntry[] = [
   {
+    name: 'ActivationState',
+    declaration: 'export type ActivationState = \'running\' | \'waiting\' | \'settled\';',
+  },
+  {
     name: 'AdapterRegistrationHandle',
     declaration: 'export interface AdapterRegistrationHandle {\n    (): void;\n    replace(providers: string[]): void;\n}',
   },
@@ -1792,12 +1804,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
   },
   {
+    name: 'ContinuableCreateRequest',
+    declaration: 'export interface ContinuableCreateRequest {\n    readonly sessionId: SessionId;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'ContinuableCreateSpec',
+    declaration: 'export interface ContinuableCreateSpec {\n    readonly seed?: readonly SessionEvent[];\n}',
+  },
+  {
     name: 'ContinuableStart',
-    declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly taskId: TaskId;\n}',
+    declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly messageId: MessageId;\n}',
   },
   {
     name: 'ContinuableStartSpec',
-    declaration: 'export interface ContinuableStartSpec {\n    readonly provider: string;\n    readonly label: string;\n    readonly request: Omit<SubagentStartRequest, \'signal\'>;\n}',
+    declaration: 'export interface ContinuableStartSpec {\n    readonly provider: string;\n    readonly request: Omit<SubagentStartRequest, \'signal\' | \'outputSchema\'>;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'CreateAgentOptions',
@@ -2672,36 +2692,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type StreamChunk = {\n    type: \'block-start\';\n    index: number;\n    blockType: ContentBlockType;\n} | {\n    type: \'text-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'reasoning-delta\';\n    index: number;\n    text: string;\n} | {\n    type: \'tool-call-delta\';\n    index: number;\n    id: CallId;\n    name?: string;\n    argumentsDelta: string;\n} | {\n    type: \'block-end\';\n    index: number;\n    block: ContentBlock;\n} | {\n    type: \'usage\';\n    usage: TokenUsage;\n} | {\n    type: \'finish\';\n    reason: FinishReason;\n    replayState?: unknown;\n};',
   },
   {
+    name: 'SubagentAuthority',
+    declaration: 'export type SubagentAuthority = {\n    readonly kind: \'parent\';\n    readonly agent: Agent;\n} | {\n    readonly kind: \'user\';\n};',
+  },
+  {
     name: 'SubagentCapabilities',
     declaration: 'export interface SubagentCapabilities {\n    readonly outputSchema: boolean;\n    readonly depthLimit: boolean;\n    readonly toolFilter: boolean;\n    readonly persona: boolean;\n}',
-  },
-  {
-    name: 'SubagentContinuation',
-    declaration: 'export interface SubagentContinuation {\n    readonly sessionId: SessionId;\n    readonly descriptor: SubagentDescriptorData;\n}',
-  },
-  {
-    name: 'SubagentDescriptorData',
-    declaration: 'export interface SubagentDescriptorData {\n    readonly version: number;\n    readonly provider: string;\n    readonly agentProvider?: string;\n    readonly agentModel?: string;\n    readonly persona?: string;\n    readonly toolFilter?: ToolRestriction;\n}',
   },
   {
     name: 'SubagentFollowupOptions',
     declaration: 'export interface SubagentFollowupOptions {\n    readonly source: MessageSource;\n    readonly signal: AbortSignal;\n}',
   },
   {
-    name: 'SubagentFollowupResult',
-    declaration: 'export type SubagentFollowupResult = {\n    readonly route: \'steered\';\n    readonly taskId: TaskId;\n} | {\n    readonly route: \'started\';\n    readonly taskId: TaskId;\n};',
-  },
-  {
     name: 'SubagentProvider',
-    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentProviderStartRequest): Promise<SubagentRun>;\n    resume?(request: SubagentProviderResumeRequest): Promise<SubagentRun>;\n}',
-  },
-  {
-    name: 'SubagentProviderResumeRequest',
-    declaration: 'export interface SubagentProviderResumeRequest {\n    readonly sessionId: SessionId;\n    readonly prompt: ContentBlock[];\n    readonly source: MessageSource;\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly descriptor: SubagentDescriptorData;\n}',
-  },
-  {
-    name: 'SubagentProviderStartRequest',
-    declaration: 'export interface SubagentProviderStartRequest extends SubagentStartRequest {\n    readonly continuation?: SubagentContinuation | undefined;\n}',
+    declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: SubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
   },
   {
     name: 'SubagentResult',
@@ -2709,7 +2713,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentRun',
-    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n    steer?(content: ContentBlock[], source: MessageSource): Promise<void>;\n}',
+    declaration: 'export interface SubagentRun {\n    readonly id: SessionId;\n    readonly localAgent: Agent | undefined;\n    readonly result: Promise<SubagentResult>;\n    dispose(): Promise<void>;\n}',
   },
   {
     name: 'SubagentStartRequest',

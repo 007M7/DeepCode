@@ -1582,7 +1582,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/subagent/subagent-fork/src/index.ts:30`](../packages/subagent/subagent-fork/src/index.ts)
+Source: [`packages/subagent/subagent-fork/src/index.ts:31`](../packages/subagent/subagent-fork/src/index.ts)
 
 ## `@deepseek-ai/dsh-subagent-spawn`
 
@@ -1894,9 +1894,9 @@ export interface Config {
    */
   enableRunInBackground?: boolean
   /**
-   * Background execution policy (default `one-shot`). `continuable` requires
-   * a provider with persisted resume support and returns both child and Task
-   * ids; follow-up adapters remain independently optional.
+   * Background execution policy (default `one-shot`). `continuable` requires a
+   * provider with the `prepareContinuable` capability and returns the durable
+   * child id; follow-up adapters remain independently optional.
    */
   backgroundMode?: 'one-shot' | 'continuable'
   /**
