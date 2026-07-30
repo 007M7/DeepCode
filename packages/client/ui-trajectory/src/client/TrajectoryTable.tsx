@@ -71,6 +71,7 @@ interface ToolCallTextParts {
 
 interface SelectedRequest {
   turn: number | null
+  section: number
   number: number
   group: string
 }
@@ -1453,6 +1454,7 @@ export function TrajectoryTable({
     ? []
     : allRecords.filter(record =>
       record.turn === selectedRequest.turn
+        && record.section === selectedRequest.section
         && record.group === selectedRequest.group,
     )
   const selectedRequestAssistant = selectedRequestRecords.find(
@@ -1505,6 +1507,7 @@ export function TrajectoryTable({
     selectedRequestInfo?.cumulativeUsage ?? selectedRequestUsage
   const selectedRequestOptions = selectedRequestInfo?.requestConfig
   const activeTurn = selectedRequest === null ? selected?.turn : selectedRequest.turn
+  const activeSection = selectedRequest === null ? selected?.section : selectedRequest.section
   const selectedTabs = selectedRequest !== null
     ? REQUEST_TABS.filter(tab => tab.id !== 'options' || selectedRequestOptions !== undefined)
     : selected === undefined ? [] : detailTabs(selected)
@@ -1520,6 +1523,7 @@ export function TrajectoryTable({
     selected !== undefined && selectedAssistantRequest !== undefined
       ? {
         turn: selected.turn,
+        section: selected.section,
         number: selectedAssistantRequest,
         group: selected.group,
       }
@@ -1629,7 +1633,11 @@ export function TrajectoryTable({
                 : `Request #${request}${requestInfo?.purpose === 'compaction' ? ' · Compaction' : ''}`
               const requestSelected = request !== undefined
                 && selectedRequest?.turn === record.turn
+                && selectedRequest.section === record.section
                 && selectedRequest.number === request
+              const sectionActive = record.turn === null
+                ? activeSection === record.section
+                : activeTurn === record.turn
               return (
                 <tr
                   key={`${record.cell.index}:${record.collapsedSummaryKind ?? 'record'}`}
@@ -1715,6 +1723,7 @@ export function TrajectoryTable({
                           event.stopPropagation()
                           selectRequest({
                             turn: record.turn,
+                            section: record.section,
                             number: request,
                             group: record.group,
                           })
@@ -1734,7 +1743,7 @@ export function TrajectoryTable({
                     && !isRequestOnly
                     && record.turnStart && (
                       <span
-                        className={activeTurn === record.turn
+                        className={sectionActive
                           ? `${css.turnLabel} ${css.turnLabelActive}`
                           : css.turnLabel}
                       >

@@ -312,6 +312,70 @@ describe('tab switching in ConversationRoot', () => {
     expect(view.container.textContent).not.toContain('Turn null')
   })
 
+  it('activates only the selected standalone compaction section', async () => {
+    const nodes = [
+      { kind: 'user', seq: 1, time: 1_000, content: [], source: null },
+      {
+        kind: 'assistant', seq: 2, time: 2_000, turn: 1, step: 1,
+        blocks: [{ kind: 'text', text: 'before first compaction' }],
+      },
+      { kind: 'user', seq: 5, time: 5_000, content: [], source: null },
+      {
+        kind: 'assistant', seq: 6, time: 6_000, turn: 2, step: 1,
+        blocks: [{ kind: 'text', text: 'between compactions' }],
+      },
+      { kind: 'user', seq: 9, time: 9_000, content: [], source: null },
+      {
+        kind: 'assistant', seq: 10, time: 10_000, turn: 3, step: 1,
+        blocks: [{ kind: 'text', text: 'after second compaction' }],
+      },
+    ] as unknown as ConversationSnapshot['nodes']
+    const compactions: RequestView[] = [
+      {
+        purpose: 'compaction',
+        startSeq: 3,
+        turn: null,
+        step: 0,
+        startedAt: 3_000,
+        completedAt: 4_000,
+        status: 'complete',
+        summary: [{ type: 'text', text: 'first standalone summary' }],
+      },
+      {
+        purpose: 'compaction',
+        startSeq: 7,
+        turn: null,
+        step: 0,
+        startedAt: 7_000,
+        completedAt: 8_000,
+        status: 'complete',
+        summary: [{ type: 'text', text: 'second standalone summary' }],
+      },
+    ]
+    const b = await bench(historySnapshot(nodes, { requests: compactions }))
+    mount(b.slots, nodes)
+    fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
+
+    const firstRequest = screen.getByRole('button', { name: 'Request #2 · Compaction' })
+    const secondRequest = screen.getByRole('button', { name: 'Request #4 · Compaction' })
+    const firstSection = firstRequest.closest('tr')?.querySelector('span')
+    const secondSection = secondRequest.closest('tr')?.querySelector('span')
+    expect(firstSection?.textContent).toBe('Between turns')
+    expect(secondSection?.textContent).toBe('Between turns')
+
+    fireEvent.click(firstRequest)
+    expect(firstSection?.className).toMatch(/turnLabelActive/)
+    expect(secondSection?.className).not.toMatch(/turnLabelActive/)
+    expect(screen.getByText('Request #2')).toBeTruthy()
+    expect(screen.getByText('Compaction · Between turns')).toBeTruthy()
+
+    fireEvent.click(secondRequest)
+    expect(firstSection?.className).not.toMatch(/turnLabelActive/)
+    expect(secondSection?.className).toMatch(/turnLabelActive/)
+    expect(screen.getByText('Request #4')).toBeTruthy()
+    expect(screen.getByText('Compaction · Between turns')).toBeTruthy()
+  })
+
   it('dragging the overview focuses overlapping records without filtering the ledger', async () => {
     const b = await bench()
     mount(b.slots)
