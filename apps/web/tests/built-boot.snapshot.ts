@@ -106,11 +106,10 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   // distinguishes a blocked running session from an ordinarily busy one.
   const waitingTitle = await within(tree).findByText('Fixture 历史会话')
   const waitingRow = waitingTitle.closest<HTMLElement>('[role="treeitem"]')
-  expect(waitingRow).not.toBeNull()
   if (waitingRow === null) throw new Error('fixture Session title must belong to a tree row')
   expect(waitingRow.querySelector('[data-state="warning"]')).not.toBeNull()
   expect(waitingRow.querySelector('[data-state="ongoing"]')).toBeNull()
-  expect(within(waitingRow).getByText('Waiting for approval')).not.toBeNull()
+  within(waitingRow).getByText('Waiting for approval')
 
   // Opening a session reaches chat content through the fixture transport.
   fireEvent.click(waitingTitle)
