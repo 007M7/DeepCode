@@ -6,9 +6,13 @@
 #
 # A patch replaces the targeted row's whole `config`, so each row below restates
 # every key it owns. `--dev` appends the dsh-client-hmr row in code
-# (AppCLIEntry) — prod and dev differ by exactly that one row.
+# (AppCLIEntry).
 
 # ── surface-specific values the base deliberately omits ─────────────────────
+
+# TODO: Re-enable shared HMR for Web after its reload lifecycle is tested.
+- id: hmr
+  disabled: true
 
 - id: system-prompt
   config:

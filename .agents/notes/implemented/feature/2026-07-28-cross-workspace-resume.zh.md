@@ -16,17 +16,15 @@ Status: implemented
 
 ## Decision
 
-dsh 启动器通过启动槽位提供其 Harness home 下的同一个会话根目录，选择器获得 workspace 范围，交接过程携带目标目录。
+共享 CLI 配置提供 Harness home 下的同一个会话根目录，选择器获得 workspace 范围，交接过程携带目标目录。
 
-**存储。** `dsh-paths` 以 `resolveSessionsRoot()` 拥有该位置（按 `resolveDshHome` 的优先级，取 Harness home 下的 `sessions`），但只有启动器假定它：共享存储策略属于 dsh CLI，绝不属于插件。TUI 界面通过 `SESSIONS_ROOT_KEY` 启动槽位（在 Loader 条目挂载前 `ctx.provide`）提供该根目录，`dsh web` 则在 `apps/cli/src/app-cli-entry.ts` 中为同一根目录打补丁。CLI 的两处界面各自独立计算该路径，正是本次改动所修复的那种失败——互不相交的存储——因此这项事实只有一个归属，而不是每个调用方各做一次 `join`，这与 `run` 已有的 `registryRoot()` 先例一致。
-
-共享 base 直接在配置项自身表达这一优先级：`apps/cli/config/base.cordis.yml` 的 `session-persistence-jsonl` 配置项写作 `root: !!js launcherSessionsRoot ?? './.sessions'`，因此启动器槽位优先，而没有槽位的裸启动则保留项目本地默认值。把它写成配置项自身的 `!!js` 取值、而不是 schemastery 的 `.default()`，其原因与在组合包中相同：schema 默认值会在能够读取槽位之前就物化。若 overlay 或个人 patch 显式声明了根目录，则始终以其为准——对于要求自洽封闭的部署，这仍是正确选择。
+**存储。** 共享 base 在 `apps/cli/config/base.cordis.yml` 中拥有默认值：其 `session-persistence-jsonl` 配置项把 `sessions` 解析到 `DSH_HOME` 下；环境尚未初始化时则使用标准的 `~/.dsh` 回退值。因此 TUI、Web 与 headless 使用同一个默认值，无需启动器补丁或启动槽位。若 overlay 或个人 patch 显式声明根目录，它会整体替换该配置项的 `config`，并继续作为部署的权威选择。
 
 **是范围，不是排除。** 当前 workspace 之外的 workspace 是一种展示范围，而不是禁用理由。`showResume()` 汇总每一条记录，`ResumePicker` 持有一个 `'workspace' | 'all'` 的 `scope`，默认为当前 workspace，因此常见场景毫无变化。Tab 切换范围；范围行会说明当前生效的范围，以及另一个范围下的数量；在全 workspace 范围中每一行都报告自己的 workspace，而该标签只在展示它的范围里才加入可搜索文本。切换范围会清空查询和选中项，使高亮行始终属于可见列表；而逐行的 workspace 行会让该范围下的每一行在终端里多占一行，可见条数预算已经把这一点计入。
 
 因此 `summarizeResumeCandidate` 去掉了 `'different workspace'`，并新增 `'session has no recorded workspace'`。这是一条真正新增的拒绝理由，而不是改名：没有 `cwd` 的头部没有指明任何目录供宿主进入，所以即便它的日志完好也无法完成交接。
 
-**交接。** `TuiResumeHost.handoff` 在 `SessionId` 之外还接收目标 `cwd`。`preflightResume` 把两者一起解析并一起返回，因此调用方无法从它展示过的那一行里重新推导出一个陈旧目录——在列表展示与预检之间 `cwd` 发生了移动的记录，会在*重新读取到的*目录中恢复，这也是原先「拒绝已移动的 cwd」的行为如今变成携带新路径完成交接的原因。已交付的宿主在释放应用之前切换目录：不可达的目录必须在调用方还能恢复终端时就拒绝，因为拆卸之后已经没有任何所有者可供汇报。`resumeArgs` 只在目标就是本 checkout 时才保留 `meta` 子命令形式，因为 `dsh meta` 会切换到 harness 源码本身，从而覆盖任何其他 workspace。
+**交接。** `TuiResumeHost.handoff` 在 `SessionId` 之外还接收目标 `cwd`。`preflightResume` 把两者一起解析并一起返回，因此调用方无法从它展示过的那一行里重新推导出一个陈旧目录——在列表展示与预检之间 `cwd` 发生了移动的记录，会在*重新读取到的*目录中恢复，这也是原先「拒绝已移动的 cwd」的行为如今变成携带新路径完成交接的原因。已交付的宿主在释放应用之前切换目录：不可达的目录必须在调用方还能恢复终端时就拒绝，因为拆卸之后已经没有任何所有者可供汇报。恢复始终使用默认的 `dsh --resume` 界面，因为 `meta` 会拒绝父级选项；交接过程已经进入持久化保存的目标目录。
 
 ## Alternatives considered
 
@@ -48,4 +46,4 @@ dsh 启动器通过启动槽位提供其 Harness home 下的同一个会话根�
 
 ## Testing
 
-TUI 测试覆盖默认范围隐藏其他 workspace 但报告其数量、Tab 显示它们并带上逐行 workspace 标签、再按 Tab 返回时清空查询与选中项、按 workspace 标签搜索、无 cwd 的记录仍可见但不可选，以及交接同时收到 id 和在预检时重新读取到的 workspace。原先「拒绝已移动的 cwd」的用例现在断言交接携带新目录。`dsh-paths` 测试固定 `resolveSessionsRoot` 的优先级与 `resolveDshHome` 的一致。`apps/cli` 测试钉住项目本地默认值与派生的 `session-query.db` 路径。无密钥 TUI 快照固定选择器的两个范围，包括范围行、逐行 workspace 行，以及页脚中的 Tab 提示。手动执行的一次跨 workspace 恢复在进程层面验证了替换后进程的工作目录变为目标 workspace。
+TUI 测试覆盖默认范围隐藏其他 workspace 但报告其数量、Tab 显示它们并带上逐行 workspace 标签、再按 Tab 返回时清空查询与选中项、按 workspace 标签搜索、无 cwd 的记录仍可见但不可选，以及交接同时收到 id 和在预检时重新读取到的 workspace。原先「拒绝已移动的 cwd」的用例现在断言交接携带新目录。构建后的 CLI PTY 测试会运行共享配置默认值与每进程派生的查询索引。无密钥 TUI 快照固定选择器的两个范围，包括范围行、逐行 workspace 行，以及页脚中的 Tab 提示。手动执行的一次跨 workspace 恢复在进程层面验证了替换后进程的工作目录变为目标 workspace。
