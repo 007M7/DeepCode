@@ -6,7 +6,7 @@ DeepSeek Harness (`dsh`) is an open-source coding agent built on the DeepSeek Ha
 
 It uses an architecture where **everything is a plugin**.
 
-## Before you begin, thank you
+## Internal testing notice
 
 Thank you for making time to try DeepSeek Harness.
 
@@ -32,20 +32,14 @@ The installer keeps every checkout under `~/.dsh/source`: the master clone at `~
 
 ### Web UI
 
-For the recommended local interface, build the frontend after installation and after each update, then start the Web UI. Resolve the running checkout from the `dsh` launcher so the command holds regardless of which staging worktree is current (the launcher resolves through the stable `current` symlink):
+For the recommended local interface, build the active checkout after installation and after each update, then start the Web UI:
 
 ```sh
-dsh_bin=$(cd "$(dirname "$(command -v dsh)")" && pwd -P)/$(basename "$(command -v dsh)")
-while [ -L "$dsh_bin" ]; do
-  link=$(readlink "$dsh_bin")
-  case $link in /*) dsh_bin=$link ;; *) dsh_bin=$(cd "$(dirname "$dsh_bin")" && cd "$(dirname "$link")" && pwd -P)/$(basename "$link") ;; esac
-done
-dsh_dir=$(cd "$(dirname "$dsh_bin")/.." && pwd -P)
-pnpm --dir "$dsh_dir" run build && pnpm --dir "$dsh_dir" run build:web
+(cd ~/.dsh/source/current && pnpm run build)
 dsh web
 ```
 
-The Web UI is served at `http://127.0.0.1:3080` by default.
+The build path above is the installer's default; see [`scripts/install.sh`](scripts/install.sh) for alternate locations. The Web UI is served at `http://127.0.0.1:3080` by default.
 
 ### TUI
 
@@ -97,7 +91,7 @@ Start with the [development guide](docs/development.md) and read the [architectu
 
 For agents, follow [AGENTS.md](AGENTS.md).
 
-DeepSeek Harness is currently pre-release.
+DeepSeek Harness is currently in internal testing.
 
 ## License
 

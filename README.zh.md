@@ -6,7 +6,7 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 它采用了**一切皆插件**的架构。
 
-## 使用前，想先说声谢谢
+## 内测声明
 
 感谢您愿意拨冗试用 DeepSeek Harness。
 
@@ -32,20 +32,14 @@ curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/m
 
 ### Web UI
 
-推荐在本地使用 Web UI。安装完成后以及每次更新后，请先构建前端，再启动 Web UI。通过 `dsh` 启动器解析当前运行的检出，这样无论当前是哪个 staging worktree，命令都成立（启动器会经由稳定的 `current` 符号链接解析）：
+推荐在本地使用 Web UI。安装完成后以及每次更新后，请先构建当前生效的检出，再启动 Web UI：
 
 ```sh
-dsh_bin=$(cd "$(dirname "$(command -v dsh)")" && pwd -P)/$(basename "$(command -v dsh)")
-while [ -L "$dsh_bin" ]; do
-  link=$(readlink "$dsh_bin")
-  case $link in /*) dsh_bin=$link ;; *) dsh_bin=$(cd "$(dirname "$dsh_bin")" && cd "$(dirname "$link")" && pwd -P)/$(basename "$link") ;; esac
-done
-dsh_dir=$(cd "$(dirname "$dsh_bin")/.." && pwd -P)
-pnpm --dir "$dsh_dir" run build && pnpm --dir "$dsh_dir" run build:web
+(cd ~/.dsh/source/current && pnpm run build)
 dsh web
 ```
 
-Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
+上述构建路径使用安装器的默认安装位置；如需使用其他位置，请参阅 [`scripts/install.sh`](scripts/install.sh)。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
 
 ### TUI
 
@@ -101,7 +95,7 @@ pnpm run test:coverage
 
 面向 agent：遵循 [AGENTS.md](AGENTS.md)。
 
-DeepSeek Harness 目前处于预发布阶段。
+DeepSeek Harness 目前处于内测阶段。
 
 ## 许可证
 
