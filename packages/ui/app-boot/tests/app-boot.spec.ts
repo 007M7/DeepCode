@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceSection, assertEntriesActive, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
   installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
@@ -154,6 +154,74 @@ describe('assertEntriesLoaded', () => {
       { options: { name: 'broken-a' } },
       { options: { name: 'broken-b' } },
     ]), NAME) }).toThrow(`${NAME}: plugin(s) failed to load: broken-a, broken-b`)
+  })
+})
+
+describe('assertEntriesActivated', () => {
+  interface FakeFiber {
+    state: number
+    inject: Record<string, unknown>
+    ctx: { get(name: string): unknown }
+    await(): Promise<unknown>
+  }
+
+  const ctxWith = (entries: Array<{ fiber?: FakeFiber; disabled?: boolean; options: { name: string } }>): Context => ({
+    loader: { entries: () => entries },
+  }) as unknown as Context
+
+  const fiber = (
+    state: number,
+    error?: unknown,
+    inject: Record<string, unknown> = {},
+    services: string[] = [],
+  ): FakeFiber => ({
+    state,
+    inject,
+    ctx: { get: name => services.includes(name) ? {} : undefined },
+    await: error === undefined ? async () => undefined : async () => { throw error },
+  })
+
+  it('passes active entries and ignores disabled entries', async () => {
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(2), options: { name: 'active' } },
+      { disabled: true, options: { name: 'disabled' } },
+    ]), NAME)).resolves.toBeUndefined()
+  })
+
+  it('reports the plugin name and original activation stack instead of fiber state 3', async () => {
+    const original = new Error('actual plugin failure')
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(3, original), options: { name: 'broken-plugin' } },
+    ]), NAME)).rejects.toThrow(`${NAME}: 1 entry did not activate\nbroken-plugin: ${original.stack!}`)
+  })
+
+  it('formats stackless and non-Error activation failures', async () => {
+    const stackless = new Error('stackless failure')
+    delete (stackless as { stack?: string }).stack
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(3, stackless), options: { name: 'stackless' } },
+      { fiber: fiber(3, 'plain failure'), options: { name: 'plain' } },
+    ]), NAME)).rejects.toThrow(`${NAME}: 2 entries did not activate\nstackless: stackless failure\nplain: plain failure`)
+  })
+
+  it('reports unresolved services for pending entries', async () => {
+    const expected = [
+      `${NAME}: 3 entries did not activate`,
+      'waiting: pending (waiting for services: missingA, missingB)',
+      'single-wait: pending (waiting for service: missing)',
+      'unknown-wait: pending (waiting for services: unknown)',
+    ].join('\n')
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(0, undefined, { ready: {}, missingA: {}, missingB: {} }, ['ready']), options: { name: 'waiting' } },
+      { fiber: fiber(0, undefined, { missing: {} }), options: { name: 'single-wait' } },
+      { fiber: fiber(0), options: { name: 'unknown-wait' } },
+    ]), NAME)).rejects.toThrow(expected)
+  })
+
+  it('retains the numeric diagnostic for a settled unexpected state', async () => {
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(4), options: { name: 'disposed' } },
+    ]), NAME)).rejects.toThrow('disposed: fiber state 4')
   })
 })
 
