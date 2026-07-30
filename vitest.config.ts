@@ -1,5 +1,6 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
+import { vitestExecArgv } from './vitest.shared.ts'
 
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
 // has no include, which vite-tsconfig-paths treats as match-all, so its paths
@@ -62,6 +63,7 @@ export default defineConfig({
         plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
+          execArgv: vitestExecArgv,
           // Node 24 has aborted in its CJS lexer from a macOS arm64 worker
           // thread. A fork contains that external runtime failure to the test
           // process; other hosts retain the lower-overhead thread pool.
@@ -78,6 +80,7 @@ export default defineConfig({
         plugins: [pathsPlugin()],
         test: {
           name: 'process-bound',
+          execArgv: vitestExecArgv,
           pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
