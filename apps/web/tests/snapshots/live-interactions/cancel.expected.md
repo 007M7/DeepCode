@@ -17,7 +17,7 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}} 0 tokens · 1 turns · 1 steps
+- text: {{clock}}
 - textbox "Message the agent"
 - button "Add attachment":
   - img
@@ -26,3 +26,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
