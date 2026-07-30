@@ -43,6 +43,8 @@ export interface SettingsRegisterOptions<T> {
 
 /** One registered namespace as surfaced to configuration UIs. */
 export interface SettingsDescriptor {
+  // TODO(settings-namespace-vocabulary): Rename `ns` to `namespace` across the
+  // public seam, provider contract, implementations, tests, and consumers.
   /** The registered namespace. */
   ns: SettingsNamespace
   /** Serialized schemastery schema (`schema.toJSON()`). */
@@ -181,6 +183,8 @@ function cloneJsonShaped(
     if (isPlainObject(value)) {
       if (visiting.has(value)) throw reject('a circular reference', path)
       visiting.add(value)
+      // TODO(settings-json-properties): Use property-safe construction here and
+      // in mergeLayers so valid JSON keys such as "__proto__" remain own data.
       const out: Record<string, unknown> = {}
       for (const [key, entry] of Object.entries(value)) {
         if (entry === undefined) continue
@@ -321,6 +325,8 @@ export abstract class Settings extends Service {
     }
     this.ctx.effect(() => {
       this.registrations.set(ns, registration)
+      // TODO(settings-registration-quiescence): Deactivate every watcher and await
+      // its tail on disposal so callbacks cannot outlive the registrant fiber.
       return () => this.registrations.delete(ns)
     }, `settings.register(${JSON.stringify(String(ns))})`)
     return {
@@ -425,6 +431,8 @@ export abstract class Settings extends Service {
       // only when this registration is still the namespace owner — a fiber
       // disposed (or replaced) mid-persist must not receive the notification.
       this.document[ns] = section
+      // TODO(settings-replacement-resync): Re-resolve any replacement registration
+      // from this persisted section so an old in-flight write cannot leave it stale.
       if (this.registrations.get(ns) === registration && !this.isStopped()) {
         this.commit(registration, next, 'update')
       }
