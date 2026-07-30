@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { createUserMessage, CallId  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { TOOL_ABORTED_BEFORE_DISPATCH, type ToolExecutionToken } from '@deepseek-ai/dsh-tools'
@@ -582,12 +582,26 @@ describe('cross-directory sampling', () => {
       .toEqual({ items: ['./vendor/a.ts', './src/b.ts'], shown: 2, total: 2 })
     expect(sampleAcrossTopLevel(['/vendor/a.ts', '/src/b.ts'], 2, '/'))
       .toEqual({ items: ['/vendor/a.ts', '/src/b.ts'], shown: 2, total: 2 })
-    expect(sampleAcrossTopLevel(['C:\\root\\a\\one', 'C:\\root\\b\\two'], 2, 'C:\\root'))
-      .toEqual({ items: ['C:\\root\\a\\one', 'C:\\root\\b\\two'], shown: 2, total: 2 })
+    const rooted = [
+      ['root', 'a', 'one'].join(sep),
+      ['root', 'a', 'two'].join(sep),
+      ['root', 'b', 'three'].join(sep),
+    ]
+    expect(sampleAcrossTopLevel(rooted, 2, 'root'))
+      .toEqual({ items: [rooted[0], rooted[2]], shown: 2, total: 2 })
     expect(sampleAcrossTopLevel(['other/a.ts'], 1, 'src'))
       .toEqual({ items: ['other/a.ts'], shown: 1, total: 1 })
     expect(sampleAcrossTopLevel(['src'], 1, 'src'))
       .toEqual({ items: ['src'], shown: 1, total: 1 })
+  })
+
+  it.skipIf(process.platform === 'win32')('treats POSIX backslashes as filename characters', () => {
+    const paths = ['old\\one', 'old\\two', 'src/a']
+    expect(sampleAcrossTopLevel(paths, 2)).toEqual({
+      items: ['old\\one', 'old\\two'],
+      shown: 2,
+      total: 3,
+    })
   })
 
   it('handles more top-level groups than the JavaScript argument limit', () => {

@@ -9,6 +9,7 @@
  */
 
 import type { Context } from 'cordis'
+import { sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView } from '@deepseek-ai/dsh-tools'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
@@ -112,14 +113,23 @@ export interface GlobSample {
 
 /** Remove the displayed search-root prefix before choosing a top-level group. */
 function relativeToSearchRoot(path: string, root: string): string {
-  if (root === '.') return path.replace(/^\.[\\/]/, '')
-  const trimmedRoot = root.replace(/[\\/]+$/, '')
-  if (trimmedRoot.length === 0) return path.replace(/^[\\/]+/, '')
+  if (root === '.') return path.startsWith(`.${sep}`) ? path.slice(2) : path
+  let rootEnd = root.length
+  while (rootEnd > 0 && root[rootEnd - 1] === sep) rootEnd -= 1
+  const trimmedRoot = root.slice(0, rootEnd)
+  if (trimmedRoot.length === 0) return stripLeadingSeparators(path)
   if (path === trimmedRoot) return ''
-  if (path.startsWith(`${trimmedRoot}/`) || path.startsWith(`${trimmedRoot}\\`)) {
+  if (path.startsWith(`${trimmedRoot}${sep}`)) {
     return path.slice(trimmedRoot.length + 1)
   }
   return path
+}
+
+/** Strip only separators recognized by the execution platform. */
+function stripLeadingSeparators(path: string): string {
+  let start = 0
+  while (path[start] === sep) start += 1
+  return path.slice(start)
 }
 
 /**
@@ -131,8 +141,8 @@ function relativeToSearchRoot(path: string, root: string): string {
  * empty group.
  */
 function topLevelSegment(path: string): string {
-  const trimmed = path.replace(/^[\\/]+/, '')
-  const cut = trimmed.search(/[\\/]/)
+  const trimmed = stripLeadingSeparators(path)
+  const cut = trimmed.indexOf(sep)
   return cut === -1 ? trimmed : trimmed.slice(0, cut)
 }
 
