@@ -218,3 +218,93 @@ interface Config {
 在后续每个模型步骤之前，消费方都会应用精确的工具可见性，并对完整快照中 `<available_skills>` 标签之间精确渲染的条目计算 digest。它以该插件所发布、最新一条可识别且仍可见的目录消息中的相同条目作为比较基线。digest 发生变化时，会通过 `agent.inject()` 追加一条持久的完整目录替换；删除所有 skill 时会追加一条显式的空替换。不完整快照会保留上一份可用模型视图。如果压缩（compaction）隐藏了所有历史目录消息，下一份完整快照会重新建立当前目录；如果视图为空且从未发布目录，则不发送任何内容。这些目录消息属于会话历史，而非 World State。
 
 面向模型的 `skill({ name })` 工具校验 kebab-case 名称，在与调用策略无关的目录中查找摘要，并在加载前通过 `isModelInvocable` 拒绝无权访问的 skill；随后它根据调用方 agent 的 cwd 重新读取完整定义，并在返回内容前再次检查策略。该工具将无法解析的 skill 报告为未知或已不可用，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。因此，仅修改正文会改变后续工具调用，而不会生成目录消息或改写先前工具结果。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxskills--skillservice"></a>
+
+### `ctx.skills` — `SkillService`
+
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted invocation-neutral summaries, and loads full skill bodies on demand.
+
+```ts cordis-catalog
+/**
+ * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
+ * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
+ * the provider and invalidates catalog caches.
+ * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
+ * @returns the exact Cordis effect disposer that unregisters this provider;
+ *   composite effects may yield it directly to preserve teardown ordering.
+ */
+registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void
+
+/**
+ * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
+ * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
+ * receives a no-op disposer so it cannot remove the winner.
+ * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
+ * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
+ */
+register(skill: SkillRegistration): () => void
+
+/**
+ * List invocation-neutral skill summaries for a workspace. Consumers apply
+ * model or user invocation policy at their operational boundary. Lookup
+ * options and provider candidates are readonly same-process values borrowed
+ * throughout discovery.
+ * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @returns all sorted winning summaries.
+ */
+async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+
+/**
+ * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
+ * Incomplete observations are never cached, allowing consumers to retain last-good state and
+ * retry on their next request boundary.
+ * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @returns sorted summaries plus discovery-completeness state.
+ */
+async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
+
+/**
+ * Load and validate the winning candidate, passing its opaque discovery locator back to the
+ * provider. Cancellation is rechecked after selection, including cache hits, and raced against
+ * loading so an uncooperative provider cannot hang the caller.
+ * @param name - kebab-case skill name.
+ * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
+ * @returns the full skill, including body content, or `undefined`.
+ */
+async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
+```
+
+Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
+
+<a id="skills-events"></a>
+
+### `skills/*` events
+
+<a id="skillschange--emit"></a>
+
+#### `skills/change` — emit
+
+A skill provider, runtime contribution, or provider-backed catalog may have changed. This is an unfiltered invalidation notification; consumers refetch the catalog for their own lookup options. Listener failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * A skill provider, runtime contribution, or provider-backed catalog may
+ * have changed. This is an unfiltered invalidation notification; consumers
+ * refetch the catalog for their own lookup options. Listener failures are
+ * contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'skills/change'(): void
+```
+
+Source: [`packages/skill/skill/src/index.ts:283`](../../packages/skill/skill/src/index.ts)
+<!-- END GENERATED cordis-surface -->

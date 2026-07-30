@@ -10,8 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   collectEvents as collectEventsWithPolicy,
   collectServices as collectServicesWithPolicy,
-  renderEvents as renderEventsWithPolicy,
-  renderServices as renderServicesWithPolicy,
+  renderPageRegion,
 } from '../src/cordis-catalog.ts'
 import type {
   CordisCatalogPolicy,
@@ -35,12 +34,12 @@ function collectServices(root: string): ServiceEntry[] {
   return collectServicesWithPolicy(root, TEST_POLICY)
 }
 
-function renderEvents(events: EventEntry[]): string {
-  return renderEventsWithPolicy(events, TEST_POLICY)
+function renderEvents(events: EventEntry[], onPage = 'bash.md'): string {
+  return renderPageRegion(onPage, [], events, TEST_POLICY)
 }
 
-function renderServices(services: ServiceEntry[]): string {
-  return renderServicesWithPolicy(services, TEST_POLICY)
+function renderServices(services: ServiceEntry[], onPage = 'bash.md'): string {
+  return renderPageRegion(onPage, services, [], TEST_POLICY)
 }
 
 const TYPE_FIXTURES = [
@@ -155,7 +154,8 @@ describe.skip('gen-cordis-catalog collectEvents', { timeout: 60_000 }, () => {
       '    /**\n     * Carry linked and foundation types.\n     * @param value - the linked value.\n     * @param preset - deployment metadata documented outside the subsystems catalog.\n     * @param signal - cancellation.\n     * @mode parallel\n     */\n    \'fix/typed\'<T extends SessionEvent>(value: Readonly<T>, preset: PresetSpec, signal: AbortSignal): Promise<T>',
     ))
     expect(events).toHaveLength(1)
-    expect(renderEvents(events)).toContain('Types: [SessionEvent](../subsystems/core.md)')
+    expect(renderEvents(events)).toContain('Types: [SessionEvent](core.md)')
+    expect(renderEvents(events, 'core.md')).not.toContain('Types: [SessionEvent]')
     expect(renderEvents(events)).not.toContain('[PresetSpec]')
   })
 

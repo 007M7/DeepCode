@@ -345,7 +345,7 @@ interface SurfaceFoldResult {
 
 ## `Session` 公共 API
 
-去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、追加边界和历史投影。存储操作仍由生成的 [`ctx.sessions` 服务目录](../cordis-catalog/services.md#ctxsessions--sessionstore)记录。
+去除方法体的声明与源码中的普通类保持同步，覆盖其脱离态工厂、状态访问器、追加边界和历史投影。存储操作仍由生成的 [`ctx.sessions` 小节](#ctxsessions--sessionstore)记录。
 
 ```ts public-api
 /**
@@ -590,3 +590,247 @@ interface TurnEndReasonMap {
 持久化后端依赖的契约如下：持久日志无损保存每个事件，**包括** `assistant/chunk`；`seq` 必须连续，因此不能从规范日志中过滤分片。后端可以为事件批次选择自己的存储编码，只要 `load` 返回与追加时完全一致的事件即可（JSONL 后端默认启用的打包分片行就是此类编码；见 [persistence.md](persistence.md)）。所有 `event.data` 都必须可序列化为 JSON；`Session.append` 会从源头强制这一要求（遇到不可序列化数据时抛出），因此错误事件绝不会进入日志，`session.events` 始终与后端可持久化的内容一致。新增会携带不可序列化数据、破坏核心执行嵌套或违反事件所有方声明关系的事件类型，都会构成磁盘格式的破坏性变更。
 
 消费此契约的后端见 [persistence.md](persistence.md)。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxsessions--sessionstore"></a>
+
+### `ctx.sessions` — `SessionStore`
+
+In-memory session store (`ctx.sessions`).
+
+Persistence is intentionally not implemented here — persistence plugins subscribe to `session/event` and flush on `session/flush` / dispose.
+
+```ts cordis-catalog
+/**
+ * Create a session owned by the calling fiber: disposing that fiber stops
+ * event notification and removes the session from the store. `options.seed`
+ * populates the session with a copy of those events (replay/fork);
+ * `options.meta` attaches creation metadata (validated absolute `cwd`, seed
+ * and parent lineage, and delegation depth) as the immutable
+ * {@link SessionHeader} (the store fills `version`/`id`/`createdAt`).
+ *
+ * For an agent whose session must be torn down IN ORDER with its loop (so the
+ * loop's final events are published before the store attachment ends), do NOT use this
+ * — fold the session lifecycle into the agent's own effect via
+ * {@link prepare} + {@link enter} + {@link announce} (see
+ * `dsh-agent-loop`'s creation transaction).
+ *
+ * @param id - the session id; omitted, the store mints `session-<n>`.
+ * @param options - seed events and/or creation metadata for the header.
+ * @returns the live session, already entered and announced.
+ * @throws if a session with `id` already exists, metadata is not a plain
+ *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
+ *   non-absolute path (storage backends key directories off it).
+ */
+create(id?: SessionId, options?: CreateSessionOptions): Session
+
+/**
+ * Build a session WITHOUT entering it into the store — validate the id/cwd and
+ * construct the {@link Session} (with its immutable {@link SessionHeader}).
+ * Pairs with {@link enter} + {@link announce}: a caller that owns a composite
+ * `ctx.effect` (the agent factory) folds the session lifecycle into that ONE
+ * effect so a fiber unload tears the session + agent down as a single ORDERED
+ * chain rather than as racing sibling effects — which would remove the publication hooks
+ * before the driver's closing events commit, dropping them.
+ *
+ * @param id - the session id; omitted, the store mints `session-<n>`.
+ * @param options - seed events and/or creation metadata for the header. With
+ *   `seedSource: 'persistence'`, metadata and events must be fresh detached
+ *   graphs whose ownership transfers to this call: they are validated and
+ *   frozen in place through {@link Session.fromRestore}, so the caller must
+ *   retain no mutable aliases.
+ * @returns the constructed session, NOT yet in the store.
+ * @throws if a session with `id` already exists, metadata is not a plain
+ *   lossless-JSON record with valid scalar fields, or `meta.cwd` is a
+ *   non-absolute path.
+ */
+prepare(id?: SessionId, options?: PrepareSessionOptions): Session
+
+/**
+ * Enter a {@link prepare}d session into the store: install the module-private
+ * append publication hooks and add it to the store. Returns the DETACH
+ * disposer (hooks + store removal). Does NOT emit `session/created` —
+ * the caller yields this disposer inside its effect and THEN calls
+ * {@link announce}, so a throwing `session/created` listener rolls the attach
+ * back instead of leaking it.
+ *
+ * Re-checks the id for a duplicate: `prepare` and `enter` are public
+ * cross-package primitives and a caller may interleave arbitrary work (or
+ * another create) between them, so a stale prepared session must NOT overwrite
+ * a live store entry of the same id — its detach disposer would later delete
+ * the REAL session. The {@link create} convenience and the agent factory call
+ * the two back-to-back so they never trip this, but the public seam cannot
+ * assume that.
+ *
+ * @param session - a {@link prepare}d session not yet in the store.
+ * @returns the detach disposer (publication hooks + store removal). When called from
+ *   a synchronous `session/created` listener, removal and disposal wait until
+ *   that creation dispatch unwinds.
+ * @throws if a session with this id is already in the store.
+ */
+enter(session: Session): () => void
+
+/** Emit `session/created` exactly once for an {@link enter}ed session (with
+ * the carrier {@link enter} captured). Separate from {@link enter} so the
+ * caller can yield the detach disposer first (rollback safety — see
+ * {@link enter}).
+ * @param session - the entered session to announce to listeners.
+ * @throws if the session is not live or its announcement already began,
+ *   including a reentrant call from a creation listener. */
+announce(session: Session): void
+
+/**
+ * Dispatch the awaited `session/flush` durability checkpoint for `session`,
+ * with the carrier captured at {@link enter}. THE flush entry point: the
+ * store owns the carrier, so callers (the checkpoint policy's per-request
+ * barrier, goal-session's idle checkpoint, teardown drains, and consumers
+ * that flush themselves before reading storage) must come through here
+ * rather than dispatch a raw `ctx.parallel('session/flush', …)` — one owner,
+ * one spelling, and the scoped-dispatch invariant can pin it.
+ * @param session - the session whose buffered events must reach durable storage.
+ * @returns whether at least one durability listener participated, after every
+ *   listener has settled successfully.
+ * @throws the first registered listener failure after every listener settles.
+ */
+async flush(session: Session): Promise<boolean>
+
+/**
+ * Look up a live session.
+ * @param id - the session id to look up.
+ * @returns the session, or undefined when no live session has that id.
+ */
+get(id: SessionId): Session | undefined
+
+/**
+ * All live sessions, in creation order.
+ * @returns a fresh array; mutating it does not affect the store.
+ */
+list(): Session[]
+
+/**
+ * Create a live child session from a stable prefix of a live source.
+ * `boundary` is an inclusive source event seq; omitted means the source's
+ * current last event. The selected slice may end with a between-turn event
+ * but must not end inside an open turn.
+ *
+ * @param source - Live source session object or id.
+ * @param boundary - Inclusive source event seq to fork through; omitted means
+ *   the source's current last event, and omitted on an empty source forks an
+ *   empty child.
+ * @param childSessionId - Optional child session id; omitted delegates to
+ *   `SessionStore`'s id policy.
+ * @returns The created live child session.
+ */
+fork(source: SessionForkSource, boundary?: number, childSessionId?: SessionId): Session
+```
+
+Types: [CreateSessionOptions](persistence.md) · [PrepareSessionOptions](persistence.md) · [SessionId](core.md)
+
+Source: [`packages/core/session/src/index.ts:807`](../../packages/core/session/src/index.ts)
+
+<a id="session-events"></a>
+
+### `session/*` events
+
+<a id="sessioncreated--emit"></a>
+
+#### `session/created` — emit
+
+Creation announcement during session publication. A synchronous throw vetoes and rolls back with a paired disposal; detach requested during dispatch is deferred. A returned-promise rejection is logged but cannot retroactively veto this synchronous boundary. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only sessions entered through that agent's context.
+
+```ts cordis-catalog
+/**
+ * Creation announcement during session publication. A synchronous throw vetoes and rolls
+ * back with a paired disposal; detach requested during dispatch is deferred.
+ * A returned-promise rejection is logged but cannot retroactively veto this
+ * synchronous boundary.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
+ * receive only sessions entered through that agent's context.
+ * @param session - the session just entered and announced.
+ * @dshScopeScan unsupported
+ * @mode emit
+ */
+'session/created'(this: Scoped<Session>, session: Session): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/session/src/index.ts:74`](../../packages/core/session/src/index.ts)
+
+<a id="sessiondisposed--emit"></a>
+
+#### `session/disposed` — emit
+
+Emitted once when an announced session leaves the store, including publication rollback, but never for an entry whose creation announcement did not begin. Listener failures are logged and contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.
+
+```ts cordis-catalog
+/**
+ * Emitted once when an announced session leaves the store, including
+ * publication rollback, but never for an entry whose creation announcement
+ * did not begin. Listener failures are logged and contained.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the owner scope.
+ * @param session - the session that is no longer live in the store.
+ * @dshScopeScan unsupported
+ * @mode emit
+ */
+'session/disposed'(this: Scoped<Session>, session: Session): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/session/src/index.ts:84`](../../packages/core/session/src/index.ts)
+
+<a id="sessionevent--emit"></a>
+
+#### `session/event` — emit
+
+Post-commit, fire-and-forget append feed. The listener snapshot resolves before the log push, but callbacks run after it; observer failures are logged and contained without making the committed append fail. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only events from sessions entered through that agent's context.
+
+```ts cordis-catalog
+/**
+ * Post-commit, fire-and-forget append feed. The listener snapshot resolves
+ * before the log push, but callbacks run after it; observer failures are
+ * logged and contained without making the committed append fail.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners
+ * receive only events from sessions entered through that agent's context.
+ * @param session - the session whose log grew.
+ * @param event - the appended event, exactly as recorded.
+ * @dshScopeScan unsupported
+ * @mode emit
+ */
+'session/event'(this: Scoped<Session>, session: Session, event: SessionEvent): void
+```
+
+Types: [Scoped](scope.md) · [SessionEvent](core.md)
+
+Source: [`packages/core/session/src/index.ts:96`](../../packages/core/session/src/index.ts)
+
+<a id="sessionflush--parallel"></a>
+
+#### `session/flush` — parallel
+
+Awaited parallel durability checkpoint: every listener runs and the caller awaits all of them, with no waterfall veto. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+
+```ts cordis-catalog
+/**
+ * Awaited parallel durability checkpoint: every listener runs and the
+ * caller awaits all of them, with no waterfall veto. Scope-filtered dispatch
+ * (`@deepseek-ai/dsh-scope`) reuses the session's owner scope.
+ * @param session - the session whose buffered events must reach durable storage.
+ * @dshScopeScan unsupported
+ * @mode parallel
+ */
+'session/flush'(this: Scoped<Session>, session: Session): Promise<void> | void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/session/src/index.ts:105`](../../packages/core/session/src/index.ts)
+<!-- END GENERATED cordis-surface -->

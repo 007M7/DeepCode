@@ -219,3 +219,85 @@ interface BashProcessRead {
 ## 服务
 
 `BashExecutor` 拥有 `resolve`、前台 `run`、后台进程 `start` 以及 `sandboxMode` 能力事实。`dsh-bash-local` 拥有命令默认值补全、超时/中止分类、终端环境以及后台读取合并；进程组、有界收集器、spill 文件、凭据清除与 dispose（资源释放）后完全停稳归[进程管理器](subprocess.md)所有。`dsh-tool-bash` 拥有面向模型的渲染，并将后台句柄适配到[通用任务运行时](tasks.md)。`dsh-bash` 拥有 shell 工具共享的退出状态契约：导出的 `parseExitStatus`/`ParsedExitStatus` 是 `dsh-tool-bash` 的 `renderResult` 与 `dsh-tool-pwsh` 的 `renderPwshResult` 所追加的 `[exit code: N]` / `[killed by signal: X]` 标记的逆解析，两个工具的 `presentResult` 都用它把渲染文本拆分为 terminal 卡的输出正文与退出状态 pill。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxbash--bashexecutor-abstract-seam"></a>
+
+### `ctx.bash` — `BashExecutor` (abstract seam)
+
+Abstract bash execution service. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.bash` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- run rejects only for infrastructure failures. Nonzero exits, timeout kills, and abort kills resolve with a BashRunResult.
+- start returns immediately; no timeout applies to background processes. `done` settles at process close and never rejects; spawn failures settle as `killed` with the error on stderr.
+- BashProcess.readOutput is incremental: consecutive reads never repeat output. Lossy reads report truncation and available spill files.
+- A still-running background process is stopped and awaited when its owning composition tears down. With the subprocess seam that boundary is `ctx.subprocess` disposal, so a background process survives an executor-only reload.
+
+```ts cordis-catalog
+/**
+ * Apply implementation-owned defaults and caps to a request before execution.
+ * @param request - the caller's request; omitted fields get this
+ *   implementation's defaults, capped fields are clamped.
+ * @returns the fully-specified spec to hand to {@link run}/{@link start}.
+ */
+abstract resolve(request: BashExecRequest): BashExecSpec
+
+/**
+ * Run a command in the foreground; resolves when it finishes.
+ * @param spec - a resolved spec from {@link resolve}, never a raw request.
+ * @returns the outcome; nonzero exits, timeout kills, and abort kills
+ *   resolve with a descriptive result rather than reject.
+ */
+abstract run(spec: BashExecSpec): Promise<BashRunResult>
+
+/**
+ * Start a background process and return its handle immediately.
+ * @param spec - a resolved spec from {@link resolve}, never a raw request.
+ * @returns the live process handle (reads, kill, quiescence promise).
+ */
+abstract start(spec: BashExecSpec): BashProcess
+```
+
+Source: [`packages/bash/bash/src/index.ts:53`](../../packages/bash/bash/src/index.ts)
+
+<a id="ctxbashenv--bashenvregistry"></a>
+
+### `ctx.bashEnv` — `BashEnvRegistry`
+
+Registry (`ctx.bashEnv`) for trusted, per-execution `DSH_*` variables. The namespace is rebuilt for every model shell call: ambient `DSH_*` values are discarded by the executor, then the registry's current snapshot is injected. Built-in shell facts remain owned by the registry itself while plugins can register additional, enumerable facts with effect-scoped disposal.
+
+```ts cordis-catalog
+/**
+ * Register one environment contributor. Names and keys are unique; built-in
+ * keys are reserved. Registration is disposed with the calling plugin fiber.
+ * @param contributor - declared key ownership and per-execution resolver.
+ * @returns the disposer that unregisters the contribution.
+ */
+register(contributor: BashEnvContributor): () => void
+
+/**
+ * Build the trusted `DSH_*` snapshot for one shell tool execution.
+ * @param execution - the current tool execution.
+ * @returns an immutable environment overlay containing built-ins and current contributions.
+ */
+collect(execution: ToolExecution): DshEnvironment
+
+/**
+ * Enumerate plugin-contributed variables without executing their resolvers.
+ * @returns declarations sorted by environment variable name.
+ */
+list(): BashEnvVariableInfo[]
+```
+
+Types: [DshEnvironment](subprocess.md) · [ToolExecution](tools.md)
+
+Source: [`packages/bash/bash-env/src/index.ts:89`](../../packages/bash/bash-env/src/index.ts)
+<!-- END GENERATED cordis-surface -->

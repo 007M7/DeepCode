@@ -28,7 +28,7 @@ The sandbox isolates globals but is not a security boundary. Node globals are ab
 
 ## The generated API catalog
 
-`src/api-catalog.ts` is generated from the same Typert `FaceModel` projection as [docs/cordis-catalog](../../../docs/cordis-catalog/services.md) and freshness-gated by `pnpm run verify-cordis-api` (in `doc-sync`) — never edit it by hand. `scripts/gen-cordis-api.ts` is a compatibility entry point for that unified projection, not a second collector. `cordis_inspect` intersects the committed catalog with the live service store at call time; it has no runtime Typert dependency. Broad `api` / `events` reports render summaries and signatures only; an exact `name` opts into the retained method/event JSDoc, and unknown or non-running service targets fail loud.
+`src/api-catalog.ts` is generated from the same Typert `FaceModel` projection as the [subsystem pages' generated regions](../../../docs/subsystems/core.md) and freshness-gated by `pnpm run verify-cordis-api` (in `doc-sync`) — never edit it by hand. `scripts/gen-cordis-api.ts` is a compatibility entry point for that unified projection, not a second collector. `cordis_inspect` intersects the committed catalog with the live service store at call time; it has no runtime Typert dependency. Broad `api` / `events` reports render summaries and signatures only; an exact `name` opts into the retained method/event JSDoc, and unknown or non-running service targets fail loud.
 
 ## Rendering
 

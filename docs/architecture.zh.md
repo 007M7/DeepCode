@@ -53,7 +53,7 @@
 
 ## 事件
 
-事件就是服务的扩展 API（[目录](cordis-catalog/events.md)、[生产方与消费方映射](event-producer-consumer.md)）。
+事件就是服务的扩展 API（[子系统](subsystems/core.md)、[生产方与消费方映射](event-producer-consumer.md)）。
 
 ### 事件域
 

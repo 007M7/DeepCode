@@ -152,3 +152,109 @@ interface TaskRead {
 ## Service behavior
 
 The abstract [`TaskService`](../../packages/tasks/tasks/src/index.ts) seam defines atomic `start`, caller-scoped `get` and `list`, `read`, `kill`, bounded `wait`, contained `onTaskDone` listeners, and the `attachSurface` availability fence; [`LocalTaskService`](../../packages/tasks/tasks-local/src/index.ts) is the process-local implementation. Authorization compares owner sessions; owner cleanup selects the exact registered `Agent` instance. See [`dsh-tasks`](../../packages/tasks/tasks/README.md) for the seam contract, [`dsh-tasks-local`](../../packages/tasks/tasks-local/README.md) for the registry lifecycle, and [`dsh-tool-tasks`](../../packages/tasks/tool-tasks/README.md) for the model-facing surface.
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxtasks--taskservice-abstract-seam"></a>
+
+### `ctx.tasks` — `TaskService` (abstract seam)
+
+Abstract background task registry. Subclass, implement the abstract methods, and load the subclass as a plugin — it registers as `ctx.tasks` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- Registrations outlive producer and control-surface fibers. Owner and service disposal cancel live work and await compliant producers; a throwing teardown cancel force-fails only the record.
+- Owned-task access is fenced by the owner's session id. Ids are predictable, so authorization — not secrecy — is the boundary.
+- Settlement is first-wins: one terminal record, one round of contained listener notification, and released waiters, even against a late producer outcome.
+- start refuses work while no control surface is attached, so a producer cannot start work that callers cannot collect or stop.
+
+```ts cordis-catalog
+/**
+ * Preflight access, validation, and owner cleanup before starting and
+ * atomically registering work. A throwing starter leaves nothing registered;
+ * after it returns, registration cannot fail. Settlement records the outcome,
+ * notifies listeners, and releases waiters.
+ * @param spec - task identity, owner, and synchronous starter.
+ * @returns the registry-issued `<kind>-N` id.
+ */
+abstract start(spec: TaskStart): TaskId
+
+/**
+ * List caller-owned and unowned tasks in registration order without exposing
+ * another session's labels.
+ * @param caller - reading agent; a non-agent caller sees only unowned tasks.
+ * @returns fresh snapshots.
+ */
+abstract list(caller?: Agent): TaskSnapshot[]
+
+/**
+ * Return a non-consuming snapshot without changing its read cursor or notice
+ * state. Throws for an unknown or foreign task.
+ * @param id - task to look up.
+ * @param caller - reading agent checked against the owner.
+ * @returns a fresh snapshot.
+ */
+abstract get(id: TaskId, caller?: Agent): TaskSnapshot
+
+/**
+ * Read the next stream delta, or the idempotent final output after settlement.
+ * A terminal read marks the task reported. Throws for an unknown or foreign
+ * task.
+ * @param id - task to read.
+ * @param caller - reading agent checked against the owner.
+ * @returns output text and the post-read snapshot.
+ */
+abstract read(id: TaskId, caller?: Agent): TaskRead
+
+/**
+ * Request cancellation, then mark the task stopping and reported. A producer
+ * throw propagates without changing task state. Throws for an unknown or
+ * foreign task.
+ * @param id - task to cancel.
+ * @param caller - killing agent checked against the owner.
+ * @param reason - logged reason forwarded to the producer.
+ * @returns `requested` for live work, otherwise `already-finished`.
+ */
+abstract kill(id: TaskId, caller?: Agent, reason?: string): 'requested' | 'already-finished'
+
+/**
+ * Wait for settlement or timeout without cancelling the task. Caller abort
+ * rejects only while the task is live; after settlement the terminal
+ * snapshot wins so a notice suppressed for this waiter is still delivered.
+ * Throws for invalid, unknown, or foreign input.
+ * @param id - task to wait for.
+ * @param timeoutMs - positive finite wait bound in milliseconds.
+ * @param caller - waiting agent checked against the owner.
+ * @param signal - optional cancellation of the wait itself.
+ * @returns snapshot at settlement or timeout.
+ */
+abstract wait(id: TaskId, timeoutMs: number, caller?: Agent, signal?: AbortSignal): Promise<TaskSnapshot>
+
+/**
+ * Register an effect-scoped completion listener. Each listener is contained;
+ * returned promises are observed but not awaited. No listener runs after
+ * service disposal.
+ * @param listener - receives each terminal snapshot and its exact owner.
+ * @returns disposer that unregisters the listener.
+ */
+abstract onTaskDone(listener: TaskDoneListener): () => void
+
+/**
+ * Attach an effect-scoped surface that can read and stop tasks. {@link start}
+ * refuses work while none is attached.
+ * @param name - diagnostic label; duplicate names remain independent.
+ * @returns disposer that detaches this surface.
+ */
+abstract attachSurface(name: string): () => void
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/tasks/tasks/src/index.ts:50`](../../packages/tasks/tasks/src/index.ts)
+<!-- END GENERATED cordis-surface -->

@@ -218,3 +218,93 @@ interface Config {
 Before each later model step, the consumer applies exact tool visibility and digests the exact rendered entries between the `<available_skills>` tags from a complete snapshot. It derives the comparison baseline from the same entries in the newest recognizable visible catalog message sourced by the plugin. A changed digest appends a durable full replacement through `agent.inject()`; deleting every skill appends an explicit empty replacement. Incomplete snapshots preserve the last-good model view. If compaction hides every historical catalog message, the next complete snapshot re-establishes the current catalog; an empty view with no prior catalog emits nothing. These catalog messages are session history, not World State.
 
 The model-facing `skill({ name })` tool validates the kebab-case name, finds the summary in the invocation-neutral catalog, rejects it before loading unless `isModelInvocable` permits access, then rereads the complete definition for the calling agent cwd and rechecks the policy before returning content. It reports an unresolved skill as unknown or no longer available and returns a tool result containing `<skill_content name="...">`, `<skill_resources>`, and `<skill_instructions>`. `resourceBase` resolves explicitly referenced scripts, references, and assets only as needed; the loaded result does not enumerate a skill directory. Body-only edits therefore change later tool calls without producing catalog messages or rewriting earlier tool results.
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxskills--skillservice"></a>
+
+### `ctx.skills` — `SkillService`
+
+Registry of skill providers. It merges provider catalogs with stable first-wins duplicate handling, exposes sorted invocation-neutral summaries, and loads full skill bodies on demand.
+
+```ts cordis-catalog
+/**
+ * Register a borrowed same-process provider synchronously during plugin apply. Duplicate and
+ * reserved names throw; remote initialization belongs in `list()`. Fiber disposal unregisters
+ * the provider and invalidates catalog caches.
+ * @param create - synchronous factory receiving this registration's lifecycle and invalidation control.
+ * @returns the exact Cordis effect disposer that unregisters this provider;
+ *   composite effects may yield it directly to preserve teardown ordering.
+ */
+registerProvider(create: (control: SkillProviderControl) => SkillProvider): () => void
+
+/**
+ * Register a borrowed readonly runtime skill. Project entries outrank runtime entries, which
+ * outrank user entries. Same-name runtime entries are first-wins; a duplicate logs a warning and
+ * receives a no-op disposer so it cannot remove the winner.
+ * @param skill - the skill definition input; omitted invocation and provider fields receive defaults.
+ * @returns the exact Cordis effect disposer, preserving composite teardown order and invalidating caches.
+ */
+register(skill: SkillRegistration): () => void
+
+/**
+ * List invocation-neutral skill summaries for a workspace. Consumers apply
+ * model or user invocation policy at their operational boundary. Lookup
+ * options and provider candidates are readonly same-process values borrowed
+ * throughout discovery.
+ * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @returns all sorted winning summaries.
+ */
+async list(options: SkillLookupOptions = {}): Promise<SkillSummary[]>
+
+/**
+ * Observe the current invocation-neutral catalog and whether discovery completed within a stable revision.
+ * Incomplete observations are never cached, allowing consumers to retain last-good state and
+ * retry on their next request boundary.
+ * @param options - lookup options; `cwd` selects project roots and `signal` cancels discovery.
+ * @returns sorted summaries plus discovery-completeness state.
+ */
+async snapshot(options: SkillLookupOptions = {}): Promise<SkillCatalogSnapshot>
+
+/**
+ * Load and validate the winning candidate, passing its opaque discovery locator back to the
+ * provider. Cancellation is rechecked after selection, including cache hits, and raced against
+ * loading so an uncooperative provider cannot hang the caller.
+ * @param name - kebab-case skill name.
+ * @param options - lookup options; `cwd` selects workspace-sensitive skills and `signal` cancels work.
+ * @returns the full skill, including body content, or `undefined`.
+ */
+async get(name: string, options: SkillLookupOptions = {}): Promise<SkillDefinition | undefined>
+```
+
+Source: [`packages/skill/skill/src/index.ts:304`](../../packages/skill/skill/src/index.ts)
+
+<a id="skills-events"></a>
+
+### `skills/*` events
+
+<a id="skillschange--emit"></a>
+
+#### `skills/change` — emit
+
+A skill provider, runtime contribution, or provider-backed catalog may have changed. This is an unfiltered invalidation notification; consumers refetch the catalog for their own lookup options. Listener failures are contained and cannot veto the registry mutation.
+
+```ts cordis-catalog
+/**
+ * A skill provider, runtime contribution, or provider-backed catalog may
+ * have changed. This is an unfiltered invalidation notification; consumers
+ * refetch the catalog for their own lookup options. Listener failures are
+ * contained and cannot veto the registry mutation.
+ * @mode emit
+ */
+'skills/change'(): void
+```
+
+Source: [`packages/skill/skill/src/index.ts:283`](../../packages/skill/skill/src/index.ts)
+<!-- END GENERATED cordis-surface -->

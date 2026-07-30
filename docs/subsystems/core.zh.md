@@ -53,9 +53,10 @@ harness 是一个微内核：一个极小的核心加上众多插件。大多数
 | [storage.md](storage.md) | 存储子系统：后端 seam（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
 | [workspace.md](workspace.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
 | [client-modules.md](client-modules.md) | Web 插件表：`dshClient` 声明、`WebBootGraph` 线上组合、bundle 路由与 index 转换 |
+| [session-projection.md](session-projection.md) | 投影 seam：`SessionProjectionMap`、纯函数 `ProjectionDefinition` 单元、`ProjectionSnapshot` 的一致切面、变更馈送 |
 | [telemetry.md](telemetry.md) | 对外上报 seam：`TelemetryRecord`/`TelemetrySeverity`、`TelemetryBackend` 契约、`telemetry/record` 脱敏 waterfall |
 
-> 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](../cordis-catalog/services.md)。
+> 这些页面上的类型声明及其 JSDoc 与源码等价，并由 `pnpm run verify-type-equiv` 检查漂移（见 [development.md](../development.md#documenting-types-verbatim-ts-type-equiv)）。普通块保留完整声明；`public-api` 块保留去除实现体的公开 class 声明。Cordis 服务使用生成的[服务目录](#cordis-surface)。
 
 <a id="the-map--derived-union-pattern"></a>
 
@@ -788,3 +789,546 @@ type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
 唯一属于核心的流水线编写类型：每个已注册工具*是什么*——一个面向模型的 `ToolSchema` 加上一个 `execute` 函数，以及可选的最终内容回调与 UI 回调。工具作者很少手动构造它（`defineTool` DSL 会用类型化参数构建），但它是注册表持有、循环分发所经过的契约。
 
 其完整字段、`defineTool`/`ValueSchemaSpec`/`ParameterSchemaSpec` 类型化 schema DSL、`ToolExecution`/`ToolExecutionResult` waterfall 形状，以及工具展示 UI 词汇在 **[tools.md](tools.md)** 中。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxagentloop--agentloop"></a>
+
+### `ctx.agentLoop` — `AgentLoop`
+
+Concrete agent factory and driver service.
+
+```ts cordis-catalog
+/**
+ * Create an agent and session under one caller-supplied identity, owned by
+ * the accessing fiber. Constructor-driven config calls mint a fresh combined
+ * id before entering this boundary.
+ * @param id - shared agent/session identity.
+ * @param options - concrete loop options.
+ * @param meta - optional fresh-session workspace metadata.
+ * @returns the published running agent.
+ */
+create(id: SessionId, options: AgentOptions = {}, meta: Pick<SessionHeader, 'cwd'> = {}): Agent
+
+/**
+ * Create an owned agent on a caller-supplied session id.
+ * @param ownerCtx - caller context that structurally owns the lifecycle.
+ * @param options - identities, session seed/metadata, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
+async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>
+
+/**
+ * Resume an owned agent from the configured persistence service.
+ * @param ownerCtx - caller context that owns load, setup, and the live lifecycle.
+ * @param options - persisted identity, loop options, setup, and cancellation.
+ * @returns the published handle.
+ */
+async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>
+```
+
+Types: [SessionHeader](persistence.md)
+
+Source: [`packages/core/agent-loop/src/index.ts:277`](../../packages/core/agent-loop/src/index.ts)
+
+<a id="ctxagents--agentregistry"></a>
+
+### `ctx.agents` — `AgentRegistry`
+
+Agent service (`ctx.agents`): tracks live agents and carries the initiating Agent through one process-local asynchronous driver chain. Agent *creation* is provided by whichever plugin implements the AgentFactory (`@deepseek-ai/dsh-agent-loop`), registered via setFactory.
+
+Initiator methods provide same-process causal attribution only. Ambient presence is neither liveness proof nor authorization; subjects and owners remain explicit, as does identity at worker, process, persistence, and wire boundaries. Returned Promise boundaries drain during teardown, except a nested lineage that starts an owning-fiber unload is excluded from its own drain.
+
+```ts cordis-catalog
+/**
+ * Read the Agent that initiated the inherited asynchronous driver chain.
+ * Use this optional form for logging, tracing, metrics, or host attribution
+ * that also supports agentless calls. When a parent creates a child, setup
+ * reports the causal parent while `agentCtx.agent` identifies the child.
+ * @returns the inherited Agent, or `undefined` outside an initiator boundary
+ *   and inside an explicit clearing boundary.
+ * @throws when this service instance has been disposed.
+ */
+currentInitiator(): Agent | undefined
+
+/**
+ * Read the initiating Agent and fail when no initiator boundary is active.
+ * Use this for private helpers contractually below a driver, or for a
+ * deployment-owned outbound request whose contract forbids agentless calls.
+ * Generic or direct-call seams use optional lookup or explicit request fields.
+ * @returns the inherited Agent.
+ * @throws when no initiator is active or this service instance has been disposed.
+ */
+requireInitiator(): Agent
+
+/**
+ * Run an operation with one exact Agent as its process-local initiator. The
+ * exact synchronous value or Promise returned by the operation is preserved.
+ * Custom drivers and test harnesses wrap their complete returned foreground
+ * lifetime.
+ * A queue or wire receiver may establish this boundary only after validating
+ * explicit identity and resolving the exact live Agent; this method does neither.
+ * Detached work remains owned by the subsystem that starts it.
+ * @param agent - initiating Agent to inherit; presence is neither liveness proof nor authorization.
+ * @param operation - synchronous or asynchronous operation to invoke.
+ * @returns the exact value returned by `operation`.
+ * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+ */
+withInitiator<T>(agent: Agent, operation: () => T): T
+
+/**
+ * Run an operation inside a boundary that hides any inherited initiating
+ * Agent. The exact synchronous value or Promise is preserved.
+ * Use this while creating lazy shared timers, queue pumps, pool maintenance,
+ * watchers, or exporters so they do not inherit the first Agent that happens
+ * to initialize them. It clears only initiator attribution, not explicit
+ * fields, and does not own or drain detached resources.
+ * @param operation - synchronous or asynchronous operation to invoke without an initiator.
+ * @returns the exact value returned by `operation`.
+ * @throws when the initiator scope is closing/disposed, or when `operation` throws.
+ */
+withoutInitiator<T>(operation: () => T): T
+
+/**
+ * Register the agent-creation factory (the loop calls this on construction,
+ * effect-scoped). A traced Cordis service is canonicalized to its concrete
+ * target; each create/resume call is then traced through that caller's
+ * context so ownership follows the caller without stacking proxy layers.
+ * Throws if a factory is already registered. Returns the disposer; on
+ * dispose the factory slot is cleared.
+ * @param factory - the loop-owned factory {@link create}/{@link resume} delegate to.
+ * @returns the disposer that clears the factory slot. The exact
+ *   Cordis effect disposer (single-shot): composite (generator) effects may
+ *   yield it directly — exact identity nests the teardown in order.
+ */
+setFactory(factory: AgentFactory): () => void
+
+/**
+ * Create and publish a new agent through the registered factory.
+ * Distinct from {@link register} (which records an already-constructed
+ * agent): this constructs the agent and its session. Rejects if no factory is
+ * registered or creation/setup fails. The resolved {@link AgentHandle} lets
+ * the owner tear down exactly this agent.
+ * @param options - shared identity, session seed/metadata, and agent options.
+ * @returns the handle after setup, rollback-covered publication, and loop start complete.
+ */
+async create(options: CreateAgentOptions): Promise<AgentHandle>
+
+/**
+ * Load a persisted session and resume an agent on it through the registered
+ * factory. Rejects if no factory is registered; the factory rejects if
+ * session persistence is not configured or persistence/setup fails.
+ * @param options - persisted identity, configuration, and optional setup.
+ * @returns the handle after setup, rollback-covered publication, and loop start complete.
+ */
+async resume(options: ResumeAgentOptions): Promise<AgentHandle>
+
+/**
+ * Register a live agent. Throws if an agent with the same id is already
+ * registered. Emits `agent/created` on registration and `agent/disposed`
+ * when the calling fiber is disposed — both with the agent's scope carrier
+ * (`scopeTarget(agent, agent)`): the subject is the agent in hand, so the
+ * emits are scope-filtered regardless of which context invoked `register`
+ * (calling through `agent.ctx` scopes EFFECTS; dispatch scoping always
+ * requires passing the carrier). Returns the disposer.
+ * @param agent - the already-constructed agent to record in the store.
+ * @returns the EXACT Cordis effect disposer (single-shot; a repeat call
+ *   returns undefined without awaiting an in-flight teardown). Exact
+ *   identity is load-bearing: a composite (generator) effect that owns a
+ *   teardown ORDER — the agent factory's lifecycle chain — must yield THIS
+ *   function so Cordis nests the unregistration at that yield position;
+ *   yielding a wrapper would leave it disposing as a concurrent sibling on
+ *   owner unload, unregistering the agent (and emitting `agent/disposed`)
+ *   while its final turn is still draining.
+ */
+register(agent: Agent): () => void
+
+/**
+ * Insert an already-constructed agent without announcing it. This is the
+ * advanced ordered-lifecycle primitive used by the async agent factory: it
+ * first completes setup while the agent is unpublished, then assigns the
+ * returned detach closure into its pre-installed composite teardown before
+ * calling {@link announce}. Ordinary callers use {@link register}.
+ * @param agent - the prepared, unpublished agent.
+ * @param owner - live agent whose scoped context created this agent, or
+ *   undefined for a top-level runtime root. This is runtime ownership, not
+ *   the resumed session's durable parent lineage.
+ * @returns an idempotent closure that removes this exact entry and emits
+ *   `agent/disposed` with listener failures contained. When called from a
+ *   synchronous `agent/created` listener, removal and disposal wait until
+ *   that creation dispatch unwinds.
+ */
+enter(agent: Agent, owner: Agent | undefined): () => void
+
+/**
+ * Announce an agent previously inserted with {@link enter}.
+ * @param agent - the live inserted agent to announce.
+ * @throws if `agent` is not the exact live registry entry for its id, or its
+ *   creation announcement already began (including a reentrant call from a
+ *   creation listener).
+ */
+announce(agent: Agent): void
+
+/**
+ * Look up a live agent.
+ * @param id - the shared agent/session id to look up.
+ * @returns the agent, or undefined when no live agent has that id.
+ */
+get(id: SessionId): Agent | undefined
+
+/**
+ * Test whether a live agent was created through one exact parent agent's
+ * scoped context. Runtime ownership is independent of durable session
+ * lineage and remains unambiguous when unrelated providers reuse an id.
+ * @param id - the candidate child agent's shared agent/session id.
+ * @param owner - the expected runtime creator agent.
+ * @returns true only while the exact child entry is live under that owner.
+ */
+isOwnedBy(id: SessionId, owner: Agent): boolean
+
+/**
+ * All live agents, in registration order.
+ * @returns a fresh array; mutating it does not affect the registry.
+ */
+list(): Agent[]
+
+/**
+ * All live top-level agents in registration order. A top-level agent was
+ * created without an owning agent context; durable session lineage does not
+ * affect this runtime relation, so a resumed fork may still be a root.
+ * @returns a fresh array; mutating it does not affect the registry.
+ */
+roots(): Agent[]
+```
+
+Source: [`packages/core/agent/src/index.ts:253`](../../packages/core/agent/src/index.ts)
+
+<a id="agent-events"></a>
+
+### `agent/*` events
+
+<a id="agentcreated--emit"></a>
+
+#### `agent/created` — emit
+
+A fully configured agent and live session were published. Setup is composition-only; `agent/session-start` is the first startup-driving seam. Synchronous listener failure vetoes publication, while returned-promise rejection is reported. Detach requested during dispatch waits until every creation listener has observed the stable entry.
+
+```ts cordis-catalog
+/**
+ * A fully configured agent and live session were published. Setup is
+ * composition-only; `agent/session-start` is the first startup-driving seam.
+ * Synchronous listener failure vetoes publication, while returned-promise
+ * rejection is reported. Detach requested during dispatch waits until every
+ * creation listener has observed the stable entry.
+ * @param payload.agent - the newly registered agent with its live session and completed setup.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/created'(this: Scoped<Agent>, payload: { agent: Agent }): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:158`](../../packages/core/agent/src/types.ts)
+
+<a id="agentdisposed--emit"></a>
+
+#### `agent/disposed` — emit
+
+An agent left the registry; AgentLoop emits this after driver quiescence and scoped-registration unwind, but before session detachment. Custom registry users own their driver-ordering contract.
+
+```ts cordis-catalog
+/**
+ * An agent left the registry; AgentLoop emits this after driver quiescence
+ * and scoped-registration unwind, but before session detachment. Custom
+ * registry users own their driver-ordering contract.
+ * @param payload.agent - the exact agent removed from the registry.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/disposed'(this: Scoped<Agent>, payload: { agent: Agent }): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:167`](../../packages/core/agent/src/types.ts)
+
+<a id="agenterror--emit"></a>
+
+#### `agent/error` — emit
+
+A step or turn errored. The machine reports a failure here even when the error has no in-turn position for a durable record.
+
+```ts cordis-catalog
+/**
+ * A step or turn errored. The machine reports a failure here even when
+ * the error has no in-turn position for a durable record.
+ * @param payload.agent - the agent whose turn errored.
+ * @param payload.turn - the turn in which the failure surfaced.
+ * @param payload.step - the step at which the failure surfaced.
+ * @param payload.error - the failure, verbatim.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; error: unknown }): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:289`](../../packages/core/agent/src/types.ts)
+
+<a id="agentinboxclaimed--emit"></a>
+
+#### `agent/inbox/claimed` — emit
+
+One message left the inbox inside its open turn. If the proposed step is rejected, the claimed message ends here: it is neither discarded nor re-emitted as a user/message, and the turn closes without a step.
+
+```ts cordis-catalog
+/**
+ * One message left the inbox inside its open turn. If the proposed step
+ * is rejected, the claimed message ends here: it is neither discarded nor
+ * re-emitted as a user/message, and the turn closes without a step.
+ * @param payload.agent - the agent whose inbox changed.
+ * @param payload.message - the claimed message.
+ * @param payload.turn - the owning turn.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/claimed'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage; turn: number }): void
+```
+
+Types: [Scoped](scope.md) · [UserMessage](session.md)
+
+Source: [`packages/core/agent/src/types.ts:196`](../../packages/core/agent/src/types.ts)
+
+<a id="agentinboxdiscarded--emit"></a>
+
+#### `agent/inbox/discarded` — emit
+
+One message was discarded from the live inbox.
+
+```ts cordis-catalog
+/**
+ * One message was discarded from the live inbox.
+ * @param payload.agent - the agent whose inbox changed.
+ * @param payload.message - the discarded message.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/discarded'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
+```
+
+Types: [Scoped](scope.md) · [UserMessage](session.md)
+
+Source: [`packages/core/agent/src/types.ts:204`](../../packages/core/agent/src/types.ts)
+
+<a id="agentinboxinserted--emit"></a>
+
+#### `agent/inbox/inserted` — emit
+
+One message entered the live inbox.
+
+```ts cordis-catalog
+/**
+ * One message entered the live inbox.
+ * @param payload.agent - the agent whose inbox changed.
+ * @param payload.message - the inserted message.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/inserted'(this: Scoped<Agent>, payload: { agent: Agent; message: UserMessage }): void
+```
+
+Types: [Scoped](scope.md) · [UserMessage](session.md)
+
+Source: [`packages/core/agent/src/types.ts:185`](../../packages/core/agent/src/types.ts)
+
+<a id="agentpre-step--waterfall"></a>
+
+#### `agent/pre-step` — waterfall
+
+Reject a proposed step or replace the messages that enter it. Calling `next()` preserves the current messages.
+
+```ts cordis-catalog
+/**
+ * Reject a proposed step or replace the messages that enter it. Calling
+ * `next()` preserves the current messages.
+ * @param payload.agent - the agent proposing the step.
+ * @param payload.messages - messages removed from the inbox for this step.
+ * @param payload.turn - the turn that will own the step.
+ * @param payload.step - the step proposed by the loop.
+ * @param payload.signal - the current turn's cancellation signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode waterfall
+ */
+'agent/pre-step'(this: Scoped<Agent>, payload: { agent: Agent; messages: UserMessage[]; turn: number; step: number; signal: AbortSignal }, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
+```
+
+Types: [Scoped](scope.md) · [UserMessage](session.md)
+
+Source: [`packages/core/agent/src/types.ts:230`](../../packages/core/agent/src/types.ts)
+
+<a id="agentrequest--waterfall"></a>
+
+#### `agent/request` — waterfall
+
+Replace the frozen call configuration. `await next()` yields the config the machine would use (agent options on the first request, the logged header afterwards); return a replacement to switch. Model-visible content must use logged channels; this seam cannot mutate messages.
+
+```ts cordis-catalog
+/**
+ * Replace the frozen call configuration. `await next()` yields the config
+ * the machine would use (agent options on the first request, the logged
+ * header afterwards); return a replacement to switch. Model-visible
+ * content must use logged channels; this seam cannot mutate messages.
+ * @param payload.agent - the agent making the model call.
+ * @param payload.turn - the open turn number.
+ * @param payload.step - the step whose request this is.
+ * @param payload.signal - the current turn's explicit abort signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode waterfall
+*/
+'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
+
+<a id="agentrequest-error--waterfall"></a>
+
+#### `agent/request-error` — waterfall
+
+Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
+
+```ts cordis-catalog
+/**
+ * Handle one failed model-request attempt before the loop retries or closes
+ * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
+ * when it owns recovery, or calls `next()` to delegate. The default
+ * `undefined` leaves the failure terminal.
+ * @param payload.agent - the agent whose request failed.
+ * @param payload.turn - the turn containing the failed request.
+ * @param payload.step - the step containing the failed request attempt.
+ * @param payload.provider - the provider selected for the failed request.
+ * @param payload.failure - serializable facts normalized at the final adapter boundary.
+ * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.
+ * @param payload.signal - the turn abort signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode waterfall
+ */
+'agent/request-error'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>
+```
+
+Types: [LlmFailure](llm-streaming.md) · [ResolvedRetryPolicy](llm-streaming.md) · [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
+
+<a id="agentsession-start--emit"></a>
+
+#### `agent/session-start` — emit
+
+The session lifecycle began, once before the first turn. Use `agent.inject()` to seed model-facing context. This is a notification, not a veto; disposal requested by a lifecycle owner is rechecked before the driver starts.
+
+```ts cordis-catalog
+/**
+ * The session lifecycle began, once before the first turn. Use
+ * `agent.inject()` to seed model-facing context. This is a notification, not
+ * a veto; disposal requested by a lifecycle owner is rechecked before the
+ * driver starts.
+ * @param payload.agent - the agent whose session lifecycle began.
+ * @param payload.source - why the session started (fresh startup, resume, …).
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/session-start'(this: Scoped<Agent>, payload: { agent: Agent; source: SessionStartSource }): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:216`](../../packages/core/agent/src/types.ts)
+
+<a id="agentstatus--emit"></a>
+
+#### `agent/status` — emit
+
+Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` synchronously after reserving cancellation; `idle` means no driver remains scheduled or active.
+
+```ts cordis-catalog
+/**
+ * Agent status changed (`idle` ⇄ `running`). A waking delivery enters
+ * `running` synchronously after reserving cancellation; `idle` means no
+ * driver remains scheduled or active.
+ * @param payload.agent - the agent whose status flipped.
+ * @param payload.status - the status just entered (the transition's destination).
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/status'(this: Scoped<Agent>, payload: { agent: Agent; status: AgentStatus }): void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:177`](../../packages/core/agent/src/types.ts)
+
+<a id="agentturn-stopping--serial"></a>
+
+#### `agent/turn-stopping` — serial
+
+The turn is about to close: the model owes no response (no live tool calls, no fresh steering). Awaited before the boundary commits — a listener that objects steers (`agent.steer(...)`) and the machine re-reads its inbox: fresh steering runs another step, none closes the turn. Data decides, so listener order cannot change the outcome. The inverse control (stop a tool loop early) is data too: a tool result carrying `concludesTurn` ends the turn at its step. The conclusion never short-circuits already-submitted next-step work: same-step `additionalContexts` or racing steering still runs, and the turn closes only when that inbox drains.
+
+```ts cordis-catalog
+/**
+ * The turn is about to close: the model owes no response (no live tool
+ * calls, no fresh steering). Awaited before the boundary commits — a
+ * listener that objects steers (`agent.steer(...)`) and the machine
+ * re-reads its inbox: fresh steering runs another step, none closes the
+ * turn. Data decides, so listener order cannot change the outcome. The
+ * inverse control (stop a tool loop early) is data too: a tool result
+ * carrying `concludesTurn` ends the turn at its step. The conclusion
+ * never short-circuits already-submitted next-step work: same-step
+ * `additionalContexts` or racing steering still runs, and the turn
+ * closes only when that inbox drains.
+ * @param payload.agent - the agent whose turn is at its stop boundary.
+ * @param payload.turn - the turn about to close.
+ * @param payload.signal - the current turn's explicit abort signal.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode serial
+ */
+'agent/turn-stopping'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; signal: AbortSignal }): Promise<void> | void
+```
+
+Types: [Scoped](scope.md)
+
+Source: [`packages/core/agent/src/types.ts:277`](../../packages/core/agent/src/types.ts)
+
+<a id="agent-loop-events"></a>
+
+### `agent-loop/*` events
+
+<a id="agent-loopconfig-start-failed--emit"></a>
+
+#### `agent-loop/config-start-failed` — emit
+
+A declarative agent entry failed before it could publish a live agent. Consumers that buffer work for the configured identity use this transient signal to reject that work instead of waiting forever. Normal factory teardown suppresses failures from the cancelled startup attempt.
+
+```ts cordis-catalog
+/**
+ * A declarative agent entry failed before it could publish a live agent.
+ * Consumers that buffer work for the configured identity use this
+ * transient signal to reject that work instead of waiting forever. Normal
+ * factory teardown suppresses failures from the cancelled startup attempt.
+ * @param payload.sessionId - exact shared agent/session identity that failed startup.
+ * @param payload.error - persistence, setup, or publication failure.
+ * @mode emit
+ */
+'agent-loop/config-start-failed'(payload: { sessionId: SessionId; error: unknown }): void
+```
+
+Source: [`packages/core/agent-loop/src/index.ts:182`](../../packages/core/agent-loop/src/index.ts)
+<!-- END GENERATED cordis-surface -->

@@ -694,32 +694,61 @@ function renderRuntimeApi(
   lines.push(']', '')
   return lines.join('\n')
 }
-/** Render the cross-link "Types:" line for a signature, or '' if none apply. */
-function typeLinks(signature: string, linkedTypePages: Readonly<Record<string, string>>): string {
+/** Opening region delimiter; injected content lives between the pair and the page owns everything outside. */
+export const REGION_BEGIN = '<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->'
+/** Closing region delimiter matching {@link REGION_BEGIN}. */
+export const REGION_END = '<!-- END GENERATED cordis-surface -->'
+
+/**
+ * Render the cross-link "Types:" line for a signature relative to one
+ * subsystems page, or '' if none apply. A type whose primary page IS the
+ * rendering page would link as a fragmentless self-link readers already sit
+ * on, so it is dropped instead.
+ */
+function typeLinks(signature: string, onPage: string, linkedTypePages: Readonly<Record<string, string>>): string {
   const seen = new Set<string>()
   for (const name of Object.keys(linkedTypePages)) {
     if (new RegExp(`\\b${name}\\b`).test(signature)) seen.add(name)
   }
-  if (seen.size === 0) return ''
-  const links = [...seen].sort().map(n => `[${n}](../subsystems/${linkedTypePages[n]})`)
+  const links = [...seen].sort()
+    .filter(name => linkedTypePages[name] !== onPage)
+    .map(name => `[${name}](${linkedTypePages[name]})`)
+  if (links.length === 0) return ''
   return `Types: ${links.join(' · ')}`
 }
 
-/** Render one harness event entry. */
-function renderEvent(e: EventEntry, linkedTypePages: Readonly<Record<string, string>>): string[] {
-  const out = [`### \`${e.name}\` — ${e.mode}`, '']
+/**
+ * GitHub's heading-slug algorithm (lowercase; drop everything but letters,
+ * numbers, spaces, hyphens; spaces become hyphens). Region headings carry
+ * backticks and em-dashes, which VitePress slugifies differently, so each
+ * generated heading is preceded by an explicit `<a id>` carrying this slug —
+ * the historical flat-catalog anchor — making `#ctx<key>--<class>` fragments
+ * resolve identically on GitHub and the published site.
+ */
+function githubSlug(heading: string): string {
+  return heading.toLowerCase().replace(/[^\p{L}\p{N} -]/gu, '').replaceAll(' ', '-')
+}
+
+/** The explicit-anchor line emitted before one generated heading. */
+function anchorFor(headingText: string): string[] {
+  return [`<a id="${githubSlug(headingText)}"></a>`, '']
+}
+
+/** Render one harness event entry onto its owning page, nested under its scope heading. */
+function renderEvent(e: EventEntry, onPage: string, linkedTypePages: Readonly<Record<string, string>>): string[] {
+  const out = [...anchorFor(`${e.name} — ${e.mode}`), `#### \`${e.name}\` — ${e.mode}`, '']
   if (e.doc) out.push(e.doc, '')
   out.push('```' + FENCE, e.jsDoc, e.signature, '```', '')
-  const links = typeLinks(e.signature, linkedTypePages)
+  const links = typeLinks(e.signature, onPage, linkedTypePages)
   if (links) out.push(links, '')
   out.push(`Source: [\`${e.source}\`](../../${e.source.split(':')[0]})`, '')
   return out
 }
 
-/** Render one harness service entry. */
-function renderService(s: ServiceEntry, linkedTypePages: Readonly<Record<string, string>>): string[] {
+/** Render one harness service entry onto its owning page. */
+function renderService(s: ServiceEntry, onPage: string, linkedTypePages: Readonly<Record<string, string>>): string[] {
   const kind = s.abstract ? ' (abstract seam)' : ''
-  const out = [`## \`ctx.${s.key}\` — \`${s.type}\`${kind}`, '']
+  const out = [...anchorFor(`ctx.${s.key} — ${s.type}${kind}`), `### \`ctx.${s.key}\` — \`${s.type}\`${kind}`, '']
   if (s.doc) out.push(s.doc, '')
   if (s.methods.length) {
     const declarations = s.methods.flatMap((method, index) => [
@@ -728,7 +757,7 @@ function renderService(s: ServiceEntry, linkedTypePages: Readonly<Record<string,
       method.signature,
     ])
     out.push('```' + FENCE, ...declarations, '```', '')
-    const links = typeLinks(s.methods.map(method => method.signature).join('\n'), linkedTypePages)
+    const links = typeLinks(s.methods.map(method => method.signature).join('\n'), onPage, linkedTypePages)
     if (links) out.push(links, '')
   }
   out.push(`Source: [\`${s.source}\`](../../${s.source.split(':')[0]})`, '')
@@ -746,72 +775,66 @@ const BANNER = [
 const GATE_NOTICE = 'This file is GENERATED from source (`scripts/gen-cordis-catalog.ts`) and verified fresh by `pnpm run verify-cordis-catalog` (part of `doc-sync`) — do not edit it by hand. Signature blocks use a `ts cordis-catalog` fence and include the original source JSDoc immediately before each event or service method. doc-typecheck skips these bare declaration fragments; type names in a signature link to the page that documents them.'
 
 /**
- * Render the events catalog deterministically.
- * @param events - validated event entries to render.
- * @param policy - type links and inherited events supplied by the caller.
- * @returns the complete generated Markdown document.
+ * Render one page's generated `cordis-surface` region: the services mapped to
+ * the page, then the event scopes mapped to it, markers included. Pure and
+ * deterministic given sorted inputs; identical bytes land in both pair sides.
+ * @param page - the owning `docs/subsystems/` page basename, e.g. `core.md`.
+ * @param services - validated services mapped to this page.
+ * @param events - validated events whose scopes map to this page.
+ * @param policy - type links supplied by the caller.
+ * @returns the complete marker-delimited region text.
  */
-export function renderEvents(events: EventEntry[], policy: CordisCatalogPolicy): string {
+export function renderPageRegion(page: string, services: ServiceEntry[], events: EventEntry[], policy: CordisCatalogPolicy): string {
   const lines: string[] = [
-    ...BANNER,
-    '# Cordis Events Catalog',
+    REGION_BEGIN,
     '',
-    'Every cordis event a plugin can listen to: exact signature, dispatch mode, and original declaration JSDoc. This is one axis of the **wiring** reference a plugin author works against — the callable `ctx.<key>` surface is the sibling [services catalog](services.md), and [subsystems/](../subsystems/core.md) catalogs the *data structures* these signatures move around.',
+    '<a id="cordis-surface"></a>',
     '',
-    GATE_NOTICE,
+    '## Cordis surface',
     '',
-    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns, grouped by scope. The **inherited tier** at the end is the cordis-core + loader/hmr/timer event surface a plugin also sees — pinned vendor source, summarized tersely. The event-dispatch methods themselves are generated in the [Cordis core Events API](core/events.md).',
-    '',
-    'Dispatch modes: **emit** (fire-and-forget), **waterfall** (each listener gets `next()` and may transform or veto — see [waterfall semantics](../cordis-primer.md#cordis-waterfall-semantics)), **parallel** (awaited fan-out; all listeners run), **serial** (awaited in registration order until one returns a bail value — anything other than `null`, `false`, or `undefined`).',
+    'Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).',
     '',
   ]
+  for (const s of services) lines.push(...renderService(s, page, policy.linkedTypePages))
   const scopes = [...new Set(events.map(e => e.scope))].sort()
   for (const scope of scopes) {
-    lines.push(`## \`${scope}/*\``, '')
+    lines.push(...anchorFor(`${scope}/* events`), `### \`${scope}/*\` events`, '')
     for (const e of events.filter(x => x.scope === scope).sort((a, b) => a.name.localeCompare(b.name))) {
-      lines.push(...renderEvent(e, policy.linkedTypePages))
+      lines.push(...renderEvent(e, page, policy.linkedTypePages))
     }
   }
-  lines.push(
-    '## Inherited events (cordis core + loader/hmr/timer)',
-    '',
-    'The framework events every plugin also sees, beyond the harness vocabulary above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the page is a complete picture of the event bus, without elevating framework internals to the harness tier\'s prominence.',
-    '',
-  )
-  for (const e of policy.inheritedEvents) {
-    lines.push(`- \`${e.name}\` — ${e.summary} ([\`${e.source}\`](../../${e.source.split(':')[0]}))`)
-  }
-  lines.push('')
+  while (lines.at(-1) === '') lines.pop()
+  lines.push(REGION_END)
   return lines.join('\n')
 }
 
 /**
- * Render the services catalog deterministically.
- * @param services - validated service entries to render.
- * @param policy - type links and inherited services supplied by the caller.
+ * Render the inherited (pinned vendor) tier as its own generated page.
+ * @param policy - inherited events and services supplied by the caller.
  * @returns the complete generated Markdown document.
  */
-export function renderServices(services: ServiceEntry[], policy: CordisCatalogPolicy): string {
+export function renderInheritedPage(policy: CordisCatalogPolicy): string {
   const lines: string[] = [
     ...BANNER,
-    '# Cordis Services Catalog',
+    '# Inherited Cordis Surface',
     '',
-    'Every `ctx.<key>` service a plugin can call: the exact public interface with original method JSDoc, plus the class JSDoc. This is one axis of the **wiring** reference a plugin author works against — the events a plugin listens to are the sibling [events catalog](events.md), and [subsystems/](../subsystems/core.md) catalogs the *data structures* these signatures move around. An abstract seam (e.g. `ctx.bash`) is implemented by a separate package; the interface is what consumers code against.',
+    'The framework `ctx` members and events every plugin sees beyond the harness tier — pinned vendor source ([vendoring policy](../../vendor/README.md)), summarized tersely so the harness pages stay focused on repository-owned vocabulary. Detailed Context, Fiber, Registry, and Service APIs are generated in [context.md](context.md), [fiber.md](fiber.md), [registry.md](registry.md), and [service.md](service.md); the event-dispatch methods in [events.md](events.md).',
     '',
     GATE_NOTICE,
     '',
-    'The **harness tier** below (the `@deepseek-ai/dsh-*` packages) is the vocabulary this repo owns. The **inherited tier** at the end is the cordis-core + loader/hmr/timer `ctx` surface a plugin also sees — pinned vendor source, summarized tersely. Detailed Context, Fiber, Registry, and Service APIs are generated in the [Cordis core API](core/context.md).',
-    '',
-  ]
-  for (const s of services) lines.push(...renderService(s, policy.linkedTypePages))
-  lines.push(
     '## Inherited `ctx` members (cordis core + loader/hmr/timer)',
     '',
-    'The framework `ctx` surface every plugin also sees, beyond the harness services above. This is pinned vendor source ([vendoring policy](../../vendor/README.md)); it is summarized here so the page is a complete picture of what `ctx` offers, without elevating framework internals to the harness tier\'s prominence.',
-    '',
-  )
+  ]
   for (const s of policy.inheritedServices) {
     lines.push(`- \`${s.name}\` — ${s.summary} ([\`${s.source}\`](../../${s.source.split(':')[0]}))`)
+  }
+  lines.push(
+    '',
+    '## Inherited events (cordis core + loader/hmr/timer)',
+    '',
+  )
+  for (const e of policy.inheritedEvents) {
+    lines.push(`- \`${e.name}\` — ${e.summary} ([\`${e.source}\`](../../${e.source.split(':')[0]}))`)
   }
   lines.push('')
   return lines.join('\n')

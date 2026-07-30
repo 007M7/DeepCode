@@ -89,3 +89,96 @@ interface PtySendResult {
 ## Ownership and durability
 
 `PtyService` attaches one awaited cleanup to the exact owner scope, rejects foreign operations, and keeps sessions alive across backend or tool-plugin reload. PTY state and raw bytes remain process-local. Model input and bounded returned output are durable through the existing `tool/call`, `tool/result`, and task-result paths rather than duplicate PTY session events.
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxpty--ptyservice"></a>
+
+### `ctx.pty` — `PtyService`
+
+In-process registry for replaceable PTY backends and exact-Agent sessions.
+
+```ts cordis-catalog
+/**
+ * Register one backend type for this effect scope.
+ * @param backend - provider with a non-empty unique type.
+ * @returns disposer that removes exactly this contribution.
+ */
+registerBackend(backend: PtyBackend): () => void
+
+/**
+ * List registered backend types in registration order.
+ * @returns fresh backend type names.
+ */
+listBackends(): string[]
+
+/**
+ * Create and publish one owner-scoped session after backend setup succeeds.
+ * @param owner - exact registered Agent that owns access and cleanup.
+ * @param request - backend type plus optional owner-local name and cwd.
+ * @param signal - cancellation of unpublished setup.
+ * @returns published identity, metadata, status, and MOTD.
+ */
+async spawn(owner: Agent, request: PtySpawnRequest, signal?: AbortSignal): Promise<PtySpawnResult>
+
+/**
+ * Test whether an exact owner has a published session or unpublished spawn.
+ * @param owner - exact live owner to inspect.
+ * @returns true across the entire spawn-to-close interval, with no publication gap.
+ */
+hasOwnerActivity(owner: Agent): boolean
+
+/**
+ * Start one exclusive interactive send.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param request - explicit text, submit behavior, and cancellation.
+ * @returns live operation handle for foreground await or task registration.
+ */
+startSend(owner: Agent, id: PtySessionId, request: PtySendRequest): PtySendOperation
+
+/**
+ * Read one bounded scrollback page from an owned session.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param request - optional newest-relative offset and line count.
+ * @returns bounded retained text and pagination metadata.
+ */
+read(owner: Agent, id: PtySessionId, request: PtyReadRequest = {}): PtyReadResult
+
+/**
+ * Deliver an allowed signal through an owned backend session.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param signal - allowed POSIX signal name.
+ * @returns delivered foreground process-group identity.
+ */
+signal(owner: Agent, id: PtySessionId, signal: PtySignal): Promise<PtySignalResult>
+
+/**
+ * Close one owned session and remove it only after quiescent backend cleanup.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param reason - diagnostic cleanup reason.
+ * @returns true for a newly closed session, false when the same close is already in flight.
+ */
+async kill(owner: Agent, id: PtySessionId, reason: string = 'model request'): Promise<boolean>
+
+/**
+ * List fresh snapshots for exactly one owner.
+ * @param owner - exact owner whose sessions are visible.
+ * @returns owner-visible snapshots in publication order.
+ */
+list(owner: Agent): PtySessionSnapshot[]
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/pty/pty/src/index.ts:105`](../../packages/pty/pty/src/index.ts)
+<!-- END GENERATED cordis-surface -->

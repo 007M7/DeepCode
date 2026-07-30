@@ -36,4 +36,51 @@ When [`ctx.commands`](commands.md) is composed, the plugin registers `/plan [off
 
 ## The service
 
-`ctx.planMode` owns the logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool; `get`/`set` signatures are in the generated [service catalog](../cordis-catalog/services.md#ctxplanmode--planmodeservice).
+`ctx.planMode` owns the logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool; `get`/`set` signatures are in the generated [service catalog](#ctxplanmode--planmodeservice).
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxplanmode--planmodeservice"></a>
+
+### `ctx.planMode` — `PlanModeService`
+
+`ctx.planMode`: owns logged plan state, boundary application and narration, the `plan:policy` section, the `/plan` command, and the stable exit tool. UIs observe committed flips through `session/event`; there is no live mirror.
+
+```ts cordis-catalog
+/**
+ * Read the logged plan state and any selected state awaiting a boundary.
+ *
+ * @param agent The agent to read.
+ * @returns Current logged state plus a pending selection, when present.
+ */
+get(agent: Agent): { active: boolean; pending?: boolean }
+
+/**
+ * Select whether plan mode should be active. Between turns the change
+ * commits immediately — no request boundary would arrive until the next
+ * prompt, so a queued intent would hang (the open-turn fold is the idle
+ * signal: agent status stays `running` through post-turn checkpointing,
+ * where a boundary equally never comes). During an open turn the
+ * selection is held as pending intent for the next in-turn request
+ * boundary. Repeated selection of the current or already-pending state is
+ * a no-op.
+ *
+ * @param agent The agent to switch.
+ * @param active Whether plan mode should be active.
+ * @returns what happened: `committed` (logged now), `queued` (awaiting the
+ * next boundary), `cancelled` (an opposite pending selection was cleared;
+ * the logged state already matches), or `noop` (already in that state).
+ */
+set(agent: Agent, active: boolean): 'committed' | 'queued' | 'cancelled' | 'noop'
+```
+
+Types: [Agent](core.md)
+
+Source: [`packages/plan/plan-mode/src/index.ts:183`](../../packages/plan/plan-mode/src/index.ts)
+<!-- END GENERATED cordis-surface -->

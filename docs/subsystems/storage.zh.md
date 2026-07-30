@@ -8,7 +8,7 @@
 
 ## 枢纽：`ctx.storage`
 
-`Storage`（[签名](../cordis-catalog/services.md#ctxstorage--storage)）是汇合点，不是存储本体。`ctx.storage.backend` 是一张名称 → 后端的表：多个后端并排保持挂载，哪个后端服务哪个消费方由该消费方自己的配置决定（即领域层的路由表），绝不是枢纽全局的选择。`register(name, backend)` 返回 disposer；重复名称与查找未知名称都抛出 `StorageError`。dispose（资源释放）只注销名称——由拥有插件在注销之后自行关闭后端。每个后端插件还会发布一个仅用于生命周期的服务键（`storageBackendServiceKey(name)`），数据形式提供方注入它，使自身激活不会与后端注册发生竞态。
+`Storage`（[签名](#ctxstorage--storage)）是汇合点，不是存储本体。`ctx.storage.backend` 是一张名称 → 后端的表：多个后端并排保持挂载，哪个后端服务哪个消费方由该消费方自己的配置决定（即领域层的路由表），绝不是枢纽全局的选择。`register(name, backend)` 返回 disposer；重复名称与查找未知名称都抛出 `StorageError`。dispose（资源释放）只注销名称——由拥有插件在注销之后自行关闭后端。每个后端插件还会发布一个仅用于生命周期的服务键（`storageBackendServiceKey(name)`），数据形式提供方注入它，使自身激活不会与后端注册发生竞态。
 
 数据形式以一张可合并扩展的键 map 挂载到枢纽上：
 
@@ -99,11 +99,11 @@ interface Domain<S extends DomainSpec> {
 
 ## 领域 facility：`ctx.storageDomain`
 
-`DomainFacility`（[签名](../cordis-catalog/services.md#ctxstoragedomain--domainfacility)）在经过路由的后端之上打开已声明的领域。路由是领域插件的配置，绝不属于枢纽：`backend` 指定必填的默认路由，`routes` 按领域名逐个覆盖。`open(spec)` 按严格顺序执行，每一步失败都使整个调用失败：拒绝已打开或仍在关闭中的名称（`already-open`），解析路由（`backend-not-found`），要求后端具备 `kv` facet（`facet-unsupported`），打开 unit（后端的 `version-mismatch`/`malformed-medium` 原样透传），并按 spec 的 zod schema 校验每条已存储记录和 global（`invalid-record`，附带出错的表与键）。调用方拥有返回的句柄，并用 `Domain.close()` 释放它；插件卸载时仍处于打开状态的领域由 facility 负责关闭，已关闭领域的名称只有在拆除完全结束后才释放出来供重新打开。`get(name)` 是无类型的诊断查找，命中的是每个类型化句柄背后包内私有的 `DomainImpl` 运行时；`closeAll()` 是卸载路径。
+`DomainFacility`（[签名](#ctxstoragedomain--domainfacility)）在经过路由的后端之上打开已声明的领域。路由是领域插件的配置，绝不属于枢纽：`backend` 指定必填的默认路由，`routes` 按领域名逐个覆盖。`open(spec)` 按严格顺序执行，每一步失败都使整个调用失败：拒绝已打开或仍在关闭中的名称（`already-open`），解析路由（`backend-not-found`），要求后端具备 `kv` facet（`facet-unsupported`），打开 unit（后端的 `version-mismatch`/`malformed-medium` 原样透传），并按 spec 的 zod schema 校验每条已存储记录和 global（`invalid-record`，附带出错的表与键）。调用方拥有返回的句柄，并用 `Domain.close()` 释放它；插件卸载时仍处于打开状态的领域由 facility 负责关闭，已关闭领域的名称只有在拆除完全结束后才释放出来供重新打开。`get(name)` 是无类型的诊断查找，命中的是每个类型化句柄背后包内私有的 `DomainImpl` 运行时；`closeAll()` 是卸载路径。
 
 ## 变更事件：`domain/changed`
 
-每次持久写入都发出一个事件，严格发生在后端确认持久性之后，顺序遵循该领域的写链（[事件条目](../cordis-catalog/events.md#domainchanged--emit)）：
+每次持久写入都发出一个事件，严格发生在后端确认持久性之后，顺序遵循该领域的写链（[事件条目](#domainchanged--emit)）：
 
 ```ts type-equiv
 /** Shared location fields of one durable domain change. */
@@ -123,3 +123,107 @@ type DomainChanged = DomainChangedPut | DomainChangedDeleted
 ```
 
 `put`（插入、覆写和 global 写入）在 `value` 中携带新快照——绝不携带旧值；需要做差异比较的消费方自行保留上一份快照。`deleted` 是不携带值的墓碑。该事件是通知，不是事务参与者：发出时提交点已经过去，因此同步抛出的监听器会被兜住并记录一条警告，而不会让已经持久的写入被拒绝；发出的值等于发出时刻的内存态。该事件仅限进程内；跨进程的变更推送是延后工作，记录在[包 README](../../packages/storage/storage-domain/README.md)中。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxstorage--storage"></a>
+
+### `ctx.storage` — `Storage`
+
+The storage hub service. Backends register under `backend`; data forms mount under their `StorageForms` key and are reached as `ctx.storage.<form>`.
+
+```ts cordis-catalog
+/**
+ * Mount a data-form facility on the hub. Mounting is an effect: the
+ * returned disposer unmounts the form.
+ * @param form - Form key declared in {@link StorageForms}.
+ * @param facility - The facility instance to expose.
+ * @returns the disposer that unmounts the form.
+ */
+mount<K extends keyof StorageForms>(form: K, facility: StorageForms[K]): () => void
+
+/**
+ * Resolve a mounted data form.
+ * @param form - Form key declared in {@link StorageForms}.
+ * @returns the mounted facility.
+ */
+form<K extends keyof StorageForms>(form: K): StorageForms[K]
+```
+
+Source: [`packages/storage/storage/src/index.ts:47`](../../packages/storage/storage/src/index.ts)
+
+<a id="ctxstoragedomain--domainfacility"></a>
+
+### `ctx.storageDomain` — `DomainFacility`
+
+The mounted domain facility. Opens declared domains over routed backends; one facility instance owns the open-domain table and enforces single-open per domain name.
+
+```ts cordis-catalog
+/**
+ * Open one declared domain. Steps, each failing the whole call: reject a
+ * name that is already open (`already-open`); resolve the backend route
+ * (`backend-not-found` passes through from the hub); require its `kv` facet
+ * (`facet-unsupported`); open the unit projected from the spec (backend
+ * `version-mismatch`/`malformed-medium` pass through); load and validate
+ * every stored record against the spec's zod schemas (`invalid-record`
+ * with the offending table and key); construct the domain.
+ *
+ * Lifecycle: the CALLER owns the returned handle and closes it via
+ * `Domain.close()` (typically as its own `ctx.effect` disposer) — the
+ * facility does not tie the domain to any consumer fiber. Domains still
+ * open when the facility unmounts are closed by the plugin disposer.
+ * @param spec - The domain declaration, typically from `defineDomain`.
+ * @returns the opened domain handle, typed by the spec.
+ */
+async open<S extends DomainSpec>(spec: S): Promise<Domain<S>>
+
+/**
+ * Look up an open domain by name, untyped. Diagnostic surface (the package
+ * invariant cross-checks change events against live domain state); typed
+ * consumers hold the handle returned by {@link open}.
+ * @param name - Domain name.
+ * @returns the open domain runtime, or `undefined` when not open.
+ */
+get(name: string): DomainImpl | undefined
+
+/**
+ * Close every domain still open on this facility. The unmount path for
+ * consumers that never called `Domain.close()` themselves; closing is
+ * idempotent, so double-closing an already-closed domain is harmless.
+ * @returns resolution after every unit is released.
+ */
+async closeAll(): Promise<void>
+```
+
+Source: [`packages/storage/storage-domain/src/index.ts:69`](../../packages/storage/storage-domain/src/index.ts)
+
+<a id="domain-events"></a>
+
+### `domain/*` events
+
+<a id="domainchanged--emit"></a>
+
+#### `domain/changed` — emit
+
+A domain record or the global singleton changed, emitted once per write strictly after the backend acknowledged durability. Events of one domain arrive in its write-chain order.
+
+```ts cordis-catalog
+/**
+ * A domain record or the global singleton changed, emitted once per write
+ * strictly after the backend acknowledged durability. Events of one
+ * domain arrive in its write-chain order.
+ * @param change - domain, table (`''` for global), key (`''` for global),
+ * operation discriminant, and on `put` the new snapshot.
+ * @mode emit
+ */
+'domain/changed'(change: DomainChanged): void
+```
+
+Source: [`packages/storage/storage-domain/src/events.ts:46`](../../packages/storage/storage-domain/src/events.ts)
+<!-- END GENERATED cordis-surface -->

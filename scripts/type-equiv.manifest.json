@@ -1679,6 +1679,21 @@
       "doc": "docs/subsystems/permission.md",
       "symbol": "PresetSpec",
       "source": "packages/interaction/permission/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-projection.md",
+      "symbol": "ProjectionDefinition",
+      "source": "packages/session/session-projection/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-projection.md",
+      "symbol": "ProjectionSnapshot",
+      "source": "packages/session/session-projection/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/session-projection.md",
+      "symbol": "ProjectionChangeListener",
+      "source": "packages/session/session-projection/src/index.ts"
     }
   ]
 }

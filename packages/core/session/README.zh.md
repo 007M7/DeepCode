@@ -30,7 +30,7 @@
 
 ### 实时服务事件
 
-会话存储会将已通知的创建与释放配对，在提交后发布追加通知并逐个监听器收容失败，同时提供受等待的持久性检查点。确切签名和作用域行为见生成的[事件目录](../../../docs/cordis-catalog/events.md)；载荷见[持久化目录](../../../docs/persistence-catalog.md)。
+会话存储会将已通知的创建与释放配对，在提交后发布追加通知并逐个监听器收容失败，同时提供受等待的持久性检查点。确切签名和作用域行为见 [session.md](../../../docs/subsystems/session.md#cordis-surface) 的生成区块；载荷见[持久化目录](../../../docs/persistence-catalog.md)。
 
 ### 类：`Session`
 

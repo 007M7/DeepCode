@@ -23,7 +23,7 @@
 
 ### 实时事件
 
-`system-prompt/assemble` 是权威来源；替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。生成的[事件目录](../../../docs/cordis-catalog/events.md) 拥有签名与分发契约。
+`system-prompt/assemble` 是权威来源；替换条目的监听器必须保留任何活动 Code Mode 或结构化输出协议。筛选需要在呈现、查找与执行之间保持一致时，应使用 [`ToolRegistry.restrict()`](../tools/README.md)。注册表变更通知不经过筛选。[system-prompt.md](../../../docs/subsystems/system-prompt.md#cordis-surface) 的生成区块拥有签名与分发契约。
 
 ### 关键类型
 

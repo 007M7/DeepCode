@@ -34,7 +34,7 @@ Register a cleanup-aware effect on this fiber.
 
 **Returns** a disposer that tears the effect down and settles once done.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L420)
+[Source](../../vendor/cordis/src/fiber.ts#L420)
 
 ### ctx.fiber
 
@@ -45,7 +45,7 @@ fiber: Fiber
 
 The fiber (plugin runtime instance) that owns this context.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L12)
+[Source](../../vendor/cordis/src/fiber.ts#L12)
 
 ## The Fiber class
 
@@ -53,7 +53,7 @@ Runtime instance of one plugin application.
 
 A fiber tracks dependency state, validated config, lifecycle effects, and cleanup for the plugin context returned by `ctx.plugin()`.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L184)
+[Source](../../vendor/cordis/src/fiber.ts#L184)
 
 ### fiber.uid
 
@@ -64,7 +64,7 @@ public uid: number | null
 
 Unique id within the registry; 0 for the root fiber, `null` once disposed.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L186)
+[Source](../../vendor/cordis/src/fiber.ts#L186)
 
 ### fiber.ctx
 
@@ -75,7 +75,7 @@ public readonly ctx: Context
 
 The context this fiber's plugin runs in (extends the parent context).
 
-[Source](../../../vendor/cordis/src/fiber.ts#L188)
+[Source](../../vendor/cordis/src/fiber.ts#L188)
 
 ### fiber.config
 
@@ -86,7 +86,7 @@ public config: any
 
 The validated plugin config (updated by `update()`).
 
-[Source](../../../vendor/cordis/src/fiber.ts#L190)
+[Source](../../vendor/cordis/src/fiber.ts#L190)
 
 ### fiber.state
 
@@ -97,7 +97,7 @@ public state
 
 Current lifecycle state; transitions emit `internal/status`.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L192)
+[Source](../../vendor/cordis/src/fiber.ts#L192)
 
 ### fiber.dispose
 
@@ -108,7 +108,7 @@ public readonly dispose: () => Promise<void>
 
 Dispose this fiber: unload the plugin, then settle once cleanup finished.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L194)
+[Source](../../vendor/cordis/src/fiber.ts#L194)
 
 ### fiber.store
 
@@ -119,7 +119,7 @@ public store: Dict<Impl> | undefined
 
 Snapshot of required service implementations while loaded; `undefined` otherwise.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L196)
+[Source](../../vendor/cordis/src/fiber.ts#L196)
 
 ### fiber.inertia
 
@@ -130,7 +130,7 @@ public inertia: Promise<void> | undefined
 
 The in-flight load/unload transition, if one is currently running.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L198)
+[Source](../../vendor/cordis/src/fiber.ts#L198)
 
 ### fiber.name
 
@@ -141,7 +141,7 @@ get name()
 
 The plugin's display name, inherited from the nearest named ancestor, else `'root'`.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L341)
+[Source](../../vendor/cordis/src/fiber.ts#L341)
 
 ### fiber.assertActive()
 
@@ -159,7 +159,7 @@ Throw if the fiber has already been disposed.
 
 **Returns** nothing when the fiber is still active.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L356)
+[Source](../../vendor/cordis/src/fiber.ts#L356)
 
 ### fiber.effect(execute, label?)
 
@@ -190,7 +190,7 @@ Register a cleanup-aware effect on this fiber.
 
 **Returns** a disposer that tears the effect down and settles once done.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L420)
+[Source](../../vendor/cordis/src/fiber.ts#L420)
 
 ### fiber.getEffects()
 
@@ -207,7 +207,7 @@ Return metadata for currently registered effects.
 
 **Returns** one `EffectMeta` tree per labeled live effect.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L573)
+[Source](../../vendor/cordis/src/fiber.ts#L573)
 
 ### fiber.await()
 
@@ -225,7 +225,7 @@ Wait for current lifecycle work and rethrow startup errors.
 
 **Returns** this fiber, once it has settled into a stable state.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L702)
+[Source](../../vendor/cordis/src/fiber.ts#L702)
 
 ### fiber.restart()
 
@@ -243,7 +243,7 @@ Dispose and immediately reload this plugin with its current config.
 
 **Returns** a promise resolving once the reload settled.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L716)
+[Source](../../vendor/cordis/src/fiber.ts#L716)
 
 ### fiber.update(config, noSave?)
 
@@ -271,7 +271,7 @@ Runs the `internal/update` waterfall first, so update hooks (and HMR) can veto o
 
 **Returns** the update waterfall result; the default restart returns a promise.
 
-[Source](../../../vendor/cordis/src/fiber.ts#L734)
+[Source](../../vendor/cordis/src/fiber.ts#L734)
 
 ## Effect
 
@@ -292,7 +292,7 @@ type Effect<T = any> =
   | AsyncEffect<T>
 ```
 
-[Source](../../../vendor/cordis/src/fiber.ts#L83)
+[Source](../../vendor/cordis/src/fiber.ts#L83)
 
 ## Disposable
 
@@ -310,7 +310,7 @@ Disposers run in reverse registration order when the owning fiber unloads; they 
 type Disposable<T = any> = () => T
 ```
 
-[Source](../../../vendor/cordis/src/fiber.ts#L74)
+[Source](../../vendor/cordis/src/fiber.ts#L74)
 
 ## EffectMeta
 
@@ -326,7 +326,7 @@ interface EffectMeta {
 }
 ```
 
-[Source](../../../vendor/cordis/src/fiber.ts#L96)
+[Source](../../vendor/cordis/src/fiber.ts#L96)
 
 ## CordisError
 
@@ -352,7 +352,7 @@ namespace CordisError {
 }
 ```
 
-[Source](../../../vendor/cordis/src/fiber.ts#L157)
+[Source](../../vendor/cordis/src/fiber.ts#L157)
 
 ## ValidationError
 
@@ -372,4 +372,4 @@ class ValidationError extends TypeError {
 }
 ```
 
-[Source](../../../vendor/cordis/src/fiber.ts#L19)
+[Source](../../vendor/cordis/src/fiber.ts#L19)

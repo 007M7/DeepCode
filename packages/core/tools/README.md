@@ -35,7 +35,7 @@ Cancellation is cooperative and quiescent. Every typed invocation supplies a cal
 
 ### Live events
 
-The live registry pipeline has three transformable waterfalls, then the definition-owned content finalizer, then the observe-only `tools/result` boundary; registry changes are deliberately unfiltered shared-state notifications. Exact signatures, dispatch modes, scope filtering, and failure-containment contracts live in the generated [Cordis event catalog](../../../docs/cordis-catalog/events.md), while the complete ordering is visualized in the generated [tool execution pipeline](../../../docs/tool-execution-pipeline.md). `tools/result` is live; the similarly named `tool/result` is the durable session event the agent loop appends afterwards.
+The live registry pipeline has three transformable waterfalls, then the definition-owned content finalizer, then the observe-only `tools/result` boundary; registry changes are deliberately unfiltered shared-state notifications. Exact signatures, dispatch modes, scope filtering, and failure-containment contracts live in the generated region of [tools.md](../../../docs/subsystems/tools.md#cordis-surface), while the complete ordering is visualized in the generated [tool execution pipeline](../../../docs/tool-execution-pipeline.md). `tools/result` is live; the similarly named `tool/result` is the durable session event the agent loop appends afterwards.
 
 ### Key types
 
@@ -56,7 +56,7 @@ The live registry pipeline has three transformable waterfalls, then the definiti
 - `tools/pre-execute` is the reorderable allow/deny/ask gate; `ctx.tools.guard()` adds monotonic owner policy after it.
 - `tools/execute` wraps normalized canonical dispatch for timeout, retry, or metrics. Wrappers may replace only the operational signal; a wrapper-authored success is normalized through the resolved tool's output declaration. Canonical-result provenance belongs to one immutable dispatch token, so a cached result from another call or tool is revalidated under the active declaration.
 - `tools/post-execute` may replace presentation content, replace the canonical value, block with feedback, or attach ordered contexts. A definition's optional `finalizeContent` then owns its last content-only invariant across normal results and outer pipeline failures; `tools/result` observes the immutable final outcome. Content replacement is not a confidentiality boundary: block or replace the value when programmatic consumers must not receive it.
-- Exact signatures and ordering live in the generated [event catalog](../../../docs/cordis-catalog/events.md) and [pipeline](../../../docs/tool-execution-pipeline.md).
+- Exact signatures and ordering live in the generated region of [tools.md](../../../docs/subsystems/tools.md#cordis-surface) and [pipeline](../../../docs/tool-execution-pipeline.md).
 - MCP servers: one plugin per server, discover tools, call `ctx.tools.register()` with the server's schemas.
 
 ### Typed tool parameter schemas

@@ -276,7 +276,7 @@ describe('docsPages locale routes', () => {
     const translated = rootPages.filter(page => page.contentLocale === 'zh-CN')
     const fallbacks = rootPages.filter(page => page.contentLocale === 'en-US')
 
-    expect(translated).toHaveLength(20)
+    expect(translated).toHaveLength(37)
     expect(translated.every(page => page.source.endsWith('.zh.md'))).toBe(true)
     expect(fallbacks.map(page => page.source).sort()).toEqual([
       'docs/subsystems/commands.md',
@@ -286,11 +286,11 @@ describe('docsPages locale routes', () => {
   })
 
   it('publishes the Cordis core API under matching locale structures', () => {
-    const files = ['context.md', 'events.md', 'fiber.md', 'registry.md', 'service.md']
+    const files = ['context.md', 'events.md', 'fiber.md', 'registry.md', 'service.md', 'inherited.md']
     for (const file of files) {
       const root = docsPages.find(page => page.route === `reference/cordis-api/${file}`)
       const english = docsPages.find(page => page.route === `en/reference/cordis-api/${file}`)
-      expect(root?.source).toBe(`docs/cordis-catalog/core/${file}`)
+      expect(root?.source).toBe(`docs/cordis-api/${file}`)
       expect(root?.section).toBe('Cordis API')
       expect(english?.source).toBe(root?.source)
       expect(english?.section).toBe('Cordis Core API')

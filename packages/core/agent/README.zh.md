@@ -46,7 +46,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 ### 实时事件
 
-`dsh-agent` 声明实时 `agent/*` 协调词汇，使插件不必依赖具体循环。确切签名、分发 mode、作用域筛选规则与 payload 契约位于生成的 [Cordis 事件目录](../../../docs/cordis-catalog/events.md)；[架构轮次流](../../../docs/architecture.md#turn-flow) 展示它们与持久会话事件的相对顺序。
+`dsh-agent` 声明实时 `agent/*` 协调词汇，使插件不必依赖具体循环。确切签名、分发 mode、作用域筛选规则与 payload 契约位于 [core.md](../../../docs/subsystems/core.md#cordis-surface) 的生成区块；[架构轮次流](../../../docs/architecture.md#turn-flow) 展示它们与持久会话事件的相对顺序。
 
 生命周期边有两个重要的本地注意事项。`agent/created` 在作用域 setup 之后、会话与 agent 注册表条目都存在之后运行。Setup 是受信任、仅用于组合的代码；紧随其后且不可 veto 的 `agent/session-start` 通知是第一个受支持的启动注入点。`agent/disposed` 始终表示确切 agent 已离开注册表。AgentLoop 在其驱动器完全停稳后发出该事件，而有序 teardown 此时可能仍在分离会话并撤销作用域；直接注册的自定义 agent 自行拥有任何更强的驱动器顺序契约。
 

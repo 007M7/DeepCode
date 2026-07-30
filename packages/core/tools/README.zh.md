@@ -35,7 +35,7 @@ tools:
 
 ### 实时事件
 
-实时注册表流水线先经过 3 个可变换的 waterfall，再经过由定义拥有的内容终结器，最后到达仅观测的 `tools/result` 边界；注册表变更有意作为不过滤的共享状态通知。确切签名、分发模式、作用域筛选和故障收容契约位于生成的 [Cordis 事件目录](../../../docs/cordis-catalog/events.md)，完整顺序则在生成的[工具执行流水线](../../../docs/tool-execution-pipeline.md)中可视化。`tools/result` 是实时事件；名称相近的 `tool/result` 是 agent loop 随后追加的持久会话事件。
+实时注册表流水线先经过 3 个可变换的 waterfall，再经过由定义拥有的内容终结器，最后到达仅观测的 `tools/result` 边界；注册表变更有意作为不过滤的共享状态通知。确切签名、分发 mode、作用域筛选和故障收容契约位于 [tools.md](../../../docs/subsystems/tools.md#cordis-surface) 的生成区块，完整顺序则在生成的[工具执行流水线](../../../docs/tool-execution-pipeline.md)中可视化。`tools/result` 是实时事件；名称相近的 `tool/result` 是 agent loop 随后追加的持久会话事件。
 
 ### 关键类型
 
@@ -56,7 +56,7 @@ tools:
 - `tools/pre-execute` 是可重排的允许／拒绝／询问门禁；`ctx.tools.guard()` 在其后添加单调的拥有方策略。
 - `tools/execute` 会环绕包装规范化后的规范分发，以支持超时、重试或指标采集。包装层只能替换操作信号；包装层生成的成功结果会根据已解析工具的输出声明进行规范化。规范结果的来源属于一个不可变分发 token，因此，来自其他调用或工具的缓存结果会根据当前声明重新验证。
 - `tools/post-execute` 可以替换呈现内容、替换规范值、通过反馈阻止，或附加有序上下文。随后，定义可选的 `finalizeContent` 会在普通结果和外层流水线失败中维护其最终、仅涉及内容的不变式；`tools/result` 观测不可变的最终结果。内容替换不是保密边界：当编程消费方不得接收某个值时，应阻止或替换该值。
-- 确切签名与顺序位于生成的[事件目录](../../../docs/cordis-catalog/events.md)和[流水线](../../../docs/tool-execution-pipeline.md)中。
+- 确切签名与顺序位于 [tools.md](../../../docs/subsystems/tools.md#cordis-surface) 的生成区块和[流水线](../../../docs/tool-execution-pipeline.md)中。
 - MCP 服务器：每个服务器使用一个插件；发现工具后，使用服务器的 schema 调用 `ctx.tools.register()`。
 
 ### 类型化工具参数 schema

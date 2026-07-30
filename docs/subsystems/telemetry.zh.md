@@ -105,8 +105,76 @@ interface TelemetryBackend {
 }
 ```
 
-`Telemetry`（`ctx.telemetry`，[签名](../cordis-catalog/services.md#ctxtelemetry--telemetry-abstract-seam)）是该契约的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
+`Telemetry`（`ctx.telemetry`，[签名](#ctxtelemetry--telemetry-abstract-seam)）是该契约的可加载形态：每个上下文只允许一个实现，重复加载会抛出异常；后端在其构造函数中组合 seam 的 `TelemetryCoordinator`，以此装配捕获侧。
 
 ## 脱敏 waterfall：`telemetry/record`
 
-每条记录在投影与 `emit()` 之间都要经过 `telemetry/record` [waterfall](../cordis-primer.md#cordis-waterfall-semantics)（[事件条目](../cordis-catalog/events.md#telemetryrecord--waterfall)）。seam 自身不带任何规则：未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式扣下这一条记录。脱敏只作用于导出副本；权威会话日志永不改写。
+每条记录在投影与 `emit()` 之间都要经过 `telemetry/record` [waterfall](../cordis-primer.md#cordis-waterfall-semantics)（[事件条目](#telemetryrecord--waterfall)）。seam 自身不带任何规则：未挂载监听器时，记录以捕获时的原样到达后端；导出数据能干净到什么程度，恰恰取决于部署方挂载了什么规则。监听器通过变换 `next()` 的返回值来堆叠；不调用 `next()` 就返回，即替换其下方的全部逻辑；抛出异常的监听器会在协调器的隔离范围内以 fail-closed 方式扣下这一条记录。脱敏只作用于导出副本；权威会话日志永不改写。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxtelemetry--telemetry-abstract-seam"></a>
+
+### `ctx.telemetry` — `Telemetry` (abstract seam)
+
+The backend contract in its loadable form: one implementation per context — the cordis `Service` registration under the `telemetry` key throws on a duplicate, cordis' standard behavior. A backend composes a TelemetryCoordinator in its constructor to install the capture side.
+
+```ts cordis-catalog
+/**
+ * See {@link TelemetryBackend.emit} — the seam declaration is the contract's one home.
+ * @param record - the logical record to report; owned by the backend after the call.
+ */
+abstract emit(record: TelemetryRecord): void
+
+/** See {@link TelemetryBackend.flush}. */
+flush?(): void
+
+/**
+ * See {@link TelemetryBackend.shutdown}.
+ * @returns resolves when the backend's pipeline has quiesced.
+ */
+abstract shutdown(): Promise<void>
+```
+
+Source: [`packages/session/session-telemetry/src/index.ts:140`](../../packages/session/session-telemetry/src/index.ts)
+
+<a id="telemetry-events"></a>
+
+### `telemetry/*` events
+
+<a id="telemetryrecord--waterfall"></a>
+
+#### `telemetry/record` — waterfall
+
+Transform one outbound record before it reaches the backend. This waterfall is the seam's redaction extension point. It ships NO rules of its own: the innermost `next()` passes the record through unchanged, and with no listener mounted records reach the backend as captured, so exported data is exactly as clean as the rules a deployment mounts. Listeners stack by transforming `next()`'s return value; returning without `next()` replaces everything beneath. Dispatched synchronously on the capture hot path inside the coordinator's containment: a throwing listener withholds that one record (fail-closed) and never reaches the agent loop. Live capture dispatches at append time; on-demand capture dispatches while reading the canonical log. Redaction applies to the exported copy only; the canonical session log is never rewritten.
+
+```ts cordis-catalog
+/**
+ * Transform one outbound record before it reaches the backend. This
+ * waterfall is the seam's redaction extension point. It ships NO rules
+ * of its own: the
+ * innermost `next()` passes the record through unchanged, and with no
+ * listener mounted records reach the backend as captured, so exported
+ * data is exactly as clean as the rules a deployment mounts. Listeners
+ * stack by transforming `next()`'s return value; returning without
+ * `next()` replaces everything beneath. Dispatched synchronously on the
+ * capture hot path inside the coordinator's containment: a throwing
+ * listener withholds that one record (fail-closed) and never reaches the
+ * agent loop. Live capture dispatches at append time; on-demand capture
+ * dispatches while reading the canonical log. Redaction applies to the
+ * exported copy only; the canonical session log is never rewritten.
+ * @param record - the candidate record, already the coordinator's own deep
+ *   copy; listeners return a (possibly new) record and must not mutate it.
+ * @mode waterfall
+ */
+'telemetry/record'(record: TelemetryRecord, next: () => TelemetryRecord): TelemetryRecord
+```
+
+Source: [`packages/session/session-telemetry/src/index.ts:43`](../../packages/session/session-telemetry/src/index.ts)
+<!-- END GENERATED cordis-surface -->

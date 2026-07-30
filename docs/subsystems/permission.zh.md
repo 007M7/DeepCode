@@ -65,4 +65,67 @@ interface PresetOption {
 
 `set(session, name)` 解析预设（未知名称抛出异常），在 `name` 尚不是生效预设时追加一条仅记日志的 `permission/preset` 事件，然后通过各旋钮自己的 setter（[dsh-sandbox-policy](../../packages/sandbox/sandbox-policy) 的 `setSandboxMode` 与 [dsh-user-approval](../../packages/interaction/user-approval) 的 `setApprovalPolicy`）写入，且仅当该旋钮的生效值发生变化时才写。同一轮次内，选择事件先于旋钮事件出现；重新选择当前生效的预设则什么都不追加。
 
-`permission/preset` 是持久、仅记日志的用户意图：它不进入模型 transcript（文本记录），模型可见的后果由旋钮事件经各自消费方承担；它存在是为了在两个预设共享同一个旋钮组合时，让 `current()` 仍能保住用户选择的究竟是哪一个预设；`effectivePermissionPreset(events)` 折叠最后一条，回放不需要任何追赶状态。完整事件声明见[持久化日志事件目录](../persistence-catalog.md)；方法签名见生成的[服务目录](../cordis-catalog/services.md#ctxpermission--permissionservice)。
+`permission/preset` 是持久、仅记日志的用户意图：它不进入模型 transcript（文本记录），模型可见的后果由旋钮事件经各自消费方承担；它存在是为了在两个预设共享同一个旋钮组合时，让 `current()` 仍能保住用户选择的究竟是哪一个预设；`effectivePermissionPreset(events)` 折叠最后一条，回放不需要任何追赶状态。完整事件声明见[持久化日志事件目录](../persistence-catalog.md)；方法签名见生成的[服务目录](#ctxpermission--permissionservice)。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxpermission--permissionservice"></a>
+
+### `ctx.permission` — `PermissionService`
+
+Owns the deployment's permission presets and their write path. Requires a confining `ctx.bash` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.
+
+```ts cordis-catalog
+/**
+ * Resolve the preset matching the effective knob values. A still-matching
+ * last selection wins shared-bundle ties; otherwise the first table match
+ * wins, or {@link CUSTOM_PRESET} when no entry matches.
+ * @param events - the session's events in log order.
+ * @returns the effective preset name, or `custom` when nothing matches.
+ */
+current(events: readonly SessionEvent[]): string
+
+/**
+ * Build the whole select value for one folded knob state: every table
+ * option in declaration order, `custom` appended exactly while derived.
+ * @param state - the folded knob overrides.
+ * @returns the `permissions` projection payload.
+ */
+selectFor(state: KnobState): PermissionSelect
+
+/**
+ * Resolve a preset's knob bundle.
+ * @param name - the preset name to resolve.
+ * @returns the configured bundle.
+ * @throws when `name` is not in the table.
+ */
+resolve(name: string): PresetSpec
+
+/**
+ * Build the client option for a table entry or {@link CUSTOM_PRESET}. A
+ * missing label falls back to the table key.
+ * @param name - a table key, or `custom`.
+ * @returns the option a client renders.
+ * @throws when `name` is neither a table key nor `custom`.
+ */
+optionOf(name: string): PresetOption
+
+/**
+ * Record a changed preset, then update each changed knob through its own
+ * setter. Selecting the effective preset again appends nothing.
+ * @param session - the session the switch belongs to.
+ * @param name - the preset to switch to; unknown names throw.
+ */
+set(session: Session, name: string): void
+```
+
+Types: [Session](session.md) · [SessionEvent](core.md)
+
+Source: [`packages/interaction/permission/src/index.ts:159`](../../packages/interaction/permission/src/index.ts)
+<!-- END GENERATED cordis-surface -->

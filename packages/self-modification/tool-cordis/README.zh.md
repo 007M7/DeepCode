@@ -28,7 +28,7 @@
 
 ## 生成的 API 目录
 
-`src/api-catalog.ts` 与 [docs/cordis-catalog](../../../docs/cordis-catalog/services.md) 由同一个 Typert `FaceModel` 投影生成，并由 `pnpm run verify-cordis-api`（位于 `doc-sync` 中）实施新鲜度门禁，绝不可手工编辑。`scripts/gen-cordis-api.ts` 是该统一投影的兼容入口，而非第二套收集器。`cordis_inspect` 在调用时把已提交的目录与存活服务 store 取交集；它在运行时不依赖 Typert。宽泛的 `api`／`events` 报告只渲染摘要与签名；精确 `name` 会选择保留的方法／事件 JSDoc，未知或未运行的服务目标会高声失败。
+`src/api-catalog.ts` 与[子系统页面的生成区块](../../../docs/subsystems/core.md)由同一个 Typert `FaceModel` 投影生成，并由 `pnpm run verify-cordis-api`（位于 `doc-sync` 中）实施新鲜度门禁，绝不可手工编辑。`scripts/gen-cordis-api.ts` 是该统一投影的兼容入口，而非第二套收集器。`cordis_inspect` 在调用时把已提交的目录与存活服务 store 取交集；它在运行时不依赖 Typert。宽泛的 `api`／`events` 报告只渲染摘要与签名；精确 `name` 会选择保留的方法／事件 JSDoc，未知或未运行的服务目标会高声失败。
 
 ## 渲染
 

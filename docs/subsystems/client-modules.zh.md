@@ -58,6 +58,61 @@ interface WebBootGraph {
 
 ## 服务
 
-`ClientModuleHostService`（`ctx.clientModuleHost`，定义于 [`packages/client/modules/src/index.ts`](../../packages/client/modules/src/index.ts)）暴露读取面与重建面；签名见生成的[服务目录](../cordis-catalog/services.md#ctxclientmodulehost--clientmodulehostservice)。`graph()` 返回当前组合出的图（两次变更之间是同一个稳定对象），`clientPath(id)` 返回该 bundle 的绝对路径。`rebuilt(id)` 是 bundle 内容到达图的唯一入口：它对文件重新哈希，只有 rev 真正变化才会重新组合图并发出通知。`onRebuilt` 按发生变化的 bundle 逐个触发并携带新 rev；`onGraphChanged` 在任何一次重新组合了图的 flush 之后触发（行的增删，或 rebuilt 带来的 rev 变化），并采用拉取模型——监听器自行重读 `graph()`。两条通知路径都会兜住监听器异常，因此一个抛错的订阅者既不能让后续订阅者被跳过，也不能杀死触发这次 flush 的一方。
+`ClientModuleHostService`（`ctx.clientModuleHost`，定义于 [`packages/client/modules/src/index.ts`](../../packages/client/modules/src/index.ts)）暴露读取面与重建面；签名见生成的[服务目录](#ctxclientmodulehost--clientmodulehostservice)。`graph()` 返回当前组合出的图（两次变更之间是同一个稳定对象），`clientPath(id)` 返回该 bundle 的绝对路径。`rebuilt(id)` 是 bundle 内容到达图的唯一入口：它对文件重新哈希，只有 rev 真正变化才会重新组合图并发出通知。`onRebuilt` 按发生变化的 bundle 逐个触发并携带新 rev；`onGraphChanged` 在任何一次重新组合了图的 flush 之后触发（行的增删，或 rebuilt 带来的 rev 变化），并采用拉取模型——监听器自行重读 `graph()`。两条通知路径都会兜住监听器异常，因此一个抛错的订阅者既不能让后续订阅者被跳过，也不能杀死触发这次 flush 的一方。
 
 开发环境下，[dsh-client-hmr](../../packages/client/hmr/README.md) 是注册表的监视驱动：它的 Node 半从同步取得的基线出发，对图中每一行的 bundle 做 stat 轮询，变化时调用 `rebuilt(id)`，经 `onGraphChanged` 重新同步监视集合，并通过 SSE（Server-Sent Events）把 rev 变化广播给浏览器半。生产环境的图完全不含 HMR（热模块替换）行；模块宿主自身从不监视文件。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxclientmodulehost--clientmodulehostservice"></a>
+
+### `ctx.clientModuleHost` — `ClientModuleHostService`
+
+The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
+
+```ts cordis-catalog
+/**
+ * Current composed entry graph (stable object between changes).
+ * @returns the graph served as `window.__DSH_BOOT__`.
+ */
+graph(): WebBootGraph
+
+/**
+ * Absolute path of an entry's client bundle.
+ * @param id - entry id (package name).
+ * @returns the path, or undefined for an unknown id.
+ */
+clientPath(id: string): string | undefined
+
+/**
+ * Re-hash one bundle (the HMR watch's registration hook — the only entry
+ * point through which bundle content changes reach the graph).
+ * @param id - entry id (package name).
+ * @returns the new rev, or undefined for an unknown id.
+ */
+rebuilt(id: string): string | undefined
+
+/**
+ * Subscribe to bundle rebuilds; fires only when the re-hash changed the rev.
+ * @param listener - receives the entry id and its new bundle rev.
+ * @returns the unsubscriber.
+ */
+onRebuilt(listener: (id: string, rev: string) => void): () => void
+
+/**
+ * Fires after any flush that recomposed the graph (row added/removed, or a
+ * rebuilt rev change). Pull model: listeners re-read {@link graph}.
+ * @param listener - notified with no payload.
+ * @returns the unsubscriber.
+ */
+onGraphChanged(listener: () => void): () => void
+```
+
+Source: [`packages/client/modules/src/index.ts:184`](../../packages/client/modules/src/index.ts)
+<!-- END GENERATED cordis-surface -->

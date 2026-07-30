@@ -117,10 +117,103 @@ Ownership truth is the record's ordered `sessionIds`, never derived from session
 
 ## The registry: `ctx.workspace`
 
-`WorkspaceRegistry` ([signatures](../cordis-catalog/services.md#ctxworkspace--workspaceregistry)) owns registration and resolution. `create(path, title?)` canonicalizes the path, rejects a nonexistent path (the original `ENOENT`) or a non-directory, returns the existing entity unchanged when the canonical path is already owned, and otherwise creates a record with `title ?? basename(path)` prepended to the durable registry order — a new record cannot duplicate an existing display title (`WorkspaceNameConflictError`). `get(id)` and the ordered `list()` are synchronous cache reads; `resolveByPath(path)` applies the same realpath canon without creating. `delete(id)` removes only the registration, order entry, and session account — the directory, user files, live sessions, and persisted logs are never touched, so those sessions become Ungrouped ([decision](../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)); unknown ids return `false`. Create and delete persist a pending-mutation marker before their two writes (record + order) can diverge; startup resolves exactly the marked mutation — by deleting the marked table row, which completes an interrupted delete and rolls back an interrupted create (the registration is re-creatable, so rollback is the safe direction) — and an unmarked order/table mismatch fails loud as corruption.
+`WorkspaceRegistry` ([signatures](#ctxworkspace--workspaceregistry)) owns registration and resolution. `create(path, title?)` canonicalizes the path, rejects a nonexistent path (the original `ENOENT`) or a non-directory, returns the existing entity unchanged when the canonical path is already owned, and otherwise creates a record with `title ?? basename(path)` prepended to the durable registry order — a new record cannot duplicate an existing display title (`WorkspaceNameConflictError`). `get(id)` and the ordered `list()` are synchronous cache reads; `resolveByPath(path)` applies the same realpath canon without creating. `delete(id)` removes only the registration, order entry, and session account — the directory, user files, live sessions, and persisted logs are never touched, so those sessions become Ungrouped ([decision](../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)); unknown ids return `false`. Create and delete persist a pending-mutation marker before their two writes (record + order) can diverge; startup resolves exactly the marked mutation — by deleting the marked table row, which completes an interrupted delete and rolls back an interrupted create (the registration is re-creatable, so rollback is the safe direction) — and an unmarked order/table mismatch fails loud as corruption.
 
 Sessions get their cwd at create time from whoever creates them, not from this registry — the API gateway resolves a new session's cwd from the chosen workspace's `path` (falling back to an explicit or default cwd), creates the session so the cwd lands in its immutable [`SessionHeader`](persistence.md#sessionheader--metadata-beside-the-log), then calls `attachSession`, which re-validates that stored header cwd against the workspace path. On the first successful start, the registry bootstraps history from persisted headers alone (`id`, `cwd`, `createdAt` — never event bodies), grouping sessions with a valid canonical cwd into per-directory workspaces, newest first; the initialized marker is written last so an interrupted bootstrap resumes safely. The bootstrap is one-time: cwd-less legacy sessions stay Ungrouped, and sessions created afterwards join a workspace only through `attachSession`.
 
 ## Consumers
 
 [dsh-host-apiproxy](../../packages/host/apiproxy) is the product consumer: it serves workspace CRUD to GUI clients over `ctx.workspace` and performs the create-session-then-attach flow above. [dsh-workspace-context](../../packages/context/workspace-context) is **not** a consumer despite the name: it discovers AGENTS.md-style instruction files under an agent's own cwd and never touches `ctx.workspace` — the shared word refers to the user's working directory, not to this registry's entities.
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxdirectorypicker--directorypicker-abstract-seam"></a>
+
+### `ctx.directoryPicker` — `DirectoryPicker` (abstract seam)
+
+Abstract directory-picking service. Subclass, implement `capability()`, and load the subclass as a plugin — it registers as `ctx.directoryPicker` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior). The capability object must be stable for the service lifetime: consumers may capture it across calls.
+
+```ts cordis-catalog
+/**
+ * The backend's interaction capability.
+ * @returns the discriminated capability consumers switch on.
+ */
+abstract capability(): DirectoryPickerCapability
+```
+
+Source: [`packages/host/directory-picker/src/index.ts:131`](../../packages/host/directory-picker/src/index.ts)
+
+<a id="ctxworkspace--workspaceregistry"></a>
+
+### `ctx.workspace` — `WorkspaceRegistry`
+
+Durable workspace registry. Startup waits for `sessionPersistence`, builds one canonical-cwd header index, and completes the one-time history bootstrap before the service becomes active. The persistence dependency is mandatory so an unavailable peer can never be mistaken for an empty history and commit the initialized marker.
+
+```ts cordis-catalog
+/**
+ * Create or reuse a workspace for an existing directory. The path is
+ * canonicalized through `fs.realpath`; a nonexistent path rejects with the
+ * original error and a non-directory rejects. Repeated calls for the same
+ * canonical path return the existing entity without changing its title.
+ * A newly created workspace is prepended to the durable registry order.
+ * Different canonical paths may share a display title.
+ * @param path - Existing directory to own, in any path spelling.
+ * @param title - Display title used only when a new record is created.
+ * @returns the existing or newly durable workspace.
+ */
+async create(path: string, title?: string): Promise<Workspace>
+
+/**
+ * Look up a workspace by id.
+ * @param id - Workspace id.
+ * @returns the workspace, or `undefined` when unknown.
+ */
+get(id: WorkspaceId): Workspace | undefined
+
+/**
+ * Synchronous workspace projection in durable registry order. Every
+ * entity's `sessionIds` getter is already filtered by the startup/live
+ * canonical-cwd header index; this method performs no persistence reads.
+ * @returns a fresh ordered array of workspace entities.
+ */
+list(): Workspace[]
+
+/**
+ * Delete one workspace registration while retaining its directory and every
+ * session log. The durable order is updated before the table deletion; a
+ * failed table write restores the prior order and keeps the entity
+ * published. Unknown ids are an idempotent no-op for domain callers.
+ * @param id - Workspace registration to remove.
+ * @returns `true` when a record was deleted, `false` when it was unknown.
+ */
+delete(id: WorkspaceId): Promise<boolean>
+
+/**
+ * Archive one session durably. The session must exist (live or in session
+ * persistence); its workspace accounting — or lack of one — is irrelevant.
+ * An already archived id resolves without writing.
+ * @param sessionId - The session to archive.
+ * @returns resolution after durability.
+ */
+archiveSession(sessionId: SessionId): Promise<void>
+
+/**
+ * Resolve by canonical directory path without creating or mutating a
+ * workspace. A missing path rejects during `realpath`; an existing unowned
+ * directory returns `undefined`.
+ * @param path - Existing directory path in any spelling.
+ * @returns the workspace owning the canonical path, when one exists.
+ */
+async resolveByPath(path: string): Promise<Workspace | undefined>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
+<!-- END GENERATED cordis-surface -->

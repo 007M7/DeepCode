@@ -53,7 +53,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 
 ## Event
 
-Events are the service extension API ([catalog](cordis-catalog/events.md), [producer/consumer map](event-producer-consumer.md)).
+Events are the service extension API ([subsystems](subsystems/core.md), [producer/consumer map](event-producer-consumer.md)).
 
 ### Event Domains
 

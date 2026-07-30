@@ -242,8 +242,83 @@ interface SubprocessOutcome {
 
 `spawnTerminal(spec)` 是非管道进程原语。提供方分配控制终端，并负责 UTF-8 文本传输、前台进程组检查与信号发送，以及一项须等待的 TERM→KILL 操作；该操作会使提供方仍可观察到的每个会话成员完全停稳，提供方则会记录执行基底特有的可观察性限制。PTY 后端仍负责提示符检测、就绪推断、scrollback、沙箱策略和持久会话所有权；普通 `spawn()` 无法重建控制终端语义。
 
-终端 spec 完全指定 argv、cwd、环境覆盖、尺寸、清理宽限期与可选的分配取消。其句柄公开 `pid`、有序输出、`done`、`write`、`inspectForeground`、`signalForeground` 和须等待的 `terminate`；确切的公共形状生成到 [`ctx.subprocess` 服务目录](../cordis-catalog/services.md#ctxsubprocess--subprocessservice-abstract-seam)中。
+终端 spec 完全指定 argv、cwd、环境覆盖、尺寸、清理宽限期与可选的分配取消。其句柄公开 `pid`、有序输出、`done`、`write`、`inspectForeground`、`signalForeground` 和须等待的 `terminate`；确切的公共形状生成到 [`ctx.subprocess` 服务目录](#ctxsubprocess--subprocessservice-abstract-seam)中。
 
 ## 服务行为
 
 抽象的 [`SubprocessService`](../../packages/subprocess/subprocess/src/index.ts) seam 定义执行世界坐标、可执行文件查找、普通 `spawn` 与 `spawnTerminal`。[`LocalSubprocessService`](../../packages/subprocess/subprocess-local/src/index.ts) 以 detached 进程树、按处置方式接线、凭据清除、`node-pty`、平台进程检查，以及先终止再等待退出的资源释放实现这些能力。接口契约见 [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md)，本地机制见 [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md)。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis surface
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — this section is byte-identical in both language sides of the page. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` surface lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxe2b--e2bsandboxservice"></a>
+
+### `ctx.e2b` — `E2BSandboxService`
+
+Creates one lazily consumable E2B SDK handle and deletes the sandbox at timeout or disposal. Creation begins at plugin construction; adapters await getSandbox before their first operation.
+
+```ts cordis-catalog
+/**
+ * Return the shared live SDK handle.
+ * @returns the created sandbox after the configured cwd exists.
+ * @throws when E2B rejects creation or the service is disposing.
+ */
+async getSandbox(): Promise<Sandbox>
+```
+
+Source: [`packages/e2b/e2b/src/index.ts:74`](../../packages/e2b/e2b/src/index.ts)
+
+<a id="ctxsubprocess--subprocessservice-abstract-seam"></a>
+
+### `ctx.subprocess` — `SubprocessService` (abstract seam)
+
+Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis' standard duplicate-service behavior).
+
+Implementations must honor these semantics:
+
+- Executable paths belong to one execution world shared with the mounted filesystem provider.
+- spawn returns immediately with a live handle; `done` resolves at process close with exit facts and rejects only for spawn-level failures.
+- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another's output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.
+- SubprocessHandle.terminate (and the spec's abort signal) escalates SIGTERM→grace→SIGKILL — the only termination verb — tree-scoped on every platform. SubprocessHandle.waitForExit observes whole-tree liveness, so a consumer-owned teardown ladder can hold each tier on real quiescence.
+- Disposal of the service terminates all still-running managed processes and awaits their exit.
+- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
+
+```ts cordis-catalog
+/**
+ * Resolve one configured executable in this provider's execution world.
+ * Absolute paths are verified; bare names use the provider's scrubbed PATH
+ * plus explicit environment overrides. Relative paths containing separators
+ * are rejected: no current consumer defines which directory they would
+ * resolve against, so providers fail loud instead of guessing.
+ * @param command - absolute executable path or bare PATH name.
+ * @param env - explicit environment entries used for lookup.
+ * @param signal - aborts remote or local lookup.
+ * @returns a canonical executable path.
+ */
+abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>
+
+/**
+ * Start one managed child process from a fully-specified spec; this seam
+ * applies no defaults.
+ * @param spec - argv, directory, stdio dispositions, grace, cancellation, and environment.
+ * @returns the live process handle (streams/readers, signalling, outcome promise).
+ */
+abstract spawn(spec: SubprocessSpawnSpec): SubprocessHandle
+
+/**
+ * Allocate a real terminal and start one owned process session. This is the
+ * only non-pipe process primitive: implementations own terminal byte I/O,
+ * foreground groups, signals, and complete session-tree cleanup.
+ * @param spec - fully specified argv, cwd, environment, dimensions, grace, and allocation cancellation.
+ * @returns the live terminal handle after allocation succeeds.
+ */
+abstract spawnTerminal(spec: SubprocessTerminalSpawnSpec): Promise<SubprocessTerminalHandle>
+```
+
+Source: [`packages/subprocess/subprocess/src/index.ts:102`](../../packages/subprocess/subprocess/src/index.ts)
+<!-- END GENERATED cordis-surface -->
