@@ -31,8 +31,8 @@ jobs:
   # The self-hosted standby remains active on every master push.
 
   # Three enterprise jobs isolate coverage, static analysis, and the
-  # build-backed consumer tail. The static job publishes its exact build so
-  # consumers do not repeat the longest part of their critical path.
+  # build-backed consumer tail. The consumer job owns the only Linux build so
+  # all three jobs enter runner allocation independently.
   #
   # FAILOVER: each Linux enterprise job resolves its pool through the
   # DSH_CI_FAILOVER repository variable. Unset (normal), the expressions
@@ -95,19 +95,6 @@ jobs:
         env:
           DSH_ARCHIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: pnpm run check:ci:static
-
-      - name: Pack built tree
-        run: >-
-          tar -czf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
-          apps/*/lib apps/web/dist packages/*/*/lib vendor/*/lib
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: node-24-built-tree
-          path: ${{ runner.temp }}/node-24-built-tree.tar.gz
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
 
   node-24-coverage:
     if: github.event_name == 'pull_request'
@@ -175,7 +162,6 @@ jobs:
         run: pnpm run check:ci:coverage
 
   node-24-consumers:
-    needs: node-24
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER == 'selfhosted'
@@ -194,14 +180,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: node-24-built-tree
-          path: ${{ runner.temp }}
-
-      - name: Restore built tree
-        run: tar -xzf "$RUNNER_TEMP/node-24-built-tree.tar.gz"
 
       - uses: pnpm/action-setup@v4
         with:
