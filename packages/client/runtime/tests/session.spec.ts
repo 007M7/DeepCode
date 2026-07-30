@@ -135,7 +135,7 @@ describe('live event path', () => {
     expect(session.getSnapshot().composerPhase).toBe('blank')
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.commandRun(0, 'cmd-perm', 'permission', ' danger-full-access'))
-    feed(ev.commandDone(1, 'cmd-perm', 'success', 'Permission preset: danger-full-access.'))
+    feed(ev.commandDone(1, 'cmd-perm', 'success', 'preset danger-full-access'))
     const snapshot = session.getSnapshot()
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'command', name: 'permission' })
     expect(snapshot.composerPhase).toBe('blank')
