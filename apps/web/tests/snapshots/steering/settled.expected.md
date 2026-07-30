@@ -11,7 +11,6 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
@@ -30,12 +29,12 @@
 - button "在新对话中分支":
   - img
 - text: {{clock}}
-- textbox "给智能体发消息"
+- textbox "Message the agent"
 - button "Add attachment":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Context 6% of 128K Cache hit 98% Input 15.8K tok · Output 156 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 98% Input 15.8K tok · Output 156 tok

@@ -11,7 +11,6 @@
   - img
 - button "编辑":
   - img
-- button "▸ 上下文注入"
 - paragraph: partial
 - text: 已停止
 - button "复制":
@@ -19,12 +18,12 @@
 - button "在新对话中分支":
   - img
 - text: {{clock}}
-- textbox "给智能体发消息"
+- textbox "Message the agent"
 - button "Add attachment":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Context 0% of 128K Input 0 tok · Output 0 tok
+- text: 1 turns · 1 steps Input 0 tok · Output 0 tok
