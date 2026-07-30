@@ -9,7 +9,6 @@
  */
 // Type-only edge: the SlotMap augmentation below merges into this package's interface.
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import type { Translate } from '@deepseek-ai/dsh-client-locale/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MenuState } from '../core/contract.ts'
 
@@ -26,7 +25,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Injected business face of the MenuView overlay entry. */
+/** Injected business face of the MenuView overlay entry (copy rides the standard locale seat, not this face). */
 export interface MenuViewInjected {
   /** The service's menu state store (read-only here; MenuView subscribes). */
   menu: SnapshotStore<MenuState>
@@ -38,10 +37,4 @@ export interface MenuViewInjected {
   onPick: (source: string, index: number) => void
   /** Dismiss the menu (external pointer outside the composer area). */
   onDismiss: () => void
-  /**
-   * Bound translator for the menu namespace: group titles keyed by source
-   * name (the locale fallback chain returns the key itself, so an unknown
-   * source shows its raw name) plus the pending-row text.
-   */
-  t: Translate
 }

@@ -24,7 +24,7 @@ function deriveAncestry(list: SessionListState, id: SessionId): readonly Session
 
 export function ConversationSession({
   sessionId, useSession, useSessions, useInput, inputActions, useStore, actions,
-  renderSlot, views, bindDraftMirror, releaseSessionImages, open, wrapActiveBody,
+  renderSlot, views, bindDraftMirror, releaseSessionImages, open, wrapActiveBody, t,
 }: ConversationSessionProps) {
   useSyncExternalStore(views.subscribe, views.version)
   const tabs = views.list()
@@ -70,7 +70,7 @@ export function ConversationSession({
         {!hideChrome && (
           <>
             <div className={css.crumbRow}>
-              <nav className={css.crumbs} aria-label="Session hierarchy">
+              <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
                 {ancestry.map((summary, index) => {
                   const last = index === ancestry.length - 1
                   return (

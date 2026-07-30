@@ -3,10 +3,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { MessageImage } from '../src/client/chat/MessageImage.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+const t = makeTranslate(zh, commonZh)
 
 const attachment = {
   attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
@@ -46,6 +51,7 @@ describe('MessageImage', () => {
   it('keeps assistant images at their original position between text blocks', async () => {
     const view = render(
       <AssistantMarkdown
+        t={t}
         blocks={[
           { kind: 'text', text: 'before' },
           { kind: 'image', attachment },

@@ -10,18 +10,24 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the shell's SlotMap merges (trigger/header/section/item).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { ChromeInjected } from './chrome.tsx'
+// Type-only: pulls ctx.locale and the 'settings.general.item' SlotMap merge.
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
-import type { GeneralSectionInjected } from './GeneralSection.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
-import { en, zh } from './locales.ts'
+import { en, zh, type SettingsKey } from './locales.ts'
 
 export type {
-  ChromeInjected, CloseLabelProps, HeaderContentProps, TriggerContentProps,
+  CloseLabelProps, HeaderContentProps, TriggerContentProps,
 } from './chrome.tsx'
-export type {
-  GeneralSectionComponentProps, GeneralSectionInjected,
-} from './GeneralSection.tsx'
+export type { GeneralSectionComponentProps } from './GeneralSection.tsx'
+export type { SettingsKey } from './locales.ts'
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** Shell chrome + shell-owned General section copy. */
+    settings: SettingsKey
+  }
+}
 
 /** Dictionary namespace owned by this plugin (shell chrome + General copy). */
 const NS = 'settings'
@@ -39,45 +45,29 @@ export const inject = ['slots', 'locale']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => {
-    const disposers = [
-      ctx.locale.register(NS, 'zh', zh),
-      ctx.locale.register(NS, 'en', en),
-    ]
-    return () => { for (const dispose of disposers) dispose() }
-  }, 'ui-settings-general: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-settings-general: dictionaries')
 
+  // Copy freshness is framework-owned: components read the standard `t`
+  // seat, and the nav label is a thunk the owner resolves per render — no
+  // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
-  const chromeInjected = (): ChromeInjected => ({ t })
-  const generalInjected = (): GeneralSectionInjected => ({ t })
-
-  // All four seats refresh on locale change: re-registration bumps each
-  // slot's ledger version, which re-renders the outlets through their own
-  // subscriptions (outlet memoization would swallow a parent-only render).
   ctx.effect(() => {
     const trigger = deferRegistration(ctx.slots, 'settings.trigger', TriggerContent, () =>
-      ctx.slots.register({ name: 'settings.trigger', inject: chromeInjected }, TriggerContent))
+      ctx.slots.register({ name: 'settings.trigger', locale: NS }, TriggerContent))
     const header = deferRegistration(ctx.slots, 'settings.header', HeaderContent, () =>
-      ctx.slots.register({ name: 'settings.header', inject: chromeInjected }, HeaderContent))
+      ctx.slots.register({ name: 'settings.header', locale: NS }, HeaderContent))
     const close = deferRegistration(ctx.slots, 'settings.close', CloseLabel, () =>
-      ctx.slots.register({ name: 'settings.close', inject: chromeInjected }, CloseLabel))
+      ctx.slots.register({ name: 'settings.close', locale: NS }, CloseLabel))
     const general = deferRegistration(ctx.slots, 'settings.section', GeneralSection, () =>
       ctx.slots.register({
         name: 'settings.section',
         id: 'general',
         order: 0,
-        label: t('general.nav'),
+        label: () => t('general.nav'),
+        locale: NS,
         children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
-        inject: generalInjected,
       }, GeneralSection))
-    const offLocale = ctx.on('locale/change', () => {
-      trigger.refresh()
-      header.refresh()
-      close.refresh()
-      general.refresh()
-    })
     return () => {
-      offLocale()
       trigger.dispose()
       header.dispose()
       close.dispose()

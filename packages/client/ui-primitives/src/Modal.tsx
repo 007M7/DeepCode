@@ -20,6 +20,8 @@ import css from './Modal.module.css'
  * @param props.headless - render children directly in the card (no default
  * header/close/body chrome) for dialogs whose figma frame owns its own
  * header structure; mask, card, Escape, and aria-label remain.
+ * @param props.closeLabel - close-button aria label; the owner passes
+ * localized copy (this package is cordis-free, so copy arrives via props).
  * @returns null when closed; otherwise the overlay tree.
  */
 export function Modal({

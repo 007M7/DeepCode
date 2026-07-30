@@ -10,6 +10,7 @@ import type {
   ContextMessageNode, SteeringMessageNode, UnknownSurfaceNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { ContextInjectionRow } from './ContextInjectionRow.tsx'
 import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
@@ -20,6 +21,8 @@ export interface MessageItemProps {
   loadImage?: ImageLoader
   /** Fork the session through the turn containing this message (user-bubble branch action). */
   onFork?: (seq: number) => void
+  /** The owning view's locale seat, passed down as a plain prop. */
+  t: ChatViewSlotProps['t']
 }
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
@@ -76,8 +79,9 @@ function projectUserText(text: string): ReactNode {
 }
 
 export const MessageItem = memo(function MessageItem({
-  node, loadImage = unavailableImage, onFork,
+  node, loadImage = unavailableImage, onFork, t,
 }: MessageItemProps) {
+  const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
     case 'user': {
       const { text, images, rest } = contentParts(node.content)
@@ -87,7 +91,9 @@ export const MessageItem = memo(function MessageItem({
             <ImageGallery images={images} load={loadImage} align="end" />
             {(text !== '' || rest.length > 0) && <div className={css.bubble}>
               {projectUserText(text)}
-              {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
+              {rest.map((block, i) => (
+                <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
+              ))}
             </div>}
           </div>
           <MessageIconActions
@@ -97,6 +103,7 @@ export const MessageItem = memo(function MessageItem({
             edit
             onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
+            t={t}
           />
         </div>
       )
@@ -108,9 +115,11 @@ export const MessageItem = memo(function MessageItem({
           <div className={css.userStack}>
             <ImageGallery images={images} load={loadImage} align="end" />
             <div className={css.bubble}>
-              <span className={css.badge}>插话</span>
+              <span className={css.badge}>{t('message.steering')}</span>
               {projectUserText(text)}
-              {rest.map((block, i) => <JsonBlock key={i} label="附加内容块" payload={block} />)}
+              {rest.map((block, i) => (
+                <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />
+              ))}
             </div>
           </div>
         </div>
@@ -118,12 +127,12 @@ export const MessageItem = memo(function MessageItem({
     }
     case 'context':
       return (
-        <ContextInjectionRow content={node.content} source={node.source} />
+        <ContextInjectionRow content={node.content} source={node.source} t={t} />
       )
     default:
       return (
         <div className={css.contextRow}>
-          <JsonBlock label={`未知 surface 事件：${node.type}`} payload={node.data} />
+          <JsonBlock label={t('message.unknownSurface', { type: node.type })} payload={node.data} truncatedLabel={truncated} />
         </div>
       )
   }

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, type ComponentProps, type FC, type ReactNode } from 'react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { UseSession } from '@deepseek-ai/dsh-client-web-react'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
@@ -22,6 +23,7 @@ import type {
 import type { ConvViewProps, ViewTab } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ConversationSession, type ConversationSessionProps } from '@deepseek-ai/dsh-client-ui-conversation/src/client/skeleton/ConversationSession.tsx'
 import { createChatStore } from '@deepseek-ai/dsh-client-ui-conversation/src/client/stores.ts'
+import { zh as conversationZh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-trajectory/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-trajectory'
 import type { TrajectoryTurnModel } from '../src/client/layout.ts'
@@ -32,6 +34,12 @@ import {
 import { deriveTrajectoryTimeline } from '../src/client/timeline.ts'
 
 const SID = 's1' as SessionId
+
+// Stub of the conversation package's standard locale seat (this spec mounts
+// its ConversationSession chrome); answers from the zh dictionary and falls
+// back to the key like the real chain.
+const tConversation: ConversationSessionProps['t'] =
+  key => (conversationZh as Record<string, string>)[key] ?? key
 afterEach(cleanup)
 // The chat store persists under its declared key; clear so one case's active
 // view cannot rehydrate into the next.
@@ -156,7 +164,7 @@ async function bench(snapshot = historySnapshot(NODES)) {
 /** Tab projection twin of apply's viewTabs (the render-side consumption path). */
 function tabsOf(slots: SlotsService): ViewTab[] {
   return slots.entries('conversation.view')
-    .map(e => ({ id: e.options.id!, label: e.options.label ?? e.options.id! }))
+    .map(e => ({ id: e.options.id!, label: resolveSlotLabel(e.options.label) ?? e.options.id! }))
 }
 
 /** Mount the strict session content over the ring ledger with an outlet-faithful renderSlot. */
@@ -199,6 +207,7 @@ function mount(slots: SlotsService, nodes: ConversationSnapshot['nodes'] = NODES
   return render(
     <ConversationSession
       sessionId={SID}
+      t={tConversation}
       SessionProvider={({ children }) => children(SID)}
       useSession={useSession}
       useSessions={emptySessions()}
