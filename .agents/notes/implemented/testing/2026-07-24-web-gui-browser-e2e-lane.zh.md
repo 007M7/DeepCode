@@ -28,7 +28,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 不做单次瞬态 DOM 断言：从回放产出到 React 提交的每一跳都可能合并分片，采样 `[data-streaming]` 天然就是竞态。流式输出的增量性由持久化的 `assistant/chunk` 事件断言（模型可见 ⟺ 已记录，使日志成为权威证据）。`dsh-llm-replay` 的可选 `paceMs`（默认缺省 = 突发）只是让浏览器观察到真正增量 SSE 的真实感旋钮；正确性绝不依赖它，且节奏等待期间中止会即时取消。
 
-每个场景都会因任何 pageerror 或客户端的连接丢失/间隙修复控制台警告而失败：否则重连机制加历史重同步会把一条死掉的 SSE 通路自愈掉，套件反而认证了坏 wire。Scaffold 的 `close()` 调用 `ReplayHandle.assertConsumed()` 收尾检查（每个已录脚本都被绑定、每个游标都耗尽），把静默的少放与错绑变成清晰诊断。车道不设 vitest 重试；每文件一个 chromium、每场景一个新 context、每场景一个 host；视口固定；交互选择器锚定 role、`data-*` 属性和可见文本，而 frame 与会话区采集则使用既有的 CSS 模块局部类名锚点。
+每个场景都会因任何 pageerror 或客户端的连接丢失/间隙修复控制台警告而失败：否则重连机制加历史重同步会把一条死掉的 SSE 通路自愈掉，套件反而认证了坏 wire。Scaffold 的 `close()` 调用 `ReplayHandle.assertConsumed()` 收尾检查（每个已录脚本都被绑定、每个游标都耗尽），把静默的少放与错绑变成清晰诊断。车道不设 vitest 重试；每文件一个 chromium、每场景一个新 context、每场景一个 host；视口固定；交互选择器锚定 role、`data-*` 属性和可见文本，而 frame 与会话区采集则使用既有的 CSS 模块局部类名锚点。常规场景在客户端启动前设置 `dsh.locale=en`，使本地化的 role 定位器和预期输出统一采用明确指定的语言；只有 `settings-chrome.e2e.ts` 不预设该存储项，以覆盖默认中文状态及双向切换。
 
 ### 预期输出
 
@@ -46,7 +46,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### CI 立场
 
-车道随 `pnpm run test:web` 交付、豁免门禁，与该配置头部注释所记一致。往 CI 加 chromium 会推翻 [GUI 测试笔记](../process/2026-07-20-gui-testing-system.md)中「CI 无浏览器基础设施」的前提，因此需要自己的 Agent Note 并从那里交叉链接，分阶段推进：先作为非必需任务，再以量化标准晋升（连续绿色运行次数、耗时、零重试的抖动预算、runner 浏览器缓存策略）。`TODO(ci-browser)` 标记该接缝。场景目前面向 POSIX（车道不在 Windows 矩阵中）。
+根据[浏览器快照 CI 决策](2026-07-30-web-browser-snapshot-ci-gate.md)，该车道是 Linux 拉取请求必需的只比较门禁。static 任务会把 `apps/web/dist` 与包构建产物一同发布；`node 24 / snapshots and artifacts` 消费方任务安装锁文件选定的 Chromium，恢复以操作系统和锁文件为键的缓存，并用 `DSH_SNAPSHOT=replay` 运行该车道。这是有意的平面切分：host 与 spec 使用 [tsx 源码启动契约](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)，浏览器则消费 `apps/web/dist` 和包的 `lib/client.js` 产物，因此门禁依赖 `built-package-invariants` 提供这些客户端产物。托管和自托管的默认分支 Linux 串行任务运行同一门禁；托管任务生成供 PR 消费的浏览器缓存，持久化自托管池则不需要托管侧缓存。CI 从不录制或刷新预期输出。场景仍面向 POSIX，并继续置于 Windows 和 macOS 矩阵之外。
 
 ## 业界先例
 
@@ -76,12 +76,11 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## Testing
 
-`pnpm run test:web` 无密钥运行该车道。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh` 则无密钥重写 aria 预期输出。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
+`pnpm run test:web` 构建并无密钥运行该车道；`test:web:built` 基于现有构建产物运行。`DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/<spec>` 对真实模型录制一个发起提示的场景，`DSH_SNAPSHOT=refresh pnpm run test:web` 则无密钥重写 aria 预期输出。CI 显式选择回放模式。`dsh-llm-replay` 单元覆盖率钉住节奏控制、取消、消费诊断、sidecar 校验、按索引替换与唯一的追加位置。
 
 ## 暂缓
 
 - **Web 头类别钉住**：web fixture 处处 token 化 `{{system}}`/`{{tools}}`，没有场景钉住 web 组合的提示词/工具 schema（`TODO(web-header-pin)`——scaffold 的 `recordFixture` JSDoc 有标记）。沿用 TUI 处处脱敏先例；当 web 组装的请求头与其镜像的 repl 组合进一步分叉时重审。
-- **CI 浏览器供给**：推翻 CI 无浏览器裁定，分阶段标准见上（`TODO(ci-browser)`）。
 - **恢复后追问场景**：真实 wire 上的历史/实时缝合路径；当该代码变更或回归时作为独立场景补充。
 - **Web 错误表面**：客户端不消费任何 `agent/error` 帧，分片前的失败也没有可冻结的部分输出，因此不可重试的提供方失败不渲染任何错误文案——用户看到的只是发送就此停住。AUTH 场景钉住当前契约（不崩溃、输入框恢复可用、轮次记录为 `error`），`FIXME(web-error-surface)` 标记了待 UI 长出错误渲染后断言可见错误文本的位置。
 - **输入框 steering 手势**：输入在运行期间锁定（只能停止或等待），因此 steering 场景从页面走 wire 做 steer；`TODO(web-steer-composer)` 待产品长出真实的输入框手势后，把驱动步骤升级为该手势。
@@ -89,4 +88,4 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ## 后果
 
-Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在发布的 128k 目录窗口下保持闲置；在 CI 反转被单独决策之前，车道只在其运行之处（本地，`test:web`）把守回归。
+Web 表面获得了录制一次/永久回放的层级：真实 chromium → SSE → apiproxy → 循环 → 工具 → 持久化的链路以约 10-30 秒无密钥运行，重复运行结果确定，fixture 由车道自身持有并可重录。接受的成本：每次有意的会话 UI 变更都以一次无密钥 `DSH_SNAPSHOT=refresh` 收尾（预期输出变动是受评审的 diff，锚断言保住语义绿色）；aria 格式归 Playwright 所有——仓库唯一不受自己控制的提交快照格式——因此 playwright 版本升级必须是刻意的升级加刷新提交（依赖在 `apps/web/package.json` 中浮动为 `^1.49.0`；若变动伤人则改为精确锁定）；回放的首次调用顺序绑定把每个场景限制为至多一个发起提示的会话，消费断言是绊线；`compact-basic` 与会话共享回放游标，仅在发布的 128k 目录窗口下保持闲置；必需的消费方任务承担 Chromium 供给与一次浏览器运行的成本，使改动组装后 UI 的 PR（Pull Request）持有相应的预期输出 diff。
