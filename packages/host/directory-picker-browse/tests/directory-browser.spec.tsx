@@ -29,6 +29,25 @@ function listingFor(path?: string): DirectoryListing {
       ],
       truncated: false,
     },
+    '/': {
+      path: '/',
+      home: HOME,
+      crumbs: [{ name: '/', path: '/', hidden: false }],
+      entries: [{ name: 'home', path: '/home', hidden: false }],
+      truncated: false,
+    },
+    [`${HOME}/.config`]: {
+      path: `${HOME}/.config`,
+      home: HOME,
+      crumbs: [
+        { name: '/', path: '/', hidden: false },
+        { name: 'home', path: '/home', hidden: false },
+        { name: 'u', path: HOME, hidden: false },
+        { name: '.config', path: `${HOME}/.config`, hidden: true },
+      ],
+      entries: [],
+      truncated: false,
+    },
     [DOCS]: {
       path: DOCS,
       home: HOME,
@@ -103,6 +122,28 @@ describe('DirectoryBrowser', () => {
     expect(screen.queryByRole('button', { name: '/' })).toBeNull()
   })
 
+  it('shows hidden entries when the toggle is on and hides them again on close', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(screen.queryByText('.config')).toBeNull()
+    // The fixed-label toggle reports its state through aria-pressed. Its
+    // mousedown never steals focus (so it composes with the path editor).
+    const toggle = screen.getByRole('button', { name: 'browser.showHidden' })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.mouseDown(toggle)
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByText('.config')).toBeTruthy()
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByText('.config')).toBeNull()
+    // Close resets the toggle.
+    b.view.rerender(<DirectoryBrowser {...b.props} open={false} />)
+    b.view.rerender(<DirectoryBrowser {...b.props} open />)
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    expect(screen.queryByText('.config')).toBeNull()
+  })
+
   it('selects a row into the two-pane view: children preview right, crumbs follow the selection', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
@@ -153,7 +194,7 @@ describe('DirectoryBrowser', () => {
     expect(signals[2]?.aborted).toBe(true)
   })
 
-  it('jumps back through a crumb into a fresh single-column level', async () => {
+  it('a crumb jump to the display root (home) lands the single wide level', async () => {
     mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(rowButton(screen.getByRole('listitem')))
@@ -162,6 +203,183 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(columns()).toHaveLength(1) })
     expect(screen.getByRole('listitem').textContent).toBe('Documents')
     expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('a crumb jump away from the root lands two-pane with the target selected', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(rowButton(within(columns()[1]!).getByRole('listitem')))
+    await waitFor(() => { expect(screen.getByRole('button', { name: 'harness' })).toBeTruthy() })
+    // Jumping to the Documents crumb is a step BACK one pane, not a
+    // collapse: Documents stays selected in the home level, its children
+    // stay on the right.
+    fireEvent.click(screen.getByRole('button', { name: 'Documents' }))
+    await waitFor(() => {
+      expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
+    })
+    expect(columns()).toHaveLength(2)
+    expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+  })
+
+  it('a navigation to the filesystem root keeps the single wide level', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: '/' } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // A one-crumb chain has no parent level to show on the left.
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('home') })
+    expect(columns()).toHaveLength(1)
+  })
+
+  it('commits the target immediately, aborts a superseded parent leg on the wire, and drops its late resolution', async () => {
+    const signals: (AbortSignal | undefined)[] = []
+    const settlers: ((value: DirectoryListing) => void)[] = []
+    // Only the FIRST explicit HOME request (the parent leg) hangs; the later
+    // home crumb jump lists normally.
+    let homeCalls = 0
+    const listDirectory = vi.fn(async (path?: string, signal?: AbortSignal) => {
+      signals.push(signal)
+      if (path === HOME && ++homeCalls === 1) {
+        return new Promise<DirectoryListing>((resolve) => { settlers.push(resolve) })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // The target leg commits at once: editor closed, single-pane DOCS level,
+    // while the parent leg (upgrade) is still in flight.
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    expect(columns()).toHaveLength(1)
+    await waitFor(() => { expect(settlers).toHaveLength(1) })
+    // A newer jump aborts the pending parent leg ON THE WIRE, not merely
+    // dropping its settlement.
+    fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
+    expect(signals[2]?.aborted).toBe(true)
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('Documents') })
+    // Its late resolution changes nothing either.
+    await act(async () => { settlers[0]!(listingFor(HOME)) })
+    expect(columns()).toHaveLength(1)
+    expect(rowButton(screen.getByRole('listitem')).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('keeps the single-pane landing when the truncated parent level lacks the target', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      // The parent leg names HOME explicitly; serve it a truncated window
+      // that misses Documents (the initial open uses the absent-path form).
+      if (path === HOME) return { ...listingFor(HOME), entries: [], truncated: true }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    // The upgrade would orphan the selection (no source row): it stays off.
+    await act(async () => {})
+    expect(columns()).toHaveLength(1)
+    expect(screen.queryByText('browser.truncated')).toBeNull()
+  })
+
+  it('anchors the upgrade on the parent level actual entry under Windows case folding', async () => {
+    const ROOT = 'C:\\'
+    const TYPED = 'c:\\users'
+    const winRoot: DirectoryListing = {
+      path: ROOT,
+      home: ROOT,
+      crumbs: [{ name: 'C:\\', path: ROOT, hidden: false }],
+      entries: [{ name: 'Users', path: 'C:\\Users', hidden: false }],
+      truncated: false,
+    }
+    const winUsers: DirectoryListing = {
+      path: TYPED,
+      home: ROOT,
+      crumbs: [{ name: 'C:\\', path: ROOT, hidden: false }, { name: 'users', path: TYPED, hidden: false }],
+      entries: [],
+      truncated: false,
+    }
+    mount({ listDirectory: vi.fn(async (path?: string) => (path === TYPED ? winUsers : winRoot)) })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: TYPED } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // The typed case differs from the real entry; the upgrade selects the
+    // parent level's ACTUAL entry so aria-current and exemptions hold.
+    await waitFor(() => {
+      expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
+    })
+    expect(within(columns()[0]!).getByText('Users')).toBeTruthy()
+  })
+
+  it('re-parks focus on the edit zone when a failed pick unmounts a dot-revealed row', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === `${HOME}/.config`) {
+        throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path } })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: `${HOME}/.co` } })
+    const row = rowButton(screen.getByRole('listitem'))
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    // The failed selection re-hides the picked row; focus fell to body and
+    // re-parks on the crumb edit zone.
+    await screen.findByRole('alert')
+    expect(screen.queryByText('.config')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+  })
+
+  it('leaves focus on a surviving row when its pick fails', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      if (path === DOCS) {
+        throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'denied', details: { path } })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: `${HOME}/do` } })
+    const row = rowButton(screen.getByRole('listitem'))
+    row.focus()
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    // Documents survives the cleared selection (it is not hidden): the
+    // user's focus on it is not yanked to the edit zone.
+    await screen.findByRole('alert')
+    expect(document.activeElement).toBe(row)
+  })
+
+  it('falls back to the single-pane landing when the parent leg of a navigation fails', async () => {
+    const listDirectory = vi.fn(async (path?: string) => {
+      // The initial open lists home through the absent-path form; only the
+      // parent leg names HOME explicitly.
+      if (path === HOME) {
+        throw new DirectoryBrowseError({ code: 'directory-unreadable', message: 'parent gone', details: { path } })
+      }
+      return listingFor(path)
+    })
+    mount({ listDirectory })
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    fireEvent.change(screen.getByLabelText<HTMLInputElement>('browser.editPath'), { target: { value: DOCS } })
+    fireEvent.keyDown(screen.getByLabelText('browser.editPath'), { key: 'Enter' })
+    // The target listed fine; the failed parent leg neither blocks the
+    // landing nor surfaces an error for a level nobody asked to see.
+    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    expect(columns()).toHaveLength(1)
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('opens the selection, else the listed level; Cancel closes; busy freezes Open', async () => {
@@ -186,18 +404,221 @@ describe('DirectoryBrowser', () => {
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
-    expect(input.value).toBe(HOME)
+    // The editor seeds with a trailing separator so typing continues into
+    // child names.
+    expect(input.value).toBe(`${HOME}/`)
     fireEvent.change(input, { target: { value: DOCS } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
-    expect(columns()).toHaveLength(1)
+    // Away from the root a navigation lands two-pane: the target selected
+    // in its parent level, its own children on the right.
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(rowButton(within(columns()[0]!).getByRole('listitem')).getAttribute('aria-current')).toBe('true')
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    // The submitted navigation unmounted the focused input; focus parks on
+    // the crumb edit zone that replaced it.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
     fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
     const again = screen.getByLabelText<HTMLInputElement>('browser.editPath')
     fireEvent.change(again, { target: { value: '   ' } })
     fireEvent.keyDown(again, { key: 'Enter' })
-    expect(b.listDirectory).toHaveBeenCalledTimes(2)
+    // Initial home + the DOCS target leg + its parent leg; the blank draft
+    // added none.
+    expect(b.listDirectory).toHaveBeenCalledTimes(3)
     fireEvent.keyDown(again, { key: 'Escape' })
     expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // Escape with focus in the input parks focus on the returning edit zone.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'browser.editPath' }))
+  })
+
+  it('prefix-filters the listed level from the draft tail, dot revealing hidden matches', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // The seeded empty segment leaves the level as-is: hidden stays hidden.
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // Case-insensitive prefix narrows the rows.
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // A dot-led prefix names hidden entries, so it reveals the match.
+    fireEvent.change(input, { target: { value: `${HOME}/.co` } })
+    expect(screen.getByRole('listitem').textContent).toBe('.config')
+    // A prefix matching nothing empties the level (no stale rows linger).
+    fireEvent.change(input, { target: { value: `${HOME}/zzz` } })
+    expect(screen.queryByRole('listitem')).toBeNull()
+    // A draft naming some other directory (or none) leaves the level whole.
+    fireEvent.change(input, { target: { value: 'no-separator' } })
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+  })
+
+  it('filters the child pane in two-pane mode and follows the draft back up a level', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // The seed comes from the selection, so the draft tail addresses the
+    // RIGHT pane (the selection's children).
+    expect(input.value).toBe(`${DOCS}/`)
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+    fireEvent.change(input, { target: { value: `${DOCS}/zzz` } })
+    expect(within(columns()[1]!).queryAllByRole('listitem')).toHaveLength(0)
+    expect(within(columns()[0]!).getByText('Documents')).toBeTruthy()
+    // Erasing back into the parent's own path moves the filter to the LEFT
+    // pane and releases the right one. The selected row is exempt (it
+    // anchors the two-pane view), so it alone survives the miss.
+    fireEvent.change(input, { target: { value: `${HOME}/zz` } })
+    expect(within(columns()[0]!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Documents'])
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
+  })
+
+  it('keeps the draft and filter through window focus loss and in-dialog focus moves', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
+    // A blur while the document itself lost focus (window switch, dev-tools
+    // focus) must not discard the draft: value and filter both survive.
+    const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    fireEvent.focusOut(input)
+    hasFocus.mockRestore()
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // A keyboard focus move that stays inside the dialog (Tab onto the
+    // filtered row) keeps the draft too — the results stay reachable.
+    fireEvent.focusOut(input, { relatedTarget: rowButton(screen.getByRole('listitem')) })
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
+    // Toggling show-hidden mid-edit suppresses focus steal: the draft and
+    // its filter survive the toggle in both directions.
+    const toggle = screen.getByRole('button', { name: 'browser.showHidden' })
+    fireEvent.mouseDown(toggle)
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByLabelText<HTMLInputElement>('browser.editPath', { selector: 'input' }).value).toBe(`${HOME}/do`)
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
+    // Focus landing outside the dialog cancels like Escape — even when the
+    // departure happens from a row the user had Tabbed onto, not the input
+    // (the observer lives on the card scope, not the input).
+    fireEvent.focusOut(rowButton(screen.getByRole('listitem')), { relatedTarget: document.body })
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // Outside editing the card-scope observer is inert.
+    fireEvent.focusOut(screen.getByRole('button', { name: 'browser.showHidden' }))
+    expect(screen.getByRole('button', { name: 'browser.editPath' })).toBeTruthy()
+  })
+
+  it('Escape with focus on a filtered row collapses the editor, not the dialog', async () => {
+    const b = mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
+    // Tab parked focus on the result row; Escape must still mean "leave
+    // path editing", not "close the whole dialog".
+    const row = rowButton(screen.getByRole('listitem'))
+    row.focus()
+    fireEvent.keyDown(row, { key: 'Escape' })
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    expect(b.onClose).not.toHaveBeenCalled()
+    // Focus was already on a surviving row, so nothing re-parks it.
+    expect(document.activeElement).toBe(row)
+    // With no draft left, Escape falls through to the Modal and closes.
+    fireEvent.keyDown(row, { key: 'Escape' })
+    expect(b.onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a picked dot-revealed hidden row stays visible as the selection', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/.co` } })
+    const row = rowButton(screen.getByRole('listitem'))
+    expect(row.textContent).toBe('.config')
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    // The pick cleared the draft (and with it the dot-reveal), but the
+    // selection is exempt from the hidden filter: the anchor row survives.
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(within(columns()[0]!).getByText('.config')).toBeTruthy()
+  })
+
+  it('picking a filtered row adopts it and closes the path editor', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${HOME}/do` } })
+    // The row suppresses focus steal on mousedown (no blur-cancel unmounts
+    // the filtered rows mid-gesture), then the click both selects the row
+    // and closes the editor.
+    const row = rowButton(screen.getByRole('listitem'))
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // Focus parks on the picked row (the editor's input just unmounted and
+    // the Modal has no focus trap to catch a fall to body).
+    expect(document.activeElement).toBe(row)
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    expect(screen.getByRole('button', { name: 'browser.home' })).toBeTruthy()
+  })
+
+  it('a right-pane pick while editing parks focus on the advanced selection', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(rowButton(screen.getByRole('listitem')))
+    await waitFor(() => { expect(columns()).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: `${DOCS}/h` } })
+    // The advance replaces BOTH panes (the picked button's own column
+    // unmounts), so focus is re-parked on the selection's aria-current row
+    // in the freshly rendered left pane rather than the clicked node.
+    const row = rowButton(within(columns()[1]!).getByRole('listitem'))
+    fireEvent.mouseDown(row)
+    fireEvent.click(row)
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    await waitFor(() => { expect(document.activeElement?.textContent).toBe('harness') })
+    expect(document.activeElement?.getAttribute('aria-current')).toBe('true')
+  })
+
+  it('seeds and filters with backslashes on a Windows-rooted listing', async () => {
+    const ROOT = 'C:\\'
+    const windowsListing: DirectoryListing = {
+      path: ROOT,
+      home: ROOT,
+      crumbs: [{ name: 'C:\\', path: ROOT, hidden: false }],
+      entries: [
+        { name: 'Program Files', path: `${ROOT}Program Files`, hidden: false },
+        { name: 'Users', path: `${ROOT}Users`, hidden: false },
+      ],
+      truncated: false,
+    }
+    mount({ listDirectory: vi.fn(async () => windowsListing) })
+    await waitFor(() => { expect(screen.getAllByRole('listitem')).toHaveLength(2) })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    // The root already ends in its separator: no doubled backslash.
+    expect(input.value).toBe(ROOT)
+    fireEvent.change(input, { target: { value: `${ROOT}u` } })
+    expect(screen.getByRole('listitem').textContent).toBe('Users')
+  })
+
+  it('clicking away from the path editor cancels it back to the crumb view', async () => {
+    mount()
+    await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    fireEvent.click(screen.getByRole('button', { name: 'browser.editPath' }))
+    const input = screen.getByLabelText<HTMLInputElement>('browser.editPath')
+    fireEvent.change(input, { target: { value: '/somewhere/else' } })
+    // Focus moving anywhere outside the editor abandons the draft like Escape.
+    fireEvent.focusOut(input)
+    expect(screen.queryByLabelText('browser.editPath', { selector: 'input' })).toBeNull()
+    // The crumb view is back and the abandoned draft was never navigated to.
+    expect(screen.getByRole('button', { name: 'browser.editPath' })).toBeTruthy()
+    expect(screen.getByRole('listitem').textContent).toBe('Documents')
   })
 
   it('restarts the home listing when Escape cancels an edit opened before any level listed', async () => {
@@ -713,11 +1134,13 @@ describe('DirectoryBrowser', () => {
     b.listDirectory.mockReturnValueOnce(slow)
     fireEvent.click(screen.getByRole('button', { name: 'browser.home' }))
     fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Documents' }))
-    await waitFor(() => { expect(screen.getByRole('listitem').textContent).toBe('harness') })
+    // The newer jump lands two-pane: Documents selected at home, children right.
+    await waitFor(() => { expect(within(columns()[1]!).getByText('harness')).toBeTruthy() })
     resolveSlow(listingFor(undefined))
     await new Promise(settle => setTimeout(settle, 0))
-    // The stale home listing did not replace the newer Documents level.
-    expect(screen.getByRole('listitem').textContent).toBe('harness')
+    // The stale home listing did not replace the newer Documents landing.
+    expect(columns()).toHaveLength(2)
+    expect(within(columns()[1]!).getByText('harness')).toBeTruthy()
   })
 
   it('names the create target by its path when the level reports no crumbs', async () => {

@@ -163,7 +163,7 @@ describe('conversation slot inject surface', () => {
     unbind()
     // Stop failure is swallowed (promptError owns the surface).
     b.sessionFake.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'x', details: {} } })
-    b.composerSurface(ROOT).stop()
+    b.composerSurface(ROOT).stop!()
     await new Promise(r => setTimeout(r, 0))
     expect(b.sessionFake.cancel).toHaveBeenCalledTimes(1)
     await b.runtime.dispose()
@@ -172,12 +172,19 @@ describe('conversation slot inject surface', () => {
   it('inject fails loud when the session resolves no binding or the scope lacks the service', async () => {
     const b = await bench()
     const entry = b.entryOf('conversation.composer.bar')
-    const injectFn = entry.inject as unknown as (sessionId: SessionId) => ComposerBarInjected
+    const injectFn = entry.inject as unknown as (sessionId: SessionId | undefined) => ComposerBarInjected
     // Unknown session: the keyboard face's binding resolution answers nothing.
-    expect(() => { injectFn('ghost' as SessionId).stop() }).toThrow(/resolved no binding/)
+    expect(() => { injectFn('ghost' as SessionId).stop!() }).toThrow(/resolved no binding/)
+    // No session (session-maybe absent side): machine faces absent, static
+    // hooks compartment still present so the render side's hook order holds.
+    const absent = injectFn(undefined)
+    expect(absent.keyboard).toBeUndefined()
+    expect(absent.stop).toBeUndefined()
+    expect(absent.hooks.notices.getSnapshot()).toBeNull()
+    expect(absent.hooks.lexicon.getSnapshot().size).toBe(0)
     // A scope whose service tree lost 'conversation' (the feature fiber
     // unloaded while a retained inject closure re-runs): fails loud too.
-    const stop = injectFn(ROOT).stop
+    const stop = injectFn(ROOT).stop!
     await b.feature.dispose()
     expect(() => { stop() }).toThrow(/unavailable through the session scope/)
     await b.runtime.dispose()

@@ -167,10 +167,36 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // "no crash, composer recovers, turn logged as error".
     await expect.poll(() => page.locator('textarea').first().isEnabled(), { timeout: 10_000 }).toBe(true)
     expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
+    // The blank workspace also has an enabled composer. Wait for the driven
+    // session's only visible message before capturing its no-error-copy state.
+    await expect.poll(() => page.getByText(PROMPT, { exact: true }).first().isVisible(), { timeout: 10_000 }).toBe(true)
     // Golden of the same gap: the prompt bubble alone, no error copy in the
     // tree — the diff that changes when web-error-surface lands.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(ERROR_EXPECTED, snapshot, MODE)
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 120_000)
+
+  it.skipIf(MODE === 'record')('keeps a terminal request marker inside the trajectory table', async () => {
+    await launch(() => ({
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: 'invalid api key', code: 'AUTH' } }],
+    }))
+    const { settled } = await sendPrompt()
+    await settled
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const tailRequest = page.locator('tr[data-request-only="true"]').last()
+    await tailRequest.waitFor({ timeout: 10_000 })
+    const requestMarker = tailRequest.getByRole('button', { name: /Request #/ })
+
+    const markerWithinTable = await requestMarker.evaluate((element) => {
+      const marker = element.getBoundingClientRect()
+      const table = element.closest('table')?.getBoundingClientRect()
+      if (table === undefined) throw new Error('request marker has no table')
+      return marker.bottom <= table.bottom
+    })
+
+    expect(markerWithinTable).toBe(true)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   }, 120_000)

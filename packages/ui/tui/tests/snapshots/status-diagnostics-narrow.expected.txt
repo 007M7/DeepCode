@@ -48,7 +48,7 @@ buffer
 17| "│                                                      │"
   style 0-0 dim
   style 55-55 dim
-18| "│  Agent:      idle · 7 events · 1 turn · 1 step · 1   │"
+18| "│  Agent:      idle · 8 events · 1 turn · 1 step · 1   │"
   style 0-0 dim
   style 3-12 dim
   style 55-55 dim
