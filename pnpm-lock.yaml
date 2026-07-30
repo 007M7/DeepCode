@@ -956,9 +956,6 @@ importers:
 
   packages/client/schema-form:
     dependencies:
-      '@deepseek-ai/dsh-client-ui-primitives':
-        specifier: workspace:^
-        version: link:../ui-primitives
       react:
         specifier: ^18.2.0
         version: 18.3.1

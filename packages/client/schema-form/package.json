@@ -20,7 +20,6 @@
   },
   "license": "BSD-3-Clause",
   "dependencies": {
-    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
     "react": "^18.2.0",
     "schemastery": "^3.18.0"
   },

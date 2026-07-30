@@ -117,7 +117,13 @@ export function getPath(value: unknown, path: readonly string[]): unknown {
   return current
 }
 
-/** Whether a draft explicitly carries the path (its presence marks a user override). */
+/**
+ * Whether a draft explicitly carries the path (its presence marks a user
+ * override, independent of the value stored there).
+ * @param value - root value (draft or fallback layer).
+ * @param path - key path from the root; array indexes as strings.
+ * @returns whether the path's final key exists on its parent.
+ */
 export function hasPath(value: unknown, path: readonly string[]): boolean {
   if (path.length === 0) return value !== undefined
   const parent = getPath(value, path.slice(0, -1))
@@ -134,15 +140,12 @@ function cloneContainer(container: unknown, key: string): Record<string, unknown
   return /^\d+$/.test(key) ? [] : {}
 }
 
-/**
- * Immutably set a nested value, materializing missing intermediate containers.
- * @param root - draft root (never mutated).
- * @param path - non-empty key path.
- * @param value - value to store at the path.
- * @returns the new draft root.
- */
-export function setPath(root: Record<string, unknown>, path: readonly string[], value: unknown): Record<string, unknown> {
-  if (path.length === 0) throw new Error('schema-form: setPath needs a non-empty path')
+/** Clone the container spine down to the leaf's parent, materializing missing intermediates. */
+function cloneSpine(root: Record<string, unknown>, path: readonly string[]): {
+  result: Record<string, unknown>
+  parent: Record<string, unknown> | unknown[]
+  leaf: string
+} {
   const result = { ...root }
   let target: Record<string, unknown> | unknown[] = result
   for (let i = 0; i < path.length - 1; i++) {
@@ -155,9 +158,21 @@ export function setPath(root: Record<string, unknown>, path: readonly string[], 
     else (target)[key] = child
     target = child
   }
-  const leaf = path[path.length - 1] as string
-  if (Array.isArray(target)) target[Number(leaf)] = value
-  else (target)[leaf] = value
+  return { result, parent: target, leaf: path[path.length - 1] as string }
+}
+
+/**
+ * Immutably set a nested value, materializing missing intermediate containers.
+ * @param root - draft root (never mutated).
+ * @param path - non-empty key path.
+ * @param value - value to store at the path.
+ * @returns the new draft root.
+ */
+export function setPath(root: Record<string, unknown>, path: readonly string[], value: unknown): Record<string, unknown> {
+  if (path.length === 0) throw new Error('schema-form: setPath needs a non-empty path')
+  const { result, parent, leaf } = cloneSpine(root, path)
+  if (Array.isArray(parent)) parent[Number(leaf)] = value
+  else parent[leaf] = value
   return result
 }
 
@@ -172,20 +187,8 @@ export function setPath(root: Record<string, unknown>, path: readonly string[], 
 export function deletePath(root: Record<string, unknown>, path: readonly string[]): Record<string, unknown> {
   if (path.length === 0) throw new Error('schema-form: deletePath needs a non-empty path')
   if (!hasPath(root, path)) return root
-  const result = { ...root }
-  let target: Record<string, unknown> | unknown[] = result
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i] as string
-    const child = cloneContainer(
-      Array.isArray(target) ? target[Number(key)] : (target)[key],
-      path[i + 1] as string,
-    )
-    if (Array.isArray(target)) target[Number(key)] = child
-    else (target)[key] = child
-    target = child
-  }
-  const leaf = path[path.length - 1] as string
-  if (Array.isArray(target)) target.splice(Number(leaf), 1)
-  else Reflect.deleteProperty(target, leaf)
+  const { result, parent, leaf } = cloneSpine(root, path)
+  if (Array.isArray(parent)) parent.splice(Number(leaf), 1)
+  else Reflect.deleteProperty(parent, leaf)
   return result
 }
