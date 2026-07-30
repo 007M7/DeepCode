@@ -1524,11 +1524,13 @@ export function createTuiChat(
     // live durable bracket can announce its in-flight state without mistaking
     // a stale resumed orphan for current work.
     if (event.type === 'compact/start' && event.data.turn === null) {
-      compacting = {
-        startedAt: now(),
-        timer: setInterval(renderStatus, STATUS_ANIMATION_INTERVAL_MS),
+      if (compacting === undefined) {
+        compacting = {
+          startedAt: now(),
+          timer: setInterval(renderStatus, STATUS_ANIMATION_INTERVAL_MS),
+        }
+        runtime.terminal.setProgress(true)
       }
-      runtime.terminal.setProgress(true)
       requestRender()
       return
     }
@@ -1538,7 +1540,9 @@ export function createTuiChat(
       if (event.data.error !== undefined) {
         appendNotice(`Compaction failed: ${event.data.error}`, 'warning')
       }
-      beginFadeOut(COMPACTING_GLYPH)
+      // A concurrently running turn owns the indicator. Keep its timer and
+      // progress bit instead of letting the compaction fade clear that state.
+      if (runningStatus === undefined) beginFadeOut(COMPACTING_GLYPH)
       requestRender()
       return
     }

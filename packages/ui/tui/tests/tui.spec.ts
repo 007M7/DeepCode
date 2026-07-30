@@ -2075,7 +2075,50 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     expect(result.terminal.output).toContain('dsh ◍ ')
     expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    result.session.append('compact/end', { turn: null })
+    await tick()
+    result.terminal.output = ''
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh ◍ ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.progress.at(-1)).toBe(true)
     await dispose(result)
+  })
+
+  it('treats duplicate live compaction starts as one owned bracket', async () => {
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    let result: Awaited<ReturnType<typeof setup>> | undefined
+    let didDispose = false
+    let clock = 0
+    try {
+      result = await setup({ omitInitialLifecycle: true, now: () => clock })
+      intervalSpy.mockClear()
+      clearIntervalSpy.mockClear()
+      result.session.append('compact/start', { turn: null })
+      clock = 1_000
+      result.terminal.output = ''
+      result.session.append('compact/start', { turn: null })
+      await tick()
+
+      expect(intervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.output).toContain('dsh ⊙ ')
+      expect(result.terminal.progress.at(-1)).toBe(true)
+
+      result.session.append('compact/end', { turn: null })
+      await tick()
+      expect(clearIntervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.progress.at(-1)).toBe(false)
+
+      await dispose(result)
+      didDispose = true
+    } finally {
+      if (result !== undefined && !didDispose) await dispose(result)
+      intervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
   })
 
   it('does not show compaction progress for a resumed orphaned start', async () => {
