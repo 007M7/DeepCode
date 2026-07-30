@@ -197,9 +197,14 @@ describe('QueueDock', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('ships the session-scoped registrant plugin shape', () => {
+  it('registers as the terminal composer-context entry', () => {
     expect(queueDockEntry.name).toBe('conversation-queue-dock')
     expect(queueDockEntry.inject).toEqual(['slots', 'conversation', 'sessions'])
-    expect(typeof queueDockEntry.apply).toBe('function')
+    const register = vi.fn()
+    queueDockEntry.apply({ slots: { register } } as never)
+    expect(register).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'conversation.input.dock', id: 'queue', order: 20 }),
+      QueueDock,
+    )
   })
 })

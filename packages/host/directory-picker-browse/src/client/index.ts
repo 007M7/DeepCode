@@ -46,6 +46,7 @@ export function apply(ctx: ClientContext): void {
         'browser.editPath': '编辑路径',
         'browser.loading': '加载中…',
         'browser.truncated': '文件夹过多，仅显示开头部分。',
+        'browser.showHidden': '显示隐藏文件',
       }],
       ['en', {
         'browser.title': 'Select Workspace Directory',
@@ -60,6 +61,7 @@ export function apply(ctx: ClientContext): void {
         'browser.editPath': 'Edit path',
         'browser.loading': 'Loading…',
         'browser.truncated': 'Too many folders to list; only the beginning is shown.',
+        'browser.showHidden': 'Show hidden files',
       }],
     ]
     try {

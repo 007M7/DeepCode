@@ -16,7 +16,7 @@ The TUI theme groups `color`, `truecolor`, `leftPrompt`, `rightPrompt`, `inputPr
 
 Registered fragments are trusted ANSI-capable presentation output. Template literals and ordinary external content remain sanitized, but a prompt-value plugin may emit terminal controls. Composite values own coordinated background transitions and separators, so one `${powerline}` value can render a complete Powerline segment without coupling adjacent atomic providers.
 
-The built-in `cwd`, `git/worktree`, `token_meter/cache_hit_rate`, `model`, `context`, `timing`, styled `symbol` label, and `indicator` caret values use the same registry. Session and agent events update their handles, while the running timer updates `timing` and the animated `indicator` each tick. The shipped input template is `${symbol} ${indicator}`, preserving the existing `dsh > ` prefix.
+The built-in `cwd`, `git/worktree`, `token_meter/cache_hit_rate`, `model`, `context`, `queued`, styled `symbol` label, and `indicator` caret values use the same registry. Session and agent events update their handles, while the running timer updates `queued` — the steering-queue badge, unavailable unless a running turn has queued messages — and the animated `indicator` each tick. The shipped input template is `${symbol} ${indicator}`, preserving the existing `dsh > ` prefix.
 
 ## Alternatives considered
 
