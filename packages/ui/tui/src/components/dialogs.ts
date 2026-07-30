@@ -75,10 +75,10 @@ export function compactTargetLabel(target: AgentLlmTarget): string {
  * Resolve the display label for a choice's reasoning effort.
  * @param choice - The model choice carrying advertised reasoning metadata.
  * @param effort - The selected effort, or `undefined` for provider default.
- * @returns The effort's display name, `provider default`, or `undefined` when the model has no reasoning metadata.
+ * @returns The effort's display name, `Default`, or `undefined` when the model has no reasoning metadata.
  */
 export function targetReasoningLabel(choice: ModelChoice, effort: ReasoningEffortId | undefined): string | undefined {
-  if (effort === undefined) return choice.reasoning === undefined ? undefined : 'provider default'
+  if (effort === undefined) return choice.reasoning === undefined ? undefined : 'Default'
   return choice.reasoning?.efforts.find(candidate => candidate.id === effort)?.name ?? effort
 }
 

@@ -101,6 +101,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     ctx: new Context(),
     followup: () => {},
     steer: () => {},
+    updateInbox: () => 'not-found',
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },

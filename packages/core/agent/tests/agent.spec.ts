@@ -24,6 +24,7 @@ function stubAgent(rawId: string, overrides: Partial<Agent> = {}): Agent {
     acceptsNextStep: false,
     ctx: new Context(),
     send: () => {},
+    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject: () => {},
