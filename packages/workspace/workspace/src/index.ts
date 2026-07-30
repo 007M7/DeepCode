@@ -49,6 +49,18 @@ export class WorkspaceNameConflictError extends Error {
   }
 }
 
+/** An archiveSession request named a session neither live nor in session persistence. */
+export class WorkspaceUnknownSessionError extends Error {
+  /**
+   * @param sessionId - The unknown session id.
+   * @param options - Standard error options (the header-read failure as `cause`).
+   */
+  constructor(readonly sessionId: SessionId, options?: ErrorOptions) {
+    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`, options)
+    this.name = 'WorkspaceUnknownSessionError'
+  }
+}
+
 
 declare module 'cordis' {
   interface Context {
@@ -182,6 +194,38 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * The registry-global archive set: sessions hidden from every grouping
+   * surface. Archiving never touches workspace accounting — an archived
+   * session keeps its `sessionIds` slot so unarchiving restores its position.
+   * @returns the archived session ids in archive order.
+   */
+  get archivedSessionIds(): readonly SessionId[] {
+    return this.requireState().archivedSessionIds
+  }
+
+  /**
+   * Archive one session durably. The session must exist (live or in session
+   * persistence); its workspace accounting — or lack of one — is irrelevant.
+   * An already archived id resolves without writing.
+   * @param sessionId - The session to archive.
+   * @returns resolution after durability.
+   */
+  archiveSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      // The chain slot serializes against every other registry write, so this
+      // check-then-write pair cannot interleave with another archive.
+      if (this.requireState().archivedSessionIds.includes(sessionId)) return
+      try {
+        await this.readSessionHeader(sessionId)
+      } catch (error) {
+        throw new WorkspaceUnknownSessionError(sessionId, { cause: error })
+      }
+      const state = this.requireState()
+      await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
    * Resolve by canonical directory path without creating or mutating a
    * workspace. A missing path rejects during `realpath`; an existing unowned
    * directory returns `undefined`.
@@ -245,7 +289,11 @@ export class WorkspaceRegistry extends Service {
     }
 
     try {
-      await this.setState({ initialized: true, workspaceIds: [id, ...state.workspaceIds] })
+      await this.setState({
+        initialized: true,
+        workspaceIds: [id, ...state.workspaceIds],
+        archivedSessionIds: state.archivedSessionIds,
+      })
     } catch (error) {
       this.entities.delete(id)
       try {
@@ -276,6 +324,7 @@ export class WorkspaceRegistry extends Service {
     const nextState = {
       initialized: true,
       workspaceIds: state.workspaceIds.filter(workspaceId => workspaceId !== id),
+      archivedSessionIds: state.archivedSessionIds,
     }
     await this.setState({
       ...nextState,
@@ -329,7 +378,11 @@ export class WorkspaceRegistry extends Service {
       )
     }
     await this.requireTable().delete(pending.workspaceId)
-    await this.setState({ initialized: state.initialized, workspaceIds: state.workspaceIds })
+    await this.setState({
+      initialized: state.initialized,
+      workspaceIds: state.workspaceIds,
+      archivedSessionIds: state.archivedSessionIds,
+    })
   }
 
   private async bootstrap(headers: readonly SessionHeader[]): Promise<void> {
@@ -411,9 +464,9 @@ export class WorkspaceRegistry extends Service {
       .map(([id]) => id)
 
     if (!sameIds(state.workspaceIds, workspaceIds)) {
-      await this.setState({ initialized: false, workspaceIds })
+      await this.setState({ initialized: false, workspaceIds, archivedSessionIds: state.archivedSessionIds })
     }
-    await this.setState({ initialized: true, workspaceIds })
+    await this.setState({ initialized: true, workspaceIds, archivedSessionIds: state.archivedSessionIds })
   }
 
   private validateStoredState(state: WorkspaceDomainState): void {
