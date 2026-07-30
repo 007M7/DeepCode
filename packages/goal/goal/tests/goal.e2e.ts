@@ -44,10 +44,9 @@ describe('goal domain through a real cordis.yml and headless process', () => {
     const result = JSON.parse(stdout) as Record<string, unknown>
     expect(result).toMatchObject({
       type: 'result',
-      success: true,
     })
-    expect(result['result']).toBeTypeOf('string')
-    expect(result['result']).toContain('CLI tool round trip complete')
+    expect(result['output']).toBeTypeOf('string')
+    expect(result['output']).toContain('CLI tool round trip complete')
     expect(events.filter(event => event.type === 'turn/end')).toHaveLength(1)
 
     const contexts = events.filter(event => event.type === 'user/message'

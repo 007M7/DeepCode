@@ -85,6 +85,7 @@ describe.skipIf(process.platform === 'win32')('semantic checkpoint hard-crash re
     expect(crashed.markerText).toBe('request-dispatched')
     const events = await load(crashed.root)
     expect(events.map(event => event.type)).toEqual([
+      'agent/inbox/spliced', 'agent/inbox/spliced',
       'turn/start', 'user/message', 'step/start', 'request/header', 'step/end', 'turn/end',
     ])
     expect(events.at(-1)).toMatchObject({
