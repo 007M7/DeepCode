@@ -96,7 +96,7 @@ forever:
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
-      agent/request (config only) -> prepare reasoning/default under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
+      agent/request (config only) -> prepare adapter defaults/provenance under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
@@ -145,7 +145,7 @@ Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, an
 
 The session log is authoritative. `deriveMessages()` projects model history; `assistant/chunk` preserves replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from it.
 
-**Model-visible ⟺ durably recorded**: `step/start`, session prefix, folded `request/header`, and logged immutable attachment references reconstruct requests. `dsh-agent-loop/invariant` asserts reconstruction through `ctx.invariants`; backends assert attachment-byte integrity ([decision](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ durably recorded**: messages at `step/start`, the session prefix, the folded `request/header`, and logged immutable attachment references reconstruct every request; the header also marks adapter-materialized defaults so the next proposal can discard them and resolve the selected route without losing explicit conversation settings. Package-owned `dsh-agent-loop/invariant` asserts reconstructability through `ctx.invariants`, while attachment backends assert byte integrity ([decision](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Plugins own durability. Backends eagerly drain synchronous `session/event` notifications. `session/flush` barriers precede each request and top-level tool dispatch, then follow `turn/end` before another queued turn or idle observation. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, while SQLite shares the contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 

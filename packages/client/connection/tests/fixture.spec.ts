@@ -119,6 +119,36 @@ describe('createFixtureApi', () => {
     expect(JSON.stringify(after.result.value.events)).toContain('openai/gpt-5')
   })
 
+  it('serves configured DeepSeek readiness and keeps credential values write-only', async () => {
+    const api = createFixtureApi()
+    const settings = await api.settings.describe(req({}))
+    if (!settings.result.ok) throw new Error('settings describe failed')
+    expect(settings.result.value.namespaces).toMatchObject([{
+      ns: 'llm-deepseek',
+      value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+      secrets: [{ path: ['apiKey'], set: false }],
+    }])
+
+    const initial = await api.credentials.describe(req({ refs: ['DEEPSEEK_API_KEY', 'TEST_API_KEY'] }))
+    if (!initial.result.ok) throw new Error('credential describe failed')
+    expect(initial.result.value.credentials).toEqual({
+      DEEPSEEK_API_KEY: { configured: true, source: 'file', writable: true },
+      TEST_API_KEY: { configured: false, writable: true },
+    })
+    await api.credentials.set(req({ ref: 'TEST_API_KEY', value: 'write-only-fixture-secret' }))
+    const configured = await api.credentials.describe(req({ refs: ['TEST_API_KEY'] }))
+    if (!configured.result.ok) throw new Error('credential describe failed')
+    expect(configured.result.value.credentials.TEST_API_KEY).toEqual({
+      configured: true,
+      source: 'file',
+      writable: true,
+    })
+    await api.credentials.unset(req({ ref: 'TEST_API_KEY' }))
+    const cleared = await api.credentials.describe(req({ refs: ['TEST_API_KEY'] }))
+    if (!cleared.result.ok) throw new Error('credential describe failed')
+    expect(cleared.result.value.credentials.TEST_API_KEY).toEqual({ configured: false, writable: true })
+  })
+
   it('emits the todo/write snapshot at the real tool boundary: between tool/call and tool/result, timestamps monotonic', async () => {
     const api = createFixtureApi()
     const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))

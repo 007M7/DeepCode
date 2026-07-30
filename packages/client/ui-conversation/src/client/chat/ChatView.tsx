@@ -30,7 +30,7 @@ import type {
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
-import { deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
+import { assistantActionsSeqs, deriveChatFlow, type ChatFlowItem } from './chat-flow.ts'
 import { AssistantMarkdown } from './AssistantMarkdown.tsx'
 import { GenericCommandCard } from './GenericCommandCard.tsx'
 import { GenericToolCard } from './GenericToolCard.tsx'
@@ -248,6 +248,9 @@ export function ChatView({
   const selectedCallId = useStore(s => s.selection?.callId)
 
   const items = useMemo(() => deriveChatFlow(nodes), [nodes])
+  // Only the last content assistant of each turn owns IconActions; mid-turn
+  // text (before tools) omits `time` so AssistantMarkdown stays chrome-free.
+  const actionSeqs = useMemo(() => assistantActionsSeqs(nodes), [nodes])
 
   const listRef = useRef<HTMLDivElement | null>(null)
   const atBottomRef = useRef(true)
@@ -381,7 +384,7 @@ export function ChatView({
           streaming={false}
           interrupted={node.interrupted}
           loadImage={loadImage}
-          time={node.time}
+          time={actionSeqs.has(node.seq) ? node.time : undefined}
           seq={node.seq}
           onFork={forkAt}
         />

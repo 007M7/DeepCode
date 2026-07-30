@@ -18,6 +18,13 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter, persona = 'stable base') {
+  return harnessRoutes([['mock', adapter]], persona)
+}
+
+async function harnessRoutes(
+  adapters: readonly (readonly [provider: string, adapter: MockAdapter])[],
+  persona = 'stable base',
+) {
   const ctx = new Context()
   await ctx.plugin(LlmService)
   await ctx.plugin(SessionStore)
@@ -25,7 +32,7 @@ async function harness(adapter: MockAdapter, persona = 'stable base') {
   await ctx.plugin(ToolRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  ctx.llm.registerAdapter(['mock'], adapter)
+  for (const [provider, adapter] of adapters) ctx.llm.registerAdapter([provider], adapter)
   return ctx
 }
 
@@ -134,6 +141,10 @@ describe('request stability across the loop', () => {
       ReasoningEffortId('high'),
       ReasoningEffortId('max'),
     ])
+    expect(headers.map(event => event.data.header.adapterDefaults)).toEqual([
+      { reasoningEffort: true },
+      undefined,
+    ])
     expect(headers.map(event => event.data.reason)).toEqual(['initial', 'change'])
 
     for (const [model, effort] of [
@@ -156,6 +167,88 @@ describe('request stability across the loop', () => {
       expect(resumedHeaders.at(-1)?.data.header.config.reasoningEffort).toBe(effort)
       expect(resumedHeaders.at(-1)?.data.reason).toBe('resume')
     }
+  })
+
+  it('logs an adapter-owned maxTokens default before dispatch', async () => {
+    const adapter = new MockAdapter([textResponse('bounded')], undefined, 256_000)
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('adapter-max-tokens'), {
+      provider: 'mock',
+      model: 'mock',
+    })
+
+    send(agent, 'use the adapter output limit')
+    await waitForIdle(ctx, agent)
+
+    expect(adapter.requests[0]?.maxTokens).toBe(256_000)
+    const header = agent.session.events.find(event => event.type === 'request/header')
+    expect(header?.type === 'request/header' && header.data.header.config.maxTokens).toBe(256_000)
+    expect(header?.type === 'request/header' && header.data.header.adapterDefaults)
+      .toEqual({ maxTokens: true })
+  })
+
+  it('rematerializes the selected adapter maxTokens default after a provider switch', async () => {
+    const deepseek = new MockAdapter([textResponse('deepseek')], undefined, 256_000)
+    const other = new MockAdapter([textResponse('other')], undefined, 8_192)
+    const ctx = await harnessRoutes([
+      ['deepseek', deepseek],
+      ['other', other],
+    ])
+    const agent = ctx.agentLoop.create(SessionId('adapter-max-tokens-switch'), {
+      provider: 'deepseek',
+      model: 'deepseek-model',
+    })
+    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+      const config = await next()
+      return turn === 2
+        ? { ...config, provider: 'other', model: 'other-model' }
+        : config
+    })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(deepseek.requests[0]?.maxTokens).toBe(256_000)
+    expect(other.requests[0]?.maxTokens).toBe(8_192)
+    const headers = agent.session.events.filter(event => event.type === 'request/header')
+    expect(headers.map(event => event.data.header.config.maxTokens)).toEqual([256_000, 8_192])
+    expect(headers.map(event => event.data.header.adapterDefaults)).toEqual([
+      { maxTokens: true },
+      { maxTokens: true },
+    ])
+  })
+
+  it('preserves an explicit agent maxTokens cap across a provider switch', async () => {
+    const deepseek = new MockAdapter([textResponse('deepseek')], undefined, 256_000)
+    const other = new MockAdapter([textResponse('other')], undefined, 8_192)
+    const ctx = await harnessRoutes([
+      ['deepseek', deepseek],
+      ['other', other],
+    ])
+    const agent = ctx.agentLoop.create(SessionId('explicit-max-tokens-switch'), {
+      provider: 'deepseek',
+      model: 'deepseek-model',
+      maxTokens: 4_096,
+    })
+    ctx.on('agent/request', async (_agent, turn, _step, _signal, next) => {
+      const config = await next()
+      return turn === 2
+        ? { ...config, provider: 'other', model: 'other-model' }
+        : config
+    })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    send(agent, 'second')
+    await waitForIdle(ctx, agent)
+
+    expect(deepseek.requests[0]?.maxTokens).toBe(4_096)
+    expect(other.requests[0]?.maxTokens).toBe(4_096)
+    const headers = agent.session.events.filter(event => event.type === 'request/header')
+    expect(headers.map(event => event.data.header.config.maxTokens)).toEqual([4_096, 4_096])
+    expect(headers.map(event => event.data.header.adapterDefaults)).toEqual([undefined, undefined])
   })
 
   it('keeps exact-model resolution, request logging, and dispatch on one adapter registration', async () => {

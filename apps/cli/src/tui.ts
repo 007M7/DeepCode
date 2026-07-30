@@ -31,6 +31,7 @@ import {
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { configHasTelemetryRow, resolveTelemetryPatch } from './app-cli-entry.ts'
 import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
 import { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import type { Context } from 'cordis'
@@ -196,16 +197,26 @@ export async function runTui(
   // demo or test config would silently run on the user's provider and model.
   // `--config-replace` additionally discards the base and the surface overlay.
   const replaceTree = configReplace !== undefined
-  const patches = replaceTree ? [] : [
-    ...loadOverlayPatches(NAME, TUI_OVERLAY),
-    ...resolvedConfig === undefined
-      ? loadPersonalPatches(NAME) ?? []
-      : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
+  const bootConfig = resolvedConfigReplace === undefined ? BASE_CONFIG : resolveConfigPath(resolvedConfigReplace, undefined)
+  // Same opt-out semantics as the web surface (resolveTelemetryPatch: any
+  // non-empty value disables; setting the switch against a tree without the
+  // row fails loud rather than silently no-opping a privacy switch). The row
+  // presence is checked against the tree actually booting, so a
+  // --config-replace tree is judged on its own rows, not the shipped base's.
+  const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, configHasTelemetryRow(bootConfig))
+  const patches = [
+    ...replaceTree ? [] : [
+      ...loadOverlayPatches(NAME, TUI_OVERLAY),
+      ...resolvedConfig === undefined
+        ? loadPersonalPatches(NAME) ?? []
+        : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
+    ],
+    ...telemetryPatch === undefined ? [] : [telemetryPatch],
   ]
   const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
-    resolvedConfigReplace === undefined ? BASE_CONFIG : resolveConfigPath(resolvedConfigReplace, undefined),
+    bootConfig,
     patches,
     (hostCtx) => {
       // The launcher owns session identity and the exit line: a config-mounted

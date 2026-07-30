@@ -24,12 +24,13 @@ function injectedOf(slots: SlotsService): SettingsRootInjected {
   return (entry.inject as () => SettingsRootInjected)()
 }
 
-/** The shell's four child declarations (chrome seats + the section list). */
+/** The shell's five child declarations (chrome, sections, and onboarding overlays). */
 const CHILD_SPECS = {
   'settings.trigger': { kind: 'single', scope: 'root' },
   'settings.header': { kind: 'single', scope: 'root' },
   'settings.close': { kind: 'single', scope: 'root' },
   'settings.section': { kind: 'list', scope: 'root' },
+  'settings.onboarding': { kind: 'list', scope: 'root' },
 } as const
 
 describe('ui-settings apply', () => {
@@ -37,7 +38,7 @@ describe('ui-settings apply', () => {
     expect(inject).toEqual(['slots'])
   })
 
-  it('registers the shell and declares the four child slots, before or after the declaration', async () => {
+  it('registers the shell and declares the five child slots, before or after the declaration', async () => {
     const before = await bench()
     declare(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
@@ -100,7 +101,7 @@ describe('ui-settings apply', () => {
     }
   })
 
-  it('unregisters the shell and collapses all four child slots on teardown', async () => {
+  it('unregisters the shell and collapses all five child slots on teardown', async () => {
     const b = await bench()
     declare(b.slots)
     const fiber = b.ctx.plugin({ inject: [...inject], apply })

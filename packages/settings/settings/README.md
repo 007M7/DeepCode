@@ -7,10 +7,12 @@ Abstract user-settings seam (`ctx.settings`). One provider holds a raw document 
 ## Service API
 
 - `register(ns, schema, { base?, applies? })` — returns the owner `SettingsScope` (`get`/`watch`/`update`). The registration is an effect on the calling plugin's fiber: disposing that fiber removes the namespace and its observers. A stored section the schema rejects fails the registration itself; a duplicate namespace fails loud.
-- `describe()` — one descriptor per namespace (`schema.toJSON()` envelope, resolved value, `applies`) for configuration surfaces.
+- `describe(options?)` — one descriptor per namespace (`schema.toJSON()` envelope, resolved value, detached `base`/`user` layers, `applies`) for configuration surfaces; a field's presence in `user` is what marks it user-overridden. `describe({ redactSecrets: true })` strips `role('secret')` fields from every layer and adds the `secrets` slot list (`{ path, set }`); every wire surface MUST pass it, and the pure `redactSecrets(schema, value)` walker is exported for other wires.
 - `get(ns)` — resolved value, `undefined` while unregistered.
 - `update(ns, patch)` — deep-merges the plain-object patch into the user section only (never the `base`), validates the resolved candidate, persists through the provider, then commits. Patches must be JSON-shaped data: a Date, Map, BigInt, non-finite number, or circular reference rejects with its `$`-rooted path before anything persists (YAML/JSON storage would silently distort such values on reload). Validation failure rejects before anything is persisted; a read-only provider (`writable: false`) rejects every write. Writes to one namespace are serialized in call order.
-- `replace(ns, section)` — sets the user section wholesale: the removal/reset path a merge cannot express (`replace({})` re-inherits `base` and schema defaults).
+- `replace(ns, section)` — sets the user section wholesale: the deliberate reset (`replace({})` re-inherits `base` and schema defaults).
+- `mutate(ns, ops)` — applies ordered `{ op: 'set' | 'unset', path }` edits to the section as it stands when the write reaches the front of the queue. This is the removal path for any caller holding an INCOMPLETE view: a configuration UI reads the redacted descriptor, so rebuilding a section from it and replacing wholesale deletes every secret the wire never returned, while an op names the one field it means.
+- Every write takes an optional `expectedRevision`. Each descriptor carries the namespace's `revision`, a monotonic counter over its RAW section; a write whose expectation no longer matches rejects with `SettingsConflictError` (`code: 'SETTINGS_CONFLICT'`, both revisions attached) instead of overwriting the writer that landed first. The write queue orders writes but cannot by itself tell a fresh writer from one holding a stale snapshot.
 - Resolved values are deep-frozen snapshots. Watchers receive `(next, prev)` after each commit: invocations of one callback run asynchronously, one at a time, in commit order (a slow stale invocation can never apply after a newer one), and failures — sync throws and async rejections alike — are contained. After a watch disposer returns, no further invocation starts (one already queued is skipped); an invocation already started still settles. The `settings/updated` event fans out one listener at a time, so one throwing listener cannot starve the rest; an async listener's rejection is contained and logged, which is why `INVARIANT`-coded failures rethrow only from synchronous listeners.
 - Service teardown refuses new writes and watcher starts, then drains every queued write and every started watcher invocation before disposal completes; a write whose registrant fiber was disposed mid-flight still reaches storage but commits and notifies nobody.
 
@@ -20,7 +22,9 @@ Subclasses implement `writable`, `load()`, and `persist(ns, section)`, and push 
 
 ## Events
 
-`settings/updated (ns, next, prev, source)` fires after each commit; `source` is `update` (in-process write) or `provider` (external change). It never fires for a deep-equal resolved value.
+`settings/updated (ns, next, prev, source)` fires after each commit; `source` is `update` (in-process write) or `provider` (external change). It never fires for a deep-equal resolved value — it is the consumer-facing event, and a consumer only cares that its value moved.
+
+`settings/document-updated (ns, revision)` fires whenever the RAW user section changes, whether or not the resolved value did. Configuration surfaces need this one: storing an override equal to the composition base leaves the resolved value alone but changes what the document says (the field is now overridden, not inherited) and moves the revision every open editor is holding. Listener containment matches `settings/updated`.
 
 ## Model Experience
 
@@ -33,5 +37,5 @@ No direct invalidation; a consumer that folds a settings value into the request 
 ## Known Limitations and Deferred Work
 
 - **Single user layer** — resolution knows schema defaults, one composition `base`, and one user document; there is no project/managed layering or per-value provenance yet.
+- **`redactSecrets` is not a proven wire boundary** — the walker follows `object`/`dict`/`array`, so a `role('secret')` reached only through a union, intersection, or transform is returned VERBATIM with an empty `secrets` list, and `schema.toJSON()` carries a secret field's `.default(...)` to every client. Neither case is rejected; a schema whose secrets are not reachable through the walked containers must not be registered on a wire-exposed namespace. A fail-closed `describeForWire()` — one that refuses a schema it cannot prove safe, and sanitizes the serialized envelope and error text — is the real answer and is deferred.
 - **Cross-process concurrency is provider-defined** — the seam serializes writes per namespace in-process only; concurrent processes converge by provider behavior (the local file provider read-modify-writes under a writer lock, so namespaces survive concurrent writers and same-namespace conflicts resolve last-write-wins).
-- **No secret-field redaction** — `describe()` returns resolved values verbatim; a wire surface (RPC/UI) must redact `role('secret')` fields before exposure.
