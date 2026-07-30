@@ -1,0 +1,57 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+  - button "关闭":
+    - img
+    - text: 关闭
+  - heading "模型" [level=2]
+  - paragraph: 填入各提供方的 API 密钥即可使用其模型。
+  - list:
+    - listitem:
+      - text: anthropic 已启用
+      - button "编辑"
+      - button "删除"
+  - combobox "添加提供方":
+    - option "+ 添加提供方" [selected]
+    - option "amazon-bedrock"
+    - option "ant-ling"
+    - option "azure-openai-responses"
+    - option "cerebras"
+    - option "cloudflare-ai-gateway"
+    - option "cloudflare-workers-ai"
+    - option "deepseek"
+    - option "fireworks"
+    - option "github-copilot"
+    - option "google"
+    - option "google-vertex"
+    - option "groq"
+    - option "huggingface"
+    - option "kimi-coding"
+    - option "minimax"
+    - option "minimax-cn"
+    - option "mistral"
+    - option "moonshotai"
+    - option "moonshotai-cn"
+    - option "nvidia"
+    - option "openai"
+    - option "openai-codex"
+    - option "opencode"
+    - option "opencode-go"
+    - option "openrouter"
+    - option "qwen-token-plan"
+    - option "qwen-token-plan-cn"
+    - option "together"
+    - option "vercel-ai-gateway"
+    - option "xai"
+    - option "xiaomi"
+    - option "xiaomi-token-plan-ams"
+    - option "xiaomi-token-plan-cn"
+    - option "xiaomi-token-plan-sgp"
+    - option "zai"
+    - option "zai-coding-cn"

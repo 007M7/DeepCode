@@ -86,6 +86,8 @@ export interface WebScaffold {
   workspaceCwd: string
   /** Temp persistence root (seeded sessions land here through the real API). */
   persistenceRoot: string
+  /** Isolated harness home the settings/credentials rows write ($DSH_HOME double). */
+  harnessHome: string
   /** Await a settled turn end: in-process turn/end, then the agent's idle flip (which follows the persistence flush). */
   whenTurnSettled(timeoutMs?: number): Promise<SessionId>
   /** Tear everything down; asserts the replay fixture was fully consumed first (replay/refresh). */
@@ -150,6 +152,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     }
   }
   const workspaceCwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-web-e2e-ws-')))
+  // Isolated harness home: the settings/credentials rows resolve $DSH_HOME
+  // paths at load, and an in-process boot must NEVER touch the developer's
+  // real ~/.dsh document or credential file.
+  const harnessHome = join(workspaceCwd, '.dsh-home')
   let persistenceRoot: string
   try {
     persistenceRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-sessions-'))
@@ -175,6 +181,8 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     { id: 'workspace-context', disabled: true },
     { id: 'session-title-llm', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
+    { id: 'settings', config: { dshHome: harnessHome } },
+    { id: 'credentials', config: { dshHome: harnessHome } },
     ...options.toolsMode === undefined ? [] : [{ id: 'tools', config: { mode: options.toolsMode } }],
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
@@ -232,6 +240,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   }
 
   return {
+    harnessHome,
     mode,
     baseUrl: `http://127.0.0.1:${port}`,
     ctx,

@@ -78,13 +78,32 @@
   config:
     agents: []
 
-# The native DeepSeek adapter; reads the key/base-url the boot's layered
-# .env loading (cwd then $DSH_HOME) left in the environment.
+# User-settings document (`$DSH_HOME/settings.yaml`, hot-reloaded): the web
+# settings page writes it through `settings.update`/`settings.replace`, and an
+# external edit converges every open surface through `host/settings-changed`.
+- id: settings
+  name: '@deepseek-ai/dsh-settings-local'
+
+# Credential store: the live process environment over `$DSH_HOME/.env`
+# (owner-only file, hot-reloaded). The web page's key inputs write it through
+# `credentials.set`; adapters resolve references per request.
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+# The native DeepSeek adapter; the API key resolves per request through the
+# credential store above (default reference DEEPSEEK_API_KEY), so no key is
+# inlined here and a missing one fails the request, not the boot.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
+
+# The pi-ai multi-provider twin, mounted dormant: zero routes until the
+# `llm-pi-ai:` settings section supplies provider profiles — exactly what the
+# web Models page writes. Configured routes register live and drop when the
+# section empties.
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
 
 # Transient-failure recovery around the loop's model calls (same policy as
 # the TUI's agent-spine composition; defaults: 2 retries, 500ms→10s backoff).

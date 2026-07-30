@@ -76,7 +76,7 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
 
 export const Config: z<Config> = z.object({
   apiKey: z.string().role('secret'),
-  apiKeyEnv: z.string().default(DEFAULT_API_KEY_ENV),
+  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['off', 'high', 'max']),

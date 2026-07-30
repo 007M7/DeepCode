@@ -28,10 +28,11 @@ export interface ModelsSectionInjected {
   t: (key: keyof typeof en) => string
 }
 
-/** Props delivered by the slot outlet. */
-export interface ModelsSectionProps {
-  injected?: ModelsSectionInjected
-}
+/**
+ * Props delivered by the slot outlet: the inject face spread flat (the
+ * renderer erases the share boundary at the render call).
+ */
+export type ModelsSectionProps = Partial<ModelsSectionInjected>
 
 /** The editor target: an existing row or a dormant directory entry. */
 interface EditorTarget {
@@ -80,9 +81,9 @@ function StatusBadges({ row, t }: { row: ProviderRow; t: ModelsSectionInjected['
  * @returns the section, or null while the shell has not injected yet.
  */
 export function ModelsSection(props: ModelsSectionProps): ReactNode {
-  const injected = props.injected
-  if (injected === undefined) return null
-  return <Loaded injected={injected} />
+  const { controller, useSnapshot, api, t } = props
+  if (controller === undefined || useSnapshot === undefined || api === undefined || t === undefined) return null
+  return <Loaded injected={{ controller, useSnapshot, api, t }} />
 }
 
 function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {

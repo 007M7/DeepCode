@@ -209,6 +209,9 @@ importers:
       '@deepseek-ai/dsh-compact-basic':
         specifier: workspace:^
         version: link:../../packages/compact/compact-basic
+      '@deepseek-ai/dsh-credentials-local':
+        specifier: workspace:^
+        version: link:../../packages/credentials/credentials-local
       '@deepseek-ai/dsh-frontend':
         specifier: workspace:^
         version: link:../web
@@ -236,6 +239,9 @@ importers:
       '@deepseek-ai/dsh-llm-deepseek':
         specifier: workspace:^
         version: link:../../packages/llm/llm-deepseek
+      '@deepseek-ai/dsh-llm-pi-ai':
+        specifier: workspace:^
+        version: link:../../packages/llm/llm-pi-ai
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:^
         version: link:../../packages/llm/llm-retry
@@ -263,6 +269,9 @@ importers:
       '@deepseek-ai/dsh-session-title-first-message-llm':
         specifier: workspace:^
         version: link:../../packages/session-title/session-title-first-message-llm
+      '@deepseek-ai/dsh-settings-local':
+        specifier: workspace:^
+        version: link:../../packages/settings/settings-local
       '@deepseek-ai/dsh-skill':
         specifier: workspace:^
         version: link:../../packages/skill/skill
@@ -1612,6 +1621,9 @@ importers:
       '@deepseek-ai/dsh-client-modules':
         specifier: workspace:^
         version: link:../modules
+      '@deepseek-ai/dsh-client-schema-form':
+        specifier: workspace:^
+        version: link:../schema-form
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: workspace:^
         version: link:../ui-primitives

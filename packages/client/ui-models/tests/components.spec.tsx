@@ -104,9 +104,11 @@ function scriptedFace(overrides: {
   return { face, update, replace, set }
 }
 
+type WireFace = ConstructorParameters<typeof ModelsSettingsStore>[0]
+
 async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) {
   const { face, update, replace, set } = scriptedFace(overrides)
-  const controller = new ModelsSettingsStore(face as never)
+  const controller = new ModelsSettingsStore(face as unknown as WireFace)
   await controller.load()
   const injected: ModelsSectionInjected = {
     controller,
@@ -114,7 +116,7 @@ async function mountSection(overrides: Parameters<typeof scriptedFace>[0] = {}) 
     api: face as never,
     t,
   }
-  const view = render(<ModelsSection injected={injected} />)
+  const view = render(<ModelsSection {...injected} />)
   return { view, face, update, replace, set, controller }
 }
 
@@ -275,14 +277,14 @@ describe('ModelsSection', () => {
   it('renders the load failure with a retry control', async () => {
     const face = scriptedFace()
     face.face.llm.providers = vi.fn(() => Promise.resolve(fail('directory down', 'internal'))) as never
-    const controller = new ModelsSettingsStore(face.face as never)
+    const controller = new ModelsSettingsStore(face.face as unknown as WireFace)
     await controller.load()
-    render(<ModelsSection injected={{
-      controller,
-      useSnapshot: bindSnapshotSelector(controller.store),
-      api: face.face as never,
-      t,
-    }} />)
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={face.face as never}
+      t={t}
+    />)
     expect(screen.getByText(/directory down/)).toBeTruthy()
     fireEvent.click(screen.getByText(en.retry))
     await waitFor(() => { expect(screen.queryByText(/directory down/)).toBeNull() })
@@ -294,15 +296,15 @@ describe('ModelsSection', () => {
       writable: false,
       namespaces: wireNamespaces(),
     })))
-    const controller = new ModelsSettingsStore(face as never)
+    const controller = new ModelsSettingsStore(face as unknown as WireFace)
     await controller.load()
     cleanup()
-    render(<ModelsSection injected={{
-      controller,
-      useSnapshot: bindSnapshotSelector(controller.store),
-      api: face as never,
-      t,
-    }} />)
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={face as never}
+      t={t}
+    />)
     expect(screen.getByText(en.readOnly)).toBeTruthy()
     expect(screen.getAllByText<HTMLButtonElement>(en.remove).every(button => button.disabled)).toBe(true)
   })
@@ -359,13 +361,13 @@ describe('ModelsSection', () => {
 
   it('loads on first render of an idle controller', async () => {
     const { face } = scriptedFace()
-    const controller = new ModelsSettingsStore(face as never)
-    render(<ModelsSection injected={{
-      controller,
-      useSnapshot: bindSnapshotSelector(controller.store),
-      api: face as never,
-      t,
-    }} />)
+    const controller = new ModelsSettingsStore(face as unknown as WireFace)
+    render(<ModelsSection
+      controller={controller}
+      useSnapshot={bindSnapshotSelector(controller.store)}
+      api={face as never}
+      t={t}
+    />)
     await screen.findByText('DeepSeek')
   })
 
