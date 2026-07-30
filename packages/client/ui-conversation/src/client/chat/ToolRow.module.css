@@ -61,12 +61,6 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* The others-variant sparkle glyph is one gray step darker than the icon
-   family in the source design. */
-.root[data-variant='others'] .leading {
-  color: var(--dsw-alias-label-secondary);
-}
-
 /* Cordis lifecycle tools retain their generic row mechanics while carrying a
    shared product accent and tool-owned action title. */
 .root[data-tool^='cordis_'] .leading,
@@ -84,10 +78,6 @@
 
 button.leading {
   cursor: pointer;
-}
-
-.chevron {
-  color: var(--dsw-alias-label-secondary);
 }
 
 /* Hover preview on expandable rows: the idle tool icon crossfades (100ms)
