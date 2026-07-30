@@ -1,14 +1,18 @@
 // ToolRow: the single-line tool summary row (figma component set 122:9479) —
 // 16px leading slot (state dot / tool icon, chevron on hover or expanded) + title +
-// separator dot + FILL-truncated summary. Expanded body is indented gray text;
-// no inline output (full results live in the details panel). Expand state is
+// separator dot + FILL-truncated summary. The collapsed row is always one
+// line; the expanded body is indented gray text, the run_code program through
+// CodeBlock, or — for a call whose render intent is a terminal card — the
+// command's own output through TerminalBlock, capped at
+// CHAT_TERMINAL_MAX_LINES so the message flow stays scannable. Expand state is
 // component-local view state. File-tool summaries are path links that open
 // through the host; the row itself is not a details-panel control.
 
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
-import { CodeBlock, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CodeBlock, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { CHAT_TERMINAL_MAX_LINES, type TerminalCardModel } from '../contract/terminal-card-model.ts'
 import type { ToolRowState, ToolRowVariant } from '../contract/tool-call-model.ts'
 import css from './ToolRow.module.css'
 
@@ -20,8 +24,15 @@ export interface ToolRowProps {
   icon: ReactNode
   title: string
   summary: string
-  /** Expanded-body text; null = not expandable (leading slot never toggles). */
+  /** Expanded-body text; null = no text body (`terminal` is the other body source). */
   body: string | null
+  /**
+   * Terminal-card material for a call whose render intent is a terminal card
+   * (derived by `terminalCardModel`); it replaces the text body when present.
+   * Null or absent leaves the text body, and a row with neither is not
+   * expandable (its leading slot never toggles).
+   */
+  terminal?: TerminalCardModel | null | undefined
   state: ToolRowState
   /** Makes the row itself the expand control instead of only its leading icon. */
   expandOnRowClick?: boolean | undefined
@@ -52,17 +63,25 @@ export function ToolRow({
   title,
   summary,
   body,
+  terminal,
   state,
   expandOnRowClick = false,
   filePath,
   onOpenFile,
 }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false)
+  const terminalBody = terminal ?? null
   // A row that names a single file keeps one interaction (open that path);
-  // args expand is off whether or not the open callback is wired yet.
+  // args expand is off whether or not the open callback is wired yet. Terminal
+  // material still expands: only the file variants carry a path, so a terminal
+  // card and a file link never land on the same row.
   const singleFile = filePath !== undefined
   const fileLink = singleFile && onOpenFile !== undefined
-  const expandable = body !== null && !singleFile
+  const expandable = (body !== null && !singleFile) || terminalBody !== null
+  // The text arms take the empty string for a null body: a row expandable
+  // only through its terminal material renders the terminal body instead, so
+  // this substitution never shows.
+  const text = body ?? ''
   const open = expanded && expandable
   const rowExpands = expandable && expandOnRowClick
   const toggleExpand = () => {
@@ -137,9 +156,17 @@ export function ToolRow({
           </>
         )}
       </div>
-      {open && (variant === 'code'
-        ? <CodeBlock code={body} lang="typescript" className={css.codeBody} />
-        : <div className={css.body}>{body}</div>)}
+      {/* The terminal presenter's description belongs ABOVE the card per the
+          render-intent contract, so an expanded terminal row keeps showing it
+          even though the collapsed summary is hidden while open. */}
+      {open && terminalBody?.description !== undefined && (
+        <div className={css.terminalDescription}>{terminalBody.description}</div>
+      )}
+      {open && (terminalBody !== null
+        ? <TerminalBlock {...terminalBody.card} maxLines={CHAT_TERMINAL_MAX_LINES} className={css.terminalBody} />
+        : variant === 'code'
+          ? <CodeBlock code={text} lang="typescript" className={css.codeBody} />
+          : <div className={css.body}>{text}</div>)}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 /* Shared message IconActions row (user + assistant). Parent modules own
-   hover-reveal selectors and layout offsets via the composed className. */
+   layout offsets via the composed className. Always visible when mounted. */
 
 .actions {
   display: flex;
@@ -23,14 +23,6 @@
   line-height: 24px;
   color: var(--dsw-alias-label-tertiary);
   white-space: nowrap;
-}
-
-/* Hover-capable pointers: hide until a parent hover/focus rule reveals. */
-@media (hover: hover) {
-  .actions {
-    opacity: 0;
-    transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
-  }
 }
 
 .action {

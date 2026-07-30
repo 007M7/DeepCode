@@ -18,6 +18,7 @@ import {
 import { isCompactCheckpointSource } from '@deepseek-ai/dsh-compact'
 import { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 
 /** Editor that shows a placeholder without making it editable content. */
 export class HintEditor extends Editor {
@@ -67,13 +68,10 @@ export function formatCwd(cwd: string | undefined): string {
  */
 export function gitBranch(cwd: string): string | undefined {
   try {
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => !/(?:KEY|SECRET|TOKEN)/iu.test(name)),
-    )
     const branch = execFileSync('git', ['branch', '--show-current'], {
       cwd,
       encoding: 'utf8',
-      env,
+      env: scrubbedParentEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 1_000,
     }).trim()

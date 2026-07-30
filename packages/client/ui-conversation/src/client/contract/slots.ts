@@ -67,7 +67,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * design §6 MIX evidence: entries coexist in fixed order).
      */
     'conversation.input.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
-    /** The composer top-edge band (stats line family). */
+    /** The band under the composer card (stats line family), rendered inside the bar's width column via the `footer` owner prop. */
     'conversation.composer.dock': { kind: 'list'; scope: 'session'; owner: InputZone }
     /** Tool-row left region inside the input card (existing chrome stays in place beside entries). */
     'conversation.input.left': { kind: 'list'; scope: 'session'; owner: InputZone }
@@ -117,6 +117,18 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Owner share of the strict session content seat. */
 export interface ConversationSessionOwnerProps {
+  /**
+   * Wrap the view ring in the transcript scrollport that also hosts the
+   * sticky composer seat (whole `'conversation.composer'` chain output).
+   * Supplied for every real session (hero/settling/active) so the composer
+   * keeps one tree seat across the blank → active flip; the header stays
+   * outside that wrapper as ordinary column chrome (`flex: none`), while
+   * active CSS sticks the seat to the bottom of the same scrollport so wheel
+   * over the footer scrolls the flow.
+   * @param view - the session view-ring content (null while blank chrome is hidden).
+   * @returns the scrollport containing `view` and the sticky composer seat.
+   */
+  wrapActiveBody?: (view: ReactNode) => ReactNode
 }
 
 /**
@@ -241,6 +253,8 @@ export interface ComposerBarOwnerProps {
   leftItems?: ReactNode
   /** input.right slot entries (tool row, before the primary button). */
   rightItems?: ReactNode
+  /** composer.dock entries (stats line), rendered under the card inside the bar's width column. */
+  footer?: ReactNode
   onAdd?: () => void
   addLabel?: string
 }
@@ -257,6 +271,8 @@ export interface ComposerBarInjected {
    * Resolves admission: false = rejected/unmatched/transport failure.
    */
   command: (line: string) => Promise<boolean>
+  /** Locale-aware hint translator for claimed command placeholders. */
+  translateHint: (key: string) => string
   /** Registrant hooks compartment: the renderer binds these to useNotices/useLexicon. */
   hooks: {
     /** Latest surfaced notice (null after none; seq keys re-render of repeats). */

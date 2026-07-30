@@ -98,10 +98,14 @@ export default defineConfig({
         'packages/*/*/src/types.ts',
         'packages/*/*/src/bin.ts',
         'packages/*/*/src/worker.ts',
+        // A killed executable lint-contract test can leave a non-product source probe behind.
+        'packages/*/*/src/oxlint-contract-*.ts',
         // GUI step-1 skeleton (PR #500): client/web UI files whose remaining
         // branches need a browser-grade harness the jsdom lane doesn't cover
         // yet. TODO(gui): cover and remove as the client test lane matures.
         'packages/client/ui-trajectory/src/*',
+        // Trajectory's compact Markdown projection retains deferred branch coverage.
+        'packages/client/ui-primitives/src/markdown/plain-text.ts',
         'packages/client/ui-question/src/client/QuestionComposer.tsx',
         'packages/client/ui-primitives/src/Menu.tsx',
         'packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx',
@@ -150,6 +154,9 @@ export default defineConfig({
         'packages/client/ui-sidebar/src/client/index.ts',
         'packages/client/ui-skill/src/client/index.ts',
         'packages/client/ui-workspace/src/client/index.ts',
+        'packages/typert/generator/src/analyzer.ts',
+        'packages/typert/generator/src/renderer.ts',
+        'packages/typert/generator/src/cordis-catalog.ts',
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
         'packages/host/apiproxy/src/api-proxy.ts',

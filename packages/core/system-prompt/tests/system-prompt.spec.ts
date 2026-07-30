@@ -37,6 +37,18 @@ describe('SystemPrompt', () => {
       expect(renderPrompt(await ctx.systemPrompt.assemble())).toBe(IDENTITY)
     })
 
+    it('can omit the harness identity for a deployment that owns the complete persona', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SystemPrompt, {
+        includeHarnessIdentity: false,
+        persona: 'You are a helpful software engineer assistant.',
+      })
+
+      const assembly = await ctx.systemPrompt.assemble()
+      expect(assembly.sections.map(section => section.name)).toEqual(['deployment:persona'])
+      expect(renderPrompt(assembly)).toBe('You are a helpful software engineer assistant.')
+    })
+
     it('tolerates a schema-bypassing direct construction (persona omitted)', async () => {
       // ctx.plugin validates + defaults the config first; a direct construction
       // skips the schema, so the ctor's `?? ''` narrowing is what fires.

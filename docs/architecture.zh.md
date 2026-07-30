@@ -47,6 +47,7 @@
 | `ctx.sessionQuery` | [`session-query/`](../packages/session-query/README.md) | 基于 SQLite 全文搜索的实时优先精确检索／过滤／追踪、经工作区授权的模型工具 |
 | `ctx.sessionTitle` | [`session-title/`](../packages/session-title/README.md) | 基于日志的回退标题和单个可选异步提供方 |
 | `ctx.directoryPicker` | [`host/directory-picker`](../packages/host/directory-picker/README.md) | GUI 宿主目录选取（`native`／`browse` 交互） |
+| `ctx.typert` | [`typert/registry`](../packages/typert/registry/README.md) | 生成的包反射和实时 Zod schema 的运行时注册表 |
 | `ctx.invariants` | [`support/invariants`](../packages/support/invariants/README.md) | 按包名筛选包自有运行时检查的注册表 |
 
 ## 事件
@@ -77,8 +78,8 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for a queued message
-  claim message -> emit agent/status(running) if starting an interval
+  wait for queued occurrence
+  claim (edit/remove end) -> emit agent/status(running) if starting an interval
   open the next-step acceptance window
   -> agent/prompt-submit
     blocked or failed prompt -> close the window without opening a turn
@@ -97,10 +98,10 @@ forever:
       'assistant/chunk'
       'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
-        exclusive -> one-call barrier
-        parallel -> rolling pool, <= maxParallelToolCalls in flight; reclassify before start
-        each start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
-        each model-order result -> ordered tools/post-execute -> 'tool/result'
+        exclusive -> barrier
+        parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
+        start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
+        model-order result -> ordered tools/post-execute -> 'tool/result'
       drain accepted tool context and steering
       'step/end'
       continue for tools or steering unless a result concluded the turn

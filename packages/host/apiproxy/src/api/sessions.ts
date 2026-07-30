@@ -5,6 +5,7 @@
  */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { InboxItemId } from '@deepseek-ai/dsh-agent/brand'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
 // cordis Context merge (via dsh-agent) must not enter client aggregates.
@@ -124,6 +125,11 @@ export interface SessionModels {
   failures: ModelCatalogFailure[]
 }
 
+/** A client-requested mutation of one still-pending queue item. */
+export type QueueAction =
+  | { kind: 'edit'; content: ContentBlock[] }
+  | { kind: 'remove' }
+
 /** Session list entry (v1 builds no index: list does readdir+stat). */
 export interface SessionSummary {
   sessionId: SessionId
@@ -211,6 +217,16 @@ export interface SessionsApi {
   Promise<RpcResponse<{ selected: ModelTarget }>>
 
   /**
+   * Renames a session: appends a `session/title` event with the `user`
+   * source, which pins the title against automatic regeneration. The
+   * normalized accepted title and the title event's seq return so the caller
+   * can settle its projection cell without waiting for the push frame. A
+   * title that normalizes to empty fails with `title-invalid`.
+   */
+  rename(request: RpcRequest<{ sessionId: SessionId; title: string }>):
+  Promise<RpcResponse<{ title: string; seq: number }>>
+
+  /**
    * Sends a message. content is core's ContentBlock[] verbatim; mode maps 1:1 — queue→send, steer→steer.
    * A prompt whose content is exactly one text block starting with '/' is a slash command: the host
    * executes it through the command registry (mode-agnostic) and it is never sent to the model. A
@@ -220,6 +236,12 @@ export interface SessionsApi {
    */
   prompt(request: RpcRequest<{ sessionId: SessionId; mode: 'queue' | 'steer'; content: ContentBlock[] }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
+
+  /**
+   * Edits or removes one pending queued occurrence.
+   */
+  updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
+  Promise<RpcResponse<{ accepted: true }>>
 
   /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>

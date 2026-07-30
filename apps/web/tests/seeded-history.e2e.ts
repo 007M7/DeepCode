@@ -17,7 +17,7 @@ import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { saveFailureShot } from './support.ts'
+import { newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/seeded-history', import.meta.url))
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
@@ -133,7 +133,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       await seedSession(scaffold, withCompaction(raw), SEED_ID)
     }
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
@@ -213,7 +213,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       // This scenario deliberately leaves the LLM seam open to prove zero
       // model calls. History still restores the selected id, but no catalog
       // adapter exists to provide its presentation name.
-      name: '选择模型，当前 deepseek-v4-flash',
+      name: 'Select model, current deepseek-v4-flash',
     }).waitFor({ timeout: 10_000 })
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
@@ -227,10 +227,10 @@ describe('web e2e: seeded history renders through cold resume', () => {
     // capture; still zero model calls.
     const fileLink = page.locator('[data-variant="read"] button').first()
     await fileLink.waitFor({ timeout: 10_000 })
-    const frame = page.locator('[data-details-collapsed], [class*="frame"]').first()
-    expect(await frame.getAttribute('data-details-collapsed')).not.toBeNull()
+    const frame = page.locator('[style*="grid-template-columns"]').first()
+    expect(await frame.getAttribute('data-details-collapsed')).toBeNull()
     await fileLink.click()
-    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).not.toBeNull()
+    await expect.poll(() => frame.getAttribute('data-details-collapsed'), { timeout: 5_000 }).toBeNull()
     // Path label survives from the recorded args (a.txt).
     await expect.poll(() => page.getByText('a.txt', { exact: false }).count(), { timeout: 5_000 }).toBeGreaterThan(0)
   })

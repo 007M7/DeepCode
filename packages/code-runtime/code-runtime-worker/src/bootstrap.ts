@@ -134,7 +134,7 @@ export function makeConsoleShim(logs: LogBuffer): Record<(typeof CONSOLE_LEVELS)
 export function captureStreamWrites(logs: LogBuffer, stream: PatchableStream): () => void {
   // The slot's VALUE is stored for restore and reassigned — never invoked
   // detached, so the unbound-method concern does not apply.
-  // eslint-disable-next-line @typescript-eslint/unbound-method
+  // oxlint-disable-next-line typescript/unbound-method
   const original = stream.write
   stream.write = (chunk: unknown, ...rest: unknown[]): boolean => {
     logs.push(typeof chunk === 'string' ? chunk : String(chunk))

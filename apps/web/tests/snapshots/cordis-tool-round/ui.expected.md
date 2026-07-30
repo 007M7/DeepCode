@@ -4,7 +4,6 @@
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
-    - tab "Waterfall"
 - text: "Use only Cordis tools. First call cordis_inspect with what \"temporary\". Then call cordis_mount with this exact code: \"return { name: \\\"snapshot-noop\\\", apply(ctx) {} }\". Read its returned id and call cordis_unmount with that exact id. After all three calls succeed, reply exactly CORDIS_UI_DONE and stop. {{clock}}"
 - button "复制":
   - img
@@ -12,15 +11,11 @@
   - img
 - button "编辑":
   - img
+- button "▸ 上下文注入"
 - button "Think The user wants me to:":
   - img
   - img
   - text: "Think The user wants me to:"
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
@@ -29,11 +24,6 @@
   - img
   - img
   - text: "Think Good, no temporary plugins running. Now step 2: call cordis_mount with the exact code."
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button [expanded]:
   - img
 - text: Mount temporary Plugin typescript
@@ -43,11 +33,6 @@
   - img
   - img
   - text: "Think The id is \"dyn-1\". Now step 3: call cordis_unmount with that id."
-- button "复制":
-  - img
-- button "在新对话中分支":
-  - img
-- text: {{clock}}
 - button:
   - img
   - img
@@ -61,16 +46,13 @@
   - img
 - button "在新对话中分支":
   - img
-- text: {{clock}} cache hit 77% · 66,813 tokens · 1 turns · 4 steps
+- text: {{clock}}
 - textbox "Message the agent"
 - button "Add attachment":
   - img
-- text: Danger Full Access
-- combobox "Access mode":
-  - option "Read Only"
-  - option "Workspace Write"
-  - option "Danger Full Access" [selected]
-- button "选择模型，当前 DeepSeek-V4-Flash":
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
+- text: 1 turns · 4 steps Tool call {{duration}} Cache hit 77% Input 66.5K tok · Output 312 tok

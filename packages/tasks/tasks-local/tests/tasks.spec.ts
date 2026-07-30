@@ -29,6 +29,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
     steer: () => {},
     inject: () => {},
     send: () => {},
+    updateInbox: (): 'not-found' => 'not-found',
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }
