@@ -76,8 +76,8 @@ The GUI test structure (three tiers, lane map) is settled in the [GUI testing sy
 Run the narrowest rung that covers what you touched; escalate only when the change surface demands it.
 
 1. **Every GUI code change** — `pnpm run test:gui` (seconds; no browser, no server): the client suites plus the host-side GUI packages. This is the inner loop; run it as freely as a typecheck.
-2. **Changes to the build surface, boot wiring, static serving, or the wire carriage** (`apps/web`, vite config, `dsh-host-webserver`, connection/handler/SSE) — additionally `pnpm run test:web`: rebuilds the frontend dist, then runs the browser smoke pair (the real-host case self-skips without `DEEPSEEK_API_KEY`) plus the keyless replayed e2e scenarios (`DSH_SNAPSHOT=refresh` rewrites their aria goldens after an intentional conversation-UI change; `DSH_SNAPSHOT=record` re-records fixtures with a key).
-3. **Before a PR** — `pnpm run check:pre-push` (the repo-wide gate ladder). Between PR windows this rung is not expected on every commit.
+2. **Any change that can alter the assembled browser or visible conversation/UI output** (client components or copy, `apps/web`, Vite, `dsh-host-webserver`, connection/handler/SSE) — additionally `DSH_SNAPSHOT=replay pnpm run test:web`: rebuilds the frontend dist, then runs the browser smoke pair (the real-host case self-skips without `DEEPSEEK_API_KEY`) plus the keyless replayed e2e scenarios. Linux PR CI uses the same read-only replay mode. Use `DSH_SNAPSHOT=refresh` only after confirming an intentional output change, or `DSH_SNAPSHOT=record` with a key to re-record fixtures.
+3. **Before a PR** — use [dsh-pre-push-checks](../../.agents/skills/dsh-pre-push-checks/SKILL.md) to select the narrow checks for the outgoing diff; there is no repo-wide pre-push aggregate.
 
 If `test:gui` is red on code you did not touch, neither silently fix nor ignore it: note it in your handoff so it lands in the next PR window's sweep.
 
@@ -97,5 +97,5 @@ Bringing up a new `packages/client/<name>` plugin package (ui-workspace is the l
 2. Type the props as the four shares (`PropsRuntime` & `PropsRenderSlots` & `PropsStore` & inject face) — derive, don't hand-write. Shared/surviving state goes in a `createXXXStore()` factory declared at register; component-private state stays local.
 3. Component tests feed props directly (`createXXXStore().create()` for the store share; plain stubs for framework hooks) — behavior-shaped assertions, no render machinery.
 4. Tokens only in CSS; Chinese product copy; English comments.
-5. `pnpm run test:gui` green (plus `test:web` if you touched the build surface).
+5. `pnpm run test:gui` green; if the component changes visible assembled output, also run `DSH_SNAPSHOT=replay pnpm run test:web`.
 6. Non-trivial change? It needs an Agent Note in the same PR (repo-wide rule) — the GUI notes above are the precedents to extend.
