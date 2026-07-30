@@ -50,6 +50,27 @@ async function withFakeCompanions(
   }
 }
 
+async function withDelayedFirstCompanion(
+  run: (control: { readonly started: Promise<void>; readonly release: () => void }) => Promise<void>,
+): Promise<void> {
+  const started = deferred()
+  const release = deferred()
+  await withFakeCompanions(
+    (_path, index) => async () => ({
+      name: `test-invariant-${index}`,
+      inject: ['invariants'],
+      async apply() {
+        if (index === 0) {
+          started.resolve()
+          await release.promise
+        }
+        return () => {}
+      },
+    }),
+    () => run({ started: started.promise, release: release.resolve }),
+  )
+}
+
 describe('global test invariant host', () => {
   it('uses one exhaustive topology to reserve every package name with enabled checks', async () => {
     const ctx = new Context()
@@ -191,22 +212,8 @@ describe('global test invariant host', () => {
   })
 
   it('holds plugins registered on a root-derived context until companion readiness', async () => {
-    const delayedStarted = deferred()
-    const releaseDelayed = deferred()
-
-    await withFakeCompanions(
-      (_path, index) => async () => ({
-        name: `test-invariant-${index}`,
-        inject: ['invariants'],
-        async apply() {
-          if (index === 0) {
-            delayedStarted.resolve()
-            await releaseDelayed.promise
-          }
-          return () => {}
-        },
-      }),
-      async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
         const ctx = new Context()
         const rootApply = vi.fn(function rootApply() {})
         const derivedApply = vi.fn(function derivedApply() {})
@@ -217,7 +224,7 @@ describe('global test invariant host', () => {
         const rootFiber = ctx.plugin(rootApply)
         const derivedFiber = derived.plugin(derivedApply)
 
-        await delayedStarted.promise
+        await started
         await Promise.resolve()
         await Promise.resolve()
         expect(rootApply).not.toHaveBeenCalled()
@@ -226,7 +233,7 @@ describe('global test invariant host', () => {
           [TEST_INVARIANT_READY_SERVICE]: null,
         })
 
-        releaseDelayed.resolve()
+        release()
         await Promise.all([rootFiber, derivedFiber])
         expect(rootFiber.state).toBe(FiberState.ACTIVE)
         expect(derivedFiber.state).toBe(FiberState.ACTIVE)
@@ -237,22 +244,8 @@ describe('global test invariant host', () => {
   })
 
   it('holds a child registered externally on a pending target context', async () => {
-    const delayedStarted = deferred()
-    const releaseDelayed = deferred()
-
-    await withFakeCompanions(
-      (_path, index) => async () => ({
-        name: `test-invariant-${index}`,
-        inject: ['invariants'],
-        async apply() {
-          if (index === 0) {
-            delayedStarted.resolve()
-            await releaseDelayed.promise
-          }
-          return () => {}
-        },
-      }),
-      async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
         const ctx = new Context()
         const targetApply = vi.fn(function targetApply() {})
         const childApply = vi.fn(function childApply() {})
@@ -260,7 +253,7 @@ describe('global test invariant host', () => {
         const targetFiber = ctx.plugin(targetApply)
         const childFiber = targetFiber.ctx.plugin(childApply)
 
-        await delayedStarted.promise
+        await started
         await Promise.resolve()
         await Promise.resolve()
         expect(targetFiber.state).toBe(FiberState.PENDING)
@@ -271,7 +264,7 @@ describe('global test invariant host', () => {
           [TEST_INVARIANT_READY_SERVICE]: null,
         })
 
-        releaseDelayed.resolve()
+        release()
         await Promise.all([targetFiber, childFiber])
         expect(targetFiber.state).toBe(FiberState.ACTIVE)
         expect(childFiber.state).toBe(FiberState.ACTIVE)
@@ -312,32 +305,18 @@ describe('global test invariant host', () => {
   )
 
   it('disposes a pending target without waiting for companion readiness', async () => {
-    const delayedStarted = deferred()
-    const releaseDelayed = deferred()
-
-    await withFakeCompanions(
-      (_path, index) => async () => ({
-        name: `test-invariant-${index}`,
-        inject: ['invariants'],
-        async apply() {
-          if (index === 0) {
-            delayedStarted.resolve()
-            await releaseDelayed.promise
-          }
-          return () => {}
-        },
-      }),
-      async () => {
+    await withDelayedFirstCompanion(
+      async ({ started, release }) => {
         const ctx = new Context()
         const targetApply = vi.fn(function targetApply() {})
         const targetFiber = ctx.plugin(targetApply)
 
-        await delayedStarted.promise
+        await started
         await expect(targetFiber.dispose()).resolves.toBeUndefined()
         expect(targetFiber.state).toBe(FiberState.DISPOSED)
         expect(targetApply).not.toHaveBeenCalled()
 
-        releaseDelayed.resolve()
+        release()
         await targetFiber
         expect(targetApply).not.toHaveBeenCalled()
       },
