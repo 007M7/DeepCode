@@ -125,6 +125,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
         const lang = langFromPath(value.path)
         return {
           path: value.path,
+          offset: value.offset,
           lines: value.lines.map(({ number, text }) => ({ number, text })),
           totalLines: value.totalLines,
           ...lang === undefined ? {} : { lang },
@@ -186,6 +187,7 @@ export function applyReadTool(ctx: Context, caps: ReadToolCaps): void {
       return {
         card: 'read',
         path: meta.path,
+        offset: meta.offset,
         lines: meta.lines,
         totalLines: meta.totalLines,
         ...meta.lang === undefined ? {} : { lang: meta.lang },

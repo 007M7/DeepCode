@@ -46,7 +46,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 ### CI 立场
 
-根据[浏览器快照 CI 决策](2026-07-30-web-browser-snapshot-ci-gate.md)，该车道是 Linux 拉取请求必需的只比较门禁。static 任务会把 `apps/web/dist` 与包构建产物一同发布；`node 24 / snapshots and artifacts` 消费方任务安装锁文件选定的 Chromium，恢复以操作系统和锁文件为键的缓存，并用 `DSH_SNAPSHOT=replay` 运行该车道。这是有意的平面切分：host 与 spec 使用 [tsx 源码启动契约](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)，浏览器则消费 `apps/web/dist` 和包的 `lib/client.js` 产物，因此门禁依赖 `built-package-invariants` 提供这些客户端产物。托管和自托管的默认分支 Linux 串行任务运行同一门禁；托管任务生成供 PR 消费的浏览器缓存，持久化自托管池则不需要托管侧缓存。CI 从不录制或刷新预期输出。场景仍面向 POSIX，并继续置于 Windows 和 macOS 矩阵之外。
+根据[浏览器快照 CI 决策](2026-07-30-web-browser-snapshot-ci-gate.md)，该车道是 Linux 拉取请求必需的只比较门禁。`node 24 / snapshots and artifacts` 消费方任务在[消费方独立构建](../process/2026-07-30-independent-ci-consumer-build.md)中负责唯一一次 Linux 构建，安装锁文件选定的 Chromium，恢复以操作系统和锁文件为键的缓存，并用 `DSH_SNAPSHOT=replay` 运行该车道。这是有意的平面切分：host 与 spec 使用 [tsx 源码启动契约](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)，浏览器则消费 `apps/web/dist` 和包的 `lib/client.js` 产物，因此门禁依赖 `built-package-invariants` 提供这些客户端产物。托管和自托管的默认分支 Linux 串行任务运行同一门禁；托管任务生成供 PR 消费的浏览器缓存，持久化自托管池则不需要托管侧缓存。CI 从不录制或刷新预期输出。场景仍面向 POSIX，并继续置于 Windows 和 macOS 矩阵之外。
 
 ## 业界先例
 

@@ -151,12 +151,17 @@ describe('langFromPath', () => {
 })
 
 describe('readMetaFromMeta', () => {
-  const good = { path: '/abs/a.ts', lines: [{ number: 1, text: 'x' }], totalLines: 1, lang: 'ts' }
+  const good = { path: '/abs/a.ts', offset: 1, lines: [{ number: 1, text: 'x' }], totalLines: 1, lang: 'ts' }
 
   it('narrows a well-formed read meta, with and without a lang hint', () => {
     expect(readMetaFromMeta(good)).toEqual(good)
-    const noLang = { path: '/abs/a', lines: [], totalLines: 0 }
+    const noLang = { path: '/abs/a', offset: 1, lines: [], totalLines: 0 }
     expect(readMetaFromMeta(noLang)).toEqual(noLang)
+  })
+
+  it('narrows an empty window at a positive offset (byte cap below the first selected line)', () => {
+    const empty = { path: '/abs/a', offset: 5, lines: [], totalLines: 9 }
+    expect(readMetaFromMeta(empty)).toEqual(empty)
   })
 
   it('returns undefined for absent, non-object, or array meta', () => {
@@ -168,12 +173,24 @@ describe('readMetaFromMeta', () => {
 
   it('returns undefined when a field is missing or the wrong type (defensive narrowing)', () => {
     expect(readMetaFromMeta({ ...good, path: 5 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, offset: '1' })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, totalLines: '1' })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, lines: 'nope' })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, lines: [{ number: '1', text: 'x' }] })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, lines: [{ number: 1 }] })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, lines: [null] })).toBeUndefined()
     expect(readMetaFromMeta({ ...good, lang: 5 })).toBeUndefined()
+  })
+
+  it('rejects an offset that is not a 1-based integer', () => {
+    expect(readMetaFromMeta({ ...good, offset: 0 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, offset: 1.5 })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, offset: NaN })).toBeUndefined()
+    expect(readMetaFromMeta({ ...good, offset: Infinity })).toBeUndefined()
+  })
+
+  it('rejects a first line number below offset', () => {
+    expect(readMetaFromMeta({ ...good, offset: 2, lines: [{ number: 1, text: 'x' }], totalLines: 2 })).toBeUndefined()
   })
 
   it('rejects a line number that is not a 1-based integer', () => {
@@ -190,7 +207,7 @@ describe('readMetaFromMeta', () => {
   })
 
   it('rejects lines that do not strictly increase or exceed totalLines', () => {
-    const twoLines = { path: '/abs/a', lang: 'ts' }
+    const twoLines = { path: '/abs/a', offset: 1, lang: 'ts' }
     // Duplicate line numbers.
     expect(readMetaFromMeta({ ...twoLines, lines: [{ number: 1, text: 'a' }, { number: 1, text: 'b' }], totalLines: 2 })).toBeUndefined()
     // Out-of-order line numbers.
