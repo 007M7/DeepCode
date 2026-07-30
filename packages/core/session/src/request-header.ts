@@ -19,8 +19,12 @@ import type { EpochHeader, SessionEvent } from './types.ts'
  * @returns the canonical header.
  */
 export function canonicalHeader(header: EpochHeader): EpochHeader {
+  const adapterDefaults = header.adapterDefaults
   return {
     config: header.config,
+    ...adapterDefaults?.reasoningEffort === true || adapterDefaults?.maxTokens === true
+      ? { adapterDefaults }
+      : {},
     ...header.system !== undefined && header.system.length > 0 ? { system: header.system } : {},
     ...header.tools !== undefined && header.tools.length > 0 ? { tools: header.tools } : {},
   }
@@ -38,7 +42,12 @@ function sameSchema(a: ToolSchema, b: ToolSchema): boolean {
  * @returns whether config, system, and tools all match.
  */
 export function headerEquals(a: EpochHeader, b: EpochHeader): boolean {
-  if (!callConfigEquals(a.config, b.config) || a.system !== b.system) return false
+  if (
+    !callConfigEquals(a.config, b.config)
+    || a.adapterDefaults?.reasoningEffort !== b.adapterDefaults?.reasoningEffort
+    || a.adapterDefaults?.maxTokens !== b.adapterDefaults?.maxTokens
+    || a.system !== b.system
+  ) return false
   const at = a.tools ?? []
   const bt = b.tools ?? []
   return at.length === bt.length && at.every((tool, i) => sameSchema(tool, bt[i] as ToolSchema))

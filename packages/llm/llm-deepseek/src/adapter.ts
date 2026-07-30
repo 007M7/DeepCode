@@ -56,8 +56,10 @@ export interface DeepSeekConnectionOptions {
   apiKeyEnv: CredentialRef
   /** Request defaults applied to every call (thinking mode, effort). */
   defaults: RequestDefaults
+  /** Default per-request output cap; explicit request values win. */
+  maxTokens: number
   /** Positive context capacity used when the selected model has no exact value. */
-  defaultContextWindow?: number
+  defaultContextWindow: number
   /** Advisory models exposed to discovery consumers; requests remain unrestricted. */
   models: readonly DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding. */
@@ -81,6 +83,10 @@ export interface DeepSeekAdapterOptions {
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
+/** Default combined request/response context capacity. */
+export const DEFAULT_CONTEXT_WINDOW = 1_000_000
+/** Default per-request output-token cap. */
+export const DEFAULT_MAX_TOKENS = 256_000
 const STREAM_IDLE_TIMEOUT_CODE = 'LLM_STREAM_IDLE_TIMEOUT'
 const OFF_REASONING_EFFORT = ReasoningEffortId('off')
 const HIGH_REASONING_EFFORT = ReasoningEffortId('high')
@@ -174,7 +180,8 @@ export class DeepSeekAdapter extends LlmAdapter {
       ...configured === undefined
         ? { provider, id: model, name: model }
         : modelInfo(provider, configured),
-      ...contextWindow === undefined ? {} : { context: { contextWindow } },
+      context: { contextWindow },
+      defaultMaxTokens: connection.maxTokens,
       ...connection.defaults.thinking === 'disabled'
         ? {
           reasoning: {
