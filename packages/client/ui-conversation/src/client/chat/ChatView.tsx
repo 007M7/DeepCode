@@ -230,7 +230,7 @@ function StreamingTail({ useSession, onGrow }: {
  * The chat view slot entry: pure component over the composed props (tool rows
  * render through the declared keyed hole's renderSlot share).
  */
-export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder }: ChatViewSlotProps) {
+export function ChatView({ useSession, useSessions, useStore, renderSlot, sessionId, openFile, loadOlder, forkAt }: ChatViewSlotProps) {
   const nodes = useSession(s => s.nodes)
   // Workspace root off the session list row: path summaries display relative to it.
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
@@ -377,6 +377,8 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
           streaming={false}
           interrupted={node.interrupted}
           time={node.time}
+          seq={node.seq}
+          onFork={forkAt}
         />
       )
     }
@@ -385,7 +387,7 @@ export function ChatView({ useSession, useSessions, useStore, renderSlot, sessio
     }
     /* v8 ignore next -- tool-result never reaches here: deriveChatFlow folds them into groups. */
     if (node.kind === 'tool-result') return null
-    return <MessageItem key={item.key} node={node} />
+    return <MessageItem key={item.key} node={node} onFork={forkAt} />
   }
 
   return (

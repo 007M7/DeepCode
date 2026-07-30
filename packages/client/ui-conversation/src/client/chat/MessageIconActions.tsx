@@ -1,5 +1,6 @@
-// Shared IconActions chrome for user and assistant messages: copy / branch
-// live (branch still a stub), date-aware clock, optional edit stub.
+// Shared IconActions chrome for user and assistant messages: copy live,
+// branch wired through onBranch, date-aware clock,
+// optional edit stub.
 
 import { useCallback } from 'react'
 import {
@@ -18,17 +19,19 @@ export interface MessageIconActionsProps {
   clock: 'start' | 'end'
   /** When true, append the stub edit control (user bubble). */
   edit?: boolean | undefined
+  /** Fork the session at this message. */
+  onBranch?: (() => void) | undefined
   /** Parent layout class composed onto the actions row. */
   className?: string | undefined
 }
 
 /**
  * Copy / branch (/ clock) IconActions row shared by user and assistant chrome.
- * @param props - Copy text, event time, clock side, optional edit, className.
+ * @param props - Copy text, event time, clock side, optional edit, branch callback, className.
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, clock, edit, className,
+  text, time, clock, edit, onBranch, className,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const onCopy = useCallback(() => {
@@ -48,7 +51,7 @@ export function MessageIconActions({
         </button>
       </Tooltip>
       <Tooltip label="在新对话中分支" side="bottom">
-        <button type="button" className={css.action} aria-label="在新对话中分支">
+        <button type="button" className={css.action} aria-label="在新对话中分支" onClick={onBranch}>
           <IconBranchOutline16 />
         </button>
       </Tooltip>
