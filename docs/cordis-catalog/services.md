@@ -1901,7 +1901,7 @@ async assemble(context: AssembleContext = {}): Promise<PromptAssembly>
 
 Types: [AssembleContext](../core-data-structures/system-prompt.md) · [PromptSection](../core-data-structures/system-prompt.md) · [ToolProviderResult](../core-data-structures/system-prompt.md)
 
-Source: [`packages/core/system-prompt/src/index.ts:246`](../../packages/core/system-prompt/src/index.ts)
+Source: [`packages/core/system-prompt/src/index.ts:248`](../../packages/core/system-prompt/src/index.ts)
 
 ## `ctx.tasks` — `TaskService` (abstract seam)
 
@@ -2197,7 +2197,7 @@ The concrete provider retains pi-tui, focus, and terminal lifecycle state. Plugi
 abstract openOverlay(request: TuiOverlayRequest): TuiOverlaySession
 ```
 
-Source: [`packages/ui/tui/src/index.ts:235`](../../packages/ui/tui/src/index.ts)
+Source: [`packages/ui/tui/src/index.ts:239`](../../packages/ui/tui/src/index.ts)
 
 ## `ctx.typert` — `TypertRegistry`
 
