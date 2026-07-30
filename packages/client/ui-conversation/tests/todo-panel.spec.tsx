@@ -92,12 +92,12 @@ describe('TodoDock', () => {
     expect(screen.queryByTestId('todo-panel')).toBeNull()
   })
 
-  it('ships the registrant plugin shape (list entry above the queue rows)', () => {
+  it('registers between the goal and queue entries', () => {
     expect(todoDockEntry.name).toBe('conversation-todo-dock')
     expect(todoDockEntry.inject).toEqual(['slots', 'conversation'])
     const register = vi.fn()
     todoDockEntry.apply({ slots: { register } } as never)
-    expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: -1 }, TodoDock)
+    expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: 10 }, TodoDock)
   })
 })
 
