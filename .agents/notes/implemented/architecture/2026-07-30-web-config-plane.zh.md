@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-07-30-web-config-plane.md) | 中文
 
-> 范围：[请求级 LLM 配置 note](2026-07-29-request-level-llm-config-credentials.md) 中延后的 wire 面与 web UI——带推送式失效的 `settings.*`/`credentials.*`/`llm.*` RPC 领域、分层且脱敏的 `describe()`、llm 可配置提供方目录与拓扑事件、独立的 `dsh-client-schema-form` 渲染器，以及 Models 设置页。`deepseek` → `deepseek-official` 提供方路由重命名作为解锁前提的破坏性变更一并搭车合入。
+> 范围：[请求级 LLM 配置 note](2026-07-29-request-level-llm-config-credentials.md) 中延后的 wire 面与 web UI——带推送式失效的 `settings.*`/`credentials.*`/`llm.*` RPC 领域、分层且脱敏的 `describe()`、llm 可配置提供方目录与拓扑事件、独立的 `dsh-client-schema-form` 模型层，以及带手写提供方编辑器的 Models 设置页。`deepseek` → `deepseek-official` 提供方路由重命名作为解锁前提的破坏性变更一并搭车合入。
 
 ## 问题
 
@@ -18,17 +18,19 @@ PR1 让 LLM（大语言模型）适配器配置在 seam 层面免重启，但唯
 
 **llm seam 声明可配置性并公布拓扑。**`registerConfigurableProviders()` 是一个全有或全无、以 fiber 为作用域的目录，条目为 `{provider, displayName, settingsNs, settingsPath}`——这正是配置页要为一条可能尚不存在的路由打开正确设置子树时所需要的寻址；`listConfigurableProviders()` 在 wire 处理器里与存活路由合并，未声明的存活路由因此仍报告为激活。零负载的 `'llm/adapters-updated'` 事件从全部四个注册／注销提交点触发，listener 派发带异常隔离（INVARIANT 重抛），沿用 settings/commands 的先例。`llm-deepseek` 的路由重命名为 `deepseek-official`，因为 pi-ai catalog 名正言顺地拥有 `deepseek` 这个聚合器条目；依预发布立场，不设别名。
 
-**独立的 schema 驱动表单渲染器。**`dsh-client-schema-form` 把 wire 的 `toJSON()` 信封还原（rehydrate）为活的 schemastery 节点，并按结构分类渲染：object/dict/array 递归展开，全字面量联合成为下拉框（值缺失时显示取自回退层的 `Default: X`），dict 的键联合供给「新增条目」的词汇，凡是无法忠实编辑的一律渲染为只读 JSON——保持可见，绝不丢弃。「是否出现在草稿中」驱动覆盖徽标与逐字段 Reset；`renderField` 钩子让消费方挂载角色专属控件，渲染器自身不必认识任何角色。
+**架在 schema 模型层之上的手写编辑器。**`dsh-client-schema-form` 把 wire 的 `toJSON()` 信封还原（rehydrate）为活的 schemastery 节点，用于校验、路径解析与不可变草稿编辑——但不做通用渲染：第一版交付了完整的 schema 驱动表单渲染器，得到的却是一个未加样式、把 schema 原样倾倒出来的页面（每个进阶字段都平铺到卡片上、原始字段名直接充当标签、`retryPolicy` 的「不支持」回退落在主流程里）。用户没有再加一套提示／分组系统，而是选择了手写方向，第二轮又把引用输入框整个移除：卡片的主字段是一个 **API 密钥**输入框，未配置密钥的整分节提供方会以其设置卡片的形式打开，收起的「自定义设置」折叠区承载按家族精选的额外字段（两个家族都有 `baseURL`，另加 deepseek 的 `reasoningEffort`／pi-ai 的 `reasoning`），其余每个字段都归 `settings.yaml` 所有。校验仍会在写入前运行还原出的 schema，因此偏离其 schema 的手写字段会在保存时大声失败，而非静默失败。
 
-**Models 页是一次三领域联接，应用语义与 seam 同形。**每一行是一个已配置的提供方；「新增」词汇是可配置提供方目录中剩余的休眠条目；徽标来自路由存活状态与凭据引用不含值的 `configured` 状态。`credential-ref` 角色挂载凭据控件：引用名进设置，密钥值经 `credentials.set` **只写**存入。不含删除的编辑以一次最小的 `settings.update` 合并 patch 落地（patch 之外已存储的机密得以保留）；字段重置或整行删除则经 `settings.replace` 替换整个用户分节，因为合并语义表达不了删除。
+**Models 页是一次三领域联接，应用语义与 seam 同形。**每一行是一个已配置的提供方；「新增」卡片的选择框是可配置提供方目录中剩余的休眠条目；徽标来自路由存活状态。密钥通道保持引用形态，却从不展示任何引用：键入的密钥经 `credentials.set` **只写**存入 profile 的 `apiKeyEnv` 之下，引用不存在时便派生 `<ROUTE>_API_KEY`（pi-ai profile 会记录该派生），因此 `settings.yaml` 从不携带密钥值，删除所需的整体 `settings.replace` 也绝不可能丢掉兄弟条目的机密。不含删除的编辑以一次最小的 `settings.update` 合并 patch 落地；把折叠区字段清回继承值或删除整行则经 `settings.replace` 替换整个用户分节，因为合并语义表达不了删除。
 
 ## 曾考虑的替代方案
 
 - **在 wire 上改发 JSON Schema**——schemastery 的 `toJSON()` 信封能往返保留 `role()`/meta，并还原成客户端为草稿校验本就自带的那个校验器；转换成 JSON Schema 丢掉的恰恰是凭据控件与 secret 脱敏所依赖的角色注解。
+- **通用的 schema 驱动表单渲染器**——先实现、后被替换：如实呈现字段却缺失视觉层级，产出的卡片丑陋且不可用；要把它做好，就意味着构建一套提示词汇（主要／进阶分组、逐字段描述、数组项卡片），成本堪比手写编辑器，却仍无法与任何设计稿完全吻合。今天存在两份 schema（deepseek 的 `Config` 与共享的 pi-ai profile），手写因此就是两套以 namespace 为键的薄布局；漂移风险由保存时的 schema 校验以及未知字段在文档中的原样保留共同约束。
 - **逐字段脱敏机密并在 `replace` 时回填哨兵值**——PR1 的决策（机密是引用）已经为产品默认形态删掉了「存储字面量」这种情况；结构化脱敏加上只写的凭据通道足以处理残余情形，无需让每个写入方都学会一套哨兵协议。
+- **把键入的密钥存成字面 `apiKey` 设置**——v1「单个 API 密钥输入框」的需求本可以把字面量直接写进 profile，但 UI 的每条删除路径都会从*脱敏后的*各层重建用户分节，任何重置或整行删除都会静默丢掉已存储的兄弟密钥；派生引用让输入保持单字段，同时让 `settings.yaml` 不含机密、每一次 replace 都安全。
 - **由 `models` 桥接插件持有提供方配置**——与 PR1 相同的否决理由：按插件划分的 namespace 加上四字段的目录声明已经给了 UI 需要的一切；桥接层的统一字典会把适配器映射那层间接重新引进来。
 - **页面侧轮询而非推送帧**——mux 已经承载 `host/commands-changed`；再加三个帧各自只多一个形状的成本，就让第二个标签页、外部的 `settings.yaml` 编辑和由设置催生的路由都以事件速度收敛。
 
 ## 后果
 
-整条闭环以无密钥方式固定在浏览器测试通道（`apps/web/tests/models-settings.e2e.ts`）：休眠的 pi-ai catalog 渲染为「新增」词汇，添加 `anthropic` 会写入 `settings.yaml`、路由随拓扑帧注册为存活，密钥只写存入 harness 家目录的 `.env`，徽标随凭据帧收敛——全程零模型调用，空态与已配置态各有 ARIA golden，另有脚手架式的 `harnessHome`，测试绝不触碰真实的 `~/.dsh`。这次重命名在一次提交中触及 239 个文件（fixture（测试前置数据）、golden、文档、python），未保留兼容别名。延后事项：每行的模型预览（选择器已能列出模型）、为从未声明可配置性的存活路由提供页面地址，以及已记录在案的重置边界情形——`settings.replace` 无法在被替换的子树里重新补上已存储的*字面量*机密，而基于引用的默认形态让这种情况根本无从出现。
+整条闭环以无密钥方式固定在浏览器测试通道（`apps/web/tests/models-settings.e2e.ts`）：「新增」卡片提供休眠的 pi-ai catalog，携键入的密钥添加 `minimax-cn` 会把只含引用的 profile 写入 `settings.yaml`、把密钥值存入 harness 家目录 `.env` 中派生的 `MINIMAX_CN_API_KEY` 之下、路由随拓扑帧注册为存活，「自定义设置」折叠区则把 `reasoning` 合并到引用旁边——全程零模型调用，「新增」卡片态与已配置态各有 ARIA golden，另有脚手架式的 `harnessHome`，测试绝不触碰真实的 `~/.dsh`（受测提供方是派生引用不可能与开发者已导出密钥相撞的那一个）。这次重命名在一次提交中触及 239 个文件（fixture（测试前置数据）、golden、文档、python），未保留兼容别名。替换渲染器只花了一次提交，且没有任何 wire 变更：应用语义、脱敏与目录联接从一开始就与渲染器无关。延后事项：每行的模型预览（选择器已能列出模型）、为从未声明可配置性的存活路由提供页面地址，以及已记录在案的重置边界情形——`settings.replace` 无法在被替换的子树里重新补上已存储的*字面量*机密，而基于引用的默认形态让这种情况根本无从出现。
