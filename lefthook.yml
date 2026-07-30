@@ -18,6 +18,12 @@ pre-commit:
       run: node_modules/.bin/tsx scripts/run-oxlint.ts --fix --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
 
+    # Regenerate rather than reject: a dependency edit that forgot the notices
+    # would otherwise fail the test lane long after the commit.
+    - name: third-party notices (staged)
+      glob: '{package.json,*/package.json,*/*/package.json,*/*/*/package.json,pnpm-workspace.yaml,pnpm-lock.yaml,vendor/README.md,python/*/pyproject.toml}'
+      run: node_modules/.bin/tsx scripts/gen-third-party-notices.ts && git add THIRD_PARTY_NOTICES.md
+
     - name: whitespace (staged)
       run: git diff --cached --check
 

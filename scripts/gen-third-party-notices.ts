@@ -283,8 +283,11 @@ function renderNpmTable(deps: ExternalDep[]): string {
   return lines.join('\n')
 }
 
-/** Render the complete notices document. */
-function render(): string {
+/**
+ * Render the complete notices document.
+ * @returns the exact bytes `THIRD_PARTY_NOTICES.md` must hold.
+ */
+export function render(): string {
   verifyBuildTimePins()
   const npm = collectNpmDeps()
   const runtimeDeps = npm.filter(dep => dep.runtime)

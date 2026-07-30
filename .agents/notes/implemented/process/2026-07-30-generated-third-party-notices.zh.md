@@ -8,11 +8,13 @@ Status: implemented
 
 本仓库开源需要披露所依赖的第三方软件及各自的许可证。这份披露必须完整，必须随依赖变化保持为真，还必须给出读者用得上的信息：哪些包最终会进到用户机器上，哪些只用于构建和测试。
 
-手写清单无法长期满足其中任何一条。约一百行从各清单文件推导出来的包名与许可证标识，只要有依赖新增、移除或换用许可证就会悄悄失真，而 `doc-sync` 不会察觉。
+手写清单无法长期满足其中任何一条。约一百行从各清单文件推导出来的包名与许可证标识，只要有依赖新增、移除或换用许可证就会悄悄失真，而没有任何检查会察觉。
 
 ## Decision
 
-[`THIRD_PARTY_NOTICES.md`](../../../../THIRD_PARTY_NOTICES.md) 由 [`scripts/gen-third-party-notices.ts`](../../../../scripts/gen-third-party-notices.ts) 依据各工作区清单、`vendor/README.md`、`pyproject.toml` 与 `pnpm-workspace.yaml` 生成。`pnpm run verify-third-party-notices` 以 `--check` 运行生成器，作为 `doc-sync` 的叶子门禁；依赖变了却没重新生成，会像目录过期一样直接失败。根 README 双语两侧都从「许可证」一节链到该文件。
+[`THIRD_PARTY_NOTICES.md`](../../../../THIRD_PARTY_NOTICES.md) 由 [`scripts/gen-third-party-notices.ts`](../../../../scripts/gen-third-party-notices.ts) 依据各工作区清单、`vendor/README.md`、`pyproject.toml` 与 `pnpm-workspace.yaml` 生成。根 README 双语两侧都从「许可证」一节链到该文件。
+
+**新鲜度靠维护而非拦截。** 只要暂存了清单文件、锁文件、`vendor/README.md` 或 `pyproject.toml`，pre-commit 任务就会重新生成并一并入库，改依赖的人不必事后再折返跑一次生成器。已提交的字节随后由 [`scripts/gen-third-party-notices.spec.ts`](../../../../scripts/gen-third-party-notices.spec.ts) 断言，而测试 lane 本就会跑这个文件——这项校验不增加门禁进程、不占调度位、也不新增 CI 步骤。需要单独校验时，`pnpm run verify-third-party-notices` 仍然可用。
 
 文件只披露**直接**依赖。完整的 npm 闭包连同锁定版本已记录在 `pnpm-lock.yaml`（`pnpm licenses list` 可渲染），Python 闭包记录在 `python/sdk/uv.lock`；再用散文誊一遍只会得到一份更差的副本。
 
@@ -24,11 +26,13 @@ Status: implemented
 
 ## Testing
 
-[`scripts/gen-third-party-notices.spec.ts`](../../../../scripts/gen-third-party-notices.spec.ts) 用夹具清单钉住分层规则，覆盖促成该规则的两个场景：测试支撑包的 `dependencies` 条目，以及没有任何应用挂载的插件包。它同时钉住被收编包的表格解析器能读出已提交的清单表，且表格形态一变就解析为空——正是这一点让生成器直接失败，而不是产出一个空章节。
+断言新鲜度的同一个 spec 也用夹具清单钉住分层规则，覆盖促成该规则的两个场景：测试支撑包的 `dependencies` 条目，以及没有任何应用挂载的插件包。它同时钉住被收编包的表格解析器能读出已提交的清单表，且表格形态一变就解析为空——正是这一点让生成器直接失败，而不是产出一个空章节。
 
 ## Alternatives considered
 
 **保留手写文件，发版时人工过一遍。** 用肉眼审阅上百行推导数据，恰恰是生成器能做对的活；而且在两次发版之间，文件自称「列出全部直接依赖」这句话无人验证。
+
+**用专门的 `doc-sync` 门禁校验。** 仓库里其他生成产物都是这么把关的，本次改动最初也是这个形态。但它要在本已冗长的矩阵里再占一个门禁进程和一个调度位；更糟的是，它唯一的失败方式，就是在别人推完一个无关的依赖升级几分钟后，通知对方回去重跑一次生成器。改为提交时重新生成消除了这次打断，而把断言放进测试 lane 本就会跑的 spec 里，则以零额外 CI 成本保住了这项保证。
 
 **列出完整传递闭包。** 闭包有数千个包，锁文件里已带精确版本，铺开只会淹没读者真正要评估的直接依赖。文件转而指向锁文件与 `pnpm licenses list`。
 
@@ -40,7 +44,7 @@ Status: implemented
 
 ## Consequences
 
-此后增删依赖都需要运行 `pnpm run gen-third-party-notices` 并提交结果，否则 `doc-sync` 失败。这正是预期成本——披露不可能再悄悄过期。
+此后改动依赖时，重新生成的披露文件会随同一个提交入库。触及清单文件的提交多付一次生成器运行——约一秒；其余提交不受影响。若禁用钩子提交，代价推迟为一次测试 lane 失败，其报错会指明补救命令。
 
 生成器需要已安装的工作树，因此比纯源码生成器更重；发布元数据不可用的新包需要补一条 `OVERRIDES`，而不是默默渲染出空白许可证。这两类失败都会明确报错并指出补救方式。
 
