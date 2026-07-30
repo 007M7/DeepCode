@@ -27,6 +27,9 @@ env:
 
 jobs:
 
+  # FIXME: Re-enable the three hosted serial reference jobs before cutting a release.
+  # The self-hosted standby remains active on every master push.
+
   # Three enterprise jobs isolate coverage, static analysis, and the
   # build-backed consumer tail. The static job publishes its exact build so
   # consumers do not repeat the longest part of their critical path.
@@ -225,8 +228,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
 
-      # Pull requests restore the cache produced by serial-linux on master;
-      # they do not pay compression and upload on the required path.
+      # Pull requests restore the cache normally produced by serial-linux on
+      # master; they do not pay compression and upload on the required path.
       - uses: actions/cache/restore@v4
         if: vars.DSH_CI_FAILOVER != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
         with:
@@ -321,8 +324,9 @@ jobs:
   # The required pull-request Windows signal: the two blocking win32 surfaces
   # (workspace build, production site) execute with real, checksum-verified
   # Windows Node under Wine on standard hosted Linux. The master
-  # serial-windows job below keeps the complete native-kernel inventory —
-  # including the observational portability gates this lane does not run —
+  # serial-windows job below normally keeps the complete native-kernel
+  # inventory — including the observational portability gates this lane does
+  # not run —
   # on real windows-2025. This job only provisions runner state (caches,
   # apt); scripts/wine-windows-gates.sh owns the gate logic and is the same
   # script the optional local gate `pnpm run check:windows-wine` runs.
@@ -427,12 +431,12 @@ jobs:
           cp /var/cache/apt/archives/*.deb "$HOME/wine-debs/"
           du -sh "$HOME/wine-debs"
 
-  # Master pushes run only the serial reference jobs below.
-  # Each host executes the complete, unsharded primary Node aggregate with one
-  # gate worker, giving reviewers a simple cross-platform oracle for completeness
-  # and timing.
+  # The hosted reference jobs below are temporarily disabled; the self-hosted
+  # standby remains active. Each enabled host executes the complete, unsharded
+  # primary Node aggregate with one gate worker, giving reviewers a simple
+  # cross-platform oracle for completeness and timing.
   serial-linux:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / linux
     runs-on: ubuntu-latest
     steps:
@@ -557,7 +561,7 @@ jobs:
         run: pnpm run check:ci:linux-primary
 
   serial-macos:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / macos
     runs-on: macos-latest
     steps:
@@ -584,7 +588,7 @@ jobs:
         run: pnpm run check:ci
 
   serial-windows:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: false
     name: serial / windows
     runs-on: windows-2025
     steps:
