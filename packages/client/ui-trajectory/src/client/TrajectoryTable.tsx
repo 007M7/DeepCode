@@ -55,8 +55,8 @@ function ToolWrenchIcon(): ReactNode {
 function InformationIcon(): ReactNode {
   return (
     <svg
-      width="13"
-      height="13"
+      width="14"
+      height="14"
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
@@ -65,7 +65,7 @@ function InformationIcon(): ReactNode {
       data-role-icon="information"
       aria-hidden="true"
     >
-      <circle cx="8" cy="8" r="6" />
+      <circle cx="8" cy="8" r="6.7" />
       <circle cx="8" cy="5.5" r=".85" fill="currentColor" stroke="none" />
       <path d="M8 7.75v3.4" strokeWidth="1.8" />
     </svg>
