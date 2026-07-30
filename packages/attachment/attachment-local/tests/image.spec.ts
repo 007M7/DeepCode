@@ -1,6 +1,6 @@
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
-import { detectImage } from '../src/image.ts'
+import { detectImage, probeImage } from '../src/image.ts'
 
 async function raster(format: 'png' | 'jpeg' | 'webp' | 'gif'): Promise<Uint8Array> {
   const image = sharp({
@@ -38,5 +38,14 @@ describe('raster decoding', () => {
     const truncated = complete.subarray(0, 62)
     await expect(sharp(truncated).metadata()).resolves.toMatchObject({ width: 3, height: 2 })
     await expect(detectImage(truncated)).rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+  })
+
+  it('probes malformed bytes and unsupported formats into the same stable error', async () => {
+    await expect(probeImage(Uint8Array.of(1, 2, 3)))
+      .rejects.toMatchObject({ code: 'INVALID_IMAGE' })
+    const unsupported = await sharp({
+      create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 1 } },
+    }).tiff().toBuffer()
+    await expect(probeImage(unsupported)).rejects.toMatchObject({ code: 'INVALID_IMAGE' })
   })
 })

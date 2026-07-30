@@ -77,6 +77,14 @@ describe('local attachment store', () => {
     ])
   })
 
+  it('retreats the durable boundary to the closest existing ancestor when the home directory does not exist yet', async () => {
+    const storageRoot = join(await root(), 'home', 'attachments', 'v1')
+
+    const ref = await saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS)
+
+    await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
+  })
+
   it('publishes one private content-addressed object and deduplicates equal bytes', async () => {
     const storageRoot = await root()
     const first = await saveImageFile(storageRoot, {
