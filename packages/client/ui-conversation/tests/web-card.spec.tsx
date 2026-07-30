@@ -105,6 +105,10 @@ describe('webCardModel', () => {
     // documented generic-card default takes it, not a crash.
     const future = { card: 'chart', kind: 'search' } as unknown as ToolResultView
     expect(webCardModel(settledSearch({ resultView: future }))).toBeNull()
+    // A web card whose kind this UI version does not know (a newer host's
+    // value) also takes the generic path, not a malformed fetch.
+    const futureKind = { card: 'web', kind: 'timeline' } as unknown as ToolResultView
+    expect(webCardModel(settledSearch({ resultView: futureKind }))).toBeNull()
   })
 })
 

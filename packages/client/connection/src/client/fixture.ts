@@ -137,26 +137,15 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
- * One inline-authored source for the `web_search` fixture. Structurally the
- * contract's `WebSource`; authored locally because the fixture cannot import the
- * web tool, and kept minimal so a missing optional field renders its fallback.
- */
-interface WebSourceFixture {
-  url: string
-  title?: string
-  snippet?: string
-  publishedAt?: string
-}
-
-/**
  * The structured `web_search` result view for fixture turn 66, authored inline
  * because this client-side fixture cannot import the web tool that projects it.
  * The sources exercise the citation list's features: a titled source with a
  * snippet and a date, a source with no title (its hostname labels the link) and
  * a snippet but no date, and a source with a title and a date but no snippet.
- * `truncated` marks the capped indicator.
+ * `truncated` marks the capped indicator. The shape is the contract's own
+ * search view minus its wire discriminants and fallback content.
  */
-const WEB_SEARCH_RESULT: { answer: string; sources: WebSourceFixture[]; truncated: boolean } = {
+const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'search' }>, 'card' | 'kind' | 'content'> = {
   answer: 'DeepSeek Harness is a plugin-based agent harness on vendored Cordis where **every capability is a plugin**.',
   sources: [
     {
@@ -179,7 +168,7 @@ const WEB_SEARCH_RESULT: { answer: string; sources: WebSourceFixture[]; truncate
 }
 
 /** The `web_fetch` result view for fixture turn 67, authored inline for the same reason. */
-const WEB_FETCH_RESULT: { url: string; statusCode: number; truncated: boolean } = {
+const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind' | 'content'> = {
   url: 'https://www.deepseek.com/blog/harness-architecture',
   statusCode: 200,
   truncated: false,
