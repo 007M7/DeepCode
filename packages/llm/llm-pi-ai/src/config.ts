@@ -1,5 +1,7 @@
 /**
  * Configuration schema and provider-profile validation for the pi-ai adapter.
+ * Profiles are a dict keyed by provider route, so the composition base and a
+ * user-settings layer merge per provider and the route set is structural.
  *
  * @module dsh-llm-pi-ai/config
  */
@@ -7,6 +9,8 @@
 import { getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import type { CacheRetention, ModelThinkingLevel, ThinkingBudgets, Transport } from '@earendil-works/pi-ai'
 import z from 'schemastery'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
@@ -14,12 +18,12 @@ import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-ll
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
-/** Configuration for one pi-ai provider route. */
+/** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
-  /** pi-ai provider catalog name and Harness route key. */
-  provider: string
-  /** Provider credential; when absent pi-ai uses its provider-native ambient discovery. */
+  /** Literal provider credential; prefer {@link apiKeyEnv}. With both absent pi-ai uses its provider-native ambient discovery. */
   apiKey?: string
+  /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
+  apiKeyEnv?: string
   /** Override the selected catalog model's endpoint without changing its protocol metadata. */
   baseURL?: string
   /** Provider request headers; Harness attribution wins reserved names. */
@@ -42,18 +46,26 @@ export interface PiAiProviderProfile {
   retryPolicy?: RetryPolicyConfig
 }
 
-/** Validated profile with every adapter-owned default resolved. */
-export interface ResolvedPiAiProviderProfile extends Omit<PiAiProviderProfile, 'retryPolicy'> {
+/** Validated profile with its route stamped and every adapter-owned default resolved. */
+export interface ResolvedPiAiProviderProfile extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy'> {
+  /** pi-ai provider catalog name and Harness route key (the configuration dict key). */
+  provider: string
+  /** Validated credential reference, when one is configured. */
+  apiKeyEnv?: CredentialRef
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
   /** Immutable retry policy captured with this provider route. */
   retryPolicy: ResolvedRetryPolicy
 }
 
-/** Plugin configuration: the non-empty provider profiles this instance owns. */
+/** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
-  /** Non-empty set of pi-ai provider routes this adapter instance owns. */
-  providers: PiAiProviderProfile[]
+  /**
+   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
+   * the dormant settings-driven posture: the adapter mounts with no routes
+   * and registers them the moment a settings section supplies profiles.
+   */
+  providers?: Record<string, PiAiProviderProfile>
 }
 
 const thinkingBudgets = z.object({
@@ -64,8 +76,8 @@ const thinkingBudgets = z.object({
 })
 
 const profile = z.object({
-  provider: z.string().required(),
-  apiKey: z.string(),
+  apiKey: z.string().role('secret'),
+  apiKeyEnv: z.string(),
   baseURL: z.string(),
   headers: z.dict(z.string()),
   reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
@@ -80,54 +92,64 @@ const profile = z.object({
 
 /** Runtime schema for {@link Config}. */
 export const Config: z<Config> = z.object({
-  providers: z.array(profile).required(),
+  providers: z.dict(profile).default({}),
 })
 
 /**
  * Validate profiles against the installed pi-ai catalog and return a detached
- * shallow copy suitable for adapter construction.
- * @param profiles - configured provider profiles.
+ * route-keyed map suitable for per-request reads. This is the one explicit
+ * resolve step, so an omitted dict resolves to the empty (dormant) route set
+ * here rather than through a hidden fallback.
+ * @param providers - configured provider profiles keyed by route.
  * @returns validated profiles in configuration order.
  */
-export function resolveProfiles(profiles: readonly PiAiProviderProfile[]): ResolvedPiAiProviderProfile[] {
-  if (profiles.length === 0) throw new Error('llm-pi-ai: providers must contain at least one profile')
+export function resolveProfiles(
+  providers: Readonly<Record<string, PiAiProviderProfile>> | undefined,
+): Map<string, ResolvedPiAiProviderProfile> {
+  if (Array.isArray(providers)) {
+    throw new Error('llm-pi-ai: providers is now a dict keyed by provider route, not an array of profiles')
+  }
+  const entries = Object.entries(providers ?? {})
   const supported = new Set<string>(getBuiltinProviders())
-  const seen = new Set<string>()
-  return profiles.map((source) => {
+  const resolved = new Map<string, ResolvedPiAiProviderProfile>()
+  for (const [provider, source] of entries) {
     const legacy = source as PiAiProviderProfile & {
+      provider?: unknown
       maxRetries?: unknown
       maxRetryDelayMs?: unknown
+    }
+    if ('provider' in legacy) {
+      throw new Error('llm-pi-ai: the profile "provider" field moved to the providers dict key')
     }
     if ('maxRetries' in legacy || 'maxRetryDelayMs' in legacy) {
       throw new Error('llm-pi-ai: maxRetries and maxRetryDelayMs were removed; compose agent recovery with dsh-llm-retry')
     }
-    if (source.provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
-    if (!supported.has(source.provider)) throw new Error(`llm-pi-ai: unknown pi-ai provider "${source.provider}"`)
-    if (seen.has(source.provider)) throw new Error(`llm-pi-ai: duplicate provider profile "${source.provider}"`)
+    if (provider.length === 0) throw new Error('llm-pi-ai: provider names must be non-empty')
+    if (!supported.has(provider)) throw new Error(`llm-pi-ai: unknown pi-ai provider "${provider}"`)
     if (source.apiKey !== undefined && source.apiKey.trim().length === 0) {
-      throw new Error(`llm-pi-ai: provider "${source.provider}" has an empty apiKey; omit it to use ambient authentication`)
+      throw new Error(`llm-pi-ai: provider "${provider}" has an empty apiKey; omit it to use ambient authentication`)
     }
     if (source.baseURL !== undefined && source.baseURL.length === 0) {
-      throw new Error(`llm-pi-ai: provider "${source.provider}" has an empty baseURL`)
+      throw new Error(`llm-pi-ai: provider "${provider}" has an empty baseURL`)
     }
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
       || streamIdleTimeoutMs <= 0
       || streamIdleTimeoutMs > MAX_TIMER_DELAY_MS) {
       throw new Error(
-        `llm-pi-ai: provider "${source.provider}" streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
+        `llm-pi-ai: provider "${provider}" streamIdleTimeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
       )
     }
-    seen.add(source.provider)
-    return {
-      ...source,
+    const { apiKeyEnv, retryPolicy, ...rest } = source
+    resolved.set(provider, {
+      ...rest,
+      provider,
+      ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
-      retryPolicy: resolveRetryPolicy(
-        source.retryPolicy,
-        `llm-pi-ai: provider "${source.provider}" retryPolicy`,
-      ),
-      ...source.headers === undefined ? {} : { headers: { ...source.headers } },
-      ...source.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...source.thinkingBudgets } },
-    }
-  })
+      retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
+      ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
+      ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
+    })
+  }
+  return resolved
 }

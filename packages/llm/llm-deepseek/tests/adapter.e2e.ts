@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import LlmService, { createUserMessage, CallId, ReasoningEffortId , createMessage } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import { CredentialsLocal } from '@deepseek-ai/dsh-credentials-local'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import type { Config } from '@deepseek-ai/dsh-llm-deepseek'
 import { assemble, type AssembledResult } from './assemble.ts'
@@ -53,6 +57,34 @@ const weatherTool: ToolSchema = {
 }
 
 describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', () => {
+  it('serves a real request with the key held only by a credentials-local document', async () => {
+    const key = process.env.DEEPSEEK_API_KEY
+    if (key === undefined) throw new Error('e2e ran without DEEPSEEK_API_KEY')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-e2e-credentials-'))
+    try {
+      await writeFile(join(dir, '.env'), `DEEPSEEK_API_KEY=${key}\n`, { mode: 0o600 })
+      // Scrub the ambient variable so only the credential seam can supply the
+      // key: this request proves the per-request resolution path end to end.
+      vi.stubEnv('DEEPSEEK_API_KEY', '')
+      const ctx = new Context()
+      contexts.push(ctx)
+      await ctx.plugin(LlmService)
+      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+      await ctx.plugin(LlmDeepSeek, {})
+
+      const result = await assemble(ctx, {
+        model: FLASH,
+        messages: ask('Reply with exactly the word: pong'),
+        maxTokens: 50,
+      })
+      expect(result.finish.kind).toBe('stop')
+      expect(textOf(result).toLowerCase()).toContain('pong')
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('flash dynamically switches from off to high', async () => {
     const ctx = await harness(FLASH, { reasoningEffort: 'off' })
     const withoutThinking = await assemble(ctx,{

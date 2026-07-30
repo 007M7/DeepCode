@@ -546,4 +546,80 @@ export abstract class Settings extends Service {
   }
 }
 
+/**
+ * Value mirror of the `FiberState` members {@link isUnloading} compares
+ * against: a const enum has no runtime object to import, and the value is
+ * needed at runtime (same rationale as the CLI boot driver's mirror).
+ */
+const FIBER_DISPOSED = 4
+const FIBER_UNLOADING = 5
+
+/** Whether the consumer's own fiber is tearing down (not just losing the settings service). */
+function isUnloading(ctx: Context): boolean {
+  const state: number = ctx.fiber.state
+  return state === FIBER_UNLOADING || state === FIBER_DISPOSED
+}
+
+/** Hooks a consumer hands to {@link installSettingsSection}. */
+export interface SettingsSectionHooks<T> {
+  /**
+   * Receive the active configuration source: the resolved settings scope
+   * while one is attached, the composition entry otherwise. Called before
+   * the matching `onChange` at attach and at detach.
+   * @param current - thunk returning the currently authoritative value.
+   */
+  setSource(current: () => T): void
+  /**
+   * Re-judge anything derived from the source — registration-level facts,
+   * memoized resolutions — after an attach, a detach, or a committed change.
+   */
+  onChange(): void
+}
+
+/**
+ * Install the canonical optional-settings consumer wiring: while a settings
+ * service exists, register `ns` with the consumer's composition entry as the
+ * `base` layer and point the source thunk at the resolved scope; when the
+ * service goes away (disposal, provider reload), fall back to the entry so
+ * the consumer keeps working exactly as composed. The registration rides the
+ * scoped fiber, so no settings service ever mounted means none of this runs.
+ * @param ctx - consumer plugin context owning the wiring.
+ * @param ns - the consumer-owned settings namespace.
+ * @param schema - schema resolving the namespace (typically the plugin Config).
+ * @param entry - the consumer's composition entry config, used as `base`.
+ * @param hooks - source sink and change notification.
+ */
+export function installSettingsSection<T>(
+  ctx: Context,
+  ns: SettingsNamespace,
+  schema: z<T>,
+  entry: T,
+  hooks: SettingsSectionHooks<T>,
+): void {
+  ctx.inject(['settings'], (sctx) => {
+    const scope = sctx.settings.register(ns, schema, { base: entry })
+    hooks.setSource(() => scope.get())
+    sctx.effect(() => () => {
+      // This disposer runs for two different reasons. A settings provider
+      // detaching leaves the consumer running, so it must fall back to its
+      // composition entry and re-judge what it derived. The consumer's own
+      // unload runs it too — and there `onChange` would re-register routes
+      // and touch resources the teardown is releasing, so the fallback is
+      // pointless and the notification actively harmful.
+      if (isUnloading(ctx)) return
+      hooks.setSource(() => entry)
+      hooks.onChange()
+    })
+    hooks.onChange()
+    scope.watch(() => {
+      // A stored change landing while the consumer unloads reaches the watcher
+      // before the registration is released, and `onChange` is exactly as
+      // harmful here as in the disposer above: it re-registers routes against
+      // a fiber whose resources are being let go.
+      if (isUnloading(ctx)) return
+      hooks.onChange()
+    })
+  })
+}
+
 export default Settings
