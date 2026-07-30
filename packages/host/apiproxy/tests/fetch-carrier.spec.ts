@@ -1,7 +1,6 @@
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiProxy, HostFrame, MuxFrame } from '../src/api/index.ts'
-import type { ResponseValue } from '../src/api/rpc-map.ts'
 import type { ClientResponse, RpcMessage, RpcReceipt, RpcRequest } from '../src/api/rpc.ts'
 import { RpcId } from '../src/api/rpc.ts'
 import { toFetchHandler } from '../src/fetch/handler.ts'
@@ -12,7 +11,6 @@ function fakeApi(overrides: Partial<{
   muxFrames: MuxFrame[]
   hostFrames: HostFrame[]
   crashOn: string
-  hostDescription: ResponseValue<'host.describe'>
 }> = {}): ApiProxy {
   const muxFrames = overrides.muxFrames ?? [{ type: 'session/subscribed', sessionId: 's1' as never, lastSeq: -1 }]
   const hostFrames = overrides.hostFrames ?? [{ type: 'host/session-removed', sessionId: 's1' as never }]
@@ -98,7 +96,7 @@ function fakeApi(overrides: Partial<{
           rpcId: request.rpcId,
           result: {
             ok: true,
-            value: overrides.hostDescription ?? { version: 'v', cwd: '/w', attachedSessions: 0 },
+            value: { version: 'v', cwd: '/w', attachedSessions: 0 },
           },
         }
       },
