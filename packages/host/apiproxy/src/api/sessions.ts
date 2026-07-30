@@ -186,9 +186,11 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
-   * Reads a window of history events; page boundaries align to message boundaries: one page =
-   * all raw events owned by a whole number of messages (including their chunk / tool events),
-   * never cut mid-message. The tail page (beforeSeq absent) additionally carries the in-flight
+   * Reads a window of history events; page boundaries align to append-origin message
+   * boundaries: one page = all raw events owned by a whole number of such messages (including
+   * their chunk / tool events), never cut mid-message. Model-only replacement copies consume no
+   * `maxMessages`, so a compaction's provenance stays on the page of its replacement. The tail
+   * page (beforeSeq absent) additionally carries the in-flight
    * partial — chunk events already emitted for the last unfinalized message.
    * Each entry pairs the raw SessionEvent with the host-computed view (tool events whose
    * presenter produced one, evaluated against the registry at pagination time); the client
