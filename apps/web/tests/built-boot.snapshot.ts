@@ -102,6 +102,14 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
   await within(tree).findByText('4 sessions')
 
+  // The resident approval fixture proves the assembled workspace plugin
+  // distinguishes a blocked running session from an ordinarily busy one.
+  const waitingTitle = await within(tree).findByText('Fixture 历史会话')
+  const waitingRow = waitingTitle.closest('[role="treeitem"]')
+  expect(waitingRow?.querySelector('[data-state="warning"]')).not.toBeNull()
+  expect(waitingRow?.querySelector('[data-state="ongoing"]')).toBeNull()
+  expect(within(waitingRow as HTMLElement).getByText('Waiting for approval')).not.toBeNull()
+
   // Opening a session reaches chat content through the fixture transport.
   fireEvent.click(await within(tree).findByText('Fixture 历史会话'))
   await waitFor(() => {
