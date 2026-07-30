@@ -4,7 +4,10 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import { CombinedAutocompleteProvider, visibleWidth, type Terminal } from '@earendil-works/pi-tui'
-import AgentRegistry, { agentEvents, assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, {
+  agentEvents, assembleContextFor, InboxItemId, type Agent, type InboxItem,
+  type InboxPlacement,
+} from '@deepseek-ai/dsh-agent'
 import { createUserMessage,
   createToolResultMessage,
   ReasoningEffortId,
@@ -26,6 +29,7 @@ import SessionReferenceService, { formatSessionReferenceMention } from '@deepsee
 import type {} from '@deepseek-ai/dsh-llm-retry'
 import {
   createTuiChat,
+  disposeRootAndExit,
   FILE_REFERENCE_PROMPT,
   mountTui,
   renderSkillInvocation,
@@ -49,6 +53,13 @@ import { TestSessionQueryService } from './session-query.ts'
 const UNUSED_TOOL_OUTPUT: ToolDefinition['output'] = {
   schema: { type: 'null' },
   render: () => [],
+}
+
+let nextInboxItem = 0
+
+/** Wrap one test message in the production inbox occurrence envelope. */
+function inboxItem(message: InboxItem['message'], placement: InboxPlacement): InboxItem {
+  return { id: InboxItemId(`tui-item-${nextInboxItem++}`), message, placement }
 }
 
 class FakeTerminal implements Terminal {
@@ -489,6 +500,41 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('\r')
     await tick()
     expect(result.terminal.output).toContain('session query is not mounted')
+    await dispose(result)
+  })
+
+  it('allows a transient session-query state but rejects a terminal state', async () => {
+    let queryCtx: Context | undefined
+    let listCalls = 0
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        await ctx.plugin({
+          apply(child: Context) {
+            queryCtx = child
+            child.provide('sessionQuery', {
+              listSessions: async () => { listCalls++; return [] },
+            } as never)
+          },
+        })
+      },
+    })
+    if (queryCtx === undefined) throw new Error('query provider did not mount')
+    const activeState = queryCtx.fiber.state
+    queryCtx.fiber.state = 0
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick(); await tick()
+    expect(listCalls).toBe(1)
+    result.terminal.send('\u001B')
+    await tick()
+    queryCtx.fiber.state = 5
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('session query is not mounted')
+    expect(listCalls).toBe(1)
+    queryCtx.fiber.state = activeState
     await dispose(result)
   })
 
@@ -1654,12 +1700,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const drainSteering = (text: string): void => {
       const id = result.agent.steeredIds.shift()
       if (id !== undefined) {
-        result.ctx.emit('agent/inbox/dequeue', result.agent, freezeMessage({
+        result.ctx.emit('agent/inbox/dequeue', result.agent, inboxItem(freezeMessage({
           id,
           role: 'user',
           content: [{ type: 'text', text }],
           source: { kind: 'user' },
-        }), 'steering')
+        }), 'steering'))
       }
       result.session.append('steering/message', {
         turn: 1,
@@ -1673,12 +1719,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A steering queue for a different agent never touches this status line.
     const other = { ...result.agent, id: SessionId('other') } as Agent
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/enqueue', other, freezeMessage({
+    result.ctx.emit('agent/inbox/enqueue', other, inboxItem(freezeMessage({
       id: MessageId('stub'),
       role: 'user',
       content: [{ type: 'text', text: 'elsewhere' }],
       source: { kind: 'user' },
-    }), 'queued')
+    }), 'queued'))
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -1751,26 +1797,26 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }))
     // Another agent's dequeue/discard, and ones naming no pending id, leave
     // the badge alone.
-    result.ctx.emit('agent/inbox/dequeue', other, discarded[0]!, 'steering')
-    result.ctx.emit('agent/inbox/dequeue', result.agent, freezeMessage({
+    result.ctx.emit('agent/inbox/dequeue', other, inboxItem(discarded[0]!, 'steering'))
+    result.ctx.emit('agent/inbox/dequeue', result.agent, inboxItem(freezeMessage({
       id: MessageId('never-queued'),
       role: 'user',
       content: [{ type: 'text', text: 'x' }],
       source: { kind: 'user' },
-    }), 'steering')
-    result.ctx.emit('agent/inbox/discard', other, discarded)
+    }), 'steering'))
+    result.ctx.emit('agent/inbox/discard', other, discarded.map(message => inboxItem(message, 'steering')))
     result.ctx.emit('agent/inbox/discard', result.agent, [
-      freezeMessage({
+      inboxItem(freezeMessage({
         id: MessageId('never-queued'),
         role: 'user',
         content: [{ type: 'text', text: 'x' }],
         source: { kind: 'user' },
-      }),
+      }), 'steering'),
     ])
     await tick()
     expect(result.terminal.output).toContain('2 queued')
     result.terminal.output = ''
-    result.ctx.emit('agent/inbox/discard', result.agent, discarded)
+    result.ctx.emit('agent/inbox/discard', result.agent, discarded.map(message => inboxItem(message, 'steering')))
     await tick()
     expect(result.terminal.output).not.toContain('queued')
 
@@ -2086,12 +2132,12 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('tracks steering drains without a running status line', async () => {
     const result = await setup()
     const source = { kind: 'user' as const }
-    result.ctx.emit('agent/inbox/enqueue', result.agent, freezeMessage({
+    result.ctx.emit('agent/inbox/enqueue', result.agent, inboxItem(freezeMessage({
       id: MessageId('stub'),
       role: 'user',
       content: [{ type: 'text', text: 'early' }],
       source,
-    }), 'steering')
+    }), 'steering'))
     result.session.append('steering/message', {
       turn: 1,
       message: createUserMessage({
@@ -2699,7 +2745,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // no armed listener, and an unrelated admission is untouched. The leak
     // regression: a listener installed after its cleanup already ran would
     // survive every future cleanup.
-    result.ctx.emit('agent/inbox/discard', result.agent, [result.agent.sentMessages[0]!])
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages[0]!, 'queued')])
     const unrelated = await agentEvents(result.ctx, result.agent).waterfall(
       'agent/prompt-submit', createUserMessage({
         content: [{ type: 'text', text: 'unrelated' }],
@@ -2743,9 +2789,9 @@ describe('pi-tui chat lifecycle and transcript', () => {
         content: structuredClone(input.content),
         source: structuredClone(input.source),
       })
-      result.ctx.emit('agent/inbox/enqueue', foreign, message, 'queued')
-      result.ctx.emit('agent/inbox/enqueue', result.agent, message, 'queued')
-      result.ctx.emit('agent/inbox/discard', result.agent, [message])
+      result.ctx.emit('agent/inbox/enqueue', foreign, inboxItem(message, 'queued'))
+      result.ctx.emit('agent/inbox/enqueue', result.agent, inboxItem(message, 'queued'))
+      result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(message, 'queued')])
       return message.id
     }
 
@@ -2827,16 +2873,16 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(passthrough.kind === 'allow' && passthrough.additionalContexts).toBeUndefined()
     // A foreign agent's discard leaves the wrapper armed.
     const foreign = { ...result.agent, id: SessionId('foreign') } as unknown as Agent
-    result.ctx.emit('agent/inbox/discard', foreign, [result.agent.sentMessages.at(-1)!])
+    result.ctx.emit('agent/inbox/discard', foreign, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
     // An unrelated discard for this agent also leaves the wrapper armed.
-    result.ctx.emit('agent/inbox/discard', result.agent, [createUserMessage({
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(createUserMessage({
       content: [{ type: 'text', text: 'unrelated discard' }],
       source: { kind: 'user' },
-    })])
-    result.ctx.emit('agent/inbox/discard', result.agent, [result.agent.sentMessages.at(-1)!])
+    }), 'queued')])
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
     await tick()
     // Idempotent: a repeat discard after cleanup is a no-op.
-    result.ctx.emit('agent/inbox/discard', result.agent, [result.agent.sentMessages.at(-1)!])
+    result.ctx.emit('agent/inbox/discard', result.agent, [inboxItem(result.agent.sentMessages.at(-1)!, 'queued')])
     const afterDiscard = await agentEvents(result.ctx, result.agent).waterfall(
       'agent/prompt-submit', result.agent.sentMessages.at(-1)!,
       new AbortController().signal, () => Promise.resolve({ kind: 'allow' as const }),
@@ -3339,14 +3385,14 @@ describe('pi-tui chat lifecycle and transcript', () => {
     result.terminal.send('/model alpha/shared')
     result.terminal.send('\r')
     await vi.waitFor(() => {
-      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: provider default.')
+      expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Reasoning effort: Default.')
     })
     result.terminal.send('/model')
     result.terminal.send('\r')
     await vi.waitFor(() => {
       expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Select model')
     })
-    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — provider default')
+    expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — Default')
     result.terminal.send('\x1b[Z')
     await tick()
     expect(result.terminal.output.slice(providerDefaultOutput)).toContain('Alpha Shared — Standard')
@@ -3365,10 +3411,10 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Ultra — current')
     result.terminal.send('\x1b[Z')
     await tick()
-    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — provider default')
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Alpha Shared — Default')
     result.terminal.send('\r')
     await tick()
-    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Reasoning effort: provider default.')
+    expect(result.terminal.output.slice(resetDefaultOutput)).toContain('Reasoning effort: Default.')
     const explicitResetSeed: LlmCallConfig = {
       provider: 'beta',
       model: 'b1',
@@ -4952,6 +4998,59 @@ describe('TUI extension service', () => {
   })
 })
 
+describe('application exit', () => {
+  it('disposes the root fiber rather than only the TUI child before exiting', async () => {
+    const rootDispose = vi.fn(() => Promise.resolve())
+    const childDispose = vi.fn(() => Promise.resolve())
+    const ctx = {
+      root: { fiber: { dispose: rootDispose } },
+      fiber: { dispose: childDispose },
+    } as unknown as Context
+    const exit = vi.fn()
+    disposeRootAndExit(ctx, 7, exit)
+    await Promise.resolve()
+    expect(rootDispose).toHaveBeenCalledOnce()
+    expect(childDispose).not.toHaveBeenCalled()
+    expect(exit).toHaveBeenCalledOnce()
+    expect(exit).toHaveBeenCalledWith(7)
+  })
+
+  it('forces exit when root disposal does not settle', async () => {
+    vi.useFakeTimers()
+    try {
+      let settle!: () => void
+      const disposal = new Promise<void>((resolve) => { settle = resolve })
+      const ctx = {
+        root: { fiber: { dispose: () => disposal } },
+      } as unknown as Context
+      const exit = vi.fn()
+      disposeRootAndExit(ctx, 9, exit)
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(exit).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(exit).toHaveBeenCalledOnce()
+      expect(exit).toHaveBeenCalledWith(9)
+      settle()
+      await disposal
+      await Promise.resolve()
+      expect(exit).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('exits after a rejected root disposal without an unhandled rejection', async () => {
+    const ctx = {
+      root: { fiber: { dispose: () => Promise.reject(new Error('cleanup failed')) } },
+    } as unknown as Context
+    const exit = vi.fn()
+    disposeRootAndExit(ctx, 5, exit)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(exit).toHaveBeenCalledWith(5)
+  })
+})
+
 describe('terminal mounting', () => {
   it('starts immediately when the configured agent already exists', async () => {
     const ctx = new Context()
@@ -4965,7 +5064,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { theme: { color: false } }, { terminal, exit: vi.fn() })
@@ -4990,7 +5089,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -5025,14 +5124,14 @@ describe('terminal mounting', () => {
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
       id: otherSession.id, options: {}, session: otherSession, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -5063,7 +5162,7 @@ describe('terminal mounting', () => {
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'idle', acceptsNextStep: false, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -5107,7 +5206,7 @@ describe('terminal mounting', () => {
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
       id: session.id, options: {}, session, status: 'running', acceptsNextStep: true, ctx,
-      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, updateInbox: () => 'not-found', cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }

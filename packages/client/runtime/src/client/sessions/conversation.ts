@@ -8,7 +8,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { TodoItem } from '@deepseek-ai/dsh-session/types'
 import type {
-  RpcError, SessionId, ToolCallView, ToolResultView,
+  InboxItemId, RpcError, SessionId, ToolCallView, ToolResultView,
 } from '@deepseek-ai/dsh-client-connection/client'
 import type { PendingInteraction } from './pending.ts'
 export type { TodoItem }
@@ -231,10 +231,12 @@ export interface RunningToolCall {
 }
 
 
-/** One queued-message row mirrored from `session/queued` frames (key: the enqueueing prompt's rpcId when wire-sourced). */
+/** One independently addressable row from the transient queue snapshot. */
 export interface QueuedMessage {
-  readonly key: string
+  readonly id: InboxItemId
   readonly preview: string
+  /** Complete editable text; null when the message contains non-text blocks. */
+  readonly text: string | null
 }
 
 /** In-progress assistant output (chunk accumulator product). */
@@ -292,7 +294,7 @@ export interface ConversationSnapshot {
    */
   codeDispatches: ReadonlyMap<string, readonly CodeSubCall[]>
   pending: readonly PendingInteraction[]
-  /** Read-only inbox mirror (session/queued frames + mux-open baseline; cleared by the leave-running flip). */
+  /** Authoritative transient inbox snapshot, replaced after every host-side change. */
   queue: readonly QueuedMessage[]
   running: boolean
   /** Input-area shape (see {@link ComposerPhase}); derived here, switched on by consumers. */

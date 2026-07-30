@@ -25,3 +25,16 @@ The surrounding runtime also loads JSONL session persistence and automatic conte
 | `DSH_SYSTEM_PROMPT` | Deployment-provided coding persona |
 
 Pass the config path through the Python SDK's `cordis` option or `DSH_CORDIS_CONFIG`. The bundled executable already carries every plugin named by this file; the target machine does not need Node.js.
+
+## Persistent tools variant
+
+[`persistent-tools.cordis.yml`](persistent-tools.cordis.yml) is a minimal runnable variant whose model-facing surface is exactly:
+
+- owner-scoped persistent `bash`
+- `str_replace_editor` with `view`, `create`, `str_replace`, and `insert`
+
+It composes the real local PTY, filesystem intent policy, and session sandbox policy. The keyless SDK snapshot drives the shipped JSON-RPC runtime through both tools, proves that shell cwd/environment survive across calls, and pins the notification stream, turn result, and persisted JSONL:
+
+```bash
+pnpm exec vitest run --config vitest.snapshot.config.ts -t persistent-tools
+```

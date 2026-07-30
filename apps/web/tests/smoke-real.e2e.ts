@@ -24,7 +24,7 @@ import { pathToFileURL } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { REPO_ROOT, connectFreshWorkspace, probeFreePort, requireDist, saveFailureShot } from './support.ts'
+import { REPO_ROOT, connectFreshWorkspace, newEnglishPage, probeFreePort, requireDist, saveFailureShot } from './support.ts'
 
 function waitForReadyLine(child: ChildProcess): Promise<string> {
   return new Promise((resolveReady, reject) => {
@@ -468,7 +468,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     )
     baseUrl = (await waitForReadyLine(child)).replace('0.0.0.0', '127.0.0.1')
     browser = await chromium.launch()
-    page = await browser.newPage({ viewport: { width: 1680, height: 1000 } })
+    page = await newEnglishPage(browser)
     page.on('pageerror', e => pageErrors.push(String(e)))
     await page.goto(baseUrl, { waitUntil: 'load' })
   }, 120_000)
@@ -546,7 +546,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     await screen(page, '07-back-to-chat')
   })
 
-  it('5 bash differential rendering: tool row click leaves the default details column open', async () => {
+  it('5 bash differential rendering: tool row click leaves the default details column closed', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-tool-details'))
     const input = page.locator('textarea').first()
     await input.fill('请用 bash 工具运行命令 echo w5marker 然后告诉我结果')
@@ -558,11 +558,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const toolRow = page.locator('[data-sample="bash-global"]')
     await toolRow.waitFor({ timeout: 120_000 })
     await screen(page, '08-bash-round')
-    expect(await detailsTrack(page)).toBe(360)
+    expect(await detailsTrack(page)).toBe(0)
     await toolRow.click()
-    // Tool rows no longer drive layout.openDetails; the default column stays open.
-    expect(await detailsTrack(page)).toBe(360)
-    await screen(page, '09-details-open')
+    // Tool rows no longer drive layout.openDetails; the default column stays closed.
+    expect(await detailsTrack(page)).toBe(0)
+    await screen(page, '09-details-closed')
   }, 150_000)
 
   it('6 sidebar drag widens the column and resets across reload', async () => {

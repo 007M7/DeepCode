@@ -55,7 +55,9 @@ interface Config {
 
 实体 `ReactLoopAgent`、其排队输入、outbox 与运行控制均为包内部实现。包根只导出插件／服务／配置契约，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个实体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
 
-统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`next-turn` 项加入排队 FIFO，除非 `wakeup: false`，否则会唤醒驱动器；接纳发生在任何轮次开启之前。循环在 `agent/prompt-submit` 之前打开一个私有的 next-step 接收窗口，并在 `turn/end` 之前关闭它。在该窗口内，`steer()` 与 `inject()` 会暂存到同一个 outbox；接纳获准后会开启轮次，记录提示词及其返回的 `additionalContexts`，再于首次请求前排空暂存输入。接纳被阻止或失败时，不会写入提示词或钩子生成的上下文。之后，仅含调用方暂存上下文的批次会采用空闲注入的立即追加行为，而 steering（中途引导）及与其一同暂存的上下文则继续待处理，以供重试或之后获准的提示词使用。窗口之外，steering 会成为唤醒驱动器的排队提示词，而注入会立即追加 `user/message`，不开启轮次也不运行模型。每次 inbox 入队都会发布 `agent/inbox/enqueue`，并携带解析出的 queued 或 steering 路由归类；取走它会发布 `agent/inbox/dequeue`，并携带相同的路由归类；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
+统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`next-turn` 项加入排队 FIFO，除非 `wakeup: false`，否则会唤醒驱动器；接纳发生在任何轮次开启之前。循环在 `agent/prompt-submit` 之前打开一个私有的 next-step 接收窗口，并在 `turn/end` 之前关闭它。在该窗口内，`steer()` 与 `inject()` 会暂存到同一个 outbox；接纳获准后会开启轮次，记录提示词及其返回的 `additionalContexts`，再于首次请求前排空暂存输入。接纳被阻止或失败时，不会写入提示词或钩子生成的上下文。之后，仅含调用方暂存上下文的批次会采用空闲注入的立即追加行为，而 steering（中途引导）及与其一同暂存的上下文则继续待处理，以供重试或之后获准的提示词使用。窗口之外，steering 会成为唤醒驱动器的排队提示词，而注入会立即追加 `user/message`，不开启轮次也不运行模型。
+
+每次 FIFO 接受项时都会铸造一个 `InboxItemId`，并通过 `agent/inbox/enqueue` 发布完整的单次入队项。`updateInbox()` 持有同步 queued 项边界：编辑会冻结替换内容，但不改变消息标识或位置；移除会发布 discard。编辑会发布 `agent/inbox/update`；steering 项和已被认领的项会返回 `not-found`。认领操作会发布 `agent/inbox/dequeue`，并在提示词接纳前不可逆地移除实时寻址标识，因此竞态中的更新无法改写持久历史；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
 
 ### 循环生命周期（`agent.ts`）
 

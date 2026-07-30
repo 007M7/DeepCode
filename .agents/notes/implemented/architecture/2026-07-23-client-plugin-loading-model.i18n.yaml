@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write
-2026-07-23-client-plugin-loading-model.md: 4028f50bf5cf8a05063df3bf5e2b4b7f45a3c02e
-2026-07-23-client-plugin-loading-model.zh.md: 7dc96b47c950af07adb71ba7fe131d53e5c0e51d
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-23-client-plugin-loading-model.md
+2026-07-23-client-plugin-loading-model.md: b0873b7aa7bccd3d613f3113fa18207770952e5d
+2026-07-23-client-plugin-loading-model.zh.md: f3472dbfc5a78924e77337bf92ce5983c8492c4c

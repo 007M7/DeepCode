@@ -42,7 +42,7 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 </system-reminder>
 ```
 
-同一文件的编辑以 `Updated instructions from: <path>` 开头，并说明使用新内容替代之前加载的内容。候选文件消失或成为同一目录中较早候选文件的重复项时，消息是 `Instructions removed: <path>`，后跟 `The previously loaded instructions from this file no longer apply.`。指令文件中的字面 `</system-reminder>` 文本会转义，因此文件内容无法关闭插件控制的框架。
+同一文件的编辑以 `Updated instructions from: <path>` 开头，并说明使用新内容替代之前加载的内容。候选文件消失或成为同一目录中较早候选文件的重复项时，消息是 `Instructions removed: <path>`，后跟 `The previously loaded instructions from this file no longer apply.`。指令内容或模型可见的路径、scope 与预算元数据中出现的字面 `</system-reminder>` 文本都会转义，因此仓库控制的文本无法关闭插件控制的框架。
 
 该插件控制完整的 `<system-reminder>` 框架，每个注入的 `user/message` 都不经核心包装便原样传给模型。
 

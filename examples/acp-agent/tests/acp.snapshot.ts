@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { expect, it } from 'vitest'
@@ -44,6 +45,15 @@ const LSP_CONFIG = fileURLToPath(new URL('./lsp.cordis.yml', import.meta.url))
 const WEB_CONFIG = fileURLToPath(new URL('../web.cordis.yml', import.meta.url))
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 const PACKED_CHUNKS_SOURCE = 'hook-cc-pretool-deny'
+
+async function prepareDelimiterPathWorkspace(cwd: string): Promise<void> {
+  const dir = join(cwd, 'scope</system-reminder>')
+  await mkdir(dir, { recursive: true })
+  await Promise.all([
+    writeFile(join(dir, 'AGENTS.md'), 'Delimiter path snapshot instruction.\n'),
+    writeFile(join(dir, 'task.txt'), 'delimiter path snapshot task\n'),
+  ])
+}
 
 // FIXME: Migrate backend-oriented scenarios to the headless stream-json suite;
 // this ACP suite should eventually retain only automation-protocol contracts.
@@ -160,11 +170,13 @@ const SCENARIOS: Scenario[] = [
   { name: 'repeat-tool-guard', hasModelTurn: true, recorded: false },
   // Authored replay: a root AGENTS.md pins the session prefix, then a read in
   // nested/ discovers its narrower AGENTS.md as a raw, metadata-bearing
-  // injected user/message. Both AGENTS.md fixtures are symlinks to a sibling
+  // injected user/message. Both portable AGENTS.md fixtures are symlinks to a sibling
   // AGENTS.canonical.md, so this scenario also guards that discovery follows a
-  // symlinked instruction file to its target's content. The scenario-specific
-  // config keeps home/root discovery hermetic, and the resulting prefix needs
-  // its own pinned header class.
+  // symlinked instruction file to its target's content. A second nested path
+  // containing a literal closing tag is created at runtime: Git cannot check
+  // that name out on Windows, so this delimiter-injection case is POSIX-only.
+  // The scenario-specific config keeps home/root discovery hermetic, and the
+  // resulting prefix needs its own pinned header class.
   {
     name: 'workspace-context',
     hasModelTurn: true,
@@ -174,6 +186,8 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'workspace-context',
     toolSchemasSource: 'text-turn',
     configPath: WORKSPACE_CONTEXT_CONFIG,
+    prepareWorkspace: prepareDelimiterPathWorkspace,
+    posixOnly: true,
   },
   { name: 'cancel', hasModelTurn: true, recorded: false, overridden: true },
   // Cancelling a live bash call relies on POSIX process-group termination;
@@ -212,10 +226,16 @@ const SCENARIOS: Scenario[] = [
     headerClass: 'advanced',
     configPath: ADVANCED_CONFIG,
   },
-  // Prompt-submit blocks are authored keylessly. Admission rejects before a
-  // turn opens, so only the ACP stop reason is observable and no log is harvested.
+  // Prompt-submit blocks are authored keylessly with malformed matcher fields,
+  // which these matcherless events must ignore. Admission rejects before a turn
+  // opens, so only the ACP stop reason is observable and no log is harvested.
   { name: 'hook-cc-promptsubmit-block', hasModelTurn: false, recorded: false },
   { name: 'hook-codex-promptsubmit-block', hasModelTurn: false, recorded: false },
+  // Each invalid matcher follows a runnable prompt blocker. Reaching the replay
+  // model without any hook audit rows proves config loading is atomic through
+  // the real Loader/app path, rather than retaining the earlier valid group.
+  { name: 'hook-cc-invalid-matcher', hasModelTurn: true, recorded: false },
+  { name: 'hook-codex-invalid-matcher', hasModelTurn: true, recorded: false },
   // The mid-turn seams fire during a real model turn, so each is recorded with its hook active
   // (the model's reaction to a deny/block/force-continue is part of the captured transcript).
   // SessionStart/SubagentStart are excluded because detached injection races log
