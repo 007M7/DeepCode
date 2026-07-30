@@ -538,6 +538,19 @@ describe('cross-directory sampling', () => {
     expect(sampleAcrossTopLevel(paths, 3)).toEqual({ items: ['solo/a', 'many/b', 'many/c'], shown: 2, total: 2 })
   })
 
+  it('does not rescan exhausted entries while filling a skewed page', () => {
+    const singletonCount = 12_500
+    const paths = [
+      ...Array.from({ length: singletonCount }, (_, index) => `group-${index}/only`),
+      ...Array.from({ length: singletonCount }, (_, index) => `late/${index}`),
+    ]
+    expect(sampleAcrossTopLevel(paths, paths.length - 1)).toMatchObject({
+      shown: singletonCount + 1,
+      total: singletonCount + 1,
+      items: { length: paths.length - 1 },
+    })
+  }, 500)
+
   it('reports the entries it could not reach when the page is smaller than the top level', () => {
     const paths = ['a/1', 'b/1', 'c/1', 'd/1']
     expect(sampleAcrossTopLevel(paths, 2)).toEqual({ items: ['a/1', 'b/1'], shown: 2, total: 4 })

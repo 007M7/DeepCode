@@ -150,27 +150,35 @@ function topLevelSegment(path: string): string {
  * @returns the page grouped by top-level entry, with the shown/total top-level spread.
  */
 export function sampleAcrossTopLevel(paths: readonly string[], maxItems: number, root = '.'): GlobSample {
+  type ActiveGroup = { key: string; items: string[]; index: number; current: string }
   const groups = new Map<string, string[]>()
+  let active: ActiveGroup[] = []
   for (const path of paths) {
     const key = topLevelSegment(relativeToSearchRoot(path, root))
     const group = groups.get(key)
-    if (group === undefined) groups.set(key, [path])
-    else group.push(path)
+    if (group === undefined) {
+      const items = [path]
+      groups.set(key, items)
+      active.push({ key, items, index: 0, current: path })
+    } else {
+      group.push(path)
+    }
   }
-  let rounds = 0
-  for (const group of groups.values()) rounds = Math.max(rounds, group.length)
   const taken = new Map<string, string[]>()
   let count = 0
-  for (let round = 0; round < rounds && count < maxItems; round += 1) {
-    for (const [key, group] of groups) {
+  while (active.length > 0 && count < maxItems) {
+    const nextActive: ActiveGroup[] = []
+    for (const { key, items, index, current } of active) {
       if (count >= maxItems) break
-      const path = group[round]
-      if (path === undefined) continue
       count += 1
       const bucket = taken.get(key)
-      if (bucket === undefined) taken.set(key, [path])
-      else bucket.push(path)
+      if (bucket === undefined) taken.set(key, [current])
+      else bucket.push(current)
+      const nextIndex = index + 1
+      const nextPath = items[nextIndex]
+      if (nextPath !== undefined) nextActive.push({ key, items, index: nextIndex, current: nextPath })
     }
+    active = nextActive
   }
   return { items: [...taken.values()].flat(), shown: taken.size, total: groups.size }
 }
