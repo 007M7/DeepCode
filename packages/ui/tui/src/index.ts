@@ -774,7 +774,9 @@ export function createTuiChat(
         break
       case 'assistant/message':
         completedStreaming = undefined
-        if (streaming === undefined || !chat.children.includes(streaming)) startAssistantStep(event.data)
+        // A settled component stays attached but never absorbs a later message
+        // of the same step; both the live and replay paths start a new one.
+        if (streaming === undefined || streaming.isSettled() || !chat.children.includes(streaming)) startAssistantStep(event.data)
         if (streaming !== undefined) {
           streaming.settle(event.data.message.content)
           applyTurnFolding(streaming.position.turn)
@@ -999,11 +1001,8 @@ export function createTuiChat(
   // same reason.
   ui.queryTerminalColorScheme({ timeoutMs: 2000 }).catch(() => {})
 
-  const toggleTools = (): void => {
-    // The cycle order puts the two common reading modes adjacent: preview ->
-    // full detail -> conversation-only, then back to the preview default.
-    toolsVisibility = toolsVisibility === 'collapsed' ? 'expanded'
-      : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed'
+  const setToolsVisibility = (next: ToolCardVisibility): void => {
+    toolsVisibility = next
     for (const card of allToolCards) card.setVisibility(toolsVisibility)
     // Context cards carry injected instructions rather than tool traffic, so
     // they never hide: the hidden phase reads as their collapsed preview.
@@ -1014,8 +1013,15 @@ export function createTuiChat(
     appendNotice(toolsVisibility === 'hidden' ? 'Tool cards hidden.' : `Tool and context cards ${toolsVisibility}.`)
   }
 
-  const toggleReasoning = (): void => {
-    showReasoning = !showReasoning
+  const toggleTools = (): void => {
+    // The cycle order puts the two common reading modes adjacent: preview ->
+    // full detail -> conversation-only, then back to the preview default.
+    setToolsVisibility(toolsVisibility === 'collapsed' ? 'expanded'
+      : toolsVisibility === 'expanded' ? 'hidden' : 'collapsed')
+  }
+
+  const setReasoning = (show: boolean): void => {
+    showReasoning = show
     const activeStreaming = streaming
     rebuildTranscript(false)
     /* v8 ignore next -- the non-streaming command path is covered; this branch preserves an active stream across rebuild. */
@@ -1027,6 +1033,39 @@ export function createTuiChat(
       chat.addChild(activeStreaming.timing)
     }
     appendNotice(`Reasoning blocks ${showReasoning ? 'shown' : 'hidden'}.`)
+  }
+
+  const toggleReasoning = (): void => { setReasoning(!showReasoning) }
+
+  // `/details` names the same transcript-detail state the Ctrl+O cycle and
+  // Ctrl+R toggle mutate, so a user can jump to a mode without cycling.
+  const runDetails = (rawInput: string): CommandResult => {
+    const tokens = rawInput.split(/\s+/u).filter(token => token !== '')
+    if (tokens.length === 0) {
+      appendNotice(`Tool and context cards ${toolsVisibility}; reasoning blocks ${showReasoning ? 'shown' : 'hidden'}.`)
+      return { kind: 'success' }
+    }
+    let visibility: ToolCardVisibility | undefined
+    let reasoning: boolean | undefined
+    for (let token = tokens.shift(); token !== undefined; token = tokens.shift()) {
+      if (token === 'collapsed' || token === 'expanded' || token === 'hidden') {
+        visibility = token
+      } else if (token === 'reasoning') {
+        const value = tokens[0]
+        if (value === 'on' || value === 'off') {
+          tokens.shift()
+          reasoning = value === 'on'
+        } else {
+          reasoning = !showReasoning
+        }
+      } else {
+        return { kind: 'error', text: `Unknown /details argument "${token}". Usage: /details [collapsed|expanded|hidden] [reasoning [on|off]]` }
+      }
+    }
+    // Reasoning first: its transcript rebuild would drop the visibility notice.
+    if (reasoning !== undefined) setReasoning(reasoning)
+    if (visibility !== undefined) setToolsVisibility(visibility)
+    return { kind: 'success' }
   }
 
   const showHelp = (): void => {
@@ -1213,6 +1252,12 @@ export function createTuiChat(
       name: 'clear',
       description: 'Clear the transcript view (session history is unchanged)',
       handler: () => { chat.clear(); requestRender(); return { kind: 'success' } },
+    })
+    commandCtx.commands.register({
+      name: 'details',
+      description: 'Show or set tool-card visibility and reasoning display',
+      input: { hint: '[collapsed|expanded|hidden] [reasoning [on|off]]' },
+      handler: ({ rawInput }) => runDetails(rawInput),
     })
     commandCtx.commands.register({
       name: 'palette',
@@ -1553,7 +1598,6 @@ export function createTuiChat(
     if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
-    if (event.type === 'assistant/message' && streaming?.isSettled()) streaming = undefined
     // A replacement mutates only the model surface, so the rendered transcript
     // keeps what it already showed; a landed summary checkpoint adds its marker.
     if (isReplacementSurfaceEvent(event)) {

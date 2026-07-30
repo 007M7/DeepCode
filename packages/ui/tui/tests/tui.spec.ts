@@ -2510,6 +2510,39 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('/details reports and sets card visibility and reasoning display', async () => {
+    const result = await setup()
+    const run = async (line: string): Promise<void> => {
+      result.terminal.send(line)
+      result.terminal.send('\r')
+      await tick()
+    }
+
+    await run('/details')
+    expect(result.terminal.output).toContain('Tool and context cards collapsed; reasoning blocks shown.')
+
+    await run('/details hidden')
+    expect(result.terminal.output).toContain('Tool cards hidden.')
+
+    await run('/details expanded reasoning off')
+    expect(result.terminal.output).toContain('Tool and context cards expanded.')
+    expect(result.terminal.output).toContain('Reasoning blocks hidden.')
+
+    await run('/details reasoning on')
+    expect(result.terminal.output).toContain('Reasoning blocks shown.')
+
+    // Bare `reasoning` toggles: shown -> hidden, confirmed by the status line.
+    await run('/details reasoning')
+    await run('/details collapsed')
+    await run('/details')
+    expect(result.terminal.output).toContain('Tool and context cards collapsed; reasoning blocks hidden.')
+
+    await run('/details bogus')
+    expect(result.terminal.output).toContain('Unknown /details argument "bogus"')
+
+    await dispose(result)
+  })
+
   it('sends, steers, handles commands, global keys, and disposed-agent input', async () => {
     const result = await setup()
 
