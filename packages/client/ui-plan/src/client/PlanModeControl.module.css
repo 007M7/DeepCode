@@ -1,5 +1,5 @@
-/* Read-only plan status badge: quiet chip; the × affordance appears on
-   hover/focus and the whole chip is the /plan off button. */
+/* Plan-mode toggle chip: quiet while off; the pressed state takes the
+   business accent pair (same token pairing as the trajectory user badge). */
 
 .wrap {
   display: inline-flex;
@@ -10,8 +10,7 @@
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
+  padding: 4px 8px;
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -25,6 +24,14 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* Hovering keeps the pressed accent: the higher-specificity hover rule above
+   would otherwise swap it back to the neutral hover wash. */
+.chip[aria-pressed='true'],
+.chip[aria-pressed='true']:hover:not(:disabled) {
+  color: var(--dsw-alias-state-business-primary);
+  background: var(--dsw-alias-state-business-tertiary);
+}
+
 .chip:focus-visible {
   outline: 2px solid var(--dsw-alias-label-secondary);
   outline-offset: 2px;
@@ -33,17 +40,6 @@
 .chip:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-.close {
-  display: inline-flex;
-  align-items: center;
-  color: var(--dsw-alias-label-caption);
-}
-
-.chip:hover .close,
-.chip:focus-visible .close {
-  color: var(--dsw-alias-label-secondary);
 }
 
 .error {
