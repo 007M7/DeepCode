@@ -55,6 +55,8 @@ dsh --config "$PWD/examples/mcp-memory/mcp-reference-memory.cordis.yml"
 
 This reference server stores a local knowledge graph and exposes entity, relation, observation, read, search, and open tools. It needs no model or embedding service. The example maps `DSH_MEMORY_USER_ID` to an isolated `MEMORY_FILE_PATH`.
 
+Search is case-insensitive substring matching over entity names, types, and observations, not semantic retrieval. The server does not add embeddings, automatic summarization, conflict resolution, or a forgetting policy.
+
 ### Engram
 
 ```sh

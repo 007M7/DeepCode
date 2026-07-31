@@ -55,6 +55,8 @@ dsh --config "$PWD/examples/mcp-memory/mcp-reference-memory.cordis.yml"
 
 该参考服务器存储本地知识图谱，并公开实体、关系、观察、读取、搜索和打开工具。它不需要模型或 embedding 服务。该示例将 `DSH_MEMORY_USER_ID` 映射到隔离的 `MEMORY_FILE_PATH`。
 
+搜索只对实体名称、类型和 observation 进行不区分大小写的子字符串匹配，不是语义检索。该服务器不提供 embedding、自动摘要、冲突消解或遗忘策略。
+
 ### Engram
 
 ```sh
