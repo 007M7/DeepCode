@@ -104,6 +104,8 @@ describe('ui-permission browser plugin', () => {
     expect(injected?.hooks.permission).toBeDefined()
     expect(typeof injected?.load).toBe('function')
     expect(typeof injected?.select).toBe('function')
+    await injected!.load()
+    await injected!.select('read-only')
   })
 
   it('availability follows the projection key; options mark the current value active and exclude custom', async () => {

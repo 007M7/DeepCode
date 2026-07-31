@@ -41,7 +41,7 @@ export type PermissionRowProps =
 export function PermissionRow({ load, select, usePermission, t }: PermissionRowProps) {
   const state = usePermission(snapshot => snapshot)
   const [open, setOpen] = useState(false)
-  const [confirmation, setConfirmation] = useState<string | null>(null)
+  const [confirmingFullAccess, setConfirmingFullAccess] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
 
   useEffect(() => {
@@ -52,12 +52,12 @@ export function PermissionRow({ load, select, usePermission, t }: PermissionRowP
     if (state.writable && state.status !== 'unavailable') return
     setOpen(false)
     setAcknowledged(false)
-    setConfirmation(null)
+    setConfirmingFullAccess(false)
   }, [state.status, state.writable])
 
   if (state.status === 'unavailable') return null
   const selected = state.options.find(option => option.id === state.currentValue)
-  const busy = state.status === 'loading' || state.status === 'saving' || confirmation !== null
+  const busy = state.status === 'loading' || state.status === 'saving' || confirmingFullAccess
   const label = selected?.label
     ?? (busy ? t('loading') : t('unavailable'))
   const description: string = state.error ?? t('description')
@@ -79,7 +79,7 @@ export function PermissionRow({ load, select, usePermission, t }: PermissionRowP
             if (id === state.currentValue) return
             if (id === FULL_ACCESS_PRESET) {
               setAcknowledged(false)
-              setConfirmation(id)
+              setConfirmingFullAccess(true)
               return
             }
             void select(id)
@@ -102,7 +102,7 @@ export function PermissionRow({ load, select, usePermission, t }: PermissionRowP
         />
       </div>
       <RiskConfirmation
-        open={confirmation !== null}
+        open={confirmingFullAccess}
         title={t('confirm.title')}
         description={t('confirm.description')}
         acknowledgeLabel={t('confirm.acknowledge')}
@@ -113,14 +113,12 @@ export function PermissionRow({ load, select, usePermission, t }: PermissionRowP
         onAcknowledgedChange={setAcknowledged}
         onCancel={() => {
           setAcknowledged(false)
-          setConfirmation(null)
+          setConfirmingFullAccess(false)
         }}
         onConfirm={() => {
-          if (!acknowledged || confirmation === null) return
-          const preset = confirmation
           setAcknowledged(false)
-          setConfirmation(null)
-          void select(preset)
+          setConfirmingFullAccess(false)
+          void select(FULL_ACCESS_PRESET)
         }}
       />
     </>
