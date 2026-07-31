@@ -27,6 +27,14 @@ The Web/headless composition also registers only `web_search`. Search uses DeepS
 
 `DSH_TOOLS_MODE` selects the tool presentation mode for the whole Web/headless process: `native` (the schema default when unset), `code` (the `run_code`-only Code Mode wire), or `both`; any other value fails loud at boot through the `dsh-tools` config schema. It is a TEMPORARY seam — process-wide because Loader composition is static — and is removed once the web UI owns per-session tool-mode selection; the TUI surface ignores it (its config tree pins its own mode).
 
+[`core-web.cordis.yml`](config/core-web.cordis.yml) is an opt-in `dsh web --config` overlay that keeps the shipped Web host, browser, Workspace, persistence, and permission composition while reducing the default native model surface to owner-scoped persistent `bash` and `str_replace_editor`. The PTY backend and editor consume the existing Web sandbox and filesystem providers. An open persistent shell prevents changing that session's permission mode until the shell closes, so a shell created under wider access cannot survive a downgrade. `DSH_TOOLS_MODE` still controls native/Code Mode presentation for the resulting two-tool registry.
+
+From a source checkout, start this minimal Web profile with:
+
+```sh
+pnpm run dsh web --config apps/cli/config/core-web.cordis.yml
+```
+
 Every `dsh` surface — TUI, Web, and headless — reports session telemetry by default (the row lives in the shared `base.cordis.yml`): every session-log event streams as OTLP/HTTP log records to `https://harness-telemetry.deepseeksvc.com/v1/logs` on a 10-second batch cadence. `DSH_TELEMETRY_OTLP_URL` points the exporter at a different collector; setting `DSH_TELEMETRY_DISABLED` to ANY non-empty value — including `0` or `false` — disables the row before it loads (a privacy switch prefers off-by-mistake over on-by-mistake). No redaction rule is mounted in this composition yet: exported records are the raw captured copy, including message text, tool arguments and results, and the session's working-directory path. The deployment rulings live in the [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md).
 
 ## Install (developer machine)

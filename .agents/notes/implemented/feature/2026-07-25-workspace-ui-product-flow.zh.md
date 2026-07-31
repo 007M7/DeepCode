@@ -50,9 +50,9 @@ Session 自己持有首条输入并驱动一条内部流水线：必要时以预
 
 完全没有 Workspace 时，页面创建默认名为 `workspace` 的前端 Workspace 对象和指向它的前端 Session。两者不写 Host，composer 始终可输入；首次发送才依次 materialize Workspace、attach Session、发送消息。
 
-顶部 New Session、Workspace 行内加号和 Workspace picker 最终都调用同一 New Session 动作：显式 Workspace id 直接成为目标，未指定时使用最近 Workspace，没有真实 Workspace 时使用 Workspace Intent。Workspace picker 的 Use an existing folder 与 Create a new workspace 会在用户确认时立即创建真实 Workspace，再把前端 Session 定位到该 Workspace；即使用户不发送消息，显式创建的空 Workspace 也保留。
+顶部 New Session、Workspace 行内加号和 Workspace picker 最终都调用同一 New Session 动作：显式 Workspace id 直接成为目标，未指定时使用最近 Workspace，没有真实 Workspace 时使用 Workspace Intent。Workspace picker 的单一 Add workspace 动作（见[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)；本决策做出时是 Use an existing folder 与按名称创建两个动作）会在用户确认目录时立即创建真实 Workspace，再把前端 Session 定位到该 Workspace；即使用户不发送消息，显式创建的空 Workspace 也保留。
 
-Create a new workspace 暂时用同一个输入作为目录名和显示名。UI 根据当前 Workspace title 禁止重复确认，Host 继续拒绝绕过 UI 或并发产生的同名请求。跨 Workspace 移动 Session、从 Ungrouped 手动收编以及分别输入显示名和目录名仍不在此动线范围内。
+新建 Workspace 的显示名取自其所在目录，Host 拒绝已注册的同名 title（UI 侧的重名预检随按名称创建的对话框一并删除）。跨 Workspace 移动 Session、从 Ungrouped 手动收编以及分别输入显示名和目录名仍不在此动线范围内。
 
 ### 首次发送与恢复
 

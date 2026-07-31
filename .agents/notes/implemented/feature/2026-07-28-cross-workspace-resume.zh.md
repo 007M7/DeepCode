@@ -18,7 +18,7 @@ Status: implemented
 
 共享 CLI 配置提供 Harness home 下的同一个会话根目录，选择器获得 workspace 范围，交接过程携带目标目录。
 
-**存储。** 共享 base 在 `apps/cli/config/base.cordis.yml` 中拥有默认值：其 `session-persistence-jsonl` 配置项把 `sessions` 解析到 `DSH_HOME` 下；环境尚未初始化时则使用标准的 `~/.dsh` 回退值。因此 TUI、Web 与 headless 使用同一个默认值，无需启动器补丁或启动槽位。若 overlay 或个人 patch 显式声明根目录，它会整体替换该配置项的 `config`，并继续作为部署的权威选择。
+**存储。** 共享 base 在 `apps/cli/config/base.cordis.yml` 中拥有默认值：其 `session-persistence-jsonl` 配置项调用由 app-boot 提供的 `dshHomePath('sessions')`，该函数使用规范的 `DSH_HOME` 解析器及其标准的 `~/.dsh` 回退值。因此 TUI、Web 与 headless 使用同一个默认值，无需针对会话的启动器补丁或槽位。若 overlay 或个人 patch 显式声明根目录，它会整体替换该配置项的 `config`，并继续作为部署的权威选择。
 
 **是范围，不是排除。** 当前 workspace 之外的 workspace 是一种展示范围，而不是禁用理由。`showResume()` 汇总每一条记录，`ResumePicker` 持有一个 `'workspace' | 'all'` 的 `scope`，默认为当前 workspace，因此常见场景毫无变化。Tab 切换范围；范围行会说明当前生效的范围，以及另一个范围下的数量；在全 workspace 范围中每一行都报告自己的 workspace，而该标签只在展示它的范围里才加入可搜索文本。切换范围会清空查询和选中项，使高亮行始终属于可见列表；而逐行的 workspace 行会让该范围下的每一行在终端里多占一行，可见条数预算已经把这一点计入。
 

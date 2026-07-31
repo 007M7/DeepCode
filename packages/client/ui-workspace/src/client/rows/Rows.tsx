@@ -158,6 +158,9 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
       anchor={ownRow}
       content={<WorkspaceHoverContent label={row.label} cwd={row.cwd} createdAt={row.createdAt} t={t} />}
       disabled={menuOpen}
+      copyText={row.cwd}
+      copyLabel={t('copy')}
+      copiedLabel={t('hover.copied')}
     />
   )
 }
@@ -347,6 +350,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
       anchor={ownRow}
       content={<SessionHoverContent node={node} now={now} t={t} />}
       disabled={menuOpen || drag?.active === true}
+      copyText={row.blank ? undefined : row.title}
+      copyLabel={t('copy')}
+      copiedLabel={t('hover.copied')}
     />
   )
 }
