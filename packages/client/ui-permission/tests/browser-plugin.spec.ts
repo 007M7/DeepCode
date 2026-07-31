@@ -54,6 +54,17 @@ async function bench() {
   ctx.provide('sessions', {
     binding: (id: SessionId) => (values.has(id) ? { sessionId: id, session: session(id) } : undefined),
   })
+  const en = {
+    'confirm.title': 'Enable Full access?',
+    'confirm.description': 'Full access can perform sensitive operations.',
+    'confirm.acknowledge': 'I understand the risks and want to continue',
+    'confirm.cancel': 'Cancel',
+    'confirm.enable': 'Enable Full access',
+  } as Record<string, string>
+  ctx.provide('locale', {
+    register: () => () => {},
+    bind: () => (key: string) => en[key] ?? key,
+  })
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   return {
@@ -86,7 +97,14 @@ describe('ui-permission browser plugin', () => {
     expect(again.find(option => option.id === 'workspace-write')?.active).toBe(true)
     expect(again.find(option => option.id === 'read-only')?.detail).toBe('Reads only.')
     // Kebab-case names title-case; non-kebab host-configured names pass through.
-    expect(again.map(option => option.label)).toEqual(['Read Only', 'Workspace Write', 'Danger Full Access'])
+    expect(again.map(option => option.label)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
+    expect(again.find(option => option.id === 'danger-full-access')?.confirmation).toEqual({
+      title: 'Enable Full access?',
+      description: 'Full access can perform sensitive operations.',
+      acknowledgeLabel: 'I understand the risks and want to continue',
+      cancelLabel: 'Cancel',
+      confirmLabel: 'Enable Full access',
+    })
     b.values.set(sid('s1'), { ...SELECT, options: [{ value: 'plain', name: 'Ask Every Time' }] })
     const passthrough = await c.ui.options(proj, new AbortController().signal)
     expect(passthrough[0]?.label).toBe('Ask Every Time')

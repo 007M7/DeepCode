@@ -52,15 +52,28 @@ function pretty(value: unknown): string {
   return displayText(serialized ?? String(value))
 }
 
+/**
+ * A side's content lines under the terminator rule the Web DiffBlock also
+ * applies: empty text is zero lines (a full deletion's `newText`, a create's
+ * absent `oldText`), and a single trailing newline terminates the last line
+ * rather than adding an empty one. An interior blank line survives. Keeping the
+ * two front ends on the same rule holds their `+A -R` footers in step.
+ */
+function diffContentLines(text: string): string[] {
+  if (text === '') return []
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  return body.split('\n')
+}
+
 /** A file diff as colored `+`/`-` lines, optionally prefixed with its path. */
 function diffLines(diff: FileDiff, palette: Palette): string[] {
   // The card header is a fixed `Tool / <name>` frame that never names a file, so
   // each hunk always carries its own path header (no redundancy to suppress).
   const lines = [palette.bold(displayText(diff.path))]
   if (diff.oldText !== null) {
-    for (const line of displayText(diff.oldText).split('\n')) lines.push(palette.error(`- ${line}`))
+    for (const line of diffContentLines(displayText(diff.oldText))) lines.push(palette.error(`- ${line}`))
   }
-  for (const line of displayText(diff.newText).split('\n')) lines.push(palette.success(`+ ${line}`))
+  for (const line of diffContentLines(displayText(diff.newText))) lines.push(palette.success(`+ ${line}`))
   return lines
 }
 
@@ -501,15 +514,19 @@ export class ToolCardComponent implements Component {
     }
     if (view.card === 'diff') {
       // The header no longer names the file, so each diff keeps its own path
-      // header. A trailing footer summarizes the change (`+A -R · N file(s)`).
+      // header. A trailing footer summarizes the change (`+A -R · N file(s)`),
+      // on the same terminator rule and distinct-path count the Web DiffBlock
+      // uses, so the two front ends' footers agree.
       let added = 0
       let removed = 0
+      const paths = new Set<string>()
       const hunks = view.diffs.flatMap((diff, index) => {
-        if (diff.oldText !== null) removed += displayText(diff.oldText).split('\n').length
-        added += displayText(diff.newText).split('\n').length
+        paths.add(diff.path)
+        if (diff.oldText !== null) removed += diffContentLines(displayText(diff.oldText)).length
+        added += diffContentLines(displayText(diff.newText)).length
         return [...index > 0 ? [''] : [], ...diffLines(diff, this.palette)]
       })
-      const files = view.diffs.length
+      const files = paths.size
       const footer = this.palette.dim(`└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}`)
       // A diff's own `+`/`-` colors carry its meaning, so it renders verbatim
       // rather than under the dim result-output color.
