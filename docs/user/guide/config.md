@@ -30,7 +30,7 @@ A minimal configuration is a list of plugin entries:
   config:
     agents:
       - id: main
-        provider: deepseek
+        provider: deepseek-official
         model: deepseek-v4-flash
 ```
 

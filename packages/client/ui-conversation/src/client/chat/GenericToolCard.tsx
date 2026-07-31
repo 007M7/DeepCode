@@ -9,8 +9,8 @@ import {
   IconApiOutline14, IconBrowseOutline16, IconCodeOutline16, IconEditOutline16, IconSearchOutline16, IconSparkle16,
   IconThinkOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ToolRowOwnerProps } from '../contract/slots.ts'
-import { terminalCardModel } from '../contract/terminal-card-model.ts'
+import type { ChatViewSlotProps, ToolRowOwnerProps } from '../contract/slots.ts'
+import { terminalCardModel, terminalFailed } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
 
@@ -26,12 +26,23 @@ const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
   others: <IconSparkle16 size={14} />,
 }
 
-export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwnerProps) {
+/** Card props: the owner payload plus the render site's locale seat (plain prop). */
+export interface GenericToolCardProps extends ToolRowOwnerProps {
+  t: ChatViewSlotProps['t']
+}
+
+export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: GenericToolCardProps) {
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
+  // A failing exit status is the terminal card's own error signal (the call
+  // itself settles isError:false), surfaced as the row's red state dot.
+  const state = model.state === 'ok' && terminal !== null && terminalFailed(terminal)
+    ? 'error'
+    : model.state
   const singleFile = model.filePath !== undefined
   return (
     <ToolRow
+      t={t}
       variant={model.variant}
       toolName={toolName}
       icon={VARIANT_ICONS[model.variant]}
@@ -39,12 +50,14 @@ export function GenericToolCard({ toolName, block, cwd, openFile }: ToolRowOwner
       // A terminal presenter's description is the contract's above-card text, so
       // it outranks the args-derived summary here exactly as it does in BashRow.
       summary={terminal?.description ?? model.summary}
-      // Single-file tools never expose an args body — the path link is the only action.
-      body={singleFile ? null : model.body}
+      body={model.body}
+      output={model.output}
+      errorSummary={model.errorSummary}
       terminal={terminal}
-      state={model.state}
+      state={state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
+      inspect={inspect}
     />
   )
 }

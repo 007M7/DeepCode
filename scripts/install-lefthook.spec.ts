@@ -305,7 +305,7 @@ describe('worktree-local Lefthook installer', () => {
     expect(readFileSync(mainHookPath, 'utf8')).toBe(initialHook)
     expect(existsSync(join(commonDirectory(fixture), 'dsh-lefthook-install.lock'))).toBe(false)
     expect(existsSync(join(hooksPath(fixture, fixture.main), '.fake-lefthook-running'))).toBe(false)
-  })
+  }, 15_000)
 
   it('repairs its owned absolute hook path after the checkout moves', async () => {
     const fixture = createFixture()

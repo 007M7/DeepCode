@@ -20,6 +20,7 @@ import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './suppor
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/queue-actions', import.meta.url))
 const FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
+const COLLAPSED_EXPECTED = join(SNAPSHOT_DIR, 'collapsed.expected.md')
 const EDITING_EXPECTED = join(SNAPSHOT_DIR, 'editing.expected.md')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const MODE = webSnapshotMode()
@@ -80,22 +81,32 @@ describe('web e2e: queue row actions', () => {
       await input.fill(text)
       await input.press('Enter')
     }
+    const queueHeader = page.getByRole('button', { name: '2 queued messages' })
+    await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
+      .toBe('false')
+    const collapsedSnapshot = await captureStableAria(
+      page,
+      '[class*="centerCol"]',
+      scaffold.workspaceCwd,
+    )
+    await compareOrRefreshGolden(COLLAPSED_EXPECTED, collapsedSnapshot, MODE)
+    await queueHeader.click()
     await expect.poll(
-      () => page.getByRole('button', { name: '删除排队消息' }).count(),
+      () => page.getByRole('button', { name: 'Remove queued message' }).count(),
       { timeout: 10_000 },
     ).toBe(2)
 
     const editRow = page.getByText(EDIT, { exact: true }).locator('..')
-    await editRow.getByRole('button', { name: '编辑排队消息' }).click()
-    const editor = page.getByRole('textbox', { name: '编辑排队消息' })
+    await editRow.getByRole('button', { name: 'Edit queued message' }).click()
+    const editor = page.getByRole('textbox', { name: 'Edit queued message' })
     await editor.fill(EDITED)
     const editingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EDITING_EXPECTED, editingSnapshot, MODE)
-    await page.getByRole('button', { name: '保存排队消息' }).click()
+    await page.getByRole('button', { name: 'Save queued message' }).click()
     await page.getByText(EDITED, { exact: true }).waitFor()
 
     const removeRow = page.getByText(REMOVE, { exact: true }).locator('..')
-    await removeRow.getByRole('button', { name: '删除排队消息' }).click()
+    await removeRow.getByRole('button', { name: 'Remove queued message' }).click()
     await expect.poll(() => page.getByText(REMOVE, { exact: true }).count()).toBe(0)
 
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
@@ -105,13 +116,16 @@ describe('web e2e: queue row actions', () => {
     expect(tripwire.warnings).toEqual([])
 
     const editedRow = page.getByText(EDITED, { exact: true }).locator('..')
-    await editedRow.getByRole('button', { name: '删除排队消息' }).click()
+    await editedRow.getByRole('button', { name: 'Remove queued message' }).click()
     await expect.poll(() => page.getByText(EDITED, { exact: true }).count()).toBe(0)
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await settled
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps its snapshot inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['editing.expected.md', 'ui.expected.md'])
+    await assertFixtureInventory(
+      SNAPSHOT_DIR,
+      ['collapsed.expected.md', 'editing.expected.md', 'ui.expected.md'],
+    )
   })
 })

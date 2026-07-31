@@ -8,6 +8,10 @@ The headless demo combines the real DeepSeek adapter and coding capabilities wit
 ```mermaid
 flowchart LR
   cfg["examples/headless-agent<br/>cordis.yml"]
+  plugin_headless_settings["settings<br/>@deepseek-ai/dsh-settings-local"]
+  cfg --> plugin_headless_settings
+  plugin_headless_credentials["credentials<br/>@deepseek-ai/dsh-credentials-local"]
+  cfg --> plugin_headless_credentials
   plugin_headless_llm_deepseek["llm-deepseek<br/>@deepseek-ai/dsh-llm-deepseek"]
   cfg --> plugin_headless_llm_deepseek
   plugin_headless_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
@@ -55,6 +59,8 @@ flowchart LR
 
 | Plugin id | Package / module |
 | --- | --- |
+| `settings` | `@deepseek-ai/dsh-settings-local` |
+| `credentials` | `@deepseek-ai/dsh-credentials-local` |
 | `llm-deepseek` | `@deepseek-ai/dsh-llm-deepseek` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash` | `@deepseek-ai/dsh-bash-local` |

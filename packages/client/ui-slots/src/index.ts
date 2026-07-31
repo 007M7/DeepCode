@@ -338,10 +338,17 @@ export type InjectParams<K extends keyof SlotMap & string, H> =
         : [sessionId: SessionIdOf | undefined])
       : ([H] extends [StoreDecl] ? [actions: BoundActions<HandleOf<H>>] : [])
 
+/**
+ * A list-entry display label: a plain string, or a thunk re-evaluated per
+ * read so registration-time text (nav rows, tabs) follows the active locale
+ * without re-registration. Owners resolve through {@link resolveSlotLabel}.
+ */
+export type SlotLabel = string | (() => string)
+
 /** Kind shape fields carried in register options (keyed dispatch key; list id/order/label; chain select/priority). */
 export type KindOptions<E extends SlotEntryDef, M = never> =
   E['kind'] extends 'keyed' ? { key: string }
-    : E['kind'] extends 'list' ? { id: string; order?: number; label?: string }
+    : E['kind'] extends 'list' ? { id: string; order?: number; label?: SlotLabel }
       : E['kind'] extends 'chain' ? {
         /** Routing selector, mandatory on chain entries; `M` (the component's `matched` prop) infers from its return. */
         select: ChainSelect<E extends { owner: infer O extends object } ? O : object, M>
@@ -391,7 +398,7 @@ type BaseOptions<K extends keyof SlotMap & string, D extends ChildrenDecl, H, M 
  */
 export interface StoredEntry {
   component: unknown
-  options: { key?: string; id?: string; order?: number; label?: string; priority?: number }
+  options: { key?: string; id?: string; order?: number; label?: SlotLabel; priority?: number }
   /** Chain routing selector (type-erased like `inject`; present exactly on chain-slot entries). */
   select?: ((owner: never) => unknown) | undefined
   /** Registrant business face; positional params derive from the declaration (sessionId?, actions?). */
@@ -407,6 +414,17 @@ export interface StoredEntry {
 }
 
 /**
+ * Resolve a possibly-thunked list label at read time (thunks follow the
+ * active locale; owners projecting ledger rows call this instead of reading
+ * `options.label` raw).
+ * @param label - the stored label.
+ * @returns the display string, or undefined when the entry declared none.
+ */
+export function resolveSlotLabel(label: SlotLabel | undefined): string | undefined {
+  return typeof label === 'function' ? label() : label
+}
+
+/**
  * Type-erased options view the implementation works with. Optional members
  * carry explicit `| undefined`: under exactOptionalPropertyTypes the public
  * overloads (whose generics admit undefined) would otherwise fail
@@ -417,7 +435,7 @@ interface ErasedOptions {
   key?: string | undefined
   id?: string | undefined
   order?: number | undefined
-  label?: string | undefined
+  label?: SlotLabel | undefined
   select?: ((owner: never) => unknown) | undefined
   priority?: number | undefined
   children?: Record<string, SlotSpec<SlotEntryDef>> | undefined
