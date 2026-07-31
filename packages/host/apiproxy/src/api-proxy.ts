@@ -21,7 +21,7 @@ import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-se
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceNameConflictError, WorkspaceUnknownSessionError,
+  WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
@@ -522,6 +522,14 @@ class SessionCwdConflict extends Error {
 /** Host failed before the registry could adopt a name-created directory. */
 class WorkspaceDirectoryCreationError extends Error {}
 
+/** An explicit Host naming operation would duplicate another Workspace title. */
+class WorkspaceNameConflictError extends Error {
+  constructor(readonly workspaceName: string) {
+    super(`workspace name '${workspaceName}' is already in use`)
+    this.name = 'WorkspaceNameConflictError'
+  }
+}
+
 /** Shared workspace-not-found error response of the workspace.* mutation rows. */
 function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string): RpcResponse<T> {
   return err(request, {
@@ -570,7 +578,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const resumes = new Map<SessionId, Promise<Agent>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
-  /** Serializes path ownership checks with record creation across spellings. */
+  /** Serializes path ownership and explicit title checks with Workspace mutations. */
   let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const pendingApprovals = new Map<RpcId, PendingApproval>()

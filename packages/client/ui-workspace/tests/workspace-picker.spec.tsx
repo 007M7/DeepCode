@@ -4,7 +4,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import type {
   SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { WorkspaceCreateError } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from '../src/client/contract/slots.ts'
@@ -115,10 +114,12 @@ function chooseAdd(): void {
 }
 
 describe('WorkspacePicker', () => {
-  it('lists real Workspaces from useWorkspaces and forwards a selected id', () => {
-    const b = mount()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Alpha' }))
-    expect(b.onPick).toHaveBeenCalledWith(wid('alpha'))
+  it('lists same-title Workspaces separately and forwards the selected id', () => {
+    const b = mount([workspace('alpha', 'Shared'), workspace('beta', 'Shared')])
+    const entries = screen.getAllByRole('menuitem', { name: 'Shared' })
+    expect(entries).toHaveLength(2)
+    fireEvent.click(entries[1]!)
+    expect(b.onPick).toHaveBeenCalledWith(wid('beta'))
   })
 
   it('opens the composed directory flow, adopts its picked path, and selects the returned Workspace', async () => {
@@ -156,26 +157,6 @@ describe('WorkspacePicker', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('shows a name conflict and retries by reopening the flow', async () => {
-    const createWorkspace = vi.fn(async () => {
-      throw new WorkspaceCreateError({
-        code: 'workspace-name-conflict', message: 'project already exists', details: { name: 'project' },
-      })
-    })
-    const b = mount([workspace('alpha', 'Alpha')], createWorkspace)
-    chooseAdd()
-    await act(async () => { b.probe.owner!.onPicked('/one/project') })
-    await waitFor(() => {
-      expect(screen.getByRole('dialog', { name: '已存在同名工作区' })).toBeTruthy()
-    })
-    expect(screen.getByRole('alert').textContent).toBe('请选择其他名称的文件夹。')
-    // The failed adoption withdrew the flow; Choose again reopens it.
-    expect(b.probe.owner!.open).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: '重新选择' }))
-    expect(b.probe.owner!.open).toBe(true)
-    expect(b.onPick).not.toHaveBeenCalled()
-  })
-
   it('reports a non-Error adoption failure in the folder-error surface', async () => {
     const b = mount([workspace('alpha', 'Alpha')], vi.fn(async () => { throw 'permission denied' }))
     chooseAdd()
@@ -184,6 +165,9 @@ describe('WorkspacePicker', () => {
       expect(screen.getByRole('dialog', { name: '无法打开文件夹' })).toBeTruthy()
     })
     expect(screen.getByRole('alert').textContent).toBe('permission denied')
+    expect(b.probe.owner!.open).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '重新选择' }))
+    expect(b.probe.owner!.open).toBe(true)
     expect(b.onPick).not.toHaveBeenCalled()
   })
 

@@ -13,8 +13,8 @@
  * picking interaction — a renderless native-chooser driver or an in-app
  * browsing dialog. ui-workspace owns the trigger (the "Add workspace…"
  * entry, present only while the hole is occupied) and the adoption
- * semantics (`createWorkspace({ path })`, the conflict/error dialog, Choose
- * again); the occupant owns everything between `open` and the picked path,
+ * semantics (`createWorkspace({ path })`, the retryable error dialog,
+ * Choose again); the occupant owns everything between `open` and the picked path,
  * including creating a new directory to hand back. That occupant-owned
  * creation is why adding a workspace has a single route: an unoccupied hole
  * leaves the surface with no add affordance at all.
