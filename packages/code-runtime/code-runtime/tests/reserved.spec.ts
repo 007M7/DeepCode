@@ -37,7 +37,10 @@ describe('seam-owned portable identifier exclusions', () => {
     expect(DUNDER_MEMBER.test('__mid')).toBe(false)
     // `__` has an empty middle — not a real CPython dunder, so not matched.
     expect(DUNDER_MEMBER.test('__')).toBe(false)
-    expect(DUNDER_MEMBER.test('____')).toBe(true)
+    // `____` also has an empty middle between the two `__` pairs — not matched.
+    expect(DUNDER_MEMBER.test('____')).toBe(false)
+    // A single character between the pairs is the shortest real dunder form.
+    expect(DUNDER_MEMBER.test('__x__')).toBe(true)
   })
 
   it('PORTABLE_RESERVED_WORDS is the union of ECMAScript and Python reserved words', () => {
