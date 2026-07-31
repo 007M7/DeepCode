@@ -25,6 +25,8 @@ afterEach(cleanup)
 const ZERO_RECT = (): DOMRect => ({ top: 0, bottom: 0 }) as DOMRect
 Range.prototype.getBoundingClientRect = ZERO_RECT
 
+const nativeSetStart = Range.prototype.setStart
+
 const SCTX = {} as ClientContext
 const SID = 's1' as SessionId
 
@@ -323,8 +325,24 @@ describe('running and lock semantics (queue cut 1)', () => {
     const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
     expect(mirror.firstChild).toBeInstanceOf(Text)
     scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    // jsdom reports scrollHeight === clientHeight for every element, which is
+    // the composer's own "nothing to reveal" case; a scrollable box is what
+    // puts the reveal on the table at all.
+    Object.defineProperty(scroll, 'clientHeight', { value: 336, configurable: true })
+    Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
     Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
-    onTestFinished(() => { Range.prototype.getBoundingClientRect = ZERO_RECT })
+    onTestFinished(() => {
+      Range.prototype.getBoundingClientRect = ZERO_RECT
+      Range.prototype.setStart = nativeSetStart
+    })
+    // Which layer the caret is measured against, and at which index: the stub
+    // records `setStart` so a helper that measured the backdrop instead, or
+    // always collapsed at 0, fails here rather than only in the browser lane.
+    let measured: { node: Node; offset: number } | null = null
+    Range.prototype.setStart = function setStart(node: Node, offset: number): void {
+      measured = { node, offset }
+      nativeSetStart.call(this, node, offset)
+    }
     const caretAt = (top: number): void => {
       Range.prototype.getBoundingClientRect = () => ({ top, bottom: top + 24 }) as DOMRect
     }
@@ -336,6 +354,10 @@ describe('running and lock semantics (queue cut 1)', () => {
     fireEvent.paste(textarea, { clipboardData: { getData: () => 'pasted' } })
     await settle()
     expect(scroll.scrollTop).toBe(88) // 524 - 436
+    // Measured on the mirror's own text, at the index the paste left the caret
+    // (an empty draft's selection start, 0, plus the pasted length).
+    expect(measured!.node).toBe(mirror.firstChild)
+    expect(measured!.offset).toBe('pasted'.length)
     // A caret already inside the box does not move it.
     caretAt(200)
     fireEvent.paste(textarea, { clipboardData: { getData: () => 'more' } })
@@ -346,6 +368,29 @@ describe('running and lock semantics (queue cut 1)', () => {
     fireEvent.paste(textarea, { clipboardData: { getData: () => 'again' } })
     await settle()
     expect(scroll.scrollTop).toBe(48) // 88 - (100 - 60)
+  })
+
+  it('a session switch refocuses without moving the transcript, and reveals the new draft caret', () => {
+    // The composer DOM is reused across sessions, so the previous session's
+    // offset survives while the value swap puts the caret at the new draft's
+    // end. `preventScroll` keeps the browser from revealing it through the
+    // conversation scrollport, which leaves the reveal to the effect itself.
+    const { view, textarea, props } = bench({ draft: 'line\n'.repeat(40) })
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
+    onTestFinished(() => { Range.prototype.getBoundingClientRect = ZERO_RECT })
+    scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    Object.defineProperty(scroll, 'clientHeight', { value: 336, configurable: true })
+    Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
+    Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Range.prototype.getBoundingClientRect = () => ({ top: 500, bottom: 524 }) as DOMRect
+    const focused: (boolean | undefined)[] = []
+    textarea.focus = (options?: FocusOptions) => { focused.push(options?.preventScroll) }
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    act(() => { view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />) })
+    expect(focused).toEqual([true])
+    expect(scroll.scrollTop).toBe(88) // 524 - 436
+    expect(mirror.firstChild).toBeInstanceOf(Text)
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {

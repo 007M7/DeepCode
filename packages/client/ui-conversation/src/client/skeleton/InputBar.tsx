@@ -88,12 +88,46 @@ export function InputBar({
   const locked = disabled
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
 
-  // Unlock (mount / session switch) returns focus to the box. `preventScroll`
-  // because this focus is ours, not a gesture: the textarea is as tall as the
-  // draft, so an unsuppressed reveal would walk up to the conversation
-  // scrollport and move the transcript under a user who only switched session.
+  // Scroll the draft scrollport the minimum that brings `caret` into view — the
+  // browser's own behavior for typing, performed for the paths where it does
+  // not act.
+  //
+  // The mirror is the caret's ruler: it renders the same draft at the same
+  // metrics and the same wrap width in the same stack (that is what makes it
+  // the height authority), so a Range collapsed at the caret's index reports
+  // where the caret is without a caret API.
+  const revealCaret = (caret: number): void => {
+    const scrollEl = scrollRef.current
+    const text = mirrorRef.current?.firstChild
+    if (scrollEl === null || !(text instanceof Text)) return
+    // A box that cannot scroll has nothing to reveal: the draft fits, so every
+    // caret is already in view and the assignment below would clamp to itself.
+    if (scrollEl.scrollHeight <= scrollEl.clientHeight) return
+    const range = document.createRange()
+    range.setStart(text, Math.min(caret, text.data.length))
+    range.collapse(true)
+    const at = range.getBoundingClientRect()
+    const box = scrollEl.getBoundingClientRect()
+    if (at.bottom > box.bottom) scrollEl.scrollTop += at.bottom - box.bottom
+    else if (at.top < box.top) scrollEl.scrollTop -= box.top - at.top
+  }
+
+  // Unlock (mount / session switch) returns focus to the box, and owns the
+  // reveal that comes with it. `preventScroll` because this focus is ours, not
+  // a gesture: the textarea is as tall as the draft, so the browser's reveal
+  // would walk up to the conversation scrollport and move the transcript under
+  // a user who only switched session. That leaves the caret to us — the DOM is
+  // reused across sessions, so switching to a longer draft keeps the previous
+  // offset while the value swap puts the caret at the new draft's end, which is
+  // off screen (measured on all three engines: offset 0 with the caret 940px
+  // down). Suppress the walk, then reveal in our own box.
   useEffect(() => {
-    if (!locked) inputRef.current?.focus({ preventScroll: true })
+    const el = inputRef.current
+    if (locked || el === null) return
+    el.focus({ preventScroll: true })
+    // selectionStart is number|null in lib.dom; the type-aware lint program narrows it.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
+    revealCaret(el.selectionStart ?? el.value.length)
   }, [locked, sessionId])
 
   // Caret restore after an edit the composer performs itself. The machine owns
@@ -103,25 +137,10 @@ export function InputBar({
   // WebKit, pasting a long block leaves the view where it was while the caret
   // sits at the end of the draft. Native typing gets its reveal from the
   // browser; these three have to ask for it, so they share one restore.
-  //
-  // The mirror is the caret's ruler: it renders the same draft at the same
-  // metrics and the same wrap width in the same stack (that is what makes it
-  // the height authority), so a Range collapsed at the caret's index reports
-  // where the caret is without a caret API. Minimal scroll, matching what the
-  // browser does for typing: move only far enough to bring the line inside.
   const restoreCaret = (el: HTMLTextAreaElement, caret: number): void => {
     requestAnimationFrame(() => {
       el.setSelectionRange(caret, caret)
-      const scrollEl = scrollRef.current
-      const text = mirrorRef.current?.firstChild
-      if (scrollEl === null || !(text instanceof Text)) return
-      const range = document.createRange()
-      range.setStart(text, Math.min(caret, text.data.length))
-      range.collapse(true)
-      const at = range.getBoundingClientRect()
-      const box = scrollEl.getBoundingClientRect()
-      if (at.bottom > box.bottom) scrollEl.scrollTop += at.bottom - box.bottom
-      else if (at.top < box.top) scrollEl.scrollTop -= box.top - at.top
+      revealCaret(caret)
     })
   }
 
@@ -286,10 +305,13 @@ export function InputBar({
     void e
   }
 
-  // Button presses steal focus from the textarea; suppress at mousedown so typing continues seamlessly.
+  // Button presses steal focus from the textarea; suppress at mousedown so
+  // typing continues seamlessly. `preventScroll` for the same reason as the
+  // unlock effect, and with no reveal of its own: the caret has not moved, and
+  // the next keystroke gets the browser's native one.
   const keepFocus = (e: MouseEvent<HTMLButtonElement>): void => {
     e.preventDefault()
-    inputRef.current?.focus()
+    inputRef.current?.focus({ preventScroll: true })
   }
 
   const onToggleCommandMenu = (): void => {
