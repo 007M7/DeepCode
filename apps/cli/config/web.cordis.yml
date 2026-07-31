@@ -97,7 +97,8 @@
     - id: storage-json
       name: '@deepseek-ai/dsh-storage-json'
       config:
-        root: './.storages'
+        root: !!js >-
+          (() => { const path = process.getBuiltinModule('node:path'); const home = process.getBuiltinModule('node:os').homedir(); const configured = process.env.DSH_HOME; const selected = configured !== undefined && configured.trim().length > 0 ? configured : path.join(home, '.dsh'); const expanded = selected === '~' ? home : selected.startsWith('~/') || selected.startsWith('~\\') ? path.join(home, selected.slice(2)) : selected; return path.join(path.resolve(expanded), 'storages') })()
 
     - id: storage-domain
       name: '@deepseek-ai/dsh-storage-domain'
