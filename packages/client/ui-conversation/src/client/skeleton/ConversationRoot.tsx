@@ -69,6 +69,9 @@ export function ConversationRoot({
   // Exemption: a session the list summary already proves blank can only
   // land on the hero, so hiding would blank the column for the whole
   // history round-trip (the startup auto-selection flash) for nothing.
+  // The exemption is deliberately open-state-wide, not loading-only: a
+  // summary-blank session is the hero before its open starts (`cold`) and
+  // after one fails (`error`) for the same reason — there is no history.
   const settling = sessionId !== undefined && composerPhase === 'blank' && openState === 'loading'
     && summaryBlank !== true
   const hero = sessionId === undefined
