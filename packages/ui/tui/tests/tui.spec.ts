@@ -4315,7 +4315,11 @@ describe('tool cards and surface replay', () => {
       presentCall: () => ({
         card: 'diff',
         title: 'Edit src/only.ts',
-        diffs: [{ path: 'src/only.ts', oldText: 'old', newText: 'new' }],
+        diffs: [{
+          path: 'src/only.ts',
+          oldText: 'my: my-MM\nne: ne-NP\nnl: nl-NL\nnb: no-NO\npa: pa-Guru-IN\npl: pl-PL\npt_pt: pt-PT',
+          newText: 'my: my-MM\nne: ne-NP\nnl: nl-NL\nnb: nb-NO\npa: pa-Guru-IN\npl: pl-PL\npt_pt: pt-PT',
+        }],
       }),
     },
     generic: {
@@ -4622,7 +4626,7 @@ describe('tool cards and surface replay', () => {
   })
 
   it('names a single-file diff in the body once, under a fixed Tool header', async () => {
-    const result = await setup({ tools })
+    const result = await setup({ tools, config: { maxToolOutputLines: 20 } })
     appendUser(result.session, 'edit one file')
     appendAssistant(result.session, [
       { type: 'text', text: 'Editing' },
@@ -4638,9 +4642,12 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('Tool / singleDiff')
     expect(output).not.toContain('Edit src/only.ts')
     expect(output.split('src/only.ts').length - 1).toBe(1)
-    expect(output).toContain('- old')
-    expect(output).toContain('+ new')
-    expect(output).toContain('· 1 file')
+    expect(output).toContain('  my: my-MM')
+    expect(output).not.toContain('- my: my-MM')
+    expect(output).not.toContain('+ my: my-MM')
+    expect(output).toContain('- nb: no-NO')
+    expect(output).toContain('+ nb: nb-NO')
+    expect(output).toContain('└ +1 -1 · 1 file')
     await dispose(result)
   })
 

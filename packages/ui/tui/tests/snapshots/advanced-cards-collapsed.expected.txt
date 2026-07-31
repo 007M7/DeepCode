@@ -31,9 +31,9 @@ buffer
   style 0-10 bold
 14| "- old line                                                                                          "
   style 0-9 fg=red
-15| "… +3 lines (Ctrl+O to expand)                                                                       "
+15| "… +2 lines (Ctrl+O to expand)                                                                       "
   style 0-28 dim
-16| "└ +2 -2 · 1 file                                                                                    "
+16| "└ +1 -1 · 1 file                                                                                    "
   style 0-15 dim
 17| <blank>
 18| "● Tool / subagent"

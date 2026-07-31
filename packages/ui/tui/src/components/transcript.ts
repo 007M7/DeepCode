@@ -15,6 +15,7 @@ import {
   type Component,
   type MarkdownTheme,
 } from '@earendil-works/pi-tui'
+import { diffLines as compareLines } from 'diff'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { JsonValue, SessionEvent, TodoItem } from '@deepseek-ai/dsh-session'
@@ -52,16 +53,45 @@ function pretty(value: unknown): string {
   return displayText(serialized ?? String(value))
 }
 
-/** A file diff as colored `+`/`-` lines, optionally prefixed with its path. */
-function diffLines(diff: FileDiff, palette: Palette): string[] {
+interface RenderedDiff {
+  lines: string[]
+  added: number
+  removed: number
+}
+
+/** Split one diff change into display rows without counting its trailing line terminator. */
+function diffValueLines(value: string): string[] {
+  if (value === '') return []
+  const safe = displayText(value)
+  return (safe.endsWith('\n') ? safe.slice(0, -1) : safe).split('\n')
+}
+
+/** A file diff whose unchanged context stays neutral and does not affect change totals. */
+function renderDiff(diff: FileDiff, palette: Palette): RenderedDiff {
   // The card header is a fixed `Tool / <name>` frame that never names a file, so
   // each hunk always carries its own path header (no redundancy to suppress).
   const lines = [palette.bold(displayText(diff.path))]
-  if (diff.oldText !== null) {
-    for (const line of displayText(diff.oldText).split('\n')) lines.push(palette.error(`- ${line}`))
+  let added = 0
+  let removed = 0
+  if (diff.oldText === null) {
+    const newLines = diffValueLines(diff.newText)
+    added = newLines.length
+    for (const line of newLines) lines.push(palette.success(`+ ${line}`))
+    return { lines, added, removed }
   }
-  for (const line of displayText(diff.newText).split('\n')) lines.push(palette.success(`+ ${line}`))
-  return lines
+  for (const change of compareLines(diff.oldText, diff.newText)) {
+    const changedLines = diffValueLines(change.value)
+    if (change.added) {
+      added += changedLines.length
+      for (const line of changedLines) lines.push(palette.success(`+ ${line}`))
+    } else if (change.removed) {
+      removed += changedLines.length
+      for (const line of changedLines) lines.push(palette.error(`- ${line}`))
+    } else {
+      for (const line of changedLines) lines.push(palette.dim(`  ${line}`))
+    }
+  }
+  return { lines, added, removed }
 }
 
 /**
@@ -505,9 +535,10 @@ export class ToolCardComponent implements Component {
       let added = 0
       let removed = 0
       const hunks = view.diffs.flatMap((diff, index) => {
-        if (diff.oldText !== null) removed += displayText(diff.oldText).split('\n').length
-        added += displayText(diff.newText).split('\n').length
-        return [...index > 0 ? [''] : [], ...diffLines(diff, this.palette)]
+        const rendered = renderDiff(diff, this.palette)
+        added += rendered.added
+        removed += rendered.removed
+        return [...index > 0 ? [''] : [], ...rendered.lines]
       })
       const files = view.diffs.length
       const footer = this.palette.dim(`└ +${added} -${removed} · ${files} file${files === 1 ? '' : 's'}`)
