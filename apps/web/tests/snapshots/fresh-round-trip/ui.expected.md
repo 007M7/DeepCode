@@ -9,8 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to run a simple bash command and reply with \"DONE\".":
   - img
   - img

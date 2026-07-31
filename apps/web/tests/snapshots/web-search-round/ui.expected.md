@@ -9,8 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - img
 - text: Search DeepSeek Harness snapshot search
 - list:

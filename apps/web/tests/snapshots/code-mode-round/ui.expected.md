@@ -9,8 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img
