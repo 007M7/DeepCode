@@ -239,7 +239,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     expect((textarea).value).toBe('typed')
   })
 
-  it('wheel over a non-overflowing textarea forwards to the conversation host', () => {
+  it('wheel over a non-overflowing draft forwards to the conversation host', () => {
     const host = document.createElement('div')
     host.setAttribute('data-conversation-scroll', '')
     Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
@@ -255,17 +255,18 @@ describe('running and lock semantics (queue cut 1)', () => {
     }
   })
 
-  it('wheel chains: long drafts scroll inside the textarea until each edge, then the host', () => {
+  it('wheel chains: long drafts scroll inside the draft scrollport until each edge, then the host', () => {
     const host = document.createElement('div')
     host.setAttribute('data-conversation-scroll', '')
     Object.defineProperty(host, 'scrollTop', { value: 40, writable: true, configurable: true })
     const { view, textarea } = bench()
     host.appendChild(view.container)
     document.body.appendChild(host)
-    Object.defineProperty(textarea, 'clientHeight', { value: 100, configurable: true })
-    Object.defineProperty(textarea, 'scrollHeight', { value: 400, configurable: true })
+    const scrollport = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    Object.defineProperty(scrollport, 'clientHeight', { value: 100, configurable: true })
+    Object.defineProperty(scrollport, 'scrollHeight', { value: 400, configurable: true })
     let scrollTop = 150
-    Object.defineProperty(textarea, 'scrollTop', {
+    Object.defineProperty(scrollport, 'scrollTop', {
       configurable: true,
       get: () => scrollTop,
       set: (value: number) => { scrollTop = value },
@@ -289,35 +290,20 @@ describe('running and lock semantics (queue cut 1)', () => {
     }
   })
 
-  it('the decoration backdrop tracks the textarea offset (it paints every visible glyph)', () => {
+  it('the caret layer and the glyph layer ride one scrollport', () => {
     const { view, textarea } = bench({ draft: 'line\n'.repeat(40) })
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
     const backdrop = view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
-    Object.defineProperty(backdrop, 'scrollTop', { value: 0, writable: true, configurable: true })
-    Object.defineProperty(textarea, 'scrollTop', { value: 0, writable: true, configurable: true })
-    // A scrolled draft: the textarea moves, the clipped backdrop must follow.
-    textarea.scrollTop = 120
-    fireEvent.scroll(textarea)
-    expect(backdrop.scrollTop).toBe(120)
-    // Every later move tracks too, including back to the top — a one-shot
-    // mirror would leave the glyphs parked at the first offset it saw.
-    textarea.scrollTop = 0
-    fireEvent.scroll(textarea)
-    expect(backdrop.scrollTop).toBe(0)
-  })
-
-  it('the backdrop carries the trailing-line sentinel that keeps its extent equal to the textarea', () => {
-    // jsdom has no layout, so the HEIGHTS this protects cannot be asserted here
-    // (the browser scenario owns that); what is checkable is that the backdrop's
-    // text is the draft plus exactly one newline. A textarea reserves a line box
-    // after a final newline and `pre-wrap` collapses one, so without the
-    // sentinel a draft ending in a newline leaves the backdrop a line short and
-    // the mirrored offset clamps.
-    const withNewline = bench({ draft: 'alpha\nbeta\n' })
-    const backdrop = withNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
-    expect(backdrop.textContent).toBe('alpha\nbeta\n\n')
-    const withoutNewline = bench({ draft: 'alpha\nbeta' })
-    const plain = withoutNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
-    expect(plain.textContent).toBe('alpha\nbeta\n')
+    // The caret is the textarea's and every visible glyph is the backdrop's, so
+    // one box has to carry both or an offset can exist in one and not the other.
+    // jsdom has no layout — the browser scenario owns the geometry; what is
+    // checkable here is that there is exactly one scrolling box and it holds
+    // both layers.
+    expect(scroll.contains(textarea)).toBe(true)
+    expect(scroll.contains(backdrop)).toBe(true)
+    // The glyph layer carries the draft and nothing else: with one scrollport
+    // it no longer pads its own height to match a second box's scroll extent.
+    expect(backdrop.textContent).toBe('line\n'.repeat(40))
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
