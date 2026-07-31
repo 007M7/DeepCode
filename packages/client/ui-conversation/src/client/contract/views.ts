@@ -23,4 +23,10 @@ export interface ChatStoreState {
   draft: string
   /** Active conversation view id ('conversation.view' entry id); null falls back to the first view. */
   view: string | null
+  /**
+   * One-shot inspect handoff: chat writes the call to reveal, the trajectory
+   * view consumes it and acknowledges by clearing. Read with `?? null` —
+   * persisted snapshots from before this field rehydrate without it.
+   */
+  inspect: { callId: CallId } | null
 }

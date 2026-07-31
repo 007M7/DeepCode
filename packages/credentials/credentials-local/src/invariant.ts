@@ -15,7 +15,8 @@ export const name = 'credentials-local-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this provider's file/environment layering is
+ * No runtime invariant: the seam companion (`dsh-credentials/invariant`) owns the
+ * `credentials/updated` lifecycle contract; this provider's file/environment layering is
  * asynchronous I/O pinned by its unit suite.
  */
 const install: InvariantInstaller = () => {}

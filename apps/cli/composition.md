@@ -32,10 +32,14 @@ flowchart LR
   cfg --> plugin_tui_settings
   plugin_tui_credentials["credentials<br/>@deepseek-ai/dsh-credentials-local"]
   cfg --> plugin_tui_credentials
+  plugin_tui_llm_pi_ai["llm-pi-ai<br/>@deepseek-ai/dsh-llm-pi-ai"]
+  cfg --> plugin_tui_llm_pi_ai
   plugin_tui_session_persistence_jsonl["session-persistence-jsonl<br/>@deepseek-ai/dsh-session-persistence-jsonl"]
   cfg --> plugin_tui_session_persistence_jsonl
   plugin_tui_session_query_sqlite["session-query-sqlite<br/>@deepseek-ai/dsh-session-query-sqlite"]
   cfg --> plugin_tui_session_query_sqlite
+  plugin_tui_telemetry_otel["telemetry-otel<br/>@deepseek-ai/dsh-session-telemetry-otel"]
+  cfg --> plugin_tui_telemetry_otel
   plugin_tui_subprocess["subprocess<br/>@deepseek-ai/dsh-subprocess-local"]
   cfg --> plugin_tui_subprocess
   plugin_tui_bash_local["bash-local<br/>@deepseek-ai/dsh-bash-local"]
@@ -118,8 +122,10 @@ flowchart LR
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
 | `settings` | `@deepseek-ai/dsh-settings-local` |
 | `credentials` | `@deepseek-ai/dsh-credentials-local` |
+| `llm-pi-ai` | `@deepseek-ai/dsh-llm-pi-ai` |
 | `session-persistence-jsonl` | `@deepseek-ai/dsh-session-persistence-jsonl` |
 | `session-query-sqlite` | `@deepseek-ai/dsh-session-query-sqlite` |
+| `telemetry-otel` | `@deepseek-ai/dsh-session-telemetry-otel` |
 | `subprocess` | `@deepseek-ai/dsh-subprocess-local` |
 | `bash-local` | `@deepseek-ai/dsh-bash-local` |
 | `tool-bash` | `@deepseek-ai/dsh-tool-bash` |

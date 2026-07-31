@@ -211,16 +211,19 @@ export class PermissionService extends Service {
         name: 'permission',
         description: 'Switch the permission preset (sandbox mode + approval policy)',
         input: { hint: '<preset>' },
+        // No settlement text labels its value with this command's own name: a
+        // surface that renders `name · text` (the web command row) would
+        // otherwise read `permission · Permission preset: workspace-write.`
         handler: ({ agent, rawInput }) => {
           const name = rawInput.trim()
           if (name === '') {
-            return { kind: 'success', text: `Current permission preset: ${this.current(agent.session.events)}. Available: ${this.names.join(', ')}.` }
+            return { kind: 'success', text: `current preset ${this.current(agent.session.events)} (available: ${this.names.join(', ')})` }
           }
           if (!this.names.includes(name)) {
-            return { kind: 'error', text: `unknown permission preset "${name}" (available: ${this.names.join(', ')})` }
+            return { kind: 'error', text: `unknown preset "${name}" (available: ${this.names.join(', ')})` }
           }
           this.set(agent.session, name)
-          return { kind: 'success', text: `Permission preset: ${name}.` }
+          return { kind: 'success', text: `preset ${name}` }
         },
       })
     })

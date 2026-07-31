@@ -1,12 +1,13 @@
 /**
- * Register a {@link DeepSeekAdapter} for the `deepseek` provider route on
+ * Register a {@link DeepSeekAdapter} for the `deepseek-official` provider route on
  * `ctx.llm`, with connection facts resolved per request instead of frozen at
  * load: the plugin layers its `cordis.yml` entry config under the optional
  * `llm-deepseek` user-settings section (`ctx.settings`) and resolves the API
  * key through the optional credential seam (`ctx.credentials`), so a changed
- * base URL, key, or request-transport control reaches the next request without
- * restart. Catalog, capability/default, context, and retry facts stay fixed by
- * composition.
+ * base URL, catalog, or key reaches the very next request without restarting
+ * anything, while an in-flight stream keeps the facts it started with. The
+ * one registration-captured fact — the retry policy — re-registers the route
+ * in place when it changes.
  * @module @deepseek-ai/dsh-llm-deepseek
  */
 
@@ -17,10 +18,20 @@ import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { DEFAULT_STREAM_IDLE_TIMEOUT_MS, DeepSeekAdapter } from './adapter.ts'
+import {
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  DeepSeekAdapter,
+} from './adapter.ts'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
 
-export { DeepSeekAdapter } from './adapter.ts'
+export {
+  DEFAULT_CONTEXT_WINDOW,
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+  DeepSeekAdapter,
+} from './adapter.ts'
 export type { DeepSeekAdapterOptions, DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
 export type { RequestDefaults } from './serialize.ts'
 export type * from './types.ts'
@@ -31,11 +42,11 @@ export const inject = ['llm']
 const NS = settingsNamespace('llm-deepseek')
 const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
 /** The single provider route this plugin owns. */
-const PROVIDER = 'deepseek'
+const PROVIDER = 'deepseek-official'
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
-  { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 256_000 },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 256_000 },
+  { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: DEFAULT_CONTEXT_WINDOW },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: DEFAULT_CONTEXT_WINDOW },
 ]
 
 /**
@@ -53,17 +64,19 @@ export interface Config {
   apiKeyEnv?: string
   /** Endpoint base; falls back to $DEEPSEEK_BASE_URL, then the public API. */
   baseURL?: string
-  /** Composition-fixed thinking policy; `disabled` limits every conversation request to `off`. */
+  /** Deployment thinking policy; `disabled` limits every conversation request to `off`. */
   thinking?: 'enabled' | 'disabled'
-  /** Composition-fixed default thinking effort (default `high`); `off` disables thinking per request. */
+  /** Default thinking effort (default `high`); `off` disables thinking per request. */
   reasoningEffort?: 'off' | 'high' | 'max'
-  /** Composition-fixed positive context capacity used when the selected model has no exact value. */
+  /** Default per-request output cap (default 256,000); explicit request values win. */
+  maxTokens?: number
+  /** Positive context capacity used when the selected model has no exact value (default 1,000,000). */
   defaultContextWindow?: number
-  /** Composition-fixed advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
+  /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
   /** Maximum provider idle time while one stream read is outstanding (default five minutes). */
   streamIdleTimeoutMs?: number
-  /** Composition-fixed provider-owned model-request retry policy; omission uses normal defaults. */
+  /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
 
@@ -76,11 +89,12 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
 
 export const Config: z<Config> = z.object({
   apiKey: z.string().role('secret'),
-  apiKeyEnv: z.string().default(DEFAULT_API_KEY_ENV),
+  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
   baseURL: z.string(),
   thinking: z.union(['enabled', 'disabled']),
   reasoningEffort: z.union(['off', 'high', 'max']),
-  defaultContextWindow: z.number().step(1).min(1),
+  maxTokens: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(DEFAULT_MAX_TOKENS),
+  defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
   models: z.array(catalogModel).default(DEFAULT_MODELS),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   retryPolicy: RetryPolicySchema,
@@ -90,9 +104,10 @@ export const Config: z<Config> = z.object({
 export const PUBLIC_BASE_URL = 'https://api.deepseek.com'
 
 /**
- * One resolution's complete adapter facts. Connection and credential facts
- * stay one value, while catalog, capability/default, context, and retry facts
- * must equal the composition snapshot.
+ * One resolution's complete request facts. Connection and credential facts
+ * are one value on purpose: a snapshot the resolver rejects keeps the whole
+ * previous generation, so a request can never pair a stale endpoint with a
+ * newer key.
  */
 export type ResolvedDeepSeekOptions = DeepSeekConnectionOptions
 
@@ -139,6 +154,10 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
     && (!Number.isInteger(config.defaultContextWindow) || config.defaultContextWindow <= 0)) {
     throw new Error('llm-deepseek: defaultContextWindow must be a positive integer')
   }
+  if (config.maxTokens !== undefined
+    && (!Number.isSafeInteger(config.maxTokens) || config.maxTokens <= 0)) {
+    throw new Error('llm-deepseek: maxTokens must be a positive safe integer')
+  }
   const streamIdleTimeoutMs = config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
   if (!Number.isFinite(streamIdleTimeoutMs)
     || streamIdleTimeoutMs <= 0
@@ -155,56 +174,38 @@ export function resolveAdapterOptions(config: Config): ResolvedDeepSeekOptions {
       thinking: config.thinking,
       reasoningEffort: config.reasoningEffort,
     },
-    ...config.defaultContextWindow === undefined
-      ? {}
-      : { defaultContextWindow: config.defaultContextWindow },
+    maxTokens: config.maxTokens ?? DEFAULT_MAX_TOKENS,
+    defaultContextWindow: config.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
     models: resolveModels(config.models),
     streamIdleTimeoutMs,
     retryPolicy: resolveRetryPolicy(config.retryPolicy, 'llm-deepseek: retryPolicy'),
   }
 }
 
-/** Facts that must stay identical to the plugin composition for the route's lifetime. */
-function compositionFacts(options: ResolvedDeepSeekOptions): unknown {
-  return {
-    defaults: options.defaults,
-    ...options.defaultContextWindow === undefined
-      ? {}
-      : { defaultContextWindow: options.defaultContextWindow },
-    models: options.models,
-    retryPolicy: options.retryPolicy,
-  }
-}
-
 export function apply(ctx: Context, config: Config): void {
-  const compositionOptions = resolveAdapterOptions(config)
-  const fixedFacts = compositionFacts(compositionOptions)
   let current: () => Config = () => config
-  let lastRaw: Config = config
-  let lastGood = compositionOptions
+  let lastRaw: Config | undefined
+  let lastGood: ResolvedDeepSeekOptions | undefined
   const options = (): ResolvedDeepSeekOptions => {
     const raw = current()
-    if (raw === lastRaw) return lastGood
+    if (raw === lastRaw && lastGood !== undefined) return lastGood
     try {
       const next = resolveAdapterOptions(raw)
-      if (!deepEqualJson(compositionFacts(next), fixedFacts)) {
-        throw new Error(
-          'llm-deepseek: model catalog, capability defaults, context limits, and retry policy are composition-fixed',
-        )
-      }
       lastRaw = raw
       lastGood = next
       return next
     } catch (error) {
       // Static composition resolves before anything registers, so this branch
-      // only sees an invalid live snapshot or one that changes a fixed fact:
+      // only sees a live settings snapshot failing a beyond-schema bound:
       // keep serving the last good facts and say so once per bad snapshot.
+      if (lastGood === undefined) throw error
       lastRaw = raw
       ctx.logger.error('llm-deepseek: keeping the last good configuration after an invalid settings section')
       ctx.logger.error(error)
       return lastGood
     }
   }
+  options()
 
   const resolveApiKey = async (connection: ResolvedDeepSeekOptions): Promise<string> => {
     // Every credential fact comes from the caller's snapshot, so a rejected
@@ -214,7 +215,7 @@ export function apply(ctx: Context, config: Config): void {
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       const hit = await credentials.resolve(ref)
-      if (hit !== undefined) return hit
+      if (hit !== undefined) return hit.value
     } else {
       // Without the seam, keep the historical ambient fallback so a plain
       // cordis.yml composition works from the environment alone.
@@ -222,18 +223,37 @@ export function apply(ctx: Context, config: Config): void {
       if (ambient !== undefined && ambient.length > 0) return ambient
     }
     throw new LlmError(
-      `llm-deepseek: no API key for provider route "${PROVIDER}"; provide ${ref} through the credential`
-      + ' provider or launching environment, or set a literal "apiKey" in the llm-deepseek settings section',
+      `llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials`
+      + ` service (the web Models page writes it), export ${ref} in the launching environment, or — as a`
+      + ' last resort — set a literal "apiKey" in the llm-deepseek settings section',
       'MISSING_CREDENTIAL',
     )
   }
 
-  const adapter = new DeepSeekAdapter({ options, composition: compositionOptions, resolveApiKey })
-  ctx.llm.registerAdapter([PROVIDER], adapter)
+  const adapter = new DeepSeekAdapter({ options, resolveApiKey })
+  ctx.llm.registerConfigurableProviders([
+    { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
+  ])
+  // Route effects bind to this apply fiber via the stable `ctx` reference,
+  // even when a swap runs inside the scoped settings callback below.
+  const registration = ctx.llm.registerAdapter([PROVIDER], adapter)
+  let registeredPolicy = options().retryPolicy
+  const ensureRegistrationFacts = (): void => {
+    const policy = options().retryPolicy
+    if (deepEqualJson(policy, registeredPolicy)) return
+    // The registry captures the retry policy at registration, so it is the one
+    // fact per-request resolution cannot refresh. `replace` re-reads it in one
+    // synchronous registry section: disposing and re-registering instead would
+    // publish an empty route set between the two, and an observer that reacted
+    // to it would see this provider disappear and come back.
+    registration.replace([PROVIDER])
+    registeredPolicy = policy
+  }
 
   installSettingsSection(ctx, NS, Config, config, {
     setSource: (source) => {
       current = source
     },
+    onChange: ensureRegistrationFacts,
   })
 }

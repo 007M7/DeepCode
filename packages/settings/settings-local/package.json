@@ -27,6 +27,7 @@
   ],
   "license": "BSD-3-Clause",
   "peerDependencies": {
+    "@deepseek-ai/dsh-atomic-write": "^0.0.1",
     "@deepseek-ai/dsh-invariants": "^0.0.1",
     "@deepseek-ai/dsh-paths": "^0.0.1",
     "@deepseek-ai/dsh-settings": "^0.0.1",
@@ -38,6 +39,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-atomic-write": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-paths": "workspace:^",
     "@deepseek-ai/dsh-settings": "workspace:^",

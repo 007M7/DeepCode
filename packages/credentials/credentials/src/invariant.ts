@@ -4,7 +4,7 @@
  */
 
 import type { Context } from 'cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-credentials'
 
@@ -14,11 +14,20 @@ export const name = 'credentials-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this read-only seam exposes no event sequence or
- * mutable data relation; provider resolution crosses an asynchronous I/O
- * boundary and stays pinned by each provider's own suite.
+ * Install the commit-event lifecycle contract: `credentials/updated` names a
+ * committed provider-source change, so it can only fire while a credentials
+ * service is live — an emission after disposal means a provider leaked work
+ * past its teardown quiescence. The value relation itself (`describe`
+ * agreeing with `resolve`) is asynchronous provider I/O and stays pinned by
+ * each provider's own suite.
  */
-const install: InvariantInstaller = () => {}
+const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure) => {
+  ctx.on('credentials/updated', (ref) => {
+    if (ctx.get('credentials') === undefined) {
+      fail(`credentials/updated for "${ref}" emitted without a live credentials service`)
+    }
+  })
+}
 
 /**
  * Register this package's invariant companion.

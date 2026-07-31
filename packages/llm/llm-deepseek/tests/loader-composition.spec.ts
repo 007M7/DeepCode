@@ -17,6 +17,7 @@ import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import LlmService from '@deepseek-ai/dsh-llm'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import SettingsLocal from '@deepseek-ai/dsh-settings-local'
@@ -25,6 +26,7 @@ import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const NS = settingsNamespace('llm-deepseek')
+const KEY_REF = credentialRef('DEEPSEEK_API_KEY')
 
 let root: string | undefined
 let context: Context | undefined
@@ -67,6 +69,7 @@ async function loadComposition(
         "  name: '@deepseek-ai/dsh-credentials-local'",
         '  config:',
         `    path: ${JSON.stringify(envPath)}`,
+        '    debounceMs: 10',
       ]
       : [],
     '- id: llm-deepseek',
@@ -114,19 +117,22 @@ describe('llm-deepseek real dynamic composition', () => {
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(serverA.headers[0]?.authorization).toBe('Bearer boot-key')
 
-    // External edits, exactly as a user would leave them on disk.
+    // External edits, exactly as a user or the web UI would leave them on disk.
     await writeFile(settingsPath, `llm-deepseek:\n  baseURL: ${serverB.url}\n`)
     await vi.waitFor(() => {
       expect((ctx.get('settings')!.get(NS) as { baseURL?: string }).baseURL).toBe(serverB.url)
     }, { timeout: 5000 })
     await writeFile(envPath, 'DEEPSEEK_API_KEY=rotated-key\n')
+    await vi.waitFor(async () => {
+      expect(await ctx.get('credentials')!.resolve(KEY_REF)).toEqual({ value: 'rotated-key', source: 'file' })
+    }, { timeout: 5000 })
 
     await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(serverA.requests).toHaveLength(1)
     expect(serverB.headers[0]?.authorization).toBe('Bearer rotated-key')
   })
 
-  it('reads a stored key and an external rotation across a real restart', async () => {
+  it('keeps a stored key writable and rotatable across a real restart', async () => {
     // No ambient DEEPSEEK_API_KEY: the shipped surfaces no longer hoist
     // $DSH_HOME/.env into process.env, so a stored key must stay file-sourced.
     vi.stubEnv('DEEPSEEK_API_KEY', '')
@@ -134,15 +140,23 @@ describe('llm-deepseek real dynamic composition', () => {
     const second = await mockServer([{ kind: 'sse', events: textEvents }])
     const boot = await loadComposition({ withDynamic: true, baseURL: first.url })
     const home = root!
-    await writeFile(boot.envPath, 'DEEPSEEK_API_KEY=stored-directly\n')
+    await boot.ctx.get('credentials')!.set(KEY_REF, 'stored-by-ui')
+    expect(await boot.ctx.get('credentials')!.describe(KEY_REF))
+      .toEqual({ configured: true, source: 'file', writable: true })
     await assemble(boot.ctx, { model: 'deepseek-v4-flash', messages: [] })
-    expect(first.headers[0]?.authorization).toBe('Bearer stored-directly')
+    expect(first.headers[0]?.authorization).toBe('Bearer stored-by-ui')
     await boot.ctx.fiber.dispose()
     context = undefined
 
     // Restart over the same harness home.
     const restarted = await loadComposition({ withDynamic: true, baseURL: second.url, reuseRoot: home })
-    await writeFile(restarted.envPath, 'DEEPSEEK_API_KEY=rotated-after-restart\n')
+    const credentials = restarted.ctx.get('credentials')!
+    // The stored key is still the provider's own writable file entry — not a
+    // read-only launch override, which is what hoisting it would have made it.
+    expect(await credentials.resolve(KEY_REF)).toEqual({ value: 'stored-by-ui', source: 'file' })
+    expect(await credentials.describe(KEY_REF)).toEqual({ configured: true, source: 'file', writable: true })
+    // Rotation still works after the restart, and the next request uses it.
+    await credentials.set(KEY_REF, 'rotated-after-restart')
     await assemble(restarted.ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(second.headers[0]?.authorization).toBe('Bearer rotated-after-restart')
   })

@@ -17,7 +17,7 @@ describe('invariant companion', () => {
     expect(true).toBe(true) // reaching here without throw is the contract
   })
 
-  it('the section content column is intentionally empty this phase', () => {
-    expect(ModelsSection()).toBeNull()
+  it('renders null until the shell injects the section dependencies', () => {
+    expect(ModelsSection({})).toBeNull()
   })
 })

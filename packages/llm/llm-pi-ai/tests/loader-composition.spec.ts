@@ -1,6 +1,11 @@
 /**
- * Real-composition guard for a configured pi-ai route through Loader + Include.
- * Settings may change request facts, while the route stays composition-owned.
+ * Real-composition guard for the dormant pi-ai posture: LlmService,
+ * settings-local, credentials-local, and a bare `llm-pi-ai` row boot from a
+ * test-only cordis.yml through the actual Loader + Include path, an external
+ * edit of settings.yaml registers the route live, and the next request
+ * carries the credential the .env supplies. A hand-mounted `ctx.plugin` cannot
+ * catch Loader export-shape failures, which is why the twin adapter has the
+ * same guard.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -13,7 +18,6 @@ import Loader from '@cordisjs/plugin-loader'
 import Include from '@cordisjs/plugin-include'
 import LlmService from '@deepseek-ai/dsh-llm'
 import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import SettingsLocal from '@deepseek-ai/dsh-settings-local'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { assemble } from './assemble.ts'
@@ -21,7 +25,6 @@ import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 let root: string | undefined
 let context: Context | undefined
-const NS = settingsNamespace('llm-pi-ai')
 
 afterEach(async () => {
   await context?.fiber.dispose()
@@ -32,12 +35,12 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-async function loadComposition(baseURL: string): Promise<{ ctx: Context; settingsPath: string; envPath: string }> {
+/** Boot the dormant composition: a bare `llm-pi-ai` row with no config at all. */
+async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-pi-composition-'))
   const settingsPath = join(root, 'settings.yaml')
-  const envPath = join(root, '.env')
   await writeFile(settingsPath, '# personal settings\n')
-  await writeFile(envPath, 'PI_COMPOSITION_KEY=key-from-store\n')
+  await writeFile(join(root, '.env'), 'PI_COMPOSITION_KEY=key-from-store\n')
 
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -51,14 +54,10 @@ async function loadComposition(baseURL: string): Promise<{ ctx: Context; setting
     '- id: credentials',
     "  name: '@deepseek-ai/dsh-credentials-local'",
     '  config:',
-    `    path: ${JSON.stringify(envPath)}`,
+    `    path: ${JSON.stringify(join(root, '.env'))}`,
+    '    debounceMs: 10',
     '- id: llm-pi-ai',
     "  name: '@deepseek-ai/dsh-llm-pi-ai'",
-    '  config:',
-    '    providers:',
-    '      deepseek:',
-    '        apiKeyEnv: PI_COMPOSITION_KEY',
-    `        baseURL: ${baseURL}`,
     '',
   ].join('\n'))
 
@@ -85,34 +84,33 @@ async function loadComposition(baseURL: string): Promise<{ ctx: Context; setting
     config: { path: pathToFileURL(configPath).href },
   })
   await ctx.loader.await()
-  return { ctx, settingsPath, envPath }
+  return { ctx, settingsPath }
 }
 
-describe('llm-pi-ai real composition', () => {
-  it('keeps its route while external settings and credential edits reach the next request', async () => {
+describe('llm-pi-ai real dormant composition', () => {
+  it('boots with zero routes and registers one the moment settings supply a profile', async () => {
     vi.stubEnv('PI_COMPOSITION_KEY', '')
-    const serverA = await mockServer([{ events: textEvents }])
-    const serverB = await mockServer([{ events: textEvents }])
-    const { ctx, settingsPath, envPath } = await loadComposition(serverA.url)
+    const server = await mockServer([{ events: textEvents }])
+    const { ctx, settingsPath } = await loadComposition()
 
-    await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
-    expect(serverA.headers[0]?.authorization).toBe('Bearer key-from-store')
+    // The shipped posture: the adapter exists, no route does.
+    expect(ctx.llm.listProviders()).toEqual([])
 
+    // Exactly what the web Models page leaves on disk.
     await writeFile(settingsPath, [
       'llm-pi-ai:',
       '  providers:',
       '    deepseek:',
-      `      baseURL: ${serverB.url}`,
+      '      apiKeyEnv: PI_COMPOSITION_KEY',
+      `      baseURL: ${server.url}`,
       '',
     ].join('\n'))
-    await writeFile(envPath, 'PI_COMPOSITION_KEY=rotated-key\n')
     await vi.waitFor(() => {
-      expect((ctx.get('settings')!.get(NS) as { providers?: { deepseek?: { baseURL?: string } } })
-        .providers?.deepseek?.baseURL).toBe(serverB.url)
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek'])
     }, { timeout: 5000 })
 
-    await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
-    expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['deepseek'])
-    expect(serverB.headers[0]?.authorization).toBe('Bearer rotated-key')
+    const result = await assemble(ctx, { provider: 'deepseek', model: 'deepseek-v4-flash', messages: [] })
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(server.headers[0]?.authorization).toBe('Bearer key-from-store')
   })
 })

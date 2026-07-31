@@ -1,7 +1,7 @@
 /**
  * Configuration schema and provider-profile validation for the pi-ai adapter.
  * Profiles are a dict keyed by provider route, so the composition base and a
- * user-settings layer merge per provider.
+ * user-settings layer merge per provider and the route set is structural.
  *
  * @module dsh-llm-pi-ai/config
  */
@@ -28,7 +28,7 @@ export interface PiAiProviderProfile {
   baseURL?: string
   /** Provider request headers; Harness attribution wins reserved names. */
   headers?: Record<string, string>
-  /** Composition-fixed provider-neutral pi-ai reasoning default. */
+  /** Provider-neutral pi-ai reasoning level. */
   reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
   thinkingBudgets?: ThinkingBudgets
@@ -42,7 +42,7 @@ export interface PiAiProviderProfile {
   websocketConnectTimeoutMs?: number
   /** Maximum provider idle time while one stream read is outstanding. */
   streamIdleTimeoutMs?: number
-  /** Composition-fixed provider-owned model-request retry policy; omission uses normal defaults. */
+  /** Provider-owned model-request retry policy; omission uses normal defaults. */
   retryPolicy?: RetryPolicyConfig
 }
 
@@ -60,8 +60,12 @@ export interface ResolvedPiAiProviderProfile extends Omit<PiAiProviderProfile, '
 
 /** Plugin configuration: the provider routes this instance owns. */
 export interface Config {
-  /** Non-empty pi-ai provider routes, keyed by provider and fixed by composition. */
-  providers: Record<string, PiAiProviderProfile>
+  /**
+   * pi-ai provider routes, keyed by provider. An empty (or omitted) dict is
+   * the dormant settings-driven posture: the adapter mounts with no routes
+   * and registers them the moment a settings section supplies profiles.
+   */
+  providers?: Record<string, PiAiProviderProfile>
 }
 
 const thinkingBudgets = z.object({
@@ -73,7 +77,7 @@ const thinkingBudgets = z.object({
 
 const profile = z.object({
   apiKey: z.string().role('secret'),
-  apiKeyEnv: z.string(),
+  apiKeyEnv: z.string().role('credential-ref'),
   baseURL: z.string(),
   headers: z.dict(z.string()),
   reasoning: z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
@@ -88,24 +92,24 @@ const profile = z.object({
 
 /** Runtime schema for {@link Config}. */
 export const Config: z<Config> = z.object({
-  providers: z.dict(profile).required(),
+  providers: z.dict(profile).default({}),
 })
 
 /**
  * Validate profiles against the installed pi-ai catalog and return a detached
  * route-keyed map suitable for per-request reads. This is the one explicit
- * resolve step; a composition must name at least one route.
+ * resolve step, so an omitted dict resolves to the empty (dormant) route set
+ * here rather than through a hidden fallback.
  * @param providers - configured provider profiles keyed by route.
  * @returns validated profiles in configuration order.
  */
 export function resolveProfiles(
-  providers: Readonly<Record<string, PiAiProviderProfile>>,
+  providers: Readonly<Record<string, PiAiProviderProfile>> | undefined,
 ): Map<string, ResolvedPiAiProviderProfile> {
   if (Array.isArray(providers)) {
     throw new Error('llm-pi-ai: providers is now a dict keyed by provider route, not an array of profiles')
   }
-  const entries = Object.entries(providers)
-  if (entries.length === 0) throw new Error('llm-pi-ai: providers must contain at least one profile')
+  const entries = Object.entries(providers ?? {})
   const supported = new Set<string>(getBuiltinProviders())
   const resolved = new Map<string, ResolvedPiAiProviderProfile>()
   for (const [provider, source] of entries) {

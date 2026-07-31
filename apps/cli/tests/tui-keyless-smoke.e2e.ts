@@ -130,7 +130,9 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Prom
     tempDirPrefix: 'dsh-tui-smoke-',
     binScript: dshBinScript,
     tsconfigPath,
-    env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
+    // Telemetry now mounts in the shared base: keep fixture sessions from
+    // POSTing to the production endpoint when run outside CI's workflow env.
+    env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call', DSH_TELEMETRY_DISABLED: '1' },
     // Artifact CI builds and smokes concurrently on a contended runner.
     ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? { timeoutMs: 60_000 } : {}),
     ...overrides,
@@ -359,10 +361,10 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     // SURFACE OVERLAY inserted, not one the base declares — proving a later
     // patch list reaches a row an earlier one inserted. The single `!!js`
     // expression prefers the PERSONAL variable, so the welcome can only render
-    // the project value while the harness home's .env — the document read by
-    // `dsh-credentials-local` — is NOT hoisted into `process.env`; hoisting it
-    // would make every stored key a launch override and hand it to every
-    // subprocess the agent starts.
+    // the project value while the harness home's .env — the credential store
+    // of `dsh-credentials-local` — is NOT hoisted into `process.env`; hoisting
+    // it would make every stored key read as a read-only launch override on
+    // the next run and hand it to every subprocess the agent starts.
     const output = await smoke({
       label: 'dsh personal overlay',
       tempDirPrefix: 'dsh-personal-overlay-',
@@ -449,7 +451,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
             '  config:',
             '    agents:',
             '      - id: main',
-            '        provider: deepseek',
+            '        provider: deepseek-official',
             '        model: deepseek-v4-flash',
             '        cwd: !!js process.cwd()',
             '- id: tui',

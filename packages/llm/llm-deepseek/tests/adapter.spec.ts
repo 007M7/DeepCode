@@ -34,10 +34,8 @@ async function harness(baseURL: string, config: object = {}) {
 /** Direct adapter over the plugin's real resolve step, with a static key. */
 function adapterOf(config: Partial<LlmDeepSeek.Config> & { apiKey?: string } = {}): DeepSeekAdapter {
   const { apiKey, ...rest } = config
-  const composition = resolveAdapterOptions(rest)
   return new DeepSeekAdapter({
-    options: () => composition,
-    composition,
+    options: () => resolveAdapterOptions(rest),
     resolveApiKey: () => Promise.resolve(apiKey ?? 'k'),
   })
 }
@@ -61,6 +59,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     // The wire request carried the auth header contents we configured.
     expect(server.requests[0]).toMatchObject({
       model: 'deepseek-v4-flash',
+      max_tokens: 256_000,
       reasoning_effort: 'high',
       stream: true,
       stream_options: { include_usage: true },
@@ -80,7 +79,7 @@ describe('DeepSeekAdapter against a mock server', () => {
 
     const kinds: string[] = []
     for await (const chunk of ctx.llm.stream({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'hi' }],
@@ -169,6 +168,20 @@ describe('DeepSeekAdapter against a mock server', () => {
     })
   })
 
+  it('uses the configured maxTokens default and preserves an explicit request cap', async () => {
+    const server = await mockServer([
+      { kind: 'sse', events: textEvents },
+      { kind: 'sse', events: textEvents },
+    ])
+    const ctx = await harness(server.url, { maxTokens: 32_000 })
+
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    await assemble(ctx, { model: 'deepseek-v4-flash', messages: [], maxTokens: 8_192 })
+
+    expect(server.requests[0]).toMatchObject({ max_tokens: 32_000 })
+    expect(server.requests[1]).toMatchObject({ max_tokens: 8_192 })
+  })
+
   it('publishes only off and omits the wire effort when thinking is disabled', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
     const ctx = await harness(server.url, { thinking: 'disabled' })
@@ -184,7 +197,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       thinking: { type: 'disabled' },
     })
     expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash'))
       .resolves.toMatchObject({
         reasoning: {
           efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
@@ -215,7 +228,7 @@ describe('DeepSeekAdapter against a mock server', () => {
       const adapter = adapterOf({ apiKey: 'test-key', baseURL: server.url, thinking: 'disabled' })
 
       const stream = adapter.stream({
-        provider: 'deepseek',
+        provider: 'deepseek-official',
         model: 'deepseek-v4-flash',
         reasoningEffort: ReasoningEffortId(effort),
         messages: [createUserMessage({
@@ -422,7 +435,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     )
     try {
       const iterate = async (): Promise<void> => {
-        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+        for await (const _chunk of adapter.stream({ provider: 'deepseek-official', model: 'm', messages: [] })) { /* drain */ }
       }
       await expect(iterate()).rejects.toThrow(/no response body/)
     } finally {
@@ -454,7 +467,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const pending = (async () => {
       const chunks = []
       for await (const chunk of ctx.llm.stream({
-        provider: 'deepseek',
+        provider: 'deepseek-official',
         model: 'deepseek-v4-flash',
         messages: [],
         signal: controller.signal,
@@ -474,7 +487,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const adapter = adapterOf({ baseURL: 'https://example.invalid' })
     try {
       const drain = async (): Promise<void> => {
-        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+        for await (const _chunk of adapter.stream({ provider: 'deepseek-official', model: 'm', messages: [] })) { /* drain */ }
       }
       await expect(drain()).rejects.toMatchObject({ code: 'TRANSPORT', cause })
     } finally {
@@ -491,7 +504,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const adapter = adapterOf({ baseURL: 'https://example.invalid' })
     try {
       const drain = async (): Promise<void> => {
-        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+        for await (const _chunk of adapter.stream({ provider: 'deepseek-official', model: 'm', messages: [] })) { /* drain */ }
       }
       await expect(drain()).rejects.toMatchObject({
         message: 'DeepSeek API request to https://example.invalid failed',
@@ -521,7 +534,7 @@ describe('DeepSeekAdapter against a mock server', () => {
     const adapter = adapterOf({ baseURL: 'https://example.invalid', streamIdleTimeoutMs: 100 })
     try {
       const drain = (async () => {
-        for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+        for await (const _chunk of adapter.stream({ provider: 'deepseek-official', model: 'm', messages: [] })) { /* drain */ }
       })()
       const rejected = expect(drain).rejects.toMatchObject({ code: 'TIMEOUT' })
       await vi.advanceTimersByTimeAsync(0)
@@ -556,9 +569,16 @@ describe('plugin registration and config', () => {
       apiKey: 'k',
       baseURL: server.url,
     })
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
+    expect(ctx.llm.listConfigurableProviders()).toEqual([{
+      provider: 'deepseek-official',
+      displayName: 'DeepSeek',
+      settingsNs: 'llm-deepseek',
+      settingsPath: [],
+    }])
     await fiber.dispose()
     expect(ctx.llm.listProviders()).toEqual([])
+    expect(ctx.llm.listConfigurableProviders()).toEqual([])
   })
 
   it('registers retryPolicy from the provider config', async () => {
@@ -573,7 +593,7 @@ describe('plugin registration and config', () => {
       },
     })
 
-    expect(ctx.llm.providerRetryPolicy('deepseek')).toEqual({
+    expect(ctx.llm.providerRetryPolicy('deepseek-official')).toEqual({
       mode: 'always',
       initialDelayMs: 25,
       maxDelayMs: 100,
@@ -585,17 +605,18 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+      { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
     ])
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'deepseek-v4-flash'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'deepseek-v4-flash'))
       .resolves.toMatchObject({
-        provider: 'deepseek',
+        provider: 'deepseek-official',
         id: 'deepseek-v4-flash',
         name: 'DeepSeek-V4-Flash',
-        context: { contextWindow: 256_000 },
+        context: { contextWindow: 1_000_000 },
+        defaultMaxTokens: 256_000,
         reasoning: {
           efforts: [
             { id: ReasoningEffortId('off'), name: 'Off' },
@@ -615,7 +636,7 @@ describe('plugin registration and config', () => {
       baseURL: 'http://127.0.0.1:1',
       reasoningEffort: effort,
     })
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted-pass-through'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'unlisted-pass-through'))
       .resolves.toMatchObject({
         reasoning: {
           efforts: [
@@ -637,7 +658,7 @@ describe('plugin registration and config', () => {
       thinking: 'disabled',
       reasoningEffort: 'off',
     })
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted-pass-through'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'unlisted-pass-through'))
       .resolves.toMatchObject({
         reasoning: {
           efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
@@ -671,7 +692,7 @@ describe('plugin registration and config', () => {
 
   it('accepts disabled thinking with off at the resolver boundary', async () => {
     const adapter = adapterOf({ thinking: 'disabled', reasoningEffort: 'off' })
-    await expect(adapter.resolveModel('deepseek', 'pass-through')).resolves.toMatchObject({
+    await expect(adapter.resolveModel('deepseek-official', 'pass-through')).resolves.toMatchObject({
       reasoning: {
         efforts: [{ id: ReasoningEffortId('off'), name: 'Off' }],
         defaultEffort: ReasoningEffortId('off'),
@@ -683,9 +704,9 @@ describe('plugin registration and config', () => {
     const ctx = new Context()
     await ctx.plugin(LlmService)
     LlmDeepSeek.apply(ctx, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
-      { provider: 'deepseek', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash' },
+      { provider: 'deepseek-official', id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
     ])
   })
 
@@ -705,19 +726,22 @@ describe('plugin registration and config', () => {
         },
       ],
     })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([
-      { provider: 'deepseek', id: 'private-fast', name: 'private-fast' },
-      { provider: 'deepseek', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'private-fast', name: 'private-fast' },
+      { provider: 'deepseek-official', id: 'private-reasoner', name: 'Private Reasoner', description: 'Higher reasoning budget' },
     ])
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'private-fast'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'private-fast'))
       .resolves.toMatchObject({ context: { contextWindow: 32_000 } })
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'private-reasoner'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'private-reasoner'))
       .resolves.toMatchObject({
         name: 'Private Reasoner',
         description: 'Higher reasoning budget',
       })
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'arbitrary-unlisted'))
-      .resolves.not.toHaveProperty('context')
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'arbitrary-unlisted'))
+      .resolves.toMatchObject({
+        context: { contextWindow: 1_000_000 },
+        defaultMaxTokens: 256_000,
+      })
   })
 
   it('uses exact model capacity before the adapter-wide default', async () => {
@@ -733,11 +757,11 @@ describe('plugin registration and config', () => {
       ],
     })
 
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'inherits-default'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'inherits-default'))
       .resolves.toMatchObject({ context: { contextWindow: 256_000 } })
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'exact-override'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'exact-override'))
       .resolves.toMatchObject({ context: { contextWindow: 64_000 } })
-    await expect(ctx.llm.resolveModelInfo('deepseek', 'unlisted-pass-through'))
+    await expect(ctx.llm.resolveModelInfo('deepseek-official', 'unlisted-pass-through'))
       .resolves.toMatchObject({ context: { contextWindow: 256_000 } })
   })
 
@@ -749,7 +773,7 @@ describe('plugin registration and config', () => {
       baseURL: 'http://127.0.0.1:1',
       models: [],
     })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toEqual([])
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([])
   })
 
   it.each([
@@ -799,13 +823,30 @@ describe('plugin registration and config', () => {
     },
   )
 
+  it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid adapter-wide maxTokens %s',
+    async (maxTokens) => {
+      expect(() => resolveAdapterOptions({ maxTokens }))
+        .toThrow(/maxTokens must be a positive safe integer/)
+
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      await expect(ctx.plugin(LlmDeepSeek, {
+        apiKey: 'k',
+        baseURL: 'http://127.0.0.1:1',
+        maxTokens,
+      })).rejects.toThrow(/maxTokens/)
+      expect(ctx.llm.listProviders()).toEqual([])
+    },
+  )
+
   it('falls back to DEEPSEEK_API_KEY and DEEPSEEK_BASE_URL env vars', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', 'env-key')
     vi.stubEnv('DEEPSEEK_BASE_URL', 'http://127.0.0.1:1')
     const ctx = new Context()
     await ctx.plugin(LlmService)
     await ctx.plugin(LlmDeepSeek, {})
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
   })
 
   it('loads keyless, keeps the catalog browsable, and fails the request actionably', async () => {
@@ -815,13 +856,14 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmDeepSeek, { baseURL: 'http://127.0.0.1:1' })
     // First-boot onboarding: the route registers so models stay discoverable;
     // only the request itself needs a key.
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
-    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
     await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
       .rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
-    // The guidance names real external sources and the literal escape hatch.
+    // The guidance leads with the credential store — the path that keeps the
+    // secret out of configuration files — and mentions a literal key last.
     await expect(assemble(ctx, { model: 'deepseek-v4-flash', messages: [] }))
-      .rejects.toThrow(/provide DEEPSEEK_API_KEY through the credential provider.*"apiKey"/s)
+      .rejects.toThrow(/store DEEPSEEK_API_KEY through the credentials service.*as a last resort.*"apiKey"/s)
   })
 
   it('reads the ambient variable when no credentials seam is mounted', async () => {
@@ -871,7 +913,7 @@ describe('plugin registration and config', () => {
     await ctx.plugin(LlmService)
     // Registration succeeds; no call is made (would hit api.deepseek.com).
     await ctx.plugin(LlmDeepSeek, {})
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
   })
 
   it('adapter is constructible directly for embedding over the shared resolver', async () => {
@@ -879,17 +921,16 @@ describe('plugin registration and config', () => {
     expect(adapter).toBeInstanceOf(DeepSeekAdapter)
     // Direct embedding shares the plugin's one resolve step, so it advertises
     // the same default catalog instead of a divergent empty one.
-    await expect(adapter.listModels('deepseek')).resolves.toHaveLength(2)
+    await expect(adapter.listModels('deepseek-official')).resolves.toHaveLength(2)
   })
 
   it('resolves connection facts and the credential exactly once per stream call', async () => {
     const server = await mockServer([{ kind: 'sse', events: textEvents }])
-    const composition = resolveAdapterOptions({ baseURL: server.url })
-    const options = vi.fn(() => composition)
+    const options = vi.fn(() => resolveAdapterOptions({ baseURL: server.url }))
     const resolveApiKey = vi.fn(() => Promise.resolve('per-request-key'))
-    const adapter = new DeepSeekAdapter({ options, composition, resolveApiKey })
+    const adapter = new DeepSeekAdapter({ options, resolveApiKey })
 
-    for await (const _chunk of adapter.stream({ provider: 'deepseek', model: 'm', messages: [] })) { /* drain */ }
+    for await (const _chunk of adapter.stream({ provider: 'deepseek-official', model: 'm', messages: [] })) { /* drain */ }
 
     expect(options).toHaveBeenCalledTimes(1)
     expect(resolveApiKey).toHaveBeenCalledTimes(1)

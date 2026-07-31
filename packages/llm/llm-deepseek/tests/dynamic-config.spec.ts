@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import LlmService from '@deepseek-ai/dsh-llm'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { CredentialsLocal } from '@deepseek-ai/dsh-credentials-local'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SettingsLocal } from '@deepseek-ai/dsh-settings-local'
@@ -12,6 +13,7 @@ import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
 
 const NS = settingsNamespace('llm-deepseek')
+const KEY_REF = credentialRef('DEEPSEEK_API_KEY')
 
 const cleanups: Array<() => Promise<void>> = []
 
@@ -19,7 +21,6 @@ afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
   await closeMockServers()
   vi.unstubAllEnvs()
-  vi.restoreAllMocks()
 })
 
 async function home(): Promise<string> {
@@ -35,8 +36,9 @@ interface Harness {
 
 /**
  * Real dynamic composition: llm + settings-local + credentials-local +
- * llm-deepseek over one temp harness home. Settings updates use their owning
- * write path; credentials are edited externally and read on demand.
+ * llm-deepseek over one temp harness home. `watch: false` keeps every change
+ * flowing through the in-process write path, which is deterministic; external
+ * file watching is the providers' own covered concern.
  */
 async function boot(dir: string, config: object): Promise<Harness> {
   const ctx = new Context()
@@ -46,7 +48,7 @@ async function boot(dir: string, config: object): Promise<Harness> {
   await ctx.plugin(LlmService)
   const settingsFiber = ctx.plugin(SettingsLocal, { path: join(dir, 'settings.yaml'), watch: false })
   await settingsFiber
-  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env') })
+  await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
   await ctx.plugin(LlmDeepSeek, config)
   return { ctx, settingsFiber }
 }
@@ -68,7 +70,7 @@ describe('request-level dynamic configuration', () => {
     expect(serverA.headers[0]?.authorization).toBe('Bearer first-key')
 
     await ctx.settings.update(NS, { baseURL: serverB.url })
-    await writeFile(join(dir, '.env'), 'DEEPSEEK_API_KEY=second-key\n')
+    await ctx.credentials.set(KEY_REF, 'second-key')
 
     await prompt(ctx)
     // No restart, no re-registration: the next request resolved both facts.
@@ -95,56 +97,74 @@ describe('request-level dynamic configuration', () => {
     const { ctx } = await boot(dir, { baseURL: server.url })
 
     await expect(prompt(ctx)).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
-    await writeFile(join(dir, '.env'), 'DEEPSEEK_API_KEY=sk-arrived\n')
+    await ctx.credentials.set(KEY_REF, 'sk-arrived')
     await prompt(ctx)
     expect(server.headers[0]?.authorization).toBe('Bearer sk-arrived')
   })
 
-  it('keeps the model catalog composition-fixed', async () => {
+  it('advertises a live settings catalog without re-registration', async () => {
     const dir = await home()
     const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
 
-    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
     await ctx.settings.update(NS, { models: [{ id: 'settings-model', name: 'From Settings' }] })
-    await expect(ctx.llm.listModels('deepseek')).resolves.toHaveLength(2)
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'settings-model', name: 'From Settings' },
+    ])
   })
 
-  it('keeps the registration retry policy composition-fixed', async () => {
+  it('re-registers the route in place when the captured retry policy changes, without an empty-registry window', async () => {
     const dir = await home()
-    const { ctx } = await boot(dir, {
-      apiKey: 'k',
-      baseURL: 'http://127.0.0.1:1',
-      retryPolicy: {
-        mode: 'always',
-        backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 },
-      },
+    const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+
+    // Observing the topology event, not just the end state: disposing and
+    // re-registering also lands on the right final registry, but publishes an
+    // empty route set in between, so an observer sees the provider disappear.
+    const observed: string[][] = []
+    ctx.on('llm/adapters-updated', () => {
+      observed.push(ctx.llm.listProviders().map(provider => provider.id))
     })
 
     await ctx.settings.update(NS, {
-      retryPolicy: { mode: 'normal', maxRetries: 0 },
+      retryPolicy: { mode: 'always', backoff: { initialDelayMs: 25, maxDelayMs: 100, jitterRatio: 0.2 } },
     })
-    expect(ctx.llm.providerRetryPolicy('deepseek')).toEqual({
+    expect(ctx.llm.providerRetryPolicy('deepseek-official')).toEqual({
       mode: 'always',
       initialDelayMs: 25,
       maxDelayMs: 100,
       jitterRatio: 0.2,
     })
-    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek', name: 'DeepSeek' }])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'deepseek-official', name: 'DeepSeek' }])
+    expect(observed).toEqual([['deepseek-official']])
   })
 
-  it('rejects a settings generation that combines new composition and connection facts', async () => {
+  it('keeps the last good options when a settings snapshot fails beyond-schema validation', async () => {
+    const dir = await home()
+    const { ctx } = await boot(dir, { apiKey: 'k', baseURL: 'http://127.0.0.1:1' })
+
+    // Schema-valid but resolver-invalid: duplicate catalog ids pass the array
+    // schema and fail the explicit resolve step.
+    await ctx.settings.update(NS, { models: [{ id: 'dup' }, { id: 'dup' }] })
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toHaveLength(2)
+    await ctx.settings.update(NS, { models: [{ id: 'recovered' }] })
+    await expect(ctx.llm.listModels('deepseek-official')).resolves.toEqual([
+      { provider: 'deepseek-official', id: 'recovered', name: 'recovered' },
+    ])
+  })
+
+  it('sends the whole last-good snapshot when a rejected one changed both the key and the URL', async () => {
     vi.stubEnv('DEEPSEEK_API_KEY', '')
     const dir = await home()
     const good = await mockServer([{ kind: 'sse', events: textEvents }])
     const rejected = await mockServer([{ kind: 'sse', events: textEvents }])
     const { ctx } = await boot(dir, { apiKey: 'good-key', baseURL: good.url })
 
-    // One schema-valid snapshot moves the endpoint and key while also trying
-    // to replace the composition-owned catalog.
+    // One snapshot moves the endpoint AND the literal key, and fails the
+    // resolve step beyond the schema (duplicate catalog ids).
     await ctx.settings.update(NS, {
       apiKey: 'rejected-key',
       baseURL: rejected.url,
-      models: [{ id: 'settings-model' }],
+      models: [{ id: 'dup' }, { id: 'dup' }],
     })
 
     await prompt(ctx)
@@ -153,42 +173,6 @@ describe('request-level dynamic configuration', () => {
     expect(rejected.requests).toHaveLength(0)
     expect(good.requests).toHaveLength(1)
     expect(good.headers[0]?.authorization).toBe('Bearer good-key')
-  })
-
-  it('cannot mix earlier capability facts with a later settings connection', async () => {
-    const dir = await home()
-    const first = await mockServer([{ kind: 'sse', events: textEvents }])
-    const second = await mockServer([{ kind: 'sse', events: textEvents }])
-    const { ctx } = await boot(dir, {
-      apiKey: 'first-key',
-      baseURL: first.url,
-      thinking: 'disabled',
-      reasoningEffort: 'off',
-    })
-    const resolveModel = vi.spyOn(LlmDeepSeek.DeepSeekAdapter.prototype, 'resolveModel')
-    resolveModel.mockImplementation(async function (
-      this: LlmDeepSeek.DeepSeekAdapter,
-      provider,
-      model,
-      signal,
-    ) {
-      resolveModel.mockRestore()
-      const resolved = await this.resolveModel(provider, model, signal)
-      // Land a complete settings generation after capability resolution but
-      // before stream dispatch. Its changed composition fact rejects it whole.
-      await ctx.settings.update(NS, {
-        apiKey: 'second-key',
-        baseURL: second.url,
-        thinking: 'enabled',
-        reasoningEffort: 'max',
-      })
-      return resolved
-    })
-
-    await prompt(ctx)
-    expect(second.requests).toHaveLength(0)
-    expect(first.headers[0]?.authorization).toBe('Bearer first-key')
-    expect(first.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
   })
 
   it('falls back to the composition entry when settings detach', async () => {

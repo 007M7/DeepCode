@@ -69,7 +69,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
       const ctx = new Context()
       contexts.push(ctx)
       await ctx.plugin(LlmService)
-      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env') })
+      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
       await ctx.plugin(LlmDeepSeek, {})
 
       const result = await assemble(ctx, {
@@ -172,7 +172,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('llm-deepseek e2e (real API)', ()
     const ctx = await harness(FLASH, { thinking: 'disabled' })
     const kinds: string[] = []
     for await (const chunk of ctx.llm.stream({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: FLASH,
       messages: ask('Count from 1 to 5, digits only.'),
       maxTokens: 50,

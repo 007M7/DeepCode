@@ -49,7 +49,7 @@ async function seedInterruptedSession(root: string, cwd: string): Promise<string
           content: [{ type: 'tool-call', id: CallId('unknown-outcome-call'), name: 'write_remote', arguments: '{"value":1}' }],
           source: {
             kind: 'model',
-            ...{ provider: 'deepseek', model: 'deepseek-v4-flash' },
+            ...{ provider: 'deepseek-official', model: 'deepseek-v4-flash' },
           },
         }),
       },

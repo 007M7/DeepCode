@@ -60,6 +60,7 @@ class CatalogAdapter extends ScriptedAdapter {
     private readonly models: readonly LlmModelInfo[],
     private readonly contexts: Readonly<Record<string, LlmModelContext>> = {},
     private readonly reasoning: Readonly<Record<string, LlmModelReasoningInfo>> = {},
+    private readonly defaultMaxTokens: Readonly<Record<string, number>> = {},
   ) {
     super(SCRIPT)
   }
@@ -82,6 +83,7 @@ class CatalogAdapter extends ScriptedAdapter {
       name: model,
       ...this.contexts[model] === undefined ? {} : { context: this.contexts[model] },
       ...this.reasoning[model] === undefined ? {} : { reasoning: this.reasoning[model] },
+      ...this.defaultMaxTokens[model] === undefined ? {} : { defaultMaxTokens: this.defaultMaxTokens[model] },
     })
   }
 }
@@ -217,7 +219,7 @@ describe('LlmService', () => {
     )
   })
 
-  it('keeps the serving registration policy on an in-flight call after route re-registration', async () => {
+  it('keeps the serving registration policy on an in-flight call after route replacement', async () => {
     const oldPolicy = resolveRetryPolicy({ mode: 'always' }, 'old retryPolicy')
     const newPolicy = resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'new retryPolicy')
     const entered = Promise.withResolvers<undefined>()
@@ -904,7 +906,12 @@ describe('LlmService', () => {
       { id: 'route', name: 'Route' },
       [],
       {},
-      { model: source },
+      {
+        model: source,
+        providerDefault: {
+          efforts: [{ id: ReasoningEffortId('standard'), name: 'Standard' }],
+        },
+      },
     ))
 
     const resolved = await ctx.llm.resolveModelInfo('route', 'model')
@@ -918,7 +925,53 @@ describe('LlmService', () => {
     })
     const explicit = { provider: 'route', model: 'model', reasoningEffort: ReasoningEffortId('ultra') }
     await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+    const providerDefault = { provider: 'route', model: 'providerDefault' }
+    await expect(ctx.llm.resolveCallConfig(providerDefault)).resolves.toBe(providerDefault)
   })
+
+  it('materializes an adapter-owned maxTokens default while preserving an explicit cap', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+    ctx.llm.registerAdapter(['route'], new CatalogAdapter(
+      { id: 'route', name: 'Route' },
+      [],
+      {},
+      {},
+      { model: 256_000 },
+    ))
+
+    await expect(ctx.llm.resolveModelInfo('route', 'model')).resolves.toMatchObject({
+      defaultMaxTokens: 256_000,
+    })
+    await expect(ctx.llm.resolveCallConfig({ provider: 'route', model: 'model' })).resolves.toEqual({
+      provider: 'route',
+      model: 'model',
+      maxTokens: 256_000,
+    })
+    const preparedDefault = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
+    expect(preparedDefault.adapterDefaults).toEqual({ maxTokens: true })
+    const explicit = { provider: 'route', model: 'model', maxTokens: 8_192 }
+    await expect(ctx.llm.resolveCallConfig(explicit)).resolves.toBe(explicit)
+    const preparedExplicit = await ctx.llm.prepareCall(explicit)
+    expect(preparedExplicit.adapterDefaults).toEqual({})
+  })
+
+  it.each([0, 1.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid adapter-owned default maxTokens %s',
+    async (defaultMaxTokens) => {
+      const ctx = new Context()
+      await ctx.plugin(LlmService)
+      const adapter = new class extends ScriptedAdapter {
+        override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+          return Promise.resolve({ provider, id: model, name: model, defaultMaxTokens })
+        }
+      }(SCRIPT)
+      ctx.llm.registerAdapter(['route'], adapter)
+
+      await expect(ctx.llm.resolveModelInfo('route', 'model'))
+        .rejects.toMatchObject({ code: 'INVALID_MODEL_MAX_TOKENS' })
+    },
+  )
 
   it.each([
     [{ efforts: [] }, 'empty effort list'],
@@ -1064,6 +1117,8 @@ describe('LlmService', () => {
     ctx.llm.registerAdapter(['route'], adapter)
     const prepared = await ctx.llm.prepareCall({ provider: 'route', model: 'model' })
     expect(Object.isFrozen(prepared.config)).toBe(true)
+    expect(Object.isFrozen(prepared.adapterDefaults)).toBe(true)
+    expect(prepared.adapterDefaults).toEqual({ reasoningEffort: true })
     const stream = prepared.stream({
       ...prepared.config,
       model: 'other',
@@ -1382,4 +1437,31 @@ describe('LlmService', () => {
     expect(ctx.llm.listProviders()).toEqual([])
   })
 
+  it('refuses to replace routes on a registration that was already released', async () => {
+    // The leak this prevents: the effect's disposer has run, so a route added
+    // afterwards would sit in the registry with nothing left to release it.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    const handle = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    handle()
+    expect(() => { handle.replace(['leaked']) })
+      .toThrow(/disposed adapter registration cannot replace its routes/)
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
+
+  it('still allows an empty route set on a live registration', async () => {
+    // `replace([])` is the settings-section-emptied case: legal, and it must
+    // not be mistaken for disposal by the guard above.
+    const ctx = new Context()
+    await ctx.plugin(LlmService)
+
+    const handle = ctx.llm.registerAdapter(['m1'], new ScriptedAdapter(SCRIPT))
+    handle.replace([])
+    expect(ctx.llm.listProviders()).toEqual([])
+    handle.replace(['m2'])
+    expect(ctx.llm.listProviders()).toEqual([{ id: 'm2', name: 'm2' }])
+    handle()
+    expect(ctx.llm.listProviders()).toEqual([])
+  })
 })

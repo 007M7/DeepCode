@@ -16,9 +16,13 @@ import { cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { GoalProjection } from '@deepseek-ai/dsh-goal/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { GoalBarActions } from '../src/client/slots.ts'
 import { apply, inject } from '../src/client/index.ts'
 import { GoalDock } from '../src/client/GoalBar.tsx'
+import { zh } from '../src/client/locales.ts'
 import { apply as nodeApply } from '../src/index.ts'
 
 afterEach(cleanup)
@@ -61,14 +65,15 @@ function bench(options: { projection?: GoalProjection | null | undefined; failWi
     resume: answer('goal.resume', { ref }),
     clear: answer('goal.clear', { cleared: true as const }),
   } } })
-  const entries = new Map<string, { id?: string; order?: number; inject?: (sessionId: SessionId) => GoalBarActions }>()
+  const entries = new Map<string, { id?: string; order?: number; locale?: string; inject?: (sessionId: SessionId) => GoalBarActions }>()
   ctx.provide('slots', {
-    register(reg: { name: string; id?: string; order?: number; inject?: (sessionId: SessionId) => GoalBarActions }) {
+    register(reg: { name: string; id?: string; order?: number; locale?: string; inject?: (sessionId: SessionId) => GoalBarActions }) {
       entries.set(reg.name, reg)
       return () => { entries.delete(reg.name) }
     },
   })
   ctx.provide('conversation', {})
+  ctx.provide('locale', new LocaleService(ctx))
   ctx.provide('sessions', {
     binding: (id: SessionId) => ({
       sessionId: id,
@@ -92,7 +97,7 @@ describe('ui-goal browser plugin', () => {
   it('registers the GoalBar dock entry with the documented id and order', async () => {
     const b = bench()
     await b.fiber.await()
-    expect(b.entry()).toMatchObject({ id: 'goal', order: 0 })
+    expect(b.entry()).toMatchObject({ id: 'goal', order: 0, locale: 'goal' })
     expect(b.entry()?.inject).toBeTypeOf('function')
   })
 
@@ -150,8 +155,9 @@ describe('GoalDock adapter', () => {
       onResume: () => Promise.resolve({ ok: true }),
       onClear: () => Promise.resolve({ ok: true }),
     }
+    const t = makeTranslate(zh, commonZh)
     const dockProps = (up: () => GoalProjection | null | undefined) =>
-      ({ useProjection: up, ...actions }) as unknown as Parameters<typeof GoalDock>[0]
+      ({ useProjection: up, ...actions, t }) as unknown as Parameters<typeof GoalDock>[0]
     const shown = render(<GoalDock {...dockProps(useProjection)} />)
     expect(shown.getByText('Ship it')).toBeTruthy()
     cleanup()

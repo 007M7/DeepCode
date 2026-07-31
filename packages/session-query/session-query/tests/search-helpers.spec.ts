@@ -101,8 +101,23 @@ describe('session-query semantic extraction', () => {
     ]
 
     for (const event of events.slice(0, 4)) {
-      expect(extractSessionEventText(event)).toBe('visible\nthought\nread\n{"path":"a"}\nnested')
+      expect(extractSessionEventText(event)).toBe('visible\nread\n{"path":"a"}\nnested')
     }
+    expect(extractSessionEventText({
+      type: 'assistant/message',
+      seq: 9,
+      time: 10,
+      data: {
+        turn: 1,
+        step: 1,
+        message: createMessage({
+          role: 'assistant',
+          content: [{ type: 'reasoning', text: 'private thought' }],
+          source: { kind: 'model', provider: 'mock', model: 'mock' },
+        }),
+      },
+      surfaceOp: 'append',
+    })).toBe('')
     expect(extractSessionEventText(events[4]!)).toBe('bash\n{"cmd":"pwd"}')
     expect(extractSessionEventText(events[5]!)).toBe('failed\nOops\nE_OOPS')
     expect(extractSessionEventText(events[6]!)).toBe('')

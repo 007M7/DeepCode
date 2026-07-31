@@ -151,7 +151,7 @@ describe('web e2e: approval takeover keeps its actions reachable', () => {
       await page.setViewportSize(original)
     }
 
-    await panel.getByRole('button', { name: '允许一次' }).click()
+    await panel.getByRole('button', { name: 'Allow once' }).click()
 
     const sessionId = await settled
     if (MODE === 'record') {

@@ -36,7 +36,7 @@ import { HeadlessTerminal } from '../../../packages/ui/tui/tests/headless-termin
 const SNAPSHOTS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'snapshots')
 // Keep pre-normalization layout widths identical across macOS and Linux.
 const SNAPSHOT_TMP_ROOT = process.platform === 'win32' ? tmpdir() : '/tmp'
-const PROVIDERS = [{ id: 'deepseek', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
+const PROVIDERS = [{ id: 'deepseek-official', models: [{ id: 'deepseek-v4-flash', contextWindow: 128_000 }] }]
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
 
 type SnapshotMode = 'replay' | 'record' | 'refresh'
@@ -305,7 +305,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     const handle = await ctx.agents.create({
       sessionId: SessionId('main-session'),
       meta: { cwd },
-      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     })
     const agent: Agent = handle.agent
     controller = createTuiChat(ctx, {

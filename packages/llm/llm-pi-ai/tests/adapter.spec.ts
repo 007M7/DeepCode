@@ -25,10 +25,8 @@ async function harness(baseURL: string, overrides: Record<string, unknown> = {})
 
 /** Direct adapter over the real profile resolver, with literal-key resolution. */
 function adapterOf(providers: Record<string, LlmPiAi.PiAiProviderProfile>): PiAiAdapter {
-  const compositionProfiles = resolveProfiles(providers)
   return new PiAiAdapter({
-    profiles: () => compositionProfiles,
-    compositionProfiles,
+    profiles: () => resolveProfiles(providers),
     resolveApiKey: (_provider, profile) => Promise.resolve(profile.apiKey),
   })
 }
@@ -403,7 +401,9 @@ describe('provider profile lifecycle', () => {
   })
 
   it('validates empty, unknown, legacy-shaped, and explicitly blank profiles', () => {
-    expect(() => resolveProfiles({})).toThrow(/at least one profile/)
+    // Empty and omitted dicts are the dormant zero-route posture, not errors.
+    expect(resolveProfiles({}).size).toBe(0)
+    expect(resolveProfiles(undefined).size).toBe(0)
     expect(() => resolveProfiles({ '': {} })).toThrow(/non-empty/)
     expect(() => resolveProfiles({ 'not-real': {} })).toThrow(/unknown/)
     // The pre-release array shape and its per-profile provider field fail

@@ -10,10 +10,10 @@
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
 import { watch as chokidarWatch } from 'chokidar'
-import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import { Document, parseDocument } from 'yaml'
+import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { Settings, deepEqualJson, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 
@@ -95,16 +95,6 @@ function patchNode(document: Document, path: readonly string[], current: unknown
 function isENOENT(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
-
-/** Whether an exclusive create failed because the path already exists. */
-function isEEXIST(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException | null)?.code === 'EEXIST'
-}
-
-/** Writer-lock retry constants for the private settings document protocol. */
-const LOCK_RETRY_INITIAL_MS = 20
-const LOCK_RETRY_MAX_MS = 200
-const LOCK_TIMEOUT_MS = 2_000
 
 /** File-backed settings provider (`settings.yaml`/`.json`). */
 export class SettingsLocal extends Settings {
@@ -190,8 +180,11 @@ export class SettingsLocal extends Settings {
   }
 
   private async persistSection(ns: SettingsNamespace, section: Record<string, unknown>): Promise<void> {
+    // The writer lock's exclusive create needs the parent to exist before
+    // writeFileAtomic gets its own chance to create it.
+    // 0700: the harness home holds user-private documents.
     await mkdir(dirname(this.spec.filename), { recursive: true, mode: 0o700 })
-    await this.withWriterLock(async () => {
+    await withFileLock(this.spec.filename, async () => {
       // Read-modify-write: fold in any on-disk state this process has not
       // observed yet — an external edit still inside the watcher debounce
       // window, a change the watcher missed, or another process's write — so
@@ -202,43 +195,10 @@ export class SettingsLocal extends Settings {
       const output = this.spec.format === 'yaml'
         ? this.renderYaml(ns, section)
         : this.renderJson(ns, section)
-      const temp = `${this.spec.filename}.${randomBytes(6).toString('hex')}.tmp`
-      // TODO(settings-atomic-durability): Use a replacement that fsyncs the file
-      // and parent directory and preserves owner-only permissions on Windows.
-      try {
-        await writeFile(temp, output, { mode: 0o600, flag: 'wx' })
-        await rename(temp, this.spec.filename)
-      } catch (error) {
-        await rm(temp, { force: true })
-        throw error
-      }
+      // 0600: a document that may hold personal values is never world-readable.
+      await writeFileAtomic(this.spec.filename, output, { mode: 0o600, dirMode: 0o700 })
       this.text = output
     })
-  }
-
-  /** Hold the private cross-process writer lock around one read-render-rename cycle. */
-  private async withWriterLock<T>(operation: () => Promise<T>): Promise<T> {
-    const lockPath = `${this.spec.filename}.lock`
-    const deadline = Date.now() + LOCK_TIMEOUT_MS
-    let delay = LOCK_RETRY_INITIAL_MS
-    for (;;) {
-      try {
-        await writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
-        break
-      } catch (error) {
-        if (!isEEXIST(error)) throw error
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`settings-local: timed out waiting for the writer lock at ${lockPath}`)
-      }
-      await new Promise(resolvePause => setTimeout(resolvePause, delay))
-      delay = Math.min(delay * 2, LOCK_RETRY_MAX_MS)
-    }
-    try {
-      return await operation()
-    } finally {
-      await rm(lockPath, { force: true })
-    }
   }
 
   override async* [Service.init](): AsyncGenerator<() => Promise<void> | void, void, void> {
