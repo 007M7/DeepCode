@@ -22,7 +22,7 @@ import type {
 } from './types.ts'
 
 /** Stable id this provider registers under. */
-export const DEEPSEEK_PROVIDER_ID = 'deepseek'
+export const DEEPSEEK_PROVIDER_ID = 'deepseek-official'
 
 /**
  * Default endpoint: DeepSeek's Anthropic-compatible surface, `/v1` included

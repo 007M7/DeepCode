@@ -26,13 +26,14 @@ import type {
 // Type-only: the brand constructor is host-side; the fixture casts at its
 // wire-fabrication boundary (the schema layer's one-cast-point posture).
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import { foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
-  ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
+  ModelProviderGroup, ModelTarget, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { AbstractApiClient, RpcId } from './api.ts'
+import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
 
 /** The fake carrier mints like a real one (business code never mints). */
 function rpcRequest<P>(payload: P): RpcRequest<P> {
@@ -226,6 +227,35 @@ const OPENAI_REASONING = {
     { id: 'max', name: 'Max' },
   ],
   defaultEffort: 'medium',
+}
+
+/** Catalog served by `session.models` and `llm.models` alike (fresh copies per call). */
+function fixtureModelGroups(): ModelProviderGroup[] {
+  return [
+    {
+      id: 'deepseek-official',
+      name: 'DeepSeek',
+      models: [
+        {
+          id: 'deepseek-v4-flash',
+          name: 'DeepSeek-V4-Flash',
+          description: '快速响应',
+          reasoning: DEEPSEEK_REASONING,
+        },
+        {
+          id: 'deepseek-v4-pro',
+          name: 'DeepSeek-V4-Pro',
+          description: '复杂任务',
+          reasoning: DEEPSEEK_REASONING,
+        },
+      ],
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
+    },
+  ]
 }
 
 function sid(id: string): SessionId {
@@ -648,6 +678,144 @@ function pageOf(
   return { events, hasMore: start > 0 }
 }
 
+/** Fixture mirror of first-party message extraction used by session-query. */
+function searchBlockText(block: ContentBlock): string[] {
+  switch (block.type) {
+    case 'text':
+      return [block.text]
+    case 'reasoning':
+      return []
+    case 'tool-call':
+      return [block.name, block.arguments]
+    case 'tool-result':
+      return block.content.flatMap(searchBlockText)
+    default:
+      return []
+  }
+}
+
+/** One current-surface user/assistant/steering document, if searchable. */
+function searchEventText(event: SessionEvent): string {
+  const content = event.type === 'user/message'
+    ? event.data.content
+    : event.type === 'assistant/message' || event.type === 'steering/message'
+      ? event.data.message.content
+      : undefined
+  if (content === undefined) return ''
+  return content.flatMap(searchBlockText).map(part => part.trim()).filter(Boolean).join('\n')
+}
+
+interface FixtureSearchToken {
+  value: string
+  /** Inclusive code-point offset in the whitespace-normalized display text. */
+  start: number
+  /** Exclusive code-point offset in the whitespace-normalized display text. */
+  end: number
+}
+
+/**
+ * Browser-safe approximation of SQLite FTS5 unicode61 token boundaries.
+ * Keeping phrase matching token-based prevents the development fixture from
+ * promising arbitrary within-token substring behavior that production lacks.
+ */
+function searchTokenSpans(value: string): { text: string; tokens: FixtureSearchToken[] } {
+  const text = value.replace(/\s+/gu, ' ').trim()
+  const characters = Array.from(text)
+  const tokens: FixtureSearchToken[] = []
+  let start: number | undefined
+  let raw = ''
+  const flush = (end: number): void => {
+    if (start !== undefined) {
+      const folded = raw.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase()
+      if (folded !== '') tokens.push({ value: folded, start, end })
+    }
+    start = undefined
+    raw = ''
+  }
+  for (let index = 0; index < characters.length; index++) {
+    const character = characters[index] as string
+    const tokenBase = character.normalize('NFD').replace(/\p{M}+/gu, '')
+    if (tokenBase === '') {
+      if (start !== undefined) raw += character
+      continue
+    }
+    if (/^[\p{L}\p{N}\p{Co}]+$/u.test(tokenBase)) {
+      start ??= index
+      raw += character
+    } else {
+      flush(index)
+    }
+  }
+  flush(characters.length)
+  return { text, tokens }
+}
+
+interface FixturePhraseMatch {
+  count: number
+  start: number
+  end: number
+}
+
+/** Count exact contiguous token-phrase occurrences and retain the first display span. */
+function phraseMatch(document: readonly FixtureSearchToken[], phrase: readonly string[]): FixturePhraseMatch {
+  if (phrase.length === 0 || phrase.length > document.length) return { count: 0, start: 0, end: 0 }
+  let count = 0
+  let firstStart = 0
+  let firstEnd = 0
+  for (let start = 0; start <= document.length - phrase.length; start++) {
+    if (!phrase.every((token, offset) => document[start + offset]?.value === token)) continue
+    count++
+    if (count === 1) {
+      firstStart = document[start]?.start ?? 0
+      firstEnd = document[start + phrase.length - 1]?.end ?? firstStart
+    }
+  }
+  return { count, start: firstStart, end: firstEnd }
+}
+
+/** Match-centered fixture excerpt, bounded by Unicode code points for the sidebar. */
+function searchSnippet(value: string, matchStart: number, matchEnd: number): string {
+  const characters = Array.from(value)
+  if (characters.length <= 120) return value
+  const boundedStart = Math.min(Math.max(0, matchStart), characters.length - 1)
+  const boundedEnd = Math.min(
+    characters.length,
+    Math.max(boundedStart + 1, matchEnd),
+  )
+  const center = Math.floor((boundedStart + boundedEnd) / 2)
+  let start = Math.min(
+    characters.length - 118,
+    Math.max(0, center - Math.floor(118 / 2)),
+  )
+  let end = start + 118
+  if (start === 0) {
+    end = 119
+  } else if (end === characters.length) {
+    start = characters.length - 119
+  }
+  return `${start > 0 ? '…' : ''}${characters.slice(start, end).join('')}${end < characters.length ? '…' : ''}`
+}
+
+interface FixtureSearchCandidate {
+  sessionId: SessionId
+  seq: number
+  time: number
+  text: string
+  matchCount: number
+  matchStart: number
+  matchEnd: number
+  documentLength: number
+}
+
+/** Mirrors `packages/session-query/session-query-sqlite/src/index.ts`; update both together. */
+function compareSearchCandidates(a: FixtureSearchCandidate, b: FixtureSearchCandidate): number {
+  if (a.matchCount !== b.matchCount) return b.matchCount - a.matchCount
+  if (a.documentLength !== b.documentLength) return a.documentLength - b.documentLength
+  if (a.time !== b.time) return b.time - a.time
+  if (a.sessionId !== b.sessionId) return a.sessionId < b.sessionId ? -1 : 1
+  return b.seq - a.seq
+}
+
 /**
  * Current plan projection over the full log (host parallel: latest todo/write
  * with no later turn/start; a new turn retires the previous plan).
@@ -786,8 +954,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   const logs = new Map<SessionId, SessionEvent[]>([[sid('fx-alpha'), buildAlphaLog()]])
   const modelTargets = new Map<SessionId, ModelTarget>(sessions.map(session => [
     session.sessionId,
-    { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   ]))
+  /** Credential store double: set/unset flip the describe badge, values never read back. */
+  const fixtureCredentials = new Map<string, true>([
+    // The assembled fixture represents an already-configured shipped
+    // DeepSeek route so unrelated GUI journeys do not enter first-run setup.
+    ['DEEPSEEK_API_KEY', true],
+  ])
   const nextTurn = new Map<SessionId, number>([[sid('fx-alpha'), 60]])
   let nextSession = 1
   let nextRpc = 1
@@ -1054,6 +1228,45 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
   return {
     sessions: {
       list: request => ok(request, { items: [...sessions].sort((a, b) => b.updatedAt - a.updatedAt) }),
+      search: (request, signal) => {
+        if (signal.aborted) {
+          return err(request, {
+            code: 'cancelled',
+            message: 'fixture session search was aborted',
+            details: {},
+          })
+        }
+        const query = searchTokenSpans(request.payload.query).tokens.map(token => token.value)
+        const matches = sessions.flatMap((summary) => {
+          const log = logs.get(summary.sessionId) ?? []
+          const current = new Set(foldSurface(log).nodes)
+          const best = log.flatMap((event): FixtureSearchCandidate[] => {
+            if (!current.has(event.seq)) return []
+            const eventText = searchEventText(event)
+            const document = searchTokenSpans(eventText)
+            const match = phraseMatch(document.tokens, query)
+            if (match.count === 0) return []
+            return [{
+              sessionId: summary.sessionId,
+              seq: event.seq,
+              time: event.time,
+              text: document.text,
+              matchCount: match.count,
+              matchStart: match.start,
+              matchEnd: match.end,
+              documentLength: Array.from(eventText).length,
+            }]
+          }).sort(compareSearchCandidates)[0]
+          return best === undefined ? [] : [best]
+        }).sort(compareSearchCandidates)
+        return ok(request, {
+          items: matches.slice(0, SESSION_SEARCH_RESULT_LIMIT).map(match => ({
+            sessionId: match.sessionId,
+            snippet: searchSnippet(match.text, match.matchStart, match.matchEnd),
+          })),
+          hasMore: matches.length > SESSION_SEARCH_RESULT_LIMIT,
+        })
+      },
       create: async (request) => {
         const workspace = request.payload.workspaceId === undefined
           ? undefined
@@ -1103,7 +1316,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           sessionId: requestedId ?? sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: true, cwd,
         }
         sessions.push(created)
-        modelTargets.set(created.sessionId, { provider: 'deepseek', model: 'deepseek-v4-flash' })
+        modelTargets.set(created.sessionId, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
         attachedSessions += 1
         const emitSession = (): void => {
           // Mirrors the host: the frame fires at creation, so blank is constantly true.
@@ -1144,6 +1357,56 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         const appended = logOf(sessionId).at(-1) as SessionEvent
         return ok(request, { title: normalized, seq: appended.seq })
       },
+      fork: (request) => {
+        const { sessionId, atSeq } = request.payload
+        const source = summaryOf(sessionId)
+        if (source === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${sessionId}`,
+            details: { sessionId },
+          })
+        }
+        const log = logs.get(sessionId) ?? []
+        const lastSeq = log.at(-1)?.seq ?? -1
+        const anchoredBoundary = atSeq === undefined
+          ? undefined
+          : log.find(e => e.type === 'turn/end' && e.seq >= atSeq)
+        const boundary = anchoredBoundary
+          ?? (atSeq === undefined || atSeq > lastSeq
+            ? log.findLast(e => e.type === 'turn/end')
+            : undefined)
+        if (boundary === undefined) {
+          return err(request, {
+            code: 'fork-unavailable',
+            message: atSeq !== undefined && atSeq <= lastSeq
+              ? `session ${sessionId} has not completed the turn containing event ${String(atSeq)}`
+              : `session ${sessionId} has no completed turn`,
+            details: { sessionId },
+          })
+        }
+        let cut = boundary.seq + 1
+        while (cut < log.length && log[cut]?.type !== 'turn/start') cut++
+        const child: SessionSummary = {
+          sessionId: sid(`fx-${nextSession++}`), updatedAt: Date.now(), running: false, blank: false,
+          parentSessionId: sessionId,
+          ...source.cwd === undefined ? {} : { cwd: source.cwd },
+        }
+        logs.set(child.sessionId, log.slice(0, cut))
+        sessions.push(child)
+        emitHost({
+          type: 'host/session-added', sessionId: child.sessionId, blank: false,
+          parentSessionId: sessionId,
+          ...source.cwd === undefined ? {} : { cwd: source.cwd },
+        })
+        const workspace = workspaces.find(w => w.sessionIds.includes(sessionId))
+        if (workspace !== undefined) {
+          workspace.sessionIds = [child.sessionId, ...workspace.sessionIds]
+          workspace.updatedAt = new Date().toISOString()
+          emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
+        }
+        return ok(request, { sessionId: child.sessionId })
+      },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
@@ -1163,32 +1426,8 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       },
       models: request => ok(request, {
         current: modelTargets.get(request.payload.sessionId)
-          ?? { provider: 'deepseek', model: 'deepseek-v4-flash' },
-        groups: [
-          {
-            id: 'deepseek',
-            name: 'DeepSeek',
-            models: [
-              {
-                id: 'deepseek-v4-flash',
-                name: 'DeepSeek-V4-Flash',
-                description: '快速响应',
-                reasoning: DEEPSEEK_REASONING,
-              },
-              {
-                id: 'deepseek-v4-pro',
-                name: 'DeepSeek-V4-Pro',
-                description: '复杂任务',
-                reasoning: DEEPSEEK_REASONING,
-              },
-            ],
-          },
-          {
-            id: 'openai',
-            name: 'OpenAI',
-            models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
-          },
-        ],
+          ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+        groups: fixtureModelGroups(),
         failures: [],
       }),
       selectModel: (request) => {
@@ -1433,14 +1672,14 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           const spec = PERMISSION_PRESETS[preset]
           if (preset === '') {
             const current = permissionSelectOf(logOf(id)).currentValue
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Current permission preset: ${current}. Available: ${Object.keys(PERMISSION_PRESETS).join(', ')}.` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `current preset ${current} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else if (spec === undefined) {
-            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown permission preset ${JSON.stringify(preset)} (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'error', text: `unknown preset "${preset}" (available: ${Object.keys(PERMISSION_PRESETS).join(', ')})` } })
           } else {
             if (permissionSelectOf(logOf(id)).currentValue !== preset) append(id, { type: 'permission/preset', data: { preset } })
             append(id, { type: 'sandbox/mode', data: { mode: spec.sandbox } })
             append(id, { type: 'approval/policy', data: { policy: spec.approval } })
-            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `Permission preset: ${preset}.` } })
+            append(id, { type: 'command/done', data: { commandId, kind: 'success', text: `preset ${preset}` } })
           }
           return ok(request, { matched: true as const, commandId })
         }
@@ -1624,6 +1863,64 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         }
       },
     },
+    settings: {
+      // Only the resolved DeepSeek address needed by first-run readiness is
+      // represented here. Fixture-backed journeys do not open its Models
+      // editor; real schema-driven forms ride the HTTP transport.
+      describe: request => ok(request, {
+        writable: true,
+        namespaces: [{
+          ns: 'llm-deepseek',
+          schema: {},
+          value: { apiKeyEnv: 'DEEPSEEK_API_KEY' },
+          applies: 'live',
+          secrets: [{ path: ['apiKey'], set: false }],
+          revision: 0,
+        }],
+      }),
+      update: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
+        details: { ns: request.payload.ns },
+      }),
+      replace: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: the minimal readiness settings descriptor is read-only',
+        details: { ns: request.payload.ns },
+      }),
+      mutate: request => err(request, {
+        code: 'settings-rejected',
+        message: 'fixture: no settings namespaces are registered',
+        details: { ns: request.payload.ns },
+      }),
+    },
+    credentials: {
+      describe: request => ok(request, {
+        credentials: Object.fromEntries(request.payload.refs.map(ref => [ref, {
+          configured: fixtureCredentials.has(ref),
+          ...fixtureCredentials.has(ref) ? { source: 'file' } : {},
+          writable: true,
+        }])),
+      }),
+      set: (request) => {
+        fixtureCredentials.set(request.payload.ref, true)
+        return ok(request, {})
+      },
+      unset: (request) => {
+        fixtureCredentials.delete(request.payload.ref)
+        return ok(request, {})
+      },
+    },
+    llm: {
+      providers: request => ok(request, {
+        providers: [
+          { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [], active: true },
+          { provider: 'openai', displayName: 'openai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'openai'], active: true },
+          { provider: 'anthropic', displayName: 'anthropic', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'anthropic'], active: false },
+        ],
+      }),
+      models: request => ok(request, { groups: fixtureModelGroups(), failures: [] }),
+    },
     respond(message: ClientResponse): Promise<RpcReceipt> {
       // Same routing discipline as the host: rpcId first, then the payload's
       // audit correlation; a settled or unknown id is not-pending.
@@ -1674,25 +1971,36 @@ export class FixtureApiClient extends AbstractApiClient {
   protected override async callUnary<K extends keyof RpcMethodMap>(
     method: K,
     payload: RequestPayload<K>,
+    signal?: AbortSignal,
   ): Promise<RpcResponse<ResponseValue<K>>> {
     const request = rpcRequest(payload)
     const full: ClientRequest = { type: 'client-request', rpcId: request.rpcId, method, payload }
     this.onEnvelope(full)
-    const response = await this.dispatch(method, request as RpcRequest<never>) as RpcResponse<ResponseValue<K>>
+    const response = await this.dispatch(
+      method,
+      request as RpcRequest<never>,
+      signal ?? new AbortController().signal,
+    ) as RpcResponse<ResponseValue<K>>
     const fullResponse: ServerResponse = { type: 'server-response', rpcId: response.rpcId, result: response.result }
     this.onEnvelope(fullResponse)
     return response
   }
 
   /** Method-key dispatch into the in-memory contract impl (a real carrier routes by URL path instead). */
-  private dispatch(method: keyof RpcMethodMap, request: RpcRequest<never>): Promise<RpcResponse<unknown>> {
+  private dispatch(
+    method: keyof RpcMethodMap,
+    request: RpcRequest<never>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<unknown>> {
     switch (method) {
       case 'session.list': return this.api.sessions.list(request)
+      case 'session.search': return this.api.sessions.search(request, signal)
       case 'session.create': return this.api.sessions.create(request)
       case 'session.history': return this.api.sessions.history(request)
       case 'session.models': return this.api.sessions.models(request)
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.rename': return this.api.sessions.rename(request)
+      case 'session.fork': return this.api.sessions.fork(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
@@ -1707,8 +2015,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
       case 'command.list': return this.api.commands.list(request)
-      // The in-memory execute never blocks, so a never-aborting signal is faithful here.
-      case 'command.execute': return this.api.commands.execute(request, new AbortController().signal)
+      case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)
       case 'goal.create': return this.api.goals.create(request)
       case 'goal.edit': return this.api.goals.edit(request)
@@ -1716,6 +2023,15 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'goal.resume': return this.api.goals.resume(request)
       case 'goal.complete': return this.api.goals.complete(request)
       case 'goal.clear': return this.api.goals.clear(request)
+      case 'settings.describe': return this.api.settings.describe(request)
+      case 'settings.update': return this.api.settings.update(request)
+      case 'settings.replace': return this.api.settings.replace(request)
+      case 'settings.mutate': return this.api.settings.mutate(request)
+      case 'credentials.describe': return this.api.credentials.describe(request)
+      case 'credentials.set': return this.api.credentials.set(request)
+      case 'credentials.unset': return this.api.credentials.unset(request)
+      case 'llm.providers': return this.api.llm.providers(request)
+      case 'llm.models': return this.api.llm.models(request)
     }
   }
 

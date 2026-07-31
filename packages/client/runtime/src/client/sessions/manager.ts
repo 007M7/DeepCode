@@ -2,7 +2,10 @@
 // dispatch entry + list state, constructed and held by SessionsService (one per client runtime).
 // List data never enters zustand; React connects via subscribe/getListSnapshot.
 
-import type { IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId, SessionSummary, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId,
+  SessionSummary, WorkspaceId,
+} from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -26,6 +29,12 @@ import { Session } from './session.ts'
  * (no `error` phase here; that would duplicate `state`).
  */
 export type SessionListPhase = 'pending' | 'ready'
+
+/** Request-local content hit returned to sidebar search consumers. */
+export interface SessionSearchResultItem {
+  sessionId: SessionId
+  snippet: string
+}
 
 /** Immutable session-list snapshot for useSessionList. */
 export interface SessionListSnapshot {
@@ -249,6 +258,24 @@ export class SessionManager {
   }
 
   /**
+   * Search visible session message content without adding transient query
+   * state to the list snapshot.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for superseded UI queries.
+   * @returns the Host result or a folded transport error.
+   */
+  async search(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
+    try {
+      return (await this.api.sessions.search({ query }, signal)).result
+    } catch (error: unknown) {
+      return transportError(error)
+    }
+  }
+
+  /**
    * Contract session.create; on success merge into summaries immediately (no
    * wait for the next refresh). A created session is blank by definition
    * (entity birth precedes the first message).
@@ -282,6 +309,40 @@ export class SessionManager {
             blank: true,
           } })
         }
+      }
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
+   * Contract session.fork; on success merge the child into summaries
+   * immediately (same synchronous-addressability guarantee as create). The
+   * child carries the source's history, so it is never blank; lineage rides
+   * parentSessionId so the list nests it under its source. A child published
+   * before Workspace attachment fails is also reconciled into the list.
+   * @param opts - source session and the optional seq anchoring the cut.
+   * @returns the fork result (the child session id).
+   */
+  async fork(
+    opts: { sessionId: SessionId; atSeq?: number },
+  ): Promise<RpcResult<{ sessionId: SessionId }>> {
+    try {
+      const source = this.summaries.find(s => s.sessionId === opts.sessionId)
+      const { result } = await this.api.sessions.fork({
+        sessionId: opts.sessionId,
+        ...opts.atSeq === undefined ? {} : { atSeq: opts.atSeq },
+      })
+      const childId = result.ok
+        ? result.value.sessionId
+        : workspaceAttachSessionId(result.error)
+      if (childId !== undefined) {
+        this.recordMutation({ kind: 'upsert', summary: {
+          sessionId: childId, updatedAt: Date.now(), running: false, blank: false,
+          parentSessionId: opts.sessionId,
+          ...(source?.cwd !== undefined ? { cwd: source.cwd } : {}),
+        } })
       }
       return result
     } catch (error) {

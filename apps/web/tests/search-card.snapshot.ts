@@ -96,6 +96,9 @@ function cardShape(root: Element): string {
 
 beforeEach(() => {
   localStorage.clear()
+  // English pinned before boot so the sidebar's role/text locators stay
+  // deterministic (the built-boot smoke's convention).
+  localStorage.setItem('dsh.locale', 'en')
   document.title = 'DeepSeek Harness'
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>

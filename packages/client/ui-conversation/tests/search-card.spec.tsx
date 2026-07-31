@@ -13,14 +13,20 @@ import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_SEARCH_MAX_LINES, searchCardModel } from '../src/client/contract/search-card-model.ts'
+import { zh } from '../src/client/locales.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
+import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { SearchRow, searchToolview } from '../src/client/toolviews/search-row.tsx'
 
 afterEach(cleanup)
+
+/** Conversation-locale translate stub for the render sites' `t` seat. */
+const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 /** The rendered search card's kind attribute, so a render site cannot silently drop it. */
 function searchKindOf(container: HTMLElement): string | null {
@@ -172,16 +178,20 @@ describe('searchCardModel', () => {
 })
 
 describe('chat row search body (GenericToolCard fallback)', () => {
-  const ownerProps = (block: RunningToolCall | ToolResultNode, toolName: string): ToolRowOwnerProps => ({
-    callId: 'c1', toolName, block, openFile: vi.fn(),
+  const ownerProps = (block: RunningToolCall | ToolResultNode, toolName: string): GenericToolCardProps => ({
+    callId: 'c1', toolName, block, openFile: vi.fn(), t,
   })
+  /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
+  const toggleRow = (view: { container: HTMLElement }) => {
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+  }
 
   it('the expanded body is the grouped matches, capped tighter than the panel', () => {
     expect(CHAT_SEARCH_MAX_LINES).toBeLessThan(16)
     const view = render(<GenericToolCard {...ownerProps(settledGrep(), 'grep')} />)
     // Collapsed: the one-line summary row only, no card.
     expect(view.queryByText(/const foo = 1/)).toBeNull()
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(searchRows(view.container)).toContain('12: const foo = 1')
     expect(view.getByText('a.ts')).toBeTruthy()
     expect(searchKindOf(view.container)).toBe('matches')
@@ -191,7 +201,7 @@ describe('chat row search body (GenericToolCard fallback)', () => {
 
   it('the glob fallback expands to the flat path card', () => {
     const view = render(<GenericToolCard {...ownerProps(settledGlob(), 'glob')} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(view.getByText('src/a.ts')).toBeTruthy()
     expect(searchKindOf(view.container)).toBe('paths')
   })
@@ -200,7 +210,7 @@ describe('chat row search body (GenericToolCard fallback)', () => {
     const view = render(<GenericToolCard {...ownerProps(settledGrep({
       resultView: { card: 'generic' },
     }), 'grep')} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(view.getByText(/"pattern"/)).toBeTruthy()
     expect(searchKindOf(view.container)).toBeNull()
   })
@@ -211,7 +221,7 @@ describe('chat row search body (GenericToolCard fallback)', () => {
       content: [{ type: 'text', text: recovery }],
       resultView: resultMatches({ truncated: true, total: 42 }),
     }), 'grep')} />)
-    fireEvent.click(view.container.querySelector('button')!)
+    toggleRow(view)
     expect(searchKindOf(view.container)).toBe('matches')
     expect(view.getByText(/Full grep result stored at: spill:\/\/grep-1/)).toBeTruthy()
   })
@@ -349,6 +359,7 @@ describe('DetailsPanel Output section (search)', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
   }
@@ -392,7 +403,7 @@ describe('DetailsPanel Output section (search)', () => {
       nodes: [settledGrep({ callView: null, resultView: null })],
     }), grepTarget)
     expect(searchKindOf(view.container)).toBeNull()
-    const output = view.getByText('Output').closest('section')
+    const output = view.getByText('输出').closest('section')
     expect(output?.querySelector('pre')?.textContent).toContain('const foo = 1')
   })
 })

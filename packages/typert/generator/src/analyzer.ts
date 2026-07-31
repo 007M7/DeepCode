@@ -132,6 +132,26 @@ interface FaceProgramHost {
 }
 
 /**
+ * Process-wide parse cache for the bundled TypeScript default libraries.
+ * `typescript/lib/lib.*.d.ts` content is immutable for the process lifetime,
+ * so parses are shared across every {@link WorkspaceCaches} instance; the key
+ * carries the parse-affecting settings, keeping reuse exact.
+ */
+const defaultLibraryParses = new Map<string, ts.SourceFile | undefined>()
+
+function defaultLibraryKey(fileName: string, languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions): string {
+  const options = typeof languageVersionOrOptions === 'object'
+    ? languageVersionOrOptions
+    : { languageVersion: languageVersionOrOptions }
+  return [
+    fileName,
+    String(options.languageVersion),
+    String(options.impliedNodeFormat ?? ''),
+    String(options.jsDocParsingMode ?? ''),
+  ].join('\0')
+}
+
+/**
  * Shared memo over one immutable workspace snapshot. Passing one instance to
  * several analyzers (the batched and write-mode children reuse their parent's
  * automatically) reuses parsed tsconfigs, the registration inventory, and
@@ -185,6 +205,13 @@ export class WorkspaceCaches {
       // only fires under oldProgram reuse, which these fresh programs never
       // request, and invalidate() is the one supported re-read path.
       host.getSourceFile = (fileName, languageVersionOrOptions, onError) => {
+        if (isStandardLibraryFile(fileName)) {
+          const key = defaultLibraryKey(fileName, languageVersionOrOptions)
+          if (!defaultLibraryParses.has(key)) {
+            defaultLibraryParses.set(key, base(fileName, languageVersionOrOptions, onError))
+          }
+          return defaultLibraryParses.get(key)
+        }
         if (!files.has(fileName)) files.set(fileName, base(fileName, languageVersionOrOptions, onError))
         return files.get(fileName)
       }

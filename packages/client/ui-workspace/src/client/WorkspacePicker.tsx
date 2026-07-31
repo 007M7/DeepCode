@@ -26,6 +26,8 @@ type ModalKind = 'create' | 'folder-error' | null
 
 /** Core flow props: the owner supplies popover control and pick semantics. */
 export interface WorkspaceCreateFlowProps {
+  /** The standard locale seat, forwarded by whichever slot entry hosts the flow. */
+  t: WorkspacePickerProps['t']
   /** Popover visibility (anchor button toggle state, owner-local). */
   open: boolean
   /** The anchor button element — the popover's placement anchor. */
@@ -56,6 +58,7 @@ export interface WorkspaceCreateFlowProps {
  * @returns menu + dialog elements.
  */
 export function WorkspaceCreateFlow({
+  t,
   open,
   anchorRef,
   useWorkspaces,
@@ -106,9 +109,9 @@ export function WorkspaceCreateFlow({
   }, [flowOpen, flowAvailable])
   const createEntries: MenuEntry[] = [
     ...(flowAvailable
-      ? [{ id: OPEN_LOCAL_FOLDER, label: 'Open local folder…', icon: <IconFolderClose16 size={16} />, disabled: flowBusy }]
+      ? [{ id: OPEN_LOCAL_FOLDER, label: t('menu.openFolder'), icon: <IconFolderClose16 size={16} />, disabled: flowBusy }]
       : []),
-    { id: CREATE_NEW, label: 'Create a new workspace', icon: <IconPlusOutline16 size={16} />, disabled: flowBusy },
+    { id: CREATE_NEW, label: t('menu.createWorkspace'), icon: <IconPlusOutline16 size={16} />, disabled: flowBusy },
   ]
   // With workspaces listed, the create actions pin below the scroll region
   // (divider + always visible); otherwise they ARE the menu.
@@ -218,42 +221,44 @@ export function WorkspaceCreateFlow({
         portal
         getAnchorRect={getAnchorRect}
       />
-      {open && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">Loading workspaces…</div>}
+      {open && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}
       {renderDirectoryFlow(flowOwner)}
       <Modal
         open={modalKind === 'folder-error'}
         onClose={closeModal}
-        title={folderConflict ? 'A workspace with this name already exists' : 'Couldn’t open folder'}
+        closeLabel={t('close')}
+        title={folderConflict ? t('conflict.title') : t('folderError.title')}
         footer={(
           <>
-            <Button variant="outline" className={css.modalAction} onClick={closeModal}>Cancel</Button>
+            <Button variant="outline" className={css.modalAction} onClick={closeModal}>{t('cancel')}</Button>
             {/* Retrying needs an occupant to serve the flow; without one the
               * button would open a flow nobody can answer or cancel. */}
-            <Button variant="primary" className={css.modalAction} disabled={!flowAvailable} onClick={openLocalFolder}>Choose again</Button>
+            <Button variant="primary" className={css.modalAction} disabled={!flowAvailable} onClick={openLocalFolder}>{t('folderError.retry')}</Button>
           </>
         )}
       >
         <div className={css.modalError} role="alert">
           {folderConflict
-            ? 'Choose a folder with a different name.'
+            ? t('conflict.hint')
             : modalError}
         </div>
       </Modal>
       <Modal
         open={modalKind === 'create'}
         onClose={closeModal}
-        title="Create a new workspace"
-        description="The name is used for both the workspace and its new folder."
+        closeLabel={t('close')}
+        title={t('menu.createWorkspace')}
+        description={t('create.desc')}
         footer={(
           <>
-            <Button variant="outline" className={css.modalAction} disabled={creating} onClick={closeModal}>Cancel</Button>
+            <Button variant="outline" className={css.modalAction} disabled={creating} onClick={closeModal}>{t('cancel')}</Button>
             <Button
               variant="primary"
               className={css.modalAction}
               disabled={creating || normalizedWorkspaceName === '' || duplicateWorkspaceName}
               onClick={confirmCreate}
             >
-              Create workspace
+              {t('create.confirm')}
             </Button>
           </>
         )}
@@ -261,8 +266,8 @@ export function WorkspaceCreateFlow({
         <input
           className={css.modalInput}
           value={workspaceName}
-          placeholder="Workspace name"
-          aria-label="New workspace name"
+          placeholder={t('field.workspaceName')}
+          aria-label={t('create.name.aria')}
           autoFocus
           disabled={creating}
           onChange={(event) => { setWorkspaceName(event.target.value); setModalError(null) }}
@@ -275,9 +280,9 @@ export function WorkspaceCreateFlow({
             }
           }}
         />
-        {creating && <div className={css.modalStatus} role="status">Creating workspace…</div>}
+        {creating && <div className={css.modalStatus} role="status">{t('create.pending')}</div>}
         {duplicateWorkspaceName && (
-          <div className={css.modalError} role="alert">A workspace named “{normalizedWorkspaceName}” already exists.</div>
+          <div className={css.modalError} role="alert">{t('conflict.named', { name: normalizedWorkspaceName })}</div>
         )}
         {modalError !== null && <div className={css.modalError} role="alert">{modalError}</div>}
       </Modal>
@@ -301,9 +306,11 @@ export function WorkspacePicker({
   createWorkspace,
   useDirectoryFlow,
   renderSlot,
+  t,
 }: WorkspacePickerProps) {
   return (
     <WorkspaceCreateFlow
+      t={t}
       open={open}
       anchorRef={anchorRef}
       useWorkspaces={useWorkspaces}

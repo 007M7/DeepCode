@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ContextMessageNode } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
 import { IconBrowseOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DisclosureRow } from './DisclosureRow.tsx'
 import css from './ContextInjectionRow.module.css'
@@ -47,6 +48,8 @@ function inlineJson(payload: unknown): string {
 export interface ContextInjectionRowProps {
   content: ContextMessageNode['content']
   source: ContextMessageNode['source']
+  /** The owning view's locale seat, passed down as a plain prop. */
+  t: ChatViewSlotProps['t']
 }
 
 /**
@@ -54,22 +57,22 @@ export interface ContextInjectionRowProps {
  * @param props - Durable content and source provenance.
  * @returns A collapsed context row with a bounded JSON body.
  */
-export function ContextInjectionRow({ content, source }: ContextInjectionRowProps) {
+export function ContextInjectionRow({ content, source, t }: ContextInjectionRowProps) {
   const [open, setOpen] = useState(false)
   const body = useMemo(() => {
     if (!open) return ''
     const text = inlineJson({ content, source })
     return text.length > MAX_CHARS
-      ? `${text.slice(0, MAX_CHARS)}\n… 已截断，共 ${text.length} 字符`
+      ? `${text.slice(0, MAX_CHARS)}\n${t('json.truncated', { total: text.length })}`
       : text
-  }, [content, open, source])
+  }, [content, open, source, t])
 
   return (
     <DisclosureRow
       className={css.root}
       icon={<IconBrowseOutline16 size={14} />}
       chevronClassName={css.chevron}
-      title="上下文注入"
+      title={t('message.contextInjection')}
       open={open}
       expandable
       expandOnRowClick
