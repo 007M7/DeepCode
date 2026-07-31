@@ -616,6 +616,11 @@ describe('goodbye message and /resume', () => {
     })
     result.terminal.send('/resume')
     result.terminal.send('\r')
+    // The loading picker owns input as soon as /resume runs, so the second
+    // scan starts after dismissing the first overlay, not by typing a second
+    // slash command over it.
+    result.terminal.send('\u001B')
+    await tick()
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick()
@@ -644,6 +649,37 @@ describe('goodbye message and /resume', () => {
     listing.resolve([])
     await tick()
     expect(result.terminal.stopped).toBeGreaterThan(0)
+  })
+
+  it('opens a loading picker immediately and swaps in the scanned rows', async () => {
+    const target = header('late-listing', 10, '/workspace')
+    const listing = Promise.withResolvers<SessionRecord[]>()
+    const result = await setup({
+      cwd: '/workspace',
+      async configureContext(ctx) {
+        ctx.provide('tools', { get: () => undefined } as never)
+        const readSession = () => Promise.resolve({
+          session: target,
+          events: resumeEvents('Late listing'),
+        })
+        ctx.provide('sessionQuery', {
+          listSessions: () => listing.promise,
+          readSession,
+          projectSessions: projectViaReadSession(readSession),
+        } as never)
+      },
+    })
+    result.terminal.send('/resume')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Loading sessions…')
+    result.terminal.send('\r')
+    await tick()
+    expect(result.terminal.output).toContain('Sessions are still loading.')
+    listing.resolve([{ header: target, live: false, persisted: true }])
+    await tick(); await tick()
+    expect(result.terminal.output).toContain('Late listing')
+    await dispose(result)
   })
 
   it('drops loaded selector summaries when the TUI disposed during log reads', async () => {

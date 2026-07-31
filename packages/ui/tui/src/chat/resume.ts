@@ -195,6 +195,38 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
       }
       const scan = ++resumeScan
       void resumeOverlay?.close()
+      // The picker opens before the scan settles so the terminal stops feeding
+      // the editor immediately; a queued activation (the closing predecessor
+      // still holds the slot) receives an already-scanned set through
+      // `scanned` instead of a loading placeholder.
+      let picker: ResumePicker | undefined
+      let scanned: ResumeCandidate[] | undefined
+      const session = overlayManager.open({
+        create: (host) => {
+          picker = new ResumePicker(
+            scanned,
+            resolved.maxResumeOptions,
+            workspaceLabel(agent.session.header.cwd),
+            () => host.viewport.rows,
+            palette,
+            (candidate) => { void handoffResume(candidate, session) },
+            () => { void session.close() },
+          )
+          return picker
+        },
+        options: {
+          width: '100%',
+          maxHeight: '100%',
+          anchor: 'top-left',
+          margin: 0,
+        },
+      })
+      resumeOverlay = session
+      void session.closed.then(() => {
+        /* v8 ignore next -- overlay FIFO closes this session before a replacement can become the tracked resume overlay */
+        if (resumeOverlay === session) resumeOverlay = undefined
+      })
+      deps.requestRender()
       void listQuery.listSessions().then(async (records) => {
         if (deps.isDisposed() || scan !== resumeScan) return
         // Every workspace in the store is summarized; the picker owns the
@@ -222,31 +254,13 @@ export function createResumeController(deps: ResumeControllerDeps): ResumeContro
         candidates.sort((a, b) => b.lastActivityAt - a.lastActivityAt
           || a.record.header.id.localeCompare(b.record.header.id))
         if (deps.isDisposed() || scan !== resumeScan) return
-        const session = overlayManager.open({
-          create: host => new ResumePicker(
-            candidates,
-            resolved.maxResumeOptions,
-            workspaceLabel(agent.session.header.cwd),
-            () => host.viewport.rows,
-            palette,
-            (candidate) => { void handoffResume(candidate, session) },
-            () => { void session.close() },
-          ),
-          options: {
-            width: '100%',
-            maxHeight: '100%',
-            anchor: 'top-left',
-            margin: 0,
-          },
-        })
-        resumeOverlay = session
-        void session.closed.then(() => {
-          /* v8 ignore next -- overlay FIFO closes this session before a replacement can become the tracked resume overlay */
-          if (resumeOverlay === session) resumeOverlay = undefined
-        })
+        scanned = candidates
+        picker?.setCandidates(candidates)
         deps.requestRender()
       }, (error: unknown) => {
-        if (!deps.isDisposed() && scan === resumeScan) deps.appendNotice(`Resume session scan failed: ${errorChain(error)}`, 'error')
+        if (deps.isDisposed() || scan !== resumeScan) return
+        void session.close()
+        deps.appendNotice(`Resume session scan failed: ${errorChain(error)}`, 'error')
       })
     },
   }

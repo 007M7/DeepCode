@@ -57,6 +57,7 @@ const CHECKPOINTS = [
   'model-switching',
   'errors-and-help',
   'disposed-terminal',
+  'resume-sessions-loading',
   'resume-sessions',
   'resume-sessions-all-workspaces',
   'status-diagnostics',
@@ -883,9 +884,13 @@ describe('TUI terminal-state snapshots', () => {
         { type: 'session/end-seed', seq: 8, time: Date.parse('2026-07-23T07:59:00.000Z'), data: {} },
       ],
     })
+    const listGate = Promise.withResolvers<undefined>()
     const harness = await setupSnapshot({
       sessionPersistence: {
-        list: async () => [earlier, elsewhere],
+        list: async () => {
+          await listGate.promise
+          return [earlier, elsewhere]
+        },
         load: async id => id === elsewhere.id
           ? log(elsewhere, 'Other workspace work', '2024-02-02')
           : log(earlier, 'Resume selector design', '2024-01-01'),
@@ -893,8 +898,15 @@ describe('TUI terminal-state snapshots', () => {
     }, { columns: 92, rows: 32 })
     harness.terminal.send('/resume')
     harness.terminal.send('\r')
-    // `/resume` scans persistence asynchronously, so the listing renders a tick
-    // after submit (the unit suite waits the same way); settle, then flush.
+    // The picker opens as soon as the command dispatches and owns input while
+    // the persistence scan is still pending, rendering a loading placeholder
+    // in place of rows; only the scan is gated, so this settle never lists.
+    await new Promise(resolve => setTimeout(resolve, 60))
+    await harness.terminal.flush()
+    await checkpoint('resume-sessions-loading', harness.terminal, { includeScrollback: true })
+    listGate.resolve(undefined)
+    // With the scan released, the listing renders a tick later (the unit suite
+    // waits the same way); settle, then flush.
     await new Promise(resolve => setTimeout(resolve, 60))
     await harness.terminal.flush()
     await checkpoint('resume-sessions', harness.terminal, { includeScrollback: true })

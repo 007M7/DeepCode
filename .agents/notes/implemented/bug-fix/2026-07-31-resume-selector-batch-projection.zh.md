@@ -14,6 +14,8 @@ Status: implemented
 
 `/resume` 选择器通过一次 `projectSessions` 批量调用构建全部候选行；被拒绝的投影会退化为该行的禁用"Unreadable session"回退，与之前 `readSession` 失败时的行为完全一致。`summarizeResumeCandidate` 接受借用的来源，且只保留记录和推导出的标量。移交前的预检仍通过 `readSession` 读取用户选中的单个会话，在进程 re-exec 前保留完整回放验证；其中冗余的实时会话捷径被删除，因为 `readSession` 本身已是实时优先。
 
+选择器 overlay 在 `/resume` 分发时同步打开，早于扫描结算：`undefined` 候选集渲染"Loading sessions…"加载占位符，选择器从第一帧起就拥有终端输入（长扫描期间的按键会进入搜索字段而非编辑器），Enter 提示会话仍在加载，Escape 的取消方式与已加载列表完全相同。扫描完成后通过 `setCandidates` 换入行数据，不替换 overlay；排在正在关闭的前任之后的排队激活会在构造时直接收到已扫描的集合；扫描失败会关闭 overlay 并报告既有的失败通知。
+
 ## Alternatives considered
 
 **只修复 `SessionCorpus.load()` 内部的 O(N²) 列表查询。** 作为主要修复被拒绝：在大日志上，按候选行执行的完整解压、回放验证和三重克隆才是主要开销，且仍是 O(日志总字节数)。`load()` 中的冗余预列表查询仍是一个候选清理项，但它会改变 not-found/一致性错误语义，而且一旦选择器不再按行调用 `readSession`，这项清理就不再必要。
@@ -24,4 +26,4 @@ Status: implemented
 
 ## Consequences
 
-打开 `/resume` 只执行一次列表查询加一次有界并发扫描，而不是 N 次列表查询和 N 份经验证的完整副本；内存受并发上限约束，因为每个投影完的日志会在其 worker 出队下一个 id 前被释放。选择器行不再经过回放验证——一份可列出、可解析但回放会失败的日志会显示为普通行，直到预检拒绝它，而预检在移交前总会重新检查。TUI 测试中的伪造 `sessionQuery` 服务现在必须在 `listSessions`/`readSession` 之外提供 `projectSessions`。
+打开 `/resume` 只执行一次列表查询加一次有界并发扫描，而不是 N 次列表查询和 N 份经验证的完整副本；内存受并发上限约束，因为每个投影完的日志会在其 worker 出队下一个 id 前被释放。选择器行不再经过回放验证——一份可列出、可解析但回放会失败的日志会显示为普通行，直到预检拒绝它，而预检在移交前总会重新检查。TUI 测试中的伪造 `sessionQuery` 服务现在必须在 `listSessions`/`readSession` 之外提供 `projectSessions`。由于选择器立即接管焦点，启动第二次扫描需要先关闭当前 overlay——扫描期间输入的第二个 `/resume` 会落入搜索字段，这正是预期的输入捕获行为。

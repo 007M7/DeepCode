@@ -537,6 +537,10 @@ export type ResumeScope = 'workspace' | 'all'
  * current session's workspace, `all` lists every workspace and labels each row
  * with its own. Tab toggles between them; the search query and selection reset
  * on a scope change so the highlighted row always belongs to the visible list.
+ *
+ * The picker opens before the session scan settles: an `undefined` candidate
+ * set renders a loading placeholder that keeps input away from the editor,
+ * and `setCandidates` swaps the scanned rows in without replacing the overlay.
  */
 export class ResumePicker implements Component, Focusable {
   private readonly search = new Input()
@@ -544,27 +548,41 @@ export class ResumePicker implements Component, Focusable {
   private selectedIndex = 0
   private error = ''
   private scope: ResumeScope = 'workspace'
+  private candidates: readonly ResumeCandidate[] | undefined
   focused = false
 
   constructor(
-    private readonly candidates: readonly ResumeCandidate[],
+    candidates: readonly ResumeCandidate[] | undefined,
     private readonly maxVisible: number,
     private readonly workspaceLabel: string,
     private readonly viewportRows: () => number,
     private readonly palette: Palette,
     private readonly done: (candidate: ResumeCandidate) => void,
     private readonly cancel: () => void,
-  ) {}
+  ) {
+    this.candidates = candidates
+  }
 
   invalidate(): void {
     this.search.invalidate()
   }
 
+  /**
+   * Replace the loading placeholder with the scanned candidate set.
+   * @param candidates - the summarized rows the finished scan produced.
+   */
+  setCandidates(candidates: readonly ResumeCandidate[]): void {
+    this.candidates = candidates
+    this.selectedIndex = 0
+    this.invalidate()
+  }
+
   /** Candidates in the active scope, before the search query narrows them. */
   private scoped(): ResumeCandidate[] {
+    const candidates = this.candidates ?? []
     return this.scope === 'all'
-      ? [...this.candidates]
-      : this.candidates.filter(candidate => candidate.currentWorkspace)
+      ? [...candidates]
+      : candidates.filter(candidate => candidate.currentWorkspace)
   }
 
   private filtered(): ResumeCandidate[] {
@@ -646,7 +664,8 @@ export class ResumePicker implements Component, Focusable {
       this.error = ''
     } else if (matchesKey(data, Key.enter)) {
       const selected = filtered[this.selectedIndex]
-      if (selected === undefined) this.error = 'No session matches this search.'
+      if (this.candidates === undefined) this.error = 'Sessions are still loading.'
+      else if (selected === undefined) this.error = 'No session matches this search.'
       else if (selected.disabledReason !== undefined) this.error = selected.disabledReason
       else this.done(selected)
     } else {
@@ -666,12 +685,13 @@ export class ResumePicker implements Component, Focusable {
    * workspace it means, and the inactive scope with the count Tab would reveal.
    */
   private renderScopeLine(): string {
-    const inWorkspace = this.candidates.filter(candidate => candidate.currentWorkspace).length
+    const candidates = this.candidates ?? []
+    const inWorkspace = candidates.filter(candidate => candidate.currentWorkspace).length
     const active = this.scope === 'workspace'
       ? `this workspace ${displayText(this.workspaceLabel)}`
-      : `all workspaces (${this.candidates.length})`
+      : `all workspaces (${candidates.length})`
     const other = this.scope === 'workspace'
-      ? `all workspaces (${this.candidates.length})`
+      ? `all workspaces (${candidates.length})`
       : `this workspace (${inWorkspace})`
     return `${this.palette.accent(active)}${this.palette.dim(`  ⇥ ${other}`)}`
   }
@@ -686,9 +706,12 @@ export class ResumePicker implements Component, Focusable {
     if (this.selectedIndex >= filtered.length) this.selectedIndex = Math.max(0, filtered.length - 1)
     const selected = filtered[this.selectedIndex]
     const position = selected === undefined ? 0 : this.selectedIndex + 1
+    const title = this.candidates === undefined
+      ? 'Resume session'
+      : `Resume session (${position} of ${filtered.length})`
     const lines: string[] = [
       '',
-      `${indent}${this.palette.bold(this.palette.accent(`Resume session (${position} of ${filtered.length})`))}`,
+      `${indent}${this.palette.bold(this.palette.accent(title))}`,
       '',
     ]
 
@@ -737,7 +760,8 @@ export class ResumePicker implements Component, Focusable {
         push(this.palette.warning(`  unavailable: ${displayText(candidate.disabledReason)}`))
       }
     }
-    if (filtered.length === 0) push(this.palette.warning('No matching sessions.'))
+    if (this.candidates === undefined) push(this.palette.dim('Loading sessions…'))
+    else if (filtered.length === 0) push(this.palette.warning('No matching sessions.'))
     if (this.error !== '') {
       lines.push('')
       push(this.palette.error(displayText(this.error)))
