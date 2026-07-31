@@ -149,6 +149,7 @@
     { "path": "./packages/fs/tool-str-replace-editor" },
     { "path": "./packages/compact/compact" },
     { "path": "./packages/compact/compact-basic" },
+    { "path": "./packages/compact/command-compact" },
     { "path": "./packages/compact/compact-tool-result-prune" },
     { "path": "./packages/web/web" },
     { "path": "./packages/web/web-search-exa" },

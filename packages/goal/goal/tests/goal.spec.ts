@@ -55,6 +55,7 @@ function stubAgentForSession(session: Session): StubAgent {
       if (shouldDefer) deferred.push(input)
       else appendInjection(session, input)
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

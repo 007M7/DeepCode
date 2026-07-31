@@ -39,6 +39,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

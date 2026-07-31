@@ -102,7 +102,7 @@ function searchMatches(
           ...(cell.outputBlocks ?? []),
         ]
         const text = [
-          `turn ${turn.turn}`,
+          turn.turn === null ? 'between turns' : `turn ${turn.turn}`,
           group.title,
           cell.kind,
           cell.kind === 'message' ? 'assistant' : undefined,
@@ -383,13 +383,15 @@ export function TrajectoryView({
   const collapsibleTurnIds = useMemo(
     () => turns
       .filter(turn =>
+        turn.turn !== null
+        &&
         turn.groups.reduce(
           (count, group) =>
             count + group.cells.filter(cell =>
               cell.requestOnly !== true && cell.kind !== 'system').length,
           0,
         ) > 1)
-      .map(turn => turn.turn),
+      .flatMap(turn => turn.turn === null ? [] : [turn.turn]),
     [turns],
   )
   const allTurnsCollapsed = collapsibleTurnIds.length > 0

@@ -76,6 +76,8 @@ flowchart LR
   cfg --> plugin_tui_token_meter
   plugin_tui_compact_basic["compact-basic<br/>@deepseek-ai/dsh-compact-basic"]
   cfg --> plugin_tui_compact_basic
+  plugin_tui_command_compact["command-compact<br/>@deepseek-ai/dsh-command-compact"]
+  cfg --> plugin_tui_command_compact
   plugin_tui_subagent["subagent<br/>@deepseek-ai/dsh-subagent"]
   cfg --> plugin_tui_subagent
   plugin_tui_subagent_spawn["subagent-spawn<br/>@deepseek-ai/dsh-subagent-spawn"]
@@ -144,6 +146,7 @@ flowchart LR
 | `plan-mode` | `@deepseek-ai/dsh-plan-mode` |
 | `token-meter` | `@deepseek-ai/dsh-token-meter` |
 | `compact-basic` | `@deepseek-ai/dsh-compact-basic` |
+| `command-compact` | `@deepseek-ai/dsh-command-compact` |
 | `subagent` | `@deepseek-ai/dsh-subagent` |
 | `subagent-spawn` | `@deepseek-ai/dsh-subagent-spawn` |
 | `subagent-fork` | `@deepseek-ai/dsh-subagent-fork` |
