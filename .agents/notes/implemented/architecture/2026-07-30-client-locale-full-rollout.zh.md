@@ -14,7 +14,7 @@ typed locale 标准席位（`locale:` 注册声明 → 框架注入强类型 `t`
 
 **组件文案走标准 `t` 席位；深层子组件用 prop 下传**，类型写 `XxxProps['t']`。字典规范形态不变：`zh satisfies Record<string, string>` 为 key 源、`en satisfies Record<XxxKey, string>` 锁双语平衡。
 
-**zero-cordis 原子组件（ui-primitives）文案 props 化**：`TerminalBlock`/`JsonTree` 的 `labels`、`CodeBlock` 的 `copyLabel`/`copiedLabel`、`MarkdownText` 的 `codeLabels`、`JsonBlock` 的 `truncatedLabel`、`ConnectionBanner` 的 `label`、`Modal` 的 `closeLabel`——默认值即原硬编码字符串，不传 props 的消费者渲染逐字节不变。已本地化的插件从自己的 `t` 席位传字典驱动的 label；传对象 props 的调用点按 `t` 身份 memo（`MarkdownText` 的组件表按 `codeLabels` 身份缓存）。
+**zero-cordis 原子组件（ui-primitives）文案 props 化**：`HoverCard` 的 `copyLabel`/`copiedLabel`、`TerminalBlock`/`JsonTree` 的 `labels`、`CodeBlock` 的 `copyLabel`/`copiedLabel`、`MarkdownText` 的 `codeLabels`、`JsonBlock` 的 `truncatedLabel`、`ConnectionBanner` 的 `label`、`Modal` 的 `closeLabel`——默认值即原硬编码字符串，不传 props 的消费者渲染逐字节不变。已本地化的插件从自己的 `t` 席位传字典驱动的 label；传对象 props 的调用点按 `t` 身份 memo（`MarkdownText` 的组件表按 `codeLabels` 身份缓存）。
 
 **不翻译边界（刻意决定，不是欠账）：**
 
