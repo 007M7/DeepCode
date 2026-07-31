@@ -21,6 +21,15 @@
       "path": "../web"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

@@ -188,8 +188,12 @@ describe('dsh web keyless CLI smoke', () => {
     mkdirSync(join(workspace, '.git'))
     writeFileSync(join(workspace, 'AGENTS.md'), 'web-workspace-context-probe\n')
 
-    let resolveProviderRequest!: (request: { messages?: { role?: string; content?: string }[] }) => void
-    const providerRequest = new Promise<{ messages?: { role?: string; content?: string }[] }>((resolve) => {
+    interface NativeProviderRequest {
+      messages?: { role?: string; content?: string }[]
+      tools?: { function?: { name?: string } }[]
+    }
+    let resolveProviderRequest!: (request: NativeProviderRequest) => void
+    const providerRequest = new Promise<NativeProviderRequest>((resolve) => {
       resolveProviderRequest = resolve
     })
     const provider = createServer((request, response) => {
@@ -197,7 +201,7 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as { messages?: { role?: string; content?: string }[] })
+        resolveProviderRequest(JSON.parse(body) as NativeProviderRequest)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end([
           'data: {"choices":[{"delta":{"role":"assistant","content":null,"reasoning_content":""}}]}',
@@ -256,6 +260,13 @@ describe('dsh web keyless CLI smoke', () => {
           "role": "user",
         }
       `)
+      expect(captured.tools?.map(tool => tool.function?.name)
+        .filter(name => name === 'web_search' || name === 'web_fetch'))
+        .toMatchInlineSnapshot(`
+          [
+            "web_search",
+          ]
+        `)
     } finally {
       const closed = child.exitCode === null
         ? new Promise<void>((resolveClose) => { child.once('close', () => { resolveClose() }) })

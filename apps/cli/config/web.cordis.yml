@@ -80,6 +80,28 @@
 - id: fs-local
   disabled: true
 
+# The Web/headless product enables only the stable web_search model surface.
+# DeepSeek search resolves the same DEEPSEEK_API_KEY credential the Models page
+# manages for chat, at each search; its Messages endpoint is separate from the
+# chat-completions endpoint. Fetch remains disabled and no default fetch
+# provider is mounted.
+- insert:
+    - id: web
+      name: '@deepseek-ai/dsh-web'
+      config:
+        searchProvider: deepseek-official
+
+    - id: web-search-deepseek
+      name: '@deepseek-ai/dsh-web-search-deepseek'
+      config:
+        apiKeyEnv: DEEPSEEK_API_KEY
+        baseURL: !!js process.env.DEEPSEEK_SEARCH_BASE_URL
+
+    - id: tool-web
+      name: '@deepseek-ai/dsh-tool-web'
+      config:
+        fetch: false
+
 # ── web-only host rows, the transport layer, and the browser roster ─────────
 
 # `dshClient` rows are the browser roster the modules node half scans into
