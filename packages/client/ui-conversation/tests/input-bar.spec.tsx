@@ -288,6 +288,22 @@ describe('running and lock semantics (queue cut 1)', () => {
     }
   })
 
+  it('the decoration backdrop tracks the textarea offset (it paints every visible glyph)', () => {
+    const { view, textarea } = bench({ draft: 'line\n'.repeat(40) })
+    const backdrop = view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
+    Object.defineProperty(backdrop, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(textarea, 'scrollTop', { value: 0, writable: true, configurable: true })
+    // A scrolled draft: the textarea moves, the clipped backdrop must follow.
+    textarea.scrollTop = 120
+    fireEvent.scroll(textarea)
+    expect(backdrop.scrollTop).toBe(120)
+    // Editing re-mirrors without a scroll event (the caret can stay in view).
+    backdrop.scrollTop = 0
+    textarea.scrollTop = 96
+    fireEvent.change(textarea, { target: { value: 'line\n'.repeat(39) } })
+    expect(backdrop.scrollTop).toBe(96)
+  })
+
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
     const { textarea } = bench({ disabled: true })
     expect(textarea.placeholder).toBe('会话不可用')

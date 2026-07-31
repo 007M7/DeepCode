@@ -6,7 +6,7 @@
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -62,6 +62,7 @@ export function InputBar({
   const draft = input?.draft ?? ''
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const backdropRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
   // clearing is deferred one tick because Safari delivers the closing keydown AFTER compositionend.
   const composingRef = useRef(false)
@@ -91,11 +92,19 @@ export function InputBar({
     if (!locked) inputRef.current?.focus()
   }, [locked, sessionId])
 
-  // Active conversation scrollport: chain the wheel. While the textarea (capped
-  // at 14 lines with overflow-y:auto) can still move in this direction, keep
-  // the native scroll; only at its own edge forward delta to the host so a
-  // short draft never traps the gesture and a long draft stays scrollable.
-  // Hero mounts have no host and keep native wheel scrolling.
+  // Two DOM listeners on the textarea, one lifetime (it is never unmounted —
+  // the inert state renders the same element disabled).
+  //
+  // wheel — active conversation scrollport: chain the gesture. While the
+  // textarea (capped at 14 lines with overflow-y:auto) can still move in this
+  // direction, keep the native scroll; only at its own edge forward delta to
+  // the host so a short draft never traps the gesture and a long draft stays
+  // scrollable. Hero mounts have no host and keep native wheel scrolling.
+  //
+  // scroll — the backdrop paints every visible glyph (the textarea's own text
+  // is transparent) but is clipped, not scrolled, so it does not follow the
+  // textarea on its own: without this mirror a draft past the cap moves the
+  // caret while the words stay frozen in place.
   useEffect(() => {
     const el = inputRef.current
     if (el === null) return
@@ -108,9 +117,27 @@ export function InputBar({
       e.preventDefault()
       host.scrollTop += e.deltaY
     }
+    const onScroll = (): void => {
+      const backdropEl = backdropRef.current
+      if (backdropEl !== null) backdropEl.scrollTop = el.scrollTop
+    }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => { el.removeEventListener('wheel', onWheel) }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('scroll', onScroll)
+    }
   }, [])
+
+  // Draft edits reflow both layers without necessarily moving the textarea
+  // (no scroll event fires when the caret stays in view), and a shrinking
+  // draft clamps each layer independently. Re-mirror after every committed
+  // draft so the glyphs never lag the caret by an edit.
+  useLayoutEffect(() => {
+    const el = inputRef.current
+    const backdropEl = backdropRef.current
+    if (el !== null && backdropEl !== null) backdropEl.scrollTop = el.scrollTop
+  }, [draft])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Absent machine (no session): the textarea is disabled so events cannot
@@ -376,7 +403,7 @@ export function InputBar({
             (min/max capped in CSS); the absolutely-positioned textarea rides its height. Counting
             rows by '\n' cannot see soft wraps. */}
         <div className={css.grow}>
-          <div aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
+          <div ref={backdropRef} aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
           <textarea
             ref={inputRef}
             className={css.input}
