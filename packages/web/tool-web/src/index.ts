@@ -84,6 +84,8 @@ export function apply(ctx: Context, config: Config): void {
   assertPositiveInteger('fetchTimeoutMs', resolved.fetchTimeoutMs)
   assertPositiveInteger('searchTimeoutMs', resolved.searchTimeoutMs)
   assertPositiveInteger('fetchMaxOutputChars', resolved.fetchMaxOutputChars)
-  if (resolved.search) applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs)
+  if (resolved.search) {
+    applyWebSearchTool(ctx, resolved.searchMaxResults, resolved.searchTimeoutMs, resolved.fetch)
+  }
   if (resolved.fetch) applyWebFetchTool(ctx, resolved.fetchTimeoutMs, resolved.fetchMaxOutputChars)
 }

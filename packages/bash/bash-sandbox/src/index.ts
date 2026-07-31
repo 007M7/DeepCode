@@ -21,7 +21,7 @@ import { classifyDenial, classifyRunnerFailure, matchesSignature, shellQuote } f
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
  * the default mode and fallback `workspace-write` root — is NOT here: it lives
  * on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), which resolves
- * each calling session's mode and cwd for both enforcing families. The runner
+ * each calling session's mode and cwd for every enforcing capability. The runner
  * choice is likewise the `ctx.sandbox` provider's config, not this executor's.
  */
 export type Config = LocalConfig
@@ -30,8 +30,8 @@ export type Config = LocalConfig
  * Registers as `ctx.bash` in place of the local executor and requires a
  * `ctx.sandbox` provider plus `ctx.sandboxPolicy`; the tool layer is
  * unchanged. Tool calls pass the calling session's resolved policy; direct
- * calls fall back to deployment policy. The prompt does not state the standing
- * mode; `result.sandbox` reports the mode and enforcement actually used.
+ * calls fall back to deployment policy. `result.sandbox` reports the mode and
+ * enforcement actually used.
  */
 export class SandboxBashExecutor extends LocalBashExecutor {
   static override inject = ['subprocess', 'sandbox', 'sandboxPolicy']

@@ -1,7 +1,8 @@
-/* The generic card grows a resident web card under its summary row when the
-   tool declares the `web` render intent but has no keyed row of its own (the
-   web_search/web_fetch rows register their own WebRow). A column around the
-   ToolRow keeps the row's own 24px height. */
+/* GenericToolCard resident cards: a read-declaring or web-declaring tool
+   without its own keyed row (e.g. web_fetch) grows a resident card under its
+   summary row. A column around the ToolRow keeps the row's own 24px height, so
+   the read card renders identically to the keyed ReadRow and the web card to
+   the web_search/web_fetch WebRow. */
 
 .card {
   display: flex;
@@ -10,6 +11,7 @@
 
 /* Row indentation matches ToolRow's expanded bodies (16px leading + 6px gap),
    and replaces the primitive's standalone vertical margin with the flow's. */
+.read,
 .web {
   margin: 4px 0 4px 22px;
 }

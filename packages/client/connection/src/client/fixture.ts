@@ -138,7 +138,34 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
- * The structured `web_search` result view for fixture turn 66, authored inline
+ * Read-card sample for the read turn: a WINDOW past an offset, so the line
+ * numbers start above 1 (the card's gutter keeps the file's own numbering) and
+ * `totalLines` exceeds the window (the card shows a "showing N of M" note). The
+ * fixture is client-side and cannot import the read tool, so the structured
+ * window is authored inline exactly as the tool would project it through
+ * `presentationMeta`. `lang` is a `ts` hint so the shiki path highlights it.
+ */
+const READ_SAMPLE_FIRST_LINE = 41
+const READ_SAMPLE_SOURCE = [
+  'export interface ReadBlockProps {',
+  '  label?: string | undefined',
+  '  lines: readonly ReadBlockLine[]',
+  '  totalLines: number',
+  '  lang?: string | undefined',
+  '  maxLines?: number | undefined',
+  '  className?: string | undefined',
+  '}',
+  '',
+  '// A windowed read keeps the file line numbers in the gutter.',
+  'const marker = "fixture read sample"',
+]
+const READ_SAMPLE_LINES = READ_SAMPLE_SOURCE.map((text, index) => ({ number: READ_SAMPLE_FIRST_LINE + index, text }))
+const READ_SAMPLE_PATH = 'packages/client/ui-primitives/src/ReadBlock.tsx'
+const READ_SAMPLE_TOTAL = 180
+const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
+
+/**
+ * The structured `web_search` result view for fixture turn 67, authored inline
  * because this client-side fixture cannot import the web tool that projects it.
  * The sources exercise the citation list's features: a titled source with a
  * snippet and a date, a source with no title (its hostname labels the link) and
@@ -168,7 +195,7 @@ const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'sear
   truncated: true,
 }
 
-/** The `web_fetch` result view for fixture turn 67, authored inline for the same reason. */
+/** The `web_fetch` result view for fixture turn 68, authored inline for the same reason. */
 const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
   url: 'https://www.deepseek.com/blog/harness-architecture',
   statusCode: 200,
@@ -315,8 +342,8 @@ function buildAlphaLog(): SessionEvent[] {
     const turn = 64
     const callId = `fx-call-${turn}`
     const program = 'const listing = await tools.bash({ command: "ls notes", description: "List notes" })\n'
-      + 'const demo = await tools.read({ path: "notes/demo.txt" })\n'
-      + 'await tools.read({ path: "notes/missing.txt" }).catch(() => "tolerated")\n'
+      + 'const demo = await tools.read({ file_path: "notes/demo.txt" })\n'
+      + 'await tools.read({ file_path: "notes/missing.txt" }).catch(() => "tolerated")\n'
       + 'return { listing, demo }'
     const args = JSON.stringify({ code: program, description: 'Read the notes files and summarize' })
     push({ type: 'turn/start', data: { turn, trigger: { kind: 'message', source: { kind: 'user' } } } })
@@ -341,8 +368,8 @@ function buildAlphaLog(): SessionEvent[] {
       })
     }
     dispatchPair(1, 'bash', { command: 'ls notes', description: 'List notes' }, 'demo.txt\nnew-demo.txt')
-    dispatchPair(2, 'read', { path: 'notes/demo.txt' }, 'hello fixture\n')
-    dispatchPair(3, 'read', { path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
+    dispatchPair(2, 'read', { file_path: 'notes/demo.txt' }, 'hello fixture\n')
+    dispatchPair(3, 'read', { file_path: 'notes/missing.txt' }, 'Error: ENOENT: notes/missing.txt not found', true)
     push({
       type: 'tool/result', surfaceOp: 'append',
       data: { turn, step: 0, message: toolResultMessage(callId, text('{"listing":"demo.txt\\nnew-demo.txt","demo":"hello fixture\\n"}'), false) },
@@ -350,7 +377,7 @@ function buildAlphaLog(): SessionEvent[] {
     push({ type: 'step/end', data: { turn, step: 0 } })
     push({ type: 'turn/end', data: { turn, reason: { kind: 'completed' } } })
   }
-  // Turn 65: todo_write sample — the TodoRow toolview in the flow plus the
+  // Turn 67: todo_write sample — the TodoRow toolview in the flow plus the
   // todo/write snapshot event feeding the TodoPanel plan strip.
   const fixtureTodos = [
     { content: '梳理需求', status: 'completed' },
@@ -371,7 +398,20 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
-  // Turns 66-67: the web render intent — a web_search whose result view carries
+  // Turn 66: the read sample — a WINDOW past an offset so the card draws file
+  // line numbers starting above 1 and a "showing N of M" note (the window is
+  // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
+  // highlights. Named `read`, so it exercises the keyed ReadRow registration.
+  // The render-site fallback ROW SHAPE (a read call on the generic flattened
+  // path) is covered by the turn 64 run_code read sub-dispatches, which
+  // session.ts folds with resultView: null; the fallback-row + read-CARD
+  // combination is pinned by the web_fetch case in read-card.spec.tsx, not by
+  // this fixture. The read render intent is result-side only, so its pending
+  // call stays a generic `kind: 'read'` card; presentResult carries the
+  // structured window.
+  toolTurn(66, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+
+  // Turns 67-68: the web render intent — a web_search whose result view carries
   // structured sources plus an answer (the citation list, one source lacking a
   // title so its hostname labels the link, the capped indicator on), and a
   // web_fetch whose result view carries the fetched URL and its HTTP status.
@@ -380,11 +420,11 @@ function buildAlphaLog(): SessionEvent[] {
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
   // the todo turn for the same reason turn 65 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(66, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
-  toolTurn(67, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  toolTurn(67, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(68, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(68, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(69, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -419,6 +459,12 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         card: 'diff', title: `Write ${str(args.path)}`,
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
+    // A read pending call is a GENERIC card (kind: 'read', a follow-along
+    // location): the read render intent is result-side only, because a call
+    // carries no file content until execute returns. The rich read card arrives
+    // in presentResult.
+    case 'read':
+      return { card: 'generic', title: `Read ${str(args.file_path)}`, kind: 'read', locations: [{ path: str(args.file_path) }] }
     case 'edit':
       // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
       // scattered hunks share one path header and the card draws the `⋯` gap.
@@ -455,6 +501,16 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
+  // The read result is the structured window the tool projects through
+  // `presentationMeta`; the fixture authors it inline (it cannot import the
+  // tool). Keyed on the name because the read pending call is a generic card,
+  // so `call.card` alone does not distinguish it from edit/write.
+  if (name === 'read') {
+    return {
+      card: 'read', path: READ_SAMPLE_PATH, offset: READ_SAMPLE_FIRST_LINE, lines: READ_SAMPLE_LINES,
+      totalLines: READ_SAMPLE_TOTAL, lang: 'ts', content: text(resultText),
+    }
+  }
   // The web tools keep a generic pending card, so their result card is chosen
   // by tool name rather than by the pending card tag: the structured `web` card
   // the frontend consumes. The view carries no `content` copy (per the contract
