@@ -15,6 +15,7 @@ import type {
   AssistantMessage,
   ContentBlock,
   MessageSource,
+  TokenUsage,
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
@@ -327,6 +328,16 @@ function sid(id: string): SessionId {
   return id as SessionId
 }
 
+/** Deterministic provider billing attached to fixture assistant messages. */
+function fixtureUsage(turn: number, step: number): TokenUsage {
+  return {
+    inputTokens: 20 + turn % 5,
+    outputTokens: 8 + step,
+    cacheReadTokens: turn === 0 ? 0 : 80,
+    cacheWriteTokens: turn % 10 === 0 ? 4 : 0,
+  }
+}
+
 /** fx-alpha history script: 60 turns (~130+ messages -> 3 pages at PAGE_MESSAGES=50),
  *  mixing reasoning blocks / tool call+result / steering / context. */
 function buildAlphaLog(): SessionEvent[] {
@@ -334,7 +345,17 @@ function buildAlphaLog(): SessionEvent[] {
   let time = Date.now() - 3_600_000
   const push = (e: Record<string, unknown>): number => {
     const seq = events.length
-    events.push({ seq, time: (time += 800), ...e })
+    const data = e['data'] as Record<string, unknown> | undefined
+    const authored = e['type'] === 'assistant/message' && data !== undefined
+      ? {
+        ...e,
+        data: {
+          ...data,
+          usage: fixtureUsage(data['turn'] as number, data['step'] as number),
+        },
+      }
+      : e
+    events.push({ seq, time: (time += 800), ...authored })
     return seq
   }
   for (let turn = 0; turn < 60; turn++) {
@@ -727,6 +748,113 @@ function permissionSelectOf(
   }
 }
 
+interface FixtureTokenUsageProjection {
+  uncachedInputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+interface FixtureUsageSample {
+  turn: number
+  step: number
+  usage: TokenUsage
+}
+
+/** Read one provider usage sample from either durable carrier. */
+function usageSampleOf(event: SessionEvent): FixtureUsageSample | undefined {
+  const item = event as unknown as {
+    type: string
+    data: {
+      turn?: number
+      step?: number
+      usage?: TokenUsage
+      chunk?: { type?: string; usage?: TokenUsage }
+    }
+  }
+  const usage = item.type === 'assistant/chunk' && item.data.chunk?.type === 'usage'
+    ? item.data.chunk.usage
+    : item.type === 'assistant/message'
+      ? item.data.usage
+      : undefined
+  return usage === undefined || item.data.turn === undefined || item.data.step === undefined
+    ? undefined
+    : { turn: item.data.turn, step: item.data.step, usage }
+}
+
+/** Fixture parallel of token-meter's last-sample-replacing usage projection. */
+function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection {
+  const totals: FixtureTokenUsageProjection = {
+    uncachedInputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  }
+  let last: {
+    turn: number
+    step: number
+    buckets: FixtureTokenUsageProjection
+  } | null = null
+  for (const event of log) {
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
+    const buckets: FixtureTokenUsageProjection = {
+      uncachedInputTokens: sample.usage.inputTokens,
+      outputTokens: sample.usage.outputTokens,
+      cacheReadTokens: sample.usage.cacheReadTokens ?? 0,
+      cacheWriteTokens: sample.usage.cacheWriteTokens ?? 0,
+    }
+    const previous = last?.turn === sample.turn && last.step === sample.step
+      ? last.buckets
+      : undefined
+    totals.uncachedInputTokens += buckets.uncachedInputTokens - (previous?.uncachedInputTokens ?? 0)
+    totals.outputTokens += buckets.outputTokens - (previous?.outputTokens ?? 0)
+    totals.cacheReadTokens += buckets.cacheReadTokens - (previous?.cacheReadTokens ?? 0)
+    totals.cacheWriteTokens += buckets.cacheWriteTokens - (previous?.cacheWriteTokens ?? 0)
+    last = { turn: sample.turn, step: sample.step, buckets }
+  }
+  return totals
+}
+
+interface FixtureRequestContext {
+  provider: string
+  model: string
+  contextWindow?: number
+}
+
+/** Latest log-only route context, or undefined before any request ran. */
+function lastRequestContext(
+  log: readonly SessionEvent[],
+): FixtureRequestContext | undefined {
+  const event = log.findLast(item => (item as { type: string }).type === 'request/context')
+  return event === undefined
+    ? undefined
+    : (event as unknown as { data: FixtureRequestContext }).data
+}
+
+/**
+ * Fixture parallel of token-meter's request-pressure projection: the last
+ * provider-reported prompt size paired with the last recorded capacity. The
+ * two need not come from one request — see the token-meter README.
+ */
+function contextPressureOf(
+  log: readonly SessionEvent[],
+): { pressureTokens?: number; contextWindow?: number } {
+  let pressureTokens: number | undefined
+  for (const event of log) {
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
+    pressureTokens = sample.usage.inputTokens
+      + (sample.usage.cacheReadTokens ?? 0)
+      + (sample.usage.cacheWriteTokens ?? 0)
+  }
+  const contextWindow = lastRequestContext(log)?.contextWindow
+  return {
+    ...pressureTokens === undefined ? {} : { pressureTokens },
+    ...contextWindow === undefined ? {} : { contextWindow },
+  }
+}
+
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
@@ -741,12 +869,32 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['plan'] = planViewOf(log)
   // Always present (GoalService unit composed): null before create / after clear.
   values['goal'] = backscanGoal(log)
+  // Always present (token-meter composed): full-log provider billing.
+  values['tokenUsage'] = tokenUsageOf(log)
+  // Always present (token-meter composed): last request pressure and capacity.
+  values['contextPressure'] = contextPressureOf(log)
   return values
 }
 
 /** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
 function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
   const type = (event as { type: string }).type
+  // One usage sample advances both token-meter units.
+  if (usageSampleOf(event) !== undefined) {
+    return [
+      { type: 'session/projection', sessionId: id, key: 'tokenUsage', value: tokenUsageOf(log), seq: event.seq },
+      { type: 'session/projection', sessionId: id, key: 'contextPressure', value: contextPressureOf(log), seq: event.seq },
+    ]
+  }
+  if (type === 'request/context') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'contextPressure',
+      value: contextPressureOf(log),
+      seq: event.seq,
+    }]
+  }
   if (type === 'session/title') {
     const values = projectionValuesOf(log)
     /* v8 ignore next -- the advancing title event is in the log, so the key is present. */
@@ -1443,7 +1591,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       replays.delete(id)
       const done = pieces.slice(0, i).join('')
       append(id, { type: 'assistant/chunk', data: { turn, step, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: done } } } })
-      append(id, { type: 'assistant/message', surfaceOp: 'append', data: { turn, step, message: assistantMessage(text(aborted ? `${done}（已中断）` : done)) } })
+      append(id, {
+        type: 'assistant/message',
+        surfaceOp: 'append',
+        data: {
+          turn,
+          step,
+          message: assistantMessage(text(aborted ? `${done}（已中断）` : done)),
+          usage: fixtureUsage(turn, step),
+        },
+      })
       append(id, { type: 'step/end', data: { turn, step } })
       append(id, { type: 'turn/end', data: { turn, reason: { kind: aborted ? 'cancelled' : 'completed' } } })
       setRunning(id, false)
@@ -1712,6 +1869,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           append(id, { type: 'plan/mode', data: { active: plan.wanted } })
         }
         append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
+        // Capacity parallel of the host token-meter's request/context record:
+        // log-only, appended inside the open turn, and deduplicated against the
+        // route already recorded (the fixture never varies contextWindow).
+        const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+        if (lastRequestContext(logOf(id))?.model !== target.model) {
+          append(id, {
+            type: 'request/context',
+            data: { provider: target.provider, model: target.model, contextWindow: 128_000 },
+          })
+        }
         startReply(
           id,
           turn,
