@@ -10,11 +10,11 @@ It uses an architecture where **everything is a plugin**.
 
 Thank you for making time to try DeepSeek Harness.
 
-This version is still in internal testing. Some features remain unfinished, and parts of the experience may feel rough.
+This version is still in internal testing. Features still need work, and the experience may feel a little rough.
 
 “As one cuts and files, as one carves and polishes.” Products grow through repeated encounters with real use and candid feedback. The problems you uncover in practice may lead us to re-examine, or even discard, existing designs.
 
-We especially want to hear about moments of failure, confusion, or friction. If DeepSeek Harness does not help—or instead makes your work harder—please leave a message in our <a href="https://wj.qq.com/s2/27234598/03eb/">WeCom group</a> and tell us about your experience. Every report will help us refine it.
+We especially want to hear about moments of failure, confusion, or friction. If you have any feedback or suggestions, please leave a message in our <a href="https://wj.qq.com/s2/27234598/03eb/">WeCom group</a> and let us know. Every piece of feedback will help us refine it.
 
 ## Install
 
