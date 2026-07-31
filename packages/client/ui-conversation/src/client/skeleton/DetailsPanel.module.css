@@ -106,3 +106,9 @@
 .terminal {
   margin: 0;
 }
+
+/* Same rule for the web card: it sits under the section label, so the section
+   owns the spacing rather than the primitive's own vertical margin. */
+.web {
+  margin: 0;
+}

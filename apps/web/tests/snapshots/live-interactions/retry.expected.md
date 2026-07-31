@@ -11,6 +11,8 @@
   - img
 - button "Edit":
   - img
+- group:
+  - status: Retried model request (1/2) · {{duration}}
 - button "Think The user is asking for a one-sentence description of event sourcing. This is a straightforward knowledge question that doesn't require any skill loading or tool calls.":
   - img
   - img
@@ -24,7 +26,7 @@
 - textbox "Message the agent"
 - button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
