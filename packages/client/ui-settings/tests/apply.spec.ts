@@ -83,6 +83,29 @@ describe('ui-settings apply', () => {
     off()
   })
 
+  it('projects onboarding entries into stable coordinator order', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const { onboardingSteps } = injectedOf(b.slots).hooks
+    b.slots.register({ name: 'settings.onboarding', id: 'credential', order: 0 } as never, () => null)
+    b.slots.register({ name: 'settings.onboarding', id: 'welcome', order: -100 } as never, () => null)
+    b.slots.register({ name: 'settings.onboarding', id: 'default-order' } as never, () => null)
+    const steps = onboardingSteps.getSnapshot()
+    expect(steps).toEqual([
+      { id: 'welcome', order: -100 },
+      { id: 'credential', order: 0 },
+      { id: 'default-order', order: 0 },
+    ])
+    expect(onboardingSteps.getSnapshot()).toBe(steps)
+    const listener = vi.fn()
+    const off = onboardingSteps.subscribe(listener)
+    b.slots.register({ name: 'settings.onboarding', id: 'later', order: 10 } as never, () => null)
+    await Promise.resolve()
+    expect(listener).toHaveBeenCalledOnce()
+    off()
+  })
+
   it('re-registers after an HMR collapse re-declares the slot (stale disposer must not block)', async () => {
     const b = await bench()
     const redeclare = declare(b.slots)

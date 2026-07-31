@@ -21,6 +21,8 @@ Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 
+Web／无头组合还只会注册 `web_search`。搜索使用 DeepSeek 的 Anthropic 兼容 Messages 端点，每次调用都会解析同一个 `DEEPSEEK_API_KEY` 凭据引用，并接受独立的 `DEEPSEEK_SEARCH_BASE_URL` 端点覆盖；每次搜索都是一次辅助模型请求，会产生独立的延迟与 token 成本。`web_fetch` 仍处于禁用状态，组合也未挂载默认抓取提供方；需要任意页面抓取能力的部署必须通过覆盖层选择启用。TUI 组合默认不挂载 Web 工具。部署决策及其安全边界见[默认 Web 搜索 Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md)。
+
 `DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：可选值为 `native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 协议接口）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam：Loader 组合是静态的，因此该设置作用于整个进程；待 Web UI 负责逐会话工具模式选择后便会移除。TUI 界面会忽略该变量（其配置树固定了自身模式）。
 
 每个 `dsh` 界面——TUI、Web 与无头——都默认上报会话遥测（该行位于共享的 `base.cordis.yml`）：每条会话日志事件以 OTLP/HTTP 日志记录的形式、按 10 秒批处理节奏流向 `https://harness-telemetry.deepseeksvc.com/v1/logs`。`DSH_TELEMETRY_OTLP_URL` 可将 exporter 指向其他 collector；将 `DSH_TELEMETRY_DISABLED` 设为**任意非空值**——包括 `0` 或 `false`——都会在该行加载前将其关停（隐私开关取「宁可误关、不可误开」）。该组合当前未挂载任何脱敏规则：导出记录即原始捕获副本，包含消息正文、工具参数与结果、以及会话工作目录路径。部署口径见 [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)。
