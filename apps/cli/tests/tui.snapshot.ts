@@ -362,7 +362,8 @@ interface ScenarioResult {
 }
 
 async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 12, 0, 0).getTime())
+  const snapshotTime = new Date(2026, 6, 21, 12, 0, 0).getTime()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(snapshotTime)
   const fixtureFile = join(fixtureDir(scenario), 'session.jsonl')
   const childFiles = childFixturePaths(scenario)
   const prompts = userPrompts(await readFile(fixtureFile, 'utf8'))
@@ -543,6 +544,13 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
         `manual summary did not start; status=${agent.status}; tail=${
           agent.session.events.slice(-8).map(event => event.type).join(',')
         }`)
+      clock.mockReturnValue(snapshotTime + 1_000)
+      await settleTerminal(terminal)
+      await expect.poll(() => terminal.snapshot()).toContain('dsh ⊙')
+      await expect.poll(() => terminal.snapshot()).toContain('Context being compacted 1.0s')
+      const liveCompaction = await terminal.snapshot()
+      expect(liveCompaction.indexOf('Context being compacted 1.0s')).toBeLessThan(liveCompaction.indexOf('dsh ⊙'))
+      clock.mockReturnValue(snapshotTime)
 
       // Real keystrokes: the prompt keeps its ordinary queue identity while
       // admission is reserved, and an injection appends immediately.
