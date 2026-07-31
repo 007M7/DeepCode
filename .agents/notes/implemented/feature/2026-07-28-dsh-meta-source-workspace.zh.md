@@ -36,6 +36,6 @@ Status: implemented
 
 ## Consequences
 
-在 dsh 自身源码上开启会话变成了在任意位置执行 `dsh meta`，且该 workspace 必然就是告知模型的那个检出目录。该命令始终启动新会话；之后，普通的 `dsh --resume <id>` 会恢复该会话并进入其已持久化的 workspace。
+在 dsh 自身源码上开启会话变成了在任意位置执行 `dsh meta --experimental`（在 `DSH_EXPERIMENTAL=1` 下可直接执行 `dsh meta`），且该 workspace 必然就是告知模型的那个检出目录。该命令始终启动新会话；之后，普通的 `dsh --resume <id>` 会恢复该会话并进入其已持久化的 workspace。
 
 `runTui` 新增一个可选第三参数，因此 workspace 覆盖是在拥有 TUI 组合逻辑的那唯一一个函数上可见的，而不是隐藏在它的第二份副本中。

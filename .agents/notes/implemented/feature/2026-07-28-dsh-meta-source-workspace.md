@@ -36,6 +36,6 @@ The mode was verified interactively instead. Launched from `$HOME`, a `pwd` tool
 
 ## Consequences
 
-Starting a session on dsh's own source is `dsh meta` from anywhere, and the workspace is guaranteed to be the same checkout the model is told about. The command always starts fresh; an ordinary `dsh --resume <id>` later restores the session and enters its persisted workspace.
+Starting a session on dsh's own source is `dsh meta --experimental` from anywhere (or bare `dsh meta` under `DSH_EXPERIMENTAL=1`), and the workspace is guaranteed to be the same checkout the model is told about. The command always starts fresh; an ordinary `dsh --resume <id>` later restores the session and enters its persisted workspace.
 
 `runTui` gains an optional third parameter, so the workspace override is visible at the one function that owns TUI composition rather than hidden in a second copy of it.

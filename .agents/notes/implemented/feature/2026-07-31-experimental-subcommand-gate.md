@@ -12,9 +12,13 @@ The `meta` and `upgrade` entry points carried their experimental status in their
 
 `dsh experimental-meta` is `dsh meta` and `dsh experimental-upgrade` is `dsh upgrade`. Each runs only when the invocation passes its `--experimental` flag or the environment carries `DSH_EXPERIMENTAL=1`; otherwise the command fails loud on stderr with exit 1, naming both opt-ins. Per the pre-release stance, the old names are gone with no aliases, and `args.spec.ts` pins their rejection.
 
-The gate has two halves with one owner each. The per-invocation half is a Commander `--experimental` option on each experimental subcommand, checked inside its action after the leaked-parent-option rejection. The environment half is a boolean `parseDshArgs` parameter: `bin.ts` reads `process.env.DSH_EXPERIMENTAL === '1'` at the process boundary and passes the result down, so the parser stays a pure function of its inputs and the tests need no env mutation. `1` is the only enabling value — the variable is an explicit opt-in, not a truthiness check.
+The gate has two halves with one owner each. The per-invocation half is a Commander `--experimental` option on each experimental subcommand, checked inside its action after the leaked-parent-option rejection. The environment half is a boolean `parseDshArgs` parameter: `bin.ts` reads `process.env.DSH_EXPERIMENTAL === '1'` at the process boundary (after `loadEnv`, so a project `.env` can set it) and passes the result down, so the parser's environment dependency is explicit in its signature and the tests need no env mutation. `1` is the only enabling value — the variable is an explicit opt-in, not a truthiness check.
 
 Stabilizing a command later means deleting its `--experimental` option and `requireExperimental` call; the name does not move.
+
+## Testing
+
+`args.spec.ts` pins both admit paths, bare-name rejection, old-name rejection, and leaked-option rejection under the env opt-in. `built-bin.e2e.ts` proves the assembled entry end to end: the gate diagnostic on stderr with exit 1, and that `--experimental`, `DSH_EXPERIMENTAL=1`, but not `DSH_EXPERIMENTAL=0`, reach the TUI's piped-stdio refusal — the next gate past this one. Both gated commands were also verified interactively in tmux: `dsh meta --experimental` and `DSH_EXPERIMENTAL=1 dsh meta` boot the TUI over the checkout, and `DSH_EXPERIMENTAL=1 dsh upgrade` seeds the `dsh-upgrade` skill.
 
 ## Alternatives considered
 

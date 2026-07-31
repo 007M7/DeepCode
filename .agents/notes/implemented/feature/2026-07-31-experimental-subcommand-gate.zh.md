@@ -12,9 +12,13 @@ Status: implemented
 
 `dsh experimental-meta` 改为 `dsh meta`，`dsh experimental-upgrade` 改为 `dsh upgrade`。二者只有在调用时传入各自的 `--experimental` 标志、或环境中带有 `DSH_EXPERIMENTAL=1` 时才会运行；否则命令在 stderr 上明确报错并以退出码 1 结束，同时指明两种选择加入方式。依据发布前立场，旧名称已移除且没有别名，`args.spec.ts` 钉住了对它们的拒绝。
 
-该门槛分为两半，各有其归属。按调用的一半是每个实验性子命令上的 Commander `--experimental` 选项，在其 action 内、泄漏父级选项的拒绝之后检查。环境的一半是 `parseDshArgs` 的一个布尔参数：`bin.ts` 在进程边界读取 `process.env.DSH_EXPERIMENTAL === '1'` 并向下传递结果，因此解析器保持为其输入的纯函数，测试也无需改动环境变量。`1` 是唯一的启用值——该变量是显式的选择加入，而不是真值判断。
+该门槛分为两半，各有其归属。按调用的一半是每个实验性子命令上的 Commander `--experimental` 选项，在其 action 内、泄漏父级选项的拒绝之后检查。环境的一半是 `parseDshArgs` 的一个布尔参数：`bin.ts` 在进程边界读取 `process.env.DSH_EXPERIMENTAL === '1'`（在 `loadEnv` 之后，因此项目 `.env` 也可以设置它）并向下传递结果，因此解析器对环境的依赖显式体现在签名中，测试也无需改动环境变量。`1` 是唯一的启用值——该变量是显式的选择加入，而不是真值判断。
 
 之后要稳定某个命令，只需删除它的 `--experimental` 选项和 `requireExperimental` 调用；名字不再变动。
+
+## Testing
+
+`args.spec.ts` 钉住两条准入路径、裸名称拒绝、旧名称拒绝，以及在环境选择加入下对泄漏选项的拒绝。`built-bin.e2e.ts` 端到端地证明组装后的入口：stderr 上的门槛诊断与退出码 1，以及 `--experimental`、`DSH_EXPERIMENTAL=1`（而非 `DSH_EXPERIMENTAL=0`）会到达 TUI 的管道 stdio 拒绝——即此门之后的下一道关卡。两个被把守的命令还在 tmux 中做了交互式验证：`dsh meta --experimental` 与 `DSH_EXPERIMENTAL=1 dsh meta` 以检出目录为 workspace 启动 TUI，`DSH_EXPERIMENTAL=1 dsh upgrade` 播种 `dsh-upgrade` skill。
 
 ## Alternatives considered
 
