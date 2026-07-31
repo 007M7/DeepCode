@@ -2,6 +2,7 @@
 
 import type { Context } from 'cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { LlmRetryEventData } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, InboxItemId, MuxFrame, QueueAction, RpcError,
@@ -12,8 +13,8 @@ import type {
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { SessionFace } from '../contract/session.ts'
 import type {
-  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, OpenState,
-  PromptError, QueuedMessage, RunningToolCall,
+  CodeSubCall, ComposerPhase, ConversationNode, ConversationSnapshot, ModelRetryNode,
+  OpenState, PromptError, QueuedMessage, RunningToolCall,
 } from './conversation.ts'
 import type { PendingInteraction } from './pending.ts'
 import { PendingWait } from './pending.ts'
@@ -25,6 +26,10 @@ import type { ProjectionsBaseline } from './projection-store.ts'
 
 /** Messages requested per history page. */
 export const PAGE_MESSAGES = 50
+
+// Browser bundles cannot value-import the host timeout library. This protocol
+// bound is pinned to @deepseek-ai/dsh-timeout's MAX_TIMER_DELAY_MS in tests.
+const MAX_RETRY_DELAY_MS = 2_147_483_647
 
 /** Manager-owned observers of a Session object's local state edges. */
 export interface SessionOptions {
@@ -88,9 +93,9 @@ export class Session implements SessionFace {
   private readonly foldAdapter = new FoldAdapter()
   private partial: PartialAccumulator | null = null
   private openCalls = new Map<string, RunningToolCall>()
-  /** Interrupted-turn terminal nodes (frozen partial text / aborted tool cards), merged into the flow by seq.
-   *  Derived from window events (turn/end sweep) — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
-  private frozenNodes: ConversationNode[] = []
+  /** Operational notices and interrupted-turn terminal nodes merged into the flow by seq.
+   *  Derived from window events — rebuilt by rebuildDerivedFromWindow like partial/openCalls. */
+  private derivedNodes: ConversationNode[] = []
   private pending = new Map<string, PendingInteraction>()
   // Revision counters preserve array identity when derived content is unchanged, so
   // React.memo children survive unrelated snapshot swaps (chunk storms must not re-render every
@@ -100,12 +105,12 @@ export class Session implements SessionFace {
   private callsCache: { rev: number; value: RunningToolCall[] } | null = null
   private pendingRev = 0
   private pendingCache: { rev: number; value: PendingInteraction[] } | null = null
+  private derivedRev = 0
+  private nodesCache: { folded: readonly ConversationNode[]; derivedRev: number; value: readonly ConversationNode[] } | null = null
   /** Authoritative stream-only inbox snapshot; pending work never hits history. */
   private queued: QueuedMessage[] = []
   private queueRev = 0
   private queueCache: { rev: number; value: QueuedMessage[] } | null = null
-  private frozenRev = 0
-  private nodesCache: { folded: readonly ConversationNode[]; frozenRev: number; value: readonly ConversationNode[] } | null = null
   /** `run_code` sub-dispatches by parent callId (window-derived, like openCalls). Appends
    *  copy-on-write the per-parent array so published snapshot references never mutate. */
   private codeDispatches = new Map<string, readonly CodeSubCall[]>()
@@ -625,8 +630,28 @@ export class Session implements SessionFace {
   }
 
   /** Per-event side effects (right column of the §A.9 dispatch table):
-   *  chunk accumulation / partial clear on finalize / openCalls add-remove. */
+   *  chunk/retry projection and openCalls add-remove. */
   private applyEventSideEffects(event: SessionEvent, view?: ToolEventView): void {
+    const eventType = event.type as string
+    if (eventType === 'llm/retry') {
+      const data = parseRetryEventData(event.data)
+      if (data === null) {
+        console.error(`[web-runtime] ignored malformed llm/retry event at seq ${event.seq}`)
+        return
+      }
+      if (this.partial !== null && this.partial.turn === data.turn && this.partial.step === data.step) {
+        this.partial = null
+      }
+      this.derivedNodes.push({
+        kind: 'model-retry',
+        seq: event.seq,
+        time: event.time,
+        retryState: 'scheduled',
+        ...data,
+      })
+      this.derivedRev++
+      return
+    }
     // The `tool/code-dispatch-start`/`tool/code-dispatch` pair is declared by
     // the host-side dsh-tools plugin whose types cannot enter the client
     // program (its host Context merges collide with the client's), so this
@@ -687,6 +712,10 @@ export class Session implements SessionFace {
       return
     }
     switch (event.type) {
+      case 'turn/start': {
+        if (event.data.trigger.kind === 'retry') this.settleScheduledRetry('started')
+        return
+      }
       case 'assistant/chunk': {
         const { turn, step, chunk } = event.data
         if (this.partial === null || this.partial.turn !== turn || this.partial.step !== step) {
@@ -715,6 +744,9 @@ export class Session implements SessionFace {
         return
       }
       case 'turn/end': {
+        if (event.data.reason.kind === 'aborted' || event.data.reason.kind === 'disposed') {
+          this.settleScheduledRetry('cancelled', event.data.turn)
+        }
         // Aborted turns never finalize. The accumulated partial is VALUE, not residue: freeze it
         // into an interrupted terminal node (pulse stops, text survives) instead of deleting it.
         // Shared by live and window-replay paths, so a refresh reconstructs the same frozen node
@@ -724,12 +756,12 @@ export class Session implements SessionFace {
           const visible = blocks.some(b => (b.kind === 'text' || b.kind === 'reasoning' ? b.text !== '' : true))
           if (visible) {
             // Fractional seq: strictly after every event of this turn (all < turn/end seq), before the next turn.
-            this.frozenNodes.push({
+            this.derivedNodes.push({
               kind: 'assistant', seq: event.seq - 0.9, time: event.time,
               turn: this.partial.turn, step: this.partial.step,
               blocks, interrupted: true,
             })
-            this.frozenRev++
+            this.derivedRev++
           }
           this.partial = null
         }
@@ -739,7 +771,7 @@ export class Session implements SessionFace {
           this.openCalls.delete(callId)
           this.callsRev++
           // The spinner card becomes an interrupted terminal card (never vanishes mid-flow).
-          this.frozenNodes.push({
+          this.derivedNodes.push({
             kind: 'tool-result', seq: event.seq - 0.8 + callOffset++ * 0.01, time: event.time,
             callId,
             call: { name: call.name, argsRaw: call.argsRaw },
@@ -747,7 +779,7 @@ export class Session implements SessionFace {
             content: [], isError: true, error: { name: 'Interrupted', code: 'interrupted' },
             callView: call.callView, resultView: null,
           })
-          this.frozenRev++
+          this.derivedRev++
         }
         return
       }
@@ -756,15 +788,36 @@ export class Session implements SessionFace {
     }
   }
 
-  /** Re-derive state (partial/openCalls/frozenNodes) from raw window events after a rebuild — keeps
-   *  paging/stitching consistent, and makes the live freeze and the history replay converge on the
-   *  same interrupted nodes (chunks are logged, so the replayed sweep re-freezes identical text). */
+  /**
+   * Settle the newest scheduled retry, optionally restricted to its failed turn.
+   * @param retryState - next client projection state to publish.
+   * @param turn - failed turn required for cancellation; omitted for the next retry turn start.
+   */
+  private settleScheduledRetry(
+    retryState: Exclude<ModelRetryNode['retryState'], 'scheduled'>,
+    turn?: number,
+  ): void {
+    const index = this.derivedNodes.findLastIndex(node =>
+      node.kind === 'model-retry'
+      && node.retryState === 'scheduled'
+      && (turn === undefined || node.turn === turn))
+    if (index < 0) return
+    const node = this.derivedNodes[index]
+    /* v8 ignore next -- findLastIndex's predicate narrows the indexed node only at runtime. */
+    if (node?.kind !== 'model-retry') return
+    this.derivedNodes[index] = { ...node, retryState }
+    this.derivedRev++
+  }
+
+  /** Re-derive state (partial/openCalls/derivedNodes) from raw window events after a rebuild — keeps
+   *  paging/stitching consistent, and makes live handling and history replay converge on the same
+   *  retry notices and interrupted nodes. */
   private rebuildDerivedFromWindow(): void {
     this.partial = null
     this.openCalls.clear()
     this.callsRev++
-    this.frozenNodes = []
-    this.frozenRev++
+    this.derivedNodes = []
+    this.derivedRev++
     this.codeDispatches = new Map()
     this.dispatchesRev++
     for (let i = 0; i < this.events.length; i++) {
@@ -781,17 +834,17 @@ export class Session implements SessionFace {
 
   private buildSnapshot(): ConversationSnapshot {
     const { nodes: folded, degraded } = this.foldAdapter.nodes()
-    // Frozen interrupted nodes ride fractional seqs: a stable merge keeps them in flow order.
-    // The merged array is cached on (folded reference, frozenRev) so an unchanged flow keeps its
+    // Derived nodes use their event seq or a nearby fractional seq: a stable merge keeps flow order.
+    // The merged array is cached on (folded reference, derivedRev) so an unchanged flow keeps its
     // reference across snapshot swaps (§A.9.4).
     let nodes: readonly ConversationNode[]
-    if (this.nodesCache !== null && this.nodesCache.folded === folded && this.nodesCache.frozenRev === this.frozenRev) {
+    if (this.nodesCache !== null && this.nodesCache.folded === folded && this.nodesCache.derivedRev === this.derivedRev) {
       nodes = this.nodesCache.value
     } else {
-      nodes = this.frozenNodes.length === 0
+      nodes = this.derivedNodes.length === 0
         ? folded
-        : [...folded, ...this.frozenNodes].sort((a, b) => a.seq - b.seq)
-      this.nodesCache = { folded, frozenRev: this.frozenRev, value: nodes }
+        : [...folded, ...this.derivedNodes].sort((a, b) => a.seq - b.seq)
+      this.nodesCache = { folded, derivedRev: this.derivedRev, value: nodes }
     }
     if (this.callsCache === null || this.callsCache.rev !== this.callsRev) {
       this.callsCache = { rev: this.callsRev, value: [...this.openCalls.values()] }
@@ -833,6 +886,58 @@ export class Session implements SessionFace {
       lastAgentError: this.lastAgentError,
     }
   }
+}
+
+/** Validate the plugin-owned payload at the session-event wire boundary. */
+function parseRetryEventData(value: unknown): LlmRetryEventData | null {
+  if (value === null || typeof value !== 'object') return null
+  const data = value as Record<string, unknown>
+  const failure = data.failure
+  if (failure === null || typeof failure !== 'object') return null
+  const failureData = failure as Record<string, unknown>
+  if (!nonNegativeSafeInteger(data.turn)
+    || !nonNegativeSafeInteger(data.step)
+    || typeof data.provider !== 'string'
+    || data.provider.length === 0
+    || typeof data.policyKey !== 'string'
+    || data.policyKey.length === 0
+    || !positiveSafeInteger(data.retry)
+    || typeof data.delayMs !== 'number'
+    || !Number.isFinite(data.delayMs)
+    || data.delayMs < 0
+    || data.delayMs > MAX_RETRY_DELAY_MS
+    || typeof failureData.message !== 'string'
+    || failureData.message.length === 0
+    || typeof failureData.code !== 'string'
+    || failureData.code.length === 0) return null
+  if (data.mode === 'normal') {
+    if (!positiveSafeInteger(data.maxRetries) || data.retry > data.maxRetries) return null
+  } else if (data.mode === 'always') {
+    if ('maxRetries' in data) return null
+  } else {
+    return null
+  }
+  if (failureData.status !== undefined
+    && (typeof failureData.status !== 'number'
+      || !Number.isInteger(failureData.status)
+      || failureData.status < 100
+      || failureData.status > 599)) return null
+  if (failureData.providerRetryAfterMs !== undefined
+    && (typeof failureData.providerRetryAfterMs !== 'number'
+      || !Number.isFinite(failureData.providerRetryAfterMs)
+      || failureData.providerRetryAfterMs <= 0)) return null
+  if (failureData.requestId !== undefined
+    && (typeof failureData.requestId !== 'string'
+      || failureData.requestId.length === 0)) return null
+  return data as unknown as LlmRetryEventData
+}
+
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function positiveSafeInteger(value: unknown): value is number {
+  return nonNegativeSafeInteger(value) && value > 0
 }
 
 /**

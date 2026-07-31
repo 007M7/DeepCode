@@ -11,7 +11,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 /**
@@ -68,59 +68,31 @@ function isEEXIST(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'EEXIST'
 }
 
-/** Whether a filesystem error means absence. */
-function isENOENT(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
-}
-
 /**
  * Writer-lock protocol constants. These are robustness invariants of the
- * cross-process write protocol, not deployment tunables: a holder rewrites one
- * small file in milliseconds, so contention resolves well inside the retry
- * deadline, and a lock older than the stale age can only belong to a crashed
- * holder.
+ * cross-process write protocol, not deployment tunables: contention normally
+ * resolves within the retry deadline, while expiry fails the contender without
+ * guessing whether the existing lock still has an owner.
  */
 const LOCK_RETRY_INITIAL_MS = 20
 const LOCK_RETRY_MAX_MS = 200
 const LOCK_TIMEOUT_MS = 2_000
-const LOCK_STALE_MS = 5_000
-
-/** Options for {@link withFileLock}. */
-export interface WithFileLockOptions {
-  /**
-   * Called once each time a stale (crashed-holder) lock is broken, so the
-   * caller can log the takeover in its own voice.
-   */
-  onStaleBreak?: (lockPath: string) => void
-}
-
-/** Age of the lock file, or `undefined` when it vanished after a failed create. */
-async function lockAgeMs(lockPath: string): Promise<number | undefined> {
-  try {
-    return Date.now() - (await stat(lockPath)).mtimeMs
-  } catch (error) {
-    if (!isENOENT(error)) throw error
-    return undefined
-  }
-}
 
 /**
  * Hold the cross-process writer lock for `filename` around one operation. The
  * lock is a `wx`-created sibling (`<filename>.lock`); paired with the
  * rename-based commit of {@link writeFileAtomic}, readers stay lock-free and
- * only writers contend. Contention backs off exponentially; a lock older than
- * the stale age is a crashed holder and is broken (see
- * {@link WithFileLockOptions.onStaleBreak}); a live holder past the deadline
- * fails the operation with a timed-out error. The parent directory must exist.
+ * only writers contend. Contention backs off exponentially and fails with a
+ * timed-out error after the deadline. The contender never removes an existing
+ * lock because file age cannot prove that its owner stopped; orphan recovery
+ * is an operator action. The parent directory must exist.
  * @param filename - the file whose writers this lock serializes.
  * @param operation - the read-render-commit cycle to run while holding the lock.
- * @param options - stale-takeover notification hook.
  * @returns the operation's result; the lock releases on both outcomes.
  */
 export async function withFileLock<T>(
   filename: string,
   operation: () => Promise<T>,
-  options?: WithFileLockOptions,
 ): Promise<T> {
   const lockPath = `${filename}.lock`
   const deadline = Date.now() + LOCK_TIMEOUT_MS
@@ -131,17 +103,6 @@ export async function withFileLock<T>(
       break
     } catch (error) {
       if (!isEEXIST(error)) throw error
-    }
-    const ageMs = await lockAgeMs(lockPath)
-    // The holder released between the failed create and the stat: the lock is
-    // free right now, so retry without burning backoff or deadline.
-    if (ageMs === undefined) continue
-    if (ageMs > LOCK_STALE_MS) {
-      // TODO(settings-lock-ownership): Replace age-only takeover with ownership-safe
-      // acquisition and release so a slow writer cannot remove a successor's lock.
-      options?.onStaleBreak?.(lockPath)
-      await rm(lockPath, { force: true })
-      continue
     }
     if (Date.now() >= deadline) {
       throw new Error(`atomic-write: timed out waiting for the writer lock at ${lockPath}`)

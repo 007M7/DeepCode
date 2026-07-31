@@ -38,6 +38,8 @@ declare module '@deepseek-ai/dsh-session' {
   }
 }
 
+export type { LlmRetryEventData } from './types.ts'
+
 export const name = 'llm-retry'
 export const inject = ['agents']
 
