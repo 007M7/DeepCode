@@ -13,9 +13,8 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import {
-  WorkspaceCreateError,
-  type WorkspaceId, type WorkspaceListState, type WorkspaceView,
+import type {
+  WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/slots.ts'
@@ -80,7 +79,6 @@ export function WorkspacePickFlow({
   const [modalError, setModalError] = useState<string | null>(null)
   const [flowOpen, setFlowOpen] = useState(false)
   const [pickingFolder, setPickingFolder] = useState(false)
-  const [folderConflict, setFolderConflict] = useState(false)
   // One picking interaction at a time: while the flow is open (native chooser
   // pending, browse dialog up) or its pick is being adopted, every other
   // menu action stays disabled — a late outcome must not race a concurrent
@@ -130,10 +128,6 @@ export function WorkspacePickFlow({
       setFlowOpen(false)
       onPick(workspace.workspaceId)
     }).catch((reason: unknown) => {
-      setFolderConflict(
-        reason instanceof WorkspaceCreateError
-        && reason.rpcError.code === 'workspace-name-conflict',
-      )
       setModalError(reason instanceof Error ? reason.message : String(reason))
       setFlowOpen(false)
       setErrorOpen(true)
@@ -143,7 +137,6 @@ export function WorkspacePickFlow({
     onClose()
     setErrorOpen(false)
     setModalError(null)
-    setFolderConflict(false)
     setFlowOpen(true)
   }, [onClose])
 
@@ -174,7 +167,6 @@ export function WorkspacePickFlow({
     onCancel: () => { setFlowOpen(false) },
     onError: (message) => {
       setFlowOpen(false)
-      setFolderConflict(false)
       setModalError(message)
       setErrorOpen(true)
     },
@@ -208,7 +200,7 @@ export function WorkspacePickFlow({
         open={errorOpen}
         onClose={closeModal}
         closeLabel={t('close')}
-        title={folderConflict ? t('conflict.title') : t('folderError.title')}
+        title={t('folderError.title')}
         footer={(
           <>
             <Button variant="outline" className={css.modalAction} onClick={closeModal}>{t('cancel')}</Button>
@@ -218,11 +210,7 @@ export function WorkspacePickFlow({
           </>
         )}
       >
-        <div className={css.modalError} role="alert">
-          {folderConflict
-            ? t('conflict.hint')
-            : modalError}
-        </div>
+        <div className={css.modalError} role="alert">{modalError}</div>
       </Modal>
     </>
   )
