@@ -10,10 +10,17 @@ export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.met
 export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 /**
+ * Browser language a page must advertise to boot into the product's Chinese
+ * surface: with no stored preference the client derives its initial locale
+ * from the browser, and Playwright's default browser asks for English.
+ */
+export const ZH_BROWSER_LOCALE = 'zh-CN'
+
+/**
  * Open the standard browser-test page with English selected before client
  * boot. This keeps role locators and goldens deterministic across localized
- * component migrations; the settings locale scenario deliberately bypasses
- * this helper to cover the product's default Chinese state.
+ * component migrations; the scenarios asserting the Chinese surface bypass
+ * this helper and advertise {@link ZH_BROWSER_LOCALE} instead.
  * @param browser - Playwright browser owning the page.
  * @param height - Viewport height; width is fixed to the lane baseline.
  * @returns the initialized page.

@@ -78,7 +78,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:284`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:291`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:320`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:352`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:315`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:344`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:376`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -129,7 +129,7 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the prompt section and the narrator's notices). The LAST such
+ * from the cache-safe runtime-context snapshot). The LAST such
  * event is the session's override ({@link effectiveApprovalPolicy}).
  * `source: 'delegation'` marks an override seeded into a child; an absent
  * source is a runtime switch.
@@ -154,7 +154,7 @@ Source: [`packages/ui/user-approval/src/index.ts:67`](../packages/ui/user-approv
 
 Types: [StreamChunk](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:229`](../packages/core/session/src/types.ts)
 
 #### `assistant/message` — surface
 
@@ -170,7 +170,7 @@ Source: [`packages/core/session/src/types.ts:215`](../packages/core/session/src/
 
 Types: [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:222`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:236`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -376,6 +376,23 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 
 ### `request/*`
 
+#### `request/context` — log-only
+
+```ts persistence-catalog
+/**
+ * Registration-bound context metadata for the route a request resolved to,
+ * appended inside its step beside `request/header` and only when the route
+ * or capacity differs from the last record. It is log-only and deliberately
+ * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+ * route, not an input the request was built from, so it must not participate
+ * in request reconstruction or header equality. `contextWindow` is absent
+ * when the route's adapter advertises no capacity.
+ */
+'request/context': RequestContext
+```
+
+Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/types.ts)
+
 #### `request/header` — log-only
 
 ```ts persistence-catalog
@@ -386,7 +403,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:51`](../packages/plan/plan-mode/s
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:269`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -441,7 +458,7 @@ Source: [`packages/sandbox/sandbox-policy/src/session-mode.ts:33`](../packages/s
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:280`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:304`](../packages/core/session/src/types.ts)
 
 #### `session/title` — log-only
 
@@ -477,7 +494,7 @@ Source: [`packages/session-title/session-title-llm/src/index.ts:43`](../packages
 'steering/message': { turn: number; message: UserMessage }
 ```
 
-Source: [`packages/core/session/src/types.ts:248`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:262`](../packages/core/session/src/types.ts)
 
 ### `step/*`
 
@@ -488,7 +505,7 @@ Source: [`packages/core/session/src/types.ts:248`](../packages/core/session/src/
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:218`](../packages/core/session/src/types.ts)
 
 #### `step/start` — log-only
 
@@ -497,7 +514,7 @@ Source: [`packages/core/session/src/types.ts:204`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:216`](../packages/core/session/src/types.ts)
 
 ### `todo/*`
 
@@ -510,7 +527,7 @@ Source: [`packages/core/session/src/types.ts:202`](../packages/core/session/src/
 
 Types: [TodoItem](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -527,7 +544,7 @@ Source: [`packages/core/session/src/types.ts:250`](../packages/core/session/src/
 
 Types: [CallId](core-data-structures/core.md)
 
-Source: [`packages/core/session/src/types.ts:228`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:242`](../packages/core/session/src/types.ts)
 
 #### `tool/code-dispatch` — log-only
 
@@ -600,7 +617,7 @@ Source: [`packages/core/tools/src/code-mode.ts:33`](../packages/core/tools/src/c
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
 
 ### `turn/*`
 
@@ -618,7 +635,7 @@ Source: [`packages/core/session/src/types.ts:240`](../packages/core/session/src/
 
 Types: [TurnEndReason](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:214`](../packages/core/session/src/types.ts)
 
 #### `turn/start` — log-only
 
@@ -631,7 +648,7 @@ Source: [`packages/core/session/src/types.ts:200`](../packages/core/session/src/
 
 Types: [TurnTrigger](core-data-structures/session.md)
 
-Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:207`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -649,4 +666,15 @@ Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:213`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:227`](../packages/core/session/src/types.ts)
+
+### `web/*`
+
+#### `web/deepseek-search-llm-request` — log-only
+
+```ts persistence-catalog
+/** Secret-free auxiliary DeepSeek search request recorded before dispatch. */
+'web/deepseek-search-llm-request': DeepSeekSearchLlmRequest
+```
+
+Source: [`packages/web/web-search-deepseek/src/provider.ts:83`](../packages/web/web-search-deepseek/src/provider.ts)

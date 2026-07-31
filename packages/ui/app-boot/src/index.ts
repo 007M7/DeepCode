@@ -12,7 +12,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
-import Include, { type PatchOptions } from '@cordisjs/plugin-include'
+import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@cordisjs/plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 // Side-effect type import: resolves `ctx.get('systemPrompt')` to the service.
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -60,16 +60,12 @@ export function loadEnv(
 /** File inside the Harness home holding the personal loader overlay patches. */
 export const PERSONAL_CONFIG_FILENAME = 'config.yaml'
 
-// The include's YAML dialect: `!!js` scalars become expression nodes the
-// Loader interpolates against each entry's context at mount time. Personal
-// patches are parsed with the same schema so they may reference `process.env`.
-// Load-only: this schema never dumps, so no `predicate`/`represent`.
-const jsExprType = new yaml.Type('tag:yaml.org,2002:js', {
-  kind: 'scalar',
-  resolve: data => typeof data === 'string',
-  construct: data => ({ __jsExpr: String(data) }),
-})
-const personalPatchesSchema = yaml.JSON_SCHEMA.extend(jsExprType)
+// The include's YAML dialect (`!!js` scalars become expression nodes the
+// Loader interpolates against each entry's context at mount time), imported
+// from the include itself so patch parsing and config dumping can never drift
+// from what the include mounts. Personal patches share it so they may
+// reference `process.env`.
+const personalPatchesSchema = entryListSchema
 
 /**
  * Load the optional personal overlay patches (`config.yaml` under the Harness
@@ -147,6 +143,141 @@ function parsePatchList(
     }
   })
   return parsed as PatchOptions[]
+}
+
+/** One overlay patch list with the label provenance comments print for it. */
+export interface ConfigDumpLayer {
+  /** Source name shown in provenance comments (a file basename or path). */
+  label: string
+  /** The layer's patches, from {@link loadOverlayPatches} / {@link loadPersonalPatches}. */
+  patches: PatchOptions[]
+}
+
+/**
+ * Compose the effective entry list exactly as `boot()` would mount it: parse
+ * the base config file with the include's entry-list dialect, apply every
+ * layer's patches as ONE flattened list through the include's own patch
+ * algorithm (`applyEntryPatches`) — the same single call `boot()` makes, so
+ * even patch-visibility corner cases (a later layer targeting a group child a
+ * plain config replacement introduced, which the single-pass id index never
+ * sees) compose identically — then render the result as YAML in the same
+ * dialect (`!!js` expressions print verbatim, unevaluated).
+ *
+ * Every run of rows with the same provenance is preceded by a `# ==` comment
+ * naming the file that contributed the rows and any layers that patched them,
+ * so the output stays a loadable YAML document while showing which section
+ * comes from which file. Provenance is derived from single-call prefix
+ * snapshots (base + layers 1..k), diffed positionally: the patch algorithm
+ * only rewrites rows in place or appends, so a top-level index identifies one
+ * row across snapshots, and a layer whose addition changes the row (config
+ * replacement, disable, group insert) is listed as having patched it.
+ *
+ * A patch that matches no row is reported through `warn` with its layer
+ * label, mirroring the Loader's boot-time warning. Earlier layers' patches
+ * see an identical preceding state in every snapshot that includes them, so
+ * each snapshot's warning list extends the previous one and the new tail
+ * belongs to the added layer.
+ * @param binName - the diagnostic prefix on read/parse errors.
+ * @param absoluteConfigPath - the base config file `boot()` would include.
+ * @param layers - overlay layers in application order (later wins).
+ * @param warn - sink for skipped-patch diagnostics; defaults to stderr.
+ * @returns the composed entry list rendered as a YAML document with
+ * provenance comment separators.
+ */
+export function renderConfigDump(
+  binName: string,
+  absoluteConfigPath: string,
+  layers: ConfigDumpLayer[],
+  warn: (line: string) => void = line => void process.stderr.write(`${line}\n`),
+): string {
+  let content: string
+  try {
+    content = readFileSync(absoluteConfigPath, 'utf8')
+  } catch (error) {
+    throw new Error(`${binName}: failed to read config ${absoluteConfigPath}: ${String(error)}`)
+  }
+  let parsed: unknown
+  try {
+    parsed = yaml.load(content, { schema: entryListSchema })
+  } catch (error) {
+    throw new Error(`${binName}: failed to parse config ${absoluteConfigPath}: ${String(error)}`)
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${binName}: config ${absoluteConfigPath} must be a top-level YAML array of entries`)
+  }
+  const baseLabel = basename(absoluteConfigPath)
+  // The YAML boundary yields untyped rows; the include validates entry shape
+  // at mount, and the dump prints whatever the file holds, so `EntryOptions`
+  // here is structural trust in the same file `boot()` would include.
+  const base = parsed as Parameters<typeof applyEntryPatches>[0]
+  // snapshot_k = ONE application of layers 1..k flattened — boot's exact call
+  // shape for that prefix. snapshot_N is therefore the mounted composition.
+  // The patches are cloned per call: applyEntryPatches detaches the entry
+  // list but pushes `insert` rows by reference from the patch list, so
+  // sharing patch objects across snapshot calls would leak a later
+  // snapshot's mutations into an earlier one's result.
+  const snapshot = (count: number, warnings: string[]): ReturnType<typeof applyEntryPatches> => {
+    const flattened = structuredClone(layers.slice(0, count).flatMap(layer => layer.patches))
+    return applyEntryPatches(base, flattened, (message: string, ...args: unknown[]) => {
+      // The include logs through cordis's printf-style logger (`%C` = code); a
+      // dump has no logger, so substitute inline for a plain line.
+      let index = 0
+      warnings.push(message.replace(/%C/g, () => JSON.stringify(args[index++])))
+    })
+  }
+  let previous = base
+  let previousWarnings: string[] = []
+  const provenance: { origin: string; patchedBy: string[] }[] = base.map(() => ({ origin: baseLabel, patchedBy: [] }))
+  let composed = base
+  for (let count = 1; count <= layers.length; count += 1) {
+    const layer = layers[count - 1]
+    /* v8 ignore next -- count iterates 1..length, so the slot exists */
+    if (layer === undefined) continue
+    const warnings: string[] = []
+    composed = snapshot(count, warnings)
+    for (const line of warnings.slice(previousWarnings.length)) {
+      warn(`${binName}: [${layer.label}] ${line}`)
+    }
+    const before = previous.map(entry => JSON.stringify(entry))
+    for (let index = 0; index < composed.length; index += 1) {
+      if (index >= before.length) provenance.push({ origin: layer.label, patchedBy: [] })
+      else if (JSON.stringify(composed[index]) !== before[index]) provenance[index]?.patchedBy.push(layer.label)
+    }
+    previous = composed
+    previousWarnings = warnings
+  }
+  return groupedDump(composed, provenance)
+}
+
+/** Render the composed rows grouped under one provenance comment per contiguous run. */
+function groupedDump(
+  composed: readonly unknown[],
+  provenance: readonly { origin: string; patchedBy: string[] }[],
+): string {
+  const lines: string[] = []
+  let currentLabel: string | undefined
+  let group: unknown[] = []
+  const flush = (): void => {
+    if (currentLabel === undefined || group.length === 0) return
+    lines.push(`# == ${currentLabel}`)
+    lines.push(yaml.dump(group, { schema: entryListSchema, noRefs: true }).trimEnd())
+    group = []
+  }
+  for (let index = 0; index < composed.length; index += 1) {
+    const record = provenance[index]
+    /* v8 ignore next -- provenance is index-aligned with composed by construction */
+    if (record === undefined) continue
+    const label = record.patchedBy.length === 0
+      ? record.origin
+      : `${record.origin}, patched by ${record.patchedBy.join(', ')}`
+    if (label !== currentLabel) {
+      flush()
+      currentLabel = label
+    }
+    group.push(composed[index])
+  }
+  flush()
+  return lines.join('\n') + '\n'
 }
 
 /**

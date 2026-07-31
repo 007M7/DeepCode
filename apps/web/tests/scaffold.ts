@@ -140,6 +140,17 @@ export interface LaunchOptions {
    * keyless first-run configuration lane; the default disables the adapter.
    */
   deepSeekMissingCredential?: boolean
+  /**
+   * Patch the shipped DeepSeek search row to a deterministic endpoint and
+   * credential reference. Browser search scenarios keep the real provider and
+   * credentials seam while avoiding external search traffic and ambient keys.
+   */
+  deepSeekSearch?: {
+    /** Anthropic-compatible base URL; the provider appends `/messages`. */
+    baseURL: string
+    /** Credential reference resolved by the shipped search provider. */
+    apiKeyEnv: string
+  }
   /** Leave the current welcome notice unacknowledged; ordinary scenarios publish it as complete before browser boot. */
   welcomeNoticePending?: boolean
 }
@@ -207,9 +218,9 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...surfacePatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
     { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
-    // storage-json's './.storages' yml default is cwd-relative and resolves
-    // per write; the scaffold restores the original cwd after boot, so the
-    // row gets an absolute temp root (removed with the workspace at close).
+    // storage-json's yml root is anchored to the real $DSH_HOME; pin the row
+    // to an absolute temp root (removed with the workspace at close) so tests
+    // never write the user's harness home.
     { id: 'storage-json', config: { root: join(workspaceCwd, '.dsh-storages') } },
     // Skill discovery is model-visible input. Pin every host-level root inside
     // the owned temp world so ~/.dsh, ~/.agents, and a bundled-root env setting
@@ -248,6 +259,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
       : [],
+    ...options.deepSeekSearch === undefined
+      ? []
+      : [{
+        id: 'web-search-deepseek',
+        config: {
+          apiKeyEnv: options.deepSeekSearch.apiKeyEnv,
+          baseURL: options.deepSeekSearch.baseURL,
+        },
+      }],
     ...mode === 'record' || options.deepSeekMissingCredential === true
       ? []
       : [{ id: 'llm-deepseek', disabled: true }],
