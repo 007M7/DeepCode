@@ -489,10 +489,8 @@ export function TrajectoryView({
           setActualTime(nextActualTime)
           setTimelineSelection(null)
         }}
-        collapsibleTurns={collapsibleTurnIds.length}
         allTurnsCollapsed={allTurnsCollapsed}
         onToggleAllTurns={toggleAllTurns}
-        collapsibleAssistants={collapsibleAssistantIds.length}
         allAssistantsCollapsed={allAssistantsCollapsed}
         onToggleAllAssistants={toggleAllAssistants}
         searchQuery={searchQuery}

@@ -361,6 +361,12 @@ describe('tab switching in ConversationRoot', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Trajectory' }))
     expect(screen.getByRole('toolbar', { name: 'Trajectory toolbar' })).toBeTruthy()
     expect(screen.getByText('No timing data')).toBeTruthy()
+    expect(screen.getByRole<HTMLButtonElement>('button', {
+      name: 'Collapse turns',
+    }).disabled).toBe(false)
+    expect(screen.getByRole<HTMLButtonElement>('button', {
+      name: 'Collapse calls',
+    }).disabled).toBe(false)
     expect(screen.queryByRole('row')).toBeNull()
     expect(screen.queryByText(/turns ·/)).toBeNull()
   })
