@@ -122,6 +122,29 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
     expect(image.getAttribute('src')?.split(':')[0]).toBe('blob')
   }, { timeout: 10_000 })
 
+  // The write/edit turns render a real diff card through the assembled graph
+  // (the keyed FileMutationRow + DiffBlock), not just the fixture's raw text.
+  // The write turn's `hello fixture\n` proves the terminator rule end to end: a
+  // trailing newline terminates its line, so the footer reads `+1` (not a
+  // phantom `+2`) and one distinct file. The `+ ` prefix is a CSS ::before, so
+  // it is absent from textContent — assert on the line body and the footer.
+  const diffCards = [...document.querySelectorAll('[data-diff]')]
+  expect(diffCards.length).toBeGreaterThan(0)
+  const footers = diffCards.map(card => card.textContent ?? '')
+  expect(footers.some(text => text.includes('hello fixture') && text.includes('+1 -0 · 1 file'))).toBe(true)
+
+  // The web render intent reaches the assembled boot graph: the fixture's
+  // web_search / web_fetch turns render their keyed WebRow cards, proving the
+  // registration, wire projection, and card rendering survive the real bundle
+  // path (not just the per-package src benches). The selector pins the KEYED
+  // WebRow (its own `data-variant="web"` wrapper), not the `[data-web]` attribute
+  // WebBlock draws — the generic fallback renders the same WebBlock, so a silent
+  // keyed-registration failure would still satisfy a bare `[data-web]` check.
+  await waitFor(() => {
+    expect(document.querySelector('[data-variant="web"][data-tool="web_search"]')).not.toBeNull()
+    expect(document.querySelector('[data-variant="web"][data-tool="web_fetch"]')).not.toBeNull()
+  }, { timeout: 10_000 })
+
   // Every bundle injected its plugin-owned style tag (the loader's CSS path).
   const styleOwners = [...document.head.querySelectorAll('style[data-plugin]')]
     .map(style => style.getAttribute('data-plugin'))
