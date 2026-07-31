@@ -1,0 +1,49 @@
+# Agent Note: 安装器把已有检出接管进受管布局
+
+Status: implemented
+
+[English](2026-07-31-installer-adopts-existing-checkout.md) | 中文
+
+## Problem
+
+`scripts/install.sh`会产生两种互不兼容的安装形态。`curl … | sh`安装会构建受管布局——`~/.dsh/source/master`处的 master 克隆、位于`dsh-staging/<时间戳>`分支上的 staging worktree，以及 PATH 启动器据以解析的稳定`current`符号链接。而从检出中运行同一脚本时，则依据此前的[检出内跳过克隆决策](../../archived/process/2026-07-22-installer-in-repo-skip-clone.md)，把`dsh`直接链接到该检出的`bin/dsh`。
+
+这种直接链接是一种终态。升级重指的正是`current`，因此缺少它的安装无法通过[`dsh-upgrade`](../../../../skills/dsh-upgrade/SKILL.md)升级；检出一旦移动，PATH 符号链接就会失效；而且启动器会解析到贡献者恰好检出的任意分支，这正是升级契约禁止作为启动器目标的情形。升级技能早已把这种形态描述为需要一次性迁移的旧式安装，于是两种布局在安装时就已分叉，并且要到很久以后才会被调和——甚至永远不会。
+
+## Decision
+
+检出内模式仍然绝不克隆、绝不修改工作树，但现在它会询问是否把该检出**接管**进受管布局，并且接管是默认选项。
+
+容器拥有 staging worktree 和`current`；仓库是被*发现*的，而非被拥有的。`git rev-parse --git-common-dir`会解析出该检出背后的共享 git 目录——对于 linked worktree，那是真正的克隆而非 worktree 自身——其父目录即是充当升级基础的仓库。随后以该检出的`HEAD`为起点，在`$DSH_SOURCE`下创建 staging worktree，并让`current`指向它。因此，磁盘上任意位置的克隆都会收敛到与`curl`安装相同的布局，且两条路径共用同一套 worktree/exclude/lock/link 流程：二者的唯一差别，只在于仓库是由`git clone`发现的，还是由`git rev-parse`发现的。
+
+`$DSH_SOURCE/master.path`记录解析出的仓库，且仅在该仓库位于容器之外时才记录。拥有自身 master 的容器是自包含的，不会生成该文件；因此该文件的存在本身就是一个信号，表明此容器依赖于外部路径：每个 staging worktree 都持有指向该克隆的绝对 gitdir 指针，删除该克隆就会破坏它们。
+
+接管以`HEAD`为分支起点，因此运行的是已提交的内容，未提交的更改仍留在检出中；工作树不干净时，会在提示前发出警告，`DSH_ADOPT=1`跳过提示时同样警告。拒绝接管或设置`DSH_ADOPT=0`将保留原有的就地链接行为，并以警告说明其代价，因为正是这条路径使本脚本能针对本地源码进行测试。没有任何提交的仓库无法创建分支，会回退到就地链接；并非 git 仓库的检出则会失败，并在错误信息中给出`DSH_ADOPT=0`这一退路。
+
+`DSH_ADOPT=1`同时会覆盖"显式`DSH_SOURCE`即回到克隆路径"的规则。否则，在请求接管的同时指定容器，反而会静默克隆另一棵树——与请求恰好相反。
+
+所有路径比较都通过`resolve_dir`辅助函数在物理路径上进行，且每个参与比较的值都在赋值时解析，而非在比较时解析。macOS 会把`/var`经符号链接解析为`/private/var`，因此拿 git 报告的路径与未解析的路径相比较，会把已有的受管安装误判为外来克隆，并在真正的容器旁再建一个容器。同一缺陷在评审过程中又出现了两次——一次是 curl 安装的`REPO_ROOT`未经解析，导致写出多余的`master.path`；另一次是`x=$(resolve_dir …) || x=$fallback`留下了空路径，因为即使命令替换失败，赋值本身仍然成功。因此`resolve_dir`会在路径不存在时原样回显该路径，而需要判断"不存在"的调用方则显式检测该目录。`git rev-parse --path-format=absolute`能完成同样的工作，但要求 git 2.31 及以上版本。
+
+在重指`current`之前，安装器会拒绝解析结果等于仓库自身的 staging 路径，以此落实"启动器绝不解析到 master 克隆"这一升级契约。
+
+## Alternatives considered
+
+**把`~/.dsh/source/master`做成指向该任意克隆的符号链接。** 已否决。Git 会解析该符号链接并记录*真实*路径：经由它创建的 worktree 会存储`gitdir: …/<克隆>/.git/worktrees/<名称>`，而`git worktree list`报告的是该克隆。因此这个符号链接纯属装饰——没有任何代码读取它——却又暗示容器拥有该仓库。它还会静默失效：移动克隆后，`master`看似仍在却已悬空，而每个 staging worktree 都会以`fatal: not a git repository`失败。最糟的是，它把两个名称别名到同一棵树上，于是"current 绝不能是 master 克隆"这项检查会在字符串比较下通过，实则为假。`~/.dsh/source/master`是位置而非名称，且只有位置具有权威性。
+
+**把检出自身提升为`current`的目标。** 已否决：升级契约要求`current`必须是位于 staging 分支上的干净 staging worktree，绝不能是 feature、review 或 detached 检出。这还会使每次升级都改写贡献者正在编辑的那棵树。
+
+**让接管保持为可选项。** 作为默认行为已否决：分叉的形态本身才是真正的缺陷，把修复藏在开关之后，意味着常见的`sh scripts/install.sh`调用仍会产生无法升级的安装。拒绝只需一次按键，而`DSH_ADOPT=0`可用于脚本。
+
+**把被接管克隆的 staging worktree 放在该克隆旁边**（`~/src/staging-*`），而非放进`~/.dsh/source`。已否决：`current`和 PATH 启动器都是每用户唯一的，因此把 worktree 散落到各个克隆的父目录中，会重新引入 source 容器本就为之而设、意在杜绝的同级克隆蔓延问题。
+
+## Consequences
+
+现在一套布局同时服务于两种安装，因此被接管的克隆无需该技能所述的一次性迁移，即可由`dsh-upgrade`升级。检出内运行仍然绝不改动工作树，而使本脚本能针对本地源码进行测试的那条退路，也以提示和`DSH_ADOPT=0`的形式保留了下来。
+
+代价是：接管外部克隆的容器不再自包含——删除该克隆会破坏其 staging worktree。这是复用已有克隆的固有属性，而非本设计带来的性质——被否决的符号链接方案只是掩盖它，而非修复它——`master.path`是缓解措施，不是修复。
+
+## Testing
+
+`scripts/install.sh`没有自动化测试，本次变更也未添加：用户明确要求把`install.spec.ts`排除在范围之外。这是一条已交付的、面向用户的安装路径上的已知缺口，而上文那个`/var`解析缺陷，恰恰属于测试本应最先捕获的那类 bug。相应地，要求把这套流程迁移到有测试覆盖的 TypeScript 入口的既有[`FIXME(install-ts)`](../../../../scripts/install.sh)也变得更为紧迫。
+
+验证是手工完成的，通过一个一次性测试装置以打桩的`pnpm`驱动真实脚本：接管独立克隆；从 linked worktree 接管进其已有容器；`DSH_ADOPT=0`保持就地链接；无提交的仓库发生回退；工作树不干净时发出警告并把未提交内容留在原处；非 git 检出失败并给出指引；以及`curl`式克隆安装同时断言所构建的布局和`master.path`的缺失——正是这项回归测试捕获了`REPO_ROOT`未解析的缺陷。两种交互结果都在 tmux 下走通：接受时，启动器最终从新的 staging worktree 运行，而原检出保持其分支不变且状态干净；拒绝时，则复现旧式形态，既无 staging worktree 也无`current`。

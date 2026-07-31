@@ -18,12 +18,27 @@
 # of relinking PATH: the `dsh` on PATH never moves and can never dangle.
 #
 # When run from inside an existing checkout (e.g. `sh scripts/install.sh` rather
-# than `curl ... | sh`) it reuses that checkout in place and skips the
-# clone/worktree setup, leaving the working tree untouched and linking `dsh`
-# straight at that checkout's `bin/dsh` (no `current` indirection — the checkout
-# is not a managed staging worktree under the source container); DSH_REF is
-# ignored in that mode. Setting DSH_SOURCE to a different directory opts back
-# into the normal clone/worktree path.
+# than `curl ... | sh`) it never clones and never touches that working tree;
+# DSH_REF is ignored. Instead it *adopts* the checkout: `git rev-parse
+# --git-common-dir` resolves the repository behind it (for a linked worktree that
+# is the real clone, not the worktree), and a fresh staging worktree branched
+# from the checkout's HEAD lands in the source container beside `current`. The
+# container owns staging worktrees and `current`; the clone is discovered, not
+# owned, so an arbitrary clone (~/src/dsh) and a managed one converge on one
+# layout and stay upgradable. Adoption carries committed work only — uncommitted
+# changes stay in the checkout — so a dirty tree is confirmed first.
+#
+# Declining adoption (or DSH_ADOPT=0) keeps the legacy behavior: link `dsh`
+# straight at that checkout's `bin/dsh` with no `current` indirection. That
+# leaves the install unupgradable (`current` is what an upgrade repoints) and the
+# PATH symlink dangling if the checkout moves, but it is what makes this script
+# testable against local source. Setting DSH_SOURCE to a different directory opts
+# back into the normal clone/worktree path.
+#
+# Adopting an arbitrary clone leaves the container not self-contained: its
+# staging worktrees hold an absolute gitdir pointer into that clone, so deleting
+# it breaks them. $DSH_SOURCE/master.path records the resolved clone so the
+# breakage is diagnosable.
 #
 # When run through `curl | sh` the script text arrives on stdin, so every
 # prompt and the final launch read the controlling terminal (/dev/tty) directly;
@@ -37,6 +52,8 @@
 #   DSH_CURRENT      stable symlink to the active worktree (default: $DSH_SOURCE/current)
 #   DSH_BIN_DIR      directory the `dsh` symlink lands in (default: ~/.local/bin)
 #   DSH_HOME         Harness home holding the personal config (default: ~/.dsh)
+#   DSH_ADOPT        in-repo mode: 1 adopts the checkout into the managed
+#                    layout, 0 links `dsh` straight at it (default: ask, adopt)
 # FIXME(install-ts): Move the post-checkout workflow into a tested TypeScript
 # entrypoint; keep this POSIX shell file as the curl/source bootstrap.
 set -eu
@@ -60,26 +77,43 @@ DSH_STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 DSH_STAGING_BRANCH=dsh-staging/$DSH_STAMP
 DSH_STAGING=$DSH_SOURCE/staging-$DSH_STAMP
 
+# --- path helpers ---------------------------------------------------------------
+# Every path comparison below runs on physical paths. macOS resolves /var through
+# a symlink to /private/var, so comparing a git-reported (already resolved) path
+# against an unresolved one silently misclassifies an existing managed install as
+# a foreign clone and builds a second container beside the real one.
+# `git rev-parse --path-format=absolute` would do this, but it needs git 2.31+.
+#
+# A not-yet-created directory (the container on a fresh install) has no physical
+# path, so fall back to the literal argument here rather than at each call site:
+# `x=$(cmd) || fallback` never fires, because the assignment succeeds even when
+# the substitution fails, which would silently yield an empty path.
+resolve_dir() { CDPATH= cd -- "$1" 2>/dev/null && pwd -P || printf '%s\n' "$1"; }
+
 # --- in-repo detection ---------------------------------------------------------
 # Under `curl ... | sh` the script text arrives on stdin, so $0 is the shell
 # name and no file path resolves; running a checked-out copy (`sh
 # scripts/install.sh`) makes $0 the script file. When $0 is a readable file whose
 # parent is a scripts/ dir inside a real dsh checkout (bin/dsh launcher present),
-# reuse that checkout in place — link `dsh` straight at it and skip the
-# clone/worktree setup. An explicit DSH_SOURCE pointing elsewhere opts back into
-# the clone/worktree path.
+# this is in-repo mode: never clone, never touch that working tree. An explicit
+# DSH_SOURCE pointing elsewhere opts back into the clone/worktree path, unless
+# DSH_ADOPT=1 asks to adopt this checkout into that container — otherwise naming
+# a container while requesting adoption would silently clone a different tree.
 IN_REPO=0
+DSH_CHECKOUT=''
 if [ -f "$0" ]; then
-  _self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) || _self_dir=''
+  _self_dir=$(resolve_dir "$(dirname -- "$0")")
   if [ -n "$_self_dir" ]; then
     _repo_root=$(dirname -- "$_self_dir")
     if [ "$(basename -- "$_self_dir")" = scripts ] \
       && [ -x "$_repo_root/bin/dsh" ] && [ -f "$_repo_root/scripts/install.sh" ]; then
-      if [ "$DSH_SOURCE_EXPLICIT" = 0 ] || [ "$DSH_SOURCE" = "$_repo_root" ]; then
+      # Compare the explicit DSH_SOURCE physically: an unresolved but equivalent
+      # path must still count as "the caller meant this checkout".
+      _src_resolved=$(resolve_dir "$DSH_SOURCE")
+      if [ "$DSH_SOURCE_EXPLICIT" = 0 ] || [ "$_src_resolved" = "$_repo_root" ] \
+        || [ "${DSH_ADOPT:-}" = 1 ]; then
         IN_REPO=1
-        # In-repo reuse links `dsh` at this checkout as-is; the master/staging
-        # split applies only to fresh clone installs.
-        DSH_STAGING=$_repo_root
+        DSH_CHECKOUT=$_repo_root
       fi
     fi
   fi
@@ -148,7 +182,7 @@ confirm() {
 
 printf '%s\n' "${B}DeepSeek Harness — dsh installer${RST}"
 if [ "$IN_REPO" = 1 ]; then
-  printf '%ssource %s (in-repo reuse) @ %s%s\n' "$DIM" "$DSH_STAGING" "$DSH_REF" "$RST"
+  printf '%scheckout %s%s\n' "$DIM" "$DSH_CHECKOUT" "$RST"
 else
   printf '%smaster %s @ %s%s\n' "$DIM" "$DSH_MASTER" "$DSH_REF" "$RST"
   printf '%sstaging %s%s\n' "$DIM" "$DSH_STAGING" "$RST"
@@ -203,41 +237,125 @@ else
   fi
 fi
 
-# --- 2. clone the master and lay out the staging worktree ---------------------
-# Fresh installs keep one real clone at $DSH_MASTER and check the running code
-# out as a git worktree at $DSH_STAGING, so every checkout lives under
-# $DSH_SOURCE and shares one object store. In-repo reuse links `dsh` at the
-# existing checkout untouched.
+# --- 2. resolve the repository and lay out the staging worktree ---------------
+# The source container owns staging worktrees and `current`; the repository is
+# *discovered*, not owned. A curl install discovers it by cloning to $DSH_MASTER;
+# in-repo adoption discovers it from the checkout. Both then run one shared
+# worktree/exclude/lock path, so an arbitrary clone and a managed install
+# converge on the same layout.
+#
+# ADOPT=1 means "build the managed layout" (clone install, or in-repo adoption);
+# ADOPT=0 is in-repo legacy reuse, which links `dsh` at the checkout as-is.
+ADOPT=1
+# REPO_COMMON is the shared git directory every worktree of the repository
+# points at; REPO_ROOT is the working tree that owns it (the master clone).
+REPO_COMMON=''
+REPO_ROOT=''
+
 if [ "$IN_REPO" = 1 ]; then
-  step "Using existing checkout at $DSH_STAGING"
-  info "running from inside the repo — skipping clone (DSH_REF ignored, working tree left untouched)"
+  step "Using existing checkout at $DSH_CHECKOUT"
+  info "running from inside the repo — never cloning, and DSH_REF is ignored"
+
+  # Resolve the repository behind the checkout. --git-common-dir returns the
+  # SHARED git dir, so a linked worktree resolves to the real clone rather than
+  # itself; it is relative for a plain clone, so anchor it before resolving.
+  # Require the resolved git dir to exist: resolve_dir echoes its argument back
+  # for a missing path, so test the directory rather than the returned string.
+  if _common=$(git -C "$DSH_CHECKOUT" rev-parse --git-common-dir 2>/dev/null) && [ -n "$_common" ]; then
+    case "$_common" in /*) ;; *) _common=$DSH_CHECKOUT/$_common ;; esac
+    [ -d "$_common" ] && REPO_COMMON=$(resolve_dir "$_common")
+  fi
+  [ -n "$REPO_COMMON" ] || die "$DSH_CHECKOUT is not a git repository — cannot adopt it. Re-run with DSH_ADOPT=0 to link dsh at it as-is."
+  REPO_ROOT=$(dirname -- "$REPO_COMMON")
+
+  # A repository with no commit cannot be branched, so adoption is impossible.
+  if ! git -C "$DSH_CHECKOUT" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+    warn "checkout has no commits — cannot create a staging branch; linking dsh at it as-is."
+    ADOPT=0
+  fi
+
+  # Explicit DSH_ADOPT wins over the prompt in both directions.
+  if [ "${DSH_ADOPT:-}" = 0 ]; then
+    ADOPT=0
+  elif [ "$ADOPT" = 1 ]; then
+    # Adoption branches from HEAD, so uncommitted work stays behind in the
+    # checkout and is NOT part of the install that ends up running. Warn even
+    # when DSH_ADOPT=1 skips the prompt: the surprise is the same either way.
+    if [ -n "$(git -C "$DSH_CHECKOUT" status --porcelain 2>/dev/null)" ]; then
+      warn "checkout has uncommitted changes; adoption branches from HEAD, so they stay here and will not be in the running install."
+    fi
+  fi
+  if [ "$ADOPT" = 1 ] && [ "${DSH_ADOPT:-}" != 1 ]; then
+    printf '%s\n' "${DIM}Adopting builds the managed layout under $DSH_SOURCE (staging worktree + current symlink) so this install stays upgradable.${RST}"
+    printf '%s\n' "${DIM}Declining links dsh straight at this checkout: not upgradable, and the PATH symlink breaks if the checkout moves.${RST}"
+    confirm "Adopt this checkout into the managed layout?" Y || ADOPT=0
+  fi
+
+  if [ "$ADOPT" = 0 ]; then
+    info "linking dsh at this checkout as-is (legacy in-repo reuse)"
+    DSH_STAGING=$DSH_CHECKOUT
+  else
+    # Reuse the container when the repository already lives inside it (the
+    # normal managed install re-running its own script); otherwise treat that
+    # clone as its own master and keep worktrees in the default container.
+    _src_resolved=$(resolve_dir "$DSH_SOURCE")
+    case "$REPO_ROOT/" in
+      "$_src_resolved"/*) info "repository $REPO_ROOT is already inside $DSH_SOURCE" ;;
+      *) info "adopting clone $REPO_ROOT as its own master" ;;
+    esac
+    DSH_MASTER=$REPO_ROOT
+  fi
 else
-step "Fetching source into $DSH_MASTER"
-if [ -d "$DSH_MASTER/.git" ]; then
-  info "existing master clone found — updating"
-  git -C "$DSH_MASTER" fetch origin "$DSH_REF"
-  # Reset the master checkout to the freshly fetched tip. FETCH_HEAD (not
-  # origin/<ref>) so this resolves for a tag as well as a branch, and -B makes
-  # the re-run idempotent whether or not DSH_REF changed since the last install.
-  git -C "$DSH_MASTER" checkout -q -B "$DSH_REF" FETCH_HEAD
-else
-  mkdir -p "$DSH_SOURCE"
-  git clone --branch "$DSH_REF" "$DSH_REPO" "$DSH_MASTER"
+  step "Fetching source into $DSH_MASTER"
+  if [ -d "$DSH_MASTER/.git" ]; then
+    info "existing master clone found — updating"
+    git -C "$DSH_MASTER" fetch origin "$DSH_REF"
+    # Reset the master checkout to the freshly fetched tip. FETCH_HEAD (not
+    # origin/<ref>) so this resolves for a tag as well as a branch, and -B makes
+    # the re-run idempotent whether or not DSH_REF changed since the last install.
+    git -C "$DSH_MASTER" checkout -q -B "$DSH_REF" FETCH_HEAD
+  else
+    mkdir -p "$DSH_SOURCE"
+    git clone --branch "$DSH_REF" "$DSH_REPO" "$DSH_MASTER"
+  fi
+  REPO_COMMON=$DSH_MASTER/.git
+  # Physical, to match the adoption branch: every REPO_ROOT comparison below
+  # runs against resolved paths.
+  REPO_ROOT=$(resolve_dir "$DSH_MASTER")
 fi
 
-step "Adding staging worktree at $DSH_STAGING"
-[ -e "$DSH_STAGING" ] && die "staging path $DSH_STAGING already exists — remove it or set DSH_SOURCE elsewhere, then re-run."
-# The staging worktree owns the branch dsh runs from; the master clone stays on
-# $DSH_REF as the fetch/upgrade base. Exclude the per-worktree merge lock in the
-# master clone's info/exclude, which every linked worktree inherits.
-git -C "$DSH_MASTER" worktree add -b "$DSH_STAGING_BRANCH" "$DSH_STAGING" FETCH_HEAD 2>/dev/null \
-  || git -C "$DSH_MASTER" worktree add -b "$DSH_STAGING_BRANCH" "$DSH_STAGING" HEAD
-_exclude="$DSH_MASTER/.git/info/exclude"
-if [ -f "$_exclude" ] && ! grep -qxF '.agents/merge.lock' "$_exclude" 2>/dev/null; then
-  printf '.agents/merge.lock\n' >>"$_exclude"
-fi
-mkdir -p "$DSH_STAGING/.agents"
-: >"$DSH_STAGING/.agents/merge.lock"
+if [ "$ADOPT" = 1 ]; then
+  step "Adding staging worktree at $DSH_STAGING"
+  [ -e "$DSH_STAGING" ] && die "staging path $DSH_STAGING already exists — remove it or set DSH_SOURCE elsewhere, then re-run."
+  mkdir -p "$DSH_SOURCE"
+  # The staging worktree owns the branch dsh runs from; the repository stays as
+  # the fetch/upgrade base and is never a launcher target. A clone install
+  # branches from the ref it just fetched; adoption branches from the checkout's
+  # HEAD so the contributor's committed work is what runs.
+  if [ "$IN_REPO" = 1 ]; then
+    git -C "$DSH_CHECKOUT" worktree add -b "$DSH_STAGING_BRANCH" "$DSH_STAGING" HEAD
+  else
+    git -C "$DSH_MASTER" worktree add -b "$DSH_STAGING_BRANCH" "$DSH_STAGING" FETCH_HEAD 2>/dev/null \
+      || git -C "$DSH_MASTER" worktree add -b "$DSH_STAGING_BRANCH" "$DSH_STAGING" HEAD
+  fi
+  # Exclude the per-worktree merge lock in the shared git dir's info/exclude,
+  # which every linked worktree inherits.
+  _exclude="$REPO_COMMON/info/exclude"
+  if [ -f "$_exclude" ] && ! grep -qxF '.agents/merge.lock' "$_exclude" 2>/dev/null; then
+    printf '.agents/merge.lock\n' >>"$_exclude"
+  fi
+  mkdir -p "$DSH_STAGING/.agents"
+  : >"$DSH_STAGING/.agents/merge.lock"
+  # A staging worktree holds an absolute gitdir pointer into the repository, so
+  # a container whose repository lives OUTSIDE it is not self-contained: deleting
+  # that repository breaks every worktree here. Record it only in that case, so
+  # the file's presence itself means "this container depends on an outside path".
+  _src_resolved=$(resolve_dir "$DSH_SOURCE")
+  case "$REPO_ROOT/" in
+    "$_src_resolved"/*) ;;
+    *) printf '%s\n' "$REPO_ROOT" >"$DSH_SOURCE/master.path"
+       info "recorded external repository in $DSH_SOURCE/master.path" ;;
+  esac
 fi
 
 # --- 3. install dependencies (no build; the launcher runs from source) --------
@@ -247,16 +365,17 @@ step "Installing dependencies with pnpm (this can take a while)"
 [ -x "$DSH_STAGING/bin/dsh" ] || die "launcher $DSH_STAGING/bin/dsh missing after install — is DSH_REF a branch that ships apps/cli?"
 
 # --- 4. put `dsh` on PATH ------------------------------------------------------
-# Clone installs go through a stable `current` symlink so an upgrade repoints
+# Managed installs go through a stable `current` symlink so an upgrade repoints
 # one symlink (current -> new worktree) and the PATH launcher never moves:
-# PATH/dsh -> current/bin/dsh -> <staging>/bin/dsh. In-repo reuse links PATH
+# PATH/dsh -> current/bin/dsh -> <staging>/bin/dsh. Declined adoption links PATH
 # straight at the checkout, since that checkout is not a managed worktree.
 step "Linking dsh into $DSH_BIN_DIR"
 mkdir -p "$DSH_BIN_DIR"
-if [ "$IN_REPO" = 1 ]; then
+if [ "$ADOPT" = 0 ]; then
   DSH_LAUNCH_TARGET=$DSH_STAGING/bin/dsh
   ln -sf "$DSH_LAUNCH_TARGET" "$DSH_BIN_DIR/dsh"
   info "linked $DSH_BIN_DIR/dsh -> $DSH_LAUNCH_TARGET"
+  warn "this install is not upgradable (no current symlink) and the PATH link breaks if $DSH_STAGING moves."
 else
   # Point `current` at this staging worktree with `ln -sfn`: -f replaces an
   # existing `current` (re-run or upgrade) and -n stops `ln` from dereferencing
@@ -264,6 +383,13 @@ else
   # worktree. `mv` is unusable here — BSD/macOS `mv` follows the existing dir
   # symlink the same way. The swap is one unlink+symlink pair on a local fs; the
   # installer holds no other process racing this path.
+  # The launcher must resolve to a staging worktree, never to the repository
+  # itself: an upgrade repoints `current`, so aliasing it onto the master clone
+  # would make every upgrade rewrite the fetch/upgrade base. Compare physical
+  # paths — a symlinked or unresolved path would slip past a string compare.
+  _staging_resolved=$(resolve_dir "$DSH_STAGING")
+  [ -n "$REPO_ROOT" ] && [ "$_staging_resolved" = "$REPO_ROOT" ] \
+    && die "refusing to point $DSH_CURRENT at the repository $REPO_ROOT — the launcher must resolve to a staging worktree."
   ln -sfn "$DSH_STAGING" "$DSH_CURRENT"
   info "pointed $DSH_CURRENT -> $DSH_STAGING"
   DSH_LAUNCH_TARGET=$DSH_CURRENT/bin/dsh

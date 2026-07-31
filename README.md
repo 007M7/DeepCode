@@ -26,6 +26,8 @@ The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm`
 
 The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
 
+Running the script from an existing clone (`sh scripts/install.sh`) never clones and never modifies that working tree. It offers to *adopt* the clone: the repository behind the checkout becomes the upgrade base, and a staging worktree branched from the checkout's current `HEAD` lands under `~/.dsh/source` with `current` pointing at it, so a clone anywhere on disk gets the same upgradable layout. Adoption carries committed work only — uncommitted changes stay in the clone. Declining (or `DSH_ADOPT=0`) links `dsh` straight at that checkout instead, which is not upgradable and breaks if the checkout moves.
+
 ## Use DeepSeek Harness
 
 ### Web UI
