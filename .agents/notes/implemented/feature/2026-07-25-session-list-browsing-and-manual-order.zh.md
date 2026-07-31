@@ -34,7 +34,7 @@ UI 为组内 session 行的 HTML5 拖拽(仅 workspace 分组、非搜索态；f
 
 ### 壳/区域切分
 
-ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的契约只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/新建图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspaceCreateFlow`(区域内直接组件组合)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
+ui-sidebar 缩为列几何壳:品牌行、折叠状态机、New Session、Settings,以及一个 `sidebar.workspaces` 洞;壳与区域的契约只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域(section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽)及其 groupBy store;rail 态的搜索/添加工作区图标也归区域,经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspacePickFlow`(区域内直接组件组合;在[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)之前名为 `WorkspaceCreateFlow`)与薄包装 `WorkspacePicker`(继续填 ui-conversation 的 hero 坑);原 `sidebar.workspace` picker 坑与声明感知延迟注册随之删除。
 
 ## Alternatives considered
 

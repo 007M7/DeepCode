@@ -4,6 +4,10 @@
 
 展示 harness 如何接线的可运行演示（不是 workspace）。每个示例都是一个 **轻量叶节点**：要么是一份选择可替换后端、加载一个应用包（package）的 `cordis.yml` 配置树，要么是一个 **overlay**——由 `dsh --config` 叠加到交付组合（[`apps/cli/config/base.cordis.yml`](../apps/cli/config/base.cordis.yml) 加一份 surface overlay）之上的 patch 列表。成组的组合位于 [`@deepseek-ai/dsh-cli-demo`](../packages/examples/cli-demo)、[`@deepseek-ai/dsh-acp-demo`](../packages/examples/acp-demo) 及它们共享的 [`@deepseek-ai/dsh-agent-spine-demo`](../packages/examples/agent-spine-demo) 组合包中；`dsh` 的各 surface 则改用平铺 config tree。没有 `start.ts`；终端 `demo:*` 脚本通过 [`dsh`](../apps/cli/README.md) CLI（命令行界面）启动，无头／ACP（Agent Client Protocol）脚本则调用 `cli-demo`/`acp-demo` bin。
 
+## mcp-memory
+
+三份默认关闭的参考 overlay 通过通用 MCP 客户端连接一个记忆 MCP 服务器。选择其中一份文件传给 `dsh --config`；DSH 不负责安装或配置上游记忆系统。版本固定的前置条件、身份映射、可选的共用提示词，以及「写入 → 新会话召回 → 使用」验证流程详见 [mcp-memory/README.md](mcp-memory/README.md)。
+
 ## headless-agent
 
 非交互式 agent（智能体）演示：接受一个位置任务，在 `@deepseek-ai/dsh-cli-demo` 应用上运行一个完整模型／工具轮次，持久化新会话，打印 `text`、`json` 或 `stream-json`，然后退出。

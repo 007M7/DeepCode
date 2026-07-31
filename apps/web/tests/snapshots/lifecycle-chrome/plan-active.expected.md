@@ -7,7 +7,7 @@
 - text: Workspaces
 - button "Group by":
   - img
-- button "Create workspace":
+- button "Add workspace":
   - img
 - button "Search sessions":
   - img

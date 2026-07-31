@@ -21,10 +21,45 @@ export { COMPACT_CHECKPOINT_SOURCE, isCompactCheckpointSource } from './checkpoi
 /** Why automatic policy is asking a backend to consider compaction. */
 export type CompactionTrigger = 'pressure' | 'context-overflow'
 
+/** Expected failure classes for an explicit idle-session compaction request. */
+export type ManualCompactionErrorCode = 'busy' | 'changed' | 'summary' | 'commit' | 'persistence'
+
+/**
+ * Expected manual-compaction failure suitable for a direct human-command result.
+ * Shared durable-lock entry assertions may also throw the `busy` subtype from
+ * automatic compaction paths.
+ */
+export class ManualCompactionError extends Error {
+  override readonly name = 'ManualCompactionError'
+
+  /**
+   * Create one classified compaction failure.
+   * @param code - stable failure class; `busy` may originate from any compaction entry path.
+   * @param message - backend diagnostic retained as the Error message.
+   * @param options - optional original failure.
+   */
+  constructor(
+    readonly code: ManualCompactionErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+  }
+}
+
 /** Minimal agent context compaction needs without depending on the agent package. */
 export interface CompactAgentContext {
   session: Session
   options: { provider?: string; model?: string }
+}
+
+/**
+ * Agent capability required to serialize an explicit idle-session compaction
+ * against driver turns. The durable `compact/start` marker separately excludes
+ * other compaction transactions.
+ */
+export interface ManualCompactAgentContext extends CompactAgentContext {
+  reserveTurnAdmission(): (() => void) | undefined
 }
 
 declare module 'cordis' {
@@ -62,6 +97,29 @@ export abstract class CompactService extends Service {
   abstract compactIfNeeded(
     agent: CompactAgentContext,
     trigger: CompactionTrigger,
+    signal: AbortSignal,
+  ): Promise<CompactionResult | null>
+
+  /**
+   * Explicitly compact useful history even below automatic pressure thresholds.
+   * Implementations reserve idle turn admission synchronously before any
+   * asynchronous work, select a useful range without writing on a no-op, then
+   * append a standalone `compact/start` before summarization. That durable
+   * marker is the compaction lock until one `compact/end` attempt. Later waking
+   * prompts remain accepted in FIFO order and start only after the optional
+   * durability checkpoint and admission release. Context injected while the
+   * summary runs may sit between the marker pair; only the selected span must
+   * remain stable.
+   *
+   * @param agent - idle agent whose durable history should be compacted.
+   * @param signal - command-owned cancellation forwarded to summarization.
+   * @returns the compaction result, or `null` when no safe useful range exists.
+   * @throws {@link ManualCompactionError} for expected busy, changed-span,
+   * summarization/shrink, commit-stage, or persistence failures, and the exact
+   * abort reason when cancelled. Failed attempts remain visible in the log.
+   */
+  abstract compactNow(
+    agent: ManualCompactAgentContext,
     signal: AbortSignal,
   ): Promise<CompactionResult | null>
 

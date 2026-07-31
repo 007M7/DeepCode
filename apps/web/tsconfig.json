@@ -24,6 +24,7 @@
   "exclude": [
     "tests/scaffold.ts",
     "tests/scaffold-hermetic.e2e.ts",
+    "tests/core-web-profile.snapshot.ts",
     "tests/live-interactions.e2e.ts",
     "tests/question-composer.e2e.ts",
     "tests/approval-composer.e2e.ts",
@@ -47,7 +48,8 @@
     "tests/queue-actions.e2e.ts",
     "tests/skill-invocation-policy.e2e.ts",
     "tests/permission-policy-context.e2e.ts",
-    "tests/access-confirmation.e2e.ts"
+    "tests/access-confirmation.e2e.ts",
+    "tests/startup-auto-selection.e2e.ts"
   ],
   "references": [
     {

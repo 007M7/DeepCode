@@ -50,6 +50,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     },
     send: () => {},
     updateInbox: () => 'not-found',
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

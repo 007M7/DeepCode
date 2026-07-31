@@ -84,8 +84,7 @@
 - id: session-persistence-jsonl
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
-    root: !!js >-
-      (() => { const path = process.getBuiltinModule('node:path'); const home = process.getBuiltinModule('node:os').homedir(); const configured = process.env.DSH_HOME; const selected = configured !== undefined && configured.trim().length > 0 ? configured : path.join(home, '.dsh'); const expanded = selected === '~' ? home : selected.startsWith('~/') || selected.startsWith('~\\') ? path.join(home, selected.slice(2)) : selected; return path.join(path.resolve(expanded), 'sessions') })()
+    root: !!js dshHomePath('sessions')
 
 # TUI consumes this shared session capability. Its launcher supplies a unique
 # process-local path; other surfaces repoint or disable the row in their
@@ -201,6 +200,11 @@
 
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
+
+# Human `/compact`: one useful reduction below the automatic threshold. Backend
+# independent, so it follows whichever compaction service this leaf mounts.
+- id: command-compact
+  name: '@deepseek-ai/dsh-command-compact'
 
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'

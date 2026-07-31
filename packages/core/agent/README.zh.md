@@ -61,6 +61,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 每个插件面向的 handle：
 
 - `agent.send(message, options)`：覆盖（`target` × `wakeup`）矩阵的唯一投递原语。`message` 是已有标识且已冻结的 `UserMessage`；调用方通常会在开始路由前使用 `createUserMessage()` 创建它。`SendOptions` 只持有 `target` 与 `wakeup` 策略。每次获准进入 FIFO 的项都会获得独立的 `InboxItemId`，即使调用方复用了同一个 `MessageId`；`agent/inbox/enqueue`／`update` 及终态 `dequeue` 或 `discard` 都会携带这一完整 `InboxItem`。`target: 'next-turn'` 排队一条独立 FIFO 项，获准后成为其轮次中唯一的普通提示词。`target: 'next-step'` 且 `wakeup: true` 提交 steering（中途引导），而 `target: 'next-step'` 且 `wakeup: false` 注入持久上下文，不运行模型。轮次原理由 [one-send-one-turn Agent Note](../../../.agents/notes/implemented/simplification/2026-07-17-one-send-one-turn.md)拥有。
+- `agent.reserveTurnAdmission()`：在任何已排队唤醒提示词认领其轮次之前，同步预留空闲边界。已获接纳的提示词拥有优先权，包括同一 tick 内仍在等待唤醒的项，此时预留返回 `undefined`。预留期间，之后发送的项保留其普通 ID、FIFO 位置与唤醒信息；`acceptsNextStep` 保持 false，`inject()` 不受阻塞，`whenIdle()` 将该预留计为活动，返回的释放函数可幂等调用。这项范围有限的协调能力使手动压缩（compaction）等独立持久操作能够在排队提示词从会话派生内容前完成并 flush。
 - `agent.updateInbox(itemId, action)`：同步编辑或移除一个仍处于待处理状态的 queued 入队项。编辑会替换已冻结的内容，同时保留其 `MessageId`、`InboxItemId`、来源与 FIFO 位置；移除会发出该项的终态 discard。steering 项和已被认领的项会返回 `not-found`。
 - `agent.followup(input)`：`send()` 的 `next-turn`／wakeup 预设：排队一个普通后续轮次并唤醒驱动器。
 - `agent.steer(input)`：`next-step`／wakeup 预设：提示词接纳期间或轮次打开时，为下一个安全边界暂存 steering，且不分发 `agent/prompt-submit`；该接收窗口之外则委托给会唤醒的后续轮次。接纳失败会保留暂存的 steering，以供重试或之后获准的提示词使用，而取消或 dispose 可能丢弃它。

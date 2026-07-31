@@ -11,8 +11,12 @@ import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessService from '@deepseek-ai/dsh-subprocess-local'
 import WorkerCodeRuntime from '@deepseek-ai/dsh-code-runtime-worker'
 import CommandService from '@deepseek-ai/dsh-commands'
+import * as CommandCompact from '@deepseek-ai/dsh-command-compact'
+import { BasicCompactService } from '@deepseek-ai/dsh-compact-basic'
+import type { SummarizationInput } from '@deepseek-ai/dsh-compact-basic/src/summarizer.ts'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-policy'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as LlmDeepSeek from '@deepseek-ai/dsh-llm-deepseek'
 import { installLlmReplay, parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
@@ -45,6 +49,8 @@ type ScenarioInteraction = 'skill-invocation-policy'
 
 interface Scenario {
   name: string
+  /** Replay fixture owned by an earlier scenario, for a derived presentation case. */
+  fixture?: string
   composition: Composition
   expectedTools: string[]
   expectedEventCounts?: Record<string, number>
@@ -68,6 +74,13 @@ interface Scenario {
   spillMaxInlineBytes?: number
   /** Run scenario-specific terminal input instead of replaying recorded user prompts. */
   interaction?: ScenarioInteraction
+  /**
+   * Mount a deterministic compaction backend plus `/compact`, then run the
+   * human command with a held summary while a prompt and injected context
+   * arrive. Proves queued input waits for the standalone bracket's durability
+   * checkpoint instead of racing the replacement.
+   */
+  manualCompact?: boolean
 }
 
 const SCENARIOS: Scenario[] = [
@@ -79,6 +92,14 @@ const SCENARIOS: Scenario[] = [
     enterPlanMode: true,
     leavePlanModeAfterFirstTurn: true,
     recorded: true,
+  },
+  {
+    name: 'queued-manual-compact',
+    fixture: 'multi-turn-conversation',
+    composition: 'native',
+    expectedTools: [],
+    recorded: false,
+    manualCompact: true,
   },
   {
     name: 'todo-plan',
@@ -149,6 +170,44 @@ function snapshotModeFromEnv(value: string | undefined): SnapshotMode {
 
 const MODE = snapshotModeFromEnv(process.env.DSH_SNAPSHOT)
 const observedScenarios = new Set<string>()
+const workerState = Reflect.get(globalThis, '__vitest_worker__') as
+  | { readonly config?: { readonly testNamePattern?: RegExp } }
+  | undefined
+// Worker argv omits the parent CLI's `-t`; the serialized runner config is the
+// authoritative distinction between a focused replay and the full suite.
+const TEST_NAME_FILTERED = workerState?.config?.testNamePattern !== undefined
+
+/**
+ * Deterministic keyless summary that pauses so the scenario can submit a real
+ * prompt and inject context while manual compaction holds turn admission.
+ */
+class DeferredSnapshotCompactService extends BasicCompactService {
+  readonly summaryStarted = Promise.withResolvers<undefined>()
+  readonly releaseSummary = Promise.withResolvers<undefined>()
+
+  override async summarize(
+    _input: SummarizationInput,
+    _agent: Agent,
+    signal?: AbortSignal,
+  ): Promise<{ summary: [{ type: 'text'; text: string }]; provider: string; model: string }> {
+    this.summaryStarted.resolve(undefined)
+    await this.releaseSummary.promise
+    signal?.throwIfAborted()
+    return {
+      summary: [{ type: 'text', text: 'Keyless manual compaction checkpoint.' }],
+      provider: 'snapshot',
+      model: 'snapshot-compactor',
+    }
+  }
+}
+
+/** Seed between-turn model-visible history without inventing a loop execution. */
+function seedCompactableHistory(agent: Agent): void {
+  agent.inject(createUserMessage({
+    content: [{ type: 'text', text: 'Older snapshot context. '.repeat(60) }],
+    source: { kind: 'plugin', plugin: 'snapshot-seed' },
+  }))
+}
 
 function snapshotDisplayPath(displayPath: string, cwd: string, displayCwd: string): string {
   const rel = relative(cwd, displayPath)
@@ -161,10 +220,15 @@ function scenarioDir(scenario: Scenario): string {
   return join(SNAPSHOTS_DIR, scenario.name)
 }
 
+/** Directory owning the replay fixture: the scenario's own, or the one it derives from. */
+function fixtureDir(scenario: Scenario): string {
+  return join(SNAPSHOTS_DIR, scenario.fixture ?? scenario.name)
+}
+
 function childFixturePaths(scenario: Scenario): string[] {
   return Array.from(
     { length: scenario.childSessions ?? 0 },
-    (_, index) => join(scenarioDir(scenario), `session.${index + 1}.jsonl`),
+    (_, index) => join(fixtureDir(scenario), `session.${index + 1}.jsonl`),
   )
 }
 
@@ -206,6 +270,24 @@ async function settleTerminal(terminal: HeadlessTerminal): Promise<void> {
   if (stable < 3) throw new Error('TUI frames did not quiesce within 200ms')
 }
 
+/** Bound deterministic in-process coordination waits with actionable state. */
+async function snapshotDeadline<T>(
+  operation: Promise<T>,
+  detail: () => string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => { reject(new Error(detail())) }, 5_000)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 async function mountScenarioContext(
   scenario: Scenario,
   cwd: string,
@@ -232,6 +314,9 @@ async function mountScenarioContext(
     skills: { local: { agentsHome: join(cwd, '.agents') } },
   })
   await ctx.plugin(TokenMeterService)
+  if (scenario.manualCompact === true) {
+    await ctx.plugin(DeferredSnapshotCompactService, { auto: false })
+  }
   await ctx.plugin(LocalSubprocessService)
   await ctx.plugin(LocalBashExecutor, { cwd, timeoutMs: 30_000 })
   await ctx.plugin(SnapshotLocalFileSystem, { cwd: '/' })
@@ -249,6 +334,7 @@ async function mountScenarioContext(
   await ctx.plugin(ToolWorkflow)
   await ctx.plugin(ToolRalph)
   await ctx.plugin(CommandService)
+  if (scenario.manualCompact === true) await ctx.plugin(CommandCompact)
   if (scenario.enterPlanMode === true) {
     await ctx.plugin(PlanModeService, { section: 'Snapshot plan mode instructions.' })
   }
@@ -277,8 +363,7 @@ interface ScenarioResult {
 
 async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 21, 12, 0, 0).getTime())
-  const dir = scenarioDir(scenario)
-  const fixtureFile = join(dir, 'session.jsonl')
+  const fixtureFile = join(fixtureDir(scenario), 'session.jsonl')
   const childFiles = childFixturePaths(scenario)
   const prompts = userPrompts(await readFile(fixtureFile, 'utf8'))
   if (scenario.interaction === undefined) {
@@ -292,7 +377,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
   const terminal = new HeadlessTerminal(100, 36)
   try {
     if (scenario.seedWorkspace === true) {
-      const source = join(scenarioDir(scenario), 'workspace')
+      const source = join(fixtureDir(scenario), 'workspace')
       await cp(source, cwd, { recursive: true })
     }
     ctx = await mountScenarioContext(scenario, cwd, displayCwd, fixtureFile, childFiles)
@@ -308,6 +393,7 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     })
     const agent: Agent = handle.agent
+    if (scenario.manualCompact === true) seedCompactableHistory(agent)
     controller = createTuiChat(ctx, {
       sessionId: 'main-session',
       theme: { color: true },
@@ -380,6 +466,14 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     let remainingPrompts = prompts
+    let queuedPrompt: string | undefined
+    let manualOrder: string[] | undefined
+    let manualCommandId: string | undefined
+    if (scenario.manualCompact === true) {
+      expect(prompts.length, 'queued manual compaction needs a second replayed prompt').toBeGreaterThanOrEqual(2)
+      queuedPrompt = prompts.at(-1)
+      remainingPrompts = prompts.slice(0, -1)
+    }
     if (scenario.enterPlanMode === true) {
       const firstPrompt = prompts[0]!
       terminal.send(`/plan ${firstPrompt}`)
@@ -396,10 +490,84 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
     }
 
     for (const prompt of remainingPrompts) {
+      const admitted = agent.session.events.filter(event =>
+        event.type === 'user/message' && event.data.source.kind === 'user').length
       terminal.send(prompt)
       terminal.send('\r')
+      await terminal.flush()
+      await expect.poll(() => agent.session.events.filter(event =>
+        event.type === 'user/message' && event.data.source.kind === 'user').length).toBe(admitted + 1)
       await agent.whenIdle()
       await settleTerminal(terminal)
+    }
+
+    if (scenario.manualCompact === true && queuedPrompt !== undefined) {
+      terminal.send('/help')
+      terminal.send('\r')
+      await settleTerminal(terminal)
+      expect(await terminal.snapshot({ includeScrollback: true }))
+        .toContain('/compact — Compact older conversation history')
+
+      const compact = ctx.compact as DeferredSnapshotCompactService
+      const inbox: string[] = []
+      manualOrder = []
+      ctx.on('agent/inbox/enqueue', (subject, item) => {
+        if (subject === agent) inbox.push(`enqueue:${item.placement}:${item.id}`)
+      })
+      ctx.on('agent/inbox/dequeue', (subject, message) => {
+        if (subject === agent) inbox.push(`dequeue:${message.id}`)
+      })
+      ctx.on('session/event', (session, event) => {
+        if (session !== agent.session) return
+        if (event.type === 'command/run' && event.data.name === 'compact') {
+          manualCommandId = event.data.commandId
+          manualOrder?.push('command/run')
+        }
+        if (event.type === 'command/done' && event.data.commandId === manualCommandId) {
+          manualOrder?.push('command/done')
+        }
+        if (event.type.startsWith('compact/')) manualOrder?.push(event.type)
+        if (event.type === 'user/message'
+          && event.data.source.kind === 'plugin'
+          && event.data.source.plugin === 'compact') manualOrder?.push('checkpoint')
+        if (event.type === 'turn/start') manualOrder?.push(`turn/start:${event.data.trigger.kind}`)
+      })
+      ctx.on('session/flush', (session) => {
+        if (session === agent.session) manualOrder?.push('flush')
+      })
+
+      terminal.send('/compact')
+      terminal.send('\r')
+      await terminal.flush()
+      await snapshotDeadline(compact.summaryStarted.promise, () =>
+        `manual summary did not start; status=${agent.status}; tail=${
+          agent.session.events.slice(-8).map(event => event.type).join(',')
+        }`)
+
+      // Real keystrokes: the prompt keeps its ordinary queue identity while
+      // admission is reserved, and an injection appends immediately.
+      terminal.send(queuedPrompt)
+      terminal.send('\r')
+      await terminal.flush()
+      await expect.poll(() => inbox.length).toBe(1)
+      agent.inject(createUserMessage({
+        content: [{ type: 'text', text: 'Injected while compaction was running.' }],
+        source: { kind: 'plugin', plugin: 'snapshot-injector' },
+      }))
+      expect(inbox[0]).toMatch(/^enqueue:queued:/u)
+      expect(agent.status).toBe('idle')
+      expect(agent.session.events.some(event => event.type === 'user/message'
+        && event.data.source.kind === 'user'
+        && event.data.content.some(block => block.type === 'text' && block.text === queuedPrompt))).toBe(false)
+
+      const idle = agent.whenIdle()
+      compact.releaseSummary.resolve(undefined)
+      await snapshotDeadline(idle, () =>
+        `manual compaction did not reach idle; status=${agent.status}; order=${manualOrder?.join(',') ?? ''}; tail=${
+          agent.session.events.slice(-12).map(event => event.type).join(',')
+        }`)
+      await settleTerminal(terminal)
+      expect(inbox).toEqual([inbox[0], `dequeue:${inbox[0]?.slice('enqueue:queued:'.length) ?? ''}`])
     }
 
     const events: SessionEvent[] = [...agent.session.events]
@@ -436,6 +604,87 @@ async function runScenario(scenario: Scenario): Promise<ScenarioResult> {
       expect(afterExit.data.header.system).not.toContain('Snapshot plan mode instructions.')
       expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'plugin').map(event => (event.data as { content: unknown }).content))
         .toContainEqual([{ type: 'text', text: 'The user switched this session back to the default mode.' }])
+    }
+    if (scenario.manualCompact === true) {
+      const compactStart = events.find(event => event.type === 'compact/start')
+      const compactSummary = events.find(event => event.type === 'compact/summary')
+      const compactCheckpoint = events.find(event => event.type === 'user/message'
+        && event.data.source.kind === 'plugin' && event.data.source.plugin === 'compact')
+      const injectedEvent = events.find(event => event.type === 'user/message'
+        && event.data.source.kind === 'plugin' && event.data.source.plugin === 'snapshot-injector')
+      const compactEnd = events.find(event => event.type === 'compact/end')
+      expect(compactStart?.data.turn).toBeNull()
+      expect(compactEnd?.data.turn).toBeNull()
+      expect(events.filter(event => event.type === 'compact/summary')).toHaveLength(1)
+      if (compactStart === undefined || compactSummary === undefined
+        || compactCheckpoint === undefined || injectedEvent === undefined
+        || compactEnd === undefined) {
+        throw new Error('manual compaction snapshot is missing its durable marker, summary, checkpoint, or injection')
+      }
+      // The markers are time points, not an exclusive container: unrelated
+      // idle injection is allowed between them while the selected span stays stable.
+      expect(compactStart.seq).toBeLessThan(injectedEvent.seq)
+      expect(injectedEvent.seq).toBeLessThan(compactSummary.seq)
+      expect(compactSummary.seq).toBeLessThan(compactCheckpoint.seq)
+      expect(compactCheckpoint.seq).toBeLessThan(compactEnd.seq)
+
+      const manualTimeline = manualOrder ?? []
+      const commandRunIndex = manualTimeline.indexOf('command/run')
+      const compactStartIndex = manualTimeline.indexOf('compact/start')
+      const compactEndIndex = manualTimeline.indexOf('compact/end')
+      const firstFlushIndex = manualTimeline.indexOf('flush')
+      const queuedTurnIndex = manualTimeline.indexOf('turn/start:message')
+      const commandDoneIndex = manualTimeline.indexOf('command/done')
+      expect(manualTimeline.filter(item => item === 'command/run')).toHaveLength(1)
+      expect(manualTimeline.filter(item => item === 'command/done')).toHaveLength(1)
+      expect(compactStartIndex).toBeGreaterThan(commandRunIndex)
+      expect(compactEndIndex).toBeGreaterThan(compactStartIndex)
+      expect(firstFlushIndex).toBeGreaterThan(compactEndIndex)
+      expect(queuedTurnIndex).toBeGreaterThan(firstFlushIndex)
+      expect(commandDoneIndex).toBeGreaterThan(firstFlushIndex)
+
+      const commandRun = events.find(event => event.type === 'command/run'
+        && event.data.name === 'compact')
+      const commandRunId = commandRun?.type === 'command/run'
+        ? commandRun.data.commandId
+        : undefined
+      const commandDone = events.find(event => event.type === 'command/done'
+        && event.data.commandId === commandRunId)
+      expect(commandRun?.type === 'command/run' && commandRun.data).toEqual({
+        commandId: commandRunId,
+        name: 'compact',
+        args: '',
+        source: { kind: 'user' },
+      })
+      expect(commandDone?.type === 'command/done' && commandDone.data).toEqual({
+        commandId: commandRunId,
+        kind: 'success',
+        text: 'Compacted 2 history items (~387 tokens).',
+      })
+      expect(commandRun !== undefined && commandRun.seq < compactStart.seq).toBe(true)
+      expect(commandDone !== undefined && commandDone.seq > compactEnd.seq).toBe(true)
+      expect(agent.session.surface.nodes).not.toContain(commandRun?.seq)
+      expect(agent.session.surface.nodes).not.toContain(commandDone?.seq)
+
+      // The command line itself never becomes a prompt.
+      expect(events.some(event => event.type === 'user/message'
+        && event.data.source.kind === 'user'
+        && event.data.content.some(block => block.type === 'text' && block.text.trim() === '/compact'))).toBe(false)
+      const derived = agent.session.deriveMessages().map(message => message.content
+        .map(block => block.type === 'text' ? block.text : '')
+        .join(''))
+      const checkpoint = derived.findIndex(text => text.includes('Keyless manual compaction checkpoint.'))
+      const injected = derived.findIndex(text => text.includes('Injected while compaction was running.'))
+      const queued = derived.findIndex(text => text === queuedPrompt)
+      expect(checkpoint).toBe(0)
+      expect(injected).toBeGreaterThan(checkpoint)
+      expect(queued).toBeGreaterThan(injected)
+      expect(derived).not.toContain('/compact')
+      expect(derived).not.toContain('Compacted 2 history items (~387 tokens).')
+      expect(derived.filter(text => text.includes('Injected while compaction was running.'))).toHaveLength(1)
+      expect(compactSummary.data.shadowedSeqs).not.toContain(injectedEvent.seq)
+      const queuedTurn = events.findLast(event => event.type === 'turn/start')
+      expect(queuedTurn !== undefined && compactEnd.seq < queuedTurn.seq).toBe(true)
     }
     if (scenario.spillMaxInlineBytes !== undefined) {
       // The REAL pipeline ran (tools execute on replay too): the durable
@@ -514,7 +763,23 @@ describe('TUI recorded-session terminal snapshots', () => {
 })
 
 afterAll(async () => {
-  expect([...observedScenarios].sort()).toEqual(SCENARIOS.map(scenario => scenario.name).sort())
+  const scenarioNames = SCENARIOS.map(scenario => scenario.name).sort()
+  const observedNames = [...observedScenarios].sort()
+  if (TEST_NAME_FILTERED) {
+    expect(observedNames).not.toHaveLength(0)
+    expect(scenarioNames).toEqual(expect.arrayContaining(observedNames))
+  } else {
+    expect(observedNames).toEqual(scenarioNames)
+  }
+  for (const [index, scenario] of SCENARIOS.entries()) {
+    if (scenario.fixture === undefined) continue
+    const sourceIndex = SCENARIOS.findIndex(candidate => candidate.name === scenario.fixture)
+    expect(sourceIndex, `${scenario.name} fixture source ${scenario.fixture} must exist`).toBeGreaterThanOrEqual(0)
+    expect(sourceIndex, `${scenario.name} fixture source must precede it`).toBeLessThan(index)
+    const source = SCENARIOS[sourceIndex]
+    expect(source?.fixture, `${scenario.name} fixture source must own its replay files`).toBeUndefined()
+    expect(source?.recorded, `${scenario.name} fixture source must be recordable`).toBe(true)
+  }
   const directories = (await readdir(SNAPSHOTS_DIR, { withFileTypes: true }))
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
@@ -522,14 +787,14 @@ afterAll(async () => {
   expect(directories).toEqual(SCENARIOS.map(scenario => scenario.name).sort())
   for (const scenario of SCENARIOS) {
     const expected = [
-      'session.jsonl',
+      ...scenario.fixture === undefined ? ['session.jsonl'] : [],
       'terminal.expected.txt',
-      ...scenario.seedWorkspace === true ? ['workspace'] : [],
+      ...scenario.seedWorkspace === true && scenario.fixture === undefined ? ['workspace'] : [],
       ...Array.from({ length: scenario.childSessions ?? 0 }, (_, index) => `session.${index + 1}.jsonl`),
     ].sort()
     expect((await readdir(scenarioDir(scenario))).sort()).toEqual(expected)
     for (const fixture of ['session.jsonl', ...childFixturePaths(scenario).map(path => basename(path))]) {
-      const content = await readFile(join(scenarioDir(scenario), fixture), 'utf8')
+      const content = await readFile(join(fixtureDir(scenario), fixture), 'utf8')
       expect(scrubRequestHeaders(content), `${scenario.name}/${fixture} carries request-header bulk`).toBe(content)
     }
   }

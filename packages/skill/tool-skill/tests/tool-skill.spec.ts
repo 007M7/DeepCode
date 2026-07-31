@@ -53,6 +53,7 @@ function agentForCwd(cwd: string): Agent {
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }
@@ -73,6 +74,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     inject(input) {
       session.append('user/message', input, { surfaceOp: 'append' })
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle: () => Promise.resolve(),
   }

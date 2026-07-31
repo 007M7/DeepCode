@@ -33,6 +33,19 @@ function dragProps(overrides: Partial<RowDragProps> = {}): RowDragProps {
   }
 }
 
+/** Install the async browser clipboard and restore its prior host shape. */
+function installClipboard(writeText: (text: string) => Promise<void>): () => void {
+  const prior = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
+  return () => {
+    if (prior === undefined) Reflect.deleteProperty(navigator, 'clipboard')
+    else Object.defineProperty(navigator, 'clipboard', prior)
+  }
+}
+
 const dataTransfer = { effectAllowed: '', dropEffect: '' }
 
 /** jsdom lacks DragEvent — the fireEvent fallback drops clientY, so pin it on the built event. */
@@ -129,8 +142,10 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('workspace hover card shows title, directory path, and creation time after the dwell', () => {
+  it('workspace hover card shows its details and copies the full directory path', async () => {
     vi.useFakeTimers()
+    const writeText = vi.fn(async () => {})
+    const restoreClipboard = installClipboard(writeText)
     try {
       const group: GroupNode = {
         key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
@@ -143,7 +158,11 @@ describe('workspace browser rows', () => {
       expect(screen.getAllByText('Project')).toHaveLength(2)
       expect(screen.getByText('/projects/project')).toBeTruthy()
       expect(screen.getByText(/^创建于 \d+年\d+月\d+日 /)).toBeTruthy()
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制: /projects/project' })) })
+      expect(writeText).toHaveBeenCalledWith('/projects/project')
+      expect(screen.getByRole('status').textContent).toBe('已复制')
     } finally {
+      restoreClipboard()
       vi.useRealTimers()
     }
   })
@@ -175,6 +194,7 @@ describe('workspace browser rows', () => {
       expect(screen.getAllByText('新会话').length).toBeGreaterThanOrEqual(2)
       expect(screen.getByText('空闲')).toBeTruthy()
       expect(screen.queryByText('刚刚')).toBeNull()
+      expect(screen.getByText('空闲').closest('[role="button"]')).toBeNull()
     } finally {
       vi.useRealTimers()
     }

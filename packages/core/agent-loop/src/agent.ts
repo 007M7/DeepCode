@@ -2,7 +2,8 @@
  * Concrete Agent loop over two pending-input lists: queued prompts each open a
  * turn that logs its admitted input after `turn/start` commits, while steering
  * and injected context enter through the outbox at step boundaries. Every
- * request is derived from the session log.
+ * request is derived from the session log. An idle turn-admission reservation
+ * can withhold the driver from the queue without touching its contents.
  *
  * @module dsh-agent-loop/agent
  */
@@ -119,6 +120,12 @@ export class ReactLoopAgent implements Agent {
   private busy = false
   /** Whether an idle waking send has deferred driver admission. */
   private wakeScheduled = false
+  /**
+   * The live idle turn-admission reservation, holding the driver out of the
+   * queue until its owner releases. It settles idle waiters instead of
+   * {@link done} so lifecycle teardown never awaits the reserving operation.
+   */
+  private admission: { readonly settled: Promise<void>; readonly settle: () => void } | undefined
   /** Whether next-step input belongs to the current admission or open turn. */
   acceptsNextStep = false
   /** Abort owner for the current admission or turn. */
@@ -244,6 +251,32 @@ export class ReactLoopAgent implements Agent {
   }
 
   /**
+   * Hold the idle admission boundary so no queued prompt can open a turn until
+   * the returned release runs. Later sends keep their ordinary placement and
+   * `wakeup` facts; only the driver's claim waits.
+   * @returns the idempotent release, or `undefined` when the driver is active or already committed to waking work.
+   */
+  reserveTurnAdmission(): (() => void) | undefined {
+    // `busy` covers every abort owner: kick() and run() mark the interval
+    // running before they install one. `wakeScheduled` is the same-tick state
+    // of an accepted waking prompt whose claim is still a pending microtask.
+    if (this.busy || this.wakeScheduled || this.admission !== undefined
+      || this.queued.some(item => item.wakeup)) return undefined
+    const pending = Promise.withResolvers<void>()
+    const reservation = { settled: pending.promise, settle: pending.resolve }
+    this.admission = reservation
+    return () => {
+      // Idempotent, and inert once a later reservation owns the boundary.
+      if (this.admission !== reservation) return
+      this.admission = undefined
+      // Re-arm the ordinary path first, so an idle waiter released below
+      // re-reads live admission activity instead of settled state.
+      if (this.queued.some(item => item.wakeup)) this.scheduleKick()
+      reservation.settle()
+    }
+  }
+
+  /**
    * Clear all pending work and abort the active turn; the first cause wins.
    * The cause is signal payload for observers and the durable turn/end
    * classification — it selects no machine behavior. Teardown is just
@@ -276,19 +309,34 @@ export class ReactLoopAgent implements Agent {
 
   /** Resolve at idle quiescence: no run driving and no waking prompt waiting. */
   async whenIdle(): Promise<void> {
-    // `done` is replaced per activity, so re-reading it follows chained turns.
-    // Every driver failure today is contained before it can reject `done`,
-    // but the waiter must not gamble quiescence on that: a future escape
-    // still counts as settled activity.
-    /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
-    while (this.busy || this.wakeScheduled || this.abort !== undefined || this.queued.some(item => item.wakeup)) {
-      await this.done.catch(() => undefined)
+    while (true) {
+      // `done` is replaced per activity, so re-reading it follows chained turns.
+      // Every driver failure today is contained before it can reject `done`,
+      // but the waiter must not gamble quiescence on that: a future escape
+      // still counts as settled activity.
+      /* v8 ignore next 3 -- the catch arm backstops rejection paths that are all currently contained */
+      while (this.busy || this.wakeScheduled || this.abort !== undefined || this.runnableWakingQueued) {
+        await this.done.catch(() => undefined)
+      }
+      // A reservation is unfinished activity even with an empty queue, and a
+      // prompt it withholds is not quiescent — but `done` never owns it, so
+      // waiting on the queue alone would spin on an already-settled promise.
+      const reservation = this.admission
+      if (reservation === undefined) return
+      await reservation.settled
     }
+  }
+
+  /** Whether a queued waking prompt may claim the driver now. */
+  private get runnableWakingQueued(): boolean {
+    return this.admission === undefined && this.queued.some(item => item.wakeup)
   }
 
   /** Defer idle admission while keeping {@link done} as its quiescence owner. */
   private scheduleKick(): void {
-    if (this.abort !== undefined || this.wakeScheduled) return
+    // A held reservation keeps the item queued with no scheduled claim; its
+    // release re-arms this path for whatever is queued by then.
+    if (this.abort !== undefined || this.wakeScheduled || this.admission !== undefined) return
     this.wakeScheduled = true
     const pending = Promise.withResolvers<void>()
     const scheduled = pending.promise
@@ -310,7 +358,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Claim and admit the next queued prompt, then start its turn. */
   private kick(): void {
-    if (this.abort !== undefined || !this.queued.some(item => item.wakeup)) return
+    if (this.abort !== undefined || !this.runnableWakingQueued) return
     // The some() guard above proves the queue is non-empty; the non-null
     // assertion expresses that invariant.
     // oxlint-disable-next-line typescript/no-non-null-assertion
@@ -837,7 +885,7 @@ export class ReactLoopAgent implements Agent {
 
   /** Continue with a waking prompt, or publish the idle status. */
   private continueOrIdle(): void {
-    if (this.queued.some(item => item.wakeup)) {
+    if (this.runnableWakingQueued) {
       this.kick()
     } else {
       // Every caller sits inside an admission or run whose install marked the
