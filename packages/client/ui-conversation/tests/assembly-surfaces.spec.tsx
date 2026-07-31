@@ -136,7 +136,7 @@ describe('todo_write assembly (product registrations, no outlet twins)', () => {
 })
 
 describe('terminal card assembly', () => {
-  it('the keyed bash row carries a resident terminal card; the fallback row reaches one through expand', async () => {
+  it('both the keyed bash row and the fallback row reach the terminal card through the whole-row expand', async () => {
     const runtime = await bench([
       bashResult(3, 'c-keyed'),
       // An unregistered tool with terminal views: GenericToolCard fallback.
@@ -144,15 +144,20 @@ describe('terminal card assembly', () => {
     ])
     const view = runtime.renderRoot()
 
-    // Keyed BashRow renders the card residently (no expand gesture).
-    const keyed = view.container.querySelector('[data-sample="bash-global"]')?.parentElement
-    expect(keyed?.querySelector('[data-terminal]')).not.toBeNull()
+    // Keyed BashRow: collapsed by default, the whole summary row is the toggle.
+    const keyedRow = view.container.querySelector('[data-sample="bash-global"]')
+    const keyed = keyedRow?.parentElement
+    expect(keyed?.querySelector('[data-terminal]')).toBeNull()
+    fireEvent.click(keyedRow!)
+    await waitFor(() => {
+      expect(keyed!.querySelector('[data-terminal]')).not.toBeNull()
+    })
 
-    // Fallback row: card appears only after its expand control.
+    // Fallback row: same unified expand interaction.
     const fallback = view.container.querySelector('[data-tool="fx-bash"]')
     expect(fallback).not.toBeNull()
     expect(fallback!.querySelector('[data-terminal]')).toBeNull()
-    fireEvent.click(fallback!.querySelector('button[aria-expanded]')!)
+    fireEvent.click(fallback!.querySelector('[data-expandable]')!)
     await waitFor(() => {
       expect(fallback!.querySelector('[data-terminal]')).not.toBeNull()
     })
