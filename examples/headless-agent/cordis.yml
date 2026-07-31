@@ -87,9 +87,13 @@
     providerName: fork
 
 # Continuable background children are selected per delegation tool. The
-# separately loaded follow-up tool registers the one global `send_message`.
+# separately loaded control registers global `send_message`; `report` is
+# installed only in continuable child scopes.
 - id: tool-subagent-control
   name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
 
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'

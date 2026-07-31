@@ -4,7 +4,7 @@
 
 subagent seam：一个 agent（智能体）将工作委派给子 agent。与 [bash](bash.md) 一样，它是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。但它在一个维度上与其他所有 seam 不同：**同一上下文中可共存多个提供方实现**，按名称注册（`ctx.subagents`），而 bash 只允许一个执行器。注册表的形状参照 [LLM（大语言模型）适配器注册表](llm-streaming.md)，而非单服务的 bash 执行器。
 
-接口：[dsh-subagent](../../packages/subagent/subagent)（`ctx.subagents` + 下文词汇）。实现为三个兄弟包（package）：`dsh-subagent-spawn`、`-fork`、`-acp`；面向模型的消费方包括 [dsh-tool-subagent](../../packages/subagent/tool-subagent)（按提供方委派）和 [dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control)（可选的全局 `send_message`）。同一个 `ctx.subagents` 服务通过内部激活管理器负责可继续子 agent 编排。设计理由见 [subagent Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)、[可继续 subagent Agent Note](../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md)和[服务合并 Agent Note](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)。
+接口：[dsh-subagent](../../packages/subagent/subagent)（`ctx.subagents` + 下文词汇）。实现为三个兄弟包（package）：`dsh-subagent-spawn`、`-fork`、`-acp`；面向模型的消费方包括 [dsh-tool-subagent](../../packages/subagent/tool-subagent)（按提供方委派）、[dsh-tool-subagent-control](../../packages/subagent/tool-subagent-control)（可选的全局 `send_message` 与 `list_agents` 控制工具）和 [dsh-tool-subagent-report](../../packages/subagent/tool-subagent-report)（可选的 child 作用域 `report` 返回通道）。同一个 `ctx.subagents` 服务通过内部激活管理器负责可继续子 agent 编排，并通过可选的会话查询负责只读的直接 child 发现。设计理由见 [subagent Agent Note（agent 决策记录）](../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)、[可继续 subagent Agent Note](../../.agents/notes/implemented/feature/2026-07-28-continuable-subagent-conversations.md)、[report 工具 Agent Note](../../.agents/notes/implemented/feature/2026-07-30-continuable-subagent-report-tool.md)、[持久化目录 Agent Note](../../.agents/notes/implemented/feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)和[服务合并 Agent Note](../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)。
 
 源码：[`packages/subagent/subagent/src/types.ts`](../../packages/subagent/subagent/src/types.ts)、[`packages/subagent/subagent/src/index.ts`](../../packages/subagent/subagent/src/index.ts)和 [`packages/subagent/subagent/src/continuation.ts`](../../packages/subagent/subagent/src/continuation.ts)
 
@@ -171,6 +171,34 @@ interface ContinuableStart {
   readonly childId: SessionId
   /** The accepted initial prompt's inbox message id. */
   readonly messageId: MessageId
+}
+```
+
+可选的可继续 child 设置贡献可以在 child 基础组合完成后、Activation 发布前安装限定在作用域内的能力。该注册表按顺序执行且具有事务性：设置失败或被撤销时会回滚未发布的 Activation；child 作用域 dispose 时会释放所有安装；新注册项在下一个 Activation 生效；移除注册项时则会立即撤销每个驻留中的安装。
+
+`SubagentService.reportFrom()` 通过该扩展 seam 实现报告，无需新增第二条队列或承载结果的 child 包装层。调用由确切的在线 child Agent 授权，调用方不能指定接收方。管理器从 child 的持久化 `parentSession` 中推导唯一接收方，要求该 parent Agent 必须在线，将选中内容封装为一条 `subagent-report` 用户消息，并返回该消息的稳定 `MessageId`。静默投递使用 `Agent.inject()`，不产生 inbox 条目实例或 parent 轮次；唤醒投递使用 `Agent.followup()`，会产生一个普通的后续 parent 轮次。两种模式都不会结束 child 轮次，最终回答也不会隐式报告。
+
+```ts type-equiv
+/** Durable attribution for a continuable child's explicit parent report. */
+interface SubagentReportMessageSource {
+  readonly kind: 'subagent-report'
+  /** Session id of the reporting child. */
+  readonly senderSessionId: SessionId
+}
+```
+
+```ts type-equiv
+/** Deployment scheduling policy for accepted child reports. */
+type SubagentReportDelivery = 'quiet' | 'wakeup'
+```
+
+```ts type-equiv
+/** Options for one continuable child's report to its direct parent. */
+interface SubagentReportOptions {
+  /** Already-resolved parent scheduling policy. */
+  readonly delivery: SubagentReportDelivery
+  /** Caller cancellation, owning authorization and admission until acceptance. */
+  readonly signal: AbortSignal
 }
 ```
 

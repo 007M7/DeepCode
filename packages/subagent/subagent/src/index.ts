@@ -58,7 +58,10 @@ import type {
   ContinuableStart,
   ContinuableStartSpec,
   SubagentFollowupOptions,
+  SubagentReportOptions,
 } from './continuation.ts'
+import SubagentActivationSetupRegistry from './activation-setup-registry.ts'
+import type { ContinuableSetupContribution } from './activation-setup-registry.ts'
 import { listChildren as listSubagentChildren } from './list-children.ts'
 import type { SubagentListEntry } from './list-children.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
@@ -107,7 +110,11 @@ export type {
   ContinuableStartSpec,
   CoordinatorMessageSource,
   SubagentFollowupOptions,
+  SubagentReportDelivery,
+  SubagentReportMessageSource,
+  SubagentReportOptions,
 } from './continuation.ts'
+export type { ContinuableSetupContribution } from './activation-setup-registry.ts'
 export type { SubagentListEntry } from './list-children.ts'
 export type { SubagentRunEndInfo, SubagentRunInfo } from './types.ts'
 
@@ -156,6 +163,8 @@ declare module 'cordis' {
 export class SubagentService extends Service {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
+  /** Deployment contributions composed into unpublished continuable children. */
+  private readonly setupRegistry = new SubagentActivationSetupRegistry()
   /**
    * The contained lifecycle-edge publisher. Built here because scoped dispatch
    * keys its carrier by this exact service instance, whose own context filter
@@ -170,7 +179,7 @@ export class SubagentService extends Service {
       const manager = new SubagentContinuationManager(childCtx, {
         prepareContinuable: (name, request) => this.prepareContinuable(name, request),
         observeActivation: (provider, childId, parent) => this.observeActivation(provider, childId, parent),
-      })
+      }, this.setupRegistry)
       this.continuations = manager
       childCtx.effect(() => () => {
         /* v8 ignore else -- one injected binding owns the slot until its fiber disposes. */
@@ -217,6 +226,41 @@ export class SubagentService extends Service {
   }
 
   /**
+   * Deliver selected content from one live continuable child to its durable
+   * direct parent. The child is the authority credential; callers cannot name a
+   * recipient. Reporting does not conclude the child's turn or Activation.
+   * @param child - exact live reporting child.
+   * @param content - selected model-facing content.
+   * @param options - parent scheduling and pre-acceptance cancellation.
+   * @returns the stable identity of the parent-accepted message.
+   * @throws when continuation services are unavailable, sender authorization
+   *   fails, or the direct parent is not live.
+   */
+  async reportFrom(
+    child: Agent,
+    content: ContentBlock[],
+    options: SubagentReportOptions,
+  ): Promise<MessageId> {
+    return this.requireContinuations().reportFrom(child, content, options)
+  }
+
+  /**
+   * Compose one deployment capability into every continuable child's
+   * unpublished creation context on fresh creation and cold resume. Grants wait
+   * for the next Activation; removing the contribution revokes every resident
+   * installation immediately.
+   * @param contribution - synchronous child-scope installer.
+   * @returns the exact Cordis effect disposer.
+   */
+  registerContinuableSetup(contribution: ContinuableSetupContribution): () => void {
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; direct return preserves disposer identity
+    return this.ctx.effect(
+      () => this.setupRegistry.register(contribution),
+      'subagents.registerContinuableSetup()',
+    )
+  }
+
+  /**
    * Close continuable admission below exact live parent Agents, stop only their
    * visible descendant Activations synchronously, then await admitted scoped
    * materializations and release those forests child-first. The scoped cutoff
@@ -224,7 +268,7 @@ export class SubagentService extends Service {
    * remain live.
    * @param parents - exact host-owned parent Agents entering teardown.
    * @returns once every retained descendant Activation released its `AgentHandle`.
-   * @throws an aggregate error after all scoped branches settle when any failed.
+   * @throws an aggregate error after all branches settle when any failed.
    */
   async drainContinuableDescendants(parents: readonly Agent[]): Promise<void> {
     const manager = this.continuations

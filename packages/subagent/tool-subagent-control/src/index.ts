@@ -26,8 +26,9 @@ export function apply(ctx: Context): void {
     description:
       'Send a message to a background subagent by its subagent id, continuing the same conversation. It '
       + 'becomes the subagent\'s next turn: if it is still working, the message waits until its current turn '
-      + 'finishes, so it cannot redirect work already underway. The subagent does not reply to you, so use '
-      + 'this only to give it more work. A failure means the message was NOT delivered.',
+      + 'finishes, so it cannot redirect work already underway. This call returns no answer from the '
+      + 'subagent — only confirmation that the message was delivered — so use it to give it more work. A '
+      + 'failure means the message was NOT delivered.',
     parameters: {
       subagent_id: {
         type: 'string',

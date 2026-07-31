@@ -893,8 +893,16 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
       },
       {
+        signature: 'async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>',
+        jsDoc: '/**\n * Deliver selected content from one live continuable child to its durable\n * direct parent. The child is the authority credential; callers cannot name a\n * recipient. Reporting does not conclude the child\'s turn or Activation.\n * @param child - exact live reporting child.\n * @param content - selected model-facing content.\n * @param options - parent scheduling and pre-acceptance cancellation.\n * @returns the stable identity of the parent-accepted message.\n * @throws when continuation services are unavailable, sender authorization\n *   fails, or the direct parent is not live.\n */',
+      },
+      {
+        signature: 'registerContinuableSetup(contribution: ContinuableSetupContribution): () => void',
+        jsDoc: '/**\n * Compose one deployment capability into every continuable child\'s\n * unpublished creation context on fresh creation and cold resume. Grants wait\n * for the next Activation; removing the contribution revokes every resident\n * installation immediately.\n * @param contribution - synchronous child-scope installer.\n * @returns the exact Cordis effect disposer.\n */',
+      },
+      {
         signature: 'async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>',
-        jsDoc: '/**\n * Close continuable admission below exact live parent Agents, stop only their\n * visible descendant Activations synchronously, then await admitted scoped\n * materializations and release those forests child-first. The scoped cutoff\n * lasts until each exact parent leaves the registry; unrelated parent trees\n * remain live.\n * @param parents - exact host-owned parent Agents entering teardown.\n * @returns once every retained descendant Activation released its `AgentHandle`.\n * @throws an aggregate error after all scoped branches settle when any failed.\n */',
+        jsDoc: '/**\n * Close continuable admission below exact live parent Agents, stop only their\n * visible descendant Activations synchronously, then await admitted scoped\n * materializations and release those forests child-first. The scoped cutoff\n * lasts until each exact parent leaves the registry; unrelated parent trees\n * remain live.\n * @param parents - exact host-owned parent Agents entering teardown.\n * @returns once every retained descendant Activation released its `AgentHandle`.\n * @throws an aggregate error after all branches settle when any failed.\n */',
       },
       {
         signature: 'listChildren(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentListEntry[]>',
@@ -1808,6 +1816,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ContinuableCreateSpec {\n    readonly seed?: readonly SessionEvent[];\n}',
   },
   {
+    name: 'ContinuableSetupContribution',
+    declaration: 'export type ContinuableSetupContribution = (childCtx: Context) => () => void;',
+  },
+  {
     name: 'ContinuableStart',
     declaration: 'export interface ContinuableStart {\n    readonly childId: SessionId;\n    readonly messageId: MessageId;\n}',
   },
@@ -2718,6 +2730,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubagentProvider',
     declaration: 'export interface SubagentProvider {\n    readonly name: string;\n    readonly capabilities: SubagentCapabilities;\n    readonly inheritsParentContext: boolean;\n    start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>;\n    prepareContinuable?(request: ContinuableCreateRequest): Promise<ContinuableCreateSpec>;\n}',
+  },
+  {
+    name: 'SubagentReportDelivery',
+    declaration: 'export type SubagentReportDelivery = \'quiet\' | \'wakeup\';',
+  },
+  {
+    name: 'SubagentReportOptions',
+    declaration: 'export interface SubagentReportOptions {\n    readonly delivery: SubagentReportDelivery;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'SubagentResult',

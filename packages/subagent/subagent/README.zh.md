@@ -16,6 +16,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `@deepseek-ai/dsh-subagent-acp` | 全新的进程外 ACP（Agent Client Protocol）子 agent（一次性）。 |
 | `@deepseek-ai/dsh-tool-subagent` | 基于一个已配置提供方、面向模型的委派工具。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | 全局具名 `send_message` 后续操作工具。 |
+| `@deepseek-ai/dsh-tool-subagent-report` | 子级作用域的返回通道，指向直接父级。 |
 
 多个提供方可以使用不同名称共存。因此，部署可以同时公开低成本的进程内子 agent 和隔离的 ACP 子 agent，而无需改变服务契约。
 
@@ -31,6 +32,8 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `start(name, request)` | 校验普通调用方请求，解析其分离的 `one-shot` 描述符，然后等待提供方，直到真实的一次性子 agent 发布。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理所有未发布的启动资源，而发布后的轮次或基础设施故障会通过该 run 结算。可继续子 agent 绝不通过此操作进入。 |
 | `startContinuable(spec)` | 建立一个持久化可继续子 agent，并投递其初始提示词。子 agent 的 inbox 接受该提示词时，兑现为 `{ childId, messageId }`，无需等待轮次开始或消息写入 Session 日志；此前任何失败都会以无 id 拒绝，并完全回滚该子 agent。要求 `ctx.agents`、会话持久化以及具备 `prepareContinuable` 能力的提供方。 |
 | `followup(parent, childId, content, { source, signal })` | 将来自确切在线直接父级的一条后续消息作为子 agent 的下一个 FIFO 轮次投递，术语与 `Agent.followup()` 一致，并返回被接受的 `MessageId`。驻留中的子 agent 由其 inbox 直接接受（唤醒处于 waiting 的 Activation）；不驻留的则从其持久化 Session 冷恢复。要求 `ctx.agents`；冷恢复还要求会话持久化。 |
+| `reportFrom(child, content, { delivery, signal })` | 从确切在线可继续 child 向其确切在线直接 parent 投递一条选中消息，并返回已接受的稳定 `MessageId`。静默投递会注入上下文；唤醒投递会提交一个后续 parent 轮次。 |
+| `registerContinuableSetup(contribution)` | 把一项可选部署能力组合到每个可继续 child 尚未发布的作用域中，并支持从驻留 child 立即撤销。 |
 | `drainContinuableDescendants(parents)` | 在由 host 确切拥有的在线 parent Agent 之下关闭准入，只停止其可见的可继续后代，等待在这些根之下已获准的物化过程完成发布或回滚，再按 child-first 顺序释放所选森林。该截止状态会持续到每个确切 parent 离开注册表；无关的 parent 森林和管理器全局准入保持在线。 |
 | `listChildren(parentSessionId, signal?)` | 按稳定的追踪顺序列出由会话支撑的直接 subagent，包括其 `one-shot`／`continuable` 模式和 `running`／`inactive` 活动状态，以及逐 child diagnostic，且不会加载或恢复它们。要求会话查询；不要求 `ctx.agents` 或继续执行管理器。 |
 
@@ -87,6 +90,10 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 提供方新增和移除还会发出 `subagent/provider-added` 与 `subagent/provider-removed`。面向模型的工具等消费方使用这些事件，因为 Cordis 可能并发加载同级插件；配置顺序不能证明注册顺序。
 
+可继续子级不会创建 `SubagentRun` 或 Task。延续管理器为每个驻留子 Session 直接拥有一个仅存在于当前进程的 Activation 和一个留存的 `AgentHandle`，使用 Agent inbox 作为唯一 FIFO，并从持久化描述符冷恢复。父到子投递由准确的实时直接父级身份授权。上报则由准确的实时子级身份授权；管理器根据持久化的 `parentSession` 推导接收方，`MessageSource` 仍只表示来源，不表示权限。
+
+`registerContinuableSetup()` 允许可选包添加子级作用域功能，而无需让延续管理器知道这些功能的名称。贡献会在 Activation 发布前同步安装，在设置失败时一并回滚，并随子级作用域释放。新授权须等到下一个 Activation，移除贡献则会立即撤销每个驻留安装项。
+
 ## 收集模型
 
 面向模型的工具默认同步收集：先等待子 agent 结果，再 dispose 运行，然后才返回。一次性后台委派会在工具中注册普通 Task，其通用状态、收集和取消工具负责后续交互，并将模型提供的 `description` 持久化为可选显示标签。可继续后台委派会调用 `ctx.subagents.startContinuable()`，只返回持久化子 agent id；子 agent 自 inbox 接受起就拥有自己的轮次，因此没有 Task、没有结果 promise，也没有公开的子 agent 取消操作——调用方通过 `send_message` 后续操作工具发送后续工作，而持久化子 agent Session 仍是子 agent 详细输出的来源。只有 `ctx.agents` 可用时，继续执行管理器才会存在，而会话持久化按每项继续执行操作解析。与此独立，`listChildren()` 只在被调用时解析会话查询并动态导入其可选运行时，然后解释对所有带描述符的直接 child 所作的只读、实时优先扫描，且不查询继续执行管理器、Agent 注册信息、Activation 或提供方。UI 等服务消费方可以保留两种模式，并为无标签的一次性 child 选择回退展示；面向模型的 `list_agents` 工具只投影 `continuable` 条目，并将服务活动状态映射到现有的 `running`／`complete` 词汇。扫描会把调用方的取消信号转发到可取消的追踪与精确读取操作，在其余事件列表读取的前后检查取消，并将每次检测到的中止报告为 `SubagentError` 错误码 `CANCELLED`。完整契约见[后台 subagent 任务 Agent Note](../../../.agents/notes/implemented/feature/2026-07-08-background-subagent-tasks.md)、[可继续后台 subagent Agent Note](../../../.agents/notes/implemented/feature/2026-07-21-continuable-background-subagents.md)、[持久化目录 Agent Note](../../../.agents/notes/implemented/feature/2026-07-22-durable-subagent-catalog-and-list-agents.md)、[服务合并 Agent Note](../../../.agents/notes/implemented/simplification/2026-07-26-merge-subagent-control-service.md)、[能力 seam Agent Note](../../../.agents/notes/implemented/feature/2026-06-21-subagent-capability-seam.md)和 `src/types.ts`。
@@ -95,7 +102,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ## 模型体验
 
-通过 `dsh-tool-subagent` 和 `dsh-tool-subagent-control` 间接产生影响；它们渲染提供方特定的 schema，以及前台、后台或后续操作结果，同时子 agent 工作上下文只留在子 agent 中。
+通过 `dsh-tool-subagent`、`dsh-tool-subagent-control` 和 `dsh-tool-subagent-report` 间接产生影响。第一个工具负责委派 schema，第二个负责父级延续和发现，第三个只向可继续子级作用域贡献 `report`。
 
 #### KV Cache 影响
 
@@ -104,9 +111,9 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 ## 已知限制与延期工作
 
 - **ACP 子 agent 仍为一次性，且无法通过追踪枚举**：ACP 运行在 parent 会话语料中没有本地 child 会话。ACP 的 `prepareContinuable` 需要在提供方专用描述符数据中持久化远端会话 id，并按子 agent 声明继续执行功能，因为 ACP 的 `loadSession` 支持按子 agent 协商，而不是通过方法是否存在来确定。远程提供方还需要一份独立的 Activation 所有权契约，具备等效的经认证控制和子先于父的停稳保证，才能支持可继续子 agent。
-- **无 report 投递**：MVP 不提供 `report` 工具、子到父的内容投递或自动唤醒父级；已完成的子 agent 轮次会把其输出留在持久化子 agent Session 中，直到调用方查看该 transcript 或提交另一个经授权的轮次。
 - **无 host-user 继续执行**：`followup()` 要求确切在线直接父级。未来 host 适配器需要具体的经认证交互，才能让该 seam 获得单独的用户能力。
-- **无 subagent steering**：每条后续消息都会开启后续 FIFO 轮次，因此父级无法重定向已经在进行的轮次；管理器不保存任何当前轮次控制器状态。
+- **不对当前轮次进行 steering**：可继续消息和唤醒式 report 会排入后续轮次，均不会重定向正在进行的轮次。
 - **驻留仅限进程内**：Activation inbox 与所有权图不会在两个 harness 进程之间协调；对单个持久化存储的并发访问仍然需要持久化邮箱和跨进程租约协议。
 - **不重放已接受但未记录的消息**：只有写入子 agent Session 日志的消息才能连同其被接受时的来源一起重建。崩溃可能丢失从未写入日志、已被接受的初始提示词或后续消息；此后一条经授权的消息可以冷恢复该子 agent，但丢失的消息不会自动重放。
+- **没有持久化的上报 mailbox**：上报需要实时直接父级，提供的是接受标识，不保证恰好一次投递，也不提供已读回执。
 - **生命周期事件只供观察**：影响运行的 `subagent/end` 延续或决策接口仍需等待具体消费方。

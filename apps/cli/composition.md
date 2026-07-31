@@ -102,6 +102,8 @@ flowchart LR
   cfg --> plugin_tui_tool_subagent
   plugin_tui_tool_subagent_fork["tool-subagent-fork<br/>@deepseek-ai/dsh-tool-subagent"]
   cfg --> plugin_tui_tool_subagent_fork
+  plugin_tui_tool_subagent_report["tool-subagent-report<br/>@deepseek-ai/dsh-tool-subagent-report"]
+  cfg --> plugin_tui_tool_subagent_report
   plugin_tui_workflow_workerthread["workflow-workerthread<br/>@deepseek-ai/dsh-workflow-workerthread"]
   cfg --> plugin_tui_workflow_workerthread
   plugin_tui_tool_workflow["tool-workflow<br/>@deepseek-ai/dsh-tool-workflow"]
@@ -193,6 +195,7 @@ flowchart LR
 | `tool-subagent-list-agents` | `@deepseek-ai/dsh-tool-subagent-control/list-agents` |
 | `tool-subagent` | `@deepseek-ai/dsh-tool-subagent` |
 | `tool-subagent-fork` | `@deepseek-ai/dsh-tool-subagent` |
+| `tool-subagent-report` | `@deepseek-ai/dsh-tool-subagent-report` |
 | `workflow-workerthread` | `@deepseek-ai/dsh-workflow-workerthread` |
 | `tool-workflow` | `@deepseek-ai/dsh-tool-workflow` |
 | `timeout-policy` | `@deepseek-ai/dsh-timeout-policy` |

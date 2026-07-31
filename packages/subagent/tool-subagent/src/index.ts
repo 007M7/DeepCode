@@ -246,10 +246,12 @@ export function apply(ctx: Context, config: Config): void {
     disposeTool = ctx.tools.register(defineTool({
       name: config.toolName ?? 'subagent',
       description: wording.description + (backgroundEnabled
+        // The return channel is a separately installed capability this package
+        // cannot observe, so this describes only this call's result.
         ? continuable
           ? ' Set `run_in_background: true` to start a background subagent that keeps its conversation:'
-          + ' you receive its subagent id and it works on its own. It does not report back, so use this'
-          + ' only for work whose result you do not need returned; `send_message` sends it more work.'
+          + ' you receive only its subagent id, never its result, and it works on its own. Use this for'
+          + ' work whose result you do not need returned by this call; `send_message` sends it more work.'
           : ' Set `run_in_background: true` to return a task id; collect with `task_output` and stop with `task_kill`.'
         : ''),
       parameters: {
@@ -267,8 +269,8 @@ export function apply(ctx: Context, config: Config): void {
           run_in_background: {
             type: 'boolean' as const,
             description: continuable
-              ? 'Run as a background subagent that keeps its conversation and return its subagent id. '
-              + 'It does not report its result back; send it more work with send_message.'
+              ? 'Run as a background subagent that keeps its conversation and return only its subagent id. '
+              + 'This call never returns its result; send it more work with send_message.'
               : 'Run as a background task and return its id; collect with task_output or stop with task_kill.',
           },
         } : {},

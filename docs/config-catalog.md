@@ -1936,6 +1936,25 @@ Depends on: [`AgentOptions`](core-data-structures/core.md)
 
 Source: [`packages/subagent/tool-subagent/src/index.ts:25`](../packages/subagent/tool-subagent/src/index.ts)
 
+## `@deepseek-ai/dsh-tool-subagent-report`
+
+Requires: `subagents` · `tools`
+
+```ts config-catalog
+/** Config: how accepted reports are scheduled on the parent. */
+export interface Config {
+  /**
+   * Parent scheduling (default `quiet`). `quiet` adds context without waking;
+   * `wakeup` creates one ordinary later parent turn.
+   */
+  reportDelivery?: SubagentReportDelivery
+}
+```
+
+Depends on: [`SubagentReportDelivery`](core-data-structures/subagent.md)
+
+Source: [`packages/subagent/tool-subagent-report/src/index.ts:22`](../packages/subagent/tool-subagent-report/src/index.ts)
+
 ## `@deepseek-ai/dsh-tool-tasks`
 
 Requires: `tools` · `tasks` · `systemPrompt`

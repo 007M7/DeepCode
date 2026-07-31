@@ -1106,6 +1106,21 @@
     },
     {
       "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportMessageSource",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportDelivery",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
+      "symbol": "SubagentReportOptions",
+      "source": "packages/subagent/subagent/src/continuation.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/subagent.md",
       "symbol": "SubagentFollowupOptions",
       "source": "packages/subagent/subagent/src/continuation.ts"
     },

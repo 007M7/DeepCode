@@ -9,7 +9,7 @@
     ]},
     { "file": "b/child/session.jsonl", "lines": [
       { "type": "session", "id": "eeeeeeee-1111-4222-8333-444444444444", "createdAt": 300, "cwd": "{{CWD}}", "parentSession": "{{SID}}", "delegationDepth": 1 },
-      { "type": "request/header", "seq": 0, "time": 6, "data": { "header": { "config": { "model": "fake" }, "system": "SYS PROMPT", "tools": [{ "name": "t1", "description": "D1", "parameters": { "type": "object" } }] }, "reason": "initial" } }
+      { "type": "request/header", "seq": 0, "time": 6, "data": { "header": { "config": { "model": "fake" }, "system": "SYS PROMPT", "tools": [{ "name": "child-only", "description": "Child D", "parameters": { "type": "object" } }] }, "reason": "initial" } }
     ]}
   ]
 }

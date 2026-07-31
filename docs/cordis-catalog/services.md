@@ -1981,6 +1981,29 @@ async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>
 async followup( parent: Agent, childId: SessionId, content: ContentBlock[], options: SubagentFollowupOptions, ): Promise<MessageId>
 
 /**
+ * Deliver selected content from one live continuable child to its durable
+ * direct parent. The child is the authority credential; callers cannot name a
+ * recipient. Reporting does not conclude the child's turn or Activation.
+ * @param child - exact live reporting child.
+ * @param content - selected model-facing content.
+ * @param options - parent scheduling and pre-acceptance cancellation.
+ * @returns the stable identity of the parent-accepted message.
+ * @throws when continuation services are unavailable, sender authorization
+ *   fails, or the direct parent is not live.
+ */
+async reportFrom( child: Agent, content: ContentBlock[], options: SubagentReportOptions, ): Promise<MessageId>
+
+/**
+ * Compose one deployment capability into every continuable child's
+ * unpublished creation context on fresh creation and cold resume. Grants wait
+ * for the next Activation; removing the contribution revokes every resident
+ * installation immediately.
+ * @param contribution - synchronous child-scope installer.
+ * @returns the exact Cordis effect disposer.
+ */
+registerContinuableSetup(contribution: ContinuableSetupContribution): () => void
+
+/**
  * Close continuable admission below exact live parent Agents, stop only their
  * visible descendant Activations synchronously, then await admitted scoped
  * materializations and release those forests child-first. The scoped cutoff
@@ -1988,7 +2011,7 @@ async followup( parent: Agent, childId: SessionId, content: ContentBlock[], opti
  * remain live.
  * @param parents - exact host-owned parent Agents entering teardown.
  * @returns once every retained descendant Activation released its `AgentHandle`.
- * @throws an aggregate error after all scoped branches settle when any failed.
+ * @throws an aggregate error after all branches settle when any failed.
  */
 async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 
@@ -2047,9 +2070,9 @@ list(): string[]
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
+Types: [Agent](../core-data-structures/core.md) · [ContentBlock](../core-data-structures/core.md) · [ContinuableSetupContribution](../core-data-structures/subagent.md) · [ContinuableStart](../core-data-structures/subagent.md) · [ContinuableStartSpec](../core-data-structures/subagent.md) · [MessageId](../core-data-structures/core.md) · [SessionId](../core-data-structures/core.md) · [SubagentFollowupOptions](../core-data-structures/subagent.md) · [SubagentListEntry](../core-data-structures/subagent.md) · [SubagentProvider](../core-data-structures/subagent.md) · [SubagentReportOptions](../core-data-structures/subagent.md) · [SubagentRun](../core-data-structures/subagent.md) · [SubagentStartRequest](../core-data-structures/subagent.md)
 
-Source: [`packages/subagent/subagent/src/index.ts:156`](../../packages/subagent/subagent/src/index.ts)
+Source: [`packages/subagent/subagent/src/index.ts:163`](../../packages/subagent/subagent/src/index.ts)
 
 ## `ctx.subprocess` — `SubprocessService` (abstract seam)
 

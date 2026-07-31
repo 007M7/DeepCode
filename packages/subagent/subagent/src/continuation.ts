@@ -41,6 +41,8 @@ import { seedDescriptorTurn } from './descriptor-seed.ts'
 import type { ContinuableCreateRequest, ContinuableCreateSpec, SubagentStartRequest } from './types.ts'
 import type { ActivationObserver } from './lifecycle.ts'
 import { SubagentError } from './error.ts'
+import type SubagentActivationSetupRegistry from './activation-setup-registry.ts'
+import type { ActivationSetupTransaction } from './activation-setup-registry.ts'
 
 /** Attribution for a model coordinator's follow-up to one of its children. */
 export interface CoordinatorMessageSource {
@@ -49,10 +51,29 @@ export interface CoordinatorMessageSource {
   readonly senderSessionId: SessionId
 }
 
+/** Durable attribution for a continuable child's explicit parent report. */
+export interface SubagentReportMessageSource {
+  readonly kind: 'subagent-report'
+  /** Session id of the reporting child. */
+  readonly senderSessionId: SessionId
+}
+
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     coordinator: CoordinatorMessageSource
+    'subagent-report': SubagentReportMessageSource
   }
+}
+
+/** Deployment scheduling policy for accepted child reports. */
+export type SubagentReportDelivery = 'quiet' | 'wakeup'
+
+/** Options for one continuable child's report to its direct parent. */
+export interface SubagentReportOptions {
+  /** Already-resolved parent scheduling policy. */
+  readonly delivery: SubagentReportDelivery
+  /** Caller cancellation, owning authorization and admission until acceptance. */
+  readonly signal: AbortSignal
 }
 
 /** What a caller asks for when starting a continuable background child. */
@@ -252,6 +273,7 @@ export class SubagentContinuationManager {
   constructor(
     private readonly ctx: Context,
     private readonly host: ContinuationHost,
+    private readonly setupRegistry: SubagentActivationSetupRegistry,
   ) {
     // Ordinary Cordis owner effects unwind in reverse registration order, which
     // cannot express the dynamic child graph. Register the private scope's
@@ -383,6 +405,113 @@ export class SubagentContinuationManager {
       this.assertAdmitting(parent)
       options.signal.throwIfAborted()
       /* v8 ignore stop */
+    }
+  }
+
+  /**
+   * Deliver explicitly selected content from one resident continuable child to
+   * its durable direct parent. Sender authorization, parent resolution, and
+   * send acceptance share one no-await span. Reporting neither concludes the
+   * child's turn nor changes its Activation lifetime.
+   * @param child - exact live reporting child; this is the authority credential.
+   * @param content - selected model-facing content.
+   * @param options - scheduling policy and pre-acceptance cancellation.
+   * @returns the stable identity of the message accepted by the parent.
+   * @throws {SubagentError} when the sender is unauthorized, the parent is not
+   *   live, or continuation admission is closing.
+   */
+  // oxlint-disable-next-line typescript/require-await -- keep rejection semantics without yielding during admission
+  async reportFrom(
+    child: Agent,
+    content: ContentBlock[],
+    options: SubagentReportOptions,
+  ): Promise<MessageId> {
+    options.signal.throwIfAborted()
+    this.assertAdmitting(child)
+    const activation = this.authorizeReporter(child)
+    const parent = this.resolveReportParent(child)
+    return this.deliverReport(activation, parent, content, options.delivery)
+  }
+
+  /** Authorize only the exact Agent of one resident Activation. */
+  private authorizeReporter(child: Agent): Activation {
+    const activation = this.activations.get(child.id)
+    if (activation === undefined || activation.handle.agent !== child) {
+      throw new SubagentError(
+        `agent "${child.id}" is not a live continuable subagent and cannot report`,
+        'UNAUTHORIZED',
+      )
+    }
+    /* v8 ignore next 6 -- only a synchronous re-entrant disposer can open this
+     * transaction between exact-agent authorization and this no-await cutoff. */
+    if (activation.disposal !== undefined) {
+      throw new SubagentError(
+        `subagent "${child.id}" activation is being disposed; the report was not delivered`,
+        'ACTIVATION_CLOSING',
+      )
+    }
+    return activation
+  }
+
+  /** Resolve the reporting child's live direct parent from durable lineage. */
+  private resolveReportParent(child: Agent): Agent {
+    const parentId = child.session.header.parentSession
+    /* v8 ignore next -- every continuation-managed child has direct-parent metadata. */
+    const parent = parentId === undefined ? undefined : this.ctx.agents.get(parentId)
+    if (parent === undefined) {
+      throw new SubagentError(
+        'direct parent is not live; report was not delivered',
+        'PARENT_UNAVAILABLE',
+      )
+    }
+    return parent
+  }
+
+  /** Deliver one framed report through the selected parent scheduling preset. */
+  private deliverReport(
+    activation: Activation,
+    parent: Agent,
+    content: ContentBlock[],
+    delivery: SubagentReportDelivery,
+  ): MessageId {
+    const message = createUserMessage({
+      content: [
+        { type: 'text' as const, text: `Background subagent ${activation.childId} reported:` },
+        ...content,
+      ],
+      source: {
+        kind: 'subagent-report' as const,
+        senderSessionId: activation.childId,
+      },
+    })
+    const parentActivation = this.activations.get(parent.id)
+    if (delivery === 'wakeup'
+      && parentActivation !== undefined
+      && parentActivation.handle.agent === parent) {
+      this.admitWaking(parentActivation, message.id, () => {
+        this.sendReport(parent, message, delivery)
+      })
+    } else {
+      this.sendReport(parent, message, delivery)
+    }
+    return message.id
+  }
+
+  /** Send one report while translating only the parent's own rejection. */
+  private sendReport(
+    parent: Agent,
+    message: ReturnType<typeof createUserMessage>,
+    delivery: SubagentReportDelivery,
+  ): void {
+    try {
+      if (delivery === 'wakeup') parent.followup(message)
+      else parent.inject(message)
+    } catch (error: unknown) {
+      throw new SubagentError(
+        'direct parent is not live; report was not delivered',
+        'PARENT_UNAVAILABLE',
+        { cause: error },
+      )
     }
   }
 
@@ -671,7 +800,11 @@ export class SubagentContinuationManager {
     // `AgentRegistry.enter()` is the authoritative collision boundary for an id
     // some other owner holds — a duplicate would reject there with rollback.
     inputs.signal.throwIfAborted()
-    const setup = (childCtx: Context): void => { applyChildComposition(childCtx, inputs.composition) }
+    let setupTransaction!: ActivationSetupTransaction
+    const setup = (childCtx: Context): void => {
+      applyChildComposition(childCtx, inputs.composition)
+      setupTransaction = this.setupRegistry.apply(childCtx)
+    }
     const observer = this.host.observeActivation(provider, childId, parent)
     const { create } = inputs
     // Agent creation owns rollback before handle transfer. A rejection leaves
@@ -709,6 +842,7 @@ export class SubagentContinuationManager {
     try {
       inputs.signal.throwIfAborted()
       this.assertAdmitting(parent)
+      setupTransaction.assertIntact()
       this.acquireOwnership(parent, childId)
       // Every accepted id leaves the inbox exactly once, through dequeue or
       // discard. Clearing it there is what lets `stateOf()` distinguish a truly
@@ -726,8 +860,10 @@ export class SubagentContinuationManager {
         for (const item of items) activation.accepted.delete(item.message.id)
         this.wake(activation)
       })
-      // Resident: publish the start edge before any turn can run, so observers
-      // see this epoch before its first request.
+      // Resident setup revokes live from here instead of invalidating creation.
+      setupTransaction.commit()
+      // Publish the start edge before any turn can run, so observers see this
+      // epoch before its first request.
       observer.start(handle.agent)
     } catch (error: unknown) {
       // Listener exceptions are contained by the lifecycle emitter; a start
@@ -803,19 +939,36 @@ export class SubagentContinuationManager {
     // establish it before the message can enter the child's inbox.
     this.acquireOwnership(parent, activation.childId)
     const message = createUserMessage({ content, source })
-    // `Agent.followup()` publishes `agent/inbox/enqueue` synchronously, so its
-    // observers must see this Activation as busy before the call begins.
-    activation.accepted.add(message.id)
-    try {
+    return this.admitWaking(activation, message.id, () => {
       activation.handle.agent.followup(message)
+    })
+  }
+
+  /**
+   * Account one waking send across a resident Activation's settlement window.
+   * @param activation - Activation receiving waking inbox work.
+   * @param messageId - stable identity of the message about to be sent.
+   * @param send - synchronous send that publishes one enqueue occurrence.
+   * @returns the accepted message id.
+   */
+  private admitWaking(
+    activation: Activation,
+    messageId: MessageId,
+    send: () => void,
+  ): MessageId {
+    // `Agent.followup()` publishes inbox events synchronously, so observers must
+    // see this Activation as busy before the call begins.
+    activation.accepted.add(messageId)
+    try {
+      send()
     } catch (error: unknown) {
-      activation.accepted.delete(message.id)
+      activation.accepted.delete(messageId)
       throw error
     }
     // Accepted waking work keeps this Activation live until whenIdle() observes
     // the complete waking suffix.
     this.wake(activation)
-    return message.id
+    return messageId
   }
 
   /**

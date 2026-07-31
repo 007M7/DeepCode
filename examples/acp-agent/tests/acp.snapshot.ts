@@ -226,6 +226,7 @@ const SCENARIOS: Scenario[] = [
     name: 'subagent-continuable',
     hasModelTurn: true,
     recorded: false,
+    pinsChildToolSchemas: [1],
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
   // The in-process child is published before its first follow-up fails. The
@@ -239,12 +240,26 @@ const SCENARIOS: Scenario[] = [
     overridden: true,
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
+  // Authored child-to-parent transcript: the child calls its scope-local
+  // `report`, quiet delivery reaches the idle parent without waking it, and a
+  // later parent turn consumes the logged report.
+  {
+    name: 'subagent-report',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+  },
   // Authored durable-catalog transcript: the snapshot-only lifecycle marker
   // fences the second parent turn behind the child's Activation end, so
   // `list_agents` deterministically reads the persisted child as complete.
   // The tool itself executes for real against the control service, session
   // query, and JSONL persistence; the marker is not model-visible.
-  { name: 'subagent-list-agents', hasModelTurn: true, recorded: false },
+  {
+    name: 'subagent-list-agents',
+    hasModelTurn: true,
+    recorded: false,
+    pinsChildToolSchemas: [1],
+  },
   {
     name: 'subagent-depth-two-rejection',
     hasModelTurn: true,

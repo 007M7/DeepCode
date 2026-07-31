@@ -279,6 +279,10 @@
     toolName: subagent_fork
     backgroundMode: continuable
 
+# Optional direct-child return channel; absent from roots and one-shot agents.
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
+
 - id: workflow-workerthread
   name: '@deepseek-ai/dsh-workflow-workerthread'
   config:
