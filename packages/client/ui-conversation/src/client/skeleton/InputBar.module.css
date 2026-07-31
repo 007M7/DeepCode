@@ -23,7 +23,7 @@
   /* figma Input_Bottom: pad L32/R32/B8; the bottom gradient mask is owned by
      the chat scroller. No top pad: the composer stack's gap owns the space
      above; error/status strips still carry their own margin. */
-  padding: 0 32px 8px;
+  padding: 0 var(--dsh-composer-side-clearance) 8px;
 }
 
 .hero {
@@ -33,7 +33,7 @@
 .error,
 .status {
   width: 100%;
-  max-width: 800px;
+  max-width: var(--dsh-composer-card-max-width);
   margin-bottom: 6px;
   padding: 4px 8px;
   border-radius: 8px;
@@ -48,7 +48,7 @@
 
 .notice {
   width: 100%;
-  max-width: 800px;
+  max-width: var(--dsh-composer-card-max-width);
   margin-bottom: 6px;
   padding: 4px 8px;
   border-radius: 8px;
@@ -69,6 +69,7 @@
 }
 
 .card {
+  box-sizing: border-box;
   position: relative; /* overlay anchor positioning context */
   display: flex;
   flex-direction: column;
@@ -76,7 +77,7 @@
      top pad on the card before .InputText. */
   gap: 12px;
   width: 100%;
-  max-width: 800px;
+  max-width: var(--dsh-composer-card-max-width);
   padding-top: 10px;
   /* Input stroke: black/0.10 light, white/0.06 dark (figma darkmode note says
      the input border is one notch weaker than buttons) — exactly the

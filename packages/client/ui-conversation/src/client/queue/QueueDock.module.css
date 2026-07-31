@@ -1,10 +1,21 @@
-/* Figma .FileContainerText 1:791: 776px wrapper around the inset 752px panel. */
+/* Figma .FileContainerText 1:791: the wrapper uses the shared dock inset
+   inside the composer card around the inset panel. */
 
 .dock {
   box-sizing: border-box;
   flex: none;
-  width: 100%;
-  max-width: 776px;
+  width: calc(
+    100% -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-side-clearance) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
+  max-width: calc(
+    var(--dsh-composer-card-max-width) -
+    var(--dsh-composer-dock-inset) -
+    var(--dsh-composer-dock-inset)
+  );
   /* Flex gap still applies after this item; subtract it together with the
      design's overlap so the later composer paints over the queue edge. */
   margin: 0 auto calc(
