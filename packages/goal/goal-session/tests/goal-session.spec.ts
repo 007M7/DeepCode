@@ -295,8 +295,8 @@ describe('same-session goal driving', () => {
 
     expect(goal).toMatchObject({ roundsStarted: 0, activation: 'disarmed' })
     expect(test.adapter.requests).toHaveLength(0)
-    // No admitted continuation round (positive round); goal state changes
-    // (round zero) are expected in the log.
+    // No admitted continuation round reached the model; goal state changes are
+    // represented by their own durable event.
     expect(test.agent.session.events.some(event => event.type === 'user/message'
       && event.data.source.kind === 'goal' && event.data.source.round > 0)).toBe(false)
   })

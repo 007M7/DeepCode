@@ -125,39 +125,18 @@ describe('goal projection unit', () => {
     }
   })
 
-  it('does not revive a cleared goal when its create message is reinserted', async () => {
+  it('does not let inbox changes revive a cleared goal', async () => {
     const bench = await harness(true)
     const created = bench.ctx.goals.create(bench.agent, { objective: 'stay cleared' })
-    const createMessage = bench.agent.inbox.nextStep.find(message => message.source.kind === 'goal'
-      && message.source.change?.operation === 'create')
-    if (createMessage === undefined) throw new Error('missing create message')
     bench.ctx.goals.clear(bench.agent, created)
 
-    bench.agent.inbox.claim('next-step')
-    bench.agent.inbox.prepend('next-step', createMessage)
+    bench.agent.inbox.prepend('next-step', createUserMessage({
+      content: [{ type: 'text', text: 'unrelated pending context' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    }))
 
     expect(bench.tailValues().goal).toBeNull()
     expect(foldGoal(bench.session.events).goal).toBeUndefined()
-  })
-
-  it('does not regress a goal revision when its create message is reinserted', async () => {
-    const bench = await harness(true)
-    const created = bench.ctx.goals.create(bench.agent, { objective: 'first revision' })
-    const createMessage = bench.agent.inbox.nextStep.find(message => message.source.kind === 'goal'
-      && message.source.change?.operation === 'create')
-    if (createMessage === undefined) throw new Error('missing create message')
-    const edited = bench.ctx.goals.edit(bench.agent, created, { objective: 'second revision' })
-
-    bench.agent.inbox.claim('next-step')
-    bench.agent.inbox.prepend('next-step', createMessage)
-
-    expect(bench.tailValues().goal).toMatchObject({
-      goal: { revision: edited.revision, objective: 'second revision' },
-    })
-    expect(foldGoal(bench.session.events).goal).toMatchObject({
-      revision: edited.revision,
-      objective: 'second revision',
-    })
   })
 
   it('ignores non-goal and malformed goal-shaped events fail-soft (same reference)', () => {
@@ -171,28 +150,22 @@ describe('goal projection unit', () => {
     })
     const user = { type: 'user/message', seq: 0, time: 1, data: plainUser } as never
     const state = { goal: { id: 'g1', revision: 1, objective: 'x', phase: 'active', maxGoalRounds: 4 }, roundsStarted: 0, createdAt: 1, updatedAt: 1 } as never
-    const empty = [null, []] as const
+    const empty = null
     expect(applyGoalProjection(empty, user)).toBe(empty)
     const queuedUser = {
       type: 'agent/inbox/spliced', seq: 1, time: 2,
       data: { target: 'next-step', start: 0, inserted: [plainUser] },
     } as never
-    const current = [state, []] as const
+    const current = state
     expect(applyGoalProjection(current, queuedUser)).toBe(current)
 
-    const malformedMessage = createUserMessage({
-      content: [{ type: 'text', text: 'broken' }],
-      source: { kind: 'goal', goalId: 'g-broken', revision: 1, round: 0 } as never,
-    })
-    const malformed = { type: 'user/message', seq: 1, time: 2, data: malformedMessage } as never
+    const malformed = {
+      type: 'goal/change', seq: 1, time: 2,
+      data: { kind: 'goal/change', version: 1, operation: 'create' },
+    } as never
     // Same-reference return: the registry's Object.is gate sees no change.
     expect(applyGoalProjection(current, malformed)).toBe(current)
     expect(applyGoalProjection(empty, malformed)).toBe(empty)
-    const queuedMalformed = {
-      type: 'agent/inbox/spliced', seq: 2, time: 3,
-      data: { target: 'next-step', start: 0, inserted: [malformedMessage] },
-    } as never
-    expect(applyGoalProjection(current, queuedMalformed)).toBe(current)
 
     const queuedRound = {
       type: 'agent/inbox/spliced', seq: 3, time: 4,
@@ -203,29 +176,14 @@ describe('goal projection unit', () => {
     } as never
     expect(applyGoalProjection(current, queuedRound)).toBe(current)
 
-    const validGoalUser = { type: 'user/message', seq: 2, time: 3, data: createUserMessage({
-      content: [{ type: 'text', text: 'legacy direct change' }],
-      source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0, change: { kind: 'goal/change' } } as never,
-    }) } as never
-    expect(applyGoalProjection(empty, validGoalUser)).toBe(empty)
-
     // A non-message event (the registry drives EVERY committed event through
     // apply): early same-reference return.
     const turnStart = { type: 'turn/start', seq: 3, time: 4, data: { turn: 1 } } as never
     expect(applyGoalProjection(current, turnStart)).toBe(current)
 
-    // A round-zero goal source whose change carries a foreign kind: same posture.
-    const foreignMessage = createUserMessage({
-      content: [{ type: 'text', text: 'foreign' }],
-      source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0, change: { kind: 'not-a-goal-change' } } as never,
-    })
-    const foreignKind = { type: 'user/message', seq: 2, time: 3, data: foreignMessage } as never
+    // A goal/change event whose payload carries a foreign kind is ignored.
+    const foreignKind = { type: 'goal/change', seq: 4, time: 5, data: { kind: 'not-a-goal-change' } } as never
     expect(applyGoalProjection(current, foreignKind)).toBe(current)
-    const queuedForeignKind = {
-      type: 'agent/inbox/spliced', seq: 4, time: 5,
-      data: { target: 'next-step', start: 0, inserted: [foreignMessage] },
-    } as never
-    expect(applyGoalProjection(current, queuedForeignKind)).toBe(current)
   })
 
   it('has no goal key when the goal service is not composed', async () => {

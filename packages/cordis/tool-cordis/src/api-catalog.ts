@@ -1328,7 +1328,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'goal/changed',
     mode: 'emit',
     signature: '\'goal/changed\'(this: import(\'@deepseek-ai/dsh-scope\').Scoped<Agent>, agent: Agent, change: GoalChanged): void',
-    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching message has\n * already committed through a durable inbox insertion; later admission or\n * discard does not change that fact. Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
+    jsDoc: '/**\n * Goal mutation accepted by one live agent. The matching `goal/change`\n * session event has already committed. Listener failures are contained.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @param agent - agent whose session owns the goal.\n * @param change - fresh current projection or clear tombstone.\n * @mode emit\n */',
     summary: 'Goal mutation accepted by one live agent.',
   },
   {

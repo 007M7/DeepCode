@@ -18,7 +18,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 **context/message 已移除。** 注入的上下文在 inbox 中使用同一个 `UserMessage` 值，并在获准时成为 `user/message` 事件；上下文生产方显式提供合适的非 `user` 类别 `source`，类型化 source 变体携带所有特定于领域的持久来源信息。对外接口、派生逻辑和 `SurfaceEventType` 都不再包含 `context/message`；需要判断“这是不是一条人类提示词？”的消费方改为读取 `source.kind === 'user'`，而不是事件类型。
 
-**goal 回放靠 Round 而非类型来区分。** 一次 goal 状态变更会作为 Round 为 0、来源为 goal 的消息，在持久 inbox 插入项中提交；正数 Round 只从已准入的继续执行 `user/message` 推进。如果状态变更消息随后获准，回放会检查其 id、内容和类型化 source 是否与插入项一致，而不会再次应用变更。
+**Goal 继续执行归属使用正数 Round。** Goal 生命周期状态通过后续 [Goal 自有持久事件决策](2026-07-31-goal-owned-durable-events.md)定义的领域自有 `goal/change` 事件提交。正数 Round 只从已准入的继续执行 `user/message` 推进；goal 持久化不使用注入或 inbox 状态。
 
 **`send` 不返回标识。** 调用方已经持有完整消息及其不透明的 `MessageId`；消息的创建与冻结由[带标识的不可变消息值决策](2026-07-28-identified-immutable-message-values.md)负责，而不是由路由负责。
 
@@ -41,7 +41,7 @@ agent 的对外驱动接口逐渐长出三个近乎平行的动词——`send`�
 
 ## 后果
 
-投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。同一个带标识消息值同时服务提示词、注入的上下文和 Goal Round，因此每一处“是否人类提示词？”检查都简化为一次 `source` 判断。`Agent` 契约仍是接口，因此其他实现和对象字面量形式的测试替身只需实现同一个最小结构接口。goal 变更从持久 inbox 插入项折叠，而正数 Round 从已准入的 `user/message` 事件折叠。空闲注入会保持待处理，不打开轮次也不运行模型；后续会唤醒的投递在 pre-step 将其放入进入步骤的批次时，它才成为 `user/message`。
+投递接口现在是一个原语加三个自解释的预设，(`target` × `wakeup`) 矩阵把此前无法表达的组合显式化。同一个带标识消息值同时服务提示词、注入的上下文和 Goal Round，因此每一处“是否人类提示词？”检查都简化为一次 `source` 判断。`Agent` 契约仍是接口，因此其他实现和对象字面量形式的测试替身只需实现同一个最小结构接口。正数 Goal Round 从已准入的 `user/message` 事件折叠，而 goal 生命周期状态位于投递接口之外。空闲注入会保持待处理，不打开轮次也不运行模型；后续会唤醒的投递在 pre-step 将其放入进入步骤的批次时，它才成为 `user/message`。
 
 `wakeup` 是“模型是否应当运行”的信号，因此 inbox 会区分能唤醒的排队工作与任何可领取的项：一个孤立的 `next-turn`/no-wakeup 队列项会停泊在空闲状态，并随下一次唤醒 send 一同带出，而 `whenIdle`/`cancel` 依据唤醒信号来结算完全停稳。每次插入与退出都会发布对应的实时通知，特定于领域的持久事实则通过类型化消息 source 传递，而非通过平行的元数据通道。直接使用待处理消息的表示方式，使持久 splice 与实时事件保持可关联，既无需维护第二个 steering 包装层，也避免数据发生分歧。后续的[已领取 pre-step inbox 生命周期](2026-07-31-claimed-pre-step-inbox-lifecycle.md)决策保留通过 `MessageId` 寻址的实时队列变更，并把单消息生命周期通知与持久的整体队列 splice 投影分离。
 

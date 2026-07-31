@@ -16,7 +16,7 @@ import { createUserMessage,
   type LlmModelReasoningInfo,
   createMessage,
 } from '@deepseek-ai/dsh-llm'
-import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
+import { GOAL_CHANGE_VERSION, GoalId, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
 import { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
@@ -1239,19 +1239,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     }
     const result = await setup({
       beforeMount(session) {
-        const message = createUserMessage({
-          content: renderGoalChange(change),
-          source: {
-            kind: 'goal',
-            goalId: change.goal.id,
-            revision: change.goal.revision,
-            round: 0,
-            change,
-          },
-        })
-        session.append('agent/inbox/spliced', {
-          target: 'next-step', start: 0, inserted: [message],
-        })
+        session.append('goal/change', change)
       },
     })
     expect(result.terminal.output).toContain('Goal restored (active) with automatic continuation disarmed')
@@ -1380,7 +1368,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // A non-plugin injected source (goal) has no `plugin` field, so its context
     // card label falls back to the source kind.
     result.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 0 } as never,
+      content: [{ type: 'text', text: 'goal context' }], source: { kind: 'goal', goalId: 'g1', revision: 1, round: 1 } as never,
     }), { surfaceOp: 'append' })
     appendAssistant(result.session, [])
     result.session.append('step/end', { turn: 1, step: 1 })

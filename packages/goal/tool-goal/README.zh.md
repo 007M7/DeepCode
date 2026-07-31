@@ -61,15 +61,15 @@ Use goal tools for one long-running completion objective in the current session.
 
 #### 模型看到的内容
 
-生成的 [`get_goal`、`create_goal` 和 `update_goal` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal)。成功结果是紧凑 JSON。变更会在工具批次结束后将 goal 领域的原始 `<goal_state>` 快照排队；后续 pre-step 可以准入它，而丢弃已排队的上下文不会回滚持久变更。结果中的 `activation` 是实时观察值，绝不会成为回放权限依据。
+生成的 [`get_goal`、`create_goal` 和 `update_goal` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-goal)。成功结果是紧凑 JSON。变更会追加 goal 领域的持久 `goal/change` 事件，而不会把模型上下文排队。结果中的 `activation` 是实时观察值，绝不会成为回放权限依据。
 
 #### Token 影响
 
-固定 schema 成本，加上每次调用的一条紧凑结果。获准的变更上下文会保留领域快照，直到压缩（compaction）；准入前被丢弃的上下文不增加模型 token。
+固定 schema 成本，加上每次调用的一条紧凑结果。持久变更不会增加单独的模型可见上下文。
 
 #### KV Cache 影响
 
-schema 的定义与可见性不变时，前缀保持稳定。调用、结果和已准入的 goal 快照会追加到可复用请求前缀之后，不会使更早条目失效。
+schema 的定义与可见性不变时，前缀保持稳定。调用和结果会追加到可复用请求前缀之后，不会使更早条目失效。
 
 ## 已知限制与暂缓事项
 

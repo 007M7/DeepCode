@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import {
   GoalId,
-  renderGoalChange,
   type GoalSnapshotChangeMeta,
   type GoalView,
 } from '@deepseek-ai/dsh-goal'
@@ -28,29 +27,12 @@ const change: GoalSnapshotChangeMeta = {
   updatedAt: 1,
 }
 
-const changeSource = {
-  kind: 'goal',
-  goalId: change.goal.id,
-  revision: change.goal.revision,
-  round: 0,
-  change,
-} as const
-
 function view(roundsStarted: number): GoalView {
   return { ...change.goal, roundsStarted, createdAt: 1, updatedAt: 1, activation: 'armed' }
 }
 
 function appendChange(session: Session): void {
-  const message = createUserMessage({
-    content: renderGoalChange(change),
-    source: changeSource,
-  })
-  session.append('agent/inbox/spliced', {
-    target: 'next-step', start: 0, inserted: [message],
-  })
-  session.append('turn/start', { turn: 1 })
-  session.append('user/message', message, { surfaceOp: 'append' })
-  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  session.append('goal/change', change)
 }
 
 function appendRound(session: Session, turn: number, content = renderGoalRoundPrompt(view(turn - 2), turn - 1)): void {
@@ -93,7 +75,9 @@ describe('goal-session prompt invariants', () => {
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn: 4, reason: { kind: 'completed' } })
 
-    const stateSource = { ...changeSource, round: 0 } as const
+    const stateSource = {
+      kind: 'goal', goalId: change.goal.id, revision: change.goal.revision, round: 0,
+    } as never
     session.append('turn/start', { turn: 5 })
     expect(() => {
       session.append('user/message', createUserMessage({
@@ -132,12 +116,7 @@ describe('goal-session prompt invariants', () => {
 
   it('attributes an invalid durable prefix during late loading', async () => {
     const { ctx, session } = await mount(true)
-    session.append('turn/start', { turn: 1 })
-    session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'counterfeit goal state' }],
-      source: changeSource,
-    }), { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('goal/change', { ...change, extra: true } as never)
     appendRound(session, 2)
     await ctx.plugin(InvariantService, { enabled: true })
 

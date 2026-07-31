@@ -296,7 +296,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-goal',
     source: 'packages/goal/tool-goal/src/index.ts',
     requires: ['ctx.tools', 'ctx.agents', 'ctx.goals', 'ctx.systemPrompt', 'a calling Agent in an authorized open turn'],
-    writes: ['tool/call', 'agent/inbox/spliced goal snapshot for mutations', 'tool/result'],
+    writes: ['tool/call', 'goal/change for mutations', 'tool/result'],
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(GoalService)

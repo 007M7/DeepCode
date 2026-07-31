@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-19-persisted-same-session-goal-domain.md
-2026-07-19-persisted-same-session-goal-domain.md: 7b09676e023b909da8c5a54ae0efa901b1d201e8
-2026-07-19-persisted-same-session-goal-domain.zh.md: 1bb9aab9d810719d0d0cee3a15d1cc2bc8354db7
+2026-07-19-persisted-same-session-goal-domain.md: ce93a652f3910912fbf6afc28061de4d13eb2de2
+2026-07-19-persisted-same-session-goal-domain.zh.md: 15f406281bb284ddb5b54ceabc56db8810c65b77

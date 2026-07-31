@@ -2,8 +2,6 @@
 
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { UserMessage } from '@deepseek-ai/dsh-session'
-import { renderGoalChange } from './render.ts'
 import { GOAL_CHANGE_VERSION, GoalId } from './runtime.ts'
 import type { GoalBlockReason, GoalPhase, GoalRef, GoalSnapshot } from './types.ts'
 import type {
@@ -33,7 +31,6 @@ export interface GoalFoldState {
   updatedAt: number | undefined
   lastRef: GoalRef | undefined
   seenGoalIds: Set<GoalSnapshot['id']>
-  insertedChangeMessages: Map<UserMessage['id'], GoalChangeMeta>
 }
 
 /**
@@ -48,7 +45,6 @@ export function emptyGoalFoldState(): GoalFoldState {
     updatedAt: undefined,
     lastRef: undefined,
     seenGoalIds: new Set(),
-    insertedChangeMessages: new Map(),
   }
 }
 
@@ -180,7 +176,7 @@ function goalSource(source: MessageSource): GoalMessageSource | undefined {
   if (source.kind !== 'goal') return undefined
   if (typeof source.goalId !== 'string' || source.goalId.length === 0
     || !Number.isSafeInteger(source.revision) || source.revision < 1
-    || !Number.isSafeInteger(source.round) || source.round < 0) {
+    || !Number.isSafeInteger(source.round) || source.round < 1) {
     throw new Error('goal message source is invalid')
   }
   return source
@@ -308,80 +304,21 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
 }
 
 /**
- * Decode and verify one goal state message without folding it. A goal state
- * message has a round-zero goal source carrying the complete change; any other
- * message returns `undefined`. Attribution and rendered-body drift fail loudly.
- * @param message - inserted or admitted message to decode.
- * @param location - event location included in replay failures.
- * @returns validated change, or `undefined` when the message is not a goal state change.
- */
-function decodeGoalMessage(message: UserMessage, location: string): GoalChangeMeta | undefined {
-  const source = goalSource(message.source)
-  if (source === undefined) {
-    const [block] = message.content
-    if (block?.type === 'text' && block.text.startsWith('<goal_state>')) {
-      throw new Error(`goal change at ${location} has mismatched source attribution`)
-    }
-    return undefined
-  }
-  if (source.round !== 0) return undefined
-  const change = decodeGoalChange(source.change)
-  if (change === undefined) throw new Error(`goal change at ${location} lacks source change data`)
-  const ref = goalChangeRef(change)
-  if (source.goalId !== ref.id || source.revision !== ref.revision) {
-    throw new Error(`goal change at ${location} has mismatched source attribution`)
-  }
-  if (JSON.stringify(message.content) !== JSON.stringify(renderGoalChange(change))) {
-    throw new Error(`goal change at ${location} has mismatched model-visible content`)
-  }
-  return change
-}
-
-/**
  * Apply one session event to the strict durable goal fold.
  * @param state - mutable fold accumulator.
  * @param event - next event in sequence order.
  */
 export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): void {
-  if (event.type === 'agent/inbox/spliced') {
-    for (const message of event.data.inserted) {
-      const location = `session event ${event.seq}`
-      const change = decodeGoalMessage(message, location)
-      if (change === undefined) continue
-      const inserted = state.insertedChangeMessages.get(message.id)
-      if (inserted !== undefined) {
-        if (JSON.stringify(inserted) !== JSON.stringify(change)) {
-          throw new Error(`goal change at ${location} reuses a message id with different change data`)
-        }
-        continue
-      }
-      applyGoalChange(state, change)
-      state.insertedChangeMessages.set(message.id, change)
-    }
+  if (event.type === 'goal/change') {
+    const change = decodeGoalChange(event.data)
+    /* v8 ignore next -- the event's declared payload always identifies itself as a goal change. */
+    if (change === undefined) throw new Error(`goal change at session event ${event.seq} has an invalid kind`)
+    applyGoalChange(state, change)
     return
   }
   if (event.type === 'user/message') {
-    const inserted = state.insertedChangeMessages.get(event.data.id)
-    const change = decodeGoalMessage(event.data, `session event ${event.seq}`)
-    if (inserted !== undefined && change !== undefined) {
-      if (JSON.stringify(inserted) !== JSON.stringify(change)) {
-        throw new Error(`goal change at session event ${event.seq} differs from its inbox insertion`)
-      }
-      return
-    }
-    if (change !== undefined) {
-      throw new Error(`goal change at session event ${event.seq} was not committed by an inbox insertion`)
-    }
     const source = goalSource(event.data.source)
     if (source === undefined) return
-    // A goal-sourced message without a change must be a positive-round
-    // admitted continuation prompt; round zero owes a durable source change.
-    /* v8 ignore next 3 -- decodeGoalMessage returns the change or fails loud for every
-       round-zero goal source, so only positive rounds reach here; the guard keeps
-       replay fail-loud against a decoder change */
-    if (source.round === 0) {
-      throw new Error(`goal source at session event ${event.seq} lacks goal change data`)
-    }
     const current = state.goal
     if (current === undefined || current.phase !== 'active' || source.goalId !== current.id
       || source.revision !== current.revision || source.round !== state.roundsStarted + 1

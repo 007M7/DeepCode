@@ -11,17 +11,16 @@ import { z as zod } from 'zod'
 import type { ZodType } from 'zod'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import {
   applyGoalEvent,
+  decodeGoalChange,
   emptyGoalFoldState,
   goalChangeRef,
 } from './fold.ts'
 import type { GoalFoldState } from './fold.ts'
-import { renderGoalChange } from './render.ts'
 import {
   GOAL_CHANGE_VERSION,
   GoalError,
@@ -54,7 +53,6 @@ export type * from './types.ts'
 export type * from './domain.ts'
 export { GOAL_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
 export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
-export { renderGoalChange } from './render.ts'
 
 declare module 'cordis' {
   interface Context {
@@ -80,12 +78,6 @@ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
   zod.null(),
 ]) as ZodType<GoalProjection | null>
 
-/** Plain-JSON projection accumulator retaining duplicate-change identity. */
-type GoalProjectionState = readonly [
-  value: GoalProjection | null,
-  insertedChangeMessageIds: readonly string[],
-]
-
 /**
  * Light last-wins fold of the `goal` projection unit. Unlike the strict
  * replay fold (fold.ts: transition validation, fail-loud on malformed
@@ -99,31 +91,23 @@ type GoalProjectionState = readonly [
  * @param event - the next committed session event.
  * @returns the next projection (same reference when the event is not a goal change).
  */
-export function applyGoalProjection(state: GoalProjectionState, event: SessionEvent): GoalProjectionState {
-  if (event.type !== 'agent/inbox/spliced') return state
-  let projection = state[0]
-  let insertedChangeMessageIds: string[] | undefined
-  const seen = new Set(state[1])
-  for (const message of event.data.inserted) {
-    const source = message.source
-    const change = source.kind === 'goal' && source.round === 0 ? source.change : undefined
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- durable-boundary guard
-    if (seen.has(message.id) || change === undefined || change.kind !== 'goal/change') continue
-    seen.add(message.id)
-    insertedChangeMessageIds ??= [...state[1]]
-    insertedChangeMessageIds.push(message.id)
-    projection = change.operation === 'clear'
-      ? null
-      : {
-        goal: change.goal,
-        roundsStarted: change.roundsStarted,
-        createdAt: change.createdAt,
-        updatedAt: change.updatedAt,
-      }
+export function applyGoalProjection(state: GoalProjection | null, event: SessionEvent): GoalProjection | null {
+  if (event.type !== 'goal/change') return state
+  let change: GoalChangeMeta | undefined
+  try {
+    change = decodeGoalChange(event.data)
+  } catch (_invalidPersistedGoalChange) {
+    return state
   }
-  return insertedChangeMessageIds === undefined
-    ? state
-    : [projection, insertedChangeMessageIds]
+  if (change === undefined) return state
+  return change.operation === 'clear'
+    ? null
+    : {
+      goal: change.goal,
+      roundsStarted: change.roundsStarted,
+      createdAt: change.createdAt,
+      updatedAt: change.updatedAt,
+    }
 }
 
 /** Deployment defaults for goal creation. */
@@ -138,12 +122,12 @@ export interface ResolvedConfig {
   defaultMaxGoalRounds: number
 }
 
-/** Process-local cache plus activation intent crossing the synchronous injection boundary. */
+/** Process-local cache plus activation intent crossing the synchronous append boundary. */
 interface GoalCache {
   readonly state: GoalFoldState
   activation: GoalActivation
   observedSeq: number
-  readonly pendingActivations: Map<UserMessage['id'], GoalActivation>
+  pendingActivation: { readonly seq: number; readonly activation: GoalActivation } | undefined
 }
 
 /** Validated create input with every deployment default materialized. */
@@ -216,13 +200,13 @@ export class GoalService extends Service {
     // (see applyGoalProjection). The unit child activates only when a
     // projection registry is composed (headless assemblies stay unaffected).
     ctx.inject(['sessionProjections'], (projectionCtx) => {
-      projectionCtx.sessionProjections.register<'goal', GoalProjectionState>({
+      projectionCtx.sessionProjections.register<'goal', GoalProjection | null>({
         key: 'goal',
         schema: goalProjectionSchema,
-        init: () => [null, []],
+        init: () => null,
         apply: applyGoalProjection,
-        view: state => state[0],
-        stateVersion: 3,
+        view: state => state,
+        stateVersion: 4,
       })
     })
   }
@@ -436,7 +420,7 @@ export class GoalService extends Service {
       state,
       activation: 'disarmed',
       observedSeq: session.seq,
-      pendingActivations: new Map(),
+      pendingActivation: undefined,
     }
     this.caches.set(session, cache)
     return cache
@@ -445,14 +429,11 @@ export class GoalService extends Service {
   /** Incrementally observe durable events and reconcile local activation intent. */
   private sync(session: Session, cache: GoalCache): void {
     for (const event of session.events.slice(cache.observedSeq)) {
-      const newGoalMessages = event.type === 'agent/inbox/spliced'
-        ? event.data.inserted.filter(message => message.source.kind === 'goal'
-          && message.source.round === 0 && !cache.state.insertedChangeMessages.has(message.id))
-        : []
       applyGoalEvent(cache.state, event)
-      for (const message of newGoalMessages) {
-        cache.activation = cache.pendingActivations.get(message.id) ?? 'disarmed'
-        cache.pendingActivations.delete(message.id)
+      if (event.type === 'goal/change') {
+        cache.activation = cache.pendingActivation?.seq === event.seq
+          ? cache.pendingActivation.activation
+          : 'disarmed'
       }
       cache.observedSeq += 1
     }
@@ -545,28 +526,20 @@ export class GoalService extends Service {
     }
     this.commit(agent, cache, change, activation)
     const view = this.view(cache)
-    /* v8 ignore next -- the durable inbox insertion installs the snapshot before this read */
+    /* v8 ignore next -- the durable goal event installs the snapshot before this read */
     if (view === undefined) throw new Error('snapshot commit cleared the goal unexpectedly')
     return view
   }
 
-  /** Accept one mutation into the agent injection queue, cache, and live event stream. */
+  /** Commit one mutation into the goal log, cache, and live event stream. */
   private commit(agent: Agent, cache: GoalCache, change: GoalChangeMeta, activation: GoalActivation): void {
     const ref = goalChangeRef(change)
-    const message = createUserMessage({
-      content: renderGoalChange(change),
-      source: { kind: 'goal', goalId: ref.id, revision: ref.revision, round: 0, change },
-    })
-    cache.pendingActivations.set(message.id, activation)
+    cache.pendingActivation = { seq: agent.session.seq, activation }
     try {
-      agent.inject(message)
-    } catch (error: unknown) {
-      cache.pendingActivations.delete(message.id)
-      throw error
-    }
-    this.sync(agent.session, cache)
-    if (cache.pendingActivations.delete(message.id)) {
-      throw new Error('goal injection returned without a durable inbox insertion')
+      agent.session.append('goal/change', change)
+      this.sync(agent.session, cache)
+    } finally {
+      cache.pendingActivation = undefined
     }
     const goal = this.view(cache)
     const notification: GoalChanged = {

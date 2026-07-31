@@ -444,13 +444,12 @@ Source: [`packages/fs/fs/src/index.ts:54`](../../packages/fs/fs/src/index.ts)
 
 ### `goal/changed` — emit
 
-Goal mutation accepted by one live agent. The matching message has already committed through a durable inbox insertion; later admission or discard does not change that fact. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+Goal mutation accepted by one live agent. The matching `goal/change` session event has already committed. Listener failures are contained. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
 
 ```ts cordis-catalog
 /**
- * Goal mutation accepted by one live agent. The matching message has
- * already committed through a durable inbox insertion; later admission or
- * discard does not change that fact. Listener failures are contained.
+ * Goal mutation accepted by one live agent. The matching `goal/change`
+ * session event has already committed. Listener failures are contained.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @param agent - agent whose session owns the goal.
  * @param change - fresh current projection or clear tombstone.

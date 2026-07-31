@@ -960,23 +960,12 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
     const goalEvents = goalHistory.result.value.events.map(entry => entry.event as unknown as {
       type: string
       data: {
-        target?: string
-        start?: number
+        operation?: string
         source?: { kind?: string; round?: number }
-        inserted?: Array<{ source?: { kind?: string; round?: number; change?: { operation?: string } } }>
       }
     })
-    const goalSplices = goalEvents.filter(event => event.type === 'agent/inbox/spliced'
-      && event.data.inserted?.some(message => message.source?.kind === 'goal' && message.source.round === 0) === true)
-    expect(goalSplices.map(event => ({ target: event.data.target, start: event.data.start }))).toEqual([
-      { target: 'next-step', start: 0 },
-      { target: 'next-step', start: 1 },
-      { target: 'next-step', start: 2 },
-      { target: 'next-step', start: 3 },
-      { target: 'next-step', start: 4 },
-      { target: 'next-step', start: 5 },
-    ])
-    expect(goalSplices.map(event => event.data.inserted?.[0]?.source?.change?.operation))
+    const goalChanges = goalEvents.filter(event => event.type === 'goal/change')
+    expect(goalChanges.map(event => event.data.operation))
       .toEqual(['create', 'edit', 'pause', 'resume', 'complete', 'clear'])
     expect(goalEvents.some(event => event.type === 'user/message'
       && event.data.source?.kind === 'goal' && event.data.source.round === 0)).toBe(false)

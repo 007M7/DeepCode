@@ -1,9 +1,8 @@
-import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from 'cordis'
 import {
   GoalId,
-  renderGoalChange,
   type GoalSnapshotChangeMeta,
 } from '@deepseek-ai/dsh-goal'
 import * as GoalInvariantCompanion from '@deepseek-ai/dsh-goal/invariant'
@@ -26,14 +25,6 @@ const change: GoalSnapshotChangeMeta = {
   updatedAt: 1,
 }
 
-const changeSource = {
-  kind: 'goal',
-  goalId: change.goal.id,
-  revision: change.goal.revision,
-  round: 0,
-  change,
-} as const
-
 async function setup(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -46,17 +37,8 @@ describe('goal stream invariants', () => {
   it('accepts canonical goal snapshots and sequential admitted rounds', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('goal-invariant-valid'))
-    const message = createUserMessage({
-      content: renderGoalChange(change),
-      source: changeSource,
-    })
-    session.append('agent/inbox/spliced', {
-      target: 'next-step', start: 0, inserted: [message],
-    })
+    session.append('goal/change', change)
     session.append('turn/start', { turn: 1 })
-    session.append('user/message', message, { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-    session.append('turn/start', { turn: 2 })
     expect(() => {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'continue' }],
@@ -65,25 +47,18 @@ describe('goal stream invariants', () => {
     }).not.toThrow()
   })
 
-  it('rejects model-visible drift before committing it and keeps the fold reusable', async () => {
+  it('rejects a malformed goal change before committing it and keeps the fold reusable', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('goal-invariant-invalid'))
-    const message = createUserMessage({ content: renderGoalChange(change), source: changeSource })
-    session.append('agent/inbox/spliced', {
-      target: 'next-step', start: 0, inserted: [message],
-    })
-    session.append('turn/start', { turn: 1 })
     expect(() => {
-      session.append('user/message', freezeMessage({ ...message,
-        content: [{ type: 'text', text: 'counterfeit' }],
-      }), { surfaceOp: 'append' })
+      session.append('goal/change', { ...change, extra: true } as never)
     }).toThrow(expect.objectContaining<Partial<InvariantError>>({
       code: 'INVARIANT',
       packageName: '@deepseek-ai/dsh-goal',
     }))
-    expect(session.seq).toBe(2)
+    expect(session.seq).toBe(0)
     expect(() => {
-      session.append('user/message', message, { surfaceOp: 'append' })
+      session.append('goal/change', change)
     }).not.toThrow()
   })
 
@@ -91,17 +66,11 @@ describe('goal stream invariants', () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('goal-invariant-late-load'))
-    const message = createUserMessage({ content: renderGoalChange(change), source: changeSource })
-    session.append('agent/inbox/spliced', {
-      target: 'next-step', start: 0, inserted: [message],
-    })
-    session.append('turn/start', { turn: 1 })
-    session.append('user/message', message, { surfaceOp: 'append' })
-    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    session.append('goal/change', change)
 
     await ctx.plugin(InvariantService, { enabled: true })
     await ctx.plugin(GoalInvariantCompanion)
-    session.append('turn/start', { turn: 2 })
+    session.append('turn/start', { turn: 1 })
     expect(() => {
       session.append('user/message', createUserMessage({
         content: [{ type: 'text', text: 'continue after load' }],

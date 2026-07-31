@@ -150,7 +150,7 @@ Source: [`packages/ui/user-approval/src/index.ts:55`](../packages/ui/user-approv
 /**
  * The session's approval policy was switched — log-only, durable,
  * replayable, never in the model transcript (the model learns the policy
- * from the prompt section and the narrator's notices). The LAST such
+ * from the cache-safe runtime-context snapshot). The LAST such
  * event is the session's override ({@link effectiveApprovalPolicy}).
  * `source: 'delegation'` marks an override seeded into a child; an absent
  * source is a runtime switch.
@@ -230,20 +230,27 @@ Source: [`packages/ui/commands/src/index.ts:132`](../packages/ui/commands/src/in
 #### `compact/end` — log-only
 
 ```ts persistence-catalog
-/** Marks the end of a compaction — log-only, releases the lock. `error` set if summarization failed. */
-'compact/end': { turn: number; error?: string }
+/**
+ * Marks the end of a compaction — log-only, releases the lock. Its owner
+ * matches `compact/start`; `error` records an unsuccessful attempt.
+ */
+'compact/end': { turn: number | null; error?: string }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:44`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:51`](../packages/compact/compact/src/types.ts)
 
 #### `compact/start` — log-only
 
 ```ts persistence-catalog
-/** Marks the start of a compaction — log-only, holds the lock until `compact/end`. */
-'compact/start': { turn: number }
+/**
+ * Marks the start of a compaction — log-only, holds the lock until
+ * `compact/end`. A numbered owner is strictly enclosed by that open turn;
+ * `null` identifies a standalone manual transaction between turns.
+ */
+'compact/start': { turn: number | null }
 ```
 
-Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:19`](../packages/compact/compact/src/types.ts)
 
 #### `compact/summary` — log-only
 
@@ -279,7 +286,20 @@ Source: [`packages/compact/compact/src/types.ts:15`](../packages/compact/compact
 
 Types: [ContentBlock](core-data-structures/core.md) · [TokenUsage](core-data-structures/llm-streaming.md)
 
-Source: [`packages/compact/compact/src/types.ts:22`](../packages/compact/compact/src/types.ts)
+Source: [`packages/compact/compact/src/types.ts:26`](../packages/compact/compact/src/types.ts)
+
+### `goal/*`
+
+#### `goal/change` — log-only
+
+```ts persistence-catalog
+/**
+ * Complete post-mutation goal state or clear tombstone.
+ */
+'goal/change': GoalChangeMeta
+```
+
+Source: [`packages/goal/goal/src/domain.ts:81`](../packages/goal/goal/src/domain.ts)
 
 ### `hook/*`
 
@@ -371,7 +391,7 @@ Source: [`packages/llm/llm-retry/src/index.ts:17`](../packages/llm/llm-retry/src
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/ui/permission/src/index.ts:49`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:50`](../packages/ui/permission/src/index.ts)
 
 ### `plan/*`
 
@@ -661,3 +681,14 @@ Source: [`packages/core/session/src/types.ts:174`](../packages/core/session/src/
 ```
 
 Source: [`packages/core/session/src/types.ts:193`](../packages/core/session/src/types.ts)
+
+### `web/*`
+
+#### `web/deepseek-search-llm-request` — log-only
+
+```ts persistence-catalog
+/** Secret-free auxiliary DeepSeek search request recorded before dispatch. */
+'web/deepseek-search-llm-request': DeepSeekSearchLlmRequest
+```
+
+Source: [`packages/web/web-search-deepseek/src/provider.ts:83`](../packages/web/web-search-deepseek/src/provider.ts)

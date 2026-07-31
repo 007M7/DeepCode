@@ -126,7 +126,7 @@ describe('/goal human command', () => {
     expect(created.text).toContain('Rounds: 0/256')
     expect(created.text).toContain('Activation: armed')
     expect(test.ctx.goals.get(test.agent)?.objective).toBe('finish the release')
-    expect(domainEvents(test.session).map(event => event.type)).toEqual(['agent/inbox/spliced'])
+    expect(domainEvents(test.session).map(event => event.type)).toEqual(['goal/change'])
 
     const count = domainEvents(test.session).length
     await expect(run(test, ' replacement')).resolves.toEqual({
