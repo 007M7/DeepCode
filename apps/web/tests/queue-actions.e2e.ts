@@ -96,6 +96,26 @@ describe('web e2e: queue row actions', () => {
       { timeout: 10_000 },
     ).toBe(2)
 
+    await page.setViewportSize({ width: 640, height: 1000 })
+    const queueBox = await page.locator('[data-queue-dock]').boundingBox()
+    const composerBox = await page.locator('[data-composer-card]').boundingBox()
+    expect(queueBox).not.toBeNull()
+    expect(composerBox).not.toBeNull()
+    expect(queueBox!.x).toBeGreaterThanOrEqual(composerBox!.x)
+    expect(queueBox!.x + queueBox!.width)
+      .toBeLessThanOrEqual(composerBox!.x + composerBox!.width)
+    const queueLeftInset = queueBox!.x - composerBox!.x
+    const queueRightInset = composerBox!.x + composerBox!.width - queueBox!.x - queueBox!.width
+    const composerMetrics = await page.locator('[data-composer-card]').evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        dockInset: Number.parseFloat(style.getPropertyValue('--dsh-composer-dock-inset')),
+      }
+    })
+    expect(queueLeftInset).toBeCloseTo(composerMetrics.dockInset, 1)
+    expect(queueRightInset).toBeCloseTo(composerMetrics.dockInset, 1)
+    await page.setViewportSize({ width: 1680, height: 1000 })
+
     const editRow = page.getByText(EDIT, { exact: true }).locator('..')
     await editRow.getByRole('button', { name: 'Edit queued message' }).click()
     const editor = page.getByRole('textbox', { name: 'Edit queued message' })
