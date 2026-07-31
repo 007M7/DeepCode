@@ -11,13 +11,14 @@
 // masking its credential, without making a model call.
 //
 // Composition divergences from `dsh web`, all deliberate, all via include
-// patches after the shipped surface overlay: temp persistenceRoot; local skill
-// roots confined to the temp workspace; workspace-context disabled (recorded
-// fixtures must not embed this repo's AGENTS.md); session-title-llm disabled
-// (its fire-and-forget title call would race the loop for the session's replay
-// cursor); webserver pinned to port 0 with the built dist; ordinary keyless
-// modes disable llm-deepseek and fill the open llm seam post-boot with
-// installLlmReplay on the settled root ctx
+// patches after the shipped surface overlay, over the SAME tree (never a
+// second yml): temp persistenceRoot; host-level skill roots confined to the
+// temp workspace while project skill discovery remains real; workspace-context
+// disabled (recorded fixtures must not embed this repo's AGENTS.md);
+// session-title-llm disabled (its fire-and-forget title call would race the
+// loop for the session's replay cursor); webserver pinned to port 0 with the
+// built dist; ordinary keyless modes disable llm-deepseek and fill the open
+// llm seam post-boot with installLlmReplay on the settled root ctx
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync } from 'node:fs'

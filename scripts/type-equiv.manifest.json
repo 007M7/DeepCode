@@ -355,6 +355,11 @@
     },
     {
       "doc": "docs/core-data-structures/session.md",
+      "symbol": "RequestContext",
+      "source": "packages/core/session/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/session.md",
       "symbol": "TodoItem",
       "source": "packages/core/session/src/types.ts"
     },
