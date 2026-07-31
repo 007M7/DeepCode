@@ -85,15 +85,20 @@ function mount(
     overlayTakeover?: boolean
     /** The session list summary's `blank` flag — independent of the snapshot's. */
     summaryBlank?: boolean
+    /** Drop the session's summary row entirely (a session the list has not caught up with). */
+    omitSummaryRow?: boolean
   } = {},
 ) {
   const root = sid('root')
+  const rootRow = { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 }
+  const childRow = {
+    id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one',
+    running: false, waitingApproval: false, blank: options.summaryBlank ?? false, updatedAt: 2,
+  }
+  const listed = options.omitSummaryRow !== true
   const sessions = createSnapshotStore<SessionListState>({
-    ids: [root, SID],
-    byId: {
-      [root]: { id: root, displayTitle: 'Root', running: false, waitingApproval: false, blank: false, updatedAt: 1 },
-      [SID]: { id: SID, displayTitle: 'Child', parentId: root, cwd: '/projects/one', running: false, waitingApproval: false, blank: options.summaryBlank ?? false, updatedAt: 2 },
-    },
+    ids: listed ? [root, SID] : [root],
+    byId: { [root]: rootRow, ...listed && { [SID]: childRow } },
     current: SID,
     phase: 'ready',
   })
@@ -274,11 +279,22 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.getByText('Selected Folder')).toBeTruthy()
   })
 
-  it('settling phase: a blank session with no list summary hides the composer while it opens', () => {
+  it('settling phase: a summary that does not prove the session blank hides the composer while it opens', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }))
     const root = b.view.container.querySelector('[data-phase]')
     expect(root?.getAttribute('data-phase')).toBe('settling')
     expect(b.view.queryByText('开始构建吧')).toBeNull()
+  })
+
+  it('settling phase: a session the list has no row for settles conservatively', () => {
+    const b = mount(
+      conversationSnapshot({ composerPhase: 'blank', blank: true, openState: 'loading' }),
+      undefined,
+      undefined,
+      { omitSummaryRow: true },
+    )
+    const root = b.view.container.querySelector('[data-phase]')
+    expect(root?.getAttribute('data-phase')).toBe('settling')
   })
 
   it('startup auto-selection: a summary-proven blank session opens straight into the hero', () => {
