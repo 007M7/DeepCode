@@ -35,5 +35,5 @@ Status: implemented
 ## Consequences
 
 - 无本地 collector 的开发者跑 `dsh web` 会对生产 endpoint 每 10s 发一次 POST（联不通则静默失败，OTel diag logger 未注册）；本地开发设 `DSH_TELEMETRY_DISABLED=1` 或 `DSH_TELEMETRY_OTLP_URL` 指本地。
-- **当前零脱敏规则挂载**：导出即原始捕获副本（用户/助手消息全文、工具参数与结果、system prompt、`session.cwd` 本地路径）。跨信任边界前必须挂 `telemetry/record` 规则——脱敏规则、身份 Resource 维度（hostname/匿名 user id/surface）、使用数据 metrics 轨三件是本决策明确的后续工作。
+- **当前零脱敏规则挂载**：导出即原始捕获副本（用户/助手消息全文、工具参数与结果、system prompt、`session.cwd` 本地路径）。跨信任边界前必须挂 `telemetry/record` 规则——脱敏规则、其余身份 Resource 维度（hostname/surface；匿名 user id 已由[匿名用户 id Note](2026-07-31-telemetry-anonymous-user-id.md)落地）、使用数据 metrics 轨是本决策明确的后续工作。
 - 复用这棵树的测试载具（如 `apps/web/tests/scaffold.ts`）须显式关停该行，否则 fixture 会话会流向 env 里碰巧存在的 collector。

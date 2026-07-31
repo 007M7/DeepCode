@@ -34,7 +34,7 @@ await ctx.plugin(ToolFs)                                  // this package — re
 
 字段名使用 snake_case，与 Claude Code 和现有 harness 工具 schema 一致。
 
-规范成功值分别为：`read` → `{ path, offset, lines: [{ number, text }], totalLines }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。原生渲染器会保留下方带行号的读取结果和变更确认。写入/编辑从这些值派生可回放的 diff 卡片元数据；这些值本身仅限于本次执行，不会添加到 `tool/result`。
+规范成功值分别为：`read` → `{ path, offset, lines: [{ number, text }], totalLines }`，`write` → `{ path, operation: 'create' | 'update', before: string | null, after }`，`edit` → `{ path, before, after }`。原生渲染器会保留下方带行号的读取结果和变更确认。`write`/`edit` 从这些规范值派生可回放的 diff 卡片元数据，`read` 派生可回放的读取卡片窗口 `{ path, offset, lines, totalLines, lang? }`；规范值本身仅限于本次执行，不会添加到 `tool/result`，只有派生出的呈现元数据会被持久化。
 
 ## 工具就是执行器；策略是事件门禁
 

@@ -118,6 +118,18 @@ export interface DiffCallView {
 }
 
 /**
+ * One numbered line of a file, the unit a {@link ReadResultView} carries so a
+ * capable UI can render a syntax-highlighted, line-numbered code view. `number`
+ * is the 1-based line number in the file (a window past `offset` keeps the file's
+ * own numbering, not a 1-based re-count); `text` is the line without its trailing
+ * newline, already truncated to the read tool's per-line cap.
+ */
+export interface ReadFileLine {
+  number: number
+  text: string
+}
+
+/**
  * How a tool wants the COMPLETED call shown — the *result* state, after `execute`
  * returns. A `card`-tagged union mirroring {@link ToolCallView}: a UI switches on
  * `card`. Lets the tool reformat its result for a UI distinctly from the
@@ -125,7 +137,7 @@ export interface DiffCallView {
  * `ToolDefinition.presentResult`; omitting the method keeps the pending
  * title and renders the raw result content.
  */
-export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | WebResultView
+export type ToolResultView = GenericResultView | TerminalResultView | DiffResultView | ReadResultView | WebResultView
 
 /**
  * The default completed card: an optional replacement title and reformatted
@@ -175,6 +187,47 @@ export interface DiffResultView {
   title?: string
   /** The change to show, in file order — applied contextual hunks, or a whole-file diff when there is no before-image. */
   diffs: FileDiff[]
+}
+
+/**
+ * A completed file read rendered as a line-numbered, optionally syntax-highlighted
+ * code view by a capable UI. Set by a tool whose call reads file text (e.g.
+ * `read`); the pending state stays a {@link GenericCallView} (`kind: 'read'`)
+ * because a call carries no content until `execute` returns. The structured
+ * `lines`/`path`/`lang`/`totalLines` fields cannot be reconstructed from the
+ * model-facing result text alone, so the read tool projects them through its
+ * `output.presentationMeta` (persisted with the session log) and `presentResult`
+ * narrows that metadata back into this view on live and replay paths alike. A UI
+ * without the read capability falls back to `content` (the model-facing text with
+ * its envelope stripped), so this view degrades to the generic text card.
+ */
+export interface ReadResultView {
+  card: 'read'
+  /** Replacement title for the completed call. Omit to keep the pending-state title. */
+  title?: string
+  /** The read file's path (the model-facing path; the bridge relativizes it). */
+  path: string
+  /**
+   * The 1-based first line the window requested, preserved even when `lines` is
+   * empty (a byte cap below the first selected line yields an empty window) so a
+   * UI knows where the window starts and where a continuation resumes.
+   */
+  offset: number
+  /** The returned window's lines, in file order, each keeping its file line number. */
+  lines: ReadFileLine[]
+  /** Exact total line count in the file, so a UI can show a "showing N of M" affordance. */
+  totalLines: number
+  /**
+   * A syntax-highlighting language hint derived from the file extension (e.g.
+   * `ts`, `py`), or omitted when the extension maps to no known language so a UI
+   * renders the lines as plain text.
+   */
+  lang?: string
+  /**
+   * The model-facing result content with its envelope stripped, for a UI without
+   * the read capability. Omit to let such a UI render the raw result content.
+   */
+  content?: ContentBlock[]
 }
 
 /**

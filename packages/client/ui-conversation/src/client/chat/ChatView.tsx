@@ -204,36 +204,11 @@ const CommandRow = memo(function CommandRow({ renderSlot, node, t }: {
   )
 })
 
-/** Turn loader: one row of four 2.5px pixels (half a notch above the StateDot
- *  2px cell, same blue) chasing left to right with a stepped trail — flat
- *  keyframe holds, no tweening, no rotation. Phase offsets come from
- *  per-rect animation-delay. */
-const LOADER_CELLS = [0, 5, 10, 15] as const
-
-function TurnDots() {
+/** Turn-level model activity label retained across first-token, tool, and streaming phases. */
+function TurnStatus() {
   return (
-    /* The wrapper is a 26px line box (message line height) so the loader
-       occupies one text line and centers the dots inside it. */
-    <div className={css.turnDots} aria-hidden="true">
-      <svg
-        width="17.5"
-        height="2.5"
-        viewBox="0 0 17.5 2.5"
-        shapeRendering="crispEdges"
-      >
-        {LOADER_CELLS.map((x, index) => (
-          <rect
-            key={x}
-            className={css.turnDotCell}
-            x={x}
-            y="0"
-            width="2.5"
-            height="2.5"
-            /* Negative delay phases the chase so every cell animates from mount. */
-            style={{ animationDelay: `${(index - LOADER_CELLS.length) * 250}ms` }}
-          />
-        ))}
-      </svg>
+    <div className={css.turnStatus} role="status" aria-live="polite">
+      Deep diving...
     </div>
   )
 }
@@ -491,7 +466,7 @@ export function ChatView({
               double-render the same wait. */}
           {/* Turn-level loading signal: rides the whole running turn (first-token
               wait, tool execution, streaming) so it never flickers per step. */}
-          {running && <TurnDots />}
+          {running && <TurnStatus />}
         </div>
         {!atBottom && (
           <div className={css.toBottomSlot}>
