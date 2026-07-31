@@ -27,7 +27,6 @@
 }
 
 .opening,
-.status,
 .reflection,
 .feedback,
 .error {
@@ -36,10 +35,6 @@
 
 .opening {
   margin-top: 30px;
-}
-
-.status {
-  margin-top: 18px;
 }
 
 .reflection {
@@ -52,7 +47,6 @@
 }
 
 .opening,
-.status,
 .reflection,
 .feedback {
   font-size: 16px;
@@ -90,7 +84,6 @@
 .brand,
 .title,
 .opening,
-.status,
 .reflection,
 .feedback,
 .footer {
@@ -99,10 +92,9 @@
 
 .title { animation-delay: 40ms; }
 .opening { animation-delay: 80ms; }
-.status { animation-delay: 120ms; }
-.reflection { animation-delay: 160ms; }
-.feedback { animation-delay: 200ms; }
-.footer { animation-delay: 240ms; }
+.reflection { animation-delay: 120ms; }
+.feedback { animation-delay: 160ms; }
+.footer { animation-delay: 200ms; }
 
 @keyframes welcome-enter {
   from {
@@ -120,7 +112,6 @@
   .brand,
   .title,
   .opening,
-  .status,
   .reflection,
   .feedback,
   .footer {
