@@ -21,6 +21,9 @@
       "path": "../web"
     },
     {
+      "path": "../../credentials/credentials"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]

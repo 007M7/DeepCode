@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from 'cordis'
 import Loader from '@cordisjs/plugin-loader'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import CredentialsLocal from '@deepseek-ai/dsh-credentials-local'
 import WebService from '@deepseek-ai/dsh-web'
 import {
   DeepSeekSearchProvider,
@@ -336,15 +341,53 @@ describe('web-search-deepseek plugin registration', () => {
     }
   })
 
-  it('is unavailable when neither config nor env supplies a key', async () => {
+  it('resolves the credential for each search so a stored or rotated key needs no restart', async () => {
+    const previous = process.env.DEEPSEEK_API_KEY
+    delete process.env.DEEPSEEK_API_KEY
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-web-search-credentials-'))
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse(searchResponse()))
+    vi.stubGlobal('fetch', fetchMock)
+    const ctx = new Context()
+    try {
+      await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
+      await ctx.plugin(CredentialsLocal, { path: join(dir, '.env'), watch: false })
+      await ctx.plugin(deepseekPlugin, { baseURL: 'https://api.deepseek.test/anthropic/v1' })
+
+      await expect(ctx.web.search({ query: 'missing' }))
+        .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' }))
+
+      const ref = credentialRef('DEEPSEEK_API_KEY')
+      await ctx.credentials.set(ref, 'stored-key')
+      await ctx.web.search({ query: 'stored' })
+      await ctx.credentials.set(ref, 'rotated-key')
+      await ctx.web.search({ query: 'rotated' })
+
+      const headers = fetchMock.mock.calls.map(([, init]) => (init as RequestInit).headers as Record<string, string>)
+      expect(headers.map(value => value['x-api-key'])).toEqual(['stored-key', 'rotated-key'])
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(dir, { recursive: true, force: true })
+      if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
+      else process.env.DEEPSEEK_API_KEY = previous
+    }
+  })
+
+  it('reports an actionable credential error when neither config nor env supplies a key', async () => {
     const prev = process.env.DEEPSEEK_API_KEY
     delete process.env.DEEPSEEK_API_KEY
     try {
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
       await ctx.plugin(deepseekPlugin, {})
-      await expect(ctx.web.search({ query: 'q' }))
-        .rejects.toThrow(expect.objectContaining({ code: 'WEB_PROVIDER_CONFIGURED_UNAVAILABLE' }))
+      let caught: unknown
+      try {
+        await ctx.web.search({ query: 'q' })
+      } catch (error: unknown) {
+        caught = error
+      }
+      expect(caught).toMatchObject({ code: 'WEB_PROVIDER_CREDENTIAL_MISSING' })
+      if (!(caught instanceof Error)) throw new Error('search did not throw an Error')
+      expect(caught.message).toMatch(/store it through the credentials service.*Models page/s)
     } finally {
       if (prev !== undefined) process.env.DEEPSEEK_API_KEY = prev
     }

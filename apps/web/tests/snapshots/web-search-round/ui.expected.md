@@ -1,0 +1,33 @@
+- banner:
+  - navigation "Session hierarchy":
+    - button "Use web_search to search exactly" [disabled]
+  - tablist:
+    - tab "Chat" [selected]
+    - tab "Trajectory"
+- text: Use web_search to search exactly "DeepSeek Harness snapshot search". Then reply exactly SEARCH_DONE and stop. {{clock}}
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- button "Edit":
+  - img
+- button "Search DeepSeek Harness snapshot search":
+  - img
+  - img
+  - text: Search DeepSeek Harness snapshot search
+- paragraph: SEARCH_DONE
+- button "Copy":
+  - img
+- button "Branch into a new conversation":
+  - img
+- text: {{clock}}
+- textbox "Message the agent"
+- button "Add attachment":
+  - img
+- 'button "Access mode, current: Danger Full Access"': Danger Full Access
+- button "Plan mode off, press to turn on": Plan off
+- button "Select model, current DeepSeek-V4-Flash":
+  - text: DeepSeek-V4-Flash
+  - img
+- button "Send message" [disabled]
+- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 0% Input 22 tok · Output 7 tok

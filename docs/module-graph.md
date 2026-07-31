@@ -429,6 +429,7 @@ flowchart TD
   pkg_web_fetch_local --> pkg_invariants
   pkg_web_fetch_local --> pkg_timeout
   pkg_web_fetch_local --> pkg_web
+  pkg_web_search_deepseek --> pkg_credentials
   pkg_web_search_deepseek --> pkg_invariants
   pkg_web_search_deepseek --> pkg_web
   pkg_web_search_exa --> pkg_invariants
@@ -1095,7 +1096,7 @@ flowchart TD
 | [`compact`](../packages/compact/compact) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`invariants`](../packages/support/invariants), [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
-| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
+| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |

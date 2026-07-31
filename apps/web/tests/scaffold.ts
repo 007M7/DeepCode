@@ -135,6 +135,17 @@ export interface LaunchOptions {
    * keyless first-run configuration lane; the default disables the adapter.
    */
   deepSeekMissingCredential?: boolean
+  /**
+   * Patch the shipped DeepSeek search row to a deterministic endpoint and
+   * credential reference. Browser search scenarios keep the real provider and
+   * credentials seam while avoiding external search traffic and ambient keys.
+   */
+  deepSeekSearch?: {
+    /** Anthropic-compatible base URL; the provider appends `/messages`. */
+    baseURL: string
+    /** Credential reference resolved by the shipped search provider. */
+    apiKeyEnv: string
+  }
 }
 
 /** Dispose the booted tree and remove both owned temp roots, reporting every independent cleanup failure. */
@@ -241,6 +252,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     ...options.cordisTools === true
       ? [{ insert: [{ id: 'tool-cordis', name: 'cordis:tool-cordis' }] }]
       : [],
+    ...options.deepSeekSearch === undefined
+      ? []
+      : [{
+        id: 'web-search-deepseek',
+        config: {
+          apiKeyEnv: options.deepSeekSearch.apiKeyEnv,
+          baseURL: options.deepSeekSearch.baseURL,
+        },
+      }],
     ...mode === 'record' || options.deepSeekMissingCredential === true
       ? []
       : [{ id: 'llm-deepseek', disabled: true }],

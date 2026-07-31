@@ -13,6 +13,7 @@ import type {
   WebSearchResult,
   WebSearchSource,
 } from '@deepseek-ai/dsh-web'
+import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import type {
   AnthropicError,
   AnthropicResponse,
@@ -47,10 +48,14 @@ export const DEEPSEEK_DEFAULT_MAX_USES = 5
 /** Attribution header sent on every request. Bump with the package version. */
 const USER_AGENT = 'deepseek-harness/0.0.1'
 
-/** Resolved provider options (the plugin's `apply` supplies env-var and constant defaults). */
+/** Resolved provider options (the plugin's `apply` supplies credential and constant defaults). */
 export interface DeepSeekSearchProviderOptions {
-  /** DeepSeek API key. Empty/absent makes the provider unavailable. */
-  apiKey: string
+  /** Literal DeepSeek API key; when present it wins over {@link resolveApiKey}. */
+  apiKey?: string
+  /** Resolve the current DeepSeek API key for one search operation. */
+  resolveApiKey?: () => Promise<string | undefined>
+  /** Credential reference named by missing-credential diagnostics. */
+  apiKeyEnv?: CredentialRef
   /** Endpoint base; `/messages` is appended. */
   baseURL: string
   /** Anthropic-format model name. */
@@ -134,13 +139,14 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
   constructor(private readonly options: DeepSeekSearchProviderOptions) {}
 
   available(): boolean {
-    return this.options.apiKey.length > 0
+    return ((this.options.apiKey?.length ?? 0) > 0 || this.options.resolveApiKey !== undefined)
       && URL.canParse(this.options.baseURL)
       && isPositiveInteger(this.options.maxTokens)
       && isPositiveInteger(this.options.maxUses)
   }
 
   async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
+    const apiKey = await this.apiKey()
     let response: Response
     try {
       response = await fetch(`${this.options.baseURL}/messages`, {
@@ -149,8 +155,8 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
         headers: {
           // Official DeepSeek expects `x-api-key`; an Anthropic-compatible proxy
           // may expect `Authorization: Bearer` — send both so either resolves.
-          'x-api-key': this.options.apiKey,
-          'authorization': `Bearer ${this.options.apiKey}`,
+          'x-api-key': apiKey,
+          'authorization': `Bearer ${apiKey}`,
           'anthropic-version': this.options.apiVersion,
           'content-type': 'application/json',
           'accept': 'application/json',
@@ -199,6 +205,29 @@ export class DeepSeekSearchProvider implements WebSearchProvider {
       if (error instanceof WebError) throw error
       throw new WebError(`DeepSeek returned an unprocessable response body: ${String(error)}`, 'WEB_PROVIDER_ERROR', { cause: error })
     }
+  }
+
+  /** Resolve one operation's credential without retaining it on the provider. */
+  private async apiKey(): Promise<string> {
+    if (this.options.apiKey !== undefined && this.options.apiKey.length > 0) return this.options.apiKey
+    let resolved: string | undefined
+    try {
+      resolved = await this.options.resolveApiKey?.()
+    } catch (error: unknown) {
+      throw new WebError(
+        `DeepSeek search credential resolution failed: ${String(error)}`,
+        'WEB_PROVIDER_ERROR',
+        { cause: error },
+      )
+    }
+    if (resolved !== undefined && resolved.length > 0) return resolved
+    const ref = this.options.apiKeyEnv ?? 'DEEPSEEK_API_KEY'
+    throw new WebError(
+      `DeepSeek search has no API key for "${ref}"; store it through the credentials service`
+      + ' (the web Models page writes it), export it in the launching environment, or set a literal'
+      + ' "apiKey" in the web-search-deepseek config',
+      'WEB_PROVIDER_CREDENTIAL_MISSING',
+    )
   }
 }
 
