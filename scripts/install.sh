@@ -32,8 +32,8 @@
 #
 # Adopting an arbitrary clone leaves the container not self-contained: its
 # staging worktrees hold an absolute gitdir pointer into that clone, so deleting
-# it breaks them. $DSH_SOURCE/master.path records the resolved clone so the
-# breakage is diagnosable.
+# it breaks them. `git worktree list` in that clone is the record of which
+# worktrees depend on it.
 #
 # When run through `curl | sh` the script text arrives on stdin, so every
 # prompt and the final launch read the controlling terminal (/dev/tty) directly;
@@ -304,16 +304,6 @@ if [ -f "$_exclude" ] && ! grep -qxF '.agents/merge.lock' "$_exclude" 2>/dev/nul
 fi
 mkdir -p "$DSH_STAGING/.agents"
 : >"$DSH_STAGING/.agents/merge.lock"
-# A staging worktree holds an absolute gitdir pointer into the repository, so
-# a container whose repository lives OUTSIDE it is not self-contained: deleting
-# that repository breaks every worktree here. Record it only in that case, so
-# the file's presence itself means "this container depends on an outside path".
-_src_resolved=$(resolve_dir "$DSH_SOURCE")
-case "$REPO_ROOT/" in
-  "$_src_resolved"/*) ;;
-  *) printf '%s\n' "$REPO_ROOT" >"$DSH_SOURCE/master.path"
-     info "recorded external repository in $DSH_SOURCE/master.path" ;;
-esac
 
 # --- 3. install dependencies (no build; the launcher runs from source) --------
 step "Installing dependencies with pnpm (this can take a while)"
