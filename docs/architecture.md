@@ -89,9 +89,10 @@ forever:
     step loop:
       'step/start'
       append the returned batch as separate 'user/message' events
-      assemble prompt and schemas -> snapshot derived messages
-      agent/request -> prepare adapter defaults/provenance -> request/header -> llm/stream
-      'assistant/chunk' -> 'assistant/message'
+      assemble ordered prompt and tool schemas -> snapshot derived messages
+      agent/request (config only) -> prepare adapter defaults/provenance + context capacity under turn signal -> log request/header (+ request/context on route change) -> llm/stream (frozen, registration-bound)
+      'assistant/chunk'
+      'assistant/message'
       schedule tool calls by ctx.tools.executionMode:
         exclusive -> barrier
         parallel -> rolling pool, <= maxParallelToolCalls; reclassify at start
@@ -101,7 +102,7 @@ forever:
       tools owe another request or next-step inbox is nonempty
         -> claim -> agent/pre-step -> append entered batch -> continue
       otherwise agent/turn-stopping -> re-check the next-step inbox
-    'turn/end' -> agent/settled
+    'turn/end'
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
@@ -121,11 +122,11 @@ Adapter selection, dispatch, and iteration failures become terminal error or abo
 
 Other failures use `agent/error`; cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` reports its cause before clearing and aborting; idle calls emit nothing. Durability distinguishes `aborted` cancellation from `disposed` teardown, which awaits quiescence ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Turn and step events are turn-enclosed; the loop appends injected `user/message` events only from entered batches inside a turn. Reload closes an interrupted tail with a synthetic turn end. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
+Turn and step events are turn-enclosed; the loop appends `user/message` events only from entered batches inside a turn. Standalone `compact/* { turn: null }` events consume no turn, and their lock-time markers may interleave with inbox splices. Reload synthesizes interrupted turn ends; `session/end-seed` distinguishes stale compaction orphans from live locks. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
-`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins drive agents with `followup()`, `steer()`, and `inject()`; `cancel()` stops work and the awaited disposer tears down. A follow-up `MessageId` follows durable inbox insertion, claiming, and discard notifications, not prompt output or turn ending. `agent/status` and `whenIdle()` describe whole-agent activity; only an interval owner may summarize a run result ([decision](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
+`ctx.agents` owns agents and returns `AgentHandle { agent, dispose() }`. Plugins use `send()` or its `followup()`, `steer()`, and `inject()` presets. `cancel()` and `whenIdle()` control lifecycle, while awaited disposal owns teardown. A follow-up `MessageId` follows durable inbox insertion, claiming, and discard notifications, not prompt output or turn ending; only an owner of a whole activity interval may summarize it as a run result ([decision](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
 
 ### Agent Scope
 
@@ -137,11 +138,11 @@ Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, an
 
 The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from this stream.
 
-**Model-visible ⟺ logged**: messages at `step/start` plus the folded `request/header` reconstruct every request; the header also marks adapter-materialized defaults so the next proposal can discard them and resolve the selected route without losing explicit conversation settings. Package-owned `dsh-agent-loop/invariant` can assert reconstructability through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: messages entering at `step/start` plus the folded `request/header` reconstruct every request. The header marks adapter defaults so later proposals discard them and re-resolve the route without losing explicit settings. `request/context` separately records registration-bound provider, model, and capacity metadata when the route changes; it does not participate in request reconstruction or header equality. `dsh-agent-loop/invariant` asserts reconstructability through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Backends eagerly drain synchronous `session/event` notifications. `session/flush` precedes requests and top-level tool dispatch, and follows `turn/end` before another turn or idle. `SessionPersistence` stores events and header metadata; JSONL defaults to checksummed Zstandard and SQLite shares the contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 
-Log-only events may sit between turns. Owners append through `Session`, flushing only for durability. Latest `session/title` wins with provenance without delaying responses; title records are fork boundaries ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
+Between turns, owners append log-only events through `Session`, flushing only for durability. `session/title` needs eager persistence and lifecycle drains; manual compaction flushes its bracket before the operation completes. Title work never delays responses; latest wins with provenance. Title records are inherited fork boundaries ([decision](../.agents/notes/implemented/feature/2026-07-21-log-backed-session-titles.md)).
 
 ### Model Content
 

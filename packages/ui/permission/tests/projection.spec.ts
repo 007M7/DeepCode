@@ -44,7 +44,7 @@ async function agentFor(ctx: Context, session: Session): Promise<Agent> {
 }
 
 describe('permissions projection unit', () => {
-  it('serves the composition-default select at zero events', async () => {
+  it('serves the pinned new-session default select', async () => {
     const { ctx, session } = await harness()
     const value = ctx.sessionProjections.snapshot(session).values.permissions
     expect(value).toMatchObject({ currentValue: 'workspace-write' })
@@ -103,12 +103,14 @@ describe('/permission command', () => {
       kind: 'success',
       text: 'current preset workspace-write (available: workspace-write, danger-full-access)',
     })
-    expect(session.events.filter(event => event.type === 'permission/preset')).toHaveLength(0)
+    expect(session.events.filter(event => event.type === 'permission/preset')).toHaveLength(1)
   })
 
   it('rejects an unknown preset without touching the log', async () => {
     const { ctx, session } = await harness()
     const agent = await agentFor(ctx, session)
+    const before = session.events.filter(event =>
+      event.type !== 'command/run' && event.type !== 'command/done')
     const execution = await ctx.commands.execute(agent, '/permission yolo', new AbortController().signal)
     // The error text carries the same no-self-labelling rule as the success
     // texts: `permission · unknown preset "yolo" (…)`, not `unknown permission
@@ -117,6 +119,7 @@ describe('/permission command', () => {
       kind: 'error',
       text: 'unknown preset "yolo" (available: workspace-write, danger-full-access)',
     })
-    expect(session.events.filter(event => event.type !== 'command/run' && event.type !== 'command/done')).toHaveLength(0)
+    expect(session.events.filter(event =>
+      event.type !== 'command/run' && event.type !== 'command/done')).toEqual(before)
   })
 })

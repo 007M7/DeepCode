@@ -12,10 +12,15 @@ import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 import type {
   HistoryEntry, ModelCatalogFailure, ModelCatalogModel, ModelProviderGroup, ModelReasoning,
-  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSummary,
+  ModelReasoningEffort, ModelTarget, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
 import type { WorkspaceId } from './workspace.ts'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  truncateUnicodeCodePoints,
+} from './session-search.ts'
 
 /** SessionId: one brand cast after shape validation (the only cast point in this domain). */
 export const sessionIdSchema = z.string().min(1) as unknown as z.ZodType<SessionId>
@@ -61,6 +66,33 @@ export const sessionListRequestSchema = z.object({
 export const sessionListValueSchema: z.ZodType<Wire<ResponseValue<'session.list'>>> = z.object({
   items: z.array(sessionSummarySchema),
 })
+
+/** Fixed wire bound for one interactive sidebar query. */
+const SESSION_SEARCH_QUERY_MAX_CHARS = 500
+
+/** session.search request payload. */
+export const sessionSearchRequestSchema = z.object({
+  query: z.string().trim().min(1).max(SESSION_SEARCH_QUERY_MAX_CHARS)
+    .refine(query => !query.includes('\0'), { message: 'search query must not contain NUL' }),
+}) satisfies z.ZodType<Wire<RequestPayload<'session.search'>>>
+
+/** One session.search result. */
+export const sessionSearchItemSchema = z.object({
+  sessionId: sessionIdSchema,
+  snippet: z.string().refine(
+    snippet => truncateUnicodeCodePoints(
+      snippet,
+      SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+    ) === snippet,
+    { message: `search snippet must contain at most ${SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS} Unicode code points` },
+  ),
+}) satisfies z.ZodType<Wire<SessionSearchItem>>
+
+/** session.search response value. */
+export const sessionSearchValueSchema = z.object({
+  items: z.array(sessionSearchItemSchema).max(SESSION_SEARCH_RESULT_LIMIT),
+  hasMore: z.boolean(),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.search'>>>
 
 /** session.create request payload (at most one of workspaceId / cwd). */
 export const sessionCreateRequestSchema = z.object({

@@ -114,3 +114,60 @@ describe('legacy request-header format', () => {
     expect(session.events).toHaveLength(0)
   })
 })
+
+describe('Session.requestContext', () => {
+  const CAPACITY = { provider: 'mock', model: 'm', contextWindow: 128_000 }
+
+  /** A turn-enclosed capacity record; the invariant rejects one outside a turn. */
+  function seedWith(...records: { provider: string; model: string; contextWindow?: number }[]): SessionEvent[] {
+    const events: SessionEvent[] = [{
+      type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } },
+    }]
+    for (const data of records) {
+      events.push({ type: 'request/context', seq: events.length, time: 1, data })
+    }
+    return events
+  }
+
+  it('reads undefined before any record exists', () => {
+    expect(new Session(SessionId('no-capacity')).requestContext()).toBeUndefined()
+  })
+
+  it('folds a seeded log on first read, taking the last record', () => {
+    // The fold watermark starts at 0 with the seed already in the log, so the
+    // first read must consume the whole seed rather than skip it.
+    const session = new Session(SessionId('seeded-capacity'), seedWith(
+      CAPACITY,
+      { ...CAPACITY, model: 'later', contextWindow: 256_000 },
+    ))
+    expect(session.requestContext()).toEqual({ provider: 'mock', model: 'later', contextWindow: 256_000 })
+  })
+
+  it('advances incrementally across appends and skips unrelated events', () => {
+    const session = new Session(SessionId('incremental-capacity'), seedWith(CAPACITY))
+    expect(session.requestContext()).toEqual(CAPACITY)
+    session.append('todo/write', { todos: [] })
+    expect(session.requestContext()).toEqual(CAPACITY)
+    session.append('request/context', { ...CAPACITY, model: 'next', contextWindow: 64_000 })
+    expect(session.requestContext()).toEqual({ provider: 'mock', model: 'next', contextWindow: 64_000 })
+    session.append('request/context', { provider: 'mock', model: 'unknown' })
+    expect(session.requestContext()).toEqual({ provider: 'mock', model: 'unknown' })
+  })
+
+  it('folds a batch appended between two reads', () => {
+    const session = new Session(SessionId('batched-capacity'), seedWith(CAPACITY))
+    expect(session.requestContext()).toEqual(CAPACITY)
+    session.append('request/context', { ...CAPACITY, contextWindow: 200_000 })
+    session.append('todo/write', { todos: [] })
+    session.append('request/context', { ...CAPACITY, contextWindow: 300_000 })
+    expect(session.requestContext()?.contextWindow).toBe(300_000)
+  })
+
+  it('exposes a frozen record so a reader cannot desync later comparisons', () => {
+    const session = new Session(SessionId('frozen-capacity'), seedWith(CAPACITY))
+    const held = session.requestContext()
+    if (held === undefined) throw new Error('expected a folded capacity record')
+    expect(Object.isFrozen(held)).toBe(true)
+    expect(() => { (held as { contextWindow?: number }).contextWindow = 1 }).toThrow()
+  })
+})

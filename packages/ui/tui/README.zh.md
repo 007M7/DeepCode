@@ -10,7 +10,7 @@ DeepSeek Harness agent（智能体）的交互式终端入口，基于 [`@earend
 
 本包（package）只持有交互式终端展示和输入。它注入 `agents`、[`commands`](../commands/README.md)、`llm`、`systemPrompt`、`tokenMeter`、`tools` 和 `userInteraction`，可选读取 `skills` 服务（仅在已挂载时存在），然后驱动由 app 或开发者代码创建或恢复的 agent。Agent 生命周期、持久化与模型侧 [`ask_user_question`](../tool-ask-user/README.md) 工具仍是独立组合项。
 
-终端成功启动后，本包会提供终端本地的 `ctx.tui` 扩展服务。注入该服务的插件可以使用组件工厂和受限布局选项调用 `openOverlay()`；宿主会公开 viewport、语义化主题、显示文本转义、重绘、关闭和生命周期信号，但不公开 pi-tui 树、终端、焦点控制器或 overlay 句柄。插件 overlay、模型选择器和用户问题共用一个 FIFO 模态队列。每个请求都是调用方插件 fiber 的 effect，因此卸载会移除排队工作，或在清理结算前关闭可见工作；终端关闭会先卸载依赖项，再停止 pi-tui。Overlay 状态不会记录或回放。组件代码受信任，可以渲染 ANSI 样式，但必须通过 `host.display()` 处理不受信任文本。[交互式扩展 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-22-tui-interactive-extension-service.md)持有该边界和未采用的替代方案。
+终端成功启动后，本包会提供终端本地的 `ctx.tui` 扩展服务。注入该服务的插件可以使用组件工厂和受限布局选项调用 `openOverlay()`；宿主会公开 viewport、语义化主题（包括终端安全的 DeepSeek `brand` 样式）、显示文本转义、重绘、关闭和生命周期信号，但不公开 pi-tui 树、终端、焦点控制器或 overlay 句柄。插件 overlay、模型选择器和用户问题共用一个 FIFO 模态队列。每个请求都是调用方插件 fiber 的 effect，因此卸载会移除排队工作，或在清理结算前关闭可见工作；终端关闭会先卸载依赖项，再停止 pi-tui。Overlay 状态不会记录或回放。组件代码受信任，可以渲染 ANSI 样式，但必须通过 `host.display()` 处理不受信任文本。[交互式扩展 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-22-tui-interactive-extension-service.md)持有该边界和未采用的替代方案。
 
 TUI 从追加来源的会话事件重建已恢复历史，渲染 Markdown 响应与 reasoning，将每个工具的 `presentCall` / `presentResult` 意图应用到终端、diff 或通用卡片，把站立的 `todo/write` 计划保留在编辑器上方（下一个 `turn/start` 时清空），并在左下方宽键盘面板中展示 `ctx.userInteraction` 问题，包含进度、编号选项和对齐说明。最新记录的会话标题成为 header 副标题；标题不存在时使用 `welcome`，终端窗口标题则变为 `<session title> — <configured title>`。持久 `llm/retry` 事件会撤回失败步骤的实时 chunk，并在 transcript（文本记录）中渲染计划重试次数、延迟和失败；成功、耗尽与取消随后通过普通会话事件结算。Footer 会对每个已记录模型步骤的用量只计一次，包括失败尝试；对于没有用量 chunk 的日志，以已提交消息的用量回退。其空闲视图会将 token-meter 压力与 `ctx.llm.resolveModelInfo()` 为当前路由返回的上下文容量进行比较；适配器没有容量元数据时显示 `context unknown`，并显示工具卡片模式、当前模型，以及任何显式选择的推理强度。Agent 运行时，这些摘要会替换为已经过工作时间指示器和 `esc interrupt`。表层替换从不重写已渲染的 transcript：被它遮蔽的对话仍可阅读，而已落地的压缩（compaction）检查点会在其日志位置添加一行暗色 `… earlier context was compacted …` 标记，因此终端报告的是模型从何处起不再看到那段历史，而不是把它抹掉。仅供模型使用的替换副本——被裁剪的工具结果、重新生成的 assistant 消息——不渲染任何内容。
 
@@ -22,7 +22,7 @@ TUI 从追加来源的会话事件重建已恢复历史，渲染 Markdown 响应
 
 挂载可选的 `ctx.sessionReferences` 后，同一个 `@` 菜单还会提供仅含元数据的会话候选项，插入 `@[label](dsh-session:<payload>)`，并在分派前准备所选快照。会话引用保持结构化，因为模型没有类似文件系统的工具可在稍后检索会话快照。准备期间会禁止重复提交，并在失败时恢复编辑器输入。TUI 会在异步准备后根据状态选择 `agent.steer()` 或 `agent.followup()`；二者都会进入 inbox，并在循环领取相应批次后经过 `agent/pre-step`。
 
-Agent 运行时，普通编辑器提交会调用 `agent.steer()`；其他时候调用 `agent.followup()`。提交行以斜杠开头时会改为进入 `ctx.commands`：已知命令直接执行，未知命令产生警告，两条路径都不会自动到达模型。命令生产方可以显式调度 agent 工作；[`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) 使用该契约实现 `/plan [message]`。TUI 将 `/help`、`/model`、`/clear`、`/palette`、`/reload`、`/resume`、`/status` 和 `/exit` 注册为 agent 作用域定义；其他所有有效命令都会动态加入自动补全与 `/help`，`/skill:` 补全也相同。编辑器上方的状态行会报告 TUI 从会话事件派生的轮次阶段，包括等待首个 token、思考、响应或执行工具；它显示该阶段已经过时间和运行中的步骤总数，每秒刷新，并以 `Enter sends steering, Esc cancels` 提示结尾。Steering 消息等待到达模型期间，会在提示前插入 `N queued ·` 徽标，每条消息排空后随即清除。Ctrl+C 或 Escape 会取消运行中的轮次。工具卡片与注入上下文卡片都把长主体折叠为可配置的头尾预览；Ctrl+O 让工具卡片在折叠预览、完整输出、隐藏三种状态间循环——隐藏阶段把工具卡片从 transcript 中完全去掉，而上下文卡片保持预览，因为注入的指令不属于工具流量。注入上下文卡片把消息渲染为文本，并去掉生产方的外层提醒外框，因此折叠与去外框都不依赖载荷的语法。Ctrl+R 切换 reasoning，Ctrl+L 重绘，Ctrl+D 在空闲时退出。
+Agent 运行时，普通编辑器提交会调用 `agent.steer()`；其他时候调用 `agent.followup()`。提交行以斜杠开头时会改为进入 `ctx.commands`：已知命令直接执行，未知命令产生警告，两条路径都不会自动到达模型。命令生产方可以显式调度 agent 工作；[`dsh-plan-mode`](../../plan/plan-mode/README.md#model-and-human-surfaces) 使用该契约实现 `/plan [message]`。TUI 将 `/help`、`/model`、`/clear`、`/palette`、`/reload`、`/resume`、`/status` 和 `/exit` 注册为 agent 作用域定义；其他所有有效命令都会动态加入自动补全与 `/help`，`/skill:` 补全也相同。编辑器上方的状态行会报告 TUI 从会话事件派生的轮次阶段，包括等待首个 token、思考、响应或执行工具；它显示该阶段已经过时间和运行中的步骤总数，每秒刷新，并以 `Enter sends steering, Esc cancels` 提示结尾。Steering 消息等待到达模型期间，会在提示前插入 `N queued ·` 徽标，每条消息排空后随即清除。在实时独立压缩（compaction）标记对处于开启状态期间，提示词上方会显示固定的 `Context being compacted <elapsed>` 状态行，空闲提示符光标会变成占一个终端字符单元并呈呼吸律动的 `⊙`，终端进度状态则会保持活跃，直至标记对闭合；该状态行和字形共用标记对的同一个刷新定时器。该实时状态绝不会从日志中重建；闭合失败时会向 transcript 添加 `Compaction failed: <error>`，而恢复会话时遇到的陈旧未匹配 start 绝不会激活该指示器（[决策](../../../.agents/notes/implemented/feature/2026-07-30-compaction-progress-visibility.md)）。Ctrl+C 或 Escape 会取消运行中的轮次。工具卡片与注入上下文卡片都把长主体折叠为可配置的头尾预览；Ctrl+O 让工具卡片在折叠预览、完整输出、隐藏三种状态间循环——隐藏阶段把工具卡片从 transcript 中完全去掉，而上下文卡片保持预览，因为注入的指令不属于工具流量。注入上下文卡片把消息渲染为文本，并去掉生产方的外层提醒外框，因此折叠与去外框都不依赖载荷的语法。Ctrl+R 切换 reasoning，Ctrl+L 重绘，Ctrl+D 在空闲时退出。
 
 `/model` 将建议性的 `ctx.llm` catalog 打开为键盘选择器：列表上方设有一个过滤框，按对每行 `provider/model` 标签、模型名称和描述的大小写不敏感子串匹配来缩小行集，并在高亮行仍通过过滤时保持其选中状态；Up/Down 移动，Shift+Tab 按显示顺序循环切换适配器为焦点模型公布的推理强度，Enter 选择模型和推理强度，Escape 会先清除非空过滤内容，再次按下才关闭选择器。适配器未公布默认推理强度时，循环还会包含 `Default`，该项会清除显式选择并保留提供方默认行为；没有可选推理强度元数据的模型会忽略 Shift+Tab。选择器会原样呈现公布的推理强度列表（包括存在时的 `off`），不会合成、自动调整或在模型之间转移推理强度。`/model <model>` 仍可直接选择无歧义的模型 id，`/model <provider>/<model>` 则选择精确目标，并在存在时使用其适配器默认值。已配置目标或最新记录的请求 header 会初始化选择器；由于 catalog 仅提供建议，未列出的当前模型仍会显示。选择仅对本 TUI 会话有效。提示词组装会为一个步骤建立目标快照，替换 `{{provider}}` 和 `{{model}}`，并通过 `agent/request` 应用同一个提供方／模型／推理强度目标；因此组装期间的切换会从后续步骤开始生效。请求 header 会持久记录真正到达模型的目标，未使用的选择则只存在于进程本地。
 
@@ -40,7 +40,7 @@ Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任
 
 退出时打印的行由启动器拥有，不可通过配置指定。启动器在启动上下文上提供 `TUI_GOODBYE_MESSAGE_KEY`（对于随附的 `dsh`，即恢复本会话的命令），释放终端后退出会原样打印它；未提供时退出不打印任何内容。只有启动器知道自己是如何被调用的，因此只有它能给出可用的命令。TUI 在渲染前会转义终端控制字符，且绝不执行该文本。若启动器同时提供 `MAIN_SESSION_ID_KEY`，则会固定已挂载应用绑定的会话，因此恢复功能不受配置层修补影响。
 
-启动器可通过在启动上下文上提供 `INITIAL_SKILL_KEY`（skill 名称）来播种全新会话的首轮；聊天就绪后，TUI 会像用户手动键入 `/skill:<name>` 一样自动调用它。随附的 `dsh migrate`/`dsh upgrade` 会设置该键，且仅对全新会话设置，因此恢复的会话绝不会重复调用该 skill；未知名称会以通知形式报告。
+启动器可通过在启动上下文上提供 `INITIAL_SKILL_KEY`（skill 名称）来播种全新会话的首轮；聊天就绪后，TUI 会像用户手动键入 `/skill:<name>` 一样自动调用它。随附的 `dsh migrate`/`dsh experimental-upgrade` 会设置该键，且仅对全新会话设置，因此恢复的会话绝不会重复调用该 skill；未知名称会以通知形式报告。
 
 ## 配置
 
@@ -79,9 +79,9 @@ Footer 将会话报告的用量汇总为 `↑<uncached input> ↓<output>`；任
 
 ## 颜色
 
-TUI 发出的所有 SGR 代码都集中在一个表中，即 `components/theme.ts` 内的 `paletteSpec`；`createPalette` 从该表派生包装层，`/palette` 则打印该表，任何组件都不会自行写入转义序列。该表仅包含标准 16 色 ANSI 前景色和 SGR 属性；每个终端都会将它们重新映射到当前配色方案，因此 TUI 在浅色与深色背景下都保持可读——启动 banner 的品牌渐变是唯一一个有意保留的例外。正文使用终端默认前景色，而非固定色调。
+TUI 发出的所有通用 SGR 代码都集中在一个表中，即 `components/theme.ts` 内的 `paletteSpec`；`createPalette` 从该表派生包装层，`/palette` 则打印该表，任何组件都不会自行写入转义序列。该表仅包含标准 16 色 ANSI 前景色和 SGR 属性；每个终端都会将它们重新映射到当前配色方案，因此 TUI 在浅色与深色背景下都保持可读。启动 banner 渐变与官方标志使用的精确 `#4D6BFE` 色值是两处有意保留的真彩色品牌例外。正文使用终端默认前景色，而非固定色调。
 
-每种视觉语义只对应一个角色：`dim` 是唯一的弱化色调，`accent` 是唯一的强调色，`success` 和 `error` 还分别充当 diff 的新增行与删除行。颜色和属性分属不同类型，因此 `bold(accent(x))` 可以通过编译，`accent(error(x))` 则不行——SGR 没有颜色栈；在一种颜色内嵌套另一种颜色时，内层颜色闭合时会静默丢弃外层颜色。各属性占用彼此独立的 SGR 组，可以按任一顺序与任何颜色组合。运行 `/palette` 可查看每个角色在你的终端上的实际渲染效果及其 SGR 码对。
+每种视觉语义只对应一个角色：`dim` 是唯一的弱化色调，`accent` 是唯一的交互强调色，`brand` 是 DeepSeek 标志的标准 ANSI 回退色，`success` 和 `error` 还分别充当 diff 的新增行与删除行。颜色和属性分属不同类型，因此 `bold(accent(x))` 可以通过编译，`accent(error(x))` 则不行——SGR 没有颜色栈；在一种颜色内嵌套另一种颜色时，内层颜色闭合时会静默丢弃外层颜色。各属性占用彼此独立的 SGR 组，可以按任一顺序与任何颜色组合。运行 `/palette` 可查看每个角色在你的终端上的实际渲染效果及其 SGR 码对。
 
 成组区域（用户提示词、assistant 回复、工具卡片）通过以角色色渲染的粗体带下划线角色标题和空行分隔，而非填充背景块或逐行前缀，因此用鼠标框选复制时不会带上任何左侧竖条或缩进；工具卡片的状态（进行中、错误、成功）由其彩色带下划线的标题字形与标题体现。在工具卡片内部，整个正文——presenter 标题、终端 `$` 命令与 cwd，以及工具自身的输出——统一以同一种暗色渲染，因此只有带状态色的表头携带颜色，正文读作一个整体弱化的区块，而不是一串互相竞争的色调；注入上下文卡片的正文与其表头也是同一种色调。diff 卡片的 `+`/`-` 行与 `[signal …]` 标记保留颜色，因为那里的颜色本身就是语义，而非强调。问题面板使用粗体强调色文本突出活跃行，选择器则使用反色。所有效果都只作用于前景色，因此不会与终端背景冲突。设置 `color: false` 可移除所有样式。
 

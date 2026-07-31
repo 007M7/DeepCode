@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the read tool twice" [disabled]
+  - heading "Use the read tool twice" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -10,18 +9,20 @@
 - tooltip "Copy"
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - button "Think The user wants me to read a.txt and b.txt, then reply with \"DONE\". Let me do both reads in parallel.":
   - img
   - img
   - text: Think The user wants me to read a.txt and b.txt, then reply with "DONE". Let me do both reads in parallel.
-- img
-- text: Read
-- button "a.txt"
-- img
-- text: Read
-- button "b.txt"
+- button "Read a.txt":
+  - img
+  - img
+  - text: Read
+  - button "a.txt"
+- button "Read b.txt":
+  - img
+  - img
+  - text: Read
+  - button "b.txt"
 - button "Think Both files have been read. a.txt contains \"alpha\" and b.txt contains \"beta\". I'll now reply with DONE as instructed.":
   - img
   - img
@@ -33,10 +34,9 @@
   - img
 - text: 7/25 {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current deepseek-v4-flash":
   - text: deepseek-v4-flash
   - img

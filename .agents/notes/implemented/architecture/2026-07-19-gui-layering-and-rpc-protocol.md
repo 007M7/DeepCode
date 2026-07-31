@@ -204,7 +204,7 @@ The same domain tree as `ApiProxy`, but unary methods **take the business payloa
 | `callUnary` | mint → tap → POST full form → `serverResponseSchema` parse → **rpcId echo check** (mismatch throws) → tap → emit narrow form |
 | `readSse` | streaming fetch (not EventSource), `\n\n` framing, `data:` concatenation, ServerRequest full-form parse, tap, emit narrow `RpcRequest<frame>` |
 | `respond` | client-response passthrough (rpcId is an echo — never minted here); response body parsed by `rpcReceiptSchema` |
-| unary timeout | `AbortSignal.timeout` (default 30s, constructor-tunable); streams have no timeout (long-lived by nature) |
+| unary deadline | Ordinary unary calls use `AbortSignal.timeout` (default 30s, constructor-tunable); user-paced `host.pickDirectory` and `command.execute` omit that deadline but keep caller/connection cancellation; streams have no deadline |
 | `resolveBase` | browser = same-origin origin; no-location environment (Node) = the `http://dsh.internal` fake authority |
 
 ### The instance-level envelope observation aspect
@@ -234,7 +234,7 @@ All four quadrant full forms pass through `onEnvelope`; the base implementation 
 
 ## Consequences
 
-Every client shape consumes one contract: adding a unary method is a five-step mechanical change radiating from a single signature, swapping a carrier touches only a `doFetch` subclass, and every wire message is zod-validated, observable through the envelope tap, and reconcilable by rpcId. The accepted costs: two groups of packages need explicit tsconfig paths entries, and the reserved seams (fork/inject/task.list/listModels/hostInstanceId) stay dormant until a real consumer arrives.
+Every client shape consumes one contract: adding a unary method is a five-step mechanical change radiating from a single signature, swapping a carrier touches only a `doFetch` subclass, and every wire message is zod-validated, observable through the envelope tap, and reconcilable by rpcId. Ordinary unary calls remain bounded, while `host.pickDirectory` and `command.execute` may stay pending until the operation finishes or caller/connection cancellation arrives; this accepts that a non-cooperative user-paced operation can hang its request rather than treating valid operation duration as transport failure. The other accepted costs: two groups of packages need explicit tsconfig paths entries, and the reserved seams (fork/inject/task.list/listModels/hostInstanceId) stay dormant until a real consumer arrives.
 
 ## Alternatives considered
 
@@ -252,3 +252,4 @@ Every client shape consumes one contract: adding a unary method is a five-step m
 | A DTO layer (a second wire-only structure set) | Core types reach the browser type-only at zero cost; a DTO is a permanent two-way synchronization tax |
 | Cursor resumption (implementing mux since) | Reconnect = rebuild (opencode-style) covers all v1 needs; the signature keeps the seat, implementation waits for a real consumer |
 | A createApiClient factory function (the original implementation) | Platform differences (transport/observation) are inheritance aspects, not parameters; the class family lets the fixture substitute at the protocol layer instead of wrapping a fake envelope |
+| Applying the 30-second transport deadline to `command.execute` | Command duration is operation work, not a transport-health budget; the deadline kills valid long-running handlers, while caller/connection cancellation already supplies the required stop path |

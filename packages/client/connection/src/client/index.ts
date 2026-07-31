@@ -11,7 +11,7 @@ import { WebApiClient } from './web-api-client.ts'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
 export type {
-  ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
+  ApiProxy, SessionsApi, SessionSearchItem, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
   DirectoryEntry, DirectoryListing,
   ToolCallView, ToolResultView, WorkspaceApi, WorkspaceId, WorkspaceView,
@@ -25,7 +25,11 @@ export type {
   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
   CredentialsApi, CredentialView, ConfigurableProviderView, LlmApi,
 } from './api.ts'
-export { RpcId, AbstractApiClient, transportError } from './api.ts'
+export {
+  RpcId,
+  AbstractApiClient,
+  transportError,
+} from './api.ts'
 
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.

@@ -26,7 +26,7 @@ const SID = 's1' as SessionId
 /** Standard-props InputBar mount over a real shell (the composer-bar entry shape). */
 function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled?: boolean }) {
   const session = createSnapshotStore<ConversationSnapshot>({
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: over?.running ?? false, composerPhase: 'active',
     removed: over?.disabled ?? false, openState: 'open', openError: null, hasMore: false,
     loadingOlder: false, promptError: null, blank: false, lastAgentError: null,
@@ -39,15 +39,17 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
       ids: [], byId: {}, current: undefined, phase: 'ready',
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    toggleCommandMenu: vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
+    useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),
@@ -85,7 +87,7 @@ describe('matrix row: plain', () => {
     fireEvent.change(textarea, { target: { value: '普通消息' } })
     expect(shell.snapshot.claim).toBeUndefined()
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('普通消息', 'queue')
+    expect(sink).toHaveBeenCalledWith('普通消息')
     expect(shell.snapshot.phase).toBe('plain')
   })
 })
@@ -175,7 +177,7 @@ describe('matrix row: locked (session disabled)', () => {
   it('disables the textarea and chrome; the machine currency is untouched', () => {
     const { view, textarea, shell } = bench({ disabled: true })
     expect((textarea).disabled).toBe(true)
-    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
     expect(shell.snapshot.phase).toBe('plain')
   })
 
@@ -184,7 +186,7 @@ describe('matrix row: locked (session disabled)', () => {
     expect((textarea).disabled).toBe(false)
     fireEvent.change(textarea, { target: { value: '排队' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('排队', 'queue')
+    expect(sink).toHaveBeenCalledWith('排队')
   })
 })
 

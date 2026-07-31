@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-28-launcher-owned-resume-identity.md
-2026-07-28-launcher-owned-resume-identity.md: e11431716305ff18e951ca45921c71dcd105974c
-2026-07-28-launcher-owned-resume-identity.zh.md: e4078023cb1519288f0367f8973788f361aaa0bd
+2026-07-28-launcher-owned-resume-identity.md: 167c9e848a9101c9d1e93cf3af968b00279db32b
+2026-07-28-launcher-owned-resume-identity.zh.md: 218b69581e65e8566ff1047603bb71c9537d3486

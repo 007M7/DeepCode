@@ -45,6 +45,7 @@ function liveAgent(ctx: Context, session: Session): Agent {
     inject(input: UserMessage) {
       inbox.append('next-step', input)
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

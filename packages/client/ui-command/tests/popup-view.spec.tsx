@@ -38,6 +38,17 @@ const OPTIONS: SelectOption[] = [
   { id: 'light', label: 'Light', active: true },
   { id: 'sepia', label: 'Sepia', detail: 'warm' },
 ]
+const GATED: SelectOption = {
+  id: 'full',
+  label: 'Full access',
+  confirmation: {
+    title: 'Enable Full access?',
+    description: 'Sensitive operations.',
+    acknowledgeLabel: 'I understand the risks',
+    cancelLabel: 'Cancel',
+    confirmLabel: 'Enable Full access',
+  },
+}
 
 const SEGMENT: TokenSegment = { via: 'enter', token: '/theme' }
 
@@ -147,6 +158,37 @@ describe('PopupSelectView', () => {
     await act(async () => { fireEvent.click(options[2]!) })
     expect(seen).toEqual([OPTIONS[2]])
     expect(view.container.childElementCount).toBe(0)
+  })
+
+  it('renders a gated option as an in-page modal and requires the checkbox before onSelect', async () => {
+    const onSelect = vi.fn()
+    const { popup, consume } = await mountOpen({
+      options: () => Promise.resolve([GATED]),
+      onSelect,
+    })
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
+    expect(screen.queryByLabelText('/theme 选项')).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Enable Full access?' })).toBeTruthy()
+    const enable = screen.getByRole('button', { name: 'Enable Full access' }) as HTMLButtonElement
+    expect(enable.disabled).toBe(true)
+    expect(onSelect).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I understand the risks' }))
+    expect(enable.disabled).toBe(false)
+    await act(async () => { fireEvent.click(enable) })
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(GATED, 'ctx-A')
+    expect(consume).toHaveBeenCalledExactlyOnceWith(SEGMENT)
+    expect(popup.state.getSnapshot().open).toBe(false)
+  })
+
+  it('canceling a gated option returns to the picker with acknowledgement reset', async () => {
+    await mountOpen({ options: () => Promise.resolve([GATED]) })
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.getByLabelText('/theme 选项')).toBeTruthy()
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
+    expect(screen.getByRole<HTMLInputElement>('checkbox').checked).toBe(false)
   })
 
   it('submitting shows pending, locks the search input, and further Enter/click no-op', async () => {

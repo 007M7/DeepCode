@@ -2,18 +2,18 @@
  * Workspace browser tree row components (figma Cell set 14:3080): pure presentational —
  * all data and callbacks arrive via props. Hover swaps (folder->chevron,
  * time->ellipsis, action buttons) are CSS-only. Row ... menus are visual-only
- * except workspace Rename/Delete and session Rename/Fork; the session and
- * workspace hover cards are suppressed while a menu is open.
+ * except workspace Rename/Delete and session Rename/Fork/Archive; the session
+ * and workspace hover cards are suppressed while a menu is open.
  */
 import { useState } from 'react'
 import clsx from 'clsx'
 import {
-  HoverCard, IconBranchOutline16, IconEditOutline16, IconEllipsisOutline16,
-  IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
+  HoverCard, IconBranchOutline16, IconDownloadOutline16, IconEditOutline16,
+  IconEllipsisOutline16, IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import type { GroupNode, SessionNode } from '../tree.ts'
+import type { GroupNode, SearchResultNode, SessionNode } from '../tree.ts'
 import { relativeTime } from '../tree.ts'
 import css from './Rows.module.css'
 
@@ -158,6 +158,9 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
       anchor={ownRow}
       content={<WorkspaceHoverContent label={row.label} cwd={row.cwd} createdAt={row.createdAt} t={t} />}
       disabled={menuOpen}
+      copyText={row.cwd}
+      copyLabel={t('copy')}
+      copiedLabel={t('hover.copied')}
     />
   )
 }
@@ -175,7 +178,9 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
   return (
     <div className={css.hoverContent}>
       <div className={css.hoverTitle}>{displayTitle(node, t)}</div>
-      <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>
+      {/* Same placeholder rule as the row's trailing cell: no timestamp
+          before the first prompt. */}
+      {!node.blank && <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>}
       <div className={css.hoverStatus}>
         <StateDot state={node.running ? 'ongoing' : 'done'} />
         <span>{node.running ? t('status.running') : t('status.idle')}</span>
@@ -202,13 +207,48 @@ export interface RowDragProps {
   end: () => void
 }
 
+/**
+ * One flat search result: title, Workspace context, and optional content
+ * excerpt. Search navigation opens the session only; it does not address an
+ * event inside the conversation.
+ * @param props.result - merged local/content search row.
+ * @param props.currentId - selected session id.
+ * @param props.onOpen - open the selected session.
+ * @returns the result button.
+ */
+export function SearchResultItem({ result, currentId, onOpen }: {
+  result: SearchResultNode
+  currentId: string | undefined
+  onOpen: (id: SearchResultNode['id']) => void
+}) {
+  const selected = result.id === currentId
+  return (
+    <button
+      type="button"
+      className={clsx(css.searchResultRow, selected && css.selected)}
+      role="treeitem"
+      aria-selected={selected}
+      onClick={() => { onOpen(result.id) }}
+    >
+      <span className={css.searchResultHeading}>
+        <span className={css.slot}>{result.running && <StateDot state="ongoing" />}</span>
+        <span className={css.searchResultTitle}>{result.title}</span>
+      </span>
+      <span className={css.searchResultWorkspace}>{result.workspace}</span>
+      {result.snippet !== undefined && (
+        <span className={css.searchResultSnippet}>{result.snippet}</span>
+      )}
+    </button>
+  )
+}
+
 /** Pointer-position half of a row (insert line above or below). */
 function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' | 'after' {
   const rect = e.currentTarget.getBoundingClientRect()
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, drag, t }: {
+export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, drag, t }: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -217,6 +257,8 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onRename: (id: SessionNode['id'], currentTitle: string) => void
   /** Fork a session at its last completed turn (row menu action). */
   onFork: (id: SessionNode['id']) => void
+  /** Archive this session (row menu action; commits without a dialog). */
+  onArchive: (id: SessionNode['id']) => void
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
   t: RowTranslate
@@ -225,10 +267,13 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   const title = displayTitle(node, t)
   const selected = node.id === currentId
   const [menuOpen, setMenuOpen] = useState(false)
+  // Archive replaces the former Delete placeholder: it hides the row through
+  // the registry-global archive set and never touches the session log, so it
+  // is not styled as destructive and needs no confirmation dialog.
   const sessionMenuItems = [
     { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
     { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
-    { id: 'delete', label: t('menu.deleteSession'), icon: <IconTrashOutline16 />, danger: true },
+    { id: 'archive', label: t('menu.archiveSession'), icon: <IconDownloadOutline16 /> },
   ]
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
@@ -266,31 +311,38 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
     >
       <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
       <span className={css.title}>{title}</span>
-      <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>
-      <span className={css.rowActions}>
-        <Menu
-          open={menuOpen}
-          onClose={() => { setMenuOpen(false) }}
-          items={sessionMenuItems}
-          onSelect={(id) => {
-            setMenuOpen(false)
-            if (id === 'rename') onRename(node.id, row.title)
-            if (id === 'fork') onFork(node.id) // delete stays visual-only.
-          }}
-          portal
-          closeOnPointerLeave
-          anchor={(
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label={t('actions.session.aria', { name: title })}
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
-            >
-              <IconEllipsisOutline16 />
-            </button>
-          )}
-        />
-      </span>
+      {/* A blank New Session row is a provisional placeholder: nothing has
+          happened in it yet, so a "now" timestamp and the row verbs
+          (rename/fork/archive) would all act on content that does not
+          exist — both trailing cells stay off until the first prompt. */}
+      {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
+      {!row.blank && (
+        <span className={css.rowActions}>
+          <Menu
+            open={menuOpen}
+            onClose={() => { setMenuOpen(false) }}
+            items={sessionMenuItems}
+            onSelect={(id) => {
+              setMenuOpen(false)
+              if (id === 'rename') onRename(node.id, row.title)
+              if (id === 'fork') onFork(node.id)
+              if (id === 'archive') onArchive(node.id)
+            }}
+            portal
+            closeOnPointerLeave
+            anchor={(
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={t('actions.session.aria', { name: title })}
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+              >
+                <IconEllipsisOutline16 />
+              </button>
+            )}
+          />
+        </span>
+      )}
     </div>
   )
   return (
@@ -298,6 +350,9 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
       anchor={ownRow}
       content={<SessionHoverContent node={node} now={now} t={t} />}
       disabled={menuOpen || drag?.active === true}
+      copyText={row.blank ? undefined : row.title}
+      copyLabel={t('copy')}
+      copiedLabel={t('hover.copied')}
     />
   )
 }

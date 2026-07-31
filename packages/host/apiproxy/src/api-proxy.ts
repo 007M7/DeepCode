@@ -17,18 +17,24 @@ import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceNameConflictError,
+  WorkspaceMoveInvalidError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSummary,
-  SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
+  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
+  SessionSummary, SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  truncateUnicodeCodePoints,
+} from './api/session-search.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
@@ -66,8 +72,25 @@ import { openNativePath } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/** Non-model settings namespaces intentionally served to the Web client. */
+const WEB_SETTINGS_NAMESPACES = ['permission'] as const
+
+/** Provider work budget: at most 100 calls and 2,000 inspected hits. */
+const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
+
+/** Bound cold-log stat fan-out and settle each started batch before cancellation returns. */
+const COLD_SUMMARY_BATCH_SIZE = 16
+
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+
+/** Product settings intentionally exposed beside model-provider namespaces. */
+const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
+
+/** Read live abort state across awaits without treating it as synchronously immutable. */
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
 
 /**
  * Message-boundary pagination: count maxMessages append-origin messages
@@ -266,15 +289,22 @@ function summarize(session: Session, running: boolean): SessionSummary {
  * updatedAt is the log file's mtime; backends without a per-session file
  * (locate() undefined) fall back to the header's createdAt.
  */
-async function summarizeCold(persistence: SessionPersistence, meta: SessionHeader): Promise<SessionSummary> {
+async function summarizeCold(
+  persistence: SessionPersistence,
+  meta: SessionHeader,
+  signal?: AbortSignal,
+): Promise<SessionSummary> {
+  signal?.throwIfAborted()
   let updatedAt = meta.createdAt
   const location = persistence.locate(meta)
+  signal?.throwIfAborted()
   if (location !== undefined) {
     try {
       updatedAt = (await stat(location.path)).mtimeMs
     } catch {
       // The log vanished between list() and stat() (concurrent cleanup); createdAt stands in.
     }
+    signal?.throwIfAborted()
   }
   return {
     sessionId: meta.id,
@@ -492,6 +522,14 @@ class SessionCwdConflict extends Error {
 /** Host failed before the registry could adopt a name-created directory. */
 class WorkspaceDirectoryCreationError extends Error {}
 
+/** An explicit Host naming operation would duplicate another Workspace title. */
+class WorkspaceNameConflictError extends Error {
+  constructor(readonly workspaceName: string) {
+    super(`workspace name '${workspaceName}' is already in use`)
+    this.name = 'WorkspaceNameConflictError'
+  }
+}
+
 /** Shared workspace-not-found error response of the workspace.* mutation rows. */
 function workspaceNotFound<T>(request: RpcRequest<unknown>, workspaceId: string): RpcResponse<T> {
   return err(request, {
@@ -540,7 +578,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const resumes = new Map<SessionId, Promise<Agent>>()
   /** Client-chosen identity creation/resume, deduplicated across concurrent retries. */
   const sessionCreations = new Map<SessionId, Promise<Agent>>()
-  /** Serializes path ownership checks with record creation across spellings. */
+  /** Serializes path ownership and explicit title checks with Workspace mutations. */
   let workspaceCreationChain = Promise.resolve()
   const pendingQuestions = new Map<RpcId, PendingQuestion>()
   const pendingApprovals = new Map<RpcId, PendingApproval>()
@@ -856,6 +894,62 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return operation
   }
 
+  /**
+   * Build the session.list baseline shared by listing and search visibility.
+   * Attached sessions come from memory; servable cold sessions merge from
+   * persistence, and the final order is newest-first.
+   */
+  async function listVisibleSessionSummaries(signal?: AbortSignal): Promise<SessionSummary[]> {
+    signal?.throwIfAborted()
+    const items = ctx.sessions.list().map((session) => {
+      const agent = ctx.agents.get(session.id)
+      const projections = listProjectionsFor(ctx, session.header, session)
+      return {
+        ...summarize(session, agent?.status === 'running'),
+        ...projections === undefined ? {} : { projections },
+      }
+    })
+    signal?.throwIfAborted()
+    const attached = new Set(items.map(item => item.sessionId))
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence !== undefined) {
+      const cold = (await persistence.list(signal))
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+      signal?.throwIfAborted()
+      for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
+        signal?.throwIfAborted()
+        const batch = cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
+        const settled = await Promise.allSettled(
+          batch.map(async (meta) => {
+            // Cold rows read the persisted projection cache only — never a
+            // log load; a session without a cache row simply has no column.
+            const projections = listProjectionsFor(ctx, meta, undefined)
+            return {
+              ...await summarizeCold(persistence, meta, signal),
+              ...projections === undefined ? {} : { projections },
+            }
+          }),
+        )
+        const summaries: SessionSummary[] = []
+        let rejected = false
+        let failure: unknown
+        for (const result of settled) {
+          if (result.status === 'fulfilled') {
+            summaries.push(result.value)
+          } else if (!rejected) {
+            rejected = true
+            failure = result.reason
+          }
+        }
+        if (rejected) throw failure
+        signal?.throwIfAborted()
+        items.push(...summaries)
+      }
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt)
+    return items
+  }
+
   /** Resolve the goal service; absent = the deployment did not compose @deepseek-ai/dsh-goal. */
   function goalService(): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
     const goals = ctx.get('goals')
@@ -912,31 +1006,36 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
-  /**
-   * The settings namespaces this proxy serves: exactly those a registered
-   * configurable provider addresses. The settings seam itself is general —
-   * any plugin may register a namespace for its own configuration — but the
-   * Web configuration plane is scoped to model providers, and that boundary
-   * has to be enforced here rather than assumed from the current plugin set.
-   * Without it, every future `settings.register()` would silently become
-   * remotely readable and writable configuration.
-   */
-  function exposedNamespaces(): Set<string> {
+  /** Settings namespaces whose changes can invalidate the model catalog. */
+  function modelProviderNamespaces(): Set<string> {
     return new Set(ctx.llm.listConfigurableProviders().map(entry => entry.settingsNs))
   }
 
-  /** Refuse a namespace outside the model-provider boundary, naming why. */
+  /**
+   * The settings namespaces this proxy serves: configurable model providers
+   * plus the small explicit Web preference and product-owned allowlists. The
+   * settings seam remains general; a future registration does not become
+   * remotely readable or writable by default.
+   */
+  function exposedNamespaces(): Set<string> {
+    const exposed = modelProviderNamespaces()
+    for (const ns of WEB_SETTINGS_NAMESPACES) exposed.add(ns)
+    for (const ns of PRODUCT_SETTINGS_NAMESPACES) exposed.add(ns)
+    return exposed
+  }
+
+  /** Refuse a namespace outside the explicit configuration-client boundary. */
   function notExposed(request: RpcRequest<unknown>, ns: string): RpcResponse<SettingsNamespaceView> {
     return err(request, {
       code: 'settings-not-exposed',
-      message: `settings namespace "${ns}" is not exposed to configuration clients; only a namespace a registered model provider addresses is`,
+      message: `settings namespace "${ns}" is not exposed to configuration clients`,
       details: { ns },
     })
   }
 
   /**
    * Run one settings write (merge or wholesale replace) and acknowledge with
-   * the namespace's new redacted view. A namespace outside the model-provider
+   * the namespace's new redacted view. A namespace outside the configuration
    * boundary is refused before the seam is touched; every seam refusal —
    * unknown or invalid namespace, read-only provider, schema validation,
    * storage — becomes one `settings-rejected` carrying the seam's own message.
@@ -998,30 +1097,137 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // Legacy logs without a cwd (pre-project stance) are not served — every
       // session now records its project at create time.
       async list(request) {
-        const items = ctx.sessions.list().map((session) => {
-          const agent = ctx.agents.get(session.id)
-          const projections = listProjectionsFor(ctx, session.header, session)
-          return {
-            ...summarize(session, agent?.status === 'running'),
-            ...projections === undefined ? {} : { projections },
-          }
+        return ok(request, { items: await listVisibleSessionSummaries() })
+      },
+
+      async search(request, signal) {
+        const cancelled = () => err<{ items: SessionSearchItem[]; hasMore: boolean }>(request, {
+          code: 'cancelled',
+          message: 'session search was aborted',
+          details: {},
         })
-        const attached = new Set(items.map(item => item.sessionId))
-        const persistence = ctx.get('sessionPersistence')
-        if (persistence !== undefined) {
-          const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(async (meta) => {
-            // Cold rows read the persisted projection cache only — never a
-            // log load; a session without a cache row simply has no column.
-            const projections = listProjectionsFor(ctx, meta, undefined)
-            return {
-              ...await summarizeCold(persistence, meta),
-              ...projections === undefined ? {} : { projections },
-            }
-          })))
+        if (isAborted(signal)) return cancelled()
+        const sessionQuery = ctx.get('sessionQuery')
+        if (sessionQuery === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'session search is unavailable: this deployment does not mount @deepseek-ai/dsh-session-query',
+            details: {},
+          })
         }
-        items.sort((a, b) => b.updatedAt - a.updatedAt)
-        return ok(request, { items })
+        try {
+          const visible = await listVisibleSessionSummaries(signal)
+          if (isAborted(signal)) return cancelled()
+          if (visible.length === 0) return ok(request, { items: [], hasMore: false })
+          const visibleIds = new Set(visible.map(item => item.sessionId))
+          const authorized: SessionSearchItem[] = []
+          const acceptedIds = new Set<SessionId>()
+          const seenCursors = new Set<SessionSearchCursor>()
+          let cursor: SessionSearchCursor | undefined
+          let providerCallCount = 0
+          let providerPageLimit = SESSION_SEARCH_RESULT_LIMIT
+          while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
+            if (isAborted(signal)) return cancelled()
+            if (providerCallCount >= SESSION_SEARCH_PROVIDER_CALL_LIMIT) {
+              throw new Error(
+                `session search provider exceeded the ${SESSION_SEARCH_PROVIDER_CALL_LIMIT}-call work budget`,
+              )
+            }
+            providerCallCount++
+            const requestedCursor = cursor
+            const requestedPageLimit = providerPageLimit
+            let page
+            try {
+              page = await sessionQuery.searchSessions({
+                query: request.payload.query,
+                eventFilters: [
+                  { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                  { kind: 'surface', values: ['current'] },
+                ],
+                limit: requestedPageLimit,
+                ...requestedCursor === undefined ? {} : { cursor: requestedCursor },
+              }, { signal })
+            } catch (error: unknown) {
+              if (isAborted(signal)) return cancelled()
+              if (
+                requestedCursor === undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+                && requestedPageLimit > 1
+              ) {
+                providerPageLimit = Math.max(1, Math.floor(requestedPageLimit / 2))
+                continue
+              }
+              if (
+                requestedCursor !== undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_STALE_CURSOR'
+              ) {
+                authorized.length = 0
+                acceptedIds.clear()
+                seenCursors.clear()
+                cursor = undefined
+                continue
+              }
+              throw error
+            }
+            if (isAborted(signal)) return cancelled()
+            const providerItemCount = page.items.length
+            if (providerItemCount > requestedPageLimit) {
+              throw new Error(
+                `session search provider returned ${providerItemCount} items; maximum is ${requestedPageLimit}`,
+              )
+            }
+            // Host visibility is the authorization boundary. Consume the
+            // provider's globally ranked stream rather than binding every
+            // visible id into one SQLite statement, then re-check complete
+            // provenance before emitting any snippet.
+            for (const hit of page.items) {
+              if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
+              if (
+                !visibleIds.has(hit.header.id)
+                || hit.bestMatch.sessionId !== hit.header.id
+                || hit.bestMatch.surface !== 'current'
+                || !MESSAGE_TYPES.has(hit.bestMatch.type)
+                || acceptedIds.has(hit.header.id)
+              ) continue
+              const snippet = truncateUnicodeCodePoints(
+                hit.bestMatch.snippet,
+                SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+              )
+              acceptedIds.add(hit.header.id)
+              authorized.push({
+                sessionId: hit.header.id,
+                snippet,
+              })
+            }
+            const nextCursor = page.nextCursor
+            if (nextCursor !== undefined) {
+              if (seenCursors.has(nextCursor)) {
+                throw new Error('session search provider repeated a continuation cursor')
+              }
+              seenCursors.add(nextCursor)
+            }
+            if (authorized.length > SESSION_SEARCH_RESULT_LIMIT || nextCursor === undefined) break
+            cursor = nextCursor
+          }
+          return ok(request, {
+            items: authorized.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+            hasMore: authorized.length > SESSION_SEARCH_RESULT_LIMIT,
+          })
+        } catch (error: unknown) {
+          if (
+            isAborted(signal)
+            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')
+          ) return cancelled()
+          // XXX: Redact provider details before exposing this gateway beyond
+          // its current single-user local deployment.
+          return err(request, {
+            code: 'internal',
+            message: `session search failed: ${String(error)}`,
+            details: {},
+          })
+        }
       },
 
       async create(request) {
@@ -1283,19 +1489,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { sessionId },
           }))
         }
-        agent.cancel({ kind: 'user' })
+        agent.cancel({ kind: 'user' }, { keepInbox: true })
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
     },
 
     workspace: {
       list(request) {
-        return Promise.resolve(ok(request, { items: ctx.workspace.list().map(workspaceView) }))
+        return Promise.resolve(ok(request, {
+          items: ctx.workspace.list().map(workspaceView),
+          archivedSessionIds: [...ctx.workspace.archivedSessionIds],
+        }))
       },
 
       // Exactly one of path/name arrives (schema refine). Existing-folder
       // adoption reuses its canonical path; create-by-name rejects a name
       // already present in the registry.
+      // TODO: the create-by-name branch lost its last product consumer when
+      // the Web picker collapsed onto the directory flow
+      // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md).
+      // Delete it with the wire schema's `name` member, this
+      // `defaults.workspaceRoot`, the client seam that carried the name
+      // (`WorkspaceCreateInput`, `WorkspacesService.create`'s `{ name }` arm,
+      // `intentName`'s name branch, the manager's "name under workspaceRoot"
+      // contract), and the `dsh web --workspace-root` flag plus its apps/cli
+      // README lines, which exist only to feed it.
       async create(request) {
         const { payload } = request
         let path: string
@@ -1405,6 +1623,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         return ok(request, { workspace: workspaceView(workspace) })
+      },
+
+      async archiveSession(request) {
+        const { sessionId } = request.payload
+        try {
+          await ctx.workspace.archiveSession(sessionId)
+        } catch (error: unknown) {
+          // Only the registry's unknown-session rejection is the business
+          // code; storage/durability failures propagate as internal errors.
+          if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+          return err(request, {
+            code: 'session-not-found',
+            message: error.message,
+            details: { sessionId },
+          })
+        }
+        return ok(request, { archivedSessionIds: [...ctx.workspace.archivedSessionIds] })
       },
     },
 
@@ -1830,6 +2065,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const committedWorkspaceIds = new Set(
           ctx.workspace.list().map(workspace => String(workspace.id)),
         )
+        // Frame-dedup baseline, same posture as committedWorkspaceIds: the
+        // stream opens against the current set; workspace.list re-baselines
+        // reconnecting clients, so only later changes need frames.
+        let archivedSessionIds = ctx.workspace.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
@@ -1866,6 +2105,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 committedWorkspaceIds.add(workspaceId)
                 queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
               }
+              if (state.archivedSessionIds.length !== archivedSessionIds.length
+                || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {
+                archivedSessionIds = state.archivedSessionIds
+                queue.push(frame({
+                  type: 'host/archived-sessions-changed',
+                  archivedSessionIds: [...state.archivedSessionIds],
+                }))
+              }
               return
             }
             if (change.table !== 'workspaces') return
@@ -1893,11 +2140,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // inherited to overridden leaves the resolved value equal, and a
             // configuration client still has to re-read (its held revision is
             // stale, and the field's meaning changed).
-            queue.push(frame({ type: 'host/settings-changed', ns: String(ns) }))
+            const name = String(ns)
+            queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
             // set is untouched — `llm/adapters-updated` alone misses it.
-            if (exposedNamespaces().has(String(ns))) queue.push(frame({ type: 'host/models-changed' }))
+            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))

@@ -8,7 +8,7 @@
  */
 
 import type { AgentLlmTarget, AgentLlmTargetRef } from '@deepseek-ai/dsh-agent'
-import { errorChain, type ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { errorChain, LlmError, type ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { TuiOverlaySession } from '../extension/types.ts'
 import { displayText } from '../components/text.ts'
 import {
@@ -37,6 +37,8 @@ export interface ModelController {
   resetContextResolution(): void
   /** Forget the tracked selector overlay (shutdown). */
   clearOverlay(): void
+  /** Remove the adapter-registration listener (channel detach). */
+  detach(): void
 }
 
 type ContextResolution =
@@ -55,8 +57,15 @@ export function createModelController(deps: ModelControllerDeps): ModelControlle
   let modelOverlay: TuiOverlaySession | undefined
   let modelCommands = Promise.resolve()
 
+  // A route whose adapter has not registered yet. Loader activation order is
+  // service-driven, so the TUI can mount before a configured adapter plugin
+  // activates; that transient NO_ADAPTER is not an error — the resolution
+  // waits for the next `llm/adapters-updated` commit instead of surfacing it.
+  let awaitingAdapter = false
+
   const resolveContextWindow = (selected: AgentLlmTarget | undefined): void => {
     contextWindow = undefined
+    awaitingAdapter = false
     const resolution: Promise<ContextResolution> = selected === undefined
       ? Promise.resolve({ kind: 'resolved', contextWindow: undefined } as const)
       : ctx.llm.resolveModelInfo(selected.provider, selected.model).then(
@@ -67,6 +76,10 @@ export function createModelController(deps: ModelControllerDeps): ModelControlle
     void resolution.then((result) => {
       if (contextResolution !== resolution) return
       if (result.kind === 'error') {
+        if (selected !== undefined && result.error instanceof LlmError && result.error.code === 'NO_ADAPTER') {
+          awaitingAdapter = true
+          return
+        }
         deps.appendNotice(`Could not resolve model context: ${errorChain(result.error)}`, 'error')
         return
       }
@@ -74,6 +87,15 @@ export function createModelController(deps: ModelControllerDeps): ModelControlle
       deps.requestRender()
     })
   }
+  // The wait cannot go stale against `target.current`: every target change
+  // re-enters resolveContextWindow, which clears it. A commit that still
+  // lacks the route parks the resolution again rather than erroring, so
+  // unrelated topology changes stay silent. The disposer rides the channel's
+  // detachListeners() through detach(), matching the sibling listeners.
+  const disposeAdapterListener = ctx.on('llm/adapters-updated', () => {
+    if (deps.isDisposed() || !awaitingAdapter) return
+    resolveContextWindow(target.current)
+  })
   resolveContextWindow(target.current)
 
   const selectModel = (
@@ -186,6 +208,9 @@ export function createModelController(deps: ModelControllerDeps): ModelControlle
     },
     clearOverlay(): void {
       modelOverlay = undefined
+    },
+    detach(): void {
+      disposeAdapterListener()
     },
   }
 }

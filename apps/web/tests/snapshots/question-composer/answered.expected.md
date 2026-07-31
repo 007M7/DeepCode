@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the ask_user_question tool to" [disabled]
+  - heading "Use the ask_user_question tool to" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -9,16 +8,18 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.":
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool with specific parameters. Let me do exactly that.
-- button:
+- button "Ask question 1/1 answered":
   - img
   - img
-- text: Ask question 1/1 answered
+  - text: Ask question 1/1 answered
 - button "Think The user answered \"Blue\". I should now reply with the single word DONE and stop.":
   - img
   - img
@@ -30,12 +31,11 @@
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 95% Input 8.6K tok · Output 180 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 3% of 128K Cache hit 95% Input 8.6K tok · Output 180 tok

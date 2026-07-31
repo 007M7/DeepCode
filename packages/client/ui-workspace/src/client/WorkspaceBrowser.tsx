@@ -1,11 +1,13 @@
 /**
  * The workspace/session browsing region filling the sidebar shell's
- * `sidebar.workspaces` hole: section header (title + group-by + new
+ * `sidebar.workspaces` hole: section header (title + group-by + add
  * workspace), search, the grouped tree or flat list, and the workspace
  * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / new workspace), each requesting shell expansion
- * through the owner share. The picker menu and create dialogs live in
- * WorkspacePicker (same package — direct composition, no slot between them).
+ * region icons (search / add workspace), each requesting shell expansion
+ * through the owner share. Adding is the header button's one action, so it
+ * raises the directory flow with no menu in between; the flow and its error
+ * dialog live in WorkspacePicker (same package — direct composition, no slot
+ * between them).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
@@ -13,12 +15,14 @@ import {
   Button, IconCloseFill14, IconPersonalizationOutline16,
   IconProjectAddOutline16, IconSearchOutline16, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  SessionSearchResultItem, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { WorkspaceBrowserProps } from './contract/slots.ts'
 import type { SessionNode } from './tree.ts'
-import { deriveFlat, deriveGroups, UNGROUPED_KEY } from './tree.ts'
-import { ProjectRowItem, SessionNodeItem } from './rows/Rows.tsx'
-import { WorkspaceCreateFlow } from './WorkspacePicker.tsx'
+import { deriveFlat, deriveGroups, deriveSearchResults, UNGROUPED_KEY } from './tree.ts'
+import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './rows/Rows.tsx'
+import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -26,6 +30,21 @@ import css from './WorkspaceBrowser.module.css'
  * focus() forces a synchronous layout and would jank the slide.
  */
 const EXPAND_SLIDE_MS = 300
+/** Pause between the latest keystroke and a Host content-search request. */
+const SEARCH_DEBOUNCE_MS = 250
+/** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
+const SEARCH_QUERY_MAX_CODE_UNITS = 500
+
+/** Keep controlled input and RPC payload inside the session.search wire contract. */
+function sanitizeSearchQuery(value: string): string {
+  const withoutNul = value.replaceAll('\0', '')
+  if (withoutNul.length <= SEARCH_QUERY_MAX_CODE_UNITS) return withoutNul
+  let end = SEARCH_QUERY_MAX_CODE_UNITS
+  const last = withoutNul.charCodeAt(end - 1)
+  const next = withoutNul.charCodeAt(end)
+  if (last >= 0xD800 && last <= 0xDBFF && next >= 0xDC00 && next <= 0xDFFF) end--
+  return withoutNul.slice(0, end)
+}
 
 /** Immutable membership toggle for the local expansion arrays. */
 function toggled(list: readonly string[], key: string): string[] {
@@ -85,20 +104,22 @@ type SessionTreeProps = Pick<
   'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore' | 't'
 > & {
   workspaces: readonly WorkspaceView[]
-  /** Live search filter owned by the browser root (the query outlives the tree). */
-  query: string
+  /** Registry-global archive set (hidden rows). */
+  archivedSessionIds: readonly SessionNode['id'][]
   /** Open the browser-owned rename dialog for a real Workspace group. */
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
+  /** Archive a session (row menu action; the row disappears on the state echo). */
+  onSessionArchive: (sessionId: SessionNode['id']) => void
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
-  useSessions, startSession, open, forkSession, workspaces, query,
-  onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore, t,
+  useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertSessionBefore, t,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -114,8 +135,8 @@ function SessionTree({
     setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, { expandedProjects, query }),
-    [list, workspaces, expandedProjects, query],
+    () => deriveGroups(list, workspaces, archivedSessionIds, { expandedProjects }),
+    [list, workspaces, archivedSessionIds, expandedProjects],
   )
   const now = Date.now()
 
@@ -123,7 +144,7 @@ function SessionTree({
     <div className={clsx(css.treeBody, css.wide)}>
       <div className={css.list} role="tree" aria-label={t('section.sessions')}>
         {groups.length === 0 && (
-          <div className={css.empty}>{query === '' ? t('empty.none') : t('empty.noMatches')}</div>
+          <div className={css.empty}>{t('empty.none')}</div>
         )}
         {groups.map(group => (
           // Group section: header row + expanded top-level session rows. The
@@ -151,10 +172,10 @@ function SessionTree({
                 }}
             />
             {group.sessions.map((node, index) => {
-              // Draggable: real-workspace session rows outside search. The drag
+              // Draggable: real-workspace session rows. The drag
               // never leaves its group — rows of other groups show no markers
               // and reject drops (visual movement confined to this section).
-              const draggable = group.workspaceId !== undefined && query === ''
+              const draggable = group.workspaceId !== undefined
               const sameGroupDrag = drag !== null && drag.workspaceId === group.workspaceId
               const dragProps = !draggable || group.workspaceId === undefined ? undefined : {
                 start: () => {
@@ -194,6 +215,7 @@ function SessionTree({
                   onOpen={open}
                   onRename={onSessionRename}
                   onFork={forkSession}
+                  onArchive={onSessionArchive}
                   drag={dragProps}
                   t={t}
                 />
@@ -208,15 +230,17 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, forkSession, onSessionRename, query, t }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'query' | 't'>) {
+function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, t }: Pick<
+  SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'onSessionArchive' | 'archivedSessionIds' | 't'
+>) {
   const list = useSessions(s => s)
-  const rows = useMemo(() => deriveFlat(list, { query }), [list, query])
+  const rows = useMemo(() => deriveFlat(list, archivedSessionIds), [list, archivedSessionIds])
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
       <div className={css.list} role="tree" aria-label={t('section.sessions')}>
         {rows.length === 0 && (
-          <div className={css.empty}>{query === '' ? t('empty.none') : t('empty.noMatches')}</div>
+          <div className={css.empty}>{t('empty.none')}</div>
         )}
         {rows.map(node => (
           <SessionNodeItem
@@ -227,9 +251,80 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, query, t }:
             onOpen={open}
             onRename={onSessionRename}
             onFork={forkSession}
+            onArchive={onSessionArchive}
             t={t}
           />
         ))}
+      </div>
+      <span className={css.fade} />
+    </div>
+  )
+}
+
+interface RemoteSearchState {
+  query: string
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  items: readonly SessionSearchResultItem[]
+  hasMore: boolean
+}
+
+/** Flat search body: local metadata matches plus the current Host result page. */
+function SearchResults({
+  useSessions,
+  open,
+  workspaces,
+  archivedSessionIds,
+  query,
+  remote,
+  resultLimit,
+  t,
+}: Pick<SessionTreeProps, 'useSessions' | 'open' | 't'> & {
+  workspaces: readonly WorkspaceView[]
+  archivedSessionIds: readonly SessionNode['id'][]
+  query: string
+  remote: RemoteSearchState
+  resultLimit: number
+}) {
+  const list = useSessions(s => s)
+  const currentRemote = remote.query === query
+    ? remote
+    : { query, status: 'loading' as const, items: [], hasMore: false }
+  const results = useMemo(
+    () => deriveSearchResults(list, workspaces, query, archivedSessionIds, currentRemote, resultLimit),
+    [list, workspaces, query, archivedSessionIds, currentRemote, resultLimit],
+  )
+  const pending = currentRemote.status === 'loading'
+  const failed = currentRemote.status === 'error'
+
+  return (
+    <div className={clsx(css.treeBody, css.wide)}>
+      <div className={css.list}>
+        <div className={css.searchTree} role="tree" aria-label={t('search.results.aria')}>
+          {results.items.map(result => (
+            <SearchResultItem
+              key={result.id}
+              result={result}
+              currentId={list.current}
+              onOpen={open}
+            />
+          ))}
+        </div>
+        {pending && (
+          <div className={css.searchStatus} role="status">{t('search.pending')}</div>
+        )}
+        {failed && (
+          <div className={css.searchWarning} role="status">
+            {t('search.unavailable')}
+          </div>
+        )}
+        {!pending && results.items.length === 0 && (
+          <div className={css.empty}>{t('search.noMatches')}</div>
+        )}
+        {results.hasMore && (
+          <div className={css.searchStatus}>
+            {t('search.hasMore', { n: resultLimit })}
+          </div>
+        )}
       </div>
       <span className={css.fade} />
     </div>
@@ -254,17 +349,31 @@ export function WorkspaceBrowser({
   forkSession,
   renameWorkspace,
   deleteWorkspace,
+  archiveSession,
   insertSessionBefore,
   createWorkspace,
+  searchSessions,
+  searchResultLimit,
   useDirectoryFlow,
   renderSlot,
   t,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
+  const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  // Live occupancy of this surface's directory-flow hole (the same source the
+  // flow reads): a composition without a picking affordance can add nothing.
+  const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
   const groupBy = useStore(s => s.groupBy)
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
+  const normalizedQuery = sanitizeSearchQuery(query).trim()
+  const [remoteSearch, setRemoteSearch] = useState<RemoteSearchState>({
+    query: '',
+    status: 'idle',
+    items: [],
+    hasMore: false,
+  })
   const searchInput = useRef<HTMLInputElement | null>(null)
   // Section-header ＋ opens the picker menu (same popover in wide and rail
   // states; the menu anchors on this button).
@@ -284,6 +393,43 @@ export function WorkspaceBrowser({
       return () => { window.clearTimeout(timer) }
     }
   }, [wide, searchOnExpand])
+
+  useEffect(() => {
+    if (normalizedQuery === '') {
+      setRemoteSearch({ query: '', status: 'idle', items: [], hasMore: false })
+      return
+    }
+    const controller = new AbortController()
+    setRemoteSearch({
+      query: normalizedQuery,
+      status: 'loading',
+      items: [],
+      hasMore: false,
+    })
+    const timer = window.setTimeout(() => {
+      searchSessions(normalizedQuery, controller.signal).then((result) => {
+        if (controller.signal.aborted) return
+        setRemoteSearch({
+          query: normalizedQuery,
+          status: 'ready',
+          items: result.items,
+          hasMore: result.hasMore,
+        })
+      }).catch(() => {
+        if (controller.signal.aborted) return
+        setRemoteSearch({
+          query: normalizedQuery,
+          status: 'error',
+          items: [],
+          hasMore: false,
+        })
+      })
+    }, SEARCH_DEBOUNCE_MS)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [normalizedQuery, searchSessions])
 
   // Rename dialog (browser-owned so it outlives row unmounts during collapse).
   const [renameTarget, setRenameTarget] = useState<{ workspaceId: WorkspaceId; currentTitle: string } | null>(null)
@@ -346,6 +492,16 @@ export function WorkspaceBrowser({
     setSessionRenameError(null)
   }
 
+  // Archive is dialog-free: not destructive (the log and the accounting slot
+  // remain), so the menu action commits directly; the row disappears when the
+  // archive-set echo lands. Failures are non-fatal console diagnostics, the
+  // same posture as reorder rejections.
+  const onSessionArchive = (sessionId: SessionNode['id']) => {
+    archiveSession(sessionId).catch((reason: unknown) => {
+      console.warn('session archive rejected:', reason)
+    })
+  }
+
   // Delete dialog is separate from the row so a successful removal can
   // unmount that row without tearing down the in-flight confirmation state.
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
@@ -390,21 +546,26 @@ export function WorkspaceBrowser({
           </span>
         )}
         {wide && <GroupByMenu groupBy={groupBy} onPick={(mode) => { actions.setGroupBy(mode) }} t={t} />}
-        <Tooltip label={t('workspace.new')} disabled={wide}>
-          <button
-            ref={wsPlusRef}
-            type="button"
-            className={css.iconButton}
-            aria-label={t('create.confirm')}
-            onClick={() => {
-              setWsPickerOpen(v => !v)
-            }}
-          >
-            <IconProjectAddOutline16 size={wide ? 16 : 18} />
-          </button>
-        </Tooltip>
-        {/* Picker menu + create dialogs (same package — direct composition). */}
-        <WorkspaceCreateFlow
+        {/* Adding is the button's one action, so a composition with no
+            picking affordance has nothing to offer here: the region hides the
+            button rather than leaving a dead one in the header. */}
+        {directoryFlowAvailable && (
+          <Tooltip label={t('workspace.add')} disabled={wide}>
+            <button
+              ref={wsPlusRef}
+              type="button"
+              className={css.iconButton}
+              aria-label={t('workspace.add')}
+              onClick={() => {
+                setWsPickerOpen(v => !v)
+              }}
+            >
+              <IconProjectAddOutline16 size={wide ? 16 : 18} />
+            </button>
+          </Tooltip>
+        )}
+        {/* Add flow + its error dialog (same package — direct composition). */}
+        <WorkspacePickFlow
           t={t}
           open={wsPickerOpen}
           anchorRef={wsPlusRef}
@@ -412,7 +573,7 @@ export function WorkspaceBrowser({
           createWorkspace={createWorkspace}
           useDirectoryFlow={useDirectoryFlow}
           renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
-          createOnly
+          addOnly
           side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
@@ -442,8 +603,9 @@ export function WorkspaceBrowser({
             className={clsx(css.searchInput, css.wide)}
             type="text"
             placeholder={t('search.placeholder')}
+            maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
             value={query}
-            onChange={(e) => { setQuery(e.target.value) }}
+            onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
           />
         )}
         {wide && query !== '' && (
@@ -461,35 +623,50 @@ export function WorkspaceBrowser({
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
       <div className={css.listArea}>
-        {wide && (groupBy === 'flat'
+        {wide && (normalizedQuery !== ''
           ? (
-            <FlatList
-              useSessions={useSessions} open={open} forkSession={forkSession}
-              onSessionRename={onSessionRename} query={query} t={t}
+            <SearchResults
+              useSessions={useSessions}
+              open={open}
+              workspaces={workspaces}
+              archivedSessionIds={archivedSessionIds}
+              query={normalizedQuery}
+              remote={remoteSearch}
+              resultLimit={searchResultLimit}
+              t={t}
             />
           )
-          : (
-            <SessionTree
-              useSessions={useSessions}
-              onSessionRename={onSessionRename}
-              forkSession={forkSession}
-              workspaces={workspaces}
-              startSession={startSession}
-              open={open}
-              query={query}
-              insertSessionBefore={insertSessionBefore}
-              t={t}
-              onRenameRequest={(workspaceId, currentTitle) => {
-                setRenameTarget({ workspaceId, currentTitle })
-                setRenameDraft(currentTitle)
-                setRenameError(null)
-              }}
-              onDeleteRequest={(workspaceId, title) => {
-                setDeleteTarget({ workspaceId, title })
-                setDeleteError(null)
-              }}
-            />
-          ))}
+          : groupBy === 'flat'
+            ? (
+              <FlatList
+                useSessions={useSessions} open={open} forkSession={forkSession}
+                onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                archivedSessionIds={archivedSessionIds} t={t}
+              />
+            )
+            : (
+              <SessionTree
+                useSessions={useSessions}
+                onSessionRename={onSessionRename}
+                onSessionArchive={onSessionArchive}
+                forkSession={forkSession}
+                workspaces={workspaces}
+                archivedSessionIds={archivedSessionIds}
+                startSession={startSession}
+                open={open}
+                insertSessionBefore={insertSessionBefore}
+                t={t}
+                onRenameRequest={(workspaceId, currentTitle) => {
+                  setRenameTarget({ workspaceId, currentTitle })
+                  setRenameDraft(currentTitle)
+                  setRenameError(null)
+                }}
+                onDeleteRequest={(workspaceId, title) => {
+                  setDeleteTarget({ workspaceId, title })
+                  setDeleteError(null)
+                }}
+              />
+            ))}
       </div>
 
       <Modal

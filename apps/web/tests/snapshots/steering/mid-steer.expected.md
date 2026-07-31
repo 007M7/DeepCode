@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the ask_user_question tool to" [disabled]
+  - heading "Use the ask_user_question tool to" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -9,16 +8,20 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- button:
+- text: Running
+- button "Ask question waiting":
   - img
   - img
-- text: Ask question waiting
+  - text: Ask question waiting
+- status: Deep diving...
 - region "Ready to continue?":
   - text: Checkpoint
   - heading "Ready to continue?" [level=2]

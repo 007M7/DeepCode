@@ -1,12 +1,12 @@
 // Central contract re-export point: every contract import inside
 // web-runtime goes through this single file.
-// Types are type-only imports from the apiproxy api/ layer (zero Node deps, browser-safe);
-// the only runtime values are the RpcId constructor and the AbstractApiClient seam.
+// Types and runtime protocol helpers/bounds come from the apiproxy api/ layer
+// (zero Node deps, browser-safe); AbstractApiClient is the client seam.
 // NEVER import the package root: it drags bootHost/cordis into the browser bundle.
 // The ./api and ./client subpath exports are the browser-safe channels added for this.
 
 export type {
-  ApiProxy, SessionsApi, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
+  ApiProxy, SessionsApi, SessionSearchItem, SessionSummary, HostApi, EventsApi, MuxFrame, HostFrame,
   ApprovalResponsePayload, QuestionResponsePayload, HistoryEntry, ToolEventView,
   DirectoryEntry, DirectoryListing,
   WorkspaceApi, WorkspaceId, WorkspaceView,
@@ -25,7 +25,11 @@ export type {
 // transportError moved down to the apiproxy api layer (it belongs beside
 // RpcResult, its subject); re-exported here so connection consumers keep one
 // contract entry point.
-export { RpcId, transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
+export {
+  RpcId,
+  SESSION_SEARCH_RESULT_LIMIT,
+  transportError,
+} from '@deepseek-ai/dsh-host-apiproxy/api'
 export { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 export type { SessionId, SessionEvent } from '@deepseek-ai/dsh-session/types'

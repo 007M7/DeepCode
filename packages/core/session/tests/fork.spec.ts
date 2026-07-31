@@ -67,7 +67,7 @@ describe('SessionStore.fork', () => {
 
     const child = sessions.fork(source, undefined, SessionId('empty-child'))
 
-    expect(child.events).toEqual([])
+    expect(inherited(child)).toEqual([])
     expect(child.header).toMatchObject({
       id: SessionId('empty-child'),
       cwd: '/workspace',

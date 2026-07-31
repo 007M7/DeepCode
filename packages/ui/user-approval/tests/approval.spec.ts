@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { carrierKeyOf, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
@@ -351,6 +351,7 @@ describe('ApprovalService.request', () => {
 
 describe('approval policy (the approval/policy fold)', () => {
   const NEVER_SENTENCE = 'Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).'
+  const ASK_SENTENCE = 'Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.'
   const ASK_MARKER = '<!-- dsh-user-approval-policy:ask -->'
   const NEVER_MARKER = '<!-- dsh-user-approval-policy:never -->'
 
@@ -486,23 +487,24 @@ describe('approval policy (the approval/policy fold)', () => {
     await expect(ctx.approval.request({ agent, toolName: 'bash' })).resolves.toBe('rejected')
   })
 
-  it('states never (and only never) in prose while recording either policy with a source-owned marker', async () => {
+  it('contributes the complete current ask or never policy as cache-safe context', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ApprovalService)
     const askAgent = sessionAgent('sess-sect-ask').agent
     const { agent: neverAgent, session } = sessionAgent('sess-sect-never')
     setApprovalPolicy(session, 'never')
-    const sectionFor = async (context: object) =>
-      (await ctx.systemPrompt.assemble(context)).sections.find(s => s.name === 'approval:policy')?.text
-    expect(await sectionFor({ agent: askAgent })).toBe(ASK_MARKER)
-    expect(await sectionFor({ agent: neverAgent })).toBe(`${NEVER_SENTENCE}\n${NEVER_MARKER}`)
+    const contextFor = async (context: object) =>
+      (await ctx.systemPrompt.assemble(context)).contexts.find(entry => entry.name === 'approval:policy')?.text
+    expect(await contextFor({ agent: askAgent })).toBe(ASK_SENTENCE)
+    expect(await contextFor({ agent: neverAgent })).toBe(NEVER_SENTENCE)
     // A bare assemble (no agent) has no session to state.
-    expect(await sectionFor({})).toBe('')
+    expect(await contextFor({})).toBe('')
   })
 
-  it('narrates nothing cold, once per coalesced switch (user wording), and idempotently', async () => {
+  it('reflects the latest durable switch and stays byte-stable while unchanged', async () => {
     const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
     await ctx.plugin(ApprovalService)
     const { agent, session } = sessionAgent('sess-narr-1')
     await submitPrompt(ctx, agent)
@@ -518,6 +520,22 @@ describe('approval policy (the approval/policy fold)', () => {
     setApprovalPolicy(session, 'never')
     await submitPrompt(ctx, agent)
     expect(narrations(session)).toHaveLength(1)
+  })
+
+  it('reflects the latest durable switch in cache-safe context and stays byte-stable while unchanged', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ApprovalService)
+    const { agent, session } = sessionAgent('sess-context-switch')
+    const contextFor = async () =>
+      (await ctx.systemPrompt.assemble({ agent })).contexts.find(entry => entry.name === 'approval:policy')?.text
+    expect(await contextFor()).toBe(ASK_SENTENCE)
+    expect(await contextFor()).toBe(ASK_SENTENCE)
+    setApprovalPolicy(session, 'never')
+    setApprovalPolicy(session, 'ask')
+    setApprovalPolicy(session, 'never')
+    expect(await contextFor()).toBe(NEVER_SENTENCE)
+    expect(await contextFor()).toBe(NEVER_SENTENCE)
   })
 
   it('preserves a rejected pre-step without adding policy narration', async () => {
@@ -637,9 +655,9 @@ describe('approval policy (the approval/policy fold)', () => {
     const fiber = await ctx.plugin(ApprovalService)
     const live = sessionAgent('sess-hmr-service-live')
     const afterDispose = sessionAgent('sess-hmr-service-disposed')
-    const sectionFor = async () =>
-      (await ctx.systemPrompt.assemble({ agent: live.agent })).sections.find(section => section.name === 'approval:policy')
-    expect(await sectionFor()).toBeDefined()
+    const contextFor = async () =>
+      (await ctx.systemPrompt.assemble({ agent: live.agent })).contexts.find(context => context.name === 'approval:policy')
+    expect(await contextFor()).toBeDefined()
 
     appendHeader(live.session, `persona\n${ASK_MARKER}`)
     setApprovalPolicy(live.session, 'never')
@@ -650,7 +668,7 @@ describe('approval policy (the approval/policy fold)', () => {
     setApprovalPolicy(afterDispose.session, 'never')
     await fiber.dispose()
 
-    expect(await sectionFor()).toBeUndefined()
+    expect(await contextFor()).toBeUndefined()
     await submitPrompt(ctx, afterDispose.agent)
     expect(narrations(afterDispose.session)).toEqual([])
   })

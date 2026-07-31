@@ -15,7 +15,7 @@
 // chat-toolview-slot.spec.tsx.
 
 import { describe, expect, it, vi } from 'vitest'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -24,6 +24,10 @@ import type {
   ChatViewInjected, ComposerBarInjected, ConversationInjected, ConversationSessionInjected, DetailsInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { createChatStore } from '../src/client/stores.ts'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 const ROOT = 'root-1' as SessionId
 
@@ -101,7 +105,7 @@ async function bench() {
     }
     const actions = info.props['inputActions'] as {
       setDraft: (text: string) => void
-      submit: (mode?: 'queue' | 'steer') => void
+      submit: () => void
     }
     return { state, actions }
   }
@@ -140,25 +144,25 @@ describe('conversation slot inject surface', () => {
     const { state, actions } = b.inputSurface(ROOT)
     // Whitespace-only: the machine treats it as empty — no prompt, draft kept.
     actions.setDraft('   ')
-    actions.submit('queue')
+    actions.submit()
     expect(b.sessionFake.prompt).not.toHaveBeenCalled()
     expect(state.getSnapshot().draft).toBe('   ')
     // Success: cleared and stays cleared.
     actions.setDraft('hello')
-    actions.submit('queue')
+    actions.submit()
     expect(state.getSnapshot().draft).toBe('')
     await Promise.resolve()
     expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
     // Failure: restored (draft still empty when the rejection lands).
     b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b', details: { reason: 'b' } } })
     actions.setDraft('retry me')
-    actions.submit('queue')
+    actions.submit()
     await vi.waitFor(() => {
       expect(state.getSnapshot().draft).toBe('retry me')
     })
     // Failure landing after new typing: no clobber (restore fills empty only).
     b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b', details: { reason: 'b' } } })
-    actions.submit('queue')
+    actions.submit()
     actions.setDraft('typed during flight')
     await new Promise(r => setTimeout(r, 0))
     expect(state.getSnapshot().draft).toBe('typed during flight')
@@ -188,9 +192,11 @@ describe('conversation slot inject surface', () => {
     // hooks compartment still present so the render side's hook order holds.
     const absent = injectFn(undefined)
     expect(absent.keyboard).toBeUndefined()
+    expect(absent.toggleCommandMenu).toBeUndefined()
     expect(absent.stop).toBeUndefined()
     expect(absent.hooks.notices.getSnapshot()).toBeNull()
     expect(absent.hooks.lexicon.getSnapshot().size).toBe(0)
+    expect(absent.hooks.menuLauncher.getSnapshot()).toBeNull()
     // A scope whose service tree lost 'conversation' (the feature fiber
     // unloaded while a retained inject closure re-runs): fails loud too.
     const stop = injectFn(ROOT).stop!
@@ -222,12 +228,9 @@ describe('conversation slot inject surface', () => {
     await b.runtime.dispose()
   })
 
-  it('routes navigation and workspace switching through the runtime owners, carrying the draft', async () => {
+  it('routes workspace switching through the runtime owner, carrying the draft', async () => {
     const b = await bench()
-    const { injected } = b.conversationSurface(ROOT)
     const resident = b.residentSurface(ROOT)
-    injected.open(ROOT)
-    expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [ROOT] })
     // Same-session connect (the picked workspace resolves to this session):
     // no draft movement, plain re-open.
     b.runtime.workspaces.stub('connectWorkspace', () => Promise.resolve(ROOT))
@@ -235,7 +238,7 @@ describe('conversation slot inject surface', () => {
     actions.setDraft('carry me')
     void resident.selectWorkspace('workspace-1' as never)
     await vi.waitFor(() => {
-      expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(2)
+      expect(b.runtime.sessions.calls.filter(c => c.method === 'open')).toHaveLength(1)
     })
     expect(b.runtime.workspaces.calls).toContainEqual({ method: 'connectWorkspace', args: ['workspace-1'] })
     expect(state.getSnapshot().draft).toBe('carry me')

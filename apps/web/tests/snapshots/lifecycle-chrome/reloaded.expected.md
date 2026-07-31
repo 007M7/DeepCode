@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Reply with the single word" [disabled]
+  - heading "Reply with the single word" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -9,8 +8,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to reply with a single word. Let me comply.":
   - img
   - img
@@ -22,12 +23,11 @@
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 1 steps Cache hit 99% Input 7.8K tok · Output 21 tok
+- text: 1 turns · 1 steps Context 6% of 128K Cache hit 99% Input 7.8K tok · Output 21 tok

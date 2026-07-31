@@ -18,6 +18,8 @@ Some deployments need a one-call Bash schema whose shell state survives across m
 
 Both plugins are included in the Python runtime closure. The persistent Bash closure also includes the PTY service/local backend and the sandbox services required by that backend. Because `node-pty` executes a native `spawn-helper` on macOS, each packaged macOS runtime executable ships with a `-spawn-helper` sibling; Linux uses `forkpty` directly. A pinned `node-pty` patch checks `DSH_NODE_PTY_SPAWN_HELPER` first, so it remains a true override for a current external consumer that supplies a non-sibling helper. When the override is unset, the patch resolves the packaged executable sibling if present and otherwise preserves upstream lookup in ordinary Node runs. The macOS builders fail before publication when the helper is absent or not executable.
 
+The shipped [`core-web.cordis.yml`](../../../../apps/cli/config/core-web.cordis.yml) overlay composes both plugins over the ordinary Web surface, disables its other model-facing consumers, and leaves the Web host, browser, Workspace, persistence, sandbox, and permission stack in place. The local PTY backend resolves the effective session sandbox mode when it creates the shell. While that owner has an open shell or a spawn in progress, a different permission mode is rejected before its session event commits; the editor continues through the Web filesystem sandbox.
+
 ## Alternatives considered
 
 **One combined compatibility plugin.** Rejected because neither tool requires the other and the combined name would tie reusable capabilities to one benchmark.
@@ -30,4 +32,4 @@ Both plugins are included in the Python runtime closure. The persistent Bash clo
 
 ## Consequences
 
-Profiles can reproduce an external agent by configuring persona and descriptions while the underlying packages remain general. Persistent Bash requires an owning Agent and real PTY backend. Shell exit, timeout, or cancellation loses state. The editor delegates security and mutation policy to the mounted filesystem stack. Runtime-wheel consumers still need no Node installation; Linux wheels contain one executable, while macOS wheels also contain its private native helper.
+Profiles can reproduce an external agent by configuring persona and descriptions while the underlying packages remain general. Persistent Bash requires an owning Agent and real PTY backend. Shell exit, timeout, or cancellation loses state. The editor delegates security and mutation policy to the mounted filesystem stack. The Core Web profile retains Web permissions but must close its persistent shell before changing modes. Runtime-wheel consumers still need no Node installation; Linux wheels contain one executable, while macOS wheels also contain its private native helper.

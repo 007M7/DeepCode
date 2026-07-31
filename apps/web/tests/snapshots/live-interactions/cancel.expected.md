@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Reply with a one-sentence description" [disabled]
+  - heading "Reply with a one-sentence description" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -9,8 +8,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - paragraph: partial
 - text: Stopped
 - button "Copy":
@@ -19,10 +20,9 @@
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img

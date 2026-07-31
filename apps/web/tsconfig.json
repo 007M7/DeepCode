@@ -24,6 +24,7 @@
   "exclude": [
     "tests/scaffold.ts",
     "tests/scaffold-hermetic.e2e.ts",
+    "tests/core-web-profile.snapshot.ts",
     "tests/live-interactions.e2e.ts",
     "tests/question-composer.e2e.ts",
     "tests/approval-composer.e2e.ts",
@@ -40,10 +41,16 @@
     "tests/seeded-history.e2e.ts",
     "tests/sidebar-scrollbar.e2e.ts",
     "tests/code-mode-round.e2e.ts",
+    "tests/composer-draft-scroll.e2e.ts",
     "tests/cordis-tool-round.e2e.ts",
+    "tests/web-search-round.e2e.ts",
     "tests/message-actions.e2e.ts",
     "tests/queue-actions.e2e.ts",
-    "tests/skill-invocation-policy.e2e.ts"
+    "tests/skill-invocation-policy.e2e.ts",
+    "tests/permission-policy-context.e2e.ts",
+    "tests/access-confirmation.e2e.ts",
+    "tests/shipped-composition.e2e.ts",
+    "tests/startup-auto-selection.e2e.ts"
   ],
   "references": [
     {

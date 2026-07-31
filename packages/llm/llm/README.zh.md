@@ -18,7 +18,7 @@
 - `ctx.llm.listModels(provider: string): Promise<LlmModelInfo[]>` 发现某个已注册提供方当前公布的模型。
 - `ctx.llm.resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>` 从拥有精确路由的适配器解析经校验的确切模型身份，以及可用上下文、输出默认值和推理（reasoning）元数据；异步适配器可选地支持取消。
 - `ctx.llm.resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>` 校验显式推理强度，并填入适配器配置的调用默认值，但不自动调整。
-- `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 解析配置，并将当前适配器注册及不可变重试策略捕获为一次可取消、一次性调用。
+- `ctx.llm.prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>` 在一次精确模型查询中解析配置、脱耦的上下文元数据与适配器默认值溯源，再将当前适配器注册和不可变重试策略捕获为一次可取消、一次性调用。
 - `ctx.llm.stream(options: GenerateOptions): AsyncIterable<StreamChunk>` 将一次模型调用流式输出为原始分片（token 级增量）。消费方使用 `BlockAssembler` 将分片组装为块／消息。
 
 `LlmService` 将最终适配器选择、同步 dispatch、iterator 构造与迭代中的失败规范化为流协议唯一的终止形式：`finish { kind: 'error' | 'aborted', failure }`。部分增量输出后发生失败时，内容块可能仍未闭合；消费方会丢弃这些不完整输出。`llm/stream` middleware、嵌套调用、适配器清理和下游消费方的错误仍会抛出，因为它们属于插件或消费方失败，而非模型请求结果。已准备调用会暴露随其确切适配器注册一同捕获的不可变重试策略；完全由 middleware 处理的路由没有服务策略。
@@ -29,7 +29,7 @@
 
 确切模型元数据是独立的正确性查询，不是 catalog 装饰或全局 LLM 设置。`resolveModelInfo()` 会向拥有精确提供方／模型路由的适配器查询一次；适配器可以描述未列出的动态模型，缺少 `context`、`defaultMaxTokens` 或 `reasoning` 字段会分别保留未知容量、提供方持有的输出默认值或不可用的推理能力。无效的身份、上下文、输出默认值或推理元数据会以 `INVALID_MODEL_INFO`、`INVALID_MODEL_CONTEXT`、`INVALID_MODEL_MAX_TOKENS` 或 `INVALID_MODEL_REASONING` 失败。
 
-`defaultMaxTokens` 是适配器配置的单次请求输出上限，不是模型硬上限。仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值；显式上限优先。推理标识符是由适配器持有的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 signal，并且必须在取消后迅速结束。`prepareCall()` 还会通过 `adapterDefaults` 报告它填入了哪些 `maxTokens` 和 `reasoningEffort` 字段，并让精确适配器注册跨越请求头记录和最终分派，因此 HMR（热模块替换）不会将一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
+`defaultMaxTokens` 是适配器配置的单次请求输出上限，不是模型硬上限。仅当请求省略 `maxTokens` 时，`resolveCallConfig()` 才会填入该值；显式上限优先。推理标识符是由适配器持有的不透明字符串，而非核心枚举：同一次解析只接受与已公布标识符完全一致的值，在存在 `defaultEffort` 时填入它，否则保留提供方默认值。异步模型解析器会接收调用方的 signal，并且必须在取消后迅速结束。`prepareCall()` 还会公开同一次查询得到的脱耦上下文元数据，通过 `adapterDefaults` 报告它填入了哪些 `maxTokens` 和 `reasoningEffort` 字段，并让精确适配器注册跨越请求头记录和最终分派，因此 HMR（热模块替换）不会将一个适配器的能力结果与另一个适配器的请求混用；复用其一次性句柄或更改调用配置字段会以 `INVALID_PREPARED_CALL` 失败。不支持的显式或配置推理强度会在提供方 I/O 前以 `UNSUPPORTED_REASONING_EFFORT` 失败。
 
 ### 事件
 

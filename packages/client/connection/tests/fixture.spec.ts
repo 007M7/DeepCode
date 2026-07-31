@@ -19,6 +19,10 @@ interface TimingHooks {
   failNextHistory(): void
   appendUser(id: string, msg: string): void
   appendTitle(id: string, title: string): void
+  beginModelRetry(id: string): void
+  scheduleModelRetry(id: string, retry?: number, delayMs?: number): void
+  cancelModelRetryDuringBackoff(id: string, delayMs?: number): void
+  completeModelRetry(id: string): void
   appendSilent(id: string, msg: string): void
   breakStreams(): void
 }
@@ -46,6 +50,59 @@ describe('createFixtureApi', () => {
     if (!response.result.ok) throw new Error('list failed')
     expect(response.result.value.items.map(s => s.sessionId)).toEqual(['fx-alpha', 'fx-beta', 'fx-gamma'])
     expect(response.result.value.items[1]?.parentSessionId).toBe('fx-alpha') // lineage material
+  })
+
+  it('searches current message text with literal unicode61-style token phrases', async () => {
+    const api = createFixtureApi()
+    const signal = new AbortController().signal
+    const phrase = await api.sessions.search(req({ query: 'FIXTURE 历史消息' }), signal)
+    expect(phrase.result).toMatchObject({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'fx-alpha' }],
+        hasMore: false,
+      },
+    })
+    if (!phrase.result.ok) throw new Error('search failed')
+    expect(phrase.result.value.items[0]?.snippet).toContain('fixture 历史消息')
+
+    timing().appendUser(
+      'fx-alpha',
+      `${'leading context '.repeat(20)}late café token${' trailing context'.repeat(20)}`,
+    )
+    const late = await api.sessions.search(req({ query: 'LATE CAFE TOKEN' }), signal)
+    if (!late.result.ok) throw new Error('late search failed')
+    const lateSnippet = late.result.value.items[0]?.snippet ?? ''
+    expect(lateSnippet).toContain('late café token')
+    expect(lateSnippet.startsWith('…')).toBe(true)
+    expect(lateSnippet.endsWith('…')).toBe(true)
+    expect(Array.from(lateSnippet).length).toBeLessThanOrEqual(120)
+
+    timing().appendUser('fx-alpha', 'Greek final sigma: ος')
+    const finalSigma = await api.sessions.search(req({ query: 'ΟΣ' }), signal)
+    if (!finalSigma.result.ok) throw new Error('final sigma search failed')
+    expect(finalSigma.result.value.items[0]?.snippet).toContain('ος')
+
+    const substring = await api.sessions.search(req({ query: 'ixtur' }), signal)
+    expect(substring.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+    const punctuationOnly = await api.sessions.search(req({ query: '*' }), signal)
+    expect(punctuationOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+    const reasoningOnly = await api.sessions.search(req({ query: '思考过程' }), signal)
+    expect(reasoningOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(api.sessions.search(req({ query: 'fixture' }), aborted.signal))
+      .resolves.toMatchObject({ result: { ok: false, error: { code: 'cancelled' } } })
   })
 
   it('pages history backwards on message-boundary cuts with seq-contiguous stitching', async () => {
@@ -84,6 +141,14 @@ describe('createFixtureApi', () => {
         },
         plan: { active: false, pending: false },
         goal: null,
+        tokenUsage: {
+          uncachedInputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        // No request ran, so neither pressure nor capacity is known yet.
+        contextPressure: {},
       } },
     })
   })
@@ -218,6 +283,17 @@ describe('createFixtureApi', () => {
     expect(types).toContain('assistant/chunk')
     expect(types).toContain('assistant/message')
     expect(types.at(-1)).toBe('turn/end')
+    // Capacity is durable log state, not a transient frame: the prompt path
+    // records request/context and the projection carries it to the client.
+    expect(types).toContain('request/context')
+    expect(frames.some(frame =>
+      frame.type === 'session/projection'
+      && frame.key === 'tokenUsage'
+      && (frame.value as { outputTokens?: number }).outputTokens === 8)).toBe(true)
+    expect(frames.some(frame =>
+      frame.type === 'session/projection'
+      && frame.key === 'contextPressure'
+      && (frame.value as { contextWindow?: number }).contextWindow === 128_000)).toBe(true)
     const finalize = frames.find((f): f is Extract<MuxFrame, { type: 'session/event' }> => f.type === 'session/event' && f.event.type === 'assistant/message')
     expect(JSON.stringify(finalize?.event.data)).toContain('（已中断）')
     // Idle cancel: no replay in flight, must not explode; running flips false.
@@ -249,7 +325,7 @@ describe('createFixtureApi', () => {
       const envelopes: RpcRequest<MuxFrame>[] = []
       for await (const envelope of api.events.mux(req({}), abort.signal)) {
         envelopes.push(envelope)
-        if (envelopes.length >= 8) abort.abort()
+        if (envelopes.length >= 10) abort.abort()
       }
       return envelopes
     }
@@ -257,16 +333,18 @@ describe('createFixtureApi', () => {
     const second = await openOnce()
     expect(first[0]?.payload).toMatchObject({ type: 'session/subscribed', sessionId: 'fx-alpha' })
     expect((first[0]?.payload as { lastSeq: number }).lastSeq).toBeGreaterThan(0)
-    // Projection baseline frames follow the subscribed frame (title + todos + permissions + plan + goal units).
+    // Projection baseline frames follow subscribed (domain units + token usage).
     expect(first[1]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'title', value: 'Fixture 历史会话' })
     expect(first[2]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'todos' })
     expect(first[3]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'permissions' })
     expect(first[4]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'plan', value: { active: false, pending: false } })
     expect(first[5]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'goal', value: null })
-    expect(first[6]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
-    expect(second[6]?.rpcId).toBe(first[6]?.rpcId) // stable rpcId across replays (host replay semantics)
-    expect(first[7]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
-    expect(second[7]?.rpcId).toBe(first[7]?.rpcId)
+    expect(first[6]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'tokenUsage' })
+    expect(first[7]?.payload).toMatchObject({ type: 'session/projection', sessionId: 'fx-alpha', key: 'contextPressure' })
+    expect(first[8]?.payload).toMatchObject({ type: 'approval/requested', toolName: 'dangerous_tool' })
+    expect(second[8]?.rpcId).toBe(first[8]?.rpcId) // stable rpcId across replays (host replay semantics)
+    expect(first[9]?.payload).toMatchObject({ type: 'question/requested', sessionId: 'fx-alpha' })
+    expect(second[9]?.rpcId).toBe(first[9]?.rpcId)
   })
 
   it('steer with no replay in flight falls through to a fresh queued turn; non-text blocks stringify empty', async () => {
@@ -761,8 +839,18 @@ describe('createFixtureApi', () => {
     hooks.appendSilent('fx-alpha', '静默丢帧')
     hooks.appendUser('fx-alpha', '正常直播')
     hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
+    hooks.beginModelRetry('fx-alpha')
+    hooks.scheduleModelRetry('fx-alpha')
+    hooks.completeModelRetry('fx-alpha')
+    hooks.beginModelRetry('fx-alpha')
+    hooks.cancelModelRetryDuringBackoff('fx-alpha')
     await vi.waitFor(() => {
       expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('正常直播'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/event' && (f.event as { type: string }).type === 'llm/retry')).toBe(true)
+      expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('重试后的完整回复'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/event'
+        && f.event.type === 'turn/end'
+        && f.event.data.reason.kind === 'aborted')).toBe(true)
       expect(seen.some(f => f.type === 'session/projection' && f.key === 'title' && f.value === 'Fixture 修订标题')).toBe(true)
     })
     expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('静默丢帧'))).toBe(false)
@@ -819,6 +907,10 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
 
   it('covers the whole unary dispatch table', async () => {
     const client = new FixtureApiClient()
+    expect((await client.sessions.search(
+      { query: 'fixture' },
+      new AbortController().signal,
+    )).result.ok).toBe(true)
     const created = await client.sessions.create({})
     if (!created.result.ok) throw new Error('create failed')
     const id = created.result.value.sessionId

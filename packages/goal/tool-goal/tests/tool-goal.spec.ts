@@ -38,6 +38,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     inject(input) {
       this.inbox.append('next-step', input)
     },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

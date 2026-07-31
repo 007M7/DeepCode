@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - 'button "Plan a small change: add" [disabled]'
+  - 'heading "Plan a small change: add" [level=1]'
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
@@ -10,8 +9,10 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
+- button "Context injection":
   - img
+  - img
+  - text: Context injection
 - 'button "Think The user wants me to plan a small change to add a `--greeting` flag to a CLI. They explicitly told me not to read or write any files, and to call exit_plan_mode with a short plan. Let me do that directly."':
   - img
   - img
@@ -20,10 +21,10 @@
   - text: Since the user has explicitly asked me not to read or write any files and to go straight to planning, I'll proceed with
   - code: exit_plan_mode
   - text: .
-- button:
+- 'button "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"':
   - img
   - img
-- text: "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"
+  - text: "Tool call exit_plan_mode · # Add `--greeting` flag to CLI"
 - 'button "Think The plan was approved. The user''s last instruction says: \"Once the plan is approved, reply with the single word DONE and stop.\" So I should just reply with DONE and stop."':
   - img
   - img
@@ -35,12 +36,11 @@
   - img
 - text: {{clock}}
 - textbox "Message the agent"
-- button "Add attachment":
+- button "Commands":
   - img
-- 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Plan mode off, press to turn on": Plan off
+- 'button "Access mode, current: Full access"': Full access
 - button "Select model, current DeepSeek-V4-Flash":
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 51% Input 10.2K tok · Output 346 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 4% of 128K Cache hit 51% Input 10.2K tok · Output 346 tok

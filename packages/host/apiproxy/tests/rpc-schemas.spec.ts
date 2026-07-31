@@ -10,7 +10,8 @@ import {
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
-  sessionSelectModelRequestSchema, sessionSelectModelValueSchema, sessionSummarySchema,
+  sessionSearchRequestSchema, sessionSearchValueSchema, sessionSelectModelRequestSchema,
+  sessionSelectModelValueSchema, sessionSummarySchema,
   sessionUpdateQueueRequestSchema, sessionUpdateQueueValueSchema,
 } from '../src/api/sessions.schema.ts'
 import {
@@ -19,6 +20,7 @@ import {
   hostListDirectoryRequestSchema, hostListDirectoryValueSchema,
 } from '../src/api/host.schema.ts'
 import {
+  workspaceArchiveSessionRequestSchema, workspaceArchiveSessionValueSchema,
   workspaceCreateRequestSchema, workspaceCreateValueSchema, workspaceIdSchema,
   workspaceDeleteRequestSchema, workspaceDeleteValueSchema,
   workspaceInsertSessionBeforeRequestSchema, workspaceInsertSessionBeforeValueSchema,
@@ -150,6 +152,36 @@ describe('sessions domain schemas', () => {
     expect(sessionListRequestSchema.parse({})).toEqual({})
     expect(sessionListRequestSchema.parse({ cursor: 'c' }).cursor).toBe('c')
     expect(sessionListValueSchema.parse({ items: [] }).items).toEqual([])
+    expect(sessionSearchRequestSchema.parse({ query: '  exact phrase  ' })).toEqual({ query: 'exact phrase' })
+    expect(() => sessionSearchRequestSchema.parse({ query: '   ' })).toThrow()
+    expect(() => sessionSearchRequestSchema.parse({ query: 'bad\0query' })).toThrow(/NUL/)
+    expect(() => sessionSearchRequestSchema.parse({ query: 'x'.repeat(501) })).toThrow()
+    expect(sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      hasMore: true,
+    })).toEqual({
+      items: [{ sessionId: 's1', snippet: 'matching text' }],
+      hasMore: true,
+    })
+    expect(sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(240) }],
+      hasMore: false,
+    }).items[0]?.snippet).toBe('😀'.repeat(240))
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: 's1', snippet: '😀'.repeat(241) }],
+      hasMore: false,
+    })).toThrow(/240 Unicode code points/)
+    expect(() => sessionSearchValueSchema.parse({
+      items: [{ sessionId: '', snippet: 'matching text' }],
+      hasMore: false,
+    })).toThrow()
+    expect(() => sessionSearchValueSchema.parse({
+      items: Array.from(
+        { length: 21 },
+        (_, index) => ({ sessionId: `s${index}`, snippet: 'matching text' }),
+      ),
+      hasMore: true,
+    })).toThrow()
     expect(sessionCreateRequestSchema.parse({ cwd: '/w' }).cwd).toBe('/w')
     // The refine's both-sides branch: workspaceId alone passes, workspaceId+cwd rejects.
     expect(sessionCreateRequestSchema.parse({ workspaceId: 'w1', sessionId: 's1' }).sessionId).toBe('s1')
@@ -281,7 +313,16 @@ describe('workspace domain schemas', () => {
     expect(workspaceViewSchema.parse(view).sessionIds).toEqual(['s1'])
     expect(() => workspaceViewSchema.parse({ ...view, sessionIds: 's1' })).toThrow()
     expect(workspaceListRequestSchema.parse({})).toEqual({})
-    expect(workspaceListValueSchema.parse({ items: [view] }).items).toHaveLength(1)
+    expect(workspaceListValueSchema.parse({ items: [view], archivedSessionIds: ['s1'] }).items).toHaveLength(1)
+    expect(() => workspaceListValueSchema.parse({ items: [view] })).toThrow()
+  })
+
+  it('archiveSession request/value carry the id and the full updated set', () => {
+    expect(workspaceArchiveSessionRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(() => workspaceArchiveSessionRequestSchema.parse({})).toThrow()
+    expect(workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: ['s1', 's2'] }).archivedSessionIds)
+      .toEqual(['s1', 's2'])
+    expect(() => workspaceArchiveSessionValueSchema.parse({ archivedSessionIds: 's1' })).toThrow()
   })
 
   it('create requires exactly one of path/name (both refine arms)', () => {

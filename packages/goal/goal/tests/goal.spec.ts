@@ -39,10 +39,13 @@ function stubAgentForSession(session: Session): StubAgent {
     inbox,
     ctx: new Context(),
     status: 'idle',
+    acceptsNextStep: false,
     send: () => {},
+    updateInbox: () => 'not-found',
     followup: () => {},
     steer: () => {},
     inject(input) { inbox.append('next-step', input) },
+    reserveTurnAdmission: () => undefined,
     cancel() {},
     whenIdle() { return Promise.resolve() },
   }

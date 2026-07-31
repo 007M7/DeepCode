@@ -12,7 +12,10 @@
   config:
     host: 127.0.0.1
     port: 3081
-    distIndex: !!js "new URL('./apps/web/dist/index.html', 'file://' + process.cwd() + '/').pathname"
+    # Plain concatenation, not URL.pathname: a cwd with spaces
+    # percent-encodes through the URL round-trip and the encoded
+    # path never resolves.
+    distIndex: !!js "process.cwd() + '/apps/web/dist/index.html'"
 
 - insert:
     - id: tool-cordis

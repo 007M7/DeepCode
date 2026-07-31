@@ -11,6 +11,7 @@ import type {
   GenerateOptions,
   LlmConfigurableProvider,
   LlmFailure,
+  LlmModelContext,
   LlmModelInfo,
   LlmResolvedModelInfo,
   LlmProviderInfo,
@@ -125,6 +126,8 @@ export interface PreparedLlmCall {
   readonly config: LlmCallConfig
   /** Immutable retry policy captured with the adapter registration. */
   readonly retryPolicy: ResolvedRetryPolicy
+  /** Detached context metadata resolved with the registration-bound call. */
+  readonly context?: LlmModelContext
   /** Config fields materialized by the captured adapter rather than proposed by the caller. */
   readonly adapterDefaults: LlmCallConfigAdapterDefaults
   /**
@@ -564,20 +567,21 @@ export class LlmService extends Service {
    * @returns a detached config only when a default must be materialized.
    */
   async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig> {
-    return this.resolveCallConfigFor(this.registration(config.provider), config, signal)
+    return (await this.resolveCallFor(this.registration(config.provider), config, signal)).config
   }
 
-  private async resolveCallConfigFor(
+  private async resolveCallFor(
     registration: AdapterRegistration,
     config: LlmCallConfig,
     signal?: AbortSignal,
-  ): Promise<LlmCallConfig> {
+  ): Promise<{ config: LlmCallConfig; context?: LlmModelContext }> {
     const info = await this.resolveModelInfoFor(registration, config.model, signal)
     const defaulted = config.maxTokens === undefined && info.defaultMaxTokens !== undefined
       ? { ...config, maxTokens: info.defaultMaxTokens }
       : config
     const reasoning = info.reasoning
     const requested = defaulted.reasoningEffort
+    let resolvedConfig = defaulted
     if (reasoning === undefined) {
       if (requested !== undefined) {
         throw new LlmError(
@@ -585,17 +589,22 @@ export class LlmService extends Service {
           'UNSUPPORTED_REASONING_EFFORT',
         )
       }
-      return defaulted
+    } else {
+      const effective = requested ?? reasoning.defaultEffort
+      if (effective !== undefined) {
+        if (!reasoning.efforts.some(effort => effort.id === effective)) {
+          throw new LlmError(
+            `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
+            'UNSUPPORTED_REASONING_EFFORT',
+          )
+        }
+        if (requested !== effective) resolvedConfig = { ...defaulted, reasoningEffort: effective }
+      }
     }
-    const effective = requested ?? reasoning.defaultEffort
-    if (effective === undefined) return defaulted
-    if (!reasoning.efforts.some(effort => effort.id === effective)) {
-      throw new LlmError(
-        `provider "${config.provider}" model "${config.model}" does not support reasoning effort "${effective}"`,
-        'UNSUPPORTED_REASONING_EFFORT',
-      )
+    return {
+      config: resolvedConfig,
+      ...info.context === undefined ? {} : { context: info.context },
     }
-    return requested === effective ? defaulted : { ...defaulted, reasoningEffort: effective }
   }
 
   /**
@@ -608,13 +617,16 @@ export class LlmService extends Service {
    */
   async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall> {
     const registration = this.registration(config.provider)
-    const resolved = await this.resolveCallConfigFor(registration, config, signal)
-    const resolvedConfig = deepFreeze(structuredClone(resolved))
+    const resolved = await this.resolveCallFor(registration, config, signal)
+    const resolvedConfig = deepFreeze(structuredClone(resolved.config))
+    const context = resolved.context === undefined
+      ? undefined
+      : deepFreeze(structuredClone(resolved.context))
     const adapterDefaults = deepFreeze<LlmCallConfigAdapterDefaults>({
-      ...config.reasoningEffort === undefined && resolved.reasoningEffort !== undefined
+      ...config.reasoningEffort === undefined && resolvedConfig.reasoningEffort !== undefined
         ? { reasoningEffort: true }
         : {},
-      ...config.maxTokens === undefined && resolved.maxTokens !== undefined
+      ...config.maxTokens === undefined && resolvedConfig.maxTokens !== undefined
         ? { maxTokens: true }
         : {},
     })
@@ -623,6 +635,7 @@ export class LlmService extends Service {
       config: resolvedConfig,
       retryPolicy: registration.retryPolicy,
       adapterDefaults,
+      ...context === undefined ? {} : { context },
       stream: (options: GenerateOptions): AsyncIterable<StreamChunk> => {
         if (dispatched) {
           throw new LlmError('a prepared LLM call can only be dispatched once', 'INVALID_PREPARED_CALL')
@@ -674,9 +687,15 @@ export class LlmService extends Service {
     try {
       const registration = prepared?.registration ?? this.registration(options.provider)
       const resolvedConfig = prepared === undefined
-        ? await this.resolveCallConfigFor(registration, options, options.signal)
+        ? (await this.resolveCallFor(registration, options, options.signal)).config
         : prepared.config
-      const resolvedOptions = prepared !== undefined || callConfigEquals(options, resolvedConfig)
+      if (prepared !== undefined && !callConfigEquals(options, resolvedConfig)) {
+        throw new LlmError(
+          'prepared LLM call config changed before adapter dispatch',
+          'INVALID_PREPARED_CALL',
+        )
+      }
+      const resolvedOptions = callConfigEquals(options, resolvedConfig)
         ? options
         : Object.isFrozen(options)
           ? deepFreeze({ ...options, ...resolvedConfig })

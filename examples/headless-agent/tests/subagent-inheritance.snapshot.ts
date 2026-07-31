@@ -97,6 +97,26 @@ describe('parent-only override inheritance snapshot', () => {
           data: { mode: 'read-only', source: 'delegation' },
         })
 
+        const runtimeContexts = (content: string): string[] => content.trimEnd().split('\n').flatMap((line) => {
+          const record = JSON.parse(line) as {
+            type?: string
+            data?: { source?: { kind?: string; plugin?: string }; content?: Array<{ type?: string; text?: unknown }> }
+          }
+          if (record.type !== 'user/message'
+            || record.data?.source?.kind !== 'plugin'
+            || record.data.source.plugin !== '@deepseek-ai/dsh-system-prompt') return []
+          return record.data.content?.flatMap(block => block.type === 'text' && typeof block.text === 'string' ? [block.text] : []) ?? []
+        })
+        const policyContexts = [...runtimeContexts(parent), ...runtimeContexts(child)]
+        expect(policyContexts).toHaveLength(2)
+        for (const context of policyContexts) {
+          expect(context).toContain('Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode.')
+          expect(context).toContain('Do not refuse a required modification from this policy alone')
+          expect(context).not.toContain('write and edit tools')
+          expect(context).not.toContain('one-shot bash commands')
+          expect(context).not.toContain('terminal sessions')
+        }
+
         const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd }
         const normalizedParent = scrubRequestHeaders(normalizeSessionLog(parent, context))
         const normalizedChild = scrubRequestHeaders(normalizeSessionLog(child, context))

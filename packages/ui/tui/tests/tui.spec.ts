@@ -10,6 +10,7 @@ import AgentRegistry, {
 import { createUserMessage,
   createToolResultMessage,
   freezeMessage,
+  LlmError,
   ReasoningEffortId,
   type LlmCallConfig,
   type LlmModelReasoningInfo,
@@ -39,7 +40,7 @@ import {
   type TuiRuntime,
 } from '../src/index.ts'
 import { WorkspaceFileSearch } from '../src/chat/file-autocomplete.ts'
-import { ATTRIBUTE_ROLES, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
+import { ATTRIBUTE_ROLES, brandText, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
 import {
   appendAssistant,
   appendUser,
@@ -130,6 +131,12 @@ class FakeTerminal implements Terminal {
 
 async function tick(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 25))
+}
+
+function promptWidth(output: string): number {
+  const row = output.split('\n').find(line => line.includes('dsh'))
+  if (row === undefined) throw new Error('prompt row not rendered')
+  return visibleWidth(row.slice(row.indexOf('dsh'), row.indexOf('dsh') + 6))
 }
 
 async function setup(options: TuiHarnessOptions = {}) {
@@ -1919,12 +1926,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // `dsh <glyph> ` with the same visible width as the idle `dsh > `, so the
     // cursor never shifts. Assert both the glyph slot and that constant width
     // (color is off in this harness, so output carries no ANSI to strip).
-    const promptWidth = (): number => {
-      const row = result.terminal.output.split('\n').find(line => line.includes('dsh'))
-      if (row === undefined) throw new Error('prompt row not rendered')
-      return visibleWidth(row.slice(row.indexOf('dsh'), row.indexOf('dsh') + 6))
-    }
-
     // Each phase swaps only the glyph character in the same slot at equal width.
     const phaseGlyph: [() => void, string][] = [
       [() => result.session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'weighing' } }), 'dsh ✻ '],
@@ -1937,8 +1938,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
       drive()
       await tick()
       expect(result.terminal.output).toContain(expected)
-      runningWidth ??= promptWidth()
-      expect(promptWidth()).toBe(runningWidth)
+      runningWidth ??= promptWidth(result.terminal.output)
+      expect(promptWidth(result.terminal.output)).toBe(runningWidth)
     }
 
     // Idle begins a fade-out; once it settles (clock past the fade window) the
@@ -1955,10 +1956,187 @@ describe('pi-tui chat lifecycle and transcript', () => {
       return rows.at(-1) ?? ''
     }
     expect(promptRow()).toContain('dsh > ')
-    expect(promptRow()).not.toMatch(/dsh(?:\x1b\[[0-9;]*m| )*[◍✻●⚙]/u)
-    expect(promptWidth()).toBe(runningWidth)
+    expect(promptRow()).not.toMatch(/dsh(?:\x1b\[[0-9;]*m| )*[◍✻●⚙⊙]/u)
+    expect(promptWidth(result.terminal.output)).toBe(runningWidth)
 
     await dispose(result)
+  })
+
+  it('shows a live standalone compaction in the fixed status area', async () => {
+    let clock = 0
+    const result = await setup({ omitInitialLifecycle: true, now: () => clock })
+    const idleWidth = promptWidth(result.terminal.output)
+
+    result.session.append('compact/start', { turn: null })
+    clock = 1_000
+    result.terminal.output = ''
+    await new Promise(resolve => setTimeout(resolve, 75))
+
+    expect(result.terminal.output).toContain('dsh ⊙ ')
+    expect(result.terminal.output).toContain('Context being compacted 1.0s')
+    expect(promptWidth(result.terminal.output)).toBe(idleWidth)
+    expect(result.terminal.progress.at(-1)).toBe(true)
+
+    clock = 1_450
+    result.terminal.output = ''
+    await new Promise(resolve => setTimeout(resolve, 75))
+    expect(result.terminal.output).toContain('Context being compacted 1.4s')
+
+    await dispose(result)
+  })
+
+  it('ignores a numbered compaction bracket while the status line is idle', async () => {
+    const result = await setup({ now: () => 1_000 })
+    result.session.append('compact/start', { turn: 1 })
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh > ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('fades a closed standalone compaction back to the plain caret', async () => {
+    let clock = 0
+    const result = await setup({ omitInitialLifecycle: true, now: () => clock })
+    clock = 1_000
+    result.session.append('compact/start', { turn: null })
+    await tick()
+    result.session.append('compact/end', { turn: null })
+    await tick()
+
+    clock = 2_000
+    await new Promise(resolve => setTimeout(resolve, 120))
+    result.terminal.output = ''
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh > ')
+    expect(result.terminal.output).not.toMatch(/dsh [◍✻●⚙⊙]/u)
+    expect(result.terminal.output).not.toContain('Context being compacted')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('reports a failed standalone compaction when its live bracket closes', async () => {
+    const result = await setup({ omitInitialLifecycle: true, now: () => 1_000 })
+    result.session.append('compact/start', { turn: null })
+    result.terminal.output = ''
+    result.session.append('compact/end', { turn: null, error: 'summary failed' })
+    await tick()
+
+    expect(result.terminal.output).toContain('Compaction failed: summary failed')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('preserves live compaction progress across an idle status edge', async () => {
+    let clock = 0
+    const result = await setup({ omitInitialLifecycle: true, now: () => clock })
+    result.session.append('compact/start', { turn: null })
+    clock = 1_000
+    result.terminal.output = ''
+    result.ctx.emit('agent/status', result.agent, 'idle')
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh ⊙ ')
+    expect(result.terminal.progress.at(-1)).toBe(true)
+    await dispose(result)
+  })
+
+  it('keeps a running turn phase glyph ahead of standalone compaction', async () => {
+    let clock = 0
+    const result = await setup({ status: 'running', now: () => clock })
+    clock = 1_000
+    result.terminal.output = ''
+    result.session.append('compact/start', { turn: null })
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh ◍ ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    result.session.append('compact/end', { turn: null })
+    await tick()
+    result.terminal.output = ''
+    result.terminal.resize(result.terminal.columns + 1)
+    await tick()
+
+    expect(result.terminal.output).toContain('dsh ◍ ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.progress.at(-1)).toBe(true)
+    await dispose(result)
+  })
+
+  it('treats duplicate live compaction starts as one owned bracket', async () => {
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    let result: Awaited<ReturnType<typeof setup>> | undefined
+    let didDispose = false
+    let clock = 0
+    try {
+      result = await setup({ omitInitialLifecycle: true, now: () => clock })
+      intervalSpy.mockClear()
+      clearIntervalSpy.mockClear()
+      result.session.append('compact/start', { turn: null })
+      clock = 1_000
+      result.session.append('compact/start', { turn: null })
+      await tick()
+
+      expect(intervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.output).toContain('dsh ⊙ ')
+      expect(result.terminal.progress.at(-1)).toBe(true)
+
+      result.session.append('compact/end', { turn: null })
+      await tick()
+      expect(clearIntervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.progress.at(-1)).toBe(false)
+
+      await dispose(result)
+      didDispose = true
+    } finally {
+      if (result !== undefined && !didDispose) await dispose(result)
+      intervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
+  })
+
+  it('does not show compaction progress for a resumed orphaned start', async () => {
+    const result = await setup({
+      omitInitialLifecycle: true,
+      now: () => 1_000,
+      beforeMount(session) {
+        session.append('compact/start', { turn: null })
+      },
+    })
+
+    expect(result.terminal.output).toContain('dsh > ')
+    expect(result.terminal.output).not.toContain('dsh ⊙ ')
+    expect(result.terminal.output).not.toContain('Context being compacted')
+    expect(result.terminal.progress.at(-1)).toBe(false)
+    await dispose(result)
+  })
+
+  it('releases the live compaction timer and progress bit on dispose', async () => {
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval')
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval')
+    let result: Awaited<ReturnType<typeof setup>> | undefined
+    let didDispose = false
+    try {
+      result = await setup({ omitInitialLifecycle: true, now: () => 1_000 })
+      intervalSpy.mockClear()
+      clearIntervalSpy.mockClear()
+      result.session.append('compact/start', { turn: null })
+      expect(intervalSpy).toHaveBeenCalledOnce()
+
+      await dispose(result)
+      didDispose = true
+      expect(clearIntervalSpy).toHaveBeenCalledOnce()
+      expect(result.terminal.progress.at(-1)).toBe(false)
+    } finally {
+      if (result !== undefined && !didDispose) await dispose(result)
+      intervalSpy.mockRestore()
+      clearIntervalSpy.mockRestore()
+    }
   })
 
   // Extract the running glyph's interpolated gray channel from a rendered frame.
@@ -2068,7 +2246,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
   it('shows the plain prompt caret while idle', async () => {
     const result = await setup({ now: () => 0 })
     expect(result.terminal.output).toContain('dsh > ')
-    expect(result.terminal.output).not.toMatch(/dsh [◍✻●⚙]/u)
+    expect(result.terminal.output).not.toMatch(/dsh [◍✻●⚙⊙]/u)
     await dispose(result)
   })
 
@@ -3558,6 +3736,96 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(reasoningFailed)
   })
 
+  it('defers a NO_ADAPTER context resolution until the provider registers instead of surfacing an error', async () => {
+    // Loader activation order is service-driven: the TUI can mount before a
+    // configured adapter plugin activates, so the initial resolveModelInfo
+    // fails with NO_ADAPTER. That transient state must not print an error;
+    // the resolution retries on llm/adapters-updated.
+    const adapters = new Set<string>()
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      contextTokens: 50_000,
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelInfo: () => adapters.has('openai-codex')
+          ? Promise.resolve({ context: { contextWindow: 100_000 } })
+          : Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER')),
+      },
+    })
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    // A topology commit that still lacks the route parks the wait again.
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('% context')
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    adapters.add('openai-codex')
+    result.ctx.emit('llm/adapters-updated')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('% context')
+    })
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    // A commit after satisfaction is a no-op for the resolved value.
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+    await dispose(result)
+  })
+
+  it('stops listening for adapter registrations after channel detach', async () => {
+    // The listener disposer rides detachListeners() through the controller's
+    // detach(): after dispose, a registry commit must not re-enter resolution
+    // at all (the isDisposed() guard is a fallback, not the removal).
+    const calls: string[] = []
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelInfo: (provider) => {
+          calls.push(provider)
+          return Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER'))
+        },
+      },
+    })
+    await tick()
+    const callsAtDetach = calls.length
+    await result.controller.dispose()
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(calls.length).toBe(callsAtDetach)
+    await result.ctx.fiber.dispose()
+  })
+
+  it('drops a deferred NO_ADAPTER resolution when the target moved before the adapter registered', async () => {
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      catalog: {
+        providers: [{ id: 'alpha', name: 'Alpha' }],
+        models: [{ provider: 'alpha', id: 'a1', name: 'Alpha One' }],
+        resolveModelInfo: provider => provider === 'alpha'
+          ? Promise.resolve({ context: { contextWindow: 64_000 } })
+          : Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER')),
+      },
+    })
+    await tick()
+    // Switching the model re-resolves and clears the deferred wait, so the
+    // stale route's adapter arriving afterwards must be a no-op.
+    result.terminal.send('/model alpha/a1')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Model selected: alpha/a1')
+    })
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+    await dispose(result)
+  })
+
   it('does not render a model catalog that resolves after TUI disposal', async () => {
     const deferred = Promise.withResolvers<never[]>()
     const result = await setup({
@@ -3871,8 +4139,9 @@ describe('skill slash command', () => {
       source: 'runtime',
       content: 'Dynamic body.',
     })
-    await tick()
-    expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('DYNAMIC_COMPLETION_MARKER')
+    })
 
     result.terminal.send('\x03')
     disposeSkill()
@@ -4256,6 +4525,25 @@ describe('tool cards and surface replay', () => {
         diffs: [{ path: 'src/only.ts', oldText: 'old', newText: 'new' }],
       }),
     },
+    scatteredDiff: {
+      name: 'scatteredDiff', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      // Three hunks in ONE file. The first two sides end in the terminator
+      // newline real write/edit content carries; the third removes a line and
+      // leaves an EMPTY added side (a full deletion), so `diffContentLines('')`
+      // returns zero lines. The footer must read `+2 -1 · 1 file`: each trailing
+      // newline terminates its line rather than adding a phantom empty one, the
+      // empty side contributes no `+ ` row, and the three hunks count as the
+      // single distinct path they touch.
+      presentCall: () => ({
+        card: 'diff',
+        title: 'Edit src/scatter.ts',
+        diffs: [
+          { path: 'src/scatter.ts', oldText: null, newText: 'first\n' },
+          { path: 'src/scatter.ts', oldText: null, newText: 'second\n' },
+          { path: 'src/scatter.ts', oldText: 'gone\n', newText: '' },
+        ],
+      }),
+    },
     generic: {
       name: 'generic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Inspect value', rawInput: { alpha: 1 } }),
@@ -4306,6 +4594,20 @@ describe('tool cards and surface replay', () => {
       presentCall: () => ({ card: 'generic', title: 'Becomes terminal' }),
       presentResult: () => ({ card: 'terminal', output: 'converted terminal' }),
     },
+    // A search card carries no result text of its own; the TUI has no dedicated
+    // search arm and falls back to the raw result content, rendered as the same
+    // dim generic body a pre-search-card grep/glob result showed.
+    search: {
+      name: 'search', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      presentCall: () => ({ card: 'generic', title: 'Grep todo', kind: 'search' }),
+      presentResult: () => ({
+        card: 'search',
+        shape: 'matches',
+        files: [{ path: 'a.ts', matches: [{ lineNumber: 1, line: 'todo one' }] }],
+        truncated: false,
+        total: 1,
+      }),
+    },
     symbolic: {
       name: 'symbolic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Symbol input', rawInput: Symbol('input') }),
@@ -4343,6 +4645,7 @@ describe('tool cards and surface replay', () => {
       ['c12', 'symbolic', '{}'],
       ['c13', 'knownXml', '{}'],
       ['c16', 'webCard', '{}'],
+      ['c17', 'search', '{"pattern":"todo"}'],
     ] as const
     appendAssistant(result.session, [
       { type: 'text', text: 'Calling tools' },
@@ -4445,6 +4748,14 @@ describe('tool cards and surface replay', () => {
       }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c17' as never,
+        content: [{ type: 'text', text: 'Found 1 match\n\na.ts\nLine 1: todo one' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('tool/result', {
       turn: 1,
       step: 1,
       message: createToolResultMessage({
@@ -4475,6 +4786,11 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('$ blank desc command')
     // A card whose title only repeats the name renders header-only (empty body).
     expect(output).toContain('Tool / emptyBody')
+    // A search result view carries no `content` of its own, so the card renders
+    // the raw model-facing result text through the same dim generic body — the
+    // TUI has no dedicated search arm.
+    expect(output).toContain('Tool / search')
+    expect(output).toContain('Line 1: todo one')
     // A diff card drops its title (the paths + change footer carry the meaning).
     // The first file's path is head-visible; the second file and the change
     // footer sit past this card's 4-line budget and appear only when expanded.
@@ -4579,6 +4895,35 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('- old')
     expect(output).toContain('+ new')
     expect(output).toContain('· 1 file')
+    await dispose(result)
+  })
+
+  it('counts a same-file diff once and terminates its trailing newline', async () => {
+    // A budget past the card's row count so every hunk row stays visible (the
+    // collapse arithmetic is covered elsewhere); this test is about the
+    // terminator rule and the distinct-path footer count.
+    const result = await setup({ tools, config: { maxToolOutputLines: 20 } })
+    appendUser(result.session, 'scatter edits in one file')
+    appendAssistant(result.session, [
+      { type: 'text', text: 'Editing' },
+      { type: 'tool-call', id: 'scatter' as never, name: 'scatteredDiff', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1, step: 1, callId: 'scatter' as never, name: 'scatteredDiff', arguments: '{}',
+    })
+    await tick()
+    const output = result.terminal.output
+    // Three hunks, one path: distinct-path count, same as the Web DiffBlock.
+    expect(output).toContain('· 1 file')
+    expect(output).not.toContain('· 3 files')
+    // The `first\n`/`second\n` sides each contribute exactly one added line —
+    // the trailing newline terminates rather than adding a phantom empty `+ `.
+    expect(output).toContain('+ first')
+    expect(output).toContain('+ second')
+    // The third hunk removes `gone` and leaves an empty added side, which
+    // contributes no `+ ` row (diffContentLines('') is zero lines).
+    expect(output).toContain('- gone')
+    expect(output).toContain('+2 -1')
     await dispose(result)
   })
 
@@ -4953,6 +5298,7 @@ describe('TUI extension service', () => {
                 host.theme.accent(`${label} plugin overlay`),
                 [
                   host.theme.text('text'),
+                  host.theme.brand('brand'),
                   host.theme.dim('dim'),
                   host.theme.success('success'),
                   host.theme.warning('warning'),
@@ -5119,8 +5465,10 @@ describe('terminal mounting', () => {
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx,
-      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
+      status: 'idle', acceptsNextStep: false, ctx,
+      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     mountTui(ctx, { theme: { color: false } }, { terminal, exit: vi.fn() })
@@ -5144,8 +5492,10 @@ describe('terminal mounting', () => {
     ctx.provide('tools', { get: () => undefined } as never)
     const session = ctx.sessions.create(SessionId('main'))
     ctx.agents.register({
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx,
-      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
+      status: 'idle', acceptsNextStep: false, ctx,
+      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     // Mirror dsh-tui's own inject (minus loader, the absence under test).
@@ -5179,15 +5529,19 @@ describe('terminal mounting', () => {
 
     const otherSession = ctx.sessions.create(SessionId('other-session'))
     ctx.agents.register({
-      id: otherSession.id, options: {}, session: otherSession, inbox: new Inbox(otherSession, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx,
-      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      id: otherSession.id, options: {}, session: otherSession, inbox: new Inbox(otherSession, { inserted: () => {}, discarded: () => {} }),
+      status: 'idle', acceptsNextStep: false, ctx,
+      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     expect(terminal.started).toBe(0)
 
     const session = ctx.sessions.create(SessionId('late-session'))
     const agent = {
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx,
-      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
+      status: 'idle', acceptsNextStep: false, ctx,
+      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     } as Agent
     ctx.agents.register(agent)
     await tick()
@@ -5217,8 +5571,10 @@ describe('terminal mounting', () => {
 
     const session = ctx.sessions.create(SessionId('main-session'))
     ctx.agents.register({
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx,
-      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
+      status: 'idle', acceptsNextStep: false, ctx,
+      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     await tick()
     expect(terminal.started).toBe(0)
@@ -5261,8 +5617,10 @@ describe('terminal mounting', () => {
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     ctx.agents.register({
-      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'running', ctx,
-      send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
+      status: 'running', acceptsNextStep: true, ctx,
+      send: () => {}, updateInbox: () => 'not-found', reserveTurnAdmission: () => undefined,
+      followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     })
     const terminal = new FakeTerminal()
     terminal.start = () => { throw new Error('terminal startup failed') }
@@ -5328,6 +5686,10 @@ describe('terminal mounting', () => {
     // `text` is the terminal default, emitted as no escape at all.
     expect(printed).toContain('no escape')
     await dispose(result)
+  })
+
+  it('uses the official DeepSeek SVG ink for truecolor brand art', () => {
+    expect(brandText('mark')).toBe('\x1b[38;2;77;107;254mmark\x1b[39m')
   })
 
   it('detects a light terminal color scheme and switches the scheme-dependent code role', async () => {

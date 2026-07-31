@@ -4,9 +4,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
+import { usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply, inject, refreshIfLoaded } from '@deepseek-ai/dsh-client-ui-models/client'
 import { ModelsSection } from '../src/client/ModelsSection.tsx'
 import { DeepSeekOnboardingDialog } from '../src/client/DeepSeekOnboardingDialog.tsx'
+
+// The service reads its initial locale from the browser; these specs assert
+// the shipped Chinese copy, so they state the browser they assume.
+usePinnedBrowserLanguages('zh-CN')
 
 async function bench() {
   const ctx = new Context()
@@ -48,6 +53,7 @@ describe('ui-models apply', () => {
     expect(resolveSlotLabel(entry.options.label)).toBe('模型')
     const injected = (entry.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected)()
     expect(injected.t('nav')).toBe('模型')
+    expect(injected.t('deleteTitle')).toBe('删除模型提供方？')
     expect(typeof injected.controller.load).toBe('function')
     expect(typeof injected.useSnapshot).toBe('function')
     expect(injected.api).toBeDefined()
@@ -73,8 +79,11 @@ describe('ui-models apply', () => {
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     b.locale.setLocale('en')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('Models')
+    const injected = b.slots.entries('settings.section')[0]!.inject as unknown as () => import('../src/client/ModelsSection.tsx').ModelsSectionInjected
+    expect(injected().t('deleteTitle')).toBe('Delete model provider?')
     b.locale.setLocale('zh')
     expect(resolveSlotLabel(b.slots.entries('settings.section')[0]!.options.label)).toBe('模型')
+    expect(injected().t('deleteTitle')).toBe('删除模型提供方？')
   })
 
   it('locale change while the slot is undeclared stays a no-op', async () => {

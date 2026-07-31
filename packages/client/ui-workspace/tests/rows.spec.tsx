@@ -5,8 +5,8 @@ import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/cli
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
-import { ProjectRowItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
-import type { GroupNode, SessionNode } from '../src/client/tree.ts'
+import { ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
+import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -33,6 +33,19 @@ function dragProps(overrides: Partial<RowDragProps> = {}): RowDragProps {
   }
 }
 
+/** Install the async browser clipboard and restore its prior host shape. */
+function installClipboard(writeText: (text: string) => Promise<void>): () => void {
+  const prior = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
+  return () => {
+    if (prior === undefined) Reflect.deleteProperty(navigator, 'clipboard')
+    else Object.defineProperty(navigator, 'clipboard', prior)
+  }
+}
+
 const dataTransfer = { effectAllowed: '', dropEffect: '' }
 
 /** jsdom lacks DragEvent — the fireEvent fallback drops clientY, so pin it on the built event. */
@@ -44,6 +57,25 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
 }
 
 describe('workspace browser rows', () => {
+  it('renders a selected content-search row and opens only its session', () => {
+    const onOpen = vi.fn()
+    const result: SearchResultNode = {
+      id: sid('result'),
+      title: 'Result title',
+      workspace: 'Workspace context',
+      running: true,
+      snippet: 'matching message excerpt',
+    }
+    render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} />)
+    const row = screen.getByRole('treeitem')
+    expect(row.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('Workspace context')).toBeTruthy()
+    expect(screen.getByText('matching message excerpt')).toBeTruthy()
+    expect(row.hasAttribute('draggable')).toBe(false)
+    fireEvent.click(row)
+    expect(onOpen).toHaveBeenCalledWith(result.id)
+  })
+
   it('renders an active Workspace and keeps its create action separate from toggling', () => {
     const onToggle = vi.fn()
     const onCreate = vi.fn()
@@ -69,7 +101,7 @@ describe('workspace browser rows', () => {
     const onOpen = vi.fn()
     render(
       <SessionNodeItem node={node} currentId={node.id} now={0} onOpen={onOpen}
-        onRename={vi.fn()} onFork={vi.fn()} t={t} />,
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />,
     )
 
     const row = screen.getByRole('treeitem')
@@ -110,8 +142,10 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('workspace hover card shows title, directory path, and creation time after the dwell', () => {
+  it('workspace hover card shows its details and copies the full directory path', async () => {
     vi.useFakeTimers()
+    const writeText = vi.fn(async () => {})
+    const restoreClipboard = installClipboard(writeText)
     try {
       const group: GroupNode = {
         key: 'project', workspaceId: wid('project'), cwd: '/projects/project', createdAt: 0, label: 'Project',
@@ -124,7 +158,11 @@ describe('workspace browser rows', () => {
       expect(screen.getAllByText('Project')).toHaveLength(2)
       expect(screen.getByText('/projects/project')).toBeTruthy()
       expect(screen.getByText(/^创建于 \d+年\d+月\d+日 /)).toBeTruthy()
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: '复制: /projects/project' })) })
+      expect(writeText).toHaveBeenCalledWith('/projects/project')
+      expect(screen.getByRole('status').textContent).toBe('已复制')
     } finally {
+      restoreClipboard()
       vi.useRealTimers()
     }
   })
@@ -138,18 +176,44 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('button', { name: /工作区/ })).toBeNull()
   })
 
-  it('session row menu opens without opening the session and dispatches rename and fork', () => {
+  it('blank New Session rows carry no menu, no time label, and no hover-card time', () => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid('s-blank'), title: 'ignored', blank: true, running: false, updatedAt: 0,
+      }
+      render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      // The placeholder has no content yet: no row verbs, no "now" stamp.
+      expect(screen.queryByRole('button', { name: /会话.*的操作/ })).toBeNull()
+      expect(screen.queryByText('刚刚')).toBeNull()
+      // The hover card keeps title + status but drops the timestamp line.
+      const wrapper = screen.getByRole('treeitem').parentElement as HTMLElement
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getAllByText('新会话').length).toBeGreaterThanOrEqual(2)
+      expect(screen.getByText('空闲')).toBeTruthy()
+      expect(screen.queryByText('刚刚')).toBeNull()
+      expect(screen.getByText('空闲').closest('[role="button"]')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('session row menu opens without opening the session and dispatches rename, fork, and archive', () => {
     const onOpen = vi.fn()
     const onRename = vi.fn()
     const onFork = vi.fn()
+    const onArchive = vi.fn()
     const node: SessionNode = {
       id: sid('s1'), title: 'One', blank: false, running: false, updatedAt: 0,
     }
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={onOpen}
-      onRename={onRename} onFork={onFork} t={t} />)
+      onRename={onRename} onFork={onFork} onArchive={onArchive} t={t} />)
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     expect(onOpen).not.toHaveBeenCalled()
-    expect(screen.getByRole('menuitem', { name: '删除会话' }).className).toMatch(/danger/)
+    // Archive is not destructive (log and accounting slot remain): no danger styling.
+    expect(screen.getByRole('menuitem', { name: '归档会话' }).className).not.toMatch(/danger/)
     // Rename dispatches with the current display title (dialog prefill).
     fireEvent.click(screen.getByRole('menuitem', { name: '重命名' }))
     expect(screen.queryByRole('menu')).toBeNull()
@@ -158,10 +222,12 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '分叉会话' }))
     expect(onFork).toHaveBeenCalledWith(node.id)
-    // Delete stays visual-only.
+    // Archive dispatches without opening the session.
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
+    expect(onArchive).toHaveBeenCalledWith(node.id)
     expect(onRename).toHaveBeenCalledOnce()
+    expect(onOpen).not.toHaveBeenCalled()
     // Escape closes without selecting (Menu onClose path).
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -175,7 +241,7 @@ describe('workspace browser rows', () => {
         id: sid('s1'), title: 'Hovered', blank: false, running: true, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={60_000} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} t={t} />)
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
       const wrapper = screen.getByRole('treeitem').parentElement as HTMLElement
       fireEvent.pointerEnter(wrapper)
       act(() => { vi.advanceTimersByTime(500) })
@@ -201,7 +267,7 @@ describe('workspace browser rows', () => {
         id: sid('s1'), title: 'Quiet', blank: false, running: false, updatedAt: 0,
       }
       render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} t={t} />)
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
       fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(500) })
       expect(screen.getByText('空闲')).toBeTruthy()
@@ -218,7 +284,7 @@ describe('workspace browser rows', () => {
     const inactive = dragProps()
     const { rerender } = render(
       <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} drag={inactive} t={t} />,
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} drag={inactive} t={t} />,
     )
     const row = screen.getByRole('treeitem')
     stubRect(row)
@@ -236,7 +302,7 @@ describe('workspace browser rows', () => {
     const active = dragProps({ active: true, marker: 'before' })
     rerender(
       <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} drag={active} t={t} />,
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} drag={active} t={t} />,
     )
     stubRect(screen.getByRole('treeitem'))
     // Top half hovers/drops 'before'; bottom half 'after' (row mid = 117).
@@ -250,7 +316,7 @@ describe('workspace browser rows', () => {
     const after = dragProps({ active: true, marker: 'after' })
     rerender(
       <SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()}
-        onRename={vi.fn()} onFork={vi.fn()} drag={after} t={t} />,
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} drag={after} t={t} />,
     )
     expect(screen.getByRole('treeitem').className).toMatch(/dropAfter/)
   })

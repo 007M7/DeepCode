@@ -18,7 +18,7 @@
 
 - **拒绝是结果事实。** 如果一次失败运行的 stderr 包含所选后端自身的拒绝方言，即提供方在每次包装时加上的特征（bwrap 下的 EROFS 文本、Landlock 下的 EACCES、Seatbelt 下的 EPERM），则结果报告 `BashRunResult.sandbox.denied: true`（从已收集的 stderr 尾部进行保守分类）。每次受限制运行还会携带执行时模式（`result.sandbox.mode`）与提供方强制执行完整性（`result.sandbox.enforcement`：`full`，或在较旧 Landlock ABI 上为 `partial`）。
 - **Runner 失败是沙箱失败，绝不是命令失败。** 前台执行会抛出 `SANDBOX_UNAVAILABLE`；已结算的后台进程会标记 `process.sandbox.runnerFailed`，Bash 结果生成方通过通用 `task_output` 渲染它。spawn 失败也会经过结算，因此受限制的后台句柄会保留自身的模式／强制执行事实，并释放每进程计数。
-- **部署回退，每次调用策略。** [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) 为每次工具调用解析完整的 `SandboxExecutionPolicy`：调用会话提供自身的模式覆盖与不可变 cwd 根目录，部署配置则为无 agent（智能体）调用提供回退。已批准的升权只更改该策略的模式，会话根目录仍然附着其上。`resolve()` 把策略带入 spec，因此来自不同项目的重叠命令会在各自的根目录与模式下运行、分类和报告。能力事实 `ctx.bash.sandboxMode` 报告已配置的默认值，因此工具层只在装载该执行器时才公布升权。模型只能通过结果事实了解沙箱：静态 bash 工具描述会解释拒绝标记，系统提示词中不会声明当前模式。
+- **部署回退，每次调用策略。** [`ctx.sandboxPolicy`](../../sandbox/sandbox-policy/) 为每次工具调用解析完整的 `SandboxExecutionPolicy`：调用会话提供自身的模式覆盖与不可变 cwd 根目录，部署配置则为无 agent（智能体）调用提供回退。已批准的升权只更改该策略的模式，会话根目录仍然附着其上。`resolve()` 把策略带入 spec，因此来自不同项目的重叠命令会在各自的根目录与模式下运行、分类和报告。能力事实 `ctx.bash.sandboxMode` 报告已配置的默认值，因此工具层只在装载该执行器时才公布升权；静态 bash 工具描述则单独负责拒绝与升级引导。
 - **只限制文件影响。** 设计上不限制网络与进程可见性：模式词汇不会声称覆盖后端未强制执行的范围。
 - 进程机制（spawn、进程组终止、输出收集／spill、后台句柄、凭证清理）继承自 [`dsh-bash-local`](../bash-local/)；runner 选择位于 [`dsh-sandbox-local`](../../sandbox/sandbox-local/)。
 
@@ -44,15 +44,15 @@
 
 #### 模型看到的内容
 
-基线是生成的 [`dsh-tool-bash` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash)。通过公布表明启用隔离的 `sandboxMode` 能力，此后端会为 `bash` 增加 `sandbox_permissions`，其 enum 为 `workspace-write` | `danger-full-access`，并增加 `justification`。后端不添加提示词文本，会话的有效模式仍不会声明。
+基线是生成的 [`dsh-tool-bash` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-bash)。通过公布表明启用隔离的 `sandboxMode` 能力，此后端会为 `bash` 增加 `sandbox_permissions`，其 enum 为 `workspace-write` | `danger-full-access`，并增加 `justification`。策略归属方会另行贡献当前且不区分具体能力的 `sandbox:policy` 上下文。
 
 #### Token 影响
 
-在 `bash` 可见的请求上，schema 固定增加少量内容；模式切换不增加上下文 token。
+在 `bash` 可见的请求上，schema 固定增加少量内容，另有一条由 `dsh-sandbox-policy` 负责的当前策略子句。
 
 #### KV Cache 影响
 
-执行器持续公布相同沙箱能力时，前缀保持稳定。更改这些能力会改变 `bash` schema，可能使从该定义起的复用失效；每会话模式切换不会导致失效。
+常驻策略变化会在保留的历史之后追加一份由归属方渲染的完整上下文快照，并使既有 system/history 前缀保持逐字节不变。更改执行器能力会改变 `bash` schema。
 
 ### 间接的 Bash 工具结果
 
