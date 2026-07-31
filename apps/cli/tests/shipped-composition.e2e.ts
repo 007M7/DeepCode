@@ -7,6 +7,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { COMPOSITION_REPLY_TEXT } from './fixtures/composition-echo-llm.ts'
 import { COMPOSITION_SETTLED_MARKER } from './fixtures/composition-settled.ts'
 import { runTuiPtySmoke } from './pty-harness.ts'
+import { acknowledgeTuiFirstRunWelcome } from '../src/tui-onboarding/tui-first-run-welcome.ts'
 
 const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
@@ -105,6 +106,7 @@ describe('shipped dsh composition (real Loader tree in a PTY)', () => {
       tsconfigPath,
       configPath: keylessTail,
       env: { DEEPSEEK_API_KEY: 'keyless-composition-no-call', DSH_TELEMETRY_DISABLED: '1' },
+      prepare: cwd => acknowledgeTuiFirstRunWelcome(join(cwd, '.dsh')),
       // Artifact CI builds and smokes concurrently on a contended runner.
       ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? { timeoutMs: 60_000 } : {}),
       actions: [
