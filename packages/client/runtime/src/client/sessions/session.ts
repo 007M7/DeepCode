@@ -248,7 +248,8 @@ export class Session implements SessionFace {
   }
 
   /**
-   * Stop: contract session.cancel 1:1; failures land in promptError (same error-strip display slot).
+   * Stop the active turn while the Host preserves pending inbox work; failures
+   * land in promptError (same error-strip display slot).
    * @returns the cancel result.
    */
   async cancel(): Promise<RpcResult<{ accepted: true }>> {

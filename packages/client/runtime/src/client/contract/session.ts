@@ -46,7 +46,8 @@ export interface ISession {
    */
   updateQueue(itemId: InboxItemId, action: QueueAction): Promise<RpcResult<{ accepted: true }>>
   /**
-   * Cancel the running turn.
+   * Cancel the running turn. Pending queued work remains and resumes in FIFO
+   * order after the Host reaches cancellation quiescence.
    * @returns acceptance, or the business error.
    */
   cancel(): Promise<RpcResult<{ accepted: true }>>

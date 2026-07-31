@@ -279,7 +279,7 @@ export interface SessionsApi {
   updateQueue(request: RpcRequest<{ sessionId: SessionId; itemId: InboxItemId; action: QueueAction }>):
   Promise<RpcResponse<{ accepted: true }>>
 
-  /** Stops: clears both FIFOs + aborts the current step (1:1 with agent.cancel). */
+  /** Stops the active turn, preserving pending inbox work that resumes in FIFO order after cancellation settles. */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
 
 }
