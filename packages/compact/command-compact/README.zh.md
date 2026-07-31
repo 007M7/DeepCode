@@ -24,7 +24,7 @@
 | `commit` | `Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.` |
 | `persistence` | `Compaction finished, but the session could not be saved.` |
 
-busy 结果有意限定在进程范围内：活动的未匹配标记会阻塞，而早于最新 `session/end-seed` 的标记已陈旧，不会阻塞。意外实现故障会拒绝分发。取消仍具有最终决定权；后端会完成必需的闭合／flush 清理，命令内部以 `Compaction cancelled.` 结算，而命令执行器会因取消错误停止等待。
+busy 结果有意限定在进程范围内：活动的未匹配标记会阻塞，而早于最新 `session/end-seed` 的标记已陈旧，不会阻塞。意外实现故障会拒绝分发。取消仍具有最终决定权；后端会完成必需的闭合／flush 清理，命令内部以 `Compaction cancelled.` 结算，而命令执行器会因取消错误停止等待。插件处置会先注销 `/compact`，再等待所有已开始的处理器结算，因此根级 teardown 不会越过已中止命令的闭合或 flush 边界。
 
 压缩运行期间提交的提示词仍会按 agent 的普通 FIFO 获得接纳，保留相同的身份与唤醒信息。它们仅在压缩的显式持久性检查点和接纳预留释放后启动。空闲注入的上下文不受阻塞：它可以记录在 `compact/start` 与 `compact/end` 之间，位置替换会使其在检查点之后保持可见。
 

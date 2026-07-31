@@ -47,6 +47,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * item registrant; the shell neither declares nor renders it.)
      */
     'settings.section': { kind: 'list'; scope: 'root'; owner: SettingsSectionOwnerProps }
+    /**
+     * Root-scoped onboarding overlays contributed by settings features. The
+     * shell supplies whether the current navigation state is the empty Hero
+     * and a private callback that opens one settings section; registrants own
+     * readiness, copy, and dialog behavior.
+     */
+    'settings.onboarding': { kind: 'list'; scope: 'root'; owner: SettingsOnboardingOwnerProps }
   }
 }
 
@@ -70,6 +77,14 @@ export interface SettingsHeaderOwnerProps {
 export interface SettingsSectionOwnerProps {
   /** Marker field: section owner props are intentionally empty for now. */
   children?: never
+}
+
+/** Owner share of a settings-backed onboarding overlay. */
+export interface SettingsOnboardingOwnerProps {
+  /** Whether the current UI is in its empty Hero/onboarding state. */
+  active: boolean
+  /** Open the settings panel directly on one registered section. */
+  openSection: (id: string) => void
 }
 
 /** One nav row projected from a settings.section registration's options. */
@@ -99,5 +114,7 @@ export type SettingsRootInjected = {
  */
 export type SettingsRootComponentProps =
   PropsRuntime<'sidebar.settings'>
-  & PropsRenderSlots<'settings.trigger' | 'settings.header' | 'settings.close' | 'settings.section'>
+  & PropsRenderSlots<
+    'settings.trigger' | 'settings.header' | 'settings.close' | 'settings.section' | 'settings.onboarding'
+  >
   & InjectFace<SettingsRootInjected>

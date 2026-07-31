@@ -17,9 +17,13 @@ export interface CodeBlockProps {
   lang?: string | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
+  /** Copy-button idle label; the owner passes localized copy (this package is cordis-free, so copy arrives via props). */
+  copyLabel?: string | undefined
+  /** Copy-button label during the post-copy confirmation window. */
+  copiedLabel?: string | undefined
 }
 
-export function CodeBlock({ code, lang, className }: CodeBlockProps) {
+export function CodeBlock({ code, lang, className, copyLabel = '复制', copiedLabel = '复制成功' }: CodeBlockProps) {
   const trimmed = code.endsWith('\n') ? code.slice(0, -1) : code
   const html = useMemo(() => highlightToHtml(trimmed, lang), [trimmed, lang])
   const rootRef = useRef<HTMLDivElement>(null)
@@ -55,7 +59,7 @@ export function CodeBlock({ code, lang, className }: CodeBlockProps) {
           <div className={css.infostring}>{lang ?? ''}</div>
           <div className={css.action}>
             <button type="button" className={css.copyButton} onClick={onCopy}>
-              {copied ? '复制成功' : '复制'}
+              {copied ? copiedLabel : copyLabel}
             </button>
           </div>
         </div>

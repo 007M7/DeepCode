@@ -12,12 +12,20 @@ import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowOwnerProps, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_TERMINAL_MAX_LINES, terminalCardModel } from '../src/client/contract/terminal-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
-import { GenericToolCard } from '../src/client/chat/GenericToolCard.tsx'
+import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
 import { DetailsPanel } from '../src/client/skeleton/DetailsPanel.tsx'
 import { BashRow } from '../src/client/toolviews/bash-sample.tsx'
+import { zh } from '../src/client/locales.ts'
+
+type BashRowProps = Parameters<typeof BashRow>[0]
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: GenericToolCardProps['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)
 
@@ -217,8 +225,8 @@ describe('terminalCardModel', () => {
 })
 
 describe('chat row terminal body', () => {
-  const ownerProps = (block: RunningToolCall | ToolResultNode): ToolRowOwnerProps => ({
-    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
+  const ownerProps = (block: RunningToolCall | ToolResultNode): GenericToolCardProps => ({
+    callId: 'c1', toolName: 'bash', block, openFile: vi.fn(), t,
   })
 
   it('the expanded body is the command output, capped tighter than the panel', () => {
@@ -316,10 +324,11 @@ describe('BashRow terminal card', () => {
     phase: 'ready',
   })
 
-  const rowProps = (block: RunningToolCall | ToolResultNode): ToolRowProps => ({
+  const rowProps = (block: RunningToolCall | ToolResultNode): BashRowProps => ({
     callId: 'c1', toolName: 'bash', block, openFile: vi.fn(),
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
-  } as unknown as ToolRowProps)
+    t,
+  } as unknown as BashRowProps)
 
   it('renders the command output under the summary row, without an expand gesture', () => {
     const view = render(<BashRow {...rowProps(settled())} />)
@@ -400,6 +409,7 @@ describe('DetailsPanel Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={vi.fn()}
+        t={t}
       />,
     )
   }
@@ -507,7 +517,7 @@ describe('DetailsPanel Output section', () => {
     // No terminal card: the generic path renders the result text in the Output
     // section's <pre> (the Input section has its own, hence the scoping).
     expect(view.container.querySelector('[data-terminal]')).toBeNull()
-    const output = view.getByText('Output').closest('section')
+    const output = view.getByText('输出').closest('section')
     expect(output?.querySelector('pre')?.textContent).toContain('a.ts  b.ts')
   })
 
@@ -524,8 +534,8 @@ describe('DetailsPanel Output section', () => {
       nodes: [settled({ call: null, callView: null, resultView: resultTerminal({ title: 'ls -la' }) })],
     }), target)
     expect(view.getByText('c1')).toBeTruthy()
-    expect(view.queryByText('Input')).toBeNull()
-    expect(view.getByText('Output')).toBeTruthy()
+    expect(view.queryByText('输入')).toBeNull()
+    expect(view.getByText('输出')).toBeTruthy()
   })
 
   it('scans past other nodes and other calls before reporting the call out of window', () => {
@@ -571,6 +581,7 @@ describe('DetailsPanel Output section', () => {
         useStore={bindSnapshotSelector(chat)}
         actions={chat.actions}
         closeDetails={closeDetails}
+        t={t}
       />,
     )
     fireEvent.click(view.getByRole('button', { name: '关闭详情' }))
@@ -586,7 +597,7 @@ describe('DetailsPanel Output section', () => {
     }), target)
     // Scope to the Output section: the Input section's CodeBlock renders a
     // <pre> of its own, and it comes first in document order.
-    expect(nonText.getByText('Output').closest('section')?.querySelector('pre')?.textContent)
+    expect(nonText.getByText('输出').closest('section')?.querySelector('pre')?.textContent)
       .toBe('{\n  "type": "reasoning",\n  "text": "why"\n}')
     cleanup()
     const empty = mount(snapshot({

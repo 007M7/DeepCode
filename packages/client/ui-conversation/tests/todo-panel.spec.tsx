@@ -11,11 +11,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
-import type { ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 // Export discipline: packages/client/AGENTS.md.
 import { TodoRow, todoToolview } from '../src/client/toolviews/todo-row.tsx'
 import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
 import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
+import { NS, zh } from '../src/client/locales.ts'
+
+type TodoRowProps = Parameters<typeof TodoRow>[0]
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: TodoDockProps['t'] = makeTranslate(zh, commonZh)
 
 afterEach(cleanup)
 
@@ -27,21 +34,21 @@ const LIST: TodoItem[] = [
 
 describe('TodoPanel', () => {
   it('renders nothing while the list is empty', () => {
-    const { container } = render(<TodoPanel todos={[]} />)
+    const { container } = render(<TodoPanel todos={[]} t={t} />)
     expect(container.innerHTML).toBe('')
   })
 
   it('starts collapsed with the progress summary visible', () => {
-    render(<TodoPanel todos={LIST} />)
+    render(<TodoPanel todos={LIST} t={t} />)
     expect(screen.getByTestId('todo-panel')).toBeTruthy()
-    expect(screen.getByText('To-dos')).toBeTruthy()
-    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
+    expect(screen.getByText('任务清单')).toBeTruthy()
+    expect(screen.getByText('1/3 项任务 · 1 项进行中')).toBeTruthy()
     expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
     expect(screen.queryByRole('list')).toBeNull()
   })
 
   it('expands to show one row per item with its status glyph', () => {
-    render(<TodoPanel todos={LIST} />)
+    render(<TodoPanel todos={LIST} t={t} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     const items = screen.getAllByRole('listitem')
     expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
@@ -52,23 +59,23 @@ describe('TodoPanel', () => {
   })
 
   it('collapse hides an expanded list; expand restores; header keeps the count summary', () => {
-    render(<TodoPanel todos={LIST} />)
+    render(<TodoPanel todos={LIST} t={t} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     const header = screen.getByRole('button', { expanded: true })
     fireEvent.click(header)
     expect(screen.queryByRole('list')).toBeNull()
     // Collapsed header is title + progress only (no in-progress content hint).
-    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
+    expect(screen.getByText('1/3 项任务 · 1 项进行中')).toBeTruthy()
     expect(screen.queryByText('写组件')).toBeNull()
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     expect(screen.getAllByRole('listitem')).toHaveLength(3)
   })
 
   it('collapsed header still shows zero in-progress when nothing is active', () => {
-    render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} />)
+    render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} t={t} />)
     expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
     expect(screen.queryByText('都完了')).toBeNull()
-    expect(screen.getByText('1/1 tasks · 0 in progress')).toBeTruthy()
+    expect(screen.getByText('1/1 项任务 · 0 项进行中')).toBeTruthy()
   })
 })
 
@@ -76,7 +83,7 @@ describe('TodoPanel', () => {
 function dockProps(store: ReturnType<typeof createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>>): TodoDockProps {
   const useProjection = (_key: string, selector?: (v: unknown) => unknown) =>
     bindSnapshotSelector(store)(s => (selector ?? (v => v))(s.value))
-  return { useProjection } as unknown as TodoDockProps
+  return { useProjection, t } as unknown as TodoDockProps
 }
 
 describe('TodoDock', () => {
@@ -86,7 +93,7 @@ describe('TodoDock', () => {
     // Capability absent (no baseline/frame yet) renders nothing.
     expect(screen.queryByTestId('todo-panel')).toBeNull()
     act(() => { store.set({ value: LIST }) })
-    expect(screen.getByText('1/3 tasks · 1 in progress')).toBeTruthy()
+    expect(screen.getByText('1/3 项任务 · 1 项进行中')).toBeTruthy()
     // The pre-first-write whole value (null) retires the strip (the panel owns no data).
     act(() => { store.set({ value: null }) })
     expect(screen.queryByTestId('todo-panel')).toBeNull()
@@ -97,7 +104,7 @@ describe('TodoDock', () => {
     expect(todoDockEntry.inject).toEqual(['slots', 'conversation'])
     const register = vi.fn()
     todoDockEntry.apply({ slots: { register } } as never)
-    expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: 10 }, TodoDock)
+    expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: 10, locale: NS }, TodoDock)
   })
 })
 
@@ -107,13 +114,14 @@ const resultNode = (argsRaw: string, over?: Partial<ToolResultNode>): ToolResult
   content: [], isError: false, callView: null, resultView: null, ...over,
 })
 
-function rowProps(block: unknown): ToolRowProps {
+function rowProps(block: unknown): TodoRowProps {
   return {
     callId: 'c1', toolName: 'todo_write', block,
     openFile: vi.fn(),
     sessionId: 's1',
     useSessions: () => undefined,
-  } as unknown as ToolRowProps
+    t,
+  } as unknown as TodoRowProps
 }
 
 describe('TodoRow', () => {
@@ -183,6 +191,6 @@ describe('TodoRow', () => {
     expect(todoToolview.inject).toEqual(['slots', 'conversation'])
     const register = vi.fn()
     todoToolview.apply({ slots: { register } } as never)
-    expect(register).toHaveBeenCalledWith({ name: 'conversation.chat.toolview', key: 'todo_write' }, TodoRow)
+    expect(register).toHaveBeenCalledWith({ name: 'conversation.chat.toolview', key: 'todo_write', locale: NS }, TodoRow)
   })
 })

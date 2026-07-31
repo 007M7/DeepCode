@@ -13,8 +13,14 @@ import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import type { PlanProjection } from '@deepseek-ai/dsh-plan-mode/client'
 import { PlanChip, type PlanChipProps } from '../src/client/PlanModeControl.tsx'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+// The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
+const t: PlanChipProps['t'] = makeTranslate(zh, commonZh)
 
 function setup(
   plan: PlanProjection | undefined,
@@ -24,13 +30,13 @@ function setup(
   const store = createSnapshotStore<{ value: PlanProjection | undefined }>({ value: plan })
   const useProjection = (_key: string, selector?: (v: unknown) => unknown) =>
     bindSnapshotSelector(store)(s => (selector ?? (v => v))(s.value))
-  const props = { useProjection, locked, setPlanMode } as unknown as PlanChipProps
+  const props = { useProjection, locked, setPlanMode, t } as unknown as PlanChipProps
   const view = render(<PlanChip {...props} />)
   return { store, setPlanMode, view }
 }
 
-const onChip = () => screen.getByRole('button', { name: 'Plan mode on, press to turn off' })
-const offChip = () => screen.getByRole('button', { name: 'Plan mode off, press to turn on' })
+const onChip = () => screen.getByRole('button', { name: 'plan mode 已开启，按下关闭' })
+const offChip = () => screen.getByRole('button', { name: 'plan mode 已关闭，按下开启' })
 
 describe('PlanChip', () => {
   it('renders nothing while the capability is absent', () => {
@@ -95,7 +101,7 @@ describe('PlanChip', () => {
       .mockRejectedValueOnce('socket closed')
     setup({ active: true, pending: false }, exitFailing)
     fireEvent.click(onChip())
-    expect((await screen.findByText('退出 plan mode 失败')).getAttribute('title')).toBe('host said no')
+    expect((await screen.findByText('failed to exit plan mode')).getAttribute('title')).toBe('host said no')
     expect(onChip()).toBeTruthy()
 
     fireEvent.click(onChip())
@@ -108,7 +114,7 @@ describe('PlanChip', () => {
     const enterFailing = vi.fn().mockResolvedValueOnce('agent busy')
     setup({ active: false, pending: false }, enterFailing)
     fireEvent.click(offChip())
-    expect((await screen.findByText('进入 plan mode 失败')).getAttribute('title')).toBe('agent busy')
+    expect((await screen.findByText('failed to enter plan mode')).getAttribute('title')).toBe('agent busy')
     expect(offChip()).toBeTruthy()
   })
 

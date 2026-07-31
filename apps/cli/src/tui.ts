@@ -26,13 +26,12 @@ import {
   addHarnessSourceSection,
   boot,
   installFailLoud,
-  loadEnv,
   loadOverlayPatches,
   loadPersonalPatches,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
-import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { configHasTelemetryRow, resolveTelemetryPatch } from './app-cli-entry.ts'
 import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
 import { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
 import type { Context } from 'cordis'
@@ -124,11 +123,12 @@ export async function runTui(
     process.exit(1)
   }
   installFailLoud(NAME)
-  // The bin already loaded the invoking directory's .env; the personal .env
-  // only fills what is still unset (process.loadEnvFile never overrides).
-  loadEnv(NAME, resolveDshHome())
-  // Both .env layers are loaded, so switching the workspace here cannot alter
-  // environment precedence. The cwd IS the workspace seam: the shipped config
+  // The bin already loaded the invoking directory's .env, and that is the
+  // whole environment: $DSH_HOME/.env is credentials-local's writable store,
+  // and hoisting it would make every stored key read as a read-only ambient
+  // override on the next run — unrotatable from the TUI or the web page.
+  // The environment is settled, so switching the workspace here cannot alter
+  // its precedence. The cwd IS the workspace seam: the shipped config
   // resolves the session cwd and the HMR watch root from it, so one chdir moves
   // both together. Sessions themselves live under the Harness home so `/resume`
   // spans every workspace, and are unaffected by this chdir.
@@ -197,16 +197,26 @@ export async function runTui(
   // demo or test config would silently run on the user's provider and model.
   // `--config-replace` additionally discards the base and the surface overlay.
   const replaceTree = configReplace !== undefined
-  const patches = replaceTree ? [] : [
-    ...loadOverlayPatches(NAME, TUI_OVERLAY),
-    ...resolvedConfig === undefined
-      ? loadPersonalPatches(NAME) ?? []
-      : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
+  const bootConfig = resolvedConfigReplace === undefined ? BASE_CONFIG : resolveConfigPath(resolvedConfigReplace, undefined)
+  // Same opt-out semantics as the web surface (resolveTelemetryPatch: any
+  // non-empty value disables; setting the switch against a tree without the
+  // row fails loud rather than silently no-opping a privacy switch). The row
+  // presence is checked against the tree actually booting, so a
+  // --config-replace tree is judged on its own rows, not the shipped base's.
+  const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, configHasTelemetryRow(bootConfig))
+  const patches = [
+    ...replaceTree ? [] : [
+      ...loadOverlayPatches(NAME, TUI_OVERLAY),
+      ...resolvedConfig === undefined
+        ? loadPersonalPatches(NAME) ?? []
+        : loadOverlayPatches(NAME, resolveConfigPath(resolvedConfig, undefined)),
+    ],
+    ...telemetryPatch === undefined ? [] : [telemetryPatch],
   ]
   const queryIndexPath = join(tmpdir(), SESSION_QUERY_DB)
   const ctx = await boot(
     NAME,
-    resolvedConfigReplace === undefined ? BASE_CONFIG : resolveConfigPath(resolvedConfigReplace, undefined),
+    bootConfig,
     patches,
     (hostCtx) => {
       // The launcher owns session identity and the exit line: a config-mounted

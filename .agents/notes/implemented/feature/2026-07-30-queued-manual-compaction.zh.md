@@ -20,6 +20,8 @@ Status: implemented
 
 `@deepseek-ai/dsh-command-compact` 通过 `ctx.commands` 注册一个无参数、面向用户的命令。它调用第三个抽象 `CompactService` 操作 `compactNow(agent, signal)`，并把封闭的 `ManualCompactionError` 分类体系（`busy | changed | summary | commit | persistence`）映射为直接 UI 结果。`command/run` 和 `command/done` 保留命令生命周期，同时不进入模型历史，也不消耗模型循环轮次。
 
+命令插件会独立跟踪每个实际处理器 promise，不依赖命令执行器的中止感知等待。其复合生命周期 effect 先注销 `/compact`，再异步等待所有已开始的处理器结算，因此根级 teardown 只有在后端的闭合与 flush 工作结算后才会完全停稳。
+
 该 seam 的 `ManualCompactAgentContext` 只在压缩已需使用的会话与路由事实之上增加 `reserveTurnAdmission()`。保留、平衡、摘要、标记排序、替换与持久性仍由后端负责。
 
 ### 可以同步预留空闲轮次接纳
@@ -67,6 +69,8 @@ DSH 有意在调用摘要器前记录 `compact/start`。缓慢或崩溃的尝试
 
 压缩不变量在 seed 回放期间使用同一项转换逻辑：`session/end-seed` 会清除开放的历史追踪状态。此场景不要求构造函数实时发布该边界；回放才是承重路径。
 
+客户端请求投影会在 `session/end-seed` 时刻将未匹配的压缩请求以中断状态结束，并清除其活动索引。因此，后续 `compact/start` 会创建一个独立请求，而不是让该遗留的未匹配请求永久保持运行状态或将其覆盖。
+
 事务追加 start 后，每次后续失败都会进行一次闭合尝试。闭合失败会有意留下可见且具有阻塞作用的未匹配 start，并且不尝试 flush。已闭合的手动尝试即使报告预期失败也会 flush。完成必需的闭合与 flush 清理后，取消仍保留原始原因优先级。
 
 ### 参考实现边界
@@ -95,7 +99,7 @@ DSH 有意在调用摘要器前记录 `compact/start`。缓慢或崩溃的尝试
 
 Agent loop 测试覆盖同一 tick 内的优先权、保留 ID 与 FIFO 生命周期、会唤醒和静默的排队工作、幂等释放、`whenIdle()`、取消与 teardown。压缩测试覆盖独立与数字形式的不变量 owner、end-seed 回放、活动与陈旧未匹配标记、listener 重入、所选 span 漂移、commit 与闭合失败、flush 顺序、原始取消原因、raw output 与 usage 保留，以及自动／手动互斥。
 
-命令包固定注册行为、Loader 组合、参数拒绝、精确的成功／失败文本、取消和不进入模型历史的保证。`queued-manual-compact` 终端快照通过已组装 TUI 驱动真实按键：`/help` 可发现该命令；被暂停的摘要会接纳一个排队提示词和即时注入；`turn: null` 标记与 flush 先于排队提示词轮次；命令生命周期保持纯日志；派生顺序固定为检查点 → 注入 → 排队提示词。
+命令包固定注册行为、Loader 组合、参数拒绝、精确的成功／失败文本、取消、不进入模型历史的保证，以及处置操作在中止使执行器停止等待处理器后，仍会跨越相互独立的闭合与 flush 边界等待该处理器结算。客户端运行时投影测试固定 end-seed 中断，以及随后一次独立尝试的完成。`queued-manual-compact` 终端快照通过已组装 TUI 驱动真实按键：`/help` 可发现该命令；被暂停的摘要会接纳一个排队提示词和即时注入；`turn: null` 标记与 flush 先于排队提示词轮次；命令生命周期保持纯日志；派生顺序固定为检查点 → 注入 → 排队提示词。
 
 ## 后果
 

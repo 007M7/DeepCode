@@ -16,6 +16,7 @@
   flex: 1;
   min-width: 0;
   overflow: auto;
+  container: trajectory-table / inline-size;
 }
 
 .table {
@@ -235,6 +236,18 @@
   width: 3px;
 }
 
+.table tbody tr[data-error='true'] .turnRail {
+  background: color-mix(
+    in srgb,
+    var(--dsw-alias-state-error-primary) 22%,
+    var(--dsw-alias-bg-layer-1)
+  );
+}
+
+.table tbody tr[data-error='true'] .selectionRail {
+  background: var(--dsw-alias-state-error-primary);
+}
+
 .table tbody tr[data-turn-start='true'] td {
   position: relative;
   overflow: visible;
@@ -277,6 +290,10 @@
   font-variant-numeric: tabular-nums;
   user-select: none;
   white-space: nowrap;
+}
+
+.turnLabelCompact {
+  display: none;
 }
 
 .turnLabelActive {
@@ -325,9 +342,64 @@
   user-select: none;
 }
 
+.kindTagIcon {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+}
+
+.kindTagLabel {
+  display: inline;
+}
+
 .table .kindSlot .message {
   justify-content: center;
   width: 100%;
+}
+
+@container trajectory-table (max-width: 620px) {
+  .eventColumn {
+    width: 50px;
+  }
+
+  .event {
+    padding-right: 3px !important;
+    padding-left: 28px !important;
+  }
+
+  .requestBoundaryControl {
+    left: 6px;
+  }
+
+  .kindSlot {
+    width: 19px;
+  }
+
+  .kindTag,
+  .table .kindSlot .message {
+    justify-content: center;
+    width: 19px;
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .kindTagIcon {
+    display: inline-flex;
+  }
+
+  .kindTagLabel {
+    display: none;
+  }
+
+  .turnLabelFull {
+    display: none;
+  }
+
+  .turnLabelCompact {
+    display: inline;
+  }
 }
 
 .user {
@@ -574,6 +646,28 @@
 
 .error {
   color: var(--dsw-alias-state-error-primary);
+}
+
+.overview dd.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.details .errorPayload {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.details .errorPayload .resultBlockText {
+  color: inherit;
+}
+
+.details .jsonPayload.errorPayload,
+.details .jsonPreview.errorPayload {
+  --json-tree-property: var(--dsw-alias-state-error-primary);
+  --json-tree-string: var(--dsw-alias-state-error-primary);
+  --json-tree-number: var(--dsw-alias-state-error-primary);
+  --json-tree-keyword: var(--dsw-alias-state-error-primary);
+  --json-tree-punctuation: var(--dsw-alias-state-error-primary);
+  --json-tree-icon: var(--dsw-alias-state-error-primary);
 }
 
 .details {

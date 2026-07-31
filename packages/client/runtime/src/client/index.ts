@@ -123,6 +123,28 @@ declare module 'cordis' {
      */
     'commands/changed'(): void
     /**
+     * One settings namespace's resolved value changed on the host
+     * (host/settings-changed passthrough). Subscribers refetch
+     * `settings.describe`; the frame carries no values.
+     * @mode emit
+     * @param ns - the namespace whose resolved value changed.
+     */
+    'settings/changed'(ns: string): void
+    /**
+     * One credential reference's state changed on the host
+     * (host/credentials-changed passthrough). The ref is an
+     * environment-variable NAME — never a value.
+     * @mode emit
+     * @param ref - the reference whose configured state changed.
+     */
+    'credentials/changed'(ref: string): void
+    /**
+     * The host provider topology changed (host/models-changed passthrough).
+     * Subscribers refetch `llm.providers`/`llm.models`/`session.models`.
+     * @mode emit
+     */
+    'models/changed'(): void
+    /**
      * A connection generation was (re-)established. Wire-derived caches must
      * treat their state as stale and repull (commands directory; the queue
      * mirrors reset themselves through the session resync path).
@@ -170,8 +192,13 @@ export function apply(ctx: Context): void {
       sessions.handleHostEnvelope(envelope)
       workspaces.handleHostEnvelope(envelope)
       // Typed-event bridge: the session layer ignores registry frames (no
-      // session routing); consumers (command directory caches) subscribe on ctx.
-      if (envelope.payload.type === 'host/commands-changed') ctx.emit('commands/changed')
+      // session routing); consumers (command directory caches, the settings
+      // and model surfaces) subscribe on ctx.
+      const frame = envelope.payload
+      if (frame.type === 'host/commands-changed') ctx.emit('commands/changed')
+      else if (frame.type === 'host/settings-changed') ctx.emit('settings/changed', frame.ns)
+      else if (frame.type === 'host/credentials-changed') ctx.emit('credentials/changed', frame.ref)
+      else if (frame.type === 'host/models-changed') ctx.emit('models/changed')
       try {
         sessionHistory.handleHostEnvelope(envelope)
       } catch (error) {

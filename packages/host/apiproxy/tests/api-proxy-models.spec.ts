@@ -85,9 +85,9 @@ async function harness(logged?: {
   await ctx.plugin(LlmService)
   await ctx.plugin(UserInteractionService)
   await ctx.plugin(AgentRegistry)
-  ctx.llm.registerAdapter(['deepseek'], new CatalogAdapter('DeepSeek', [
-    { provider: 'deepseek', id: 'deepseek-chat', name: 'DeepSeek Chat' },
-    { provider: 'deepseek', id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
+  ctx.llm.registerAdapter(['deepseek-official'], new CatalogAdapter('DeepSeek', [
+    { provider: 'deepseek-official', id: 'deepseek-chat', name: 'DeepSeek Chat' },
+    { provider: 'deepseek-official', id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
   ], REASONING))
   ctx.llm.registerAdapter(['broken'], new CatalogAdapter('Broken Provider', new Error('catalog offline')))
   ctx.llm.registerAdapter(['metadata-broken'], new CatalogAdapter('Metadata Broken', [
@@ -120,20 +120,20 @@ function expectValue<T>(response: { result: { ok: true; value: T } | { ok: false
 describe('Web session model selection', () => {
   it('groups successful providers, isolates failures, and preserves an unlisted current model', async () => {
     const { ctx, sessionId } = await harness({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: ReasoningEffortId('max'),
     })
-    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
 
     const catalog = expectValue(await api.sessions.models(request({ sessionId })))
     expect(catalog.current).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })
     expect(catalog.groups).toEqual([{
-      id: 'deepseek',
+      id: 'deepseek-official',
       name: 'DeepSeek',
       models: [
         { id: 'deepseek-chat', name: 'DeepSeek Chat', reasoning: REASONING },
@@ -165,43 +165,43 @@ describe('Web session model selection', () => {
 
   it('accepts an advisory-unlisted model, rejects an unavailable provider, and switches only after the next assembly', async () => {
     const { ctx, agent, sessionId } = await harness()
-    const api = createApiProxy(ctx, { provider: 'deepseek', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
+    const api = createApiProxy(ctx, { provider: 'deepseek-official', model: 'deepseek-chat', cwd: '/tmp', workspaceRoot: '/tmp' })
     const seed: LlmCallConfig = { provider: 'seed', model: 'seed', temperature: 0.2 }
     const signal = new AbortController().signal
 
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
-      .toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     expect((await ctx.systemPrompt.assemble()).variables)
-      .toMatchObject({ provider: 'deepseek', model: 'deepseek-chat' })
+      .toMatchObject({ provider: 'deepseek-official', model: 'deepseek-chat' })
 
     const selected = expectValue(await api.sessions.selectModel(request({
       sessionId,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })))
     expect(selected.selected).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })
     await expect(agentEvents(ctx, agent).waterfall(
       'agent/request', 1, 0, signal, () => Promise.resolve(seed),
-    )).resolves.toMatchObject({ provider: 'deepseek', model: 'deepseek-chat' })
+    )).resolves.toMatchObject({ provider: 'deepseek-official', model: 'deepseek-chat' })
 
     expect((await ctx.systemPrompt.assemble()).variables)
-      .toMatchObject({ provider: 'deepseek', model: 'private-preview' })
+      .toMatchObject({ provider: 'deepseek-official', model: 'private-preview' })
     await expect(agentEvents(ctx, agent).waterfall(
       'agent/request', 1, 1, signal, () => Promise.resolve(seed),
     )).resolves.toMatchObject({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'max',
     })
 
     const unsupported = await api.sessions.selectModel(request({
       sessionId,
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'private-preview',
       reasoningEffort: 'medium',
     }))
@@ -209,7 +209,7 @@ describe('Web session model selection', () => {
       ok: false,
       error: {
         code: 'model-unavailable',
-        message: 'provider "deepseek" model "private-preview" does not support reasoning effort "medium"',
+        message: 'provider "deepseek-official" model "private-preview" does not support reasoning effort "medium"',
       },
     })
 
@@ -227,7 +227,7 @@ describe('Web session model selection', () => {
       },
     })
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
-      .toEqual({ provider: 'deepseek', model: 'private-preview', reasoningEffort: 'max' })
+      .toEqual({ provider: 'deepseek-official', model: 'private-preview', reasoningEffort: 'max' })
     await ctx.fiber.dispose()
   })
 })

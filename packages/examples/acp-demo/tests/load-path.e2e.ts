@@ -42,7 +42,7 @@ const CORDIS_YML = `
 - id: acp-agent
   name: '@deepseek-ai/dsh-acp-demo'
   config:
-    provider: deepseek
+    provider: deepseek-official
     model: deepseek-v4-flash
     persona: 'You are a test agent.'
     workspaceContext: false

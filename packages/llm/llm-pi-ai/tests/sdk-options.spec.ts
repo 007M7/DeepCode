@@ -10,6 +10,7 @@ vi.mock('@earendil-works/pi-ai/compat', async (importOriginal) => {
 })
 
 import { PiAiAdapter } from '../src/adapter.ts'
+import { resolveProfiles } from '../src/config.ts'
 
 afterEach(() => { streamSimple.mockReset() })
 
@@ -21,7 +22,10 @@ describe('pi-ai SDK retry boundary', () => {
         throw failure
       },
     })
-    const adapter = new PiAiAdapter({ profiles: [{ provider: 'openai', apiKey: 'test-key' }] })
+    const adapter = new PiAiAdapter({
+      profiles: () => resolveProfiles({ openai: { apiKey: 'test-key' } }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+    })
     const drain = async (): Promise<void> => {
       for await (const _chunk of adapter.stream({
         provider: 'openai',

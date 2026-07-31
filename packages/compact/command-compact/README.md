@@ -24,7 +24,7 @@ Expected `ManualCompactionError` codes become stable direct errors:
 | `commit` | `Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.` |
 | `persistence` | `Compaction finished, but the session could not be saved.` |
 
-The busy result is intentionally process-scoped: a live unmatched marker blocks, while a marker older than the newest `session/end-seed` is stale and does not. Unexpected implementation failures reject dispatch. Cancellation remains authoritative; the backend completes its required close/flush cleanup, and the command settles internally as `Compaction cancelled.` while the command executor stops waiting with its cancellation error.
+The busy result is intentionally process-scoped: a live unmatched marker blocks, while a marker older than the newest `session/end-seed` is stale and does not. Unexpected implementation failures reject dispatch. Cancellation remains authoritative; the backend completes its required close/flush cleanup, and the command settles internally as `Compaction cancelled.` while the command executor stops waiting with its cancellation error. Plugin disposal first unregisters `/compact`, then drains every handler that already started, so root teardown cannot pass an aborted command's close or flush boundary.
 
 Prompts submitted while compaction runs remain accepted in the agent's ordinary FIFO with the same identity and wakeup facts. They start only after the compaction's explicit durability checkpoint and admission release. Idle injected context is not held: it may be logged between `compact/start` and `compact/end`, and positional replacement leaves it visible after the checkpoint.
 

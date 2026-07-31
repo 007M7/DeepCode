@@ -204,4 +204,45 @@ describe('/compact human command', () => {
     await expect(run(unexpected)).rejects.toBe(bug)
     expectLastLifecycle(unexpected, '', { kind: 'error', text: bug.message })
   })
+
+  it('drains an aborted handler through close and flush before plugin disposal settles', async () => {
+    const test = await harness()
+    const controller = new AbortController()
+    const abort = new Error('operator cancelled')
+    const started = Promise.withResolvers<undefined>()
+    const allowClose = Promise.withResolvers<undefined>()
+    const closed = Promise.withResolvers<undefined>()
+    const allowFlush = Promise.withResolvers<undefined>()
+    const flushed = Promise.withResolvers<undefined>()
+    test.compact.operation = async () => {
+      started.resolve(undefined)
+      await allowClose.promise
+      closed.resolve(undefined)
+      await allowFlush.promise
+      flushed.resolve(undefined)
+      throw abort
+    }
+
+    const execution = run(test, '', controller)
+    await started.promise
+    controller.abort(abort)
+    await expect(execution).rejects.toBe(abort)
+
+    let disposed = false
+    const disposal = test.plugin.dispose()
+    void disposal.then(() => { disposed = true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(test.ctx.commands.find(test.agent, 'compact')).toBeUndefined()
+    expect(disposed).toBe(false)
+
+    allowClose.resolve(undefined)
+    await closed.promise
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(disposed).toBe(false)
+
+    allowFlush.resolve(undefined)
+    await flushed.promise
+    await disposal
+    expect(disposed).toBe(true)
+  })
 })

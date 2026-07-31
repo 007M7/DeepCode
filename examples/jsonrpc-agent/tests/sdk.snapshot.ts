@@ -238,7 +238,7 @@ async function runScenario(scenario: SdkScenario): Promise<{
       requestTimeoutMs: 110_000,
     },
     cwd,
-    provider: 'deepseek',
+    provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
   })
   try {

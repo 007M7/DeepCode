@@ -13,14 +13,21 @@ import {
   IconChevronRightOutline14,
   MarkdownText,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ChatViewSlotProps } from '../contract/slots.ts'
 import css from './MessageItem.module.css'
+
+interface CompactionItemProps {
+  node: CompactionSummaryNode
+  /** The owning view's locale seat. */
+  t: ChatViewSlotProps['t']
+}
 
 /**
  * The collapsed-by-default compaction marker.
  * @param props - the marker node off the snapshot cache.
  * @returns the marker row, with the summary disclosure when one is available.
  */
-export const CompactionItem = memo(function CompactionItem({ node }: { node: CompactionSummaryNode }) {
+export const CompactionItem = memo(function CompactionItem({ node, t }: CompactionItemProps) {
   const [expanded, setExpanded] = useState(false)
   const expandable = node.summary !== null
   const open = expandable && expanded
@@ -36,10 +43,10 @@ export const CompactionItem = memo(function CompactionItem({ node }: { node: Com
         <span className={css.compactionLeading}>
           {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
         </span>
-        <span className={css.compactionTitle}>上下文已压缩</span>
+        <span className={css.compactionTitle}>{t('message.compaction')}</span>
         <span className={css.compactionSep} aria-hidden />
         <span className={css.compactionSummary}>
-          {expandable ? '点击查看压缩摘要' : '压缩摘要不可用'}
+          {expandable ? t('message.compaction.expand') : t('message.compaction.unavailable')}
         </span>
       </button>
       {open && node.summary !== null

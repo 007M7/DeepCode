@@ -73,7 +73,7 @@ describe('tsdown client artifact', () => {
       children: { 'conversation.view': { kind: 'list', scope: 'session' } },
     }, (_p: { renderSlot?: unknown }) => null)
     // The plugin injects 'conversation' as an ordering edge and
-    // 'sessionHistory' for its per-session history callback; this bench
+    // 'sessionHistory' for its per-session history source; this bench
     // supplies both.
     ctx.provide('conversation', {})
     ctx.provide('sessionHistory', {})
