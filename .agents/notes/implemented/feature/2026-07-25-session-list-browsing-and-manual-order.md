@@ -34,7 +34,7 @@ The UI is HTML5 drag on session rows inside a group (workspace grouping only, ou
 
 ### Shell/region split
 
-ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, New Session, Settings, and one `sidebar.workspaces` hole; the shell↔region contract is two facts, `{ wide, expandSidebar }`. ui-workspace fully owns the browsing region (section header, search, grouped tree and flat list, every workspace dialog, drag) plus its groupBy store; the rail-state search/new-workspace icons belong to the region too and request shell expansion via `expandSidebar()`. The picker splits into the core `WorkspaceCreateFlow` (composed directly inside the region) and the thin `WorkspacePicker` wrapper (still filling ui-conversation's hero slot); the old `sidebar.workspace` picker slot and its declaration-aware deferral are deleted with it.
+ui-sidebar shrinks to the column-geometry shell: brand row, fold state machine, New Session, Settings, and one `sidebar.workspaces` hole; the shell↔region contract is two facts, `{ wide, expandSidebar }`. ui-workspace fully owns the browsing region (section header, search, grouped tree and flat list, every workspace dialog, drag) plus its groupBy store; the rail-state search/add-workspace icons belong to the region too and request shell expansion via `expandSidebar()`. The picker splits into the core `WorkspacePickFlow` (composed directly inside the region; named `WorkspaceCreateFlow` until the [one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)) and the thin `WorkspacePicker` wrapper (still filling ui-conversation's hero slot); the old `sidebar.workspace` picker slot and its declaration-aware deferral are deleted with it.
 
 ## Alternatives considered
 
