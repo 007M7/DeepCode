@@ -112,9 +112,9 @@ describe('Session properties', () => {
       const original = build(events)
       const replayed = new Session(SessionId(`replay-${counter++}`), [...original.events])
       expect(replayed.deriveMessages()).toEqual(original.deriveMessages())
-      // A non-empty replay grows by exactly one log-only boundary.
+      // Every explicit replay grows by exactly one log-only boundary.
       expect(replayed.events.slice(0, original.seq)).toEqual(original.events)
-      expect(replayed.seq).toBe(original.seq === 0 ? 0 : original.seq + 1)
+      expect(replayed.seq).toBe(original.seq + 1)
     }))
   })
 

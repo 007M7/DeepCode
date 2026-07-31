@@ -21,7 +21,7 @@ import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-se
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceNameConflictError,
+  WorkspaceMoveInvalidError, WorkspaceNameConflictError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
@@ -71,6 +71,9 @@ import { openNativePath } from './native-path-opener.ts'
 
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
+
+/** Non-model settings namespaces intentionally served to the Web client. */
+const WEB_SETTINGS_NAMESPACES = ['permission'] as const
 
 /** Provider work budget: at most 100 calls and 2,000 inspected hits. */
 const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
@@ -1101,22 +1104,25 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
   }
 
-  /** Settings namespaces whose values can change the model directory. */
-  function providerSettingsNamespaces(): Set<string> {
+  /** Settings namespaces whose changes can invalidate the model catalog. */
+  function modelProviderNamespaces(): Set<string> {
     return new Set(ctx.llm.listConfigurableProviders().map(entry => entry.settingsNs))
   }
 
   /**
-   * The settings namespaces this proxy serves: registered configurable
-   * providers plus a closed product-owned allowlist. The settings seam itself
-   * is general, so exposure stays explicit here; registering a future
-   * namespace never makes it remotely readable or writable by accident.
+   * The settings namespaces this proxy serves: configurable model providers
+   * plus the small explicit Web preference and product-owned allowlists. The
+   * settings seam remains general; a future registration does not become
+   * remotely readable or writable by default.
    */
   function exposedNamespaces(): Set<string> {
-    return new Set([...providerSettingsNamespaces(), ...PRODUCT_SETTINGS_NAMESPACES])
+    const exposed = modelProviderNamespaces()
+    for (const ns of WEB_SETTINGS_NAMESPACES) exposed.add(ns)
+    for (const ns of PRODUCT_SETTINGS_NAMESPACES) exposed.add(ns)
+    return exposed
   }
 
-  /** Refuse a namespace outside the explicit Web configuration boundary. */
+  /** Refuse a namespace outside the explicit configuration-client boundary. */
   function notExposed(request: RpcRequest<unknown>, ns: string): RpcResponse<SettingsNamespaceView> {
     return err(request, {
       code: 'settings-not-exposed',
@@ -1127,7 +1133,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * Run one settings write (merge or wholesale replace) and acknowledge with
-   * the namespace's new redacted view. A namespace outside the model-provider
+   * the namespace's new redacted view. A namespace outside the configuration
    * boundary is refused before the seam is touched; every seam refusal —
    * unknown or invalid namespace, read-only provider, schema validation,
    * storage — becomes one `settings-rejected` carrying the seam's own message.
@@ -1580,7 +1586,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     workspace: {
       list(request) {
-        return Promise.resolve(ok(request, { items: ctx.workspace.list().map(workspaceView) }))
+        return Promise.resolve(ok(request, {
+          items: ctx.workspace.list().map(workspaceView),
+          archivedSessionIds: [...ctx.workspace.archivedSessionIds],
+        }))
       },
 
       // Exactly one of path/name arrives (schema refine). Existing-folder
@@ -1695,6 +1704,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         return ok(request, { workspace: workspaceView(workspace) })
+      },
+
+      async archiveSession(request) {
+        const { sessionId } = request.payload
+        try {
+          await ctx.workspace.archiveSession(sessionId)
+        } catch (error: unknown) {
+          // Only the registry's unknown-session rejection is the business
+          // code; storage/durability failures propagate as internal errors.
+          if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+          return err(request, {
+            code: 'session-not-found',
+            message: error.message,
+            details: { sessionId },
+          })
+        }
+        return ok(request, { archivedSessionIds: [...ctx.workspace.archivedSessionIds] })
       },
     },
 
@@ -2107,6 +2133,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const committedWorkspaceIds = new Set(
           ctx.workspace.list().map(workspace => String(workspace.id)),
         )
+        // Frame-dedup baseline, same posture as committedWorkspaceIds: the
+        // stream opens against the current set; workspace.list re-baselines
+        // reconnecting clients, so only later changes need frames.
+        let archivedSessionIds = ctx.workspace.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
@@ -2143,6 +2173,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 committedWorkspaceIds.add(workspaceId)
                 queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
               }
+              if (state.archivedSessionIds.length !== archivedSessionIds.length
+                || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {
+                archivedSessionIds = state.archivedSessionIds
+                queue.push(frame({
+                  type: 'host/archived-sessions-changed',
+                  archivedSessionIds: [...state.archivedSessionIds],
+                }))
+              }
               return
             }
             if (change.table !== 'workspaces') return
@@ -2170,11 +2208,12 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             // inherited to overridden leaves the resolved value equal, and a
             // configuration client still has to re-read (its held revision is
             // stale, and the field's meaning changed).
-            queue.push(frame({ type: 'host/settings-changed', ns: String(ns) }))
+            const name = String(ns)
+            queue.push(frame({ type: 'host/settings-changed', ns: name }))
             // A provider's own settings carry its model catalog and endpoint,
             // so a change there invalidates the model list even when the route
             // set is untouched — `llm/adapters-updated` alone misses it.
-            if (providerSettingsNamespaces().has(String(ns))) queue.push(frame({ type: 'host/models-changed' }))
+            if (modelProviderNamespaces().has(name)) queue.push(frame({ type: 'host/models-changed' }))
           }),
           ctx.on('credentials/updated', (ref) => {
             queue.push(frame({ type: 'host/credentials-changed', ref: String(ref) }))

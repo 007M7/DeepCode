@@ -84,13 +84,13 @@ describe('ui-settings-general apply', () => {
     // The nav label is a locale-following thunk; owners resolve at read time.
     expect(resolveSlotLabel(entry.options.label)).toBe('通用设置')
     expect(before.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
+    expect(before.slots.entries('settings.general.item')).toEqual([])
     const welcome = before.slots.entries('settings.onboarding')[0]!
     expect(welcome.options).toMatchObject({ id: 'welcome-notice', order: -100 })
     // Copy rides the standard locale seat: every seat declares the namespace.
     for (const [name] of SEATS) {
       expect(before.slots.entries(name)[0]!.locale).toBe('settings')
     }
-
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
     for (const [name] of SEATS) expect(after.slots.entries(name)).toHaveLength(0)
@@ -101,6 +101,9 @@ describe('ui-settings-general apply', () => {
       // The self-inflicted ledger notifications hit the duplicate guard.
       expect(after.slots.entries(name)).toHaveLength(1)
     }
+    await vi.waitFor(() => {
+      expect(after.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
+    })
   })
 
   it('registers the zh/en settings dictionaries and frees the seats on teardown', async () => {
@@ -165,6 +168,7 @@ describe('ui-settings-general apply', () => {
     for (const [name, component] of SEATS) {
       expect(b.slots.entries(name)[0]!.component).toBe(component)
     }
+    expect(b.slots.entries('settings.general.item')).toEqual([])
     expect(b.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     // The recovered registrations still ride the locale path.
     b.locale.setLocale('en')

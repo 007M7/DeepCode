@@ -969,6 +969,9 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
     updatedAt: fixtureEpoch,
   }]
   let nextWorkspace = 1
+  // Registry-global archive set mirroring the host: archived sessions keep
+  // their workspace accounting slot and only grouping surfaces hide them.
+  const archivedSessionIds: SessionId[] = []
 
   // In-memory browse tree behind the fixture's `browse` picker capability —
   // deterministic content mirroring the design mock so assembled Web tests
@@ -1623,7 +1626,10 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       openPath: request => ok(request, { opened: true as const }),
     },
     workspace: {
-      list: request => ok(request, { items: workspaces.map(w => ({ ...w })) }),
+      list: request => ok(request, {
+        items: workspaces.map(w => ({ ...w })),
+        archivedSessionIds: [...archivedSessionIds],
+      }),
       create: (request) => {
         const { path, name } = request.payload
         const target = path ?? `/tmp/fixture-workspaces/${name ?? ''}`
@@ -1708,6 +1714,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           emitHost({ type: 'host/workspace-changed', workspace: { ...workspace } })
         }
         return ok(request, { workspace: { ...workspace } })
+      },
+      archiveSession: (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const { sessionId } = request.payload
+        if (!archivedSessionIds.includes(sessionId)) {
+          archivedSessionIds.push(sessionId)
+          emitHost({ type: 'host/archived-sessions-changed', archivedSessionIds: [...archivedSessionIds] })
+        }
+        return ok(request, { archivedSessionIds: [...archivedSessionIds] })
       },
     },
     commands: {
@@ -2089,6 +2105,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'workspace.rename': return this.api.workspace.rename(request)
       case 'workspace.delete': return this.api.workspace.delete(request)
       case 'workspace.insertSessionBefore': return this.api.workspace.insertSessionBefore(request)
+      case 'workspace.archiveSession': return this.api.workspace.archiveSession(request)
       case 'command.list': return this.api.commands.list(request)
       case 'command.execute': return this.api.commands.execute(request, signal)
       case 'skill.list': return this.api.skills.list(request)

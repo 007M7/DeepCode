@@ -1,10 +1,13 @@
 // Web e2e scenarios: workspace management — the create-by-name dialog, the
 // rename round trip over the real wire (workspace.rename RPC + durable
 // registry), duplicate-name pre-check, the flat "In one list" view with its
-// persisted group-by preference, and the session hover card. Zero model
-// calls: workspace.create/rename are host RPCs with no model involvement,
-// and the one session row the flat/hover scenarios need comes from a seeded
-// fixture (the seeded-history seed reused verbatim — no new recording).
+// persisted group-by preference, the session hover card, and the session
+// archive round trip (row menu → workspace.archiveSession RPC → durable
+// global set → row hidden across reload). Zero model calls:
+// workspace.create/rename/archiveSession are host RPCs with no model
+// involvement, and the one session row the flat/hover/archive scenarios need
+// comes from a seeded fixture (the seeded-history seed reused verbatim — no
+// new recording).
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -412,6 +415,55 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
+
+  it('archives the seeded session from its row menu, hiding it durably across reload', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-archive'))
+    // The seeded session lives under Ungrouped (expanded by the hover-card
+    // test's gesture; converge again for order independence).
+    const ungroupedRow = page.getByText('Ungrouped', { exact: true }).locator('..').locator('..')
+    const ungroupedSection = ungroupedRow.locator('..')
+    await expect.poll(async () => {
+      if (await ungroupedRow.getAttribute('aria-expanded') !== 'true') {
+        await page.getByText('Ungrouped', { exact: true }).click()
+        await page.waitForTimeout(50)
+      }
+      return await ungroupedRow.getAttribute('aria-expanded')
+    }, { timeout: 5_000 }).toBe('true')
+    // Anchor on session rows (the rows carrying a session actions button),
+    // not a positional index, and assert the single-stray assumption loudly
+    // so a fixture gaining a second stray fails here instead of archiving
+    // the wrong row. CSS attribute match, not getByRole: the button is
+    // display:none until its row hovers, and role queries skip hidden nodes.
+    const sessionRows = ungroupedSection.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+    await expect.poll(() => sessionRows.count(), { timeout: 10_000 }).toBe(1)
+    const sessionRow = sessionRows.first()
+    const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
+    // Row menu: hover reveals the actions button; Archive session commits
+    // without a confirmation dialog (non-destructive: log + accounting stay).
+    await sessionRow.hover()
+    await sessionRow.getByRole('button', { name: `Session actions for ${rowTitle}` }).click()
+    await page.getByRole('menuitem', { name: 'Archive session' }).click()
+    // The row disappears on the archive-set echo; with no other visible
+    // stray, the whole Ungrouped bucket withdraws.
+    await expect.poll(() => page.getByText(rowTitle, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    // Durable on the host: the registry-global set carries the id while the
+    // session log itself stays in persistence untouched.
+    expect([...scaffold.ctx.workspace.archivedSessionIds]).toEqual([SessionId(SEED_ID)])
+    expect((await scaffold.ctx.sessionPersistence.list()).map(header => header.id)).toContain(SessionId(SEED_ID))
+    // Reload: the hidden state is rebuilt from the workspace.list baseline.
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await expect.poll(() => page.getByText('Workspaces', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    // The archived row must not resurface (the Ungrouped bucket itself may
+    // reappear if selection restore lands on another stray — not this test's
+    // concern).
+    expect(await page.getByText(rowTitle, { exact: true }).count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
 
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     expect(tripwire.warnings).toEqual([])

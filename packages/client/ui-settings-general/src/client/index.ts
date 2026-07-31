@@ -1,9 +1,8 @@
 /**
  * Settings ownerless-copy plugin, browser half: registers everything on the
  * Settings surface that belongs to no single feature — the trigger/header
- * chrome content, the General section (skeleton rows + the
- * `settings.general.item` slot declaration), and the `settings`
- * dictionaries. Feature-owned rows and sections stay with their features.
+ * chrome content, the General section, and the `settings` dictionaries.
+ * Feature-owned rows and sections stay with their features.
  * Export discipline: packages/client/AGENTS.md.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -25,7 +24,9 @@ import { en, zh, type SettingsKey } from './locales.ts'
 export type {
   CloseLabelProps, HeaderContentProps, TriggerContentProps,
 } from './chrome.tsx'
-export type { GeneralSectionComponentProps } from './GeneralSection.tsx'
+export type {
+  GeneralSectionComponentProps,
+} from './GeneralSection.tsx'
 export type { WelcomeNoticeInjected, WelcomeNoticeProps } from './WelcomeNotice.tsx'
 export type { WelcomeNoticeState } from './welcome-store.ts'
 export type { SettingsKey } from './locales.ts'

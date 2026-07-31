@@ -15,9 +15,9 @@ export const name = 'client-ui-permission-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: a single command contribution registration whose disposal is
- * proven by the HMR-safety spec — it emits no cordis events and owns no
- * cross-plugin mutable state.
+ * No runtime invariant: the command and slot contribution lifecycles are
+ * proven by the HMR-safety spec, while the browser-only Settings controller
+ * owns no host events or cross-plugin mutable state.
  */
 const install: InvariantInstaller = () => {}
 
