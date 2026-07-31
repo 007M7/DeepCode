@@ -70,25 +70,20 @@ describe('writer lock', () => {
     expect(await readFile(path, 'utf8')).toContain('value: 7')
   })
 
-  it('breaks a stale writer lock with a warning and writes through', async () => {
+  it('does not steal an old writer lock', async () => {
     const dir = await tempDir()
     const path = join(dir, 'settings.yaml')
+    await writeFile(path, 'alpha:\n  value: 4\n')
     const ctx = await boot({ path, watch: false })
     const scope = ctx.settings.register(settingsNamespace('alpha'), AlphaSchema)
-    await writeFile(`${path}.lock`, 'crashed-holder\n')
+    const lockPath = `${path}.lock`
+    await writeFile(lockPath, 'slow-holder\n')
     const past = (Date.now() - 60_000) / 1000
-    await utimes(`${path}.lock`, past, past)
-    await scope.update({ value: 9 })
-    expect(await readFile(path, 'utf8')).toContain('value: 9')
-  })
+    await utimes(lockPath, past, past)
 
-  it('times out on a lock a live holder never releases', async () => {
-    const dir = await tempDir()
-    const path = join(dir, 'settings.yaml')
-    const ctx = await boot({ path, watch: false })
-    const scope = ctx.settings.register(settingsNamespace('alpha'), AlphaSchema)
-    await writeFile(`${path}.lock`, 'busy-holder\n')
-    await expect(scope.update({ value: 1 })).rejects.toThrow(/timed out waiting for the writer lock/)
+    await expect(scope.update({ value: 9 })).rejects.toThrow(/timed out waiting for the writer lock/)
+    expect(await readFile(path, 'utf8')).toContain('value: 4')
+    expect(await readFile(lockPath, 'utf8')).toBe('slow-holder\n')
   }, 10_000)
 
   it('surfaces a non-contention lock failure as the write error', async () => {
