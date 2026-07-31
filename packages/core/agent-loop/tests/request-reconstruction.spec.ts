@@ -590,14 +590,18 @@ describe('request stability across the loop', () => {
 
     adapter.requests.forEach((request, index) => {
       const stepStart = stepStarts[index]!
-      // Messages: the derivation over the log prefix strictly before this
-      // step's step/start — rebuilt here through a completely fresh Session.
-      const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, stepStart.seq)))
+      const firstChunk = events.find(e =>
+        e.type === 'assistant/chunk'
+        && e.data.turn === stepStart.data.turn
+        && e.data.step === stepStart.data.step,
+      )!
+      // Messages: the entered batch is logged after step/start, so rebuild the
+      // complete dispatch prefix through a completely fresh Session.
+      const rebuilt = new Session(SessionId(`rebuild-${index}`), structuredClone(events.slice(0, firstChunk.seq)))
       expect(structuredClone(request.messages)).toEqual(rebuilt.deriveMessages())
 
       // Header: the latest request/header snapshot up to this step's dispatch
       // (its header event sits between step/start and the first chunk).
-      const firstChunk = events.find(e => e.type === 'assistant/chunk' && e.seq > stepStart.seq)!
       const header = foldRequestHeader(events.slice(0, firstChunk.seq))!
       expect(request.model).toBe(header.config.model)
       expect(request.reasoningEffort).toBe(header.config.reasoningEffort)

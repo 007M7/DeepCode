@@ -10,7 +10,7 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import { renderGoalRoundPrompt } from './prompt.ts'
 
 export { renderGoalRoundPrompt } from './prompt.ts'
@@ -25,11 +25,11 @@ interface RoundIdentity {
   readonly round: number
 }
 
-/** One queued or admitted goal message retained until whole-agent quiescence. */
+/** One queued, claimed, or admitted goal message retained until whole-agent quiescence. */
 interface RoundAttempt extends RoundIdentity {
   readonly messageId: MessageId
   readonly content: ContentBlock[]
-  phase: 'queued' | 'admitted'
+  phase: 'queued' | 'claimed' | 'admitted'
   cancelled: boolean
   stale: boolean
 }
@@ -123,6 +123,16 @@ export function apply(ctx: Context): void {
     }
   }
 
+  /** Preserve claimed step context when this driver drops only its own round. */
+  function restoreOtherClaimed(agent: Agent, messages: UserMessage[], messageId: MessageId): void {
+    const retained = messages.filter(message => message.id !== messageId)
+    for (const message of retained.toReversed()) {
+      if (agent.inbox.nextStep.some(candidate => candidate.id === message.id)
+        || agent.inbox.nextTurn.some(candidate => candidate.id === message.id)) continue
+      agent.inbox.prepend('next-step', message)
+    }
+  }
+
   /** Process admitted work at quiescence, then reserve at most one next round. */
   async function drive(state: DriverState): Promise<void> {
     const { agent } = state
@@ -144,7 +154,7 @@ export function apply(ctx: Context): void {
 
     const attempt = state.attempt
     if (attempt !== undefined) {
-      if (attempt.phase === 'queued') return
+      if (attempt.phase === 'queued' || attempt.phase === 'claimed') return
       state.attempt = undefined
       state.needsCheckpoint = true
       state.requested = true
@@ -252,7 +262,7 @@ export function apply(ctx: Context): void {
         state.competingQueued = false
         const attempt = state.attempt
         const goal = currentGoal(state)
-        if ((attempt?.phase === 'queued' || attempt?.cancelled)
+        if ((attempt?.phase === 'queued' || attempt?.phase === 'claimed' || attempt?.cancelled)
           && goal?.phase === 'active' && goal.activation === 'armed') {
           state.attempt = undefined
           try {
@@ -271,21 +281,34 @@ export function apply(ctx: Context): void {
       requestDrive(state)
     })
 
+    ctx.on('agent/inbox/inserted', (agent, { message }) => {
+      if (!agent.inbox.nextTurn.some(candidate => candidate.id === message.id)) return
+      const state = stateFor(agent)
+      const attempt = state.attempt
+      if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) return
+      state.competingQueued = true
+      if (attempt?.phase === 'queued') attempt.stale = true
+    })
+    ctx.on('agent/inbox/claimed', (agent, { message }) => {
+      const state = stateFor(agent)
+      const attempt = state.attempt
+      if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) {
+        attempt.phase = 'claimed'
+      }
+    })
+    ctx.on('agent/inbox/discarded', (agent, { message }) => {
+      const state = stateFor(agent)
+      const attempt = state.attempt
+      if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) {
+        attempt.cancelled = true
+      }
+    })
+
     ctx.on('session/event', (session: Session, event: SessionEvent) => {
       const agent = ctx.agents.get(session.id)
       if (agent === undefined || agent.session !== session) return
       const state = stateFor(agent)
       switch (event.type) {
-        case 'agent/inbox/spliced': {
-          if (event.data.target !== 'next-turn') return
-          const attempt = state.attempt
-          for (const message of event.data.inserted) {
-            if (attempt !== undefined && sameQueued(message.content, message.source, attempt)) continue
-            state.competingQueued = true
-            if (attempt?.phase === 'queued') attempt.stale = true
-          }
-          return
-        }
         case 'user/message':
           if (state.attempt !== undefined && event.data.id === state.attempt.messageId) {
             state.attempt.phase = 'admitted'
@@ -314,7 +337,7 @@ export function apply(ctx: Context): void {
       const attempt = state.attempt
       const goal = currentGoal(state)
       return ctx.fiber.state === FiberState.ACTIVE
-        && !state.stopping && attempt !== undefined && attempt.phase === 'queued'
+        && !state.stopping && attempt !== undefined && attempt.phase === 'claimed'
       && !attempt.stale && sameQueued(content, source, attempt)
       && goal !== undefined && goal.id === source.goalId && goal.revision === source.revision
       && goal.phase === 'active' && goal.activation === 'armed'
@@ -340,6 +363,7 @@ export function apply(ctx: Context): void {
           attempt.stale = true
           state.attempt = undefined
         }
+        restoreOtherClaimed(agent, messages, submitted.id)
         requestDrive(state)
         return { kind: 'reject' }
       }
@@ -353,13 +377,16 @@ export function apply(ctx: Context): void {
         // starve every later drive pass. Clear it and let the driver
         // reschedule the round.
         const attempt = state.attempt
-        if (attempt !== undefined && sameRound(source, attempt) && attempt.phase === 'queued') {
+        if (attempt !== undefined && sameRound(source, attempt) && attempt.phase === 'claimed') {
           state.attempt = undefined
           requestDrive(state)
         }
         throw error
       }
-      if (signal.aborted) return decision
+      if (signal.aborted) {
+        if (decision.kind === 'enter') restoreOtherClaimed(agent, decision.messages, submitted.id)
+        return decision
+      }
       if (decision.kind === 'reject') {
         const attempt = state.attempt
         if (attempt !== undefined && sameRound(source, attempt)) state.attempt = undefined
@@ -386,6 +413,7 @@ export function apply(ctx: Context): void {
           attempt.stale = true
           state.attempt = undefined
         }
+        restoreOtherClaimed(agent, decision.messages, submitted.id)
         requestDrive(state)
         return { kind: 'reject' }
       }
@@ -409,7 +437,8 @@ export function apply(ctx: Context): void {
         const attempt = state.attempt
         if (attempt !== undefined) {
           attempt.stale = true
-          if (attempt.phase === 'admitted' && state.agent.status === 'running') {
+          if ((attempt.phase === 'claimed' || attempt.phase === 'admitted')
+            && state.agent.status === 'running') {
             state.agent.cancel({ kind: 'parent' })
             waits.push(state.agent.whenIdle())
           }

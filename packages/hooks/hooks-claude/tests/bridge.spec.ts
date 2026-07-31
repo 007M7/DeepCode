@@ -262,11 +262,11 @@ describe('hooks-claude bridge — SessionStart', () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(dir, adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-    // session-start fires async (detached .then → agent.inject); wait for the
-    // injected user/message to actually land before sending, rather than a
-    // fixed sleep that flakes under load.
-    await waitFor(() => events(agent).some(e => e.type === 'user/message'
-      && e.data.content.some(b => b.type === 'text' && b.text.includes('project uses tabs'))))
+    // session-start fires async (detached .then → agent.inject); injection now
+    // enters the next-step inbox directly and becomes a user/message only after
+    // step entry, so synchronize on the pending inbox item before sending.
+    await waitFor(() => agent.inbox.nextStep.some(message =>
+      message.content.some(block => block.type === 'text' && block.text.includes('project uses tabs'))))
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
     await waitForIdle(ctx, agent)
 

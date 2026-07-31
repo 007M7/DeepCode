@@ -220,7 +220,7 @@ Source: [`packages/core/agent/src/index.ts:216`](../../packages/core/agent/src/i
 
 ## `ctx.approval` — `ApprovalService`
 
-Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through prompt and pre-step notices.
+Approval service that applies session policy before answerers and logs every ask/outcome pair to the requesting session. It exposes deterministic policy changes to the model through prompt-submission notices.
 
 ```ts cordis-catalog
 /**

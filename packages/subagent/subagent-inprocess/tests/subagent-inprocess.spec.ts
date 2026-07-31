@@ -189,7 +189,10 @@ describe('startInProcessRun', () => {
     expect(adapter.requests[0]?.signal?.reason).toEqual({ kind: 'parent' })
     const child = parent.ctx.agents.get(signalled.id)
     const turnEnd = child?.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted' })
+    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({
+      kind: 'aborted',
+      reason: { kind: 'parent' },
+    })
     await signalled.dispose()
 
     const disposed = await startInProcessRun(request(parent), {})

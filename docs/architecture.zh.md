@@ -121,7 +121,7 @@ idle inject:
 
 `agent/pre-step` 接收已经从 inbox 删除的独占批次，并最终决定循环是否进入拟议步骤。它的 `PreStepContext` 携带准确的 turn、step 与取消 signal。`{ kind: 'reject' }` 不会打开步骤；`{ kind: 'enter', messages }` 提供在 `step/start` 后追加的完整批次。当工具 continuation 没有新领取的 inbox 输入时，批次为空，listener 仍可为当前步骤贡献上下文。waterfall 的全部改写只在最终返回的 `messages` 中一次性结算。
 
-裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
+裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在步骤关闭前授权一次同步骤重试；取消优先，且重试会复用该步骤已冻结的 prompt assembly。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
 
 ### 失败边界
 

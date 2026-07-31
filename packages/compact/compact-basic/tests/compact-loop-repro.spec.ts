@@ -306,7 +306,7 @@ describe('CBR-001: a real-loop checkpoint is a valid boundary on both sides', ()
 
 describe('context-overflow recovery across the real loop and compact-basic', () => {
   it.each(['thrown', 'in-band'] as const)(
-    'force-compacts a %s overflow between failed and retry steps',
+    'force-compacts a %s overflow within the retried step',
     async (delivery) => {
       const ctx = new Context()
       const adapter = new OverflowRecoveryAdapter(delivery)
@@ -347,17 +347,11 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
         expect(retry).not.toContain('OLD HISTORY SENTINEL')
 
         const events = [...agent.session.events]
-        const failedStepEnd = events.find(event =>
+        const stepStart = events.find(event =>
+          event.type === 'step/start' && event.data.turn === 3 && event.data.step === 1,
+        )!
+        const stepEnd = events.find(event =>
           event.type === 'step/end' && event.data.turn === 3 && event.data.step === 1,
-        )!
-        const failedEnd = events.find(event =>
-          event.type === 'turn/end' && event.data.turn === 3,
-        )!
-        const retryStart = events.find(event =>
-          event.type === 'turn/start' && event.data.turn === 4,
-        )!
-        const retryStep = events.find(event =>
-          event.type === 'step/start' && event.data.turn === 4 && event.data.step === 1,
         )!
         const compaction = events.filter(event =>
           event.type === 'compact/start'
@@ -369,11 +363,13 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
           'compact/summary',
           'compact/end',
         ])
-        expect(retryStart.seq).toBeGreaterThan(failedEnd.seq)
         expect(compaction.every(event =>
-          event.seq > failedStepEnd.seq && event.seq < failedEnd.seq,
+          event.seq > stepStart.seq && event.seq < stepEnd.seq,
         )).toBe(true)
-        expect(retryStep.seq).toBeGreaterThan(retryStart.seq)
+        expect(events.filter(event => event.type === 'turn/start').slice(-1).map(event => event.data.turn))
+          .toEqual([3])
+        expect(events.filter(event => event.type === 'step/start' && event.data.turn === 3))
+          .toHaveLength(1)
         expect(events.at(-1)).toMatchObject({
           type: 'turn/end',
           data: { reason: { kind: 'completed' } },
@@ -413,9 +409,9 @@ describe('context-overflow recovery across the real loop and compact-basic', () 
       expect(adapter.conversationRequests).toHaveLength(3)
       expect(adapter.summaryRequests).toHaveLength(1)
       expect(agent.session.events.filter(event => event.type === 'llm/retry').map(event => event.data))
-        .toEqual([expect.objectContaining({ turn: 4, step: 1, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
-      expect(agent.session.events.filter(event => event.type === 'turn/start').slice(-3).map(event => event.data.turn))
-        .toEqual([3, 4, 5])
+        .toEqual([expect.objectContaining({ turn: 3, step: 1, retry: 1, failure: { message: 'temporary provider outage', code: 'SERVER' } })])
+      expect(agent.session.events.filter(event => event.type === 'turn/start').slice(-1).map(event => event.data.turn))
+        .toEqual([3])
       expect(agent.session.events.at(-1)).toMatchObject({
         type: 'turn/end',
         data: { reason: { kind: 'completed' } },

@@ -18,16 +18,20 @@ export const name = 'time-context-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Derive the next request boundary at which a time-context reading may append. */
+/** Derive the entered step boundary at which a time-context reading may append. */
 function preparationPosition(history: readonly SessionEvent[], fail: InvariantFailure): { turn: number; step: number } {
   for (const event of history.slice().reverse()) {
     switch (event.type) {
-      case 'step/end':
-        return { turn: event.data.turn, step: event.data.step + 1 }
-      case 'turn/start':
-        return { turn: event.data.turn, step: 1 }
       case 'step/start':
+        return { turn: event.data.turn, step: event.data.step }
+      case 'turn/start':
+      case 'step/end':
       case 'turn/end':
+      case 'request/header':
+      case 'assistant/chunk':
+      case 'assistant/message':
+      case 'tool/call':
+      case 'tool/result':
         fail('time-context reading must be appended at a prompt boundary')
         break
       default:

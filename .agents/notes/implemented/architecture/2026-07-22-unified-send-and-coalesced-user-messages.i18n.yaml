@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-07-22-unified-send-and-coalesced-user-messages.md
 2026-07-22-unified-send-and-coalesced-user-messages.md: 4bc4303f636ea7ff268d0b3f2d0a65dfba954883
-2026-07-22-unified-send-and-coalesced-user-messages.zh.md: 4dc725d5d03f1871c7fb5115577e3283bb395add
+2026-07-22-unified-send-and-coalesced-user-messages.zh.md: 02c3bcafa246d52da0ef3b8f0dfd956091eedfb6

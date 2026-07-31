@@ -207,8 +207,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      await waitFor(() => events(agent).some(e => e.type === 'user/message'
-      && e.data.content.some(b => b.type === 'text' && b.text.includes('start-ctx'))))
+      await waitFor(() => agent.inbox.nextStep.some(message =>
+        message.content.some(block => block.type === 'text' && block.text.includes('start-ctx'))))
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('start-ctx')
     })
@@ -547,8 +547,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
-      await waitFor(() => events(agent).some(e => e.type === 'user/message'
-      && e.data.content.some(b => b.type === 'text' && b.text.includes('session preamble'))))
+      await waitFor(() => agent.inbox.nextStep.some(message =>
+        message.content.some(block => block.type === 'text' && block.text.includes('session preamble'))))
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
       expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('session preamble')
     })

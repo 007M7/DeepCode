@@ -58,4 +58,4 @@ Compact-basic 会在每个拟议请求之前包装 `agent/pre-step`。在续步�
 
 代价是在共享 pre-step waterfall 中执行压力工作，并需要适配器持续维护溢出分类。提供方措辞与启发式字符密度仍是维护风险。表层压缩依然无法修复仅信封本身就超出窗口的情况，也不能拆分不可分割的非工具节点，或修复非可剪枝剩余部分仍然过大的工具单元。若可移除的文本工具结果是主要体积，可选剪枝器仍可修复原本不可分割的工具配对。
 
-[已领取 pre-step 生命周期](2026-07-31-claimed-pre-step-inbox-lifecycle.zh.md)取代了本记录原先的 post-step 触发方式。服务拆分、独立 token meter、平衡范围契约、日志记录锁、摘要替换与唯一 `summarize()` 子类 hook 均保持不变。
+[已领取 pre-step 生命周期](2026-07-31-claimed-pre-step-inbox-lifecycle.md)取代了本记录原先的 post-step 触发方式。服务拆分、独立 token meter、平衡范围契约、日志记录锁、摘要替换与唯一 `summarize()` 子类 hook 均保持不变。

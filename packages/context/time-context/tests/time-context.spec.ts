@@ -17,7 +17,7 @@ const SIGNAL = new AbortController().signal
 
 beforeEach(() => {
   process.env['TZ'] = 'UTC'
-  vi.useFakeTimers()
+  vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(BASE)
 })
 
@@ -405,7 +405,7 @@ describe('real agent-loop request history', () => {
     expect(contexts).toHaveLength(adapter.requests.length)
     expect(starts).toHaveLength(adapter.requests.length)
     for (let index = 0; index < contexts.length; index += 1) {
-      expect(contexts[index]!.seq).toBeLessThan(starts[index]!.seq)
+      expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
     }
     expect(contexts.every(event => event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context'

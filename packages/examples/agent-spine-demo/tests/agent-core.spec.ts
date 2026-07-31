@@ -335,7 +335,7 @@ describe('dsh-agent-spine-demo bundle', () => {
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'bundled project rule')
-      const adapter = new MockAdapter([textResponse('ok')])
+      const adapter = new MockAdapter([textResponse('first'), textResponse('ok')])
       const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
@@ -349,9 +349,12 @@ describe('dsh-agent-spine-demo bundle', () => {
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)
 
-      const sentText = adapter.requests[0]?.messages.map(messageText).join('\n')
-      expect(sentText).toContain('hi')
-      expect(sentText).toContain('bundled project rule')
+      expect(adapter.requests).toHaveLength(2)
+      const firstRequestText = adapter.requests[0]?.messages.map(messageText).join('\n')
+      const secondRequestText = adapter.requests[1]?.messages.map(messageText).join('\n')
+      expect(firstRequestText).toContain('hi')
+      expect(firstRequestText).not.toContain('bundled project rule')
+      expect(secondRequestText).toContain('bundled project rule')
       expect(adapter.requests[0]?.system).toContain('You are an AI agent powered by the DeepSeek Harness SDK.')
       expect(adapter.requests[0]?.system).not.toContain('bundled project rule')
       await handle.dispose()
@@ -585,12 +588,12 @@ describe('dsh-agent-spine-demo bundle', () => {
     }).toThrow('agent-spine-demo: dshHome and skills.local.dshHome must resolve to the same directory')
   })
 
-  it('places workspace instructions before the skill catalog in the session prefix', async () => {
+  it('delivers workspace instructions after the first-step skill catalog', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-agent-spine-demo-prefix-order-'))
     try {
       await mkdir(join(root, '.git'), { recursive: true })
       await writeFile(join(root, 'AGENTS.md'), 'workspace rule before skills')
-      const adapter = new MockAdapter([textResponse('ok')])
+      const adapter = new MockAdapter([textResponse('first'), textResponse('ok')])
       const ctx = await mount({ workspaceContext: { maxBytes: 65536 } })
       await ctx.plugin(LocalFileSystem, { cwd: '/' })
       ctx.llm.registerAdapter(['mock'], adapter)
@@ -609,8 +612,15 @@ describe('dsh-agent-spine-demo bundle', () => {
       handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, handle.agent)
 
-      expect(messageText(adapter.requests[0]?.messages[1])).toContain('workspace rule before skills')
-      expect(messageText(adapter.requests[0]?.messages[2])).toContain('prefix-order-skill')
+      expect(adapter.requests).toHaveLength(2)
+      const firstCatalogIndex = adapter.requests[0]!.messages.findIndex(
+        message => messageText(message).includes('prefix-order-skill'),
+      )
+      const workspaceIndex = adapter.requests[1]!.messages.findIndex(
+        message => messageText(message).includes('workspace rule before skills'),
+      )
+      expect(firstCatalogIndex).toBeGreaterThanOrEqual(0)
+      expect(workspaceIndex).toBeGreaterThanOrEqual(0)
       await handle.dispose()
       await ctx.fiber.dispose()
     } finally {

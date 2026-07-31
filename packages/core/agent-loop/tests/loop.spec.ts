@@ -313,11 +313,12 @@ describe('agent loop', () => {
     const steering = agent.session.events.find(e =>
       e.type === 'user/message' && JSON.stringify(e.data.content).includes('change of plans'))
     expect(steering).toBeDefined()
-    // Steering enters history before the second step's request derives it.
+    // The entered batch is appended after the second step opens and before its
+    // request derives history.
     const steeringSeq = steering!.seq
     const secondStepStart = agent.session.events.filter(e => e.type === 'step/start')[1]
     expect(secondStepStart).toBeDefined()
-    expect(steeringSeq).toBeLessThan(secondStepStart!.seq)
+    expect(steeringSeq).toBeGreaterThan(secondStepStart!.seq)
 
     // the second model request saw the steering content
     const secondRequest = adapter.requests[1]

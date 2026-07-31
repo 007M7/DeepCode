@@ -156,7 +156,7 @@ export class Inbox {
       inbox.length - actualStart,
     )
     if (actualDeleteCount === 0 && inserted.length === 0) return []
-    const outcome = discardRemoved && actualDeleteCount > 0 ? 'canceled' : undefined
+    const outcome = discardRemoved && actualDeleteCount > 0 ? 'canceled' as const : undefined
     const splice = {
       target,
       start: actualStart,

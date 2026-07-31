@@ -58,6 +58,7 @@ function preparing(turn: number, step: number): Session {
     session.append('step/start', { turn, step: priorStep })
     session.append('step/end', { turn, step: priorStep })
   }
+  session.append('step/start', { turn, step })
   return session
 }
 
@@ -88,6 +89,7 @@ describe('time-context invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('time-invariant-late-valid'))
     session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
@@ -103,6 +105,7 @@ describe('time-context invariants', () => {
     await ctx.plugin(SessionStore)
     const session = ctx.sessions.create(SessionId('time-invariant-late-invalid'))
     session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
     session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
@@ -132,7 +135,7 @@ describe('time-context invariants', () => {
   it('rejects a reading outside a prompt boundary', async () => {
     const ctx = await setup()
     const ended = preparing(1, 1)
-    ended.append('step/start', { turn: 1, step: 1 })
+    ended.append('step/end', { turn: 1, step: 1 })
     expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/at a prompt boundary/)
     expect(() => {
       ctx.emit('session/event', new Session(SessionId('time-invariant-empty')), event(reading()))

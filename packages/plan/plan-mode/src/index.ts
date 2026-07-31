@@ -8,9 +8,9 @@
  *
  * The state in force is folded from the session log (`plan/mode`, last one
  * wins), so resume and fork restore it without a live mirror. User selections
- * are held as pending intent until an in-turn step boundary because every
- * session event is turn-enclosed. The service flushes on `step/start` before
- * the affected request assembly, including retry turns.
+ * are held as pending intent until an in-turn step boundary. The service
+ * flushes from `agent/pre-step` before the affected request assembly;
+ * same-step request retries reuse their assembly.
  *
  * The exit tool remains registered while plan mode is inactive so crossing a
  * boundary changes only the prompt section, not the request tool catalog.
@@ -196,34 +196,31 @@ export class PlanModeService extends Service {
     super(ctx, 'planMode')
     this.section = resolveConfig(config).section
     let disposed = false
-
-    // Pre-step runs before the turn opens, so the turn-enclosed mode event
-    // commits from the immediately following step/start observer. Request
-    // assembly happens afterward. A failed append remains pending for a later
-    // boundary, and policy cannot block the turn.
-    ctx.on('session/event', (session, event) => {
-      if (disposed || event.type !== 'step/start') return
-      try {
-        this.onBoundary(session)
-      } catch (error) {
-        ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
-      }
-    }, { prepend: true })
+    // Pre-step is outside Session.append publication, so its log-only mode
+    // event can land between turns or inside an open turn without re-entering
+    // the session. A failed append remains pending for a later boundary, and
+    // policy cannot block the step.
     ctx.on('agent/pre-step', async (
       agent,
       _messages,
-      _signal,
+      { signal },
       next,
     ): Promise<PreStepDecision> => {
       const decision = await next()
       const pending = this.pendingIntents.get(agent.session)
-      if (decision.kind === 'reject' || pending?.narrate !== true) return decision
+      if (decision.kind === 'reject' || signal.aborted || pending === undefined) return decision
       const narration = this.narration(agent.session, pending.active)
-      return narration === undefined
+      try {
+        this.onBoundary(agent.session)
+      } catch (error) {
+        ctx.logger.warn('dsh-plan-mode: boundary flush failed: %o', error)
+        return decision
+      }
+      return !pending.narrate || narration === undefined
         ? decision
         : { ...decision, messages: [...decision.messages, narration] }
     })
-    ctx.effect(() => () => { disposed = true }, 'dsh-plan-mode: close boundary lifetime')
+    ctx.effect(() => () => { disposed = true }, 'dsh-plan-mode: close service lifetime')
 
     ctx.systemPrompt.section({
       name: 'plan:policy',

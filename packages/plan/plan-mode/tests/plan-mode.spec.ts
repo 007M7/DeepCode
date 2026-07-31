@@ -249,22 +249,17 @@ describe('ctx.planMode: get/set', () => {
 })
 
 describe('the boundary flush', () => {
-  it('does not flush during pre-step and commits from the following step/start', async () => {
+  it('flushes from pre-step before the following step/start', async () => {
     const ctx = await setup()
     const agent = await agentWithSession(ctx)
     openTurn(agent.session)
     ctx.planMode.set(agent, true)
-    // Pre-step only composes narration. The pending intent survives until the
-    // turn-enclosed step/start event commits it before request assembly.
     await boundary(ctx, agent, 'pre-step')
-    expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
-    expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
-    await boundary(ctx, agent, 'step-start')
     expect(foldPlanMode(agent.session.events)).toBe(true)
     expect(ctx.planMode.get(agent)).toEqual({ active: true })
   })
 
-  it('removes the step/start flush when the plugin fiber is disposed', async () => {
+  it('removes the pre-step flush when the plugin fiber is disposed', async () => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRegistry)
@@ -273,8 +268,7 @@ describe('the boundary flush', () => {
     openTurn(agent.session)
     ctx.planMode.set(agent, true)
     await fiber.dispose()
-    const event = agent.session.append('step/start', { turn: 1, step: 1 })
-    ctx.emit('session/event', agent.session, event)
+    await boundary(ctx, agent, 'pre-step')
     expect(agent.session.events.some(event => event.type === 'plan/mode')).toBe(false)
   })
 
@@ -366,7 +360,7 @@ describe('the boundary flush', () => {
     expect(ctx.planMode.get(agent).pending).toBeUndefined()
   })
 
-  it('pre-step never appends, so a broken backend surfaces only at step/start', async () => {
+  it('contains a pre-step append failure and keeps the intent pending', async () => {
     const ctx = await setup()
     const warn = vi.fn()
     ctx.logger.warn = warn as never
@@ -379,8 +373,6 @@ describe('the boundary flush', () => {
       return (original as (...args: unknown[]) => unknown)(type, ...rest)
     }) as unknown) as typeof agent.session.append
     await boundary(ctx, agent, 'pre-step')
-    expect(warn).not.toHaveBeenCalled()
-    await boundary(ctx, agent, 'step-start')
     expect(warn).toHaveBeenCalledOnce()
     expect(ctx.planMode.get(agent)).toEqual({ active: false, pending: true })
   })
@@ -602,7 +594,7 @@ describe('/plan', () => {
       .toEqual({ kind: 'success', text: 'Plan mode entry cancelled.' })
     expect(ctx.planMode.get(entering)).toEqual({ active: false, pending: false })
     expect(enteringSteer).not.toHaveBeenCalled()
-    await boundary(ctx, entering, 'step/end')
+    await boundary(ctx, entering, 'step-start')
     expect(ctx.planMode.get(entering)).toEqual({ active: false })
     expect(entering.session.events.some(event => event.type === 'plan/mode')).toBe(false)
 
@@ -616,7 +608,7 @@ describe('/plan', () => {
     expect((await ctx.commands.execute(active, '/plan off', signal))?.result)
       .toEqual({ kind: 'success', text: 'Leaving plan mode (applies from the next step).' })
     expect(activeSteer).not.toHaveBeenCalled()
-    await boundary(ctx, active, 'step/end')
+    await boundary(ctx, active, 'step-start')
     expect(ctx.planMode.get(active)).toEqual({ active: false })
   })
 

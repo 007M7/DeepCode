@@ -113,6 +113,17 @@ function onInboxMessage(
   })
 }
 
+/** Observe one claimed message at its exclusive pre-step ownership transfer. */
+function onClaimedMessage(
+  ctx: Context,
+  agent: Agent,
+  listener: (message: UserMessage) => void,
+): () => void {
+  return ctx.on('agent/inbox/claimed', (subject, { message }) => {
+    if (subject === agent) listener(message)
+  })
+}
+
 /** Await a stable goal projection selected by the caller. */
 async function waitForGoal(
   ctx: Context,
@@ -273,8 +284,8 @@ describe('same-session goal driving', () => {
 
   it('pauses and drops a reserved round when cancellation lands before pre-step', async () => {
     const test = await harness([])
-    const cancel = onInboxMessage(test.ctx, test.agent, (message) => {
-      if (message.source.kind === 'goal') {
+    const cancel = onClaimedMessage(test.ctx, test.agent, (message) => {
+      if (message.source.kind === 'goal' && message.source.round > 0) {
         cancel()
         test.agent.cancel({ kind: 'user' })
       }
@@ -616,7 +627,7 @@ describe('same-session goal driving', () => {
   it('fails an initial pre-step read closed even when the first disarm attempt throws', async () => {
     const test = await harness([textResponse('retry after containment')])
     let armed = true
-    onInboxMessage(test.ctx, test.agent, (message) => {
+    onClaimedMessage(test.ctx, test.agent, (message) => {
       if (message.source.kind !== 'goal' || message.source.round <= 0 || !armed) return
       armed = false
       vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {

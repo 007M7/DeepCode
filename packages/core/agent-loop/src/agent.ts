@@ -217,6 +217,7 @@ export class ReactLoopAgent implements Agent {
           await this.loopCtx.serial(agentCarrier(this), 'agent/turn-stopping', this, turn, signal)
           signal.throwIfAborted()
         }
+        if (turnEnds && this.inbox.nextStep.length === 0) break
         decision = await this.preStep('next-step', { turn, step: phase.step + 1 })
         if (decision.kind === 'reject') {
           turnEnds = { kind: 'blocked' }

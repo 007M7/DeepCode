@@ -1783,7 +1783,6 @@ describe('pi-tui chat lifecycle and transcript', () => {
       0,
       result.agent.inbox.nextStep.length,
       [],
-      'canceled',
     )
     await tick()
     expect(result.terminal.output).not.toContain('queued')

@@ -292,7 +292,6 @@ describe('abort during tool execution ends the turn', () => {
         { type: 'finish', reason: { kind: 'tool-calls' } },
       ] satisfies StreamChunk[],
       textResponse('later turn'),
-      textResponse('context accepted'),
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a-historical-tool-pair'), { provider: 'mock', model: 'mock' })
@@ -338,7 +337,7 @@ describe('abort during tool execution ends the turn', () => {
         ? [event.data.content]
         : [])[0])
       .toEqual([{ type: 'text', text: 'new turn context' }])
-    expect(JSON.stringify(adapter.requests[2]?.messages)).toContain('new turn context')
+    expect(JSON.stringify(adapter.requests[1]?.messages)).toContain('new turn context')
   })
 })
 

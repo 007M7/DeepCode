@@ -2060,14 +2060,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface PreparedReferencedMessage {\n    content: ContentBlock[];\n    additionalContext?: UserMessage;\n}',
   },
   {
-    name: 'PreStepContext',
-    declaration: 'export interface PreStepContext {\n    readonly turn: number;\n    readonly step: number;\n    readonly signal: AbortSignal;\n}',
-  },
-  {
-    name: 'PreStepDecision',
-    declaration: 'export type PreStepDecision = {\n    kind: \'reject\';\n} | {\n    kind: \'enter\';\n    messages: UserMessage[];\n};',
-  },
-  {
     name: 'PresetOption',
     declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
   },
