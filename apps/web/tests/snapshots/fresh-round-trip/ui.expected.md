@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the bash tool to" [disabled]
+  - heading "Use the bash tool to" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
