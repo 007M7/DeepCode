@@ -221,7 +221,7 @@ describe('docsPages locale routes', () => {
   it('includes persistence event headings in both locale outlines', () => {
     const pages = docsPages.filter(page => page.source === 'docs/persistence-catalog.md')
     expect(pages).toHaveLength(2)
-    expect(pages.map(page => page.outline)).toEqual([[2, 4], [2, 4]])
+    expect(pages.map(page => page.outline)).toEqual(['deep', 'deep'])
   })
 })
 
