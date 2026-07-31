@@ -58,7 +58,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 }
 
 describe('deriveStats', () => {
-  it('folds turns/steps/token split and cache hit percentage', () => {
+  it('counts turns and steps and never folds node usage into accounting', () => {
     const stats = deriveStats([
       assistant(1, 1, { inputTokens: 100, outputTokens: 50, cacheReadTokens: 900 }),
       assistant(2, 1, { inputTokens: 100, outputTokens: 50 }),
@@ -66,12 +66,12 @@ describe('deriveStats', () => {
     ])
     expect(stats.turns).toBe(2)
     expect(stats.steps).toBe(3)
-    expect(stats.inputTokens).toBe(1100)
-    expect(stats.outputTokens).toBe(100)
-    expect(stats.cacheHitPct).toBe(82)
+    // Window-scoped by design: the paged window is not an accounting source, so
+    // the fold exposes no token fields at all (billing rides the projection).
+    expect(Object.keys(stats).sort()).toEqual(['llmMs', 'steps', 'toolMs', 'turns'])
   })
 
-  it('cache hit stays null with no cache accounting; out-of-window tool results ignored', () => {
+  it('ignores tool results with no call time', () => {
     const tool: ToolResultNode = {
       kind: 'tool-result', seq: 5, time: 5_000, callId: 'c', call: null, callTime: null, content: [],
       isError: false, callView: null, resultView: null,
@@ -79,7 +79,6 @@ describe('deriveStats', () => {
     const stats = deriveStats([tool, assistant(1, 1)])
     expect(stats.steps).toBe(1)
     expect(stats.toolMs).toBe(0)
-    expect(stats.cacheHitPct).toBeNull()
   })
 
   it('sums LLM wall time from assistant timing and tool wall time from call/result pairs', () => {
@@ -116,20 +115,103 @@ describe('formatters', () => {
 })
 
 describe('StatsLine', () => {
-  function props(source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void }): StatsLineProps {
-    return { useSession: bindSnapshotSelector(source) }
+  const USAGE = { uncachedInputTokens: 10, outputTokens: 5, cacheReadTokens: 90, cacheWriteTokens: 0 }
+
+  /** Stub the projection seat: a key-addressed table of whole values. */
+  function projections(values: Record<string, unknown>): StatsLineProps['useProjection'] {
+    return (key: string) => values[key]
   }
 
-  it('renders the grouped stats row and hides with zero steps', () => {
-    const { source } = makeSource({
-      nodes: [assistant(1, 1, { inputTokens: 10, outputTokens: 5, cacheReadTokens: 90 })],
-    })
+  function props(
+    source: { getSnapshot(): ConversationSnapshot; subscribe(fn: () => void): () => void },
+    values: Record<string, unknown> = { tokenUsage: USAGE },
+  ): StatsLineProps {
+    return { useSession: bindSnapshotSelector(source), useProjection: projections(values) }
+  }
+
+  it('renders the grouped stats row and hides a brand-new empty session', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
     const view = render(<StatsLine {...props(source)} />)
-    // No timing on the fixture: the duration group drops out whole.
+    // No timing on the fixture: the duration group drops out whole. Tokens come
+    // from the projection, so paging the window cannot change them.
     expect(view.container.textContent).toBe('1 turns · 1 steps|Cache hit 90%|Input 100 tok · Output 5 tok')
     const empty = makeSource()
-    const emptyView = render(<StatsLine {...props(empty.source)} />)
+    const emptyView = render(<StatsLine {...props(empty.source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      contextPressure: {},
+    })} />)
     expect(emptyView.container.textContent).toBe('')
+  })
+
+  it('keeps durable token and context groups after the visible step window is empty', () => {
+    const { source } = makeSource()
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
+    })} />)
+    expect(view.container.textContent)
+      .toBe('Context 25% of 128K|Cache hit 90%|Input 100 tok · Output 5 tok')
+  })
+
+  it('renders context occupancy only when the projection knows a capacity', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const withCapacity = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      contextPressure: { pressureTokens: 32_000, contextWindow: 128_000 },
+    })} />)
+    expect(withCapacity.container.textContent).toContain('Context 25% of 128K')
+    // Pressure without capacity has no denominator: the group drops out.
+    const noCapacity = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      contextPressure: { pressureTokens: 32_000 },
+    })} />)
+    expect(noCapacity.container.textContent).not.toContain('Context')
+    // Capacity arrives before usage in the log; no provider sample means there
+    // is no numerator yet, rather than a synthetic 0%.
+    const noPressure = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      contextPressure: { contextWindow: 128_000 },
+    })} />)
+    expect(noPressure.container.textContent).not.toContain('Context')
+  })
+
+  it('clamps occupancy at 100% when pressure exceeds the recorded capacity', () => {
+    // Capacity and pressure are independent last-wins fields, so a model switch
+    // can pair a smaller new window with the previous route's larger prompt.
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: USAGE,
+      contextPressure: { pressureTokens: 300_000, contextWindow: 128_000 },
+    })} />)
+    expect(view.container.textContent).toContain('Context 100% of 128K')
+  })
+
+  it('drops every token group when no projection is composed', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {})} />)
+    expect(view.container.textContent).toBe('1 turns · 1 steps')
+  })
+
+  it('omits cache hit when nothing was billed on the input side', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 7, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    })} />)
+    expect(view.container.textContent).toBe('1 turns · 1 steps|Input 0 tok · Output 7 tok')
+  })
+
+  it('includes cache writes in billed input and the cache-hit denominator', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsLine {...props(source, {
+      tokenUsage: {
+        uncachedInputTokens: 10,
+        outputTokens: 7,
+        cacheReadTokens: 90,
+        cacheWriteTokens: 100,
+      },
+    })} />)
+    expect(view.container.textContent)
+      .toBe('1 turns · 1 steps|Cache hit 45%|Input 200 tok · Output 7 tok')
   })
 
   it('renders ZERO times during streaming chunk frames (RFC hard acceptance)', () => {

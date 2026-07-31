@@ -34,6 +34,8 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 输入栏为 `'conversation.input.plan'`（位于本地 access 模式控件右侧）和 `'conversation.input.model'`（渲染在 pending 指示器与发送／停止按钮之前）声明会话作用域的单实例 seat，并为 overlay、dock、left 和 right 输入扩展声明列表 slot。各功能包拥有相应控件及其状态；ui-conversation 提供放置位置、`locked` owner prop 和标准 slot share。前置加号按钮是 Command launcher，而非附件入口：它要求当前会话的 `SlashController` 基于 textarea 当前 selection，只打开 `/` trigger 的 `command` source，同时 ui-slash 既有的 `MenuView` 仍是唯一的浮层菜单与 pick 路径。不引入 File 行、file input、上传协议或第二套菜单组件。当 `plan` 投影的有效目标为 plan mode 时，InputBar 将文本框 placeholder 切换为 plan 任务措辞，经本包注册的 `conversation` locale 命名空间（`placeholder.plan` / `hint.plan` 键）本地化，并与已认领 `/plan` 命令的提示逐字共用同一份文案（经标准套件 `useProjection` 读取的 host 折叠值；owner 提供的 placeholder 优先）。另一个会话视图活跃时，待处理的 composer 接管仍保持挂载，使被阻塞的 agent（智能体）仍能收到回答；没有待处理交互时，活跃会话的 composer 归 Chat 所有。composer bar slot 本身为 `session-maybe`：没有当前会话时，同一个 bar 以不可交互状态渲染（machine face 均缺席、`disabled` owner prop），而不是换入一棵平行的 disabled 树，因此选择 workspace 时 textarea DOM 不会被销毁；严格会话作用域的控件 seat 在会话存在之前保持为空。
 
+聊天统计行的 token 账目来自经标准套件 `useProjection` 读取的两个通用 token-meter 投影：`tokenUsage` 提供完整日志计费用量（计费输入为未缓存输入、缓存读取与缓存写入之和；缓存命中率以缓存读取除以该总量），`contextPressure` 提供上下文占用率。可见节点只提供轮次与步骤计数，以及 LLM（大语言模型）和工具的墙钟时间：这些是关于「屏幕上有什么」的窗口作用域事实，而非账目；压缩（compaction）使已加载窗口不再包含 assistant 节点时，持久 token 与上下文分组仍保持可见。未组合 token-meter 的部署会整组省略 token 分组；只有提供方压力与路由容量都已知时才显示占用率。占用率是刻意为之的近似值：它的分子与容量是两个相互独立的「后写覆盖」投影字段，并非同一次请求的原子观测（[原理](../../llm/token-meter/README.md)）。行内统计行仍是唯一的上下文 UI；模型选择器不增加圆环或附属控件。
+
 `src/client/` 按未来的包拆分组织：`contract/` 是唯一的跨领域共享表层（`slots.ts` slot 声明 + 组合后的 slot props，包括工具行契约、`views.ts` 共享原语、`tool-call-model.ts`）；`skeleton/`、`chat/` 和 `toolviews/`（示例注册方）领域目录只导入 contract 文件，彼此绝不导入；`apply.ts` 是唯一允许导入全部三个领域的组装点。`/client` 导出表层只包含契约：`apply`／`inject`、两个服务类和 `contract/` 类型家族；实现组件（骨架、聊天行）与 store factory 保持内部状态，只能通过 apply 的 slot 注册到达页面（测试通过 `./src/*` 子路径获取它们）。
 
 ## 模型体验
@@ -46,7 +48,7 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 
 ## 已知限制与暂缓事项
 
-- **统计行的耗时只覆盖窗口内消息流**：LLM（大语言模型）与工具墙钟时间由快照的 assistant `timing` 与工具 call/result 配对折算，落在已加载事件窗口之外的节点（更早的历史）不计入。
+- **统计行的耗时只覆盖窗口内消息流**：LLM 与工具墙钟时间由快照的 assistant `timing` 与工具 call/result 配对折算，落在已加载事件窗口之外的节点（更早的历史）不计入。
 - **详情面板是最小形态，且当前没有入口**：以原始形式显示已选择调用的参数／结果；Input/Output/Metadata 切换、Prev/Next 步进与 See-in-trajectory 深链接暂缓实现。工具行已不再是详情面板的点击目标，且没有任何手势接替它，因此 `ChatViewInjected.openDetails` 虽已实现却无人调用，该面板（含其终端卡片）在组装后的应用中不可达；其渲染仍由直接以选中态挂载它来覆盖。
 - **assistant 逐消息分页是预留 slot**：设计中已有图稿，尚未实现。已定稿的内容 IconActions 行（复制／分支／时钟）只挂在每个轮次中最后一条带 text 内容的 assistant 下；轮次中间的叙述与纯 Think 节点不带 chrome。分支会 fork 到包含该消息的轮次末尾，在 client 端递增继承标题后打开子会话，而 fork 或改名失败时源会话保持选中。
 - **已发送的 user 消息无法编辑**：user 气泡的 IconActions 行只有时钟／复制／分支，从该消息分支是最接近的手势。该控件要与其背后的能力一起回归：既需要针对已定稿 user 消息的 client 变更，也需要 host 侧对已经消费过它的轮次给出行为（[决策](../../../.agents/notes/implemented/simplification/2026-07-31-drop-user-message-edit-stub.md)）。

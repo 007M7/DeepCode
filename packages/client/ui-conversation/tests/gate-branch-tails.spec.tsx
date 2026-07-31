@@ -43,20 +43,24 @@ describe('render branch tails', () => {
     expect(view.container.querySelector('[data-state="ok"]')).not.toBeNull()
   })
 
-  it('StatsLine skips usage-less nodes and defaults each absent counter to zero', () => {
+  it('StatsLine counts window nodes but drops every token group without a projection', () => {
+    // Node `usage` is deliberately ignored: billing rides the durable
+    // tokenUsage projection, so an absent projection leaves counts only.
     const snap = {
       nodes: [
         { kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [] },
         { kind: 'assistant', seq: 2, turn: 1, step: 2, blocks: [], usage: { inputTokens: 4, outputTokens: 6 } },
-        // outputTokens absent: the tokens sum's ?? 0 arm for output.
         { kind: 'assistant', seq: 3, turn: 2, step: 1, blocks: [], usage: { inputTokens: 5 } },
       ],
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>} />,
+      <StatsLine
+        useSession={bindSnapshotSelector(source) as unknown as UseSession<ConversationSnapshot>}
+        useProjection={() => undefined}
+      />,
     )
-    expect(view.container.textContent).toBe('2 turns · 3 steps|Cache hit 0%|Input 9 tok · Output 6 tok')
+    expect(view.container.textContent).toBe('2 turns · 3 steps')
   })
 
   it('AssistantMarkdown reasoning as the streaming tail renders the running ring', () => {

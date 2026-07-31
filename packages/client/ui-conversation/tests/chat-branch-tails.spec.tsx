@@ -417,14 +417,19 @@ describe('small branch tails', () => {
   })
 
   it('StatsLine omits the cache-hit segment when no input accounting exists at all', () => {
-    // cacheHitPct is null only when input+cacheRead are both zero (pure
-    // output accounting) — any input makes it a real 0%.
+    // Cache hit is null only when all three prompt buckets are zero (pure
+    // output accounting) — any billed input makes it a real 0%.
     const snap = {
       nodes: [{ kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [], usage: { outputTokens: 10 } }],
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']} />,
+      <StatsLine
+        useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']}
+        useProjection={(key: string) => key === 'tokenUsage'
+          ? { uncachedInputTokens: 0, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }
+          : undefined}
+      />,
     )
     expect(view.container.textContent).toBe('1 turns · 1 steps|Input 0 tok · Output 10 tok')
   })

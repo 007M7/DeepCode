@@ -24,6 +24,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session-projection/session-projection"
+    },
+    {
       "path": "../../support/invariants"
     }
   ]
