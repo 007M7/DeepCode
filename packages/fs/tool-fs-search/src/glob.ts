@@ -11,11 +11,12 @@
 import type { Context } from 'cordis'
 import { sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type {} from '@deepseek-ai/dsh-bash'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { globSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { singleQuote } from './shell-quote.ts'
 import { acceptedSurfaceValue } from './surface.ts'
 
@@ -43,6 +44,8 @@ export interface GlobToolCaps {
   sampleOverCapGlobResults: boolean
   /** Max paths retained inline; later paths go to the formatted spill file. */
   maxResults: number
+  /** Max bytes of serialized `presentationMeta`; trailing paths drop past it. */
+  maxMetaBytes: number
   /** Cap on the complete raw `rg` stdout the tool will parse. */
   rawOutputMaxBytes: number
   /** Cooperative tool-call budget (ms) attached as `ToolDefinition.timeoutMs`. */
@@ -232,6 +235,24 @@ function renderGlobPaths(paths: string[], caps: GlobToolCaps, root: string, spil
 }
 
 /**
+ * The inline page of paths a completed `glob` card shows, computed the SAME way
+ * {@link renderGlobPaths} computes its model-facing page so the card and the text
+ * agree on which paths survived the cap. A result within the cap is shown whole;
+ * an over-cap result is either the modification-time head or the top-level sample,
+ * matching the deployment's `sampleOverCapGlobResults`.
+ *
+ * @param paths - the complete discovered path list, in modification-time order.
+ * @param caps - the resolved glob caps (the inline cap and the sampling switch).
+ * @param root - the search root in the same display-path space as `paths`.
+ * @returns the inline page and whether the complete result was capped.
+ */
+function globCardPage(paths: string[], caps: GlobToolCaps, root: string): { items: string[]; truncated: boolean } {
+  if (paths.length <= caps.maxResults) return { items: paths, truncated: false }
+  if (!caps.sampleOverCapGlobResults) return { items: paths.slice(0, caps.maxResults), truncated: true }
+  return { items: sampleAcrossTopLevel(paths, caps.maxResults, root).items, truncated: true }
+}
+
+/**
  * Pending-call presentation: a search card titled by the pattern (and root).
  *
  * @param args - the raw tool arguments; `pattern` and `path` feed the title.
@@ -240,6 +261,24 @@ function renderGlobPaths(paths: string[], caps: GlobToolCaps, root: string, spil
 export function presentGlobCall(args: { pattern: string; path?: string }): GenericCallView {
   const where = args.path !== undefined ? ` in ${args.path}` : ''
   return { card: 'generic', title: `Glob ${args.pattern}${where}`, kind: 'search', rawInput: args.pattern }
+}
+
+/**
+ * Completed-call presentation: the search card projected from the result's
+ * `presentationMeta` (the discovered path list, with the truncation signal). A UI
+ * without a search card falls back to the raw `tool/result` content, so the view
+ * carries no result text of its own. Malformed or absent metadata (an obsolete or
+ * hand-edited replayed log) falls back to the generic card.
+ *
+ * @param _args - the raw tool arguments; unused, the view derives from the result.
+ * @param result - the final model-facing tool result carrying the projected metadata.
+ * @returns the search card view, or `undefined` for the generic fallback.
+ */
+export function presentGlobResult(_args: { pattern: string; path?: string }, result: ToolResult): SearchResultView | undefined {
+  if (result.isError) return undefined
+  const view = searchViewFromMeta(result.meta)
+  if (view === undefined || view.shape !== 'paths') return undefined
+  return view
 }
 
 /**
@@ -289,6 +328,10 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         },
       },
       render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps, value.root) }],
+      presentationMeta: (_args, value) => {
+        const page = globCardPage(value.paths, caps, value.root)
+        return globSearchMeta({ items: page.items, truncated: page.truncated, seen: value.paths.length }, caps.maxMetaBytes)
+      },
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
@@ -305,6 +348,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
       return { root, paths: all }
     },
     presentCall: presentGlobCall,
+    presentResult: presentGlobResult,
   })
   ctx.tools.register(tool)
 

@@ -7,13 +7,17 @@ import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
+import { WelcomeNotice } from '../src/client/WelcomeNotice.tsx'
+import type { WelcomeNoticeInjected } from '../src/client/WelcomeNotice.tsx'
+import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../src/onboarding-copy.ts'
 
-/** The four seats this plugin fills (slot name → expected component). */
+/** The five seats this plugin fills (slot name → expected component). */
 const SEATS = [
   ['settings.trigger', TriggerContent],
   ['settings.header', HeaderContent],
   ['settings.close', CloseLabel],
   ['settings.section', GeneralSection],
+  ['settings.onboarding', WelcomeNotice],
 ] as const
 
 async function bench() {
@@ -21,7 +25,25 @@ async function bench() {
   await ctx.plugin(SlotsService).await()
   const locale = new LocaleService(ctx)
   ctx.provide('locale', locale)
-  return { ctx, slots: ctx.get('slots') as SlotsService, locale }
+  const settingsDescribe = vi.fn(() => Promise.resolve({
+    rpcId: 'settings-general' as never,
+    result: {
+      ok: true as const,
+      value: {
+        writable: true,
+        namespaces: [{
+          ns: WELCOME_NOTICE_SETTINGS_NAMESPACE,
+          schema: {},
+          value: {},
+          applies: 'live' as const,
+          secrets: [],
+          revision: 0,
+        }],
+      },
+    },
+  }))
+  ctx.provide('connection', { api: { settings: { describe: settingsDescribe } } } as never)
+  return { ctx, slots: ctx.get('slots') as SlotsService, locale, settingsDescribe }
 }
 
 /** Declare the shell's four child slots the way ui-settings' entry does. */
@@ -34,6 +56,7 @@ function declare(slots: SlotsService): () => void {
         'settings.header': { kind: 'single', scope: 'root' },
         'settings.close': { kind: 'single', scope: 'root' },
         'settings.section': { kind: 'list', scope: 'root' },
+        'settings.onboarding': { kind: 'list', scope: 'root' },
       },
     } as never,
     () => null,
@@ -46,10 +69,10 @@ function generalEntry(slots: SlotsService) {
 
 describe('ui-settings-general apply', () => {
   it('declares the services it uses', () => {
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'connection'])
   })
 
-  it('fills all four seats for declarations before or after apply', async () => {
+  it('fills all five seats for declarations before or after apply', async () => {
     const before = await bench()
     declare(before.slots)
     await before.ctx.plugin({ inject: [...inject], apply }).await()
@@ -62,6 +85,8 @@ describe('ui-settings-general apply', () => {
     expect(resolveSlotLabel(entry.options.label)).toBe('通用设置')
     expect(before.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     expect(before.slots.entries('settings.general.item')).toEqual([])
+    const welcome = before.slots.entries('settings.onboarding')[0]!
+    expect(welcome.options).toMatchObject({ id: 'welcome-notice', order: -100 })
     // Copy rides the standard locale seat: every seat declares the namespace.
     for (const [name] of SEATS) {
       expect(before.slots.entries(name)[0]!.locale).toBe('settings')
@@ -111,6 +136,22 @@ describe('ui-settings-general apply', () => {
     expect(resolveSlotLabel(generalEntry(b.slots)!.options.label)).toBe('General')
     b.locale.setLocale('zh')
     expect(resolveSlotLabel(generalEntry(b.slots)!.options.label)).toBe('通用设置')
+  })
+
+  it('refreshes loaded welcome state only for its settings namespace or a reconnect', async () => {
+    const b = await bench()
+    declare(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.onboarding')[0]!
+    const { controller } = (entry.inject as unknown as () => WelcomeNoticeInjected)()
+    await controller.load()
+    expect(b.settingsDescribe).toHaveBeenCalledOnce()
+    b.ctx.emit('settings/changed', 'unrelated')
+    expect(b.settingsDescribe).toHaveBeenCalledOnce()
+    b.ctx.emit('settings/changed', WELCOME_NOTICE_SETTINGS_NAMESPACE)
+    await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(2) })
+    b.ctx.emit('connection/reset')
+    await vi.waitFor(() => { expect(b.settingsDescribe).toHaveBeenCalledTimes(3) })
   })
 
   it('re-registers after an HMR collapse of the declaring chain (stale disposers must not block)', async () => {
