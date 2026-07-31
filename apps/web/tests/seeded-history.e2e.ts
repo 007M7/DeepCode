@@ -357,6 +357,27 @@ describe('web e2e: seeded history renders through cold resume', () => {
     await compareOrRefreshGolden(COMMAND_ROW_EXPECTED, snapshot, MODE)
   }, 60_000)
 
+  it.skipIf(MODE === 'record')('fits short injected context without a scrollport', async () => {
+    const agent = scaffold.ctx.agents.get(SessionId(SEED_ID))
+    if (agent === undefined) throw new Error('seeded session did not attach an agent')
+    agent.inject(createUserMessage({
+      content: [{ type: 'text', text: 'Short injected context.' }],
+      source: { kind: 'plugin', plugin: 'fixture' },
+    }))
+
+    const disclosures = page.getByRole('button', { name: 'Context injection' })
+    await expect.poll(() => disclosures.count(), { timeout: 10_000 }).toBe(2)
+    const disclosure = disclosures.nth(1)
+    await disclosure.click()
+    await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('true')
+
+    const body = page.locator('[data-context-injection-body]')
+    const bodyBox = await body.boundingBox()
+    if (bodyBox === null) throw new Error('short context disclosure geometry is not measurable')
+    expect(bodyBox.height).toBeLessThan(141)
+    expect(await body.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(false)
+  })
+
   it.skipIf(MODE === 'record')('issued zero model calls and stayed clean', async () => {
     // No replay fixture was installed and the llm seam is open — any stray
     // stream would have failed the turn loudly. Cleanliness pins the wire.
