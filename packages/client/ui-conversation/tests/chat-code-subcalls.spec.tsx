@@ -128,7 +128,7 @@ async function bench(snapshot: ConversationSnapshot) {
   ctx.provide('sessions', sessionsFake)
   const workspaces = {
     list: createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     }),
     startSession: vi.fn(),

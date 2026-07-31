@@ -102,18 +102,22 @@ type SessionTreeProps = Pick<
   'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore' | 't'
 > & {
   workspaces: readonly WorkspaceView[]
+  /** Registry-global archive set (hidden rows). */
+  archivedSessionIds: readonly SessionNode['id'][]
   /** Open the browser-owned rename dialog for a real Workspace group. */
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
   onDeleteRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned session rename dialog. */
   onSessionRename: (sessionId: SessionNode['id'], currentTitle: string) => void
+  /** Archive a session (row menu action; the row disappears on the state echo). */
+  onSessionArchive: (sessionId: SessionNode['id']) => void
 }
 
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
-  useSessions, startSession, open, forkSession, workspaces,
-  onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore, t,
+  useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
+  onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertSessionBefore, t,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -129,8 +133,8 @@ function SessionTree({
     setExpandedProjects(l => (l.includes(currentGroup) ? l : [...l, currentGroup]))
   }, [current, currentGroup])
   const groups = useMemo(
-    () => deriveGroups(list, workspaces, { expandedProjects }),
-    [list, workspaces, expandedProjects],
+    () => deriveGroups(list, workspaces, archivedSessionIds, { expandedProjects }),
+    [list, workspaces, archivedSessionIds, expandedProjects],
   )
   const now = Date.now()
 
@@ -209,6 +213,7 @@ function SessionTree({
                   onOpen={open}
                   onRename={onSessionRename}
                   onFork={forkSession}
+                  onArchive={onSessionArchive}
                   drag={dragProps}
                   t={t}
                 />
@@ -223,9 +228,11 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, forkSession, onSessionRename, t }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 't'>) {
+function FlatList({ useSessions, open, forkSession, onSessionRename, onSessionArchive, archivedSessionIds, t }: Pick<
+  SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'onSessionArchive' | 'archivedSessionIds' | 't'
+>) {
   const list = useSessions(s => s)
-  const rows = useMemo(() => deriveFlat(list), [list])
+  const rows = useMemo(() => deriveFlat(list, archivedSessionIds), [list, archivedSessionIds])
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
@@ -242,6 +249,7 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, t }: Pick<S
             onOpen={open}
             onRename={onSessionRename}
             onFork={forkSession}
+            onArchive={onSessionArchive}
             t={t}
           />
         ))}
@@ -263,12 +271,14 @@ function SearchResults({
   useSessions,
   open,
   workspaces,
+  archivedSessionIds,
   query,
   remote,
   resultLimit,
   t,
 }: Pick<SessionTreeProps, 'useSessions' | 'open' | 't'> & {
   workspaces: readonly WorkspaceView[]
+  archivedSessionIds: readonly SessionNode['id'][]
   query: string
   remote: RemoteSearchState
   resultLimit: number
@@ -278,8 +288,8 @@ function SearchResults({
     ? remote
     : { query, status: 'loading' as const, items: [], hasMore: false }
   const results = useMemo(
-    () => deriveSearchResults(list, workspaces, query, currentRemote, resultLimit),
-    [list, workspaces, query, currentRemote, resultLimit],
+    () => deriveSearchResults(list, workspaces, query, archivedSessionIds, currentRemote, resultLimit),
+    [list, workspaces, query, archivedSessionIds, currentRemote, resultLimit],
   )
   const pending = currentRemote.status === 'loading'
   const failed = currentRemote.status === 'error'
@@ -337,6 +347,7 @@ export function WorkspaceBrowser({
   forkSession,
   renameWorkspace,
   deleteWorkspace,
+  archiveSession,
   insertSessionBefore,
   createWorkspace,
   searchSessions,
@@ -346,6 +357,7 @@ export function WorkspaceBrowser({
   t,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
+  const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
   const groupBy = useStore(s => s.groupBy)
   // The query outlives the tree and the input (both wide-only) so collapsing
   // does not silently drop an in-progress filter.
@@ -475,6 +487,16 @@ export function WorkspaceBrowser({
     setSessionRenameError(null)
   }
 
+  // Archive is dialog-free: not destructive (the log and the accounting slot
+  // remain), so the menu action commits directly; the row disappears when the
+  // archive-set echo lands. Failures are non-fatal console diagnostics, the
+  // same posture as reorder rejections.
+  const onSessionArchive = (sessionId: SessionNode['id']) => {
+    archiveSession(sessionId).catch((reason: unknown) => {
+      console.warn('session archive rejected:', reason)
+    })
+  }
+
   // Delete dialog is separate from the row so a successful removal can
   // unmount that row without tearing down the in-flight confirmation state.
   const [deleteTarget, setDeleteTarget] = useState<{ workspaceId: WorkspaceId; title: string } | null>(null)
@@ -597,6 +619,7 @@ export function WorkspaceBrowser({
               useSessions={useSessions}
               open={open}
               workspaces={workspaces}
+              archivedSessionIds={archivedSessionIds}
               query={normalizedQuery}
               remote={remoteSearch}
               resultLimit={searchResultLimit}
@@ -607,15 +630,18 @@ export function WorkspaceBrowser({
             ? (
               <FlatList
                 useSessions={useSessions} open={open} forkSession={forkSession}
-                onSessionRename={onSessionRename} t={t}
+                onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
+                archivedSessionIds={archivedSessionIds} t={t}
               />
             )
             : (
               <SessionTree
                 useSessions={useSessions}
                 onSessionRename={onSessionRename}
+                onSessionArchive={onSessionArchive}
                 forkSession={forkSession}
                 workspaces={workspaces}
+                archivedSessionIds={archivedSessionIds}
                 startSession={startSession}
                 open={open}
                 insertSessionBefore={insertSessionBefore}
