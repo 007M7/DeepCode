@@ -29,8 +29,9 @@
 - button "Commands":
   - img
 - 'button "Access mode, current: Danger Full Access"': Danger Full Access
-- button "Select model, current DeepSeek-V4-Flash":
-  - text: DeepSeek-V4-Flash
+- button "Plan mode on, press to turn off": Plan
+- button "Select model, current deepseek-v4-flash":
+  - text: deepseek-v4-flash
   - img
 - button "Send message" [disabled]
 - text: Details

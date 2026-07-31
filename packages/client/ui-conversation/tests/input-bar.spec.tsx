@@ -50,6 +50,8 @@ interface BenchOptions {
   overlay?: React.ReactNode
   leftItems?: React.ReactNode
   rightItems?: React.ReactNode
+  commandMenuOpen?: boolean
+  toggleCommandMenu?: (selection: { start: number; end: number }) => void
 }
 
 /** Real machine behind the bar entry: sink spy, no slash pipeline (plain text goes straight to the sink). */
@@ -77,6 +79,7 @@ function bench(over?: BenchOptions) {
     promptError: over?.promptError ?? null,
   }))
   const stop = vi.fn()
+  const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
   const slotCalls: { key: string; owner: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, owner })
@@ -100,8 +103,10 @@ function bench(over?: BenchOptions) {
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
+    toggleCommandMenu: over?.toggleCommandMenu ?? vi.fn(),
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
+    useMenuLauncher: bindSnapshotSelector(menuLauncher),
     stop,
     command: () => Promise.resolve(true),
     // Mirrors the real lookup chain (conversation namespace, then common).
@@ -120,7 +125,7 @@ function bench(over?: BenchOptions) {
   const button = view.container.querySelector<HTMLButtonElement>(
     `button[aria-label="${over?.running === true ? '停止生成' : '发送消息'}"]`,
   )!
-  return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls }
+  return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls, menuLauncher }
 }
 
 describe('Enter semantics', () => {
@@ -205,7 +210,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     const { textarea, view } = bench({ disabled: true })
     expect(textarea.disabled).toBe(true)
     expect(textarea.placeholder).toBe('会话不可用')
-    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('idle primary sends and disables on empty draft', () => {
@@ -438,16 +443,28 @@ describe('strips and variants', () => {
   })
 })
 
-describe('placeholder chrome and control seats', () => {
-  it('renders attach; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
+describe('command launcher chrome and control seats', () => {
+  it('renders the command launcher; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
     const { view, slotCalls } = bench()
-    expect(view.getByLabelText('添加附件')).toBeTruthy()
+    expect(view.getByLabelText('命令')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.
     expect(view.queryByLabelText(/^访问模式/)).toBeNull()
     // Both seats dispatched, nothing rendered.
     expect(slotCalls.map(c => c.key)).toEqual(['conversation.input.plan', 'conversation.input.model'])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()
+  })
+
+  it('passes the textarea selection to the command menu launcher and reflects its expanded state', () => {
+    const toggleCommandMenu = vi.fn()
+    const { view, textarea, menuLauncher } = bench({ draft: 'draft text', toggleCommandMenu })
+    textarea.setSelectionRange(2, 7)
+    const launcher = view.getByLabelText('命令')
+    expect(launcher.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(launcher)
+    expect(toggleCommandMenu).toHaveBeenCalledExactlyOnceWith({ start: 2, end: 7 })
+    act(() => { menuLauncher.set('command') })
+    expect(launcher.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('the Access chip renders the projection value and submits /permission on pick', async () => {
@@ -489,10 +506,10 @@ describe('placeholder chrome and control seats', () => {
     expect(live.slotCalls.every(c => !(c.owner as { locked: boolean }).locked)).toBe(true)
   })
 
-  it('disabled locks the Access chip and attach control (running does not)', () => {
+  it('disabled locks the Access chip and command launcher (running does not)', () => {
     const permissions = { options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' }
     const { view } = bench({ disabled: true, permissions })
-    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('命令') as HTMLButtonElement).disabled).toBe(true)
     expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(true)
     cleanup()
     const live = bench({ running: true, permissions })
