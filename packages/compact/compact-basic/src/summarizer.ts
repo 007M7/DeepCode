@@ -29,7 +29,7 @@ const SUMMARY_CLOSE_TAG = '</compacted-summary>'
  * request, so the provider's KV cache is reused instead of invalidated.
  */
 const COMPACTION_INSTRUCTION = [
-  'You are now acting as a compaction engine for this AI coding assistant. Produce only an English-language internal engineering checkpoint that condenses the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context. Translate narrative source material as needed; preserve exact literals.',
+  'You are now acting as a compaction engine for this AI coding assistant. Condense the conversation ABOVE into a structured checkpoint that lets another model resume the work with no loss of essential context.',
   '',
   'Output EXACTLY the Markdown structure below: keep every section, in order. Use terse bullets, not prose paragraphs. Write "(none)" for an empty section — never drop a section.',
   '',
@@ -58,7 +58,7 @@ const COMPACTION_INSTRUCTION = [
   '- [decisions and their rationale, constraints, user preferences, open questions, data needed to continue]',
   '',
   'Rules:',
-  '- Preserve exact file paths, commands, error strings, identifiers, and function signatures.',
+  '- Write concise English engineering prose. Preserve exact file paths, commands, error strings, identifiers, numeric values, function signatures, and syntax fragments.',
   '- Capture user feedback and explicit instructions faithfully, especially corrections.',
   '- Do NOT mention this summarization request or that the context was compacted.',
   '- Output only the checkpoint text: do not call any tool or take any other action.',
