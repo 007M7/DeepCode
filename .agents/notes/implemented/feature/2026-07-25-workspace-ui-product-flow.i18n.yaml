@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-25-workspace-ui-product-flow.md
-2026-07-25-workspace-ui-product-flow.md: 7e3338cfcb04c1588bbc97f6e8aa1cd2dac59141
-2026-07-25-workspace-ui-product-flow.zh.md: 8c092151f737b6bc10aa8424281eeda359f07c1d
+2026-07-25-workspace-ui-product-flow.md: 7a6a41e19d2930fbcbf7ba5fc9e6809d96e23166
+2026-07-25-workspace-ui-product-flow.zh.md: a40f374fd794b11bff0de72cbc822fd638cd267c

@@ -10,7 +10,7 @@ import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import WorkspaceRegistry, { WorkspaceId, WorkspaceMoveInvalidError, WorkspaceNameConflictError } from '../src/index.ts'
+import WorkspaceRegistry, { WorkspaceId, WorkspaceMoveInvalidError } from '../src/index.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from '../src/index.ts'
 
 const DOMAIN_VERSION = 2
@@ -377,17 +377,15 @@ describe('WorkspaceRegistry create and lookup', () => {
     expect(pool.media.get('workspace')!.tables.get('workspaces')!.size).toBe(1)
   })
 
-  it('rejects a duplicate display name on a different canonical path', async () => {
+  it('allows a duplicate display name on a different canonical path', async () => {
     const firstDir = await makeDir('named-first')
     const secondDir = await makeDir('named-second')
     const { registry } = await harness()
-    await registry.create(firstDir, 'Shared')
-    await expect(registry.create(secondDir, 'Shared')).rejects.toEqual(
-      expect.objectContaining<Partial<WorkspaceNameConflictError>>({
-        workspaceName: 'Shared',
-      }),
-    )
-    expect(registry.list()).toHaveLength(1)
+    const first = await registry.create(firstDir, 'Shared')
+    const second = await registry.create(secondDir, 'Shared')
+    expect(first.title).toBe('Shared')
+    expect(second.title).toBe('Shared')
+    expect(registry.list()).toEqual([second, first])
   })
 
   it('rejects nonexistent and non-directory paths without changing order', async () => {
