@@ -222,7 +222,11 @@ export function apply(ctx: Context, config: Config): void {
     const content = messages.flatMap(message => message.content)
     const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, signal })
     if (merged.decision === 'deny') {
-      return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
+      return {
+        kind: 'block',
+        reason: merged.reason ?? 'blocked by UserPromptSubmit hook',
+        discardClaimed: true,
+      }
     }
     // Delegate so later listeners may still rewrite or block, then prepend our
     // context only to a downstream allow decision.

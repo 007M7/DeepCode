@@ -176,7 +176,11 @@ export class ReactLoopAgent implements Agent {
       if (queued !== undefined) this.inbox.splice('next-turn', 0, 1, [], 'admitted')
       return { kind: 'admitted', messages: decision.messages }
     }
-    this.cancel({ kind: 'hook', reason: decision.reason }, { keepInbox: decision.keepInbox })
+    if (decision.discardClaimed) {
+      this.inbox.splice('next-step', 0, outboxLength, [], 'canceled')
+      if (queued !== undefined) this.inbox.splice('next-turn', 0, 1, [], 'canceled')
+    }
+    this.cancel({ kind: 'hook', reason: decision.reason }, { keepInbox: true })
     return { kind: 'blocked' }
   }
 

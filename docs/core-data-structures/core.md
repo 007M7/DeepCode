@@ -595,17 +595,18 @@ Prompt decisions use the same identified `UserMessage` shape as durable user-rol
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow supplies the complete admitted batch; block rejects admission without creating turn events and may leave the claimed messages pending:
+`agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow supplies the complete admitted batch; block rejects admission without creating turn events and must choose whether to discard the claimed messages. Messages not claimed by that admission remain pending:
 
 ```ts type-equiv
 /**
  * Prompt interception result. An allowed batch replaces the submitted
- * messages. A listener wrapping `next()` preserves the returned batch unless
- * it intentionally replaces it.
+ * messages; a listener wrapping `next()` preserves that batch unless it
+ * intentionally replaces it. A blocked batch explicitly chooses whether to
+ * discard the claimed messages; unclaimed work remains pending.
  */
 type PromptDecision =
   | { kind: 'allow'; messages: UserMessage[] }
-  | { kind: 'block'; reason: string; keepInbox?: boolean }
+  | { kind: 'block'; reason: string; discardClaimed: boolean }
 ```
 
 `agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; the default `undefined` leaves the failure terminal.

@@ -212,7 +212,7 @@ describe('agent/prompt-submit', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> =>
-      ({ kind: 'block', reason: 'blocked by policy' }))
+      ({ kind: 'block', reason: 'blocked by policy', discardClaimed: true }))
 
     const reasons: TurnEndReason[] = []
     ctx.on('session/event', (_s, event: SessionEvent) => { if (event.type === 'turn/end') reasons.push(event.data.reason) })
@@ -228,6 +228,26 @@ describe('agent/prompt-submit', () => {
     expect(log.some(e => e.type === 'user/message')).toBe(false)
     expect(log.some(e => e.type === 'step/start')).toBe(false)
     expect(reasons).toEqual([])
+  })
+
+  it('block can retain the claimed prompt without opening a turn', async () => {
+    const adapter = new MockAdapter([])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('retained-claim'), { provider: 'mock', model: 'mock' })
+
+    ctx.on('agent/prompt-submit', async (): Promise<PromptDecision> => ({
+      kind: 'block',
+      reason: 'try later',
+      discardClaimed: false,
+    }))
+
+    send(agent, 'retained')
+    await agent.whenIdle()
+
+    expect(agent.inbox.nextTurn.map(message => message.content[0]))
+      .toEqual([{ type: 'text', text: 'retained' }])
+    expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
+    expect(adapter.requests).toEqual([])
   })
 
   it('stages inject and steer during admission for the admitted turn', async () => {
@@ -291,7 +311,7 @@ describe('agent/prompt-submit', () => {
     expect(nextRequest).toContain('admission steering')
   })
 
-  it('cancels admission-time input when admission is blocked', async () => {
+  it('preserves input staged after the blocked batch was claimed', async () => {
     const adapter = new MockAdapter([textResponse('retried')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('blocked-admission-outbox'), { provider: 'mock', model: 'mock' })
@@ -310,10 +330,14 @@ describe('agent/prompt-submit', () => {
       source: { kind: 'plugin', plugin: 'test' },
     }))
     agent.steer(createUserMessage({ content: [{ type: 'text', text: 'staged steering' }], source: { kind: 'user' } }))
-    decision.resolve({ kind: 'block', reason: 'policy' })
+    decision.resolve({ kind: 'block', reason: 'policy', discardClaimed: true })
     await blockedIdle
 
-    expect(agent.inbox.nextStep).toHaveLength(0)
+    expect(agent.inbox.nextStep.map(message => message.content[0]))
+      .toEqual([
+        { type: 'text', text: 'staged context' },
+        { type: 'text', text: 'staged steering' },
+      ])
     expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
     expect(adapter.requests).toEqual([])
 
@@ -323,14 +347,21 @@ describe('agent/prompt-submit', () => {
 
     const staged = events(agent).filter(event =>
       event.type === 'user/message' || event.type === 'steering/message')
-    expect(staged.map(event => event.type)).toEqual(['user/message'])
+    expect(staged.map(event => event.type)).toEqual([
+      'user/message',
+      'user/message',
+      'user/message',
+    ])
     expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('blocked prompt')
-    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('staged context')
-    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('staged steering')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged context')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('staged steering')
   })
 
-  it('cancels later queued work when an admission is blocked', async () => {
-    const adapter = new MockAdapter([textResponse('continued')])
+  it('preserves later queued work when an admission is blocked', async () => {
+    const adapter = new MockAdapter([
+      textResponse('continued'),
+      textResponse('wake reply'),
+    ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('rejected-admission-order'), {
       provider: 'mock',
@@ -340,7 +371,7 @@ describe('agent/prompt-submit', () => {
       const decision = await next()
       return messages.some(message =>
         message.content.some(block => block.type === 'text' && block.text === 'blocked prompt'))
-        ? { kind: 'block', reason: 'policy' }
+        ? { kind: 'block', reason: 'policy', discardClaimed: true }
         : decision
     })
     ctx.on('agent/prompt-submit', async (subject, messages, _signal, next) => {
@@ -364,17 +395,32 @@ describe('agent/prompt-submit', () => {
     await idle
 
     expect(events(agent).some(event => event.type === 'turn/start')).toBe(false)
-    expect(agent.inbox.hasPending).toBe(false)
+    expect(agent.inbox.nextStep.map(message => message.content[0]))
+      .toEqual([
+        { type: 'text', text: 'earlier state change' },
+        { type: 'text', text: 'earlier steering' },
+      ])
+    expect(agent.inbox.nextTurn.map(message => message.content[0]))
+      .toEqual([{ type: 'text', text: 'later prompt' }])
     expect(adapter.requests).toEqual([])
+
+    const resumed = waitForIdle(ctx, agent)
+    send(agent, 'wake')
+    await resumed
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('earlier state change')
+    expect(request).toContain('earlier steering')
+    expect(request).toContain('later prompt')
+    expect(request).not.toContain('blocked prompt')
   })
 
-  it('cancels context-only injection when admission closes without a turn', async () => {
-    const adapter = new MockAdapter([])
+  it('preserves context-only injection staged after admission began', async () => {
+    const adapter = new MockAdapter([textResponse('continued')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('blocked-admission-context'), { provider: 'mock', model: 'mock' })
     const entered = Promise.withResolvers<undefined>()
     const decision = Promise.withResolvers<PromptDecision>()
-    ctx.on('agent/prompt-submit', async () => {
+    const disposeBlock = ctx.on('agent/prompt-submit', async () => {
       entered.resolve(undefined)
       return decision.promise
     })
@@ -386,13 +432,21 @@ describe('agent/prompt-submit', () => {
       content: [{ type: 'text', text: 'independent context' }],
       source: { kind: 'plugin', plugin: 'test' },
     }))
-    decision.resolve({ kind: 'block', reason: 'policy' })
+    decision.resolve({ kind: 'block', reason: 'policy', discardClaimed: true })
     await idle
 
     const log = events(agent)
     expect(log.some(event => event.type === 'user/message')).toBe(false)
-    expect(agent.inbox.hasPending).toBe(false)
+    expect(agent.inbox.nextStep.map(message => message.content[0]))
+      .toEqual([{ type: 'text', text: 'independent context' }])
     expect(adapter.requests).toEqual([])
+
+    disposeBlock()
+    const resumed = waitForIdle(ctx, agent)
+    send(agent, 'wake')
+    await resumed
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('independent context')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('blocked prompt')
   })
 
   it('leaves inbox state unchanged when its durable append fails', async () => {
@@ -414,15 +468,20 @@ describe('agent/prompt-submit', () => {
     expect(agent.status).toBe('idle')
   })
 
-  it('a blocked prompt cancels adjacent queued prompts', async () => {
-    const adapter = new MockAdapter([textResponse('ran once')])
+  it('a blocked prompt preserves adjacent queued prompts', async () => {
+    const adapter = new MockAdapter([
+      textResponse('safe reply'),
+      textResponse('wake reply'),
+    ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next): Promise<PromptDecision> => {
       const text = messages.flatMap(message => message.content)
         .map(b => (b.type === 'text' ? b.text : '')).join('')
-      return text === 'secret' ? { kind: 'block', reason: 'policy: no secrets' } : next()
+      return text === 'secret'
+        ? { kind: 'block', reason: 'policy: no secrets', discardClaimed: true }
+        : next()
     })
 
     const reasons: TurnEndReason[] = []
@@ -437,6 +496,14 @@ describe('agent/prompt-submit', () => {
     expect(adapter.requests).toHaveLength(0)
     expect(log.filter(e => e.type === 'turn/start')).toHaveLength(0)
     expect(reasons).toEqual([])
+    expect(agent.inbox.nextTurn.map(message => message.content[0]))
+      .toEqual([{ type: 'text', text: 'safe' }])
+
+    const resumed = waitForIdle(ctx, agent)
+    send(agent, 'wake')
+    await resumed
+    expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('safe')
+    expect(JSON.stringify(adapter.requests[0]?.messages)).not.toContain('secret')
   })
 
   it('a throwing prompt-submit listener reports the driver error and retains adjacent work', async () => {
@@ -653,7 +720,13 @@ describe('worked example: a native hook plugin is just a cordis plugin on the se
       ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next): Promise<PromptDecision> => {
         const text = messages.flatMap(message => message.content)
           .map(b => (b.type === 'text' ? b.text : '')).join('')
-        if (text.includes('rm -rf')) return { kind: 'block', reason: 'destructive prompt blocked' }
+        if (text.includes('rm -rf')) {
+          return {
+            kind: 'block',
+            reason: 'destructive prompt blocked',
+            discardClaimed: true,
+          }
+        }
         return next()
       })
       // 3. PreToolUse: deny a dangerous tool by name.

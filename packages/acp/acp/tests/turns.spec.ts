@@ -214,7 +214,11 @@ describe('ACP prompt lifecycle', () => {
 
   it('an admission-blocked prompt settles instead of hanging', async () => {
     harness = await makeBridgeHarness({ script: [] })
-    harness.ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy said no' }))
+    harness.ctx.on('agent/prompt-submit', async () => ({
+      kind: 'block' as const,
+      reason: 'policy said no',
+      discardClaimed: true,
+    }))
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
       .resolves.toEqual({ stopReason: 'end_turn' })
@@ -227,7 +231,7 @@ describe('ACP prompt lifecycle', () => {
     harness.ctx.on('agent/prompt-submit', async () => ({
       kind: 'block' as const,
       reason: 'defer forever',
-      keepInbox: true,
+      discardClaimed: false,
     }))
     const sessionId = await newSession(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!

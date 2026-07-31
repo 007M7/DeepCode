@@ -495,7 +495,11 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([textResponse('should not run')])
       const ctx = await harness(path, adapter)
       // A later listener that blocks every prompt (registered AFTER the bridge).
-      ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'policy veto' }))
+      ctx.on('agent/prompt-submit', async () => ({
+        kind: 'block' as const,
+        reason: 'policy veto',
+        discardClaimed: true,
+      }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
       await waitForIdle(ctx, agent)

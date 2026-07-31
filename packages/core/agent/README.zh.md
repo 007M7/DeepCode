@@ -52,7 +52,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 大多数拦截点都是协作式 waterfall（瀑布式事件）。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点，而 `agent/request-error` 是失败模型请求的恢复 waterfall：它接收请求坐标、规范化失败事实、可用时提供服务的注册项重试策略以及信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
 
-`PromptDecision.allow.messages` 是提示词拦截所准入的完整、带标识且冻结的批次。包装下游 allow 的监听器会保留该批次，除非有意替换它。
+`PromptDecision.allow.messages` 是提示词拦截所准入的完整、带标识且冻结的批次。包装下游 allow 的监听器会保留该批次，除非有意替换它。block 必须指定 `discardClaimed`；该字段仅影响本次提交的批次，未被此次接纳认领的消息会继续保持待处理。
 
 轮次和步骤边界以及模型 token 流是持久 `session/event` 事实，而不是镜像的 `agent/*` 通知。消费方从会话事件流读取 `turn/*`、`step/*` 和 `assistant/chunk`；工具策略与结果观测属于 [`dsh-tools`](../tools/README.md) 记录的完整流水线。
 

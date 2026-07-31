@@ -50,12 +50,13 @@ export type AgentStatus = 'idle' | 'running'
 
 /**
  * Prompt interception result. An allowed batch replaces the submitted
- * messages. A listener wrapping `next()` preserves the returned batch unless
- * it intentionally replaces it.
+ * messages; a listener wrapping `next()` preserves that batch unless it
+ * intentionally replaces it. A blocked batch explicitly chooses whether to
+ * discard the claimed messages; unclaimed work remains pending.
  */
 export type PromptDecision =
   | { kind: 'allow'; messages: UserMessage[] }
-  | { kind: 'block'; reason: string; keepInbox?: boolean }
+  | { kind: 'block'; reason: string; discardClaimed: boolean }
 
 /** One failed model-request attempt presented to recovery listeners. */
 export interface RequestFailureContext {

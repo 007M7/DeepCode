@@ -603,17 +603,18 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有�
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/prompt-submit` 在轮次打开前返回 `PromptDecision`。allow 提供完整的准入批次；block 拒绝准入且不产生任何轮次事件，并可以让已领取的消息保持待处理：
+`agent/prompt-submit` 在轮次打开前返回 `PromptDecision`。allow 提供完整的准入批次；block 拒绝准入且不产生任何轮次事件，并且必须选择是否丢弃已领取的消息。未被此次接纳领取的消息会继续保持待处理：
 
 ```ts type-equiv
 /**
  * Prompt interception result. An allowed batch replaces the submitted
- * messages. A listener wrapping `next()` preserves the returned batch unless
- * it intentionally replaces it.
+ * messages; a listener wrapping `next()` preserves that batch unless it
+ * intentionally replaces it. A blocked batch explicitly chooses whether to
+ * discard the claimed messages; unclaimed work remains pending.
  */
 type PromptDecision =
   | { kind: 'allow'; messages: UserMessage[] }
-  | { kind: 'block'; reason: string; keepInbox?: boolean }
+  | { kind: 'block'; reason: string; discardClaimed: boolean }
 ```
 
 `agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 返回 `{ kind: 'retry' }` 且不调用 `next()`；默认的 `undefined` 会让失败保持终态。

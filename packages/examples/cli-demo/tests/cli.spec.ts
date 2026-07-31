@@ -448,14 +448,18 @@ describe('runOneShot and executeCli', () => {
 
   it('settles blocked tasks at whole-agent idle without attributing a result', async () => {
     const blocked = await harness([])
-    blocked.ctx.on('agent/prompt-submit', async () => ({ kind: 'block' as const, reason: 'denied' }))
+    blocked.ctx.on('agent/prompt-submit', async () => ({
+      kind: 'block' as const,
+      reason: 'denied',
+      discardClaimed: true,
+    }))
     await expect(runOneShot(blocked.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
 
     const retained = await harness([])
     retained.ctx.on('agent/prompt-submit', async () => ({
       kind: 'block' as const,
       reason: 'deferred',
-      keepInbox: true,
+      discardClaimed: false,
     }))
     await expect(runOneShot(retained.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
     expect(retained.agent.status).toBe('idle')

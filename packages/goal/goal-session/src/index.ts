@@ -350,7 +350,7 @@ export function apply(ctx: Context): void {
           cancelReservation(agent, attempt)
         }
         requestDrive(state)
-        return { kind: 'block', reason: STALE_ROUND_REASON, keepInbox: true }
+        return { kind: 'block', reason: STALE_ROUND_REASON, discardClaimed: false }
       }
       let decision: PromptDecision
       try {
@@ -398,7 +398,7 @@ export function apply(ctx: Context): void {
           cancelReservation(agent, attempt)
         }
         requestDrive(state)
-        return { kind: 'block', reason: STALE_ROUND_REASON, keepInbox: true }
+        return { kind: 'block', reason: STALE_ROUND_REASON, discardClaimed: false }
       }
       return decision
     })

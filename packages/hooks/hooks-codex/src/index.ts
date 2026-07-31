@@ -209,7 +209,13 @@ export function apply(ctx: Context, config: Config): void {
     }
     const merged = await runPoint('UserPromptSubmit', '', payload, { agent, plainStdoutAsContext: true, signal })
     /* jscpd:ignore-start */
-    if (merged.decision === 'deny') return { kind: 'block', reason: merged.reason ?? 'blocked by UserPromptSubmit hook' }
+    if (merged.decision === 'deny') {
+      return {
+        kind: 'block',
+        reason: merged.reason ?? 'blocked by UserPromptSubmit hook',
+        discardClaimed: true,
+      }
+    }
     // Context alone is not a veto: DELEGATE so a later prompt-submit listener can
     // still block/rewrite, then fold our context onto its decision.
     const downstream = await next()

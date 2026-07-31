@@ -238,7 +238,7 @@ describe('same-session goal driving', () => {
   it('maps a downstream prompt veto to blocked without admitting the round', async () => {
     const test = await harness([])
     test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
-      ? Promise.resolve({ kind: 'block', reason: 'deployment policy' })
+      ? Promise.resolve({ kind: 'block', reason: 'deployment policy', discardClaimed: true })
       : next())
     test.ctx.goals.create(test.agent, { objective: 'respect policy' })
 
@@ -253,7 +253,7 @@ describe('same-session goal driving', () => {
   it('does not reserve again when a stopped-goal observer queues cancel-scoped work', async () => {
     const test = await harness([textResponse('human follow-up')])
     test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
-      ? Promise.resolve({ kind: 'block', reason: 'stop this round' })
+      ? Promise.resolve({ kind: 'block', reason: 'stop this round', discardClaimed: true })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
       if (change.operation === 'block') agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect the blocker' }], source: { kind: 'user' } }))
@@ -264,7 +264,8 @@ describe('same-session goal driving', () => {
     await test.agent.whenIdle()
 
     expect(test.adapter.requests).toHaveLength(0)
-    expect(test.agent.inbox.nextTurn).toHaveLength(0)
+    expect(test.agent.inbox.nextTurn.map(message => message.content[0]))
+      .toEqual([{ type: 'text', text: 'inspect the blocker' }])
   })
 
   it('pauses and drops a reserved round when cancellation lands before admission', async () => {
@@ -884,7 +885,11 @@ describe('same-session goal driving', () => {
       if (messages[0]?.source.kind === 'goal' && !vetoed) {
         vetoed = true
         agent.cancel({ kind: 'user' })
-        return Promise.resolve<PromptDecision>({ kind: 'block', reason: 'cancelled by policy' })
+        return Promise.resolve<PromptDecision>({
+          kind: 'block',
+          reason: 'cancelled by policy',
+          discardClaimed: true,
+        })
       }
       return next()
     })

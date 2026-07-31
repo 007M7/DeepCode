@@ -2743,7 +2743,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     // must be discarded with it, not stranded for the next prompt.
     let blockPrompts = true
     result.ctx.on('agent/prompt-submit', async (_agent, _message, _signal, next) =>
-      blockPrompts ? { kind: 'block' as const, reason: 'policy' } : next())
+      blockPrompts ? { kind: 'block' as const, reason: 'policy', discardClaimed: true } : next())
 
     result.terminal.send('@blocked-source')
     await vi.waitFor(() => { expect(result.terminal.output).toContain('Session · blocked-source') })
