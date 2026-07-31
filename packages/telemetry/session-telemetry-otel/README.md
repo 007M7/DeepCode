@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — the only entry a deployment loads. It composes the OTel JS SDK as-is (`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP log exporter) and maps each record the seam hands over onto `logger.emit()`, under two instrumentation scopes: ledger records on `@deepseek-ai/dsh-session-telemetry-otel`, operational records on `@deepseek-ai/dsh-session-telemetry-otel/ops`. Resource identity (`service.name`/`service.version`) comes from `dsh-llm`'s `APP_IDENTITY`, the same source the attribution headers use.
+The OpenTelemetry backend for [the telemetry seam](../session-telemetry/) — the only entry a deployment loads. It composes the OTel JS SDK as-is (`LoggerProvider` → `BatchLogRecordProcessor` → OTLP/HTTP log exporter) and maps each record the seam hands over onto `logger.emit()`, under two instrumentation scopes: ledger records on `@deepseek-ai/dsh-session-telemetry-otel`, operational records on `@deepseek-ai/dsh-session-telemetry-otel/ops`. Resource identity (`service.name`/`service.version`) comes from `dsh-llm`'s `APP_IDENTITY`, the same source the attribution headers use, plus `user.id` — the harness home's anonymous user id this package owns (`src/user-id.ts`: `$DSH_HOME/.userid`, a random UUID minted on first use; deleting the file resets the identity), carried once per export batch on the Resource rather than per record.
 
 ## Config
 

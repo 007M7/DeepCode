@@ -20,6 +20,7 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
+import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
 import { webToolview } from './toolviews/web-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
@@ -319,6 +320,10 @@ export function apply(ctx: Context): void {
   // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
   ctx.plugin(bashToolviewSample)
 
+  // The write/edit rows ride the same seam: a file-mutation call declares the
+  // diff render intent, so these rows stack the applied diff card under their
+  // path-link summary (the terminal card's posture, applied to diffs).
+  ctx.plugin(fileMutationToolview)
   // The web rows ride the same seam: one WebRow registered under both
   // web_search and web_fetch, rendering the completed retrieval's web card
   // resident under the summary (a product registration, not a sample).
