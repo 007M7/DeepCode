@@ -787,6 +787,9 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
     const cases: [string, RegExp][] = [
       ['not valid!', /not a usable identifier/],
       ['await', /not a usable identifier/],
+      // `$tools` is legal JS but outside the seam's language-portable subset:
+      // the same namespace list must work against every backend's language.
+      ['$tools', /not a usable identifier/],
       ['console', /duplicate binding global/],
     ]
     for (const [global, message] of cases) {
@@ -822,6 +825,14 @@ describe('WorkerCodeRuntime — seam misuse and lifecycle', () => {
     ])).rejects.toThrow(/duplicate injected global/)
     await expect(run([namespace('tools', 'CallError', '')])).rejects.toThrow(/member property.*not usable/)
     await expect(run([namespace('tools', 'CallError', 'message')])).rejects.toThrow(/member property.*not usable/)
+    // The shared exclusion set covers Python's exception-protocol members and
+    // dunders too, so the same errorClass is valid (or not) on every backend.
+    await expect(run([namespace('tools', 'CallError', 'args')])).rejects.toThrow(/member property.*not usable/)
+    await expect(run([namespace('tools', 'CallError', '__dict__')])).rejects.toThrow(/member property.*not usable/)
+    // The Python bootstrap's owned globals are refused here too (shared
+    // RESERVED_BINDING_GLOBALS), keeping namespace lists backend-portable.
+    await expect(runtime.run({ program: 'return 1', bindings: [{ global: '__dsh_main__', functions: {} }] }))
+      .rejects.toThrow(/duplicate binding global/)
   })
 
   it('rejects config values that are not positive numbers', async () => {

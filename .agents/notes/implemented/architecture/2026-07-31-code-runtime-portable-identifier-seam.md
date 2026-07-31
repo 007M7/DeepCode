@@ -1,0 +1,42 @@
+# Agent Note: the code-runtime seam owns portable-identifier exclusions
+
+Status: implemented
+
+English | [中文](2026-07-31-code-runtime-portable-identifier-seam.zh.md)
+
+## Problem
+
+The code-runtime seam promises that a binding-namespace list valid on one backend is valid on every backend, so a Code Mode consumer can hand the same bindings to any registered runtime without knowing its language. The first backend, `dsh-code-runtime-worker`, privately owned the identifier rules that enforce part of that promise: an `IDENTIFIER` regex that allowed the JS-only `$`, a `RESERVED_WORDS` set holding only ECMAScript keywords, and a `RESERVED_ERROR_PROPERTIES` set of three JS `Error` slots. Those rules described the worker's own language, not the seam's portability contract.
+
+A second backend written against a different language (CPython, arriving in a later PR of this stack) would either re-declare its own rules — letting `lambda` pass the worker and fail Python, or `$tools` pass the worker and fail every non-JS backend — or import the worker's, inverting the dependency so the seam's implementation reached into a sibling implementation. Neither keeps the portability promise real: it would hold only for the backend a caller happened to test against.
+
+## Decision
+
+The seam package (`@deepseek-ai/dsh-code-runtime`) exports the portable-identifier exclusion contract as four named constants, and every backend imports them rather than re-declaring:
+
+- `PORTABLE_RESERVED_WORDS` — the union of ECMAScript and Python reserved words. A namespace global or error-class name matching any is refused on all backends, so `lambda` is refused even though it is a legal JS parameter name. Adding a language widens this union, which is a deliberate breaking review of existing binding names.
+- `RESERVED_BINDING_GLOBALS` — globals some backend owns in the program's namespace: `console` (the worker's log capture) and `__dsh_main__`/`__builtins__`/`__name__`/`__debug__` (the Python bootstrap's wrapper and seeded module globals). Refused everywhere so a namespace list cannot pick a name that works on one backend and collides on another.
+- `RESERVED_ERROR_MEMBERS` — error-member names every backend refuses: the JS `Error` slots (`name`, `message`, `stack`) and Python's exception-protocol members (`args`, `with_traceback`, `add_note`).
+- `DUNDER_MEMBER` — the dunder-form regex (`__*__`), refused as an error member wholesale because several are constrained CPython descriptors whose exact set is an interpreter-version detail.
+
+The seam also narrows the portable identifier subset to `[A-Za-z_][A-Za-z0-9_]*` (documented on `CodeBindingNamespace.global` and `CodeBindingErrorClass`), dropping the JS-only `$`. The worker consumes the shared constants: `RESERVED_WORDS = PORTABLE_RESERVED_WORDS`, `RESERVED_ERROR_PROPERTIES = RESERVED_ERROR_MEMBERS`, its `IDENTIFIER` regex loses `$`, and its error-member check adds `DUNDER_MEMBER`.
+
+The constants live at the seam even though only one backend ships in this PR: the whole point is that the contract is language-agnostic and owned above any single language. A backend that violated it would be the bug, and the shared set is where a reviewer looks to see what "portable" means.
+
+## Scope
+
+This PR delivers only the seam extension and the worker's adoption of it. No Python backend, `py-types` renderer, or Code Mode language dispatch ships here — they are later PRs in the stack that depend on these exports. The seam README's worker-only wording is left unchanged for the same reason: linking to a `dsh-code-runtime-python` README that does not yet exist would break the dead-link gate.
+
+## Alternatives considered
+
+**Each backend declares its own exclusions.** Rejected: it makes the portability promise per-backend. A binding list the caller tested on the worker could be refused by Python, which is exactly the split the seam exists to prevent.
+
+**The Python backend imports the worker's constants.** Rejected: it inverts the dependency — the seam's implementations would reach into a sibling implementation for a contract neither owns. The contract belongs above both, at the seam.
+
+**Keep `$` in the portable identifier subset.** Rejected: `$` is JS-only spelling. Allowing it would let `$tools` pass the worker and fail every non-JS backend, breaking portability for a purely cosmetic gain.
+
+## Consequences
+
+Bought: one place — the seam package — defines what a portable binding name is, and every backend enforces the same contract by import. A namespace list valid on one backend is valid on all, verifiably, not by coincidence of which backend the caller tested.
+
+Cost: existing worker callers using a `$`-containing global now fail identifier validation. Under the pre-release stance this is a corrected foundation, not a compatibility break to shim. The worker's seam-misuse tests gain cases for `$tools`, Python exception members (`args`), dunders (`__dict__`), and a Python-owned global (`__dsh_main__`), proving the shared set is enforced from the worker side.
