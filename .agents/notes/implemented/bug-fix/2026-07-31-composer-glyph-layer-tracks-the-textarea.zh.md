@@ -16,12 +16,11 @@ Status: implemented
 
 ## 决策
 
-`InputBar` 把 textarea 的 `scrollTop` 镜像到 backdrop 上，来自两处：
+`InputBar` 通过一个 `scroll` 监听把 textarea 的 `scrollTop` 镜像到 backdrop 上，该监听与既有的滚轮接力监听注册在同一个 effect 中（textarea 从不卸载——失效状态渲染的是同一个元素的 disabled 形态）。
 
-- textarea 上的 `scroll` 监听，与既有的滚轮接力监听注册在同一个 effect 中（textarea 从不卸载——失效状态渲染的是同一个元素的 disabled 形态）。它覆盖所有手势，以及浏览器因光标而执行的每一次滚动。
-- 一个以已提交草稿为 key 的 layout effect。一次编辑会让两层重排，却不一定让 textarea 移动——光标仍在可见范围内时不会触发 `scroll` 事件——而草稿变短时两层各自独立地被钳位。
+一个监听即构成完整耦合，因为这个盒子移动的每一种方式最终都会在 textarea 上产生 `scroll` 事件：手势使它滚动；编辑会把光标滚入可见范围；草稿缩短到当前偏移之下时它会被钳位。看似需要单独处理、实则不需要的正是钳位这一种：两层共享同一滚动范围——在 chromium 中对纯文本、软折行与不可断长串三类草稿实测均相等——因此它们会钳位到同一个最大值，而 textarea 的钳位本身就会触发那次完成镜像的 `scroll`。
 
-两者都把 textarea 的偏移写给 backdrop，绝不反向：textarea 是权威方，因为它持有光标，而浏览器滚动的目标正是光标。
+该镜像是单向的：textarea 是权威方，因为它持有光标，而浏览器滚动的目标正是光标。
 
 ## 曾考虑的替代方案
 
@@ -33,21 +32,23 @@ Status: implemented
 
 **在既有的滚轮处理函数里滚动 backdrop，而不是新增 `scroll` 监听。** 该处理函数本就在 textarea 上的每次滚轮时运行，看似是自然的落点。之所以否决，是它只覆盖了盒子滚动的其中一种成因：在末尾输入、`End`、方向键、拖选越过边缘、拖动滚动条，都会在没有滚轮事件的情况下移动 textarea。监听 `scroll` 是在监听事情本身，而不是它的某一个成因。
 
-**在 `onChange` 处理函数里同步，而不用 layout effect。** 之所以否决，是它在 React 把新草稿提交到 backdrop 之前触发，因而会按上一次的布局做镜像。layout effect 在提交之后、绘制之前运行，那正是两层同时处于最新状态的时刻。
+**再加一个以已提交草稿为 key 的 layout effect 作为第二道镜像。** 该改动的第一版确实带着它，理由是：一次编辑会让两层重排却不一定让 textarea 移动，且草稿变短时两层各自独立地被钳位。这两个前提都不成立，因此在针对构建产物客户端逐个变异测试每个 hook 之后将其移除：仅禁用 layout effect 时浏览器场景全绿，而仅禁用 `scroll` 监听则会失败。输入会把光标滚入可见范围，那就是一次普通的 `scroll`；草稿变短时两层因范围相等而钳位到同一个最大值，且 textarea 的钳位同样会触发 `scroll`。该 effect 本想覆盖的那个具体隐患——React 在装饰集合形状变化时替换 backdrop 的全部子节点，从而重置其偏移——并不会发生：在 chromium 中实测，替换一个 `overflow: hidden` 盒子的全部子节点会保留 `scrollTop`（300 仍为 300），唯一会将其归零的替换是把内容缩短到偏移之下，而那正是已被覆盖的钳位情形。
+
+**在 `onChange` 处理函数里同步。** 除上述同样的理由外还有其自身的问题：它在 React 把新草稿提交到 backdrop 之前触发，因而会按上一次的布局做镜像。
 
 ## 后果
 
 - 超过上限的草稿会滚动其字形。浏览器场景实测：在 40 行草稿上做一次滚轮手势后，最后一行位于可见盒子之内，第一行已滚出上方；此前最后一行仍停在盒子下方整整一个草稿高度处，而 textarea 自身的偏移已经移动了。
-- 该耦合是单向且廉价的——两次对一个数字的赋值，没有测量，除 `scrollTop` 外没有额外的布局读取——因此不会给输入路径增加开销。
+- 该耦合是单向且廉价的——一次对一个数字的赋值，没有测量，除 `scrollTop` 外没有额外的布局读取——因此不会给输入路径增加开销。
 - chip、claim token 高亮与文本引用标记在滚动时始终与其字形对齐，因为它们定位在 backdrop 内部并随之移动。装饰扫描本身没有任何改动。
 - composer 的双层设计保留了这一隐患：日后在 backdrop 旁新增的任何一层都需要同样的镜像。e2e 场景断言的是用户真正关心的关系（哪一行在屏幕上），而非实现机制，因此无论层数变成多少它都成立。
 
 ## 验证
 
-[input-bar.spec.tsx](../../../../packages/client/ui-conversation/tests/input-bar.spec.tsx) 中的单元用例证明镜像路径确实执行：它对两侧偏移都做了桩替换——因为 jsdom 对任何元素都报告 `scrollHeight === clientHeight` 且从不滚动任何元素——并断言 backdrop 跟随 textarea 的 `scroll` 与一次已提交的编辑。撤掉那个 `ref` 会让它失败。
+[input-bar.spec.tsx](../../../../packages/client/ui-conversation/tests/input-bar.spec.tsx) 中的单元用例证明镜像路径确实执行：它对两侧偏移都做了桩替换——因为 jsdom 对任何元素都报告 `scrollHeight === clientHeight` 且从不滚动任何元素——并断言 backdrop 既跟随 textarea 到新的偏移，也跟随它回到顶部。撤掉那个 `ref` 会让它失败。
 
 用户可见的事实需要真实引擎，因此 [composer-draft-scroll.e2e.ts](../../../../apps/web/tests/composer-draft-scroll.e2e.ts) 在 chromium 中针对构建产物客户端测量它：在全新工作区空白会话的 composer 中放入 40 行草稿，零模型调用，用一个跨越 backdrop 自身文本的 DOM Range 报告首行与末行相对于可见盒子的位置。一个防空转守卫会先断言草稿确实溢出了设有上限的盒子。
 
-已双向确认。撤掉镜像并重新构建各包后，滚轮用例在两层偏移上失败，编辑用例随之失败，golden 差异读作 `last draft line is on screen: false` 而 `textarea moved: true`——即以 fixture（测试前置数据）形式陈述的原始现象。静止状态用例在两种构建下都通过，这正是要点所在：它就是掩盖了该缺陷的那个状态。
+已双向确认。撤掉镜像并重新构建各包后，滚轮用例在两层偏移上失败，输入用例随之失败，golden 差异读作 `last draft line is on screen: false` 而 `textarea moved: true`——即以 fixture（测试前置数据）形式陈述的原始现象。静止状态用例在两种构建下都通过，这正是要点所在：它就是掩盖了该缺陷的那个状态。
 
 注意 composer 随客户端模块 bundle 一同发布，因此仅运行 `pnpm run build:web` 不会纳入对 `InputBar.tsx` 的改动——必须运行包构建，浏览器测试通道才能看到它；针对陈旧 `lib/` 运行的场景，断言的是比当前工作树更旧的客户端。

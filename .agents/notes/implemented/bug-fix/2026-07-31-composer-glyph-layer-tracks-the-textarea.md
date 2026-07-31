@@ -16,12 +16,11 @@ The defect is therefore exactly as old as the cap, and it hid behind the resting
 
 ## Decision
 
-`InputBar` mirrors the textarea's `scrollTop` onto the backdrop, from two places:
+`InputBar` mirrors the textarea's `scrollTop` onto the backdrop from one `scroll` listener, registered beside the existing wheel-chaining listener in the same effect (the textarea is never unmounted — the inert state renders the same element disabled).
 
-- A `scroll` listener on the textarea, registered beside the existing wheel-chaining listener in the same effect (the textarea is never unmounted — the inert state renders the same element disabled). This covers every gesture and every caret-driven scroll the browser performs.
-- A layout effect keyed on the committed draft. An edit reflows both layers without necessarily moving the textarea — no `scroll` event fires while the caret stays in view — and a shrinking draft clamps each layer independently.
+One listener is the whole coupling, because every way the box moves ends in a `scroll` event on the textarea. A gesture scrolls it; an edit scrolls the caret into view; a draft that shrinks past the current offset clamps it. The clamp case is the one that looks like it needs separate handling and does not: the two layers share an extent — measured equal in chromium for plain, soft-wrapped, and unbreakable-run drafts — so they clamp to the same maximum, and the textarea's clamp fires the `scroll` that mirrors it.
 
-Both write the textarea's offset to the backdrop, never the reverse: the textarea is the authority because it owns the caret, and the caret is what the browser scrolls to.
+The mirror is one-directional: the textarea is the authority because it owns the caret, and the caret is what the browser scrolls to.
 
 ## Alternatives considered
 
@@ -33,21 +32,23 @@ Both write the textarea's offset to the backdrop, never the reverse: the textare
 
 **Scroll the backdrop from the existing wheel handler instead of a `scroll` listener.** The handler already runs on every wheel over the textarea, so it looks like the natural place. Rejected because it covers only one of the ways the box scrolls: typing at the end, `End`, arrow keys, drag-selection past the edge, and scrollbar drags all move the textarea without a wheel event. Listening to `scroll` is listening to the thing itself rather than to one of its causes.
 
-**Sync in the `onChange` handler rather than a layout effect.** Rejected because it fires before React commits the new draft to the backdrop, so it would mirror against the previous layout. The layout effect runs after the commit and before paint, which is where the two layers are simultaneously current.
+**Add a second mirror in a layout effect keyed on the committed draft.** This shipped in the first version of the change, on the theory that an edit reflows both layers without necessarily moving the textarea, and that a shrinking draft clamps each layer independently. Both premises are false, and it was removed after mutation-testing each hook alone against the built client: with only the layout effect disabled the browser scenario stays green, while disabling only the `scroll` listener fails it. Typing scrolls the caret into view, which is an ordinary `scroll`; a shrinking draft clamps both layers to the same maximum because their extents are equal, and the textarea's clamp fires `scroll` too. The specific hazard the effect was imagined to cover — React replacing the backdrop's children when the decoration set changes shape, resetting its offset — does not occur: measured in chromium, replacing every child of an `overflow: hidden` box preserves `scrollTop` (300 stays 300), and the only replacement that zeroes it is one that shrinks the content below the offset, which is the clamp case already covered.
+
+**Sync in the `onChange` handler.** Rejected for the same reason plus one of its own: it fires before React commits the new draft to the backdrop, so it would mirror against the previous layout.
 
 ## Consequences
 
 - A draft past the cap scrolls its glyphs. Measured in the browser scenario: after a wheel gesture over a 40-line draft the last line sits inside the visible box and the first has scrolled out above it; before, the last line stayed a full draft-height below the box while the textarea's own offset had moved.
-- The coupling is one-directional and cheap — two assignments of one number, no measurement, no layout read beyond `scrollTop` — so it adds nothing to the typing path's cost.
+- The coupling is one-directional and cheap — one assignment of one number, no measurement, no layout read beyond `scrollTop` — so it adds nothing to the typing path's cost.
 - Chips, claim-token highlights, and text-ref marks stay aligned with their glyphs while scrolled, because they are positioned inside the backdrop and move with it. Nothing about the decoration walk changes.
 - The composer's two-layer design keeps this hazard: any future layer added beside the backdrop needs the same mirroring. The e2e scenario asserts the relation the user cares about (which line is on screen) rather than the mechanism, so it holds whatever the layer count becomes.
 
 ## Testing
 
-The unit spec in [input-bar.spec.tsx](../../../../packages/client/ui-conversation/tests/input-bar.spec.tsx) proves the mirroring paths run: it stubs both offsets, because jsdom reports `scrollHeight === clientHeight` for every element and never scrolls one, and asserts the backdrop follows a textarea `scroll` and a committed edit. Reverting the `ref` makes it fail.
+The unit spec in [input-bar.spec.tsx](../../../../packages/client/ui-conversation/tests/input-bar.spec.tsx) proves the mirroring path runs: it stubs both offsets, because jsdom reports `scrollHeight === clientHeight` for every element and never scrolls one, and asserts the backdrop follows the textarea to a new offset and back to the top. Reverting the `ref` makes it fail.
 
 The user-visible fact needs a real engine, so [composer-draft-scroll.e2e.ts](../../../../apps/web/tests/composer-draft-scroll.e2e.ts) measures it in chromium against the built client: a 40-line draft in a fresh workspace's blank composer, zero model calls, with a DOM Range over the backdrop's own text reporting where the first and last lines sit relative to the visible box. A vacuity guard asserts the draft actually overflows the capped box first.
 
-Confirmed both directions against the built client. With the mirroring reverted and the packages rebuilt, the wheel case fails on the layer offsets, the edit case fails with it, and the golden diff reads `last draft line is on screen: false` while `textarea moved: true` — the reported symptom stated as a fixture. The resting-state case passes in both builds, which is the point: it is the state that hid the defect.
+Confirmed both directions against the built client. With the mirroring reverted and the packages rebuilt, the wheel case fails on the layer offsets, the typing case fails with it, and the golden diff reads `last draft line is on screen: false` while `textarea moved: true` — the reported symptom stated as a fixture. The resting-state case passes in both builds, which is the point: it is the state that hid the defect.
 
 Note that the composer ships inside a client-module bundle, so `pnpm run build:web` alone does not pick up a change to `InputBar.tsx` — the package build must run for the browser lane to see it, and a scenario run against a stale `lib/` asserts against an older client than the tree.

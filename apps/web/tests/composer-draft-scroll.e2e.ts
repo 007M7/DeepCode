@@ -230,12 +230,12 @@ describe('web e2e: composer draft scrolling', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('an edit re-mirrors the layers without a scroll event', async () => {
+  it('typing at the end of a scrolled draft keeps the layers together', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-edit'))
-    // Typing at the caret — parked at the draft's end by the wheel gesture —
-    // reflows both layers. The textarea need not scroll (the caret stays in
-    // view), so nothing fires the `scroll` listener and only the draft-keyed
-    // mirror keeps the layers together.
+    // The other way the box moves. Typing at the caret — parked at the draft's
+    // end by the wheel gesture — scrolls it into view, which is a `scroll` like
+    // any other; this pins that an edit is not a separate case needing its own
+    // mirror, which is why one listener is the whole implementation.
     const input = page.locator('textarea:enabled').first()
     await input.press('End')
     await input.pressSequentially(' tail')

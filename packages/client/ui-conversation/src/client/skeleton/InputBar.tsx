@@ -6,7 +6,7 @@
  * region-slot content) ride the owner props. Session facts
  * (running/removed/promptError) are self-selected via useSession. */
 
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -104,7 +104,10 @@ export function InputBar({
   // scroll — the backdrop paints every visible glyph (the textarea's own text
   // is transparent) but is clipped, not scrolled, so it does not follow the
   // textarea on its own: without this mirror a draft past the cap moves the
-  // caret while the words stay frozen in place.
+  // caret while the words stay frozen in place. Every way the box moves ends
+  // in a `scroll` event, edits included (the caret is scrolled into view), and
+  // the layers share an extent, so a draft that shrinks past the offset clamps
+  // both to the same maximum — one listener covers the coupling.
   useEffect(() => {
     const el = inputRef.current
     if (el === null) return
@@ -128,16 +131,6 @@ export function InputBar({
       el.removeEventListener('scroll', onScroll)
     }
   }, [])
-
-  // Draft edits reflow both layers without necessarily moving the textarea
-  // (no scroll event fires when the caret stays in view), and a shrinking
-  // draft clamps each layer independently. Re-mirror after every committed
-  // draft so the glyphs never lag the caret by an edit.
-  useLayoutEffect(() => {
-    const el = inputRef.current
-    const backdropEl = backdropRef.current
-    if (el !== null && backdropEl !== null) backdropEl.scrollTop = el.scrollTop
-  }, [draft])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Absent machine (no session): the textarea is disabled so events cannot

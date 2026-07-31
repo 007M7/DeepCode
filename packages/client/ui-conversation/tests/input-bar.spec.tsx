@@ -297,11 +297,11 @@ describe('running and lock semantics (queue cut 1)', () => {
     textarea.scrollTop = 120
     fireEvent.scroll(textarea)
     expect(backdrop.scrollTop).toBe(120)
-    // Editing re-mirrors without a scroll event (the caret can stay in view).
-    backdrop.scrollTop = 0
-    textarea.scrollTop = 96
-    fireEvent.change(textarea, { target: { value: 'line\n'.repeat(39) } })
-    expect(backdrop.scrollTop).toBe(96)
+    // Every later move tracks too, including back to the top — a one-shot
+    // mirror would leave the glyphs parked at the first offset it saw.
+    textarea.scrollTop = 0
+    fireEvent.scroll(textarea)
+    expect(backdrop.scrollTop).toBe(0)
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
