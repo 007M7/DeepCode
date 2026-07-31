@@ -2,13 +2,13 @@ import type { Context } from 'cordis'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'subagent-durability-failure'
-export const inject = ['sessionPersistence', 'subagents']
+export const inject = ['agents', 'sessionPersistence', 'subagents']
 
 /**
  * The authored parent transcript names the background child by a stable
  * placeholder id, but the live continuable child is minted with a fresh random
  * session id at run time. This snapshot-only overlay bridges that gap and forces
- * a deterministic ordering plus a failing final child durability checkpoint:
+ * deterministic ordering plus authored child durability failures:
  *
  *  - `PLACEHOLDER_CHILD_ID` in a scripted `send_message` is remapped to the real
  *    child so both follow-ups queue onto the same live inbox in FIFO order.
@@ -18,6 +18,10 @@ export const inject = ['sessionPersistence', 'subagents']
  *  - The child's final continuation turn fails its durability checkpoint with a
  *    fixed message, so the scenario proves child-first disposal survives a failed
  *    last flush.
+ *  - Under `DSH_SUBAGENT_PUBLISHED_FAILURE`, a one-shot child's first
+ *    follow-up fails after publication, so its model prompt never runs; its
+ *    published handle then also fails disposal, so the parent observes both
+ *    independent failures.
  */
 const PLACEHOLDER_CHILD_ID = '33333333-3333-4333-8333-333333333333'
 const UNKNOWN_CHILD_ID = '22222222-2222-4222-8222-222222222222'
@@ -27,8 +31,26 @@ const FAILED_CHECKPOINT_TURN = 3
 /** Fail the child checkpoint and stabilize the authored follow-up failure ordering. */
 export function apply(ctx: Context): void {
   const followupsAccepted = Promise.withResolvers<undefined>()
+  const publishedFailure = process.env.DSH_SUBAGENT_PUBLISHED_FAILURE === '1'
   const persistence = ctx.sessionPersistence
   const load = persistence.load.bind(persistence)
+  const agents = ctx.agents
+  const create = agents.create.bind(agents)
+
+  agents.create = async (options) => {
+    const handle = await create(options)
+    if (!publishedFailure || options.meta?.parentSession === undefined) return handle
+    handle.agent.followup = () => {
+      throw new Error('snapshot published run failed')
+    }
+    return {
+      ...handle,
+      async dispose() {
+        await handle.dispose()
+        throw new Error('snapshot published handle disposal failed')
+      },
+    }
+  }
 
   // The unavailable-child lookup is real asynchronous I/O. Fence it behind both
   // authored follow-ups so runner speed cannot reorder the exact log.
@@ -37,6 +59,7 @@ export function apply(ctx: Context): void {
     return load.call(persistence, id)
   }
   ctx.effect(() => () => {
+    agents.create = create
     persistence.load = load
     followupsAccepted.resolve(undefined)
   }, 'subagent snapshot ordering')

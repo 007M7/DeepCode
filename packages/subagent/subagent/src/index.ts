@@ -13,7 +13,7 @@
  * (`@deepseek-ai/dsh-subagent-spawn`, `-fork`, `-acp`) and the model-facing
  * consumer (`@deepseek-ai/dsh-tool-subagent`) are separate packages.
  *
- * Public operations express caller intent: `start` returns one ready owned
+ * Public operations express caller intent: `start` returns one published owned
  * one-shot run, `startContinuable` establishes a durable continuable child, and
  * `followup` delivers later content without exposing whether the child is
  * resident. Continuable children never become a {@link SubagentRun}: the
@@ -130,18 +130,18 @@ declare module 'cordis' {
      */
     'subagent/provider-removed'(name: string): void
     /**
-     * A provider established a ready child. For in-process providers,
+     * A provider established a published child. For in-process providers,
      * `ctx.agents.get(info.id)` resolves during this notification.
      * Scope-filtered dispatch keys the carrier by the delegating parent, so a
      * parent-scoped listener observes only its own delegations. Paired with
      * `subagent/end`.
-     * @param info - the provider and ready child identity.
+     * @param info - the provider and published child identity.
      * @dshScopeScan unsupported
      * @mode emit
      */
     'subagent/start'(this: Scoped<SubagentService>, info: SubagentRunInfo): void
     /**
-     * A ready child settled. Scope-filtered dispatch uses the same delegating
+     * A published child settled. Scope-filtered dispatch uses the same delegating
      * parent carrier as `subagent/start`, so the lifecycle pair reaches the
      * same scoped audience.
      * @param info - the run identity and terminal outcome.
@@ -298,13 +298,14 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Establish a ready child on the named provider. Capability and semantic
+   * Establish a published child on the named provider. Capability and semantic
    * checks run before delegation. Provider ownership lasts until its promise
    * fulfills; a rejection therefore has no run for the caller to dispose and
-   * emits no run lifecycle events.
+   * emits no run lifecycle events. Post-publication turn and infrastructure
+   * failures settle through the returned run.
    * @param name - the provider to use.
    * @param request - child label, prompt, parent, signal, and optional capabilities.
-   * @returns the ready holder-owned run.
+   * @returns the published holder-owned run.
    */
   async start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
     const provider = this.expectProvider(name)

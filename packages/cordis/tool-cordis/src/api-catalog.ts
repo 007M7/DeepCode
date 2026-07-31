@@ -914,7 +914,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>',
-        jsDoc: '/**\n * Establish a ready child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events.\n * @param name - the provider to use.\n * @param request - child label, prompt, parent, signal, and optional capabilities.\n * @returns the ready holder-owned run.\n */',
+        jsDoc: '/**\n * Establish a published child on the named provider. Capability and semantic\n * checks run before delegation. Provider ownership lasts until its promise\n * fulfills; a rejection therefore has no run for the caller to dispose and\n * emits no run lifecycle events. Post-publication turn and infrastructure\n * failures settle through the returned run.\n * @param name - the provider to use.\n * @param request - child label, prompt, parent, signal, and optional capabilities.\n * @returns the published holder-owned run.\n */',
       },
     ],
   },
@@ -1442,8 +1442,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'subagent/end',
     mode: 'emit',
     signature: '\'subagent/end\'(this: Scoped<SubagentService>, info: SubagentRunEndInfo): void',
-    jsDoc: '/**\n * A ready child settled. Scope-filtered dispatch uses the same delegating\n * parent carrier as `subagent/start`, so the lifecycle pair reaches the\n * same scoped audience.\n * @param info - the run identity and terminal outcome.\n * @dshScopeScan unsupported\n * @mode emit\n */',
-    summary: 'A ready child settled.',
+    jsDoc: '/**\n * A published child settled. Scope-filtered dispatch uses the same delegating\n * parent carrier as `subagent/start`, so the lifecycle pair reaches the\n * same scoped audience.\n * @param info - the run identity and terminal outcome.\n * @dshScopeScan unsupported\n * @mode emit\n */',
+    summary: 'A published child settled.',
   },
   {
     name: 'subagent/provider-added',
@@ -1463,8 +1463,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'subagent/start',
     mode: 'emit',
     signature: '\'subagent/start\'(this: Scoped<SubagentService>, info: SubagentRunInfo): void',
-    jsDoc: '/**\n * A provider established a ready child. For in-process providers,\n * `ctx.agents.get(info.id)` resolves during this notification.\n * Scope-filtered dispatch keys the carrier by the delegating parent, so a\n * parent-scoped listener observes only its own delegations. Paired with\n * `subagent/end`.\n * @param info - the provider and ready child identity.\n * @dshScopeScan unsupported\n * @mode emit\n */',
-    summary: 'A provider established a ready child.',
+    jsDoc: '/**\n * A provider established a published child. For in-process providers,\n * `ctx.agents.get(info.id)` resolves during this notification.\n * Scope-filtered dispatch keys the carrier by the delegating parent, so a\n * parent-scoped listener observes only its own delegations. Paired with\n * `subagent/end`.\n * @param info - the provider and published child identity.\n * @dshScopeScan unsupported\n * @mode emit\n */',
+    summary: 'A provider established a published child.',
   },
   {
     name: 'system-prompt/assemble',
@@ -1540,8 +1540,8 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'workflow/agent-start',
     mode: 'emit',
     signature: '\'workflow/agent-start\'(info: WorkflowRunInfo, agent: WorkflowAgentInfo): void',
-    jsDoc: '/**\n * One `agent()` call established a ready child run. Paired with\n * {@link Events[\'workflow/agent-end\']} by `agent.seq`. A call that never\n * receives a ready run from the provider emits neither\n * event in this pair.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call\'s sequence number, label, phase, and child id.\n * @mode emit\n */',
-    summary: 'One `agent()` call established a ready child run.',
+    jsDoc: '/**\n * One `agent()` call established a published child run. Paired with\n * {@link Events[\'workflow/agent-end\']} by `agent.seq`. A call that never\n * receives a published run from the provider emits neither\n * event in this pair.\n * @param info - the run\'s identity snapshot.\n * @param agent - the call\'s sequence number, label, phase, and child id.\n * @mode emit\n */',
+    summary: 'One `agent()` call established a published child run.',
   },
   {
     name: 'workflow/end',

@@ -106,7 +106,7 @@ export function createLifecycleEmitter(
  * @param emit - the contained lifecycle emitter.
  * @param provider - the provider that established the run.
  * @param parent - the delegating parent keying scoped dispatch.
- * @param run - the ready run whose settlement closes the pair.
+ * @param run - the published run whose settlement closes the pair.
  * @returns the same run, unchanged.
  */
 export function observeRun(

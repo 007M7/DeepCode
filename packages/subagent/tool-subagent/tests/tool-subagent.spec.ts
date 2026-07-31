@@ -412,6 +412,61 @@ describe('dsh-tool-subagent', () => {
     expect(disposed).toHaveBeenCalledTimes(1)
   })
 
+  it('preserves independent foreground result and disposal failures', async () => {
+    const disposed = vi.fn()
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'spy',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('spy-child'),
+        localAgent: undefined,
+        result: Promise.reject(new Error('published run failed')),
+        dispose: async () => {
+          disposed()
+          throw new Error('published handle disposal failed')
+        },
+      }),
+    })
+    await ctx.plugin(tool, { provider: 'spy', maxDepth: 'provider-managed' })
+
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('published run failed')
+    expect(text(result)).toContain('published handle disposal failed')
+    expect(disposed).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports a foreground disposal failure after a completed result', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(SubagentService)
+    ctx.subagents.registerProvider({
+      name: 'spy',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('spy-child'),
+        localAgent: undefined,
+        result: Promise.resolve({
+          output: [{ type: 'text', text: 'completed before disposal' }],
+          stopReason: 'completed',
+        }),
+        dispose: () => Promise.reject(new Error('published handle disposal failed')),
+      }),
+    })
+    await ctx.plugin(tool, { provider: 'spy', maxDepth: 'provider-managed' })
+
+    const result = await callSubagent(ctx, { description: 'd', prompt: 'p' })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('published handle disposal failed')
+  })
+
   it('passes the tool abort signal as the provider cancellation channel', async () => {
     const cancelled = vi.fn()
     const ctx = new Context()

@@ -59,8 +59,8 @@ interface SubagentStartRequest {
    * Cancellation signal from the spawning context (the tool's `exec.signal`).
    * This is the canonical cancellation channel both before and after startup:
    * a provider rejects `start()` after cleaning partial resources when it
-   * fires before publication, and cancels a published child when it fires
-   * afterward.
+   * fires before the run is published, and cancels the published run's
+   * remaining turn work when it fires afterward.
    */
   readonly signal: AbortSignal
   readonly agentOptions?: AgentOptions
@@ -271,16 +271,17 @@ interface SubagentStopReasonMap {
 
 ## A one-shot run: `SubagentRun`
 
-`SubagentRun` is the consumer-owned handle for a ready one-shot child — one disposable foreground delegation with one result, never a durable child handle. Consumers await `result` and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A run has no steering and no resume: continuable conversations have no run at all, because the continuation manager holds their `AgentHandle` directly and orders every turn through the child's own inbox.
+`SubagentRun` is the consumer-owned handle for a published one-shot child — one disposable foreground delegation with one result, never a durable child handle. Prompt submission, turn work, and infrastructure faults after publication belong to `result`. Consumers await that result and always dispose the run to reach quiescence. Child failures resolve with a non-completed stop reason; only unrepresentable infrastructure faults reject. A run has no steering and no resume: continuable conversations have no run at all, because the continuation manager holds their `AgentHandle` directly and orders every turn through the child's own inbox.
 
 ```ts type-equiv
 /**
- * ONE-SHOT child handle returned only after readiness. Consumers await
- * {@link result} and must always {@link dispose} to cancel remaining work and
- * reach quiescence. A run is one disposable foreground delegation with one
- * result; continuable conversations have no run — the continuation manager
- * holds their `AgentHandle` directly and orders every turn through the child's
- * own inbox.
+ * ONE-SHOT child handle returned after publication. Prompt submission, turn
+ * work, and infrastructure faults after that boundary belong to {@link result}.
+ * Consumers await that result and must always {@link dispose} to cancel
+ * remaining work and reach quiescence. A run is one disposable foreground
+ * delegation with one result; continuable conversations have no run — the
+ * continuation manager holds their `AgentHandle` directly and orders every
+ * turn through the child's own inbox.
  */
 interface SubagentRun {
   /**
@@ -335,13 +336,14 @@ interface SubagentProvider {
    */
   readonly inheritsParentContext: boolean
   /**
-   * Establish a ONE-SHOT child and return its handle only after publication.
+   * Establish a ONE-SHOT child and return its handle after publication.
    * The service has already validated that every requested start-time
    * capability is supported and resolved `request.descriptor`, so a
    * session-backed implementation appends that descriptor inside the child's
-   * initial turn. If setup fails or `request.signal` aborts before fulfillment,
-   * the provider owns and cleans all partial resources before this promise
-   * rejects. Ownership transfers to the caller only on fulfillment.
+   * initial turn. Before fulfillment, the provider owns setup and cleans any
+   * unpublished partial resources before rejecting. Ownership transfers on
+   * fulfillment; subsequent turn or infrastructure failure settles through
+   * the returned run.
    */
   start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
   /**
@@ -361,7 +363,7 @@ interface SubagentProvider {
 }
 ```
 
-Provider `start()` fulfills only with a ready run. The service mints a unique `runId`, snapshots `local` from the provider's exact `localAgent`, observes the result, emits `subagent/start`, and returns the same run; rejection implies provider cleanup and emits no lifecycle pair. Each continuable Activation emits the same observe-only pair for its residency epoch, so a cold resume is a new epoch with its own `runId`. The paired `subagent/end` carries the same identity and the final output or infrastructure failure. Both events are observe-only and contain listener exceptions. Their `provider` field is provenance for the run or Activation epoch, not a claim that the provider remains registered when the edge is emitted.
+Provider `start()` fulfills with a published run. The service mints a unique `runId`, snapshots `local` from the provider's exact `localAgent`, observes the result, emits `subagent/start`, and returns the same run; a `start()` rejection implies cleanup of unpublished resources and emits no lifecycle pair, while a post-publication result rejection closes the emitted pair. Each continuable Activation emits the same observe-only pair for its residency epoch, so a cold resume is a new epoch with its own `runId`. The paired `subagent/end` carries the same identity and the final output or infrastructure failure. Both events are observe-only and contain listener exceptions. Their `provider` field is provenance for the run or Activation epoch, not a claim that the provider remains registered when the edge is emitted.
 
 ## In-process backends: depth and seed
 

@@ -28,13 +28,13 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `registerProvider(provider)` | 按名称注册一个可信的同进程实现。注册受 effect 作用域约束；移除注册会阻止新的启动，但不会撤销已返回给调用方的运行。重复名称会立即失败。 |
 | `getProvider(name)` | 返回提供方；不存在时返回 `undefined`。 |
 | `list()` | 按插入顺序返回提供方名称。 |
-| `start(name, request)` | 校验普通调用方请求，解析其分离的 `one-shot` 描述符，然后等待提供方，直到真实的一次性子 agent 就绪。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理所有局部启动资源。可继续子 agent 绝不通过此操作进入。 |
+| `start(name, request)` | 校验普通调用方请求，解析其分离的 `one-shot` 描述符，然后等待提供方，直到真实的一次性子 agent 发布。兑现时返回由持有方拥有的 `SubagentRun`；拒绝表示提供方已清理所有未发布的启动资源，而发布后的轮次或基础设施故障会通过该 run 结算。可继续子 agent 绝不通过此操作进入。 |
 | `startContinuable(spec)` | 建立一个持久化可继续子 agent，并投递其初始提示词。子 agent 的 inbox 接受该提示词时，兑现为 `{ childId, messageId }`，无需等待轮次开始或消息写入 Session 日志；此前任何失败都会以无 id 拒绝，并完全回滚该子 agent。要求 `ctx.agents`、会话持久化以及具备 `prepareContinuable` 能力的提供方。 |
 | `followup(parent, childId, content, { source, signal })` | 将来自确切在线直接父级的一条后续消息作为子 agent 的下一个 FIFO 轮次投递，术语与 `Agent.followup()` 一致，并返回被接受的 `MessageId`。驻留中的子 agent 由其 inbox 直接接受（唤醒处于 waiting 的 Activation）；不驻留的则从其持久化 Session 冷恢复。要求 `ctx.agents`；冷恢复还要求会话持久化。 |
 | `drainContinuableDescendants(parents)` | 在由 host 确切拥有的在线 parent Agent 之下关闭准入，只停止其可见的可继续后代，等待在这些根之下已获准的物化过程完成发布或回滚，再按 child-first 顺序释放所选森林。该截止状态会持续到每个确切 parent 离开注册表；无关的 parent 森林和管理器全局准入保持在线。 |
 | `listChildren(parentSessionId, signal?)` | 按稳定的追踪顺序列出由会话支撑的直接 subagent，包括其 `one-shot`／`continuable` 模式和 `running`／`inactive` 活动状态，以及逐 child diagnostic，且不会加载或恢复它们。要求会话查询；不要求 `ctx.agents` 或继续执行管理器。 |
 
-`SubagentStartRequest.label` 是由会话支撑的一次性 child 所使用的可选简短持久化显示标签。面向模型的委派会提供其已有的 `description`；底层调用方无需凭空构造展示元数据。可继续启动始终携带自身的必填标签。`signal` 是必填项，也是一次性 `start` 的规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消实时子 agent。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。对于可继续启动或后续操作，调用方信号只在 inbox 接受之前掌管查找、物化和准入；此后由管理器独立拥有 Activation，因此调用方后续取消既不会取消已接受的轮次，也不会 dispose 子 agent。
+`SubagentStartRequest.label` 是由会话支撑的一次性 child 所使用的可选简短持久化显示标签。面向模型的委派会提供其已有的 `description`；底层调用方无需凭空构造展示元数据。可继续启动始终携带自身的必填标签。`signal` 是必填项，也是一次性 `start` 的规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消已返回 run 的剩余轮次工作，但不会隐藏其 id。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。对于可继续启动或后续操作，调用方信号只在 inbox 接受之前掌管查找、物化和准入；此后由管理器独立拥有 Activation，因此调用方后续取消既不会取消已接受的轮次，也不会 dispose 子 agent。
 
 后续操作的权限来自子 agent 持久化 header 中记录的确切在线直接父级。冷恢复会在重建前检查该权限，并在最终无 await 的 inbox 准入区间再次检查，因此在物化期间被注销或替换的 parent 无法授权投递。后续操作上的 `source` 是保留在所投递消息上的持久化来源，不授予任何权限。
 
@@ -63,9 +63,9 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ## 一次性所有权与生命周期
 
-`provider.start(request): Promise<SubagentRun>` 是所有权转移边界，也是唯一由 Task 支撑的后台路径。兑现前，提供方拥有设置过程，并且每次失败时都必须取消、回滚并使局部资源完全停稳。兑现后，调用方拥有该运行，并且必须在每条路径上调用 `dispose()`。
+`provider.start(request): Promise<SubagentRun>` 是所有权转移边界；委派工具也会在其由 Task 支撑的一次性后台路径中使用它。兑现前，提供方拥有设置过程，并且每次失败时都必须取消、回滚并使未发布资源完全停稳。兑现后，调用方拥有该运行，并且必须在每条路径上调用 `dispose()`；剩余提示词和轮次工作属于 `SubagentRun.result`。
 
-`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待子 agent 资源完全停稳。
+`SubagentRun.result` 兑现为 `{ output, structured?, stopReason }`。子 agent 级失败会以非 `completed` 原因兑现；只有 seam 无法表示的基础设施故障才可以拒绝。`dispose()` 是幂等的，会取消剩余工作，并等待结果结算以及子 agent 资源完全停稳。`result` 的 rejection 仍归 `result` 通道；只有独立的资源释放失败会使 `dispose()` 拒绝。
 
 本地运行会在 `start()` 兑现前发布普通的子 agent／会话，把该共享会话 id 作为 `SubagentRun.id` 返回，以 `SubagentRun.localAgent` 公开准确的子 agent，把 `request.parent.session.id` 记录到子 agent 的 `parentSession` header，并在其初始轮次内追加已解析的描述符。远程提供方则生成 parent 作用域的生命周期 id，并返回 `localAgent: undefined`；由于没有本地 child 会话，其一次性运行不会进入基于追踪的枚举结果。
 
@@ -81,7 +81,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 ## 生命周期事件
 
-服务会为每次一次性运行以及每个已驻留的可继续 Activation 时段发出一对 `subagent/start`/`subagent/end`，因此可继续子 agent 可用与一次性运行相同的词汇观察，且不会暴露管理器是物化、唤醒还是冷恢复了它们。对于一次性启动，它会在同步的 `subagent/start` 之前附加结果观察器，因此即使子 agent 已经结算，也仍会先产生 `subagent/start`，再产生 `subagent/end`；在驻留前失败的可继续时段不发出任何事件。这对事件共享服务生成的 `runId`；`local` 标志取自提供方准确 `localAgent` 的快照（可继续子 agent 恒为 true），因此观察器绝不会从可复用的提供方/会话名称推断运行身份或本地性。`provider` 字段是生命周期来源信息，而非提供方仍在注册的声明：已接受的一次性 run 可在提供方移除后才进入就绪状态，冷恢复时段也会保留描述符中的初始提供方名称，而不要求该提供方仍处于注册状态。
+服务会为每次一次性运行以及每个已驻留的可继续 Activation 时段发出一对 `subagent/start`/`subagent/end`，因此可继续子 agent 可用与一次性运行相同的词汇观察，且不会暴露管理器是物化、唤醒还是冷恢复了它们。对于一次性启动，它会在同步的 `subagent/start` 之前附加结果观察器，因此即使子 agent 已经结算，也仍会先产生 `subagent/start`，再产生 `subagent/end`；在驻留前失败的可继续时段不发出任何事件。这对事件共享服务生成的 `runId`；`local` 标志取自提供方准确 `localAgent` 的快照（可继续子 agent 恒为 true），因此观察器绝不会从可复用的提供方/会话名称推断运行身份或本地性。`provider` 字段是生命周期来源信息，而非提供方仍在注册的声明：已接受的一次性 run 可在提供方移除后才结算，冷恢复时段也会保留描述符中的初始提供方名称，而不要求该提供方仍处于注册状态。
 
 运行事件受执行委派的父级作用域约束。每个监听器都独立隔离：同步抛出或返回的 promise 被拒绝时，只会记录日志，不会阻塞同级监听器或改变运行。
 

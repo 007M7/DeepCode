@@ -134,6 +134,47 @@ function stopReasonError(result: SubagentResult): string | undefined {
   }
 }
 
+type ForegroundToolResult = {
+  readonly kind: 'foreground'
+  readonly runId: SubagentRun['id']
+  readonly output: JsonValue[]
+}
+
+/**
+ * Collect and release one foreground run without letting disposal replace an
+ * independent result failure.
+ */
+async function settleForegroundRun(run: SubagentRun): Promise<ForegroundToolResult> {
+  const [execution] = await Promise.allSettled([
+    run.result.then((result): ForegroundToolResult => {
+      const error = stopReasonError(result)
+      if (error !== undefined) {
+        // The registry converts this throw to isError; partial output is not success.
+        throw new Error(error)
+      }
+      return {
+        kind: 'foreground',
+        runId: run.id,
+        // Content blocks already cross durable JSON boundaries elsewhere;
+        // the registry performs the authoritative lossless snapshot here.
+        output: result.output as unknown as JsonValue[],
+      }
+    }),
+  ])
+  const [disposal] = await Promise.allSettled([Promise.resolve().then(() => run.dispose())])
+  if (execution.status === 'rejected') {
+    if (disposal.status === 'rejected') {
+      throw new AggregateError(
+        [execution.reason, disposal.reason],
+        `subagent run failed: ${String(execution.reason)}; dispose failed: ${String(disposal.reason)}`,
+      )
+    }
+    throw execution.reason
+  }
+  if (disposal.status === 'rejected') throw disposal.reason
+  return execution.value
+}
+
 /**
  * Model-facing wording from the provider's conversation-history descriptor
  * ({@link SubagentProvider.inheritsParentContext}).
@@ -335,25 +376,7 @@ export function apply(ctx: Context, config: Config): void {
           ...request,
           signal: exec.signal,
         })
-
-        try {
-          const result = await run.result
-          const error = stopReasonError(result)
-          if (error !== undefined) {
-            // The registry converts this throw to isError; partial output is not success.
-            throw new Error(error)
-          }
-          return {
-            kind: 'foreground' as const,
-            runId: run.id,
-            // Content blocks already cross durable JSON boundaries elsewhere;
-            // the registry performs the authoritative lossless snapshot here.
-            output: result.output as unknown as JsonValue[],
-          }
-        } finally {
-          // Dispose before returning so no child session outlives the call.
-          await run.dispose()
-        }
+        return settleForegroundRun(run)
       },
     }))
   }

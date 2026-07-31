@@ -33,9 +33,6 @@
       "path": "../../util/brand"
     },
     {
-      "path": "../../session-query/session-query"
-    },
-    {
       "path": "../../support/invariants"
     }
   ]

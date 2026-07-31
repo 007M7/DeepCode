@@ -30,7 +30,7 @@ Each `@deepseek-ai/dsh-tool-subagent` instance selects `backgroundMode: 'one-sho
 
 **Register continuation access or inspect the follow-up tool.** A registry could tell the delegation tool whether a continuation surface exists, but starting durable work does not require any follow-up adapter. Such a registry would encode UI composition into execution policy and recreate the sibling dependency under another name.
 
-**Merge raw and continuable starts into one method.** A flag on `start` would return either a ready run or immediate Task and child identities, weakening a simple ownership boundary. Keeping `startContinuable` is the smaller change and preserves both contracts explicitly.
+**Merge raw and continuable starts into one method.** A flag on `start` would return either a published one-shot run or immediate Task and child identities, weakening a simple ownership boundary. Keeping `startContinuable` is the smaller change and preserves both contracts explicitly.
 
 ## Consequences
 

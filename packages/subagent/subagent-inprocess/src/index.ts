@@ -85,12 +85,14 @@ function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescripto
 
 /**
  * Establish and drive one in-process one-shot child. Fulfillment means the agent
- * is already published in the registry; rejection means the agent factory's
- * creation transaction and any partially-created child have reached quiescence.
- * Every start appends its resolved descriptor inside the child's initial turn.
+ * is already published in the registry and transfers its turn, cancellation,
+ * and disposal work through the returned run. Rejection means the agent
+ * factory's unpublished creation transaction reached quiescence without
+ * publishing a child. Every start appends its resolved descriptor inside the
+ * child's initial turn.
  * @param request - the trusted typed start request, including its required signal.
  * @param options - the optional fork seed.
- * @returns a ready holder-owned run.
+ * @returns a published holder-owned run.
  */
 export async function startInProcessRun(
   request: ResolvedSubagentStartRequest,
@@ -139,7 +141,7 @@ export async function startInProcessRun(
     signal: request.signal,
     setup,
   })
-  return driveTurn(
+  return drivePublishedRun(
     handle,
     request.signal,
     request.prompt,
@@ -150,36 +152,35 @@ export async function startInProcessRun(
 }
 
 /**
- * Drive one turn on a published child and wrap it as a run. The caller has
- * already created the agent; this owns the signal-handoff race, the live abort
- * listener, result collection past `boundary`, and disposal.
+ * Wrap a published child in the single run lifecycle that owns signal handoff,
+ * one turn, result settlement, and quiescent disposal.
  */
-function driveTurn(
+function drivePublishedRun(
   handle: AgentHandle,
   signal: AbortSignal,
   prompt: ContentBlock[],
   childId: SessionId,
   boundary: number,
   structured: StructuredAttachment | undefined,
-): SubagentRun | Promise<never> {
+): SubagentRun {
   const child = handle.agent
-  // Agent creation detaches its creation-only abort listener before returning.
-  // Close the narrow handoff race before installing the live-run listener.
-  if (signal.aborted) {
-    return handle.dispose().then(() => { throw prePublicationAbort() })
-  }
-
   const flags = { cancelled: false }
   const onAbort = (): void => {
     flags.cancelled = true
     child.cancel({ kind: 'parent' })
   }
   signal.addEventListener('abort', onAbort, { once: true })
+  // Agent creation detaches its creation-only listener before returning. The
+  // post-registration check closes that handoff without treating an already
+  // published child as a failed start.
+  if (signal.aborted) onAbort()
 
   const result: Promise<SubagentResult> = (async () => {
     try {
-      child.followup(createUserMessage({ content: prompt, source: { kind: 'user' } }))
-      await child.whenIdle()
+      if (!flags.cancelled) {
+        child.followup(createUserMessage({ content: prompt, source: { kind: 'user' } }))
+        await child.whenIdle()
+      }
       return readResult(
         child,
         boundary,
@@ -195,10 +196,14 @@ function driveTurn(
     id: childId,
     localAgent: child,
     result,
-    dispose(): Promise<void> {
+    async dispose(): Promise<void> {
       signal.removeEventListener('abort', onAbort)
       flags.cancelled = true
-      return handle.dispose()
+      const settlements = await Promise.allSettled([handle.dispose(), result])
+      const disposal = settlements[0]
+      // The result channel owns run faults; disposal reports only failure to
+      // release the published handle after both operations settle.
+      if (disposal.status === 'rejected') throw disposal.reason
     },
   }
 }

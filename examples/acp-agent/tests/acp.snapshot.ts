@@ -228,6 +228,17 @@ const SCENARIOS: Scenario[] = [
     recorded: false,
     configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
   },
+  // The in-process child is published before its first follow-up fails. The
+  // foreground tool retains both that run-result failure and an independent
+  // published-handle disposal failure.
+  {
+    name: 'subagent-published-run-failure',
+    env: { DSH_SUBAGENT_PUBLISHED_FAILURE: '1' },
+    hasModelTurn: true,
+    recorded: false,
+    overridden: true,
+    configPath: SUBAGENT_DURABILITY_FAILURE_CONFIG,
+  },
   // Authored durable-catalog transcript: the snapshot-only lifecycle marker
   // fences the second parent turn behind the child's Activation end, so
   // `list_agents` deterministically reads the persisted child as complete.

@@ -43,9 +43,15 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 let calls = 0
-function callTool(ctx: Context, name: string, args: unknown, agent?: unknown) {
+function callTool(
+  ctx: Context,
+  name: string,
+  args: unknown,
+  agent?: unknown,
+  signal: AbortSignal = testToolSignal,
+) {
   return ctx.tools.execute({
-    signal: testToolSignal,
+    signal,
     callId: CallId(`call-${++calls}`),
     name,
     arguments: args,
@@ -121,6 +127,17 @@ describe('dsh-tool-subagent-control/list-agents', () => {
       + 'running-child [running] — still working\n'
       + 'broken-child [diagnostic: corrupt]',
     )
+  })
+
+  it('forwards the tool cancellation signal to child enumeration', async () => {
+    const { ctx, parent } = await setup([])
+    const signal = new AbortController().signal
+    const listChildren = vi.spyOn(ctx.subagents, 'listChildren').mockResolvedValue([])
+
+    const result = await callTool(ctx, 'list_agents', {}, parent, signal)
+
+    expect(result.isError).toBe(false)
+    expect(listChildren).toHaveBeenCalledWith(parent.id, signal)
   })
 
   it('lists a real settled continuable child and omits a real one-shot sibling', async () => {

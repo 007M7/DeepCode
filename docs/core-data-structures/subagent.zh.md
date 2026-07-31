@@ -59,8 +59,8 @@ interface SubagentStartRequest {
    * Cancellation signal from the spawning context (the tool's `exec.signal`).
    * This is the canonical cancellation channel both before and after startup:
    * a provider rejects `start()` after cleaning partial resources when it
-   * fires before publication, and cancels a published child when it fires
-   * afterward.
+   * fires before the run is published, and cancels the published run's
+   * remaining turn work when it fires afterward.
    */
   readonly signal: AbortSignal
   readonly agentOptions?: AgentOptions
@@ -271,16 +271,17 @@ interface SubagentStopReasonMap {
 
 ## 单次 run：`SubagentRun`
 
-`SubagentRun` 是消费方持有的、指向一个就绪单次子 agent 的句柄——一次可 dispose 的前台委派，只有一个结果，绝不是持久化子 agent handle。消费方 await `result` 并始终 dispose 该 run，直至完全停稳。子 agent 失败时以非 completed 的 stop reason resolve；只有无法表示的基础设施故障才会 reject。run 没有 steering，也没有 resume：可继续对话根本没有 run，因为继续执行管理器直接持有它们的 `AgentHandle`，并通过子 agent 自己的收件箱为每个轮次排序。
+`SubagentRun` 是消费方持有的、指向一个已发布单次子 agent 的句柄——一次可 dispose 的前台委派，只有一个结果，绝不是持久化子 agent handle。发布后的提示词提交、轮次工作与基础设施故障归 `result` 所有。消费方 await 该结果并始终 dispose 该 run，直至完全停稳。子 agent 失败时以非 completed 的 stop reason resolve；只有无法表示的基础设施故障才会 reject。run 没有 steering，也没有 resume：可继续对话根本没有 run，因为继续执行管理器直接持有它们的 `AgentHandle`，并通过子 agent 自己的收件箱为每个轮次排序。
 
 ```ts type-equiv
 /**
- * ONE-SHOT child handle returned only after readiness. Consumers await
- * {@link result} and must always {@link dispose} to cancel remaining work and
- * reach quiescence. A run is one disposable foreground delegation with one
- * result; continuable conversations have no run — the continuation manager
- * holds their `AgentHandle` directly and orders every turn through the child's
- * own inbox.
+ * ONE-SHOT child handle returned after publication. Prompt submission, turn
+ * work, and infrastructure faults after that boundary belong to {@link result}.
+ * Consumers await that result and must always {@link dispose} to cancel
+ * remaining work and reach quiescence. A run is one disposable foreground
+ * delegation with one result; continuable conversations have no run — the
+ * continuation manager holds their `AgentHandle` directly and orders every
+ * turn through the child's own inbox.
  */
 interface SubagentRun {
   /**
@@ -337,13 +338,14 @@ interface SubagentProvider {
    */
   readonly inheritsParentContext: boolean
   /**
-   * Establish a ONE-SHOT child and return its handle only after publication.
+   * Establish a ONE-SHOT child and return its handle after publication.
    * The service has already validated that every requested start-time
    * capability is supported and resolved `request.descriptor`, so a
    * session-backed implementation appends that descriptor inside the child's
-   * initial turn. If setup fails or `request.signal` aborts before fulfillment,
-   * the provider owns and cleans all partial resources before this promise
-   * rejects. Ownership transfers to the caller only on fulfillment.
+   * initial turn. Before fulfillment, the provider owns setup and cleans any
+   * unpublished partial resources before rejecting. Ownership transfers on
+   * fulfillment; subsequent turn or infrastructure failure settles through
+   * the returned run.
    */
   start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
   /**
@@ -363,7 +365,7 @@ interface SubagentProvider {
 }
 ```
 
-提供方的 `start()` 仅在 run 就绪时 fulfill。服务铸造唯一的 `runId`，从提供方确切的 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；rejection 意味着提供方已清理，且不会 emit 生命周期事件对。每个可继续 Activation 都会为其驻留纪元 emit 相同的仅观察事件对，因此一次冷恢复就是一段拥有自己 `runId` 的新纪元。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，且会隔离各自的 listener 异常。其中的 `provider` 字段是 run 或 Activation 时段的来源信息，并不声明该 edge 发出时提供方仍处于注册状态。
+提供方的 `start()` 会以已发布的 run fulfill。服务铸造唯一的 `runId`，从提供方确切的 `localAgent` 快照 `local`，观察结果，emit `subagent/start`，并返回同一个 run；`start()` rejection 意味着未发布资源已清理，且不会 emit 生命周期事件对，而发布后的结果 rejection 会结束已经 emit 的事件对。每个可继续 Activation 都会为其驻留纪元 emit 相同的仅观察事件对，因此一次冷恢复就是一段拥有自己 `runId` 的新纪元。配对的 `subagent/end` 携带相同标识与最终输出或基础设施失败。两个事件都仅用于观察，且会隔离各自的 listener 异常。其中的 `provider` 字段是 run 或 Activation 时段的来源信息，并不声明该 edge 发出时提供方仍处于注册状态。
 
 ## 进程内后端：深度与种子
 

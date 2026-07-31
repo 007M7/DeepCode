@@ -6,13 +6,13 @@ This package is the shared run driver for the two in-process providers' one-shot
 
 ## Start contract
 
-`startInProcessRun(request, options): Promise<SubagentRun>` fulfills only after the child is published in `ctx.agents`. A rejected start has already quiesced the agent factory's unpublished creation transaction, so the caller never receives a half-created handle.
+`startInProcessRun(request, options): Promise<SubagentRun>` fulfills as soon as the child is published in `ctx.agents`. A rejected start has already quiesced the agent factory's unpublished creation transaction, while turn or infrastructure failures after publication settle through the returned run without hiding the child id.
 
 The driver follows this sequence:
 
 1. Validate the parent depth and optional absolute `maxDepth`, then derive child depth as parent depth plus one and persist it in the child session header.
 2. Mint a fresh child session id and call `parent.ctx.agents.create` directly, passing the optional fork seed and required request signal into the factory's creation transaction. During the unpublished setup window, install the requested persona, tool restriction, structured-output runtime, and a one-shot `agent/step` contribution that appends the resolved `subagent/descriptor` event after the initial `turn/start` and before the first request.
-3. Publish the child, retain the returned `AgentHandle`, and drive one task with `child.followup(prompt)` followed by `child.whenIdle()`.
+3. Publish the child, retain the returned `AgentHandle`, and return its holder-owned run. The run's `result` drives one task with `child.followup(prompt)` followed by `child.whenIdle()`.
 4. Read the child's own last assistant message and latest message-triggered turn reason, excluding the fork seed prefix so a seeded parent message is never mistaken for child output.
 
 The child gets the parent's working-directory/session lineage and inherits the parent provider, model, and output-token cap unless `request.agentOptions` overrides them. It gets a fresh flat registration scope: parent ownership does not import parent tool restrictions or establish an authority subset.
@@ -21,9 +21,9 @@ When the optional sandbox-policy or approval service is composed, the driver sna
 
 ## Cancellation and ownership
 
-The required request signal covers both startup and the live run. Before publication, `AgentCreationTransaction` observes it, rolls back, and rejects. The factory detaches that creation-only listener before returning; the driver immediately checks the signal once more before installing a minimal live-run listener, closing the handoff race. After publication, abort cancels the child.
+The required request signal covers both startup and the live run. Before publication, `AgentCreationTransaction` observes it, rolls back, and rejects. The factory detaches that creation-only listener before returning; the published run immediately installs its own listener and checks the signal again, closing the handoff race. Once publication has occurred, an abort preserves the returned child id, prevents unsubmitted work, and resolves an incomplete result as `aborted`; an abort during the turn cancels the child.
 
-After fulfillment, the caller owns the run. Provider-plugin unload does not revoke it. `dispose()` removes the live abort listener, records cancellation, and delegates to the returned `AgentHandle.dispose()`, whose memoized quiescence transaction stops the loop, removes the agent and session, and unwinds scoped registrations. Cancellation owns every non-completed in-flight outcome and reports `aborted`; an already-completed turn remains completed.
+After fulfillment, the caller owns the run. Provider-plugin unload does not revoke it. `dispose()` removes the live abort listener, records cancellation, and awaits both `result` and the returned `AgentHandle.dispose()`; the handle's memoized quiescence transaction stops the loop, removes the agent and session, and unwinds scoped registrations. A result rejection remains on `result`; `dispose()` rejects only when handle disposal fails, after both operations settle. Cancellation owns every non-completed in-flight outcome and reports `aborted`; an already-completed turn remains completed.
 
 ## Spawn and fork inputs
 

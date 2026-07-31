@@ -96,6 +96,40 @@ describe('startInProcessRun', () => {
     await run.dispose()
   })
 
+  it('keeps published run and handle disposal failures on separate channels', async () => {
+    const { ctx, parent } = await setup([])
+    const runError = new Error('published run failed')
+    const disposalError = new Error('published handle disposal failed')
+    const beforeAgents = ctx.agents.list().length
+    const beforeSessions = ctx.sessions.list().length
+    const parentWithFailedDisposal = {
+      options: parent.options,
+      session: parent.session,
+      ctx: {
+        get: () => undefined,
+        agents: {
+          create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
+            const handle = await ctx.agents.create(options)
+            handle.agent.followup = () => { throw runError }
+            return {
+              ...handle,
+              dispose: async () => {
+                await handle.dispose()
+                throw disposalError
+              },
+            }
+          },
+        },
+      },
+    } as unknown as Agent
+
+    const run = await startInProcessRun(request(parentWithFailedDisposal), {})
+    expect(ctx.agents.get(run.id)).toBeDefined()
+    await expect(run.result).rejects.toBe(runError)
+    await expect(run.dispose()).rejects.toBe(disposalError)
+    expect(ctx.agents.list()).toHaveLength(beforeAgents)
+    expect(ctx.sessions.list()).toHaveLength(beforeSessions)
+  })
   it('reports the message-turn outcome when a later non-message turn completes during flush', async () => {
     const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
     let injected = false
@@ -272,7 +306,7 @@ describe('startInProcessRun', () => {
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
 
-  it('closes the abort handoff after the factory detaches its creation listener', async () => {
+  it('treats abort after factory publication as a cancelled run with an id', async () => {
     const { ctx, parent } = await setup([])
     const controller = new AbortController()
     const beforeAgents = ctx.agents.list().length
@@ -288,15 +322,17 @@ describe('startInProcessRun', () => {
           create: async (options: Parameters<typeof ctx.agents.create>[0]) => {
             const handle = await ctx.agents.create(options)
             // `create()` has detached its creation-only listener, but the
-            // provider continuation has not installed its live-run listener.
+            // published run has not installed its live listener yet.
             controller.abort('handoff race')
             return handle
           },
         },
       },
     } as unknown as Agent
-    await expect(startInProcessRun(request(parentWithAbortAtHandoff, controller.signal), {}))
-      .rejects.toThrow('aborted before child publication')
+    const run = await startInProcessRun(request(parentWithAbortAtHandoff, controller.signal), {})
+    expect(ctx.agents.get(run.id)).toBeDefined()
+    await expect(run.result).resolves.toEqual({ output: [], stopReason: 'aborted' })
+    await run.dispose()
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })

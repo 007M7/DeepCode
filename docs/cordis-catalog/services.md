@@ -2035,13 +2035,14 @@ getProvider(name: string): SubagentProvider | undefined
 list(): string[]
 
 /**
- * Establish a ready child on the named provider. Capability and semantic
+ * Establish a published child on the named provider. Capability and semantic
  * checks run before delegation. Provider ownership lasts until its promise
  * fulfills; a rejection therefore has no run for the caller to dispose and
- * emits no run lifecycle events.
+ * emits no run lifecycle events. Post-publication turn and infrastructure
+ * failures settle through the returned run.
  * @param name - the provider to use.
  * @param request - child label, prompt, parent, signal, and optional capabilities.
- * @returns the ready holder-owned run.
+ * @returns the published holder-owned run.
  */
 async start(name: string, request: SubagentStartRequest): Promise<SubagentRun>
 ```

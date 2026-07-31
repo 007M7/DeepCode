@@ -29,7 +29,7 @@ export function SubagentRunId(id: string): SubagentRunId {
 }
 
 /**
- * Observe-only identifying detail for a ready subagent run, carried by
+ * Observe-only identifying detail for a published subagent run, carried by
  * `subagent/start`. One-shot runs and continuable Activation epochs share this
  * payload, so an observer sees the same vocabulary for both.
  */
@@ -107,8 +107,8 @@ export interface SubagentStartRequest {
    * Cancellation signal from the spawning context (the tool's `exec.signal`).
    * This is the canonical cancellation channel both before and after startup:
    * a provider rejects `start()` after cleaning partial resources when it
-   * fires before publication, and cancels a published child when it fires
-   * afterward.
+   * fires before the run is published, and cancels the published run's
+   * remaining turn work when it fires afterward.
    */
   readonly signal: AbortSignal
   readonly agentOptions?: AgentOptions
@@ -227,12 +227,13 @@ export interface SubagentResult {
 }
 
 /**
- * ONE-SHOT child handle returned only after readiness. Consumers await
- * {@link result} and must always {@link dispose} to cancel remaining work and
- * reach quiescence. A run is one disposable foreground delegation with one
- * result; continuable conversations have no run — the continuation manager
- * holds their `AgentHandle` directly and orders every turn through the child's
- * own inbox.
+ * ONE-SHOT child handle returned after publication. Prompt submission, turn
+ * work, and infrastructure faults after that boundary belong to {@link result}.
+ * Consumers await that result and must always {@link dispose} to cancel
+ * remaining work and reach quiescence. A run is one disposable foreground
+ * delegation with one result; continuable conversations have no run — the
+ * continuation manager holds their `AgentHandle` directly and orders every
+ * turn through the child's own inbox.
  */
 export interface SubagentRun {
   /**
@@ -279,13 +280,14 @@ export interface SubagentProvider {
    */
   readonly inheritsParentContext: boolean
   /**
-   * Establish a ONE-SHOT child and return its handle only after publication.
+   * Establish a ONE-SHOT child and return its handle after publication.
    * The service has already validated that every requested start-time
    * capability is supported and resolved `request.descriptor`, so a
    * session-backed implementation appends that descriptor inside the child's
-   * initial turn. If setup fails or `request.signal` aborts before fulfillment,
-   * the provider owns and cleans all partial resources before this promise
-   * rejects. Ownership transfers to the caller only on fulfillment.
+   * initial turn. Before fulfillment, the provider owns setup and cleans any
+   * unpublished partial resources before rejecting. Ownership transfers on
+   * fulfillment; subsequent turn or infrastructure failure settles through
+   * the returned run.
    */
   start(request: ResolvedSubagentStartRequest): Promise<SubagentRun>
   /**

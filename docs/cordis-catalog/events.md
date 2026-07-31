@@ -778,11 +778,11 @@ Source: [`packages/skill/skill/src/index.ts:188`](../../packages/skill/skill/src
 
 ### `subagent/end` — emit
 
-A ready child settled. Scope-filtered dispatch uses the same delegating parent carrier as `subagent/start`, so the lifecycle pair reaches the same scoped audience.
+A published child settled. Scope-filtered dispatch uses the same delegating parent carrier as `subagent/start`, so the lifecycle pair reaches the same scoped audience.
 
 ```ts cordis-catalog
 /**
- * A ready child settled. Scope-filtered dispatch uses the same delegating
+ * A published child settled. Scope-filtered dispatch uses the same delegating
  * parent carrier as `subagent/start`, so the lifecycle pair reaches the
  * same scoped audience.
  * @param info - the run identity and terminal outcome.
@@ -830,16 +830,16 @@ Source: [`packages/subagent/subagent/src/index.ts:131`](../../packages/subagent/
 
 ### `subagent/start` — emit
 
-A provider established a ready child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.
+A provider established a published child. For in-process providers, `ctx.agents.get(info.id)` resolves during this notification. Scope-filtered dispatch keys the carrier by the delegating parent, so a parent-scoped listener observes only its own delegations. Paired with `subagent/end`.
 
 ```ts cordis-catalog
 /**
- * A provider established a ready child. For in-process providers,
+ * A provider established a published child. For in-process providers,
  * `ctx.agents.get(info.id)` resolves during this notification.
  * Scope-filtered dispatch keys the carrier by the delegating parent, so a
  * parent-scoped listener observes only its own delegations. Paired with
  * `subagent/end`.
- * @param info - the provider and ready child identity.
+ * @param info - the provider and published child identity.
  * @dshScopeScan unsupported
  * @mode emit
  */
@@ -1074,13 +1074,13 @@ Source: [`packages/workflow/workflow/src/index.ts:81`](../../packages/workflow/w
 
 ### `workflow/agent-start` — emit
 
-One `agent()` call established a ready child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never receives a ready run from the provider emits neither event in this pair.
+One `agent()` call established a published child run. Paired with Events['workflow/agent-end'] by `agent.seq`. A call that never receives a published run from the provider emits neither event in this pair.
 
 ```ts cordis-catalog
 /**
- * One `agent()` call established a ready child run. Paired with
+ * One `agent()` call established a published child run. Paired with
  * {@link Events['workflow/agent-end']} by `agent.seq`. A call that never
- * receives a ready run from the provider emits neither
+ * receives a published run from the provider emits neither
  * event in this pair.
  * @param info - the run's identity snapshot.
  * @param agent - the call's sequence number, label, phase, and child id.
