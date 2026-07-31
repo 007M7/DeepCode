@@ -2,7 +2,10 @@
 // dispatch entry + list state, constructed and held by SessionsService (one per client runtime).
 // List data never enters zustand; React connects via subscribe/getListSnapshot.
 
-import type { IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId, SessionSummary, WorkspaceId } from '@deepseek-ai/dsh-client-connection/client'
+import type {
+  IApiClient, HostFrame, MuxFrame, RpcError, RpcRequest, RpcResult, SessionId,
+  SessionSummary, WorkspaceId,
+} from '@deepseek-ai/dsh-client-connection/client'
 // Value import from the inline-safe wire layer (not the connection plugin):
 // plugin-to-plugin value imports are a bundle purity error.
 import { transportError } from '@deepseek-ai/dsh-host-apiproxy/api'
@@ -26,6 +29,12 @@ import { Session } from './session.ts'
  * (no `error` phase here; that would duplicate `state`).
  */
 export type SessionListPhase = 'pending' | 'ready'
+
+/** Request-local content hit returned to sidebar search consumers. */
+export interface SessionSearchResultItem {
+  sessionId: SessionId
+  snippet: string
+}
 
 /** Immutable session-list snapshot for useSessionList. */
 export interface SessionListSnapshot {
@@ -246,6 +255,24 @@ export class SessionManager {
       }
     })()
     return this.listInflight
+  }
+
+  /**
+   * Search visible session message content without adding transient query
+   * state to the list snapshot.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for superseded UI queries.
+   * @returns the Host result or a folded transport error.
+   */
+  async search(
+    query: string,
+    signal: AbortSignal,
+  ): Promise<RpcResult<{ items: SessionSearchResultItem[]; hasMore: boolean }>> {
+    try {
+      return (await this.api.sessions.search({ query }, signal)).result
+    } catch (error: unknown) {
+      return transportError(error)
+    }
   }
 
   /**

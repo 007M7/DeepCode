@@ -1,16 +1,19 @@
 /** Copy dictionaries for the Models settings section. */
 
-/** English strings. */
+/** English strings (the key-set source of truth for this pair). */
 export const en = {
   nav: 'Models',
   title: 'Models',
   intro: 'Enter your API keys to use models from the following providers.',
-  active: 'Active',
-  dormant: 'Inactive',
   edit: 'Edit',
   remove: 'Delete',
+  deleteTitle: 'Delete model provider?',
+  deleteDescription: 'Deleting this model provider removes its configuration. You will not be able to use its models until you add the provider again.',
+  deleteConfirm: 'Delete provider',
+  deleting: 'Deleting provider…',
   add: 'Add provider',
   provider: 'Provider',
+  close: 'Close',
   cancel: 'Cancel',
   apply: 'Apply',
   applying: 'Applying…',
@@ -34,17 +37,23 @@ export const en = {
   onboardingLater: 'Configure later',
 }
 
+/** The settings.models namespace key union. */
+export type ModelsKey = keyof typeof en
+
 /** Chinese strings (same keys as {@link en}). */
 export const zh: typeof en = {
   nav: '模型',
   title: '模型',
   intro: '填入各提供方的 API 密钥即可使用其模型。',
-  active: '已启用',
-  dormant: '未启用',
   edit: '编辑',
   remove: '删除',
+  deleteTitle: '删除模型提供方？',
+  deleteDescription: '删除此模型提供方会移除其配置。在重新添加前，你将无法继续使用其模型。',
+  deleteConfirm: '删除提供方',
+  deleting: '正在删除提供方…',
   add: '添加提供方',
   provider: '提供方',
+  close: '关闭',
   cancel: '取消',
   apply: '保存',
   applying: '保存中…',

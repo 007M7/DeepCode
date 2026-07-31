@@ -130,7 +130,9 @@ function smoke(overrides: Partial<TuiPtySmokeOptions> & { label: string }): Prom
     tempDirPrefix: 'dsh-tui-smoke-',
     binScript: dshBinScript,
     tsconfigPath,
-    env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call' },
+    // Telemetry now mounts in the shared base: keep fixture sessions from
+    // POSTing to the production endpoint when run outside CI's workflow env.
+    env: { DEEPSEEK_API_KEY: 'keyless-tui-no-call', DSH_TELEMETRY_DISABLED: '1' },
     // Artifact CI builds and smokes concurrently on a contended runner.
     ...(process.env.DSH_EXAMPLE_MODE === 'lib' ? { timeoutMs: 60_000 } : {}),
     ...overrides,

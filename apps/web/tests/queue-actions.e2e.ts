@@ -81,7 +81,7 @@ describe('web e2e: queue row actions', () => {
       await input.fill(text)
       await input.press('Enter')
     }
-    const queueHeader = page.getByRole('button', { name: '2 条排队消息' })
+    const queueHeader = page.getByRole('button', { name: '2 queued messages' })
     await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
       .toBe('false')
     const collapsedSnapshot = await captureStableAria(
@@ -92,21 +92,41 @@ describe('web e2e: queue row actions', () => {
     await compareOrRefreshGolden(COLLAPSED_EXPECTED, collapsedSnapshot, MODE)
     await queueHeader.click()
     await expect.poll(
-      () => page.getByRole('button', { name: '删除排队消息' }).count(),
+      () => page.getByRole('button', { name: 'Remove queued message' }).count(),
       { timeout: 10_000 },
     ).toBe(2)
 
+    await page.setViewportSize({ width: 640, height: 1000 })
+    const queueBox = await page.locator('[data-queue-dock]').boundingBox()
+    const composerBox = await page.locator('[data-composer-card]').boundingBox()
+    expect(queueBox).not.toBeNull()
+    expect(composerBox).not.toBeNull()
+    expect(queueBox!.x).toBeGreaterThanOrEqual(composerBox!.x)
+    expect(queueBox!.x + queueBox!.width)
+      .toBeLessThanOrEqual(composerBox!.x + composerBox!.width)
+    const queueLeftInset = queueBox!.x - composerBox!.x
+    const queueRightInset = composerBox!.x + composerBox!.width - queueBox!.x - queueBox!.width
+    const composerMetrics = await page.locator('[data-composer-card]').evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        dockInset: Number.parseFloat(style.getPropertyValue('--dsh-composer-dock-inset')),
+      }
+    })
+    expect(queueLeftInset).toBeCloseTo(composerMetrics.dockInset, 1)
+    expect(queueRightInset).toBeCloseTo(composerMetrics.dockInset, 1)
+    await page.setViewportSize({ width: 1680, height: 1000 })
+
     const editRow = page.getByText(EDIT, { exact: true }).locator('..')
-    await editRow.getByRole('button', { name: '编辑排队消息' }).click()
-    const editor = page.getByRole('textbox', { name: '编辑排队消息' })
+    await editRow.getByRole('button', { name: 'Edit queued message' }).click()
+    const editor = page.getByRole('textbox', { name: 'Edit queued message' })
     await editor.fill(EDITED)
     const editingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EDITING_EXPECTED, editingSnapshot, MODE)
-    await page.getByRole('button', { name: '保存排队消息' }).click()
+    await page.getByRole('button', { name: 'Save queued message' }).click()
     await page.getByText(EDITED, { exact: true }).waitFor()
 
     const removeRow = page.getByText(REMOVE, { exact: true }).locator('..')
-    await removeRow.getByRole('button', { name: '删除排队消息' }).click()
+    await removeRow.getByRole('button', { name: 'Remove queued message' }).click()
     await expect.poll(() => page.getByText(REMOVE, { exact: true }).count()).toBe(0)
 
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
@@ -116,7 +136,7 @@ describe('web e2e: queue row actions', () => {
     expect(tripwire.warnings).toEqual([])
 
     const editedRow = page.getByText(EDITED, { exact: true }).locator('..')
-    await editedRow.getByRole('button', { name: '删除排队消息' }).click()
+    await editedRow.getByRole('button', { name: 'Remove queued message' }).click()
     await expect.poll(() => page.getByText(EDITED, { exact: true }).count()).toBe(0)
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await settled

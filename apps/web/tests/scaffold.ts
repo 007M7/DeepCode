@@ -199,6 +199,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   const patches: PatchOptions[] = [
     ...surfacePatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
+    { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's './.storages' yml default is cwd-relative and resolves
     // per write; the scaffold restores the original cwd after boot, so the
     // row gets an absolute temp root (removed with the workspace at close).
@@ -221,6 +222,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // workspace, keeping the composition untouched.
     { id: 'workspace-context', disabled: true },
     { id: 'session-title-llm', disabled: true },
+    // Fixture sessions must never leave the process: the shipped row defaults
+    // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
+    // names in the ambient environment).
+    { id: 'telemetry-otel', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },

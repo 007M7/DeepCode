@@ -638,7 +638,9 @@ export interface Config {
   thinking?: 'enabled' | 'disabled'
   /** Default thinking effort (default `high`); `off` disables thinking per request. */
   reasoningEffort?: 'off' | 'high' | 'max'
-  /** Positive context capacity used when the selected model has no exact value. */
+  /** Default per-request output cap (default 256,000); explicit request values win. */
+  maxTokens?: number
+  /** Positive context capacity used when the selected model has no exact value (default 1,000,000). */
   defaultContextWindow?: number
   /** Advisory models shown by discovery consumers; defaults to V4 Flash and V4 Pro. */
   models?: DeepSeekCatalogModel[]
@@ -663,7 +665,7 @@ export interface DeepSeekCatalogModel {
 
 Depends on: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:50`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:60`](../packages/llm/llm-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
 
@@ -774,7 +776,7 @@ Requires: `agents`
 export type Config = Readonly<Record<string, never>>
 ```
 
-Source: [`packages/llm/llm-retry/src/index.ts:45`](../packages/llm/llm-retry/src/index.ts)
+Source: [`packages/llm/llm-retry/src/index.ts:47`](../packages/llm/llm-retry/src/index.ts)
 
 ## `@deepseek-ai/dsh-lsp-local`
 
@@ -869,10 +871,10 @@ Source: [`packages/mcp/mcp-client/src/index.ts:93`](../packages/mcp/mcp-client/s
 
 ## `@deepseek-ai/dsh-permission`
 
-Requires: `bash` · `approval`
+Requires: `bash` · `approval` · `sessions`
 
 ```ts config-catalog
-/** The {@link PermissionService} config: the deployment's preset table. */
+/** The {@link PermissionService} config: preset table and composition default. */
 export interface Config {
   /**
    * The preset table: name → knob bundle. Defaults to `workspace-write`
@@ -880,6 +882,11 @@ export interface Config {
    * never). The name `custom` is reserved for the derived not-a-preset state.
    */
   presets?: Record<string, PresetSpec>
+  /**
+   * Default for new sessions. When omitted, the preset matching the composed
+   * sandbox and approval defaults is used.
+   */
+  defaultPreset?: string
 }
 
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -897,7 +904,7 @@ export interface PresetSpec {
 
 Depends on: [`ApprovalPolicy`](core-data-structures/approval.md) · [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/ui/permission/src/index.ts:130`](../packages/ui/permission/src/index.ts)
+Source: [`packages/ui/permission/src/index.ts:140`](../packages/ui/permission/src/index.ts)
 
 ## `@deepseek-ai/dsh-plan-mode`
 
@@ -1142,11 +1149,13 @@ Requires: `sessions`
 /** Combined session-query configuration backed by SQLite full-text search. */
 export interface Config extends SessionQueryConfig {
   /**
-   * Dedicated derived-index path; `:memory:` is supported for tests. Missing
-   * directories and database files are created owner-only on POSIX filesystems;
-   * existing modes are preserved.
+   * Dedicated derived-index path; `:memory:` is supported for ephemeral
+   * indexes. Missing directories and database files are created owner-only on
+   * POSIX filesystems; existing modes are preserved.
    */
   path: string
+  /** Open the SQLite module and handle at service activation or the first search. Defaults to `startup`. */
+  openAt?: OpenAt
   /** SQLite journal mode. Defaults to `wal`. */
   journalMode?: JournalMode
   /** Page size when a request omits `limit`. At most `Number.MAX_SAFE_INTEGER - 1`; defaults to 20. */
@@ -1159,13 +1168,16 @@ export interface Config extends SessionQueryConfig {
   persistedInspectConcurrency?: number
 }
 
+/** SQLite module/handle opening phase. */
+export type OpenAt = 'startup' | 'first-search'
+
 /** Supported SQLite journal modes. */
 export type JournalMode = 'wal' | 'delete' | 'truncate' | 'persist'
 ```
 
 Depends on: [`SessionQueryConfig`](../packages/session-query/session-query/src/index.ts)
 
-Source: [`packages/session-query/session-query-sqlite/src/index.ts:86`](../packages/session-query/session-query-sqlite/src/index.ts)
+Source: [`packages/session-query/session-query-sqlite/src/index.ts:89`](../packages/session-query/session-query-sqlite/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-reference`
 
