@@ -6,6 +6,16 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 它采用了**一切皆插件**的架构。
 
+## 内测声明
+
+感谢您愿意拨冗试用 DeepSeek Harness。
+
+目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验难免粗粝。
+
+“如切如磋，如琢如磨。”产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中暴露的问题，也可能促使我们重新审视，甚至推翻已有的设计。
+
+我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未能帮到您，甚至反而为工作平添了麻烦，请在企业微信群中留言，将使用感受告诉我们。每一条反馈，都会帮助我们把它打磨得更好。
+
 ## 安装
 
 使用一条命令安装 `dsh`：
@@ -22,20 +32,14 @@ curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/m
 
 ### Web UI
 
-推荐在本地使用 Web UI。安装完成后以及每次更新后，请先构建前端，再启动 Web UI。通过 `dsh` 启动器解析当前运行的检出，这样无论当前是哪个 staging worktree，命令都成立（启动器会经由稳定的 `current` 符号链接解析）：
+推荐在本地使用 Web UI。安装完成后以及每次更新后，请先构建当前生效的检出，再启动 Web UI：
 
 ```sh
-dsh_bin=$(cd "$(dirname "$(command -v dsh)")" && pwd -P)/$(basename "$(command -v dsh)")
-while [ -L "$dsh_bin" ]; do
-  link=$(readlink "$dsh_bin")
-  case $link in /*) dsh_bin=$link ;; *) dsh_bin=$(cd "$(dirname "$dsh_bin")" && cd "$(dirname "$link")" && pwd -P)/$(basename "$link") ;; esac
-done
-dsh_dir=$(cd "$(dirname "$dsh_bin")/.." && pwd -P)
-pnpm --dir "$dsh_dir" run build && pnpm --dir "$dsh_dir" run build:web
+(cd ~/.dsh/source/current && pnpm run build)
 dsh web
 ```
 
-Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
+完整构建会生成库与客户端 bundle，以及前端 dist。上述路径是安装器的默认位置。如果你设置过 `DSH_SOURCE` 或 `DSH_CURRENT`，或者复用了已有检出，请把 `~/.dsh/source/current` 换成该检出路径；详情见 [`scripts/install.sh`](scripts/install.sh)。Web UI 默认通过 `http://127.0.0.1:3080` 提供服务。
 
 ### TUI
 
@@ -53,11 +57,22 @@ dsh
 dsh -p "summarize this workspace"
 ```
 
+### 自动化与 SDK
+
+在源码检出中通过环境变量或根目录 `.env` 设置 `DEEPSEEK_API_KEY`，然后启动 ACP（Agent Client Protocol）自动化服务器：
+
+```sh
+pnpm run demo:acp
+```
+
+[Python SDK](python/README.md) 驱动随附的 JSON-RPC 运行时。[示例](examples/README.md)涵盖可运行的 headless、ACP、JSON-RPC、Code Mode 和自指组合。
+
 ## 为什么选择 DeepSeek Harness
 
-内置功能涵盖文件读取、编辑与搜索、shell 执行、可复用 skill（技能）、任务跟踪、subagent 与工作流、持久化会话，以及上下文压缩（context compaction）。TUI 还包含 Plan Mode。
+内置功能涵盖文件读取、编辑与搜索、shell 和持久 PTY 执行、可复用 skill（技能）、任务跟踪、目标、计划、待办事项与后台任务、subagent 与工作流、沙箱与审批、设置与凭据、可持久化、恢复、fork 与查询的会话、LSP 与 Web 访问、上下文压缩（context compaction），以及遥测。每个组合只选用适合其使用方式的能力子集。TUI 与 Web UI 均包含 Plan Mode。
 
 - **一切皆插件。** 模型、工具、策略、存储、上下文管理和界面均可组合为 [Cordis 插件](docs/user/develop/basic/index.md)，部署方无需 fork agent loop（智能体循环）即可扩展或替换行为。底层设计见[架构文档](docs/architecture.md)。
+- **运行可重建。** 凡是模型可见的内容，都会记录在权威会话流中；持久化、恢复／fork／查询、回放、遥测和 UI 均从同一组事件派生。参见[会话日志架构](docs/architecture.md#session-log)。
 - **Code Mode（需显式启用）。** 它会提供 `run_code` 工具和生成的 TypeScript SDK，只有程序输出会重新进入模型上下文。参见 [Code Mode](packages/core/tools/README.md#code-mode)。
 - **自指 Cordis 工具需显式启用。** 这些工具可让 agent 检查自身的实时运行时，并在运行中挂载或卸载插件。参见 [Cordis 工具](packages/cordis/tool-cordis/README.md)。
 
@@ -80,7 +95,7 @@ pnpm run test:coverage
 
 面向 agent：遵循 [AGENTS.md](AGENTS.md)。
 
-DeepSeek Harness 目前处于预发布阶段。
+DeepSeek Harness 目前处于内测阶段。
 
 ## 许可证
 
