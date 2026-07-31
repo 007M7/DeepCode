@@ -20,9 +20,9 @@ import { InputBar } from './skeleton/InputBar.tsx'
 import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
-import { searchToolview } from './toolviews/search-row.tsx'
 import { readToolview } from './toolviews/read-row.tsx'
 import { fileMutationToolview } from './toolviews/file-mutation-row.tsx'
+import { searchToolview } from './toolviews/search-row.tsx'
 import { webToolview } from './toolviews/web-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
@@ -322,10 +322,6 @@ export function apply(ctx: Context): void {
   // (ToolRow-matching Bash · {description} chrome; scoped badge in child sessions).
   ctx.plugin(bashToolviewSample)
 
-  // The grep/glob search row rides the same seam: one component registered
-  // under both tool names, since both declare the same search render intent.
-  ctx.plugin(searchToolview)
-
   // The read row rides the same seam (a product registration, not a sample):
   // Read · {path} chrome with the file's read card resident below it.
   ctx.plugin(readToolview)
@@ -334,6 +330,11 @@ export function apply(ctx: Context): void {
   // diff render intent, so these rows stack the applied diff card under their
   // path-link summary (the terminal card's posture, applied to diffs).
   ctx.plugin(fileMutationToolview)
+
+  // The grep/glob search row rides the same seam: one component registered
+  // under both tool names, since both declare the same search render intent.
+  ctx.plugin(searchToolview)
+
   // The web rows ride the same seam: one WebRow registered under both
   // web_search and web_fetch, rendering the completed retrieval's web card
   // resident under the summary (a product registration, not a sample).
