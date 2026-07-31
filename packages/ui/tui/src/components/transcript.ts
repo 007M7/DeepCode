@@ -402,12 +402,15 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    // A generic card's own content, or a web card's fallback to the raw result
-    // content (the `web` view carries no `content` copy), both render as one dim
-    // Markdown block below, so links/lists/headings keep the unified dim styling
-    // rather than reading as bare text. Terminal and diff cards own their body
-    // styling, so they are excluded (mirrors renderBody's post-terminal/diff fallback).
-    const markdownContent = view.card === 'generic'
+    // A generic card's own content, or a read card's `content` fallback (the
+    // envelope-stripped file text — the TUI has no dedicated read rendering, so a
+    // read renders exactly as before the read card existed), or a web card's
+    // fallback to the raw result content (the `web` view carries no `content`
+    // copy), all render as one dim Markdown block below, so links/lists/headings
+    // keep the unified dim styling rather than reading as bare text. Terminal and
+    // diff cards own their body styling, so they are excluded (mirrors
+    // renderBody's post-terminal/diff fallback).
+    const markdownContent = view.card === 'generic' || view.card === 'read'
       ? view.content ?? this.result?.content
       : view.card === 'web'
         // A web resultView is only assigned alongside this.result (the result
@@ -532,11 +535,12 @@ export class ToolCardComponent implements Component {
       // rather than under the dim result-output color.
       return { prelude: [...hunks, footer], lines: [] }
     }
-    // The web card carries no `content` copy, so a `web` result view falls back
-    // to the raw result content here (`view.card === 'generic'` narrows the
-    // generic union arm; a `web` card takes the same fallback, mirroring the
-    // `markdownContent` selection in render()).
-    const content = (view.card === 'generic' ? view.content : undefined) ?? this.result?.content
+    // A generic or read card carries its own envelope-stripped `content`; a `web`
+    // card carries no `content` copy and falls back to the raw result content
+    // here. (Mirrors the `markdownContent` selection in render(); a read card has
+    // no dedicated TUI rendering, so its `content` takes the same body path,
+    // keeping read output as it was before the read card existed.)
+    const content = (view.card === 'generic' || view.card === 'read' ? view.content : undefined) ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
     // The presenter title headlines the body now that the header is a fixed
