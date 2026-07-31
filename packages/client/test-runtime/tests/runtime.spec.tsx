@@ -551,8 +551,12 @@ describe('workspaces action face', () => {
     await ws.openPath('/proj/file.ts')
     const moved = await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId, 's2' as SessionId)
     expect(moved.sessionIds).toEqual(['s1'])
+    // Default archive mirrors the production effect: the id joins the list
+    // state's archive set (features render against the same snapshot).
+    await ws.archiveSession('s1' as SessionId)
+    expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     expect(ws.calls.map(c => c.method)).toEqual(
-      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertSessionBefore'])
+      ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertSessionBefore', 'archiveSession'])
 
     ws.stub('create', () => Promise.resolve({ workspaceId: 'ws-x', title: 'X', path: '/x', sessionIds: [] } as never))
     ws.stub('pickDirectory', () => Promise.resolve('/picked'))
@@ -560,12 +564,16 @@ describe('workspaces action face', () => {
     ws.stub('delete', () => Promise.resolve())
     ws.stub('openPath', () => Promise.resolve())
     ws.stub('insertSessionBefore', () => Promise.resolve({ workspaceId: 'w1', title: '', path: '', sessionIds: [] } as never))
+    ws.stub('archiveSession', () => Promise.resolve())
     expect((await ws.create({ name: 'y' })).title).toBe('X')
     await expect(ws.pickDirectory()).resolves.toBe('/picked')
     expect((await ws.rename('w1' as WorkspaceId, 'z')).title).toBe('S')
     await ws.delete('w1' as WorkspaceId)
     await ws.openPath('/other')
     expect((await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId)).sessionIds).toEqual([])
+    // The stub replaces the default set mutation: the set stays as-is.
+    await ws.archiveSession('s2' as SessionId)
+    expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     await runtime.dispose()
   })
 })

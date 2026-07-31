@@ -441,4 +441,44 @@ describe('Host Workspace increments', () => {
     expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
     abort.abort()
   })
+
+  it('archives a session into the global set, keeps its accounting, and streams the set once', async () => {
+    const { api } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ name: 'archive-home' }))).workspace
+    const sessionId = SessionId('session-to-archive')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([])
+
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const changed = nextHostFrame(stream)
+    expect(expectOk(await api.workspace.archiveSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([sessionId])
+    expect(await changed).toMatchObject({
+      payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [sessionId] },
+    })
+
+    // Accounting and the session itself are untouched; list re-baselines the set.
+    const listed = expectOk(await api.workspace.list(request({})))
+    expect(listed.archivedSessionIds).toEqual([sessionId])
+    expect(listed.items[0]?.sessionIds).toEqual([sessionId])
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
+
+    // The idempotent repeat emits no second frame: the next observed frame is
+    // the workspace-changed of a later attach, not another archive snapshot.
+    const after = nextHostFrame(stream)
+    expect(expectOk(await api.workspace.archiveSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([sessionId])
+    const otherSession = SessionId('session-after-archive')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId: otherSession })))
+    expect((await after).payload.type).not.toBe('host/archived-sessions-changed')
+
+    const missing = await api.workspace.archiveSession(request({ sessionId: SessionId('session-ghost') }))
+    expect(missing.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-not-found', details: { sessionId: 'session-ghost' } },
+    })
+    abort.abort()
+  })
 })

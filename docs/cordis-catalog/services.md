@@ -2545,6 +2545,15 @@ list(): Workspace[]
 delete(id: WorkspaceId): Promise<boolean>
 
 /**
+ * Archive one session durably. The session must exist (live or in session
+ * persistence); its workspace accounting — or lack of one — is irrelevant.
+ * An already archived id resolves without writing.
+ * @param sessionId - The session to archive.
+ * @returns resolution after durability.
+ */
+archiveSession(sessionId: SessionId): Promise<void>
+
+/**
  * Resolve by canonical directory path without creating or mutating a
  * workspace. A missing path rejects during `realpath`; an existing unowned
  * directory returns `undefined`.
@@ -2554,7 +2563,9 @@ delete(id: WorkspaceId): Promise<boolean>
 async resolveByPath(path: string): Promise<Workspace | undefined>
 ```
 
-Source: [`packages/workspace/workspace/src/index.ts:78`](../../packages/workspace/workspace/src/index.ts)
+Types: [SessionId](../core-data-structures/core.md)
+
+Source: [`packages/workspace/workspace/src/index.ts:92`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 
