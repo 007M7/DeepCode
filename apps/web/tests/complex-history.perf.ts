@@ -2,16 +2,22 @@
 // rendering. It reports measurements without timing assertions because host
 // speed is not a correctness contract; structural assertions keep the load
 // shape from silently shrinking.
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import type { Browser, CDPSession, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   CallId,
   createAssistantMessage,
   createToolResultMessage,
   createUserMessage,
 } from '@deepseek-ai/dsh-llm'
+import type { ReplayOverrideDoc } from '@deepseek-ai/dsh-llm-replay'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   SESSION_FORMAT_VERSION,
   Session,
@@ -23,9 +29,10 @@ import {
   launchWebScaffold,
   seedSession,
   watchConsole,
+  webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage } from './support.ts'
+import { connectFreshWorkspace, newEnglishPage } from './support.ts'
 
 const SIDEBAR_SESSION_COUNT = 1_000
 const LONG_SESSION_ID = 'perf-long-history'
@@ -35,6 +42,33 @@ const TOOL_TURN_INTERVAL = 10
 const TOOLS_PER_TOOL_TURN = 10
 const EXPECTED_TOOL_CALLS = LONG_HISTORY_TURNS / TOOL_TURN_INTERVAL * TOOLS_PER_TOOL_TURN
 const EXPECTED_TRAJECTORY_ROWS = 2_100
+const STREAM_PACE_MS = 8
+const STREAM_DELTA_COUNT = 120
+const LIVE_PROMPT_MARKER = 'STREAM_PERF_USER_INPUT'
+const STREAM_FIRST_MARKER = 'STREAM_PERF_FIRST'
+const STREAM_DONE_MARKER = 'STREAM_PERF_DONE'
+const LIVE_PROMPT = [
+  LIVE_PROMPT_MARKER,
+  'Analyze the following mixed-language project context and return a concise diagnostic.',
+  ...Array.from(
+    { length: 48 },
+    (_, index) =>
+      `Context ${String(index + 1).padStart(2, '0')}: 用户正在检查长会话中的增量渲染性能。`
+      + ` Preserve item ${String(index)} and compare ${'payload'.repeat(8)}.`,
+  ),
+  '```ts',
+  ...Array.from(
+    { length: 40 },
+    (_, index) => `const sample_${String(index)} = ${JSON.stringify(`value-${String(index)}-${'x'.repeat(32)}`)}`,
+  ),
+  '```',
+].join('\n')
+const STREAM_DELTAS = Array.from({ length: STREAM_DELTA_COUNT }, (_, index) => {
+  if (index === 0) return `${STREAM_FIRST_MARKER} `
+  if (index === STREAM_DELTA_COUNT - 1) return `${STREAM_DONE_MARKER}.`
+  return `chunk-${String(index).padStart(3, '0')} ${'response'.repeat(3)} `
+})
+const STREAM_RESPONSE = STREAM_DELTAS.join('')
 
 interface ChromiumMetrics {
   readonly [name: string]: number
@@ -52,6 +86,11 @@ interface Measurement {
   readonly heapDeltaMb: number
   readonly totalNodes: number
   readonly heapMb: number
+}
+
+interface MutationProbeResult {
+  readonly batches: number
+  readonly records: number
 }
 
 function text(value: string): { type: 'text'; text: string }[] {
@@ -255,6 +294,31 @@ function longHistoryFixture(): string {
   return fixtureLog(session)
 }
 
+function streamingReplayOverride(): ReplayOverrideDoc {
+  const chunks: StreamChunk[] = [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    ...STREAM_DELTAS.map(text => ({
+      type: 'text-delta' as const,
+      index: 0,
+      text,
+    })),
+    {
+      type: 'block-end',
+      index: 0,
+      block: { type: 'text', text: STREAM_RESPONSE },
+    },
+    {
+      type: 'usage',
+      usage: {
+        inputTokens: Math.ceil(LIVE_PROMPT.length / 4),
+        outputTokens: Math.ceil(STREAM_RESPONSE.length / 4),
+      },
+    },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ]
+  return [{ kind: 'chunks', chunks }]
+}
+
 function rounded(value: number): number {
   return Math.round(value * 1_000) / 1_000
 }
@@ -308,6 +372,43 @@ async function measure<T>(
   return { measurement: metricDelta(before, after, wallMs), value }
 }
 
+async function startMutationProbe(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const target = document.querySelector('[class*="centerCol"]')
+    if (target === null) throw new Error('stream mutation probe target is unavailable')
+    const probe = {
+      batches: 0,
+      records: 0,
+      observer: undefined as MutationObserver | undefined,
+    }
+    const observer = new MutationObserver((records) => {
+      probe.batches += 1
+      probe.records += records.length
+    })
+    probe.observer = observer
+    observer.observe(target, {
+      attributes: true,
+      attributeFilter: ['data-streaming'],
+      characterData: true,
+      childList: true,
+      subtree: true,
+    })
+    Reflect.set(globalThis, '__dshPerfMutationProbe', probe)
+  })
+}
+
+async function stopMutationProbe(page: Page): Promise<MutationProbeResult> {
+  return page.evaluate(() => {
+    const probe = Reflect.get(globalThis, '__dshPerfMutationProbe') as
+      | { batches: number; records: number; observer: MutationObserver }
+      | undefined
+    if (probe === undefined) throw new Error('stream mutation probe was not started')
+    probe.observer.disconnect()
+    Reflect.deleteProperty(globalThis, '__dshPerfMutationProbe')
+    return { batches: probe.batches, records: probe.records }
+  })
+}
+
 async function stableCount(
   locator: Locator,
   accepts: (count: number) => boolean,
@@ -341,10 +442,27 @@ describe('manual web performance: complex workspace and history', () => {
   let page: Page
   let setupMs = 0
   let tripwire: ReturnType<typeof watchConsole>
+  let replayDir: string | undefined
+  const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
+    if (webSnapshotMode() === 'record') {
+      throw new Error('manual web performance runs only with deterministic replay')
+    }
     const setupStarted = performance.now()
-    scaffold = await launchWebScaffold({})
+    replayDir = await mkdtemp(join(tmpdir(), 'dsh-web-perf-replay-'))
+    const replayOverride = join(replayDir, 'replay.override.json')
+    await writeFile(replayOverride, JSON.stringify(streamingReplayOverride()))
+    scaffold = await launchWebScaffold({
+      // A whole-script override needs no committed JSONL, but replayFixture
+      // selects the replay adapter and supplies its diagnostic identity.
+      replayFixture: join(replayDir, 'override-only.jsonl'),
+      replayOverride,
+      paceMs: STREAM_PACE_MS,
+    })
+    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => {
+      sessionEvents.push(event)
+    })
     const small = smallSidebarFixture()
     for (let index = 0; index < SIDEBAR_SESSION_COUNT; index += 1) {
       await seedSession(scaffold, small, `perf-sidebar-${String(index).padStart(4, '0')}`)
@@ -358,8 +476,17 @@ describe('manual web performance: complex workspace and history', () => {
   })
 
   afterAll(async () => {
-    await browser?.close()
-    await scaffold?.close()
+    const failures: unknown[] = []
+    await browser?.close().catch((error: unknown) => failures.push(error))
+    await scaffold?.close().catch((error: unknown) => failures.push(error))
+    if (replayDir !== undefined) {
+      await rm(replayDir, { recursive: true, force: true })
+        .catch((error: unknown) => failures.push(error))
+    }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'web performance teardown failed')
+    }
   })
 
   it('reports sidebar, paging, and trajectory rendering costs', async () => {
@@ -446,6 +573,62 @@ describe('manual web performance: complex workspace and history', () => {
     })
     expect(warmTrajectory.value).toBe(EXPECTED_TRAJECTORY_ROWS)
 
+    const newSession = await measure(cdp, async () => {
+      await page.getByRole('button', { name: 'New session', exact: true }).last().click()
+      await connectFreshWorkspace(page, 'stream-perf')
+      const input = page.locator(
+        'textarea:enabled[placeholder="Describe what you want to build"]',
+      )
+      await input.waitFor({ timeout: 15_000 })
+      return input
+    })
+
+    const composerInput = await measure(cdp, async () => {
+      await newSession.value.fill(LIVE_PROMPT)
+      await expect.poll(() => newSession.value.inputValue()).toBe(LIVE_PROMPT)
+      return (await newSession.value.inputValue()).length
+    })
+    expect(composerInput.value).toBe(LIVE_PROMPT.length)
+
+    await startMutationProbe(page)
+    const streamBefore = await chromiumMetrics(cdp)
+    const streamStarted = performance.now()
+    const settled = scaffold.whenTurnSettled(60_000)
+    await page.getByRole('button', { name: 'Send message', exact: true }).click()
+    await page.getByText(LIVE_PROMPT_MARKER, { exact: false }).last()
+      .waitFor({ timeout: 15_000 })
+    const clickToUserEchoMs = performance.now() - streamStarted
+    await page.getByText(STREAM_FIRST_MARKER, { exact: false }).last()
+      .waitFor({ timeout: 15_000 })
+    const clickToFirstChunkMs = performance.now() - streamStarted
+    await settled
+    await expect.poll(
+      () => page.locator('[data-streaming="true"]').count(),
+      { timeout: 15_000 },
+    ).toBe(0)
+    await page.getByText(STREAM_DONE_MARKER, { exact: false }).last()
+      .waitFor({ timeout: 15_000 })
+    const clickToSettledMs = performance.now() - streamStarted
+    const streamAfter = await chromiumMetrics(cdp)
+    const streamMutations = await stopMutationProbe(page)
+    const streamMeasurement = metricDelta(
+      streamBefore,
+      streamAfter,
+      clickToSettledMs,
+    )
+
+    const assistantChunks = sessionEvents.filter(
+      event => event.type === 'assistant/chunk',
+    )
+    expect(assistantChunks).toHaveLength(STREAM_DELTA_COUNT + 4)
+    const liveUser = sessionEvents.filter(event => event.type === 'user/message').at(-1)
+    if (liveUser?.type !== 'user/message') throw new Error('live performance prompt was not logged')
+    const liveUserText = liveUser.data.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('')
+    expect(liveUserText).toBe(LIVE_PROMPT)
+
     const report = {
       fixture: {
         sidebarSessions: SIDEBAR_SESSION_COUNT,
@@ -483,6 +666,22 @@ describe('manual web performance: complex workspace and history', () => {
       warmTrajectory: {
         rows: warmTrajectory.value,
         ...warmTrajectory.measurement,
+      },
+      liveInput: {
+        promptChars: LIVE_PROMPT.length,
+        newSession: newSession.measurement,
+        composerFill: composerInput.measurement,
+        stream: {
+          paceMs: STREAM_PACE_MS,
+          deltaChunks: STREAM_DELTA_COUNT,
+          persistedChunks: assistantChunks.length,
+          clickToUserEchoMs: rounded(clickToUserEchoMs),
+          clickToFirstChunkMs: rounded(clickToFirstChunkMs),
+          firstChunkToSettledMs: rounded(clickToSettledMs - clickToFirstChunkMs),
+          mutationBatches: streamMutations.batches,
+          mutationRecords: streamMutations.records,
+          ...streamMeasurement,
+        },
       },
     }
     console.info(`WEB_PERF_RESULT ${JSON.stringify(report, null, 2)}`)

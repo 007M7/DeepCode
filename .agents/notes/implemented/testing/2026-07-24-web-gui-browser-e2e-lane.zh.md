@@ -48,7 +48,7 @@ Web GUI 以一条真实组装链交付——chromium 页面 → client 插件 bu
 
 根据[浏览器快照 CI 决策](2026-07-30-web-browser-snapshot-ci-gate.md)，该车道是 Linux 拉取请求必需的只比较门禁。`node 24 / snapshots and artifacts` 消费方任务在[消费方独立构建](../process/2026-07-30-independent-ci-consumer-build.md)中负责唯一一次 Linux 构建，安装锁文件选定的 Chromium，恢复以操作系统和锁文件为键的缓存，并用 `DSH_SNAPSHOT=replay` 运行该车道。这是有意的平面切分：host 与 spec 使用 [tsx 源码启动契约](../architecture/2026-07-29-dsh-source-launch-tsx-esm.md)，浏览器则消费 `apps/web/dist` 和包的 `lib/client.js` 产物，因此门禁依赖 `built-package-invariants` 提供这些客户端产物。托管和自托管的默认分支 Linux 串行任务运行同一门禁；托管任务生成供 PR 消费的浏览器缓存，持久化自托管池则不需要托管侧缓存。CI 从不录制或刷新预期输出。场景仍面向 POSIX，并继续置于 Windows 和 macOS 矩阵之外。
 
-高基数性能诊断使用单独按需启用的 `apps/web/tests/**/*.perf.ts` 清单，并且只由 `vitest.web.perf.config.ts` 选中。`complex-history.perf.ts` 用例复用真实 scaffold，播种 1,000 个紧凑会话以及一份包含 500 次工具调用的 500 轮次历史，并报告 Chromium 主线程、DOM、监听器、堆内存、分页、搜索和 Trajectory 测量结果。它对预期负载形状设有结构性断言，但不设时间阈值，因为机器速度不属于正确性契约。必需的 `vitest.web.config.ts` 清单仍仅限 `*.e2e.ts` 和 `*.snapshot.ts`，因此 `test:web:built` 及其 CI 门禁都不会收集性能用例。
+高基数性能诊断使用单独按需启用的 `apps/web/tests/**/*.perf.ts` 清单，并且只由 `vitest.web.perf.config.ts` 选中。`complex-history.perf.ts` 用例复用真实 scaffold，播种 1,000 个紧凑会话以及一份包含 500 次工具调用的 500 轮次历史，并报告 Chromium 主线程、DOM、监听器、堆内存、分页、搜索和 Trajectory 测量结果。随后它打开一个空白会话，通过真实输入框填入一条确定性的混合语言提示词，点击 Send，并通过真实循环和 SSE wire 回放 120 个带节奏的文本增量；报告包括点击到用户消息回显、点击到首个分片、流完成、浏览器变更和持久化分片测量结果。它对预期负载和流形状设有结构性断言，但不设时间阈值，因为机器速度不属于正确性契约。必需的 `vitest.web.config.ts` 清单仍仅限 `*.e2e.ts` 和 `*.snapshot.ts`，因此 `test:web:built` 及其 CI 门禁都不会收集性能用例。
 
 ## 业界先例
 
