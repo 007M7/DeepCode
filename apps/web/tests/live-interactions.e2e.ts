@@ -134,7 +134,10 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     // The marker IS the synchronization: the stream is provably parked in the
     // hang (prefix chunks delivered to the loop) before the stop click.
     await expect.poll(() => existsSync(marker), { timeout: 15_000 }).toBe(true)
-    await expect(page.getByRole('status').filter({ hasText: 'Deep diving...' }).isVisible()).resolves.toBe(true)
+    await expect.poll(
+      () => page.getByRole('status').filter({ hasText: 'Deep diving...' }).isVisible(),
+      { timeout: 10_000 },
+    ).toBe(true)
     const loadingSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(LOADING_EXPECTED, loadingSnapshot, MODE)
     await page.getByRole('button', { name: 'Stop generating' }).click()

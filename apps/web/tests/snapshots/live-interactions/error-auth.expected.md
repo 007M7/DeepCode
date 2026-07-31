@@ -11,7 +11,6 @@
   - img
 - button "Edit":
   - img
-- button "Context injection"
 - textbox "Message the agent"
 - button "Commands":
   - img

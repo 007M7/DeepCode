@@ -11,7 +11,6 @@
   - img
 - button "Edit":
   - img
-- button "Context injection"
 - paragraph: partial
 - status: Deep diving...
 - textbox "Message the agent"
