@@ -48,6 +48,7 @@
     // package project itself.
     { "path": "./packages/compact/compact" },
     { "path": "./packages/client/ui-slots" },
+    { "path": "./packages/client/schema-form" },
     { "path": "./packages/client/ui-primitives" },
     { "path": "./packages/client/web-react" },
     { "path": "./packages/client/modules" },

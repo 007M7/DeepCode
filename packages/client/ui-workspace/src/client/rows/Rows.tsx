@@ -12,32 +12,55 @@ import {
   IconFolderClose16, IconFolderOpen16, IconPlusOutline16,
   IconTrashOutline16, IconTriangleRightFill14, Menu, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { GroupNode, SessionNode } from '../tree.ts'
-import { formatRelativeTime } from '../tree.ts'
+import { relativeTime } from '../tree.ts'
 import css from './Rows.module.css'
 
-const SESSION_MENU_ITEMS = [
-  { id: 'rename', label: 'Rename', icon: <IconEditOutline16 /> },
-  { id: 'fork', label: 'Fork session', icon: <IconBranchOutline16 /> },
-  { id: 'delete', label: 'Delete session', icon: <IconTrashOutline16 />, danger: true },
-]
+/** The standard locale seat, prop-passed from the browser root. */
+type RowTranslate = WorkspaceBrowserProps['t']
 
-const WORKSPACE_MENU_ITEMS = [
-  { id: 'rename', label: 'Rename', icon: <IconEditOutline16 /> },
-  { id: 'delete', label: 'Delete workspace', icon: <IconTrashOutline16 />, danger: true },
-]
+/** Row display title: blank rows show the localized New Session label. */
+function displayTitle(node: SessionNode, t: RowTranslate): string {
+  return node.blank ? t('session.new') : node.title
+}
+
+/** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
+function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
+  const { unit, n } = relativeTime(updatedAt, now)
+  return unit === 'now' ? t('time.now') : t(`time.${unit}`, { n })
+}
+
+/** Hover-card variant: distances wrap in the ago template; the now bucket stays bare (no "now ago"). */
+function hoverTimeLabel(updatedAt: number, now: number, t: RowTranslate): string {
+  const { unit, n } = relativeTime(updatedAt, now)
+  return unit === 'now' ? t('time.now') : t('time.ago', { t: t(`time.${unit}`, { n }) })
+}
+
+/**
+ * Absolute creation time through the dictionary's date template (the message
+ * clock pattern): `toLocaleString` would follow the browser language, not the
+ * app locale, and produce mixed-language text after a switch.
+ */
+function createdLabel(createdAt: number, t: RowTranslate): string {
+  const d = new Date(createdAt)
+  const pad2 = (v: number): string => String(v).padStart(2, '0')
+  const date = t('date.ymd', { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() })
+  return t('hover.created', { time: `${date} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` })
+}
 
 /** Hover-card body: workspace title, full directory path, absolute creation time. */
-function WorkspaceHoverContent({ label, cwd, createdAt }: {
+function WorkspaceHoverContent({ label, cwd, createdAt, t }: {
   label: string
   cwd: string | undefined
   createdAt: number
+  t: RowTranslate
 }) {
   return (
     <div className={css.hoverContent}>
       <div className={css.hoverTitle}>{label}</div>
       <div className={css.hoverPath}>{cwd}</div>
-      <div className={css.hoverTime}>{`Created ${new Date(createdAt).toLocaleString()}`}</div>
+      <div className={css.hoverTime}>{createdLabel(createdAt, t)}</div>
     </div>
   )
 }
@@ -50,19 +73,27 @@ function WorkspaceHoverContent({ label, cwd, createdAt }: {
  * @param props.group - derived group node.
  * @param props.onToggle - expand/collapse the group.
  * @param props.onCreate - start a frontend Session inside this Workspace.
+ * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
+export function ProjectRowItem({ group, onToggle, onCreate, actions, t }: {
   group: GroupNode
   onToggle: () => void
   onCreate: () => void
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
   actions?: { rename: () => void; delete: () => void } | undefined
+  t: RowTranslate
 }) {
   const row = group
+  // The ungrouped bucket has no workspace title: its label is dictionary copy.
+  const label = row.workspaceId === undefined ? t('group.ungrouped') : row.label
   const active = group.expanded && group.containsCurrent
-  const count = `${row.sessionCount} ${row.sessionCount === 1 ? 'session' : 'sessions'}`
+  const count = t(row.sessionCount === 1 ? 'sessions.count.one' : 'sessions.count.other', { n: row.sessionCount })
   const [menuOpen, setMenuOpen] = useState(false)
+  const workspaceMenuItems = [
+    { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+    { id: 'delete', label: t('delete.workspace'), icon: <IconTrashOutline16 />, danger: true },
+  ]
   const ownRow = (
     <div
       className={clsx(css.projectRow, menuOpen && css.menuOpen)}
@@ -77,7 +108,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
         <IconTriangleRightFill14 className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
       </span>
       <span className={css.projectText}>
-        <span className={css.title}>{row.label}</span>
+        <span className={css.title}>{label}</span>
         <span className={css.meta}>{count}</span>
       </span>
       <span className={css.rowActions}>
@@ -85,12 +116,12 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
           <Menu
             open={menuOpen}
             onClose={() => { setMenuOpen(false) }}
-            items={WORKSPACE_MENU_ITEMS}
+            items={workspaceMenuItems}
             onSelect={(id) => {
               setMenuOpen(false)
               // Unknown ids leave before the dispatch: a future menu row must
               // not inherit the destructive branch as an else fallback.
-              /* v8 ignore next -- WORKSPACE_MENU_ITEMS carries exactly these two rows today. */
+              /* v8 ignore next -- workspaceMenuItems carries exactly these two rows today. */
               if (id !== 'rename' && id !== 'delete') return
               if (id === 'rename') actions.rename()
               else actions.delete()
@@ -101,7 +132,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
               <button
                 type="button"
                 className={css.iconButton}
-                aria-label={`Workspace actions for ${row.label}`}
+                aria-label={t('actions.workspace.aria', { name: label })}
                 onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
               >
                 <IconEllipsisOutline16 />
@@ -112,7 +143,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
         <button
           type="button"
           className={css.iconButton}
-          aria-label={`New session in ${row.label}`}
+          aria-label={t('actions.newSession.aria', { name: label })}
           onClick={(e) => { e.stopPropagation(); onCreate() }}
         >
           <IconPlusOutline16 />
@@ -125,7 +156,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
   return (
     <HoverCard
       anchor={ownRow}
-      content={<WorkspaceHoverContent label={row.label} cwd={row.cwd} createdAt={row.createdAt} />}
+      content={<WorkspaceHoverContent label={row.label} cwd={row.cwd} createdAt={row.createdAt} t={t} />}
       disabled={menuOpen}
     />
   )
@@ -140,14 +171,14 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions }: {
  * @returns the session row.
  */
 /** Hover-card body: full title, relative time, and the status line (running/idle until wire status lands). */
-function SessionHoverContent({ node, now }: { node: SessionNode; now: number }) {
+function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number; t: RowTranslate }) {
   return (
     <div className={css.hoverContent}>
-      <div className={css.hoverTitle}>{node.title}</div>
-      <div className={css.hoverTime}>{`${formatRelativeTime(node.updatedAt, now)} ago`}</div>
+      <div className={css.hoverTitle}>{displayTitle(node, t)}</div>
+      <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>
       <div className={css.hoverStatus}>
         <StateDot state={node.running ? 'ongoing' : 'done'} />
-        <span>{node.running ? 'Running' : 'Idle'}</span>
+        <span>{node.running ? t('status.running') : t('status.idle')}</span>
       </div>
     </div>
   )
@@ -177,7 +208,7 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
   return e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
 }
 
-export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, drag }: {
+export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, drag, t }: {
   node: SessionNode
   currentId: string | undefined
   now: number
@@ -188,10 +219,17 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onFork: (id: SessionNode['id']) => void
   /** Present only on draggable rows (workspace-group sessions outside search). */
   drag?: RowDragProps | undefined
+  t: RowTranslate
 }) {
   const row = node
+  const title = displayTitle(node, t)
   const selected = node.id === currentId
   const [menuOpen, setMenuOpen] = useState(false)
+  const sessionMenuItems = [
+    { id: 'rename', label: t('rename'), icon: <IconEditOutline16 /> },
+    { id: 'fork', label: t('menu.fork'), icon: <IconBranchOutline16 /> },
+    { id: 'delete', label: t('menu.deleteSession'), icon: <IconTrashOutline16 />, danger: true },
+  ]
   // Figma session cell: pad 8, status slot 16, then a 4px title gap.
   const ownRow = (
     <div
@@ -227,13 +265,13 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
         }}
     >
       <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
-      <span className={css.title}>{row.title}</span>
-      <span className={css.time}>{formatRelativeTime(row.updatedAt, now)}</span>
+      <span className={css.title}>{title}</span>
+      <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>
       <span className={css.rowActions}>
         <Menu
           open={menuOpen}
           onClose={() => { setMenuOpen(false) }}
-          items={SESSION_MENU_ITEMS}
+          items={sessionMenuItems}
           onSelect={(id) => {
             setMenuOpen(false)
             if (id === 'rename') onRename(node.id, row.title)
@@ -245,7 +283,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
             <button
               type="button"
               className={css.iconButton}
-              aria-label={`Session actions for ${row.title}`}
+              aria-label={t('actions.session.aria', { name: title })}
               onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
             >
               <IconEllipsisOutline16 />
@@ -258,7 +296,7 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   return (
     <HoverCard
       anchor={ownRow}
-      content={<SessionHoverContent node={node} now={now} />}
+      content={<SessionHoverContent node={node} now={now} t={t} />}
       disabled={menuOpen || drag?.active === true}
     />
   )

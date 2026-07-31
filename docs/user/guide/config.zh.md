@@ -30,7 +30,7 @@ Harness 使用 `cordis.yml` 描述 Agent 加载哪些插件以及每个插件的
   config:
     agents:
       - id: main
-        provider: deepseek
+        provider: deepseek-official
         model: deepseek-v4-flash
 ```
 

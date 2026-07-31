@@ -69,6 +69,8 @@ describe('apply', () => {
     await vi.waitFor(() => { expect(slots.entries('conversation.input.overlay')).toHaveLength(1) })
     const entries = slots.entries('conversation.input.overlay')
     expect(entries[0]!.options.id).toBe('slash-menu')
+    // Copy rides the standard locale seat, not the business face.
+    expect(entries[0]!.locale).toBe('slash.menu')
 
     const slash = ctx.get('slash') as SlashService
     // StoredEntry.inject is declaration-typed ((...args: never[]) shape);
@@ -79,8 +81,6 @@ describe('apply', () => {
       (ctx.get('sessions') as { scope(id: SessionId): Context }).scope(sid('a')),
     )
     expect(injected.menu).toBe(controller.menu)
-    // The injected translator is the menu-namespace binding.
-    expect(injected.t('command')).toBe('命令')
     // The pick face routes into the controller pipeline (closed menu → no-op).
     injected.onPick('command', 0)
     expect(controller.menu.getSnapshot().open).toBe(false)

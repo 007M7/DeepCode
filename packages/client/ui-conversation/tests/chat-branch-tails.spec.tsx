@@ -8,14 +8,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import {
   formatMessageClock, msUntilNextLocalMidnight, startOfLocalDay,
 } from '../src/client/chat/message-chrome.ts'
-import { MessageItem } from '../src/client/chat/MessageItem.tsx'
+import { MessageItem, type MessageItemProps } from '../src/client/chat/MessageItem.tsx'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+// Mirrors the real lookup chain (conversation namespace, then common).
+const t: MessageItemProps['t'] = makeTranslate(zh, commonZh)
 
 describe('MessageItem arms', () => {
   it('user bubbles expose clock / copy / branch / edit; copy writes the text', () => {
@@ -28,7 +34,7 @@ describe('MessageItem arms', () => {
     const now = new Date()
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
         source: null,
@@ -54,7 +60,7 @@ describe('MessageItem arms', () => {
       value: exec,
     })
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'fallback body' }] as never,
         source: null,
@@ -77,7 +83,7 @@ describe('MessageItem arms', () => {
       },
     })
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'quiet' }] as never,
         source: null,
@@ -95,7 +101,7 @@ describe('MessageItem arms', () => {
 
   it('steering bubbles carry the interjection badge and non-text rest blocks, without user actions', () => {
     const view = render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'steering', seq: 2, turn: 1, source: null,
         content: [{ type: 'text', text: 'steer!' }, { type: 'image', data: 'x' }] as never,
       } as never}
@@ -109,7 +115,7 @@ describe('MessageItem arms', () => {
 
   it('context uses the Tool calls disclosure chrome and keeps its JSON collapsed by default', () => {
     const ctxView = render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'x\n"y":,[{}]' }],
@@ -135,7 +141,7 @@ describe('MessageItem arms', () => {
 
   it('context preserves the bounded JSON truncation contract', () => {
     const view = render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'context',
         seq: 3,
         content: [{ type: 'text', text: 'x'.repeat(21_000) }],
@@ -150,14 +156,14 @@ describe('MessageItem arms', () => {
 
   it('unknown nodes retain the generic JSON row', () => {
     const unknownView = render(
-      <MessageItem node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
+      <MessageItem t={t} node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )
     expect(unknownView.getByText(/未知 surface 事件：surface\/next/)).toBeTruthy()
   })
 
   it('a compaction marker discloses its summary and never shows the framed checkpoint', () => {
     const view = render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'compaction', seq: 5, time: 1_000,
         summary: '## 摘要标题\n\n保留的事实。',
       }}
@@ -174,7 +180,7 @@ describe('MessageItem arms', () => {
   })
 
   it('a marker whose provenance fell outside the window is not expandable', () => {
-    const view = render(<MessageItem node={{ kind: 'compaction', seq: 6, time: 1_000, summary: null }} />)
+    const view = render(<MessageItem t={t} node={{ kind: 'compaction', seq: 6, time: 1_000, summary: null }} />)
     const row = view.getByRole('button', { name: /上下文已压缩/ })
     expect(row).toHaveProperty('disabled', true)
     expect(row.getAttribute('aria-expanded')).toBeNull()
@@ -188,15 +194,15 @@ describe('formatMessageClock', () => {
   const now = new Date(2026, 6, 29, 10, 0).getTime()
 
   it('keeps HH:mm on the same calendar day', () => {
-    expect(formatMessageClock(new Date(2026, 6, 29, 14, 24).getTime(), now)).toBe('14:24')
+    expect(formatMessageClock(new Date(2026, 6, 29, 14, 24).getTime(), t, now)).toBe('14:24')
   })
 
   it('prefixes month and day across days in the same year', () => {
-    expect(formatMessageClock(new Date(2026, 0, 1, 14, 24).getTime(), now)).toBe('1月1日 14:24')
+    expect(formatMessageClock(new Date(2026, 0, 1, 14, 24).getTime(), t, now)).toBe('1月1日 14:24')
   })
 
   it('prefixes year, month, and day across years', () => {
-    expect(formatMessageClock(new Date(2025, 11, 31, 9, 5).getTime(), now)).toBe('2025年12月31日 09:05')
+    expect(formatMessageClock(new Date(2025, 11, 31, 9, 5).getTime(), t, now)).toBe('2025年12月31日 09:05')
   })
 
   it('arms the next local midnight from an in-day instant', () => {
@@ -219,7 +225,7 @@ describe('useCalendarDay boundary refresh', () => {
     vi.setSystemTime(dayStart)
     const time = new Date(2026, 6, 29, 14, 24).getTime()
     render(
-      <MessageItem node={{
+      <MessageItem t={t} node={{
         kind: 'user', seq: 1, time,
         content: [{ type: 'text', text: 'night bubble' }] as never,
         source: null,
@@ -237,7 +243,7 @@ describe('useCalendarDay boundary refresh', () => {
 describe('small branch tails', () => {
   it('AssistantMarkdown single-line reasoning summary skips the newline cut', () => {
     const view = render(
-      <AssistantMarkdown blocks={[{ kind: 'reasoning', text: 'one-liner' }]} streaming={false} />,
+      <AssistantMarkdown t={t} blocks={[{ kind: 'reasoning', text: 'one-liner' }]} streaming={false} />,
     )
     expect(view.getByText('one-liner')).toBeTruthy()
   })
@@ -252,6 +258,7 @@ describe('small branch tails', () => {
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
     const settled = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'text', text: 'answer body' }, { kind: 'reasoning', text: 'hidden' }]}
         streaming={false}
         time={time}
@@ -266,6 +273,7 @@ describe('small branch tails', () => {
 
     const thinkOnly = render(
       <AssistantMarkdown
+        t={t}
         blocks={[{ kind: 'reasoning', text: 'only thinking' }]}
         streaming={false}
         time={time}
@@ -276,7 +284,7 @@ describe('small branch tails', () => {
     thinkOnly.unmount()
 
     const streaming = render(
-      <AssistantMarkdown blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
+      <AssistantMarkdown t={t} blocks={[{ kind: 'text', text: 'partial' }]} streaming time={time} />,
     )
     expect(streaming.queryByRole('button', { name: '复制' })).toBeNull()
     expect(streaming.queryByText('14:24')).toBeNull()

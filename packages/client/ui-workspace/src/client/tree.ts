@@ -14,7 +14,10 @@ export const UNGROUPED_LABEL = 'Ungrouped'
 /** One top-level session row in a group or the flat list. */
 export interface SessionNode {
   id: SessionId
+  /** Stored display title; the renderer substitutes the localized New Session label for blank rows. */
   title: string
+  /** The provisional blank session (renderer shows the localized New Session title). */
+  blank: boolean
   running: boolean
   updatedAt: number
 }
@@ -76,7 +79,11 @@ function sessionVisible(session: SessionSummary, current: SessionId | undefined)
   return !session.blank || session.id === current
 }
 
-/** A blank session is the selected Workspace's provisional New Session row. */
+/**
+ * A blank session is the selected Workspace's provisional New Session row;
+ * its canonical title never enters search (blank rows are query-excluded)
+ * and the renderer localizes its display label.
+ */
 function sessionTitle(session: SessionSummary): string {
   return session.blank ? 'New Session' : session.displayTitle
 }
@@ -134,6 +141,7 @@ function sessionNode(s: SessionSummary): SessionNode {
   return {
     id: s.id,
     title: sessionTitle(s),
+    blank: s.blank,
     running: s.running,
     updatedAt: s.updatedAt,
   }
@@ -147,7 +155,8 @@ function sessionNode(s: SessionSummary): SessionNode {
  * case-insensitive display-title substring): expansion state is ignored —
  * matching sessions are forced visible, groups without a display-title or
  * label hit are dropped, and a label-only hit
- * keeps the bare group header. Non-current blank sessions are excluded.
+ * keeps the bare group header. Non-current blank sessions are excluded
+ * everywhere; blank placeholders never match a search query.
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
  * @param view - local expansion arrays and search query.
@@ -180,7 +189,7 @@ export function deriveGroups(
         sessions: expanded ? g.sessions.map(sessionNode) : [],
       })
     } else {
-      const matches = g.sessions.filter(session => sessionTitle(session).toLowerCase().includes(q))
+      const matches = g.sessions.filter(session => !session.blank && sessionTitle(session).toLowerCase().includes(q))
       if (matches.length === 0 && !g.label.toLowerCase().includes(q)) continue
       groups.push({
         key: g.key,
@@ -213,28 +222,38 @@ export function deriveFlat(list: SessionListState, view: Pick<TreeView, 'query'>
   for (const id of list.ids) {
     const s = list.byId[id]
     if (s === undefined || !sessionVisible(s, list.current)) continue
-    if (q !== '' && !sessionTitle(s).toLowerCase().includes(q)) continue
+    if (q !== '' && (s.blank || !sessionTitle(s).toLowerCase().includes(q))) continue
     rows.push(s)
   }
   rows.sort(byRecency)
   return rows.map(sessionNode)
 }
 
+/** Relative-time bucket of a session row's trailing label. */
+export type RelativeTimeUnit = 'now' | 'minutes' | 'hours' | 'days' | 'months' | 'years'
+
+/** Structured relative time: the bucket plus its magnitude (0 for 'now'). */
+export interface RelativeTime {
+  unit: RelativeTimeUnit
+  n: number
+}
+
 /**
- * Compact relative time for session rows ("now", "5min", "3h", "2d", "4mo", "1y").
+ * Compact relative time for session rows, as a structured bucket the
+ * renderer localizes ("now"/"5min"/"3h"/"2d"/"4mo"/"1y" in en).
  * @param updatedAt - epoch ms of the session's last activity.
  * @param now - current epoch ms (injected for pure rendering).
- * @returns the row's trailing time label.
+ * @returns the row's trailing time bucket and magnitude.
  */
-export function formatRelativeTime(updatedAt: number, now: number): string {
+export function relativeTime(updatedAt: number, now: number): RelativeTime {
   const MIN = 60_000
   const HOUR = 3_600_000
   const DAY = 86_400_000
   const diff = Math.max(0, now - updatedAt)
-  if (diff < MIN) return 'now'
-  if (diff < HOUR) return `${Math.floor(diff / MIN)}min`
-  if (diff < DAY) return `${Math.floor(diff / HOUR)}h`
-  if (diff < 30 * DAY) return `${Math.floor(diff / DAY)}d`
-  if (diff < 365 * DAY) return `${Math.floor(diff / (30 * DAY))}mo`
-  return `${Math.floor(diff / (365 * DAY))}y`
+  if (diff < MIN) return { unit: 'now', n: 0 }
+  if (diff < HOUR) return { unit: 'minutes', n: Math.floor(diff / MIN) }
+  if (diff < DAY) return { unit: 'hours', n: Math.floor(diff / HOUR) }
+  if (diff < 30 * DAY) return { unit: 'days', n: Math.floor(diff / DAY) }
+  if (diff < 365 * DAY) return { unit: 'months', n: Math.floor(diff / (30 * DAY)) }
+  return { unit: 'years', n: Math.floor(diff / (365 * DAY)) }
 }

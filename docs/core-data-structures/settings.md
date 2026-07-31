@@ -73,7 +73,7 @@ interface SettingsScope<T> {
 
 ## Descriptors
 
-`describe()` serializes every registered namespace for configuration surfaces: the schemastery `toJSON()` envelope drives schema-rendered forms, and the resolved value fills them.
+`describe()` serializes every registered namespace for configuration surfaces: the schemastery `toJSON()` envelope drives schema-rendered forms, the resolved value fills them, and the detached `base`/`user` layers let a form mark user-overridden fields by presence. `describe({ redactSecrets: true })` — mandatory on every wire surface — strips `role('secret')` fields from all three layers and enumerates their `{path, set}` slots so a page can render write-only inputs without ever receiving a secret.
 
 ```ts type-equiv
 /** One registered namespace as surfaced to configuration UIs. */
@@ -84,8 +84,49 @@ interface SettingsDescriptor {
   schema: unknown
   /** Current resolved value. */
   value: unknown
+  /**
+   * Monotonic revision of the raw user section this descriptor was read at.
+   * Send it back as `expectedRevision` on a write to refuse a stale one.
+   */
+  revision: number
+  /** Registrant's composition `base` layer (detached), when one was declared. */
+  base?: unknown
+  /**
+   * Raw user section from the stored document (detached), when one exists and
+   * is well-formed; a field's presence here is what marks it user-overridden.
+   */
+  user?: unknown
   /** Owner's declared effect timing. */
   applies: SettingsApplies
+  /** Schema-declared secret positions; present only under `redactSecrets`. */
+  secrets?: RedactedSecret[]
+}
+```
+
+A caller that holds only the redacted descriptor cannot safely rebuild a section, so removals travel as path ops instead. Each descriptor also carries a `revision` over the raw section; a write may send it back as `expectedRevision`, and one that no longer matches is refused rather than applied over the writer that landed first.
+```ts type-equiv
+/**
+ * One path-addressed edit to a namespace's user section. Path mutation exists
+ * for a caller holding an INCOMPLETE view of the section — a configuration UI
+ * reads the redacted descriptor, which by construction never received the
+ * `role('secret')` fields. Such a caller can name the field it means without
+ * restating the section: a wholesale `replace` rebuilt from a redacted
+ * document silently deletes every secret the wire never returned.
+ */
+type SettingsPathOp =
+  | { op: 'set'; path: readonly string[]; value: unknown }
+  | { op: 'unset'; path: readonly string[] }
+```
+
+```ts type-equiv
+/** Options for {@link Settings.describe}. */
+interface SettingsDescribeOptions {
+  /**
+   * Strip `role('secret')` fields from `value`/`base`/`user` and enumerate
+   * them in each descriptor's `secrets`. Every wire surface MUST pass this;
+   * the verbatim default exists for same-process configuration UIs only.
+   */
+  redactSecrets?: boolean
 }
 ```
 
