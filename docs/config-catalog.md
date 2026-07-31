@@ -227,7 +227,7 @@ Requires: `subprocess` · `sandbox` · `sandboxPolicy`
  * Plugin config: the local executor's knobs, verbatim. The sandbox policy —
  * the default mode and fallback `workspace-write` root — is NOT here: it lives
  * on `ctx.sandboxPolicy` (`@deepseek-ai/dsh-sandbox-policy`), which resolves
- * each calling session's mode and cwd for both enforcing families. The runner
+ * each calling session's mode and cwd for every enforcing capability. The runner
  * choice is likewise the `ctx.sandbox` provider's config, not this executor's.
  */
 export type Config = LocalConfig
@@ -446,7 +446,7 @@ Requires: `sandboxPolicy`
  * Plugin config: the local backend's knobs, verbatim (only `cwd`, the resolve
  * base for relative paths). The sandbox default (mode + `workspace-write`
  * fallback root) is NOT here — `ctx.sandboxPolicy` resolves each calling
- * session for both enforcing families.
+ * session for every enforcing capability.
  */
 export type Config = LocalConfig
 ```
@@ -1041,7 +1041,7 @@ export interface Config {
 
 Depends on: [`SandboxMode`](core-data-structures/sandbox.md)
 
-Source: [`packages/sandbox/sandbox-policy/src/index.ts:101`](../packages/sandbox/sandbox-policy/src/index.ts)
+Source: [`packages/sandbox/sandbox-policy/src/index.ts:67`](../packages/sandbox/sandbox-policy/src/index.ts)
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 

@@ -69,11 +69,9 @@ Commands run with the executor's full authority unless a sandboxing executor ([`
 
 Escalating bash calls resolve `ctx.approval` before execution. `allowed-once` applies the requested mode only to that call; rejection, cancellation, unavailability, or missing approval context executes nothing and returns a distinct error. On a real denial, the model may retry the same command once in the same turn with the narrowest sufficient mode and justification; the approval prompt itself is the consent step. Escalation is never speculative, and a disabled or rejected approval is final. The [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) owns the rationale.
 
-When the executor confines and the schema exposes escalation, this plugin registers the `bash` family as escalatable with `ctx.sandboxPolicy`. The policy owner can therefore add anti-refusal context only when the actual bash tool offers the denial-and-approved-retry path; the contribution disposes with the plugin.
-
 ## Per-session mode switching
 
-For sandboxing executors, each call resolves mode as one-shot escalation, then session override, then executor default. Non-sandboxing and agent-less calls carry no session override. The policy owner contributes current standing mode and composition-conditioned anti-refusal context; denial results still own the operation-specific effective mode and retry guidance. See the [`dsh-bash` fold](../bash/README.md) and [sandbox switching contract](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
+For sandboxing executors, each call resolves mode as one-shot escalation, then session override, then executor default. Non-sandboxing and agent-less calls carry no session override. The policy owner contributes the current capability-neutral standing mode; denial results still own the operation-specific effective mode and retry guidance. See the [`dsh-bash` fold](../bash/README.md) and [sandbox switching contract](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
 ## Model Experience
 
@@ -81,7 +79,7 @@ For sandboxing executors, each call resolves mode as one-shot escalation, then s
 
 #### What the model sees
 
-Every request in this plugin's registration scope contains the bash guidance below. A sandboxing executor contributes capability facts through the policy owner's cache-safe runtime context rather than changing this section. Scoped tool restrictions can hide the schemas without removing this independently registered section.
+Every request in this plugin's registration scope contains the bash guidance below. The policy owner contributes current sandbox state through its cache-safe runtime context rather than changing this section. Scoped tool restrictions can hide the schemas without removing this independently registered section.
 
 ##### Bash guidance
 

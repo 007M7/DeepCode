@@ -58,25 +58,37 @@ type StepOutcome =
 const RUNTIME_CONTEXT_SOURCE = '@deepseek-ai/dsh-system-prompt'
 const CLEARED_RUNTIME_CONTEXT = 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.'
 
-/** Latest retained cache-safe runtime-context snapshot, excluding compacted-away history. */
-function retainedRuntimeContext(session: Session): string | undefined {
-  for (const message of [...session.deriveMessages()].reverse()) {
-    if (message.role !== 'user'
-      || message.source.kind !== 'plugin'
-      || message.source.plugin !== RUNTIME_CONTEXT_SOURCE) continue
-    const [block] = message.content
-    if (message.content.length === 1 && block?.type === 'text') return block.text
-    return undefined
+/** Whether one user message is owned by runtime-context materialization. */
+function isRuntimeContextMessage(message: UserMessage): boolean {
+  return message.source.kind === 'plugin' && message.source.plugin === RUNTIME_CONTEXT_SOURCE
+}
+
+/** Latest retained runtime-context snapshot; `found` distinguishes malformed content from absence. */
+function retainedRuntimeContext(session: Session): { found: boolean; text: string | undefined } {
+  const events = session.events
+  const nodes = session.surface.nodes
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const event = events[nodes[index] as number]
+    if (event?.type !== 'user/message' || !isRuntimeContextMessage(event.data)) continue
+    const [block] = event.data.content
+    return {
+      found: true,
+      text: event.data.content.length === 1 && block?.type === 'text' ? block.text : undefined,
+    }
   }
-  return undefined
+  return { found: false, text: undefined }
 }
 
 /** Append a full current snapshot only when it changed or compaction removed it. */
 function materializeRuntimeContext(session: Session, current: string): void {
   const previous = retainedRuntimeContext(session)
-  if (previous === undefined && current.length === 0) return
+  if (!previous.found && current.length === 0) {
+    const compactedPriorSnapshot = session.surface.replaceGeneration > 0
+      && session.events.some(event => event.type === 'user/message' && isRuntimeContextMessage(event.data))
+    if (!compactedPriorSnapshot) return
+  }
   const snapshot = current.length === 0 ? CLEARED_RUNTIME_CONTEXT : current
-  if (previous === snapshot) return
+  if (previous.text === snapshot) return
   session.append('user/message', createUserMessage({
     content: [{ type: 'text', text: snapshot }],
     source: { kind: 'plugin', plugin: RUNTIME_CONTEXT_SOURCE },
@@ -550,7 +562,7 @@ export class ReactLoopAgent implements Agent {
     this.drainOutbox(turn)
 
     // Assemble request-owned prompt inputs fresh each step. Dynamic context is
-    // committed at the tail before deriving history, preserving the stable
+    // committed at the tail before deriving history once, preserving the stable
     // system/history cache prefix while keeping every model-visible byte logged.
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()

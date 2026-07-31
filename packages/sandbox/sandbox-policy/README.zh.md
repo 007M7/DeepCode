@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-沙箱策略解析的唯一归属位置：部署默认 [`SandboxMode`](../sandbox/README.md) 与回退根目录，加上每个会话的持久模式覆盖和不可变工作区根目录。每个强制执行家族在每次调用时都会收到一项解析完成的模式与根目录策略，并登记当前运行时对文件系统工具、一次性 bash 命令和终端会话中的哪些家族施加围栏；模型在每次请求前只会收到这些当前事实。
+沙箱策略解析的唯一归属位置：部署默认 [`SandboxMode`](../sandbox/README.md) 与回退根目录，加上每个会话的持久模式覆盖和不可变工作区根目录。每项负责强制执行的能力在每次调用时都会收到一项解析完成的模式与根目录策略；模型在每次请求前会收到当前策略，而不会另收一份能力清单。
 
 ## 为何需要共享归属位置
 
-文件系统工具、一次性 bash 命令和终端会话可以用不同组合强制执行同一套模式词汇。如果各自解析 `mode` + `workspaceRoot`，就可能漂移成分裂世界，正是[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)所警告的情况。每个强制执行后端都会消费归属方解析出的完整策略，并贡献其面向模型的家族；因此，当前段落不会声称不受围栏约束的家族也受另一家族的限制。[跨家族 fs 沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md)记录了共享策略决策。
+文件系统工具、一次性 bash 命令和终端会话可以用不同组合强制执行同一套模式词汇。如果各自解析 `mode` + `workspaceRoot`，就可能漂移成分裂世界，正是[沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md)所警告的情况。每个强制执行后端都会消费归属方解析出的完整策略，而当前上下文只说明该策略对于任何受 DSH 文件沙箱强制执行的可用操作有何含义。[跨家族 fs 沙箱 Agent Note](../../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md)记录了共享策略决策。
 
 ## 配置
 
@@ -17,9 +17,7 @@
 
 - `ctx.sandboxPolicy.resolve({ session?, mode? })`：解析一项完整的逐调用策略。显式批准的模式优先于会话最后一条 `sandbox/mode` 事件，后者又优先于 `defaultMode`；会话不可变的 `cwd` 会先按文件系统语义规范化，再成为 `workspaceRoot`，否则使用配置的回退值。规范化先于词法归一化，因此 `symlink/..` 与进程工作目录解析保持一致。
 - `ctx.sandboxPolicy.defaultMode`／`ctx.sandboxPolicy.workspaceRoot`：`resolve()` 使用的部署默认值与回退根目录。
-- `ctx.sandboxPolicy.registerEnforcedFamily(family)`：独立注册 `filesystem`、`bash` 或 `terminal`，并返回对应的精确 effect disposer。相同家族仍是彼此独立的贡献；该段落使用规范的家族顺序，并且只有最后一项贡献离开后才移除对应家族。
-- `ctx.sandboxPolicy.registerEscalatableFamily(family)`：独立注册实际工具 schema 与执行路径可提供经批准的更宽松模式重试的家族。反预防性拒绝引导只会列出既受强制执行又可升权的家族；各项贡献独立释放。
-- `sandbox:policy`：由 `resolve({ session })` 和当前家族贡献派生的请求时缓存安全上下文贡献。没有强制执行家族时为空，只说明模式、受影响的面向模型操作，以及 `workspace-write` 下规范化的会话工作区。
+- `sandbox:policy`：直接派生自 `resolve({ session })` 的请求时缓存安全上下文贡献。它说明该模式中与具体能力无关的文件效果契约，以及 `workspace-write` 下规范化的会话工作区；工具归属方仍负责操作特定的拒绝与升权引导。
 - `effectiveSandboxMode(events)`：会话 `sandbox/mode` 事件的纯 fold（最后一次切换胜出，没有则为 `undefined`），在 `resolve()` 内使用。
 - `setSandboxMode(session, mode)`：逐会话覆盖的唯一写入路径：恰好追加一条 `sandbox/mode` 事件。切换本身就是事件；不会在带外修改模式。
 - `SANDBOX_MODES`：所有模式，用于选项展示与运行时验证。
@@ -36,24 +34,24 @@
 
 #### 模型看到的内容
 
-只要至少注册了一个强制执行家族，当前运行时上下文快照中就会有一项 `sandbox:policy` 贡献。以下示例展示全部三个家族；缺失的家族会被省略。工具插件继续负责操作与升级引导，批准策略单独贡献给同一份快照，计划引导仍由 `dsh-plan-mode` 的系统段落管理。
+每个 agent 会话的当前运行时上下文快照中都有一项 `sandbox:policy` 贡献。它不枚举已装载的能力。工具插件继续负责操作与升级引导，批准策略单独贡献给同一份快照，计划引导仍由 `dsh-plan-mode` 的系统段落管理。
 
 ##### 只读
 
 ```markdown
-Current DSH file policy: read-only. The write and edit tools, one-shot bash commands, and terminal sessions cannot modify files in the standing mode. For the write and edit tools and one-shot bash commands, do not refuse a required modification from this standing mode alone: attempt it normally and follow the tool's denial and escalation guidance.
+Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.
 ```
 
 ##### 工作区写入
 
 ```markdown
-Current DSH file policy: workspace-write. The write and edit tools, one-shot bash commands, and terminal sessions may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable.
+Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable.
 ```
 
 ##### 完全访问
 
 ```markdown
-Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict the write and edit tools, one-shot bash commands, or terminal sessions.
+Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.
 ```
 
 #### Token 影响

@@ -18,7 +18,7 @@ Send cancellation resolves the current foreground process group and delivers a r
 
 #### What the model sees
 
-This backend contributes the terminal family to the owner-rendered `sandbox:policy` section. Through `@deepseek-ai/dsh-tool-pty` or another PTY consumer, the model may also receive bounded MOTD, send deltas, scrollback pages, readiness reasons, and cleanup errors.
+The policy owner contributes capability-neutral `sandbox:policy` context. Through `@deepseek-ai/dsh-tool-pty` or another PTY consumer, the model may also receive bounded MOTD, send deltas, scrollback pages, readiness reasons, and cleanup errors.
 
 #### Token effect
 
@@ -26,7 +26,7 @@ The current-policy clause is present while this backend is mounted. Retained PTY
 
 #### KV Cache effect
 
-A standing-policy or terminal-family change updates the owner-rendered request prefix; consumer results remain append-only.
+A standing-policy change appends an owner-rendered superseding runtime-context snapshot after retained history; consumer results remain append-only.
 
 ## Known Limitations and Deferred Work
 

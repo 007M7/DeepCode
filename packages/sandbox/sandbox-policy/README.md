@@ -2,11 +2,11 @@
 
 English | [中文](README.zh.md)
 
-The single owner of sandbox-policy resolution: the deployment's default [`SandboxMode`](../sandbox/README.md) and fallback root, plus each session's durable mode override and immutable workspace root. Every enforcing family receives one resolved mode-and-root policy per call and registers whether the current runtime fences filesystem tools, one-shot bash commands, or terminal sessions; the model receives only those current facts before each request.
+The single owner of sandbox-policy resolution: the deployment's default [`SandboxMode`](../sandbox/README.md) and fallback root, plus each session's durable mode override and immutable workspace root. Every enforcing capability receives one resolved mode-and-root policy per call; before each request, the model receives the current policy without a separate capability inventory.
 
 ## Why a shared home
 
-Filesystem tools, one-shot bash commands, and terminal sessions may enforce the same mode vocabulary in different combinations. If each resolved its own `mode` + `workspaceRoot`, they could drift into a split world, exactly what [the sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) warns against. Each enforcing backend consumes the complete owner-resolved policy and contributes its model-facing family; the current section therefore does not claim that an unfenced family shares another family's restrictions. The [cross-family fs sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md) records the shared-policy decision.
+Filesystem tools, one-shot bash commands, and terminal sessions may enforce the same mode vocabulary in different combinations. If each resolved its own `mode` + `workspaceRoot`, they could drift into a split world, exactly what [the sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md) warns against. Each enforcing backend consumes the complete owner-resolved policy, while the current context describes only what that policy means for any available operation the DSH file sandbox enforces. The [cross-family fs sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-14-cross-family-fs-sandbox.md) records the shared-policy decision.
 
 ## Config
 
@@ -17,9 +17,7 @@ Filesystem tools, one-shot bash commands, and terminal sessions may enforce the 
 
 - `ctx.sandboxPolicy.resolve({ session?, mode? })` — resolves one complete per-call policy. An explicit approved mode outranks the session's last `sandbox/mode` event, which outranks `defaultMode`; the session's immutable `cwd` is canonicalized with filesystem semantics before becoming `workspaceRoot`, otherwise the configured fallback applies. Canonicalization precedes lexical normalization so `symlink/..` agrees with process working-directory resolution.
 - `ctx.sandboxPolicy.defaultMode` / `ctx.sandboxPolicy.workspaceRoot` — the deployment default and fallback root used by `resolve()`.
-- `ctx.sandboxPolicy.registerEnforcedFamily(family)` — independently registers `filesystem`, `bash`, or `terminal` and returns the exact effect disposer. Equal families remain separate contributions; the section uses canonical family order and removes a family only after its final contribution leaves.
-- `ctx.sandboxPolicy.registerEscalatableFamily(family)` — independently registers a family whose actual tool schema and execution path offer an approved wider retry. Anti-refusal guidance names only families that are both enforced and escalatable; contributions dispose independently.
-- `sandbox:policy` — a request-time cache-safe context contribution derived from `resolve({ session })` and the active family contributions. It is empty without an enforcing family and states only the mode, the affected model-facing operations, and the canonical session workspace under `workspace-write`.
+- `sandbox:policy` — a request-time cache-safe context contribution derived directly from `resolve({ session })`. It states the mode's capability-neutral file-effect contract and the canonical session workspace under `workspace-write`; tool owners retain operation-specific denial and escalation guidance.
 - `effectiveSandboxMode(events)` — the pure fold of a session's `sandbox/mode` events (the last switch wins, or `undefined`), used inside `resolve()`.
 - `setSandboxMode(session, mode)` — THE write path for a per-session override: appends exactly one `sandbox/mode` event. The switch IS its event; nothing mutates the mode out of band.
 - `SANDBOX_MODES` — every mode, for option advertisement and runtime validation.
@@ -36,24 +34,24 @@ A runtime switch is one log-only `sandbox/mode` event on the session it applies 
 
 #### What the model sees
 
-One `sandbox:policy` contribution in the current runtime-context snapshot when at least one enforcing family is registered. The examples below show all three families; absent families are omitted. Tool plugins retain operation and escalation guidance, approval policy contributes separately to the same snapshot, and plan guidance remains `dsh-plan-mode`'s system section.
+One `sandbox:policy` contribution in the current runtime-context snapshot for every agent session. It does not enumerate mounted capabilities. Tool plugins retain operation and escalation guidance, approval policy contributes separately to the same snapshot, and plan guidance remains `dsh-plan-mode`'s system section.
 
 ##### Read-only
 
 ```markdown
-Current DSH file policy: read-only. The write and edit tools, one-shot bash commands, and terminal sessions cannot modify files in the standing mode. For the write and edit tools and one-shot bash commands, do not refuse a required modification from this standing mode alone: attempt it normally and follow the tool's denial and escalation guidance.
+Current DSH file policy: read-only. Any available operation enforced by the DSH file sandbox cannot modify files in the standing mode. Do not refuse a required modification from this policy alone: try an available tool normally and follow any denial and escalation guidance it returns.
 ```
 
 ##### Workspace-write
 
 ```markdown
-Current DSH file policy: workspace-write. The write and edit tools, one-shot bash commands, and terminal sessions may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable.
+Current DSH file policy: workspace-write. Any available operation enforced by the DSH file sandbox may modify files under the session workspace: "<workspace root>". Some platform temporary areas may also be writable.
 ```
 
 ##### Danger-full-access
 
 ```markdown
-Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict the write and edit tools, one-shot bash commands, or terminal sessions.
+Current DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.
 ```
 
 #### Token effect
