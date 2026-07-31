@@ -217,7 +217,7 @@ describe('ConversationRoot resident composer', () => {
     fireEvent.change(box, { target: { value: 'ordinary revised' } })
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
-    expect(b.sink).toHaveBeenCalledWith('ordinary revised', 'queue')
+    expect(b.sink).toHaveBeenCalledWith('ordinary revised')
     fireEvent.click(b.view.getByRole('button', { name: 'Root' }))
     expect(b.open).toHaveBeenCalledWith(sid('root'))
   })

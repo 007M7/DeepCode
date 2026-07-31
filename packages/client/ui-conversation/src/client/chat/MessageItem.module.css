@@ -20,16 +20,6 @@
   color: var(--dsw-alias-label-primary);
 }
 
-.badge {
-  display: inline-block;
-  margin-bottom: 4px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--dsw-alias-state-warn-primary);
-  color: var(--dsw-alias-label-primary-foreground);
-  font-size: 11px;
-}
-
 .contextRow {
   padding: 2px 0;
 }

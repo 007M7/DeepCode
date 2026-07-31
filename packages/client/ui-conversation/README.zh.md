@@ -61,4 +61,4 @@ todo 两个面就是在该形状上的两个注册项，都是普通注册方插
 - **审批面板的「始终允许此类」暂缓**：持久授权需要授权存储设计；今天只能回答允许一次／拒绝。
 - **TodoPanel 将过长条目截成单行省略号**：figma 条没有换行或展开入口，完整文本无法在行内读完。
 - **Queue 编辑仅支持文本**：包含非文本块的行仍显示扁平化预览，但由于内联编辑器无法保留这些块，其编辑控件会被禁用。文本行进入编辑模式后，删除会替换为保存和取消；Enter 保存，Escape 取消。QueueDock 不提供立即发送控件。
-- **Web 仅暴露待处理 Queue**：在 steering（中途引导）拥有专用交互之前，Host 不会把待处理 steering 纳入 Queue 快照。已消费的 `steering/message` 仍会渲染到持久 transcript 中，因此从外部提交的 steering 在回放时仍能如实呈现。
+- **Web 仅暴露待处理 Queue**：composer 与 `conversation.send` 从不提交 `mode:'steer'`。Host 不会把待处理 steering（中途引导）纳入 Queue 快照。已消费的 `steering/message` 仍会折叠进持久 transcript（文本记录），并以无「插话」徽章的普通气泡呈现，因此从外部／Host 提交的 steering 在回放时仍能如实呈现。

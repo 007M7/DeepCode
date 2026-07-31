@@ -105,7 +105,7 @@ async function bench() {
     }
     const actions = info.props['inputActions'] as {
       setDraft: (text: string) => void
-      submit: (mode?: 'queue' | 'steer') => void
+      submit: () => void
     }
     return { state, actions }
   }
@@ -144,25 +144,25 @@ describe('conversation slot inject surface', () => {
     const { state, actions } = b.inputSurface(ROOT)
     // Whitespace-only: the machine treats it as empty — no prompt, draft kept.
     actions.setDraft('   ')
-    actions.submit('queue')
+    actions.submit()
     expect(b.sessionFake.prompt).not.toHaveBeenCalled()
     expect(state.getSnapshot().draft).toBe('   ')
     // Success: cleared and stays cleared.
     actions.setDraft('hello')
-    actions.submit('queue')
+    actions.submit()
     expect(state.getSnapshot().draft).toBe('')
     await Promise.resolve()
     expect(b.sessionFake.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
     // Failure: restored (draft still empty when the rejection lands).
     b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b', details: { reason: 'b' } } })
     actions.setDraft('retry me')
-    actions.submit('queue')
+    actions.submit()
     await vi.waitFor(() => {
       expect(state.getSnapshot().draft).toBe('retry me')
     })
     // Failure landing after new typing: no clobber (restore fills empty only).
     b.sessionFake.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'b', details: { reason: 'b' } } })
-    actions.submit('queue')
+    actions.submit()
     actions.setDraft('typed during flight')
     await new Promise(r => setTimeout(r, 0))
     expect(state.getSnapshot().draft).toBe('typed during flight')
