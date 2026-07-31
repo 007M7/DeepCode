@@ -92,13 +92,13 @@ describe('parsePythonRequirements', () => {
     expect(parsePythonRequirements('"pydantic>=2.12", "requests", "httpx[http2]", "tomli ; python_version < \'3.11\'", "hatchling >= 1.24.0"'))
       .toEqual(['pydantic', 'requests', 'httpx', 'tomli', 'hatchling'])
   })
-
-  it('reads the committed manifests', () => {
-    expect(parsePyprojectRequirements(readFileSync(resolve(root, 'python/sdk/pyproject.toml'), 'utf8'))).toContain('pydantic')
-  })
 })
 
 describe('parsePyprojectRequirements', () => {
+  it('reads the committed manifests', () => {
+    expect(parsePyprojectRequirements(readFileSync(resolve(root, 'python/sdk/pyproject.toml'), 'utf8'))).toContain('pydantic')
+  })
+
   it('locates requirement arrays by TOML table, so author-named groups are not missed', () => {
     expect(parsePyprojectRequirements([
       '[build-system]',
