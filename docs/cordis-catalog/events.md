@@ -32,7 +32,7 @@ Effective broad cancellation was requested, before queued/outbox work is cleared
 
 Types: [Agent](../core-data-structures/core.md) · [AgentCancelCause](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:319`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:333`](../../packages/core/agent/src/types.ts)
 
 ### `agent/created` — emit
 
@@ -54,7 +54,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:250`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:264`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -74,7 +74,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:259`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:273`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -96,7 +96,7 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:433`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:447`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/dequeue` — emit
 
@@ -117,7 +117,7 @@ The driver claimed one item out of the inbox: a queued item at a turn boundary, 
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:297`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:311`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/discard` — emit
 
@@ -140,7 +140,7 @@ Pending inbox items were dropped without delivering them, so every enqueue occur
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:309`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:323`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/enqueue` — emit
 
@@ -161,7 +161,7 @@ An item entered the queued or steering inbox. `placement` is the acceptance-time
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:278`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:292`](../../packages/core/agent/src/types.ts)
 
 ### `agent/inbox/update` — emit
 
@@ -181,7 +181,7 @@ A still-pending queued item changed content. The item id, placement, and positio
 
 Types: [Agent](../core-data-structures/core.md) · [InboxItem](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:287`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:301`](../../packages/core/agent/src/types.ts)
 
 ### `agent/prompt-submit` — waterfall
 
@@ -204,7 +204,7 @@ Allow, rewrite, or block one claimed prompt before it becomes a user message or 
 
 Types: [Agent](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:360`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -228,7 +228,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:372`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:386`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -258,7 +258,7 @@ Handle a model-request failure after its failed step has closed but before the f
 
 Types: [Agent](../core-data-structures/core.md) · [LlmFailure](../core-data-structures/llm-streaming.md) · [RequestError](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [ResolvedRetryPolicy](../core-data-structures/llm-streaming.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:391`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:405`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -280,7 +280,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:332`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:346`](../../packages/core/agent/src/types.ts)
 
 ### `agent/settled` — emit
 
@@ -305,7 +305,7 @@ One drain chain reached its terminal turn: that turn's `turn/end` is already com
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SettleReason](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:420`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:434`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -325,7 +325,7 @@ Agent status changed (`idle` ⇄ `running`). `send()` does not enter `running` s
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:268`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:282`](../../packages/core/agent/src/types.ts)
 
 ### `agent/step` — serial
 
@@ -349,7 +349,7 @@ Awaited serial checkpoint before EVERY request of a turn is built (the first as 
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:359`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:373`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -375,7 +375,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:406`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:420`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 
