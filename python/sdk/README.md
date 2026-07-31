@@ -25,7 +25,7 @@ By default, the SDK launches the bundled single-file `dsh-jsonrpc-agent` executa
 from deepseek_harness import DeepSeekHarness
 
 with DeepSeekHarness(
-    provider="deepseek",
+    provider="deepseek-official",
     model="deepseek-v4-flash",
     max_tokens=49_152,
     cordis="examples/jsonrpc-agent/cordis.yml",
@@ -33,7 +33,7 @@ with DeepSeekHarness(
     result = harness.run("Make the requested code change.")
 ```
 
-`provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. `max_tokens` is an optional positive per-request output-token cap for the root agent and its in-process descendants; omission leaves the provider default in control. Compaction summaries keep the separate limit configured by their compaction plugin. The bundled default composition registers `deepseek`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
+`provider` selects a provider route registered by the chosen Cordis composition; `model` is the model id resolved by that adapter. `max_tokens` is an optional positive per-request output-token cap for the root agent and its in-process descendants; omission leaves the provider default in control. Compaction summaries keep the separate limit configured by their compaction plugin. The bundled default composition registers `deepseek-official`. A custom composition can mount `llm-pi-ai`, configure provider-specific credentials/endpoints there, and select any provider/model present in pi-ai's installed catalog.
 
 `HarnessClient` retains discovered subagent ancestry for the lifetime of the runtime process. During each `Session.run()`, `TurnResult.notifications` and `on_notification` receive the root session and all known descendant notifications in wire order, including nested subagent lifecycle and session events. `TurnResult.events` remains the root session's complete event stream, and `TurnResult.final_response` is the text content from its last `assistant/message`; descendant messages therefore cannot replace the root response.
 

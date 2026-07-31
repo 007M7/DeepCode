@@ -105,7 +105,7 @@ describe('jsonrpc-agent keyless smoke', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { cwd: root, provider: 'deepseek', model: 'deepseek-v4-pro', maxTokens: 1234 },
+        params: { cwd: root, provider: 'deepseek-official', model: 'deepseek-v4-pro', maxTokens: 1234 },
       })}\n`)
       const initialized = await waitForLine(lines, value => value.id === 1, () => stderr)
       expect(initialized).toMatchObject({

@@ -27,28 +27,27 @@ import css from './WorkspaceBrowser.module.css'
  */
 const EXPAND_SLIDE_MS = 300
 
-const GROUP_BY_ITEMS = [
-  { type: 'label' as const, id: 'group-by', text: 'Group by' },
-  { id: 'workspace', label: 'WorkSpace' },
-  { id: 'flat', label: 'In one list' },
-]
-
 /** Immutable membership toggle for the local expansion arrays. */
 function toggled(list: readonly string[], key: string): string[] {
   return list.includes(key) ? list.filter(k => k !== key) : [...list, key]
 }
 
 /** Group-by strategy menu; own open state so it resets with the wide chrome. */
-function GroupByMenu({ groupBy, onPick }: {
+function GroupByMenu({ groupBy, onPick, t }: {
   groupBy: 'workspace' | 'flat'
   onPick: (mode: 'workspace' | 'flat') => void
+  t: WorkspaceBrowserProps['t']
 }) {
   const [open, setOpen] = useState(false)
   return (
     <Menu
       open={open}
       onClose={() => { setOpen(false) }}
-      items={GROUP_BY_ITEMS}
+      items={[
+        { type: 'label' as const, id: 'group-by', text: t('groupBy.label') },
+        { id: 'workspace', label: t('groupBy.workspace') },
+        { id: 'flat', label: t('groupBy.flat') },
+      ]}
       selectedId={groupBy}
       onSelect={(id) => {
         /* v8 ignore next -- narrowing guard: the heading label is not selectable, so the only arriving ids are the two modes. */
@@ -63,7 +62,7 @@ function GroupByMenu({ groupBy, onPick }: {
         <button
           type="button"
           className={clsx(css.iconButton, css.wide)}
-          aria-label="Group by"
+          aria-label={t('groupBy.label')}
           onClick={() => { setOpen(v => !v) }}
         >
           <IconPersonalizationOutline16 />
@@ -83,7 +82,7 @@ interface DragState {
 
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
-  'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore'
+  'useSessions' | 'startSession' | 'open' | 'forkSession' | 'insertSessionBefore' | 't'
 > & {
   workspaces: readonly WorkspaceView[]
   /** Live search filter owned by the browser root (the query outlives the tree). */
@@ -99,7 +98,7 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting at collapse settle drops the sessions subscription and expansion state. */
 function SessionTree({
   useSessions, startSession, open, forkSession, workspaces, query,
-  onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore,
+  onRenameRequest, onDeleteRequest, onSessionRename, insertSessionBefore, t,
 }: SessionTreeProps) {
   const list = useSessions(s => s)
   const current = list.current
@@ -122,9 +121,9 @@ function SessionTree({
 
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list} role="tree" aria-label="Sessions">
+      <div className={css.list} role="tree" aria-label={t('section.sessions')}>
         {groups.length === 0 && (
-          <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
+          <div className={css.empty}>{query === '' ? t('empty.none') : t('empty.noMatches')}</div>
         )}
         {groups.map(group => (
           // Group section: header row + expanded top-level session rows. The
@@ -133,6 +132,7 @@ function SessionTree({
           <div key={group.key} className={css.groupSection}>
             <ProjectRowItem
               group={group}
+              t={t}
               onToggle={() => { setExpandedProjects(l => toggled(l, group.key)) }}
               onCreate={() => {
                 if (group.workspaceId !== undefined) startSession(group.workspaceId)
@@ -195,6 +195,7 @@ function SessionTree({
                   onRename={onSessionRename}
                   onFork={forkSession}
                   drag={dragProps}
+                  t={t}
                 />
               )
             })}
@@ -207,15 +208,15 @@ function SessionTree({
 }
 
 /** The flat "In one list" body: every session a top-level row, newest-first. */
-function FlatList({ useSessions, open, forkSession, onSessionRename, query }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'query'>) {
+function FlatList({ useSessions, open, forkSession, onSessionRename, query, t }: Pick<SessionTreeProps, 'useSessions' | 'open' | 'forkSession' | 'onSessionRename' | 'query' | 't'>) {
   const list = useSessions(s => s)
   const rows = useMemo(() => deriveFlat(list, { query }), [list, query])
   const now = Date.now()
   return (
     <div className={clsx(css.treeBody, css.wide)}>
-      <div className={css.list} role="tree" aria-label="Sessions">
+      <div className={css.list} role="tree" aria-label={t('section.sessions')}>
         {rows.length === 0 && (
-          <div className={css.empty}>{query === '' ? 'No sessions yet' : 'No matches'}</div>
+          <div className={css.empty}>{query === '' ? t('empty.none') : t('empty.noMatches')}</div>
         )}
         {rows.map(node => (
           <SessionNodeItem
@@ -226,6 +227,7 @@ function FlatList({ useSessions, open, forkSession, onSessionRename, query }: Pi
             onOpen={open}
             onRename={onSessionRename}
             onFork={forkSession}
+            t={t}
           />
         ))}
       </div>
@@ -256,6 +258,7 @@ export function WorkspaceBrowser({
   createWorkspace,
   useDirectoryFlow,
   renderSlot,
+  t,
 }: WorkspaceBrowserProps) {
   const workspaces = useWorkspaces(state => state.items)
   const groupBy = useStore(s => s.groupBy)
@@ -383,16 +386,16 @@ export function WorkspaceBrowser({
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide)}>
-            {groupBy === 'flat' ? 'Sessions' : 'Workspaces'}
+            {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
-        {wide && <GroupByMenu groupBy={groupBy} onPick={(mode) => { actions.setGroupBy(mode) }} />}
-        <Tooltip label="New Workspace" disabled={wide}>
+        {wide && <GroupByMenu groupBy={groupBy} onPick={(mode) => { actions.setGroupBy(mode) }} t={t} />}
+        <Tooltip label={t('workspace.new')} disabled={wide}>
           <button
             ref={wsPlusRef}
             type="button"
             className={css.iconButton}
-            aria-label="Create workspace"
+            aria-label={t('create.confirm')}
             onClick={() => {
               setWsPickerOpen(v => !v)
             }}
@@ -402,6 +405,7 @@ export function WorkspaceBrowser({
         </Tooltip>
         {/* Picker menu + create dialogs (same package — direct composition). */}
         <WorkspaceCreateFlow
+          t={t}
           open={wsPickerOpen}
           anchorRef={wsPlusRef}
           useWorkspaces={useWorkspaces}
@@ -421,11 +425,11 @@ export function WorkspaceBrowser({
       {/* Expanded: the row is a click-to-focus field (the leading icon is
           decorative). Rail: the icon is the region's search control. */}
       <div className={css.search} onClick={() => { if (wide) searchInput.current?.focus() }}>
-        <Tooltip label="Search" disabled={wide}>
+        <Tooltip label={t('search')} disabled={wide}>
           <button
             type="button"
             className={css.searchButton}
-            aria-label="Search sessions"
+            aria-label={t('search.sessions.aria')}
             tabIndex={wide ? -1 : 0}
             onClick={() => { if (!wide) { setSearchOnExpand(true); expandSidebar() } }}
           >
@@ -437,7 +441,7 @@ export function WorkspaceBrowser({
             ref={searchInput}
             className={clsx(css.searchInput, css.wide)}
             type="text"
-            placeholder="Search name, keywords..."
+            placeholder={t('search.placeholder')}
             value={query}
             onChange={(e) => { setQuery(e.target.value) }}
           />
@@ -446,7 +450,7 @@ export function WorkspaceBrowser({
           <button
             type="button"
             className={clsx(css.clearButton, css.wide)}
-            aria-label="Clear search"
+            aria-label={t('search.clear')}
             onClick={() => { setQuery('') }}
           >
             <IconCloseFill14 />
@@ -458,7 +462,12 @@ export function WorkspaceBrowser({
           itself is wide-only. */}
       <div className={css.listArea}>
         {wide && (groupBy === 'flat'
-          ? <FlatList useSessions={useSessions} open={open} forkSession={forkSession} onSessionRename={onSessionRename} query={query} />
+          ? (
+            <FlatList
+              useSessions={useSessions} open={open} forkSession={forkSession}
+              onSessionRename={onSessionRename} query={query} t={t}
+            />
+          )
           : (
             <SessionTree
               useSessions={useSessions}
@@ -469,6 +478,7 @@ export function WorkspaceBrowser({
               open={open}
               query={query}
               insertSessionBefore={insertSessionBefore}
+              t={t}
               onRenameRequest={(workspaceId, currentTitle) => {
                 setRenameTarget({ workspaceId, currentTitle })
                 setRenameDraft(currentTitle)
@@ -485,18 +495,19 @@ export function WorkspaceBrowser({
       <Modal
         open={renameTarget !== null}
         onClose={closeRename}
-        title="Rename workspace"
+        closeLabel={t('close')}
+        title={t('rename.workspace.title')}
         footer={(
           <>
-            <Button variant="outline" disabled={renaming} onClick={closeRename}>Cancel</Button>
-            <Button variant="primary" disabled={renameBlocked} onClick={confirmRename}>Rename</Button>
+            <Button variant="outline" disabled={renaming} onClick={closeRename}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={renameBlocked} onClick={confirmRename}>{t('rename')}</Button>
           </>
         )}
       >
         <input
           className={css.renameInput}
           value={renameDraft}
-          aria-label="Workspace name"
+          aria-label={t('field.workspaceName')}
           autoFocus
           disabled={renaming}
           onFocus={(e) => { e.target.select() }}
@@ -511,7 +522,7 @@ export function WorkspaceBrowser({
           }}
         />
         {renameDuplicate && (
-          <div className={css.renameError} role="alert">A workspace named “{renameTrimmed}” already exists.</div>
+          <div className={css.renameError} role="alert">{t('conflict.named', { name: renameTrimmed })}</div>
         )}
         {renameError !== null && <div className={css.renameError} role="alert">{renameError}</div>}
       </Modal>
@@ -519,18 +530,19 @@ export function WorkspaceBrowser({
       <Modal
         open={sessionRenameTarget !== null}
         onClose={closeSessionRename}
-        title="Rename session"
+        closeLabel={t('close')}
+        title={t('rename.session.title')}
         footer={(
           <>
-            <Button variant="outline" disabled={sessionRenaming} onClick={closeSessionRename}>Cancel</Button>
-            <Button variant="primary" disabled={sessionRenameBlocked} onClick={confirmSessionRename}>Rename</Button>
+            <Button variant="outline" disabled={sessionRenaming} onClick={closeSessionRename}>{t('cancel')}</Button>
+            <Button variant="primary" disabled={sessionRenameBlocked} onClick={confirmSessionRename}>{t('rename')}</Button>
           </>
         )}
       >
         <input
           className={css.renameInput}
           value={sessionRenameDraft}
-          aria-label="Session name"
+          aria-label={t('field.sessionName')}
           autoFocus
           disabled={sessionRenaming}
           onFocus={(e) => { e.target.select() }}
@@ -549,25 +561,26 @@ export function WorkspaceBrowser({
       <Modal
         open={deleteTarget !== null}
         onClose={closeDelete}
-        title="Delete workspace"
+        closeLabel={t('close')}
+        title={t('delete.workspace')}
         {...deleteTarget === null
           ? {}
-          : { description: `This removes “${deleteTarget.title}” from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.` }}
+          : { description: t('delete.desc', { name: deleteTarget.title }) }}
         footer={(
           <>
-            <Button variant="outline" disabled={deleting} onClick={closeDelete}>Cancel</Button>
+            <Button variant="outline" disabled={deleting} onClick={closeDelete}>{t('cancel')}</Button>
             <Button
               variant="outline"
               className={css.deleteAction}
               disabled={deleting}
               onClick={confirmDelete}
             >
-              Delete workspace
+              {t('delete.workspace')}
             </Button>
           </>
         )}
       >
-        {deleting && <div className={css.deleteStatus} role="status">Deleting workspace…</div>}
+        {deleting && <div className={css.deleteStatus} role="status">{t('delete.pending')}</div>}
         {deleteError !== null && <div className={css.renameError} role="alert">{deleteError}</div>}
       </Modal>
     </div>

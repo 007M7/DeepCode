@@ -5,18 +5,16 @@
  * verbatim across locales per the Figma design. Feature-owned rows
  * (Language, Appearance) ship their copy in their own packages.
  */
-import type { LocaleDict } from '@deepseek-ai/dsh-client-locale/client'
-
 const SHARED = {
   'permission.value': 'Read only',
   'toolcall.schema.title': 'Schema mode',
   'toolcall.schema.desc': 'Traditional function calling — invoke tools one at a time',
   'toolcall.code.title': 'Code mode',
   'toolcall.code.desc': 'Chain multiple tools with code — multi-step orchestration',
-} satisfies LocaleDict
+} satisfies Record<string, string>
 
-/** Simplified Chinese dictionary. */
-export const zh: LocaleDict = {
+/** Simplified Chinese dictionary (the key-set source of truth). */
+export const zh = {
   ...SHARED,
   'trigger': '设置',
   'title': '设置',
@@ -25,10 +23,13 @@ export const zh: LocaleDict = {
   'permission.title': '权限',
   'permission.desc': '选择默认权限模式',
   'toolcall.title': '工具调用',
-}
+} satisfies Record<string, string>
 
-/** English dictionary. */
-export const en: LocaleDict = {
+/** The settings namespace key union. */
+export type SettingsKey = keyof typeof zh
+
+/** English dictionary, checked complete against the zh key set. */
+export const en = {
   ...SHARED,
   'trigger': 'Settings',
   'title': 'Settings',
@@ -37,4 +38,4 @@ export const en: LocaleDict = {
   'permission.title': 'Permission',
   'permission.desc': 'Choose default permission mode',
   'toolcall.title': 'Tool Call',
-}
+} satisfies Record<SettingsKey, string>
