@@ -1,6 +1,5 @@
 - banner:
-  - navigation "Session hierarchy":
-    - button "Use the ask_user_question tool to" [disabled]
+  - heading "Use the ask_user_question tool to" [level=1]
   - tablist:
     - tab "Chat" [selected]
     - tab "Trajectory"
