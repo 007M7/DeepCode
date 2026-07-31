@@ -33,11 +33,11 @@ async function bench() {
 describe('ConversationService', () => {
   it('routes operations through the public Session binding', async () => {
     const b = await bench()
-    await b.scoped.send('hello', 'steer')
+    await b.scoped.send('hello')
     await b.scoped.updateQueue('item-1' as never, { kind: 'remove' })
     await b.scoped.cancel()
     await b.scoped.loadOlder()
-    expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'steer')
+    expect(b.prompt).toHaveBeenCalledWith([{ type: 'text', text: 'hello' }], 'queue')
     expect(b.updateQueue).toHaveBeenCalledWith('item-1', { kind: 'remove' })
     expect(b.cancel).toHaveBeenCalledOnce()
     expect(b.loadOlder).toHaveBeenCalledOnce()
@@ -47,7 +47,7 @@ describe('ConversationService', () => {
   it('folds Session business failures into callback rejections', async () => {
     const b = await bench()
     b.prompt.mockResolvedValueOnce({ ok: false, error: { code: 'agent-busy', message: 'busy', details: {} } } as never)
-    await expect(b.scoped.send('x', 'queue')).rejects.toThrow('conversation.send failed: agent-busy: busy')
+    await expect(b.scoped.send('x')).rejects.toThrow('conversation.send failed: agent-busy: busy')
     b.cancel.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'nope', details: {} } } as never)
     await expect(b.scoped.cancel()).rejects.toThrow('conversation.cancel failed: internal: nope')
     await b.runtime.dispose()
@@ -55,9 +55,9 @@ describe('ConversationService', () => {
 
   it('fails loudly from the root scope, on an unbound session, or without SessionsService', async () => {
     const b = await bench()
-    await expect(b.root.send('x', 'queue')).rejects.toThrow(/requires a session scope/)
+    await expect(b.root.send('x')).rejects.toThrow(/requires a session scope/)
     await b.runtime.sessions.remove('s1')
-    await expect(b.scoped.send('x', 'queue')).rejects.toThrow(/resolved no binding/)
+    await expect(b.scoped.send('x')).rejects.toThrow(/resolved no binding/)
     await b.runtime.dispose()
     // No SessionsService at all: a bare context (the runtime always provides one).
     const bare = new Context()
@@ -65,6 +65,6 @@ describe('ConversationService', () => {
       input: new InputHub(bare),
     }).await()
     const orphan = bare.get('conversation') as ConversationService
-    await expect(orphan.send('x', 'queue')).rejects.toThrow(/sessions service unavailable/)
+    await expect(orphan.send('x')).rejects.toThrow(/sessions service unavailable/)
   })
 })

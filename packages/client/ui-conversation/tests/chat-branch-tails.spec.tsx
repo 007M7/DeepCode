@@ -102,7 +102,7 @@ describe('MessageItem arms', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
   })
 
-  it('steering bubbles carry the interjection badge and non-text rest blocks, without user actions', () => {
+  it('steering bubbles render text and non-text rest blocks, without user actions or a badge', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'steering', seq: 2, turn: 1, source: null,
@@ -110,7 +110,7 @@ describe('MessageItem arms', () => {
       } as never}
       />,
     )
-    expect(view.getByText('插话')).toBeTruthy()
+    expect(view.queryByText('插话')).toBeNull()
     expect(view.getByText('steer!')).toBeTruthy()
     expect(view.getByText(/附加内容块/)).toBeTruthy()
     expect(view.queryByRole('button', { name: '复制' })).toBeNull()

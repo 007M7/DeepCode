@@ -42,7 +42,7 @@ import {
   type TuiRuntime,
 } from '../src/index.ts'
 import { WorkspaceFileSearch } from '../src/chat/file-autocomplete.ts'
-import { ATTRIBUTE_ROLES, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
+import { ATTRIBUTE_ROLES, brandText, COLOR_ROLES, paletteSpec } from '../src/components/theme.ts'
 import {
   appendAssistant,
   appendUser,
@@ -5360,6 +5360,7 @@ describe('TUI extension service', () => {
                 host.theme.accent(`${label} plugin overlay`),
                 [
                   host.theme.text('text'),
+                  host.theme.brand('brand'),
                   host.theme.dim('dim'),
                   host.theme.success('success'),
                   host.theme.warning('warning'),
@@ -5735,6 +5736,10 @@ describe('terminal mounting', () => {
     // `text` is the terminal default, emitted as no escape at all.
     expect(printed).toContain('no escape')
     await dispose(result)
+  })
+
+  it('uses the official DeepSeek SVG ink for truecolor brand art', () => {
+    expect(brandText('mark')).toBe('\x1b[38;2;77;107;254mmark\x1b[39m')
   })
 
   it('detects a light terminal color scheme and switches the scheme-dependent code role', async () => {

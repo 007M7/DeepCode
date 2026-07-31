@@ -69,7 +69,7 @@ import type {
   TuiTheme,
 } from './extension/types.ts'
 import { displayInlineText, displayText } from './components/text.ts'
-import { createPalette, markdownTheme, renderPalette, selectTheme } from './components/theme.ts'
+import { brandText, createPalette, markdownTheme, renderPalette, selectTheme } from './components/theme.ts'
 import { contentText, parseArguments } from './components/content.ts'
 import {
   cacheHitRate,
@@ -506,6 +506,9 @@ export function createTuiChat(
 
   const extensionTheme: TuiTheme = Object.freeze({
     text: (value: string) => palette.text(value),
+    brand: (value: string) => resolved.theme.color
+      ? resolved.theme.truecolor ? brandText(value) : palette.brand(value)
+      : value,
     dim: (value: string) => palette.dim(value),
     accent: (value: string) => palette.accent(value),
     success: (value: string) => palette.success(value),

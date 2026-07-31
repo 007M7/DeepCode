@@ -1,16 +1,15 @@
-// Web e2e scenario: mid-turn steering, end to end. The product composer
-// deliberately exposes Queue only, so the steer is POSTed from the page
-// itself over the same same-origin /api transport the client uses.
-// TODO(web-steer-ui): Drive this through a dedicated steering interaction
-// once one exists. Everything downstream is product: the gateway
-// routes mode:'steer' to Agent.steer, the loop drains it at the step
-// boundary into a durable steering/message event, the SSE mux pushes it, and
-// the transcript renders the badged interjection bubble. The question
-// composer supplies the deterministic mid-turn window: while ask_user_question
-// blocks, the turn is provably running, so record and replay perform the
-// identical steer-then-answer sequence with zero timing dependence — and the
-// recorded final reply proves the steer reached the MODEL (it obeys an
-// instruction that only the steering message carries).
+// Web e2e scenario: mid-turn steering over the host wire. The Web UI has no
+// steer entry, so the steer is POSTed from the page over the same
+// same-origin /api transport the client uses. Everything downstream is
+// product: the gateway routes mode:'steer' to Agent.steer, the loop drains
+// it at the step boundary into a durable steering/message event, the SSE mux
+// pushes it, and the transcript shows the text as a plain bubble (no
+// interjection chrome). The question composer supplies the deterministic
+// mid-turn window: while ask_user_question blocks, the turn is provably
+// running, so record and replay perform the identical steer-then-answer
+// sequence with zero timing dependence — and the recorded final reply proves
+// the steer reached the MODEL (it obeys an instruction that only the
+// steering message carries).
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -29,11 +28,11 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/steering', import.meta.u
 const FIXTURE = join(SNAPSHOT_DIR, 'session.jsonl')
 // Two goldens for the two distinct states this interaction produces: the
 // mid-turn moment (steer ACCEPTED but deliberately invisible — the loop
-// drains steering at the step boundary, so no interjection bubble exists
-// while the question still blocks the step) and the settled transcript
-// (badged bubble in place, final reply obeying it). The pair pins the
-// timing semantics visually: if the client ever starts rendering pending
-// steers eagerly, the mid-steer golden flips first.
+// drains steering at the step boundary, so no steering text exists while
+// the question still blocks the step) and the settled transcript (plain
+// bubble in place, final reply obeying it). The pair pins the timing
+// semantics visually: if the client ever starts rendering pending steers
+// eagerly, the mid-steer golden flips first.
 const MID_EXPECTED = join(SNAPSHOT_DIR, 'mid-steer.expected.md')
 const SETTLED_EXPECTED = join(SNAPSHOT_DIR, 'settled.expected.md')
 const MODE = webSnapshotMode()
@@ -80,7 +79,7 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     await scaffold?.close()
   })
 
-  it('steers during the blocked step; the interjection is logged, rendered, and obeyed', async () => {
+  it('steers during the blocked step; the message is logged, rendered, and obeyed', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-steering'))
     if (MODE !== 'record') {
       // The steer must NOT be a user/message — it lands as steering/message.
@@ -118,10 +117,9 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     if (MODE !== 'record') {
       // Mid-turn golden: the ACCEPTED steer is durable in the inbox but the
       // loop drains steering only at the step boundary, so no steering/message
-      // exists yet and no interjection bubble renders — the composer still
-      // blocks, alone. The DOM is stable here (no further SSE frames can
-      // arrive until the question is answered), making this state capturable.
-      expect(await page.getByText('Interjection', { exact: true }).count()).toBe(0)
+      // exists yet and no steer text renders — the composer still blocks,
+      // alone. The DOM is stable here (no further SSE frames can arrive until
+      // the question is answered), making this state capturable.
       expect(await page.getByText(STEER, { exact: true }).count()).toBe(0)
       expect(await page.getByRole('button', { name: 'Edit queued message' }).count()).toBe(0)
       const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
@@ -155,14 +153,13 @@ describe('web e2e: mid-turn steering lands durably and visibly', () => {
     expect(turnEnds).toHaveLength(1)
     expect((turnEnds[0] as SessionEvent & { data: { reason: { kind: string } } }).data.reason.kind).toBe('completed')
 
-    // Visible: the badged interjection bubble plus the reply that obeys it
+    // Visible: the plain steering bubble plus the reply that obeys it
     // (steer text + final reply each contain the marker word).
-    await expect.poll(() => page.getByText('Interjection', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
-    await expect.poll(() => page.getByText('Interjection:', { exact: false }).count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => page.getByText(STEER, { exact: true }).count(), { timeout: 15_000 }).toBe(1)
     await expect.poll(() => page.getByText('BANANA', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
     expect(await page.locator('[data-question-key]').count()).toBe(0)
-    // Settled golden: badge + interjection between the question round trip
-    // and the obeying reply, composer takeover gone.
+    // Settled golden: steer text between the question round trip and the
+    // obeying reply, composer takeover gone.
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(SETTLED_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
