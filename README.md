@@ -22,7 +22,7 @@ Install `dsh` with one command:
 curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
 ```
 
-The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, prompts for a DeepSeek API key, then lets you launch the Web UI or TUI. Choosing Web UI builds its frontend first.
+The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, prompts for a DeepSeek API key, then lets you launch the Web UI or TUI. Choosing Web UI builds the required repository artifacts first.
 
 The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
 
@@ -30,10 +30,10 @@ The installer keeps every checkout under `~/.dsh/source`: the master clone at `~
 
 ### Web UI
 
-For the recommended local interface, choose Web UI when the installer finishes. To start it later, or after updating the active checkout, build the frontend and run:
+For the recommended local interface, choose Web UI when the installer finishes. To start it later, or after updating the active checkout, build the repository and run:
 
 ```sh
-(cd ~/.dsh/source/current && pnpm --filter @deepseek-ai/dsh-frontend run build)
+(cd ~/.dsh/source/current && pnpm run build)
 dsh web
 ```
 

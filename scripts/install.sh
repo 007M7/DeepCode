@@ -10,11 +10,11 @@
 # `pnpm install`, points the stable `~/.dsh/source/current` symlink
 # at that staging worktree and symlinks `dsh` onto PATH at `current/bin/dsh`,
 # records your API credentials in the Harness home (`~/.dsh`) dsh reads at boot,
-# and lets you launch the Web UI or TUI. The Web choice builds the frontend
-# artifact first; the TUI runs directly from TypeScript source through the repo's
-# own tsx. Keeping every checkout under ~/.dsh/source keeps successive upgrades
-# in one place instead of scattered sibling clones, and lets staging worktrees
-# share the master clone's object store. The PATH symlink resolves through
+# and lets you launch the Web UI or TUI. The Web choice builds the repository
+# artifacts first; the TUI runs directly from TypeScript source through the
+# repo's own tsx. Keeping every checkout under ~/.dsh/source keeps successive
+# upgrades in one place instead of scattered sibling clones, and lets staging
+# worktrees share the master clone's object store. The PATH symlink resolves through
 # `current`, so an upgrade repoints one stable symlink instead of relinking PATH:
 # the `dsh` on PATH never moves and can never dangle.
 #
@@ -353,8 +353,8 @@ if [ "$HAS_TTY" = 1 ]; then
     LAUNCH_INTERFACE=$(ask "Choose an interface [1/2]:" 1)
     case "$LAUNCH_INTERFACE" in
       1|web|Web|WEB)
-        step "Building Web UI"
-        ( cd "$DSH_STAGING" && pnpm --filter @deepseek-ai/dsh-frontend run build )
+        step "Building DeepSeek Harness for Web UI"
+        ( cd "$DSH_STAGING" && pnpm run build )
         info "launching Web UI — run 'dsh web' anytime to start again"
         exec "$DSH_BIN_DIR/dsh" web </dev/tty
         ;;
@@ -369,7 +369,7 @@ if [ "$HAS_TTY" = 1 ]; then
   done
 else
   info "install complete. Build and start the Web UI with:"
-  printf '    (cd %s && pnpm --filter @deepseek-ai/dsh-frontend run build)\n' "$DSH_STAGING"
+  printf '    (cd %s && pnpm run build)\n' "$DSH_STAGING"
   printf '    %s web\n' "$DSH_BIN_DIR/dsh"
   info "or start the TUI with:"
   printf '    %s\n' "$DSH_BIN_DIR/dsh"

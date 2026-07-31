@@ -127,7 +127,7 @@ describe.runIf(process.platform !== 'win32')('one-line installer interface choic
     ])
 
     expect(output).toContain('launching Web UI')
-    expect(readFileSync(fixture.pnpmLog, 'utf8')).toBe('install\n--filter @deepseek-ai/dsh-frontend run build\n')
+    expect(readFileSync(fixture.pnpmLog, 'utf8')).toBe('install\nrun build\n')
     expect(readFileSync(fixture.launchLog, 'utf8')).toBe('web\n')
   })
 
