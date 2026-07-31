@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - img
 - text: Search DeepSeek Harness snapshot search
 - list:

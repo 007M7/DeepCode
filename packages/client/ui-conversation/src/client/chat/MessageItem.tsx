@@ -156,7 +156,6 @@ export const MessageItem = memo(function MessageItem({
             text={text}
             time={node.time}
             clock="start"
-            edit
             onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
             className={css.actions}
             t={t}

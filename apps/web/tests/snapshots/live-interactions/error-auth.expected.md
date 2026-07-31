@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - textbox "Message the agent"
 - button "Commands":
   - img

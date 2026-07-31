@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - paragraph: partial
 - text: Stopped
 - button "Copy":

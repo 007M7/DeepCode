@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img

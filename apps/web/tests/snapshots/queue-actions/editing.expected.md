@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - paragraph: partial
 - status: Deep diving...
 - button "2 queued messages" [disabled] [expanded]
