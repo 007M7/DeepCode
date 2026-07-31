@@ -2542,7 +2542,7 @@ Durable workspace registry. Startup waits for `sessionPersistence`, builds one c
  * original error and a non-directory rejects. Repeated calls for the same
  * canonical path return the existing entity without changing its title.
  * A newly created workspace is prepended to the durable registry order.
- * A different canonical path cannot create a duplicate display title.
+ * Different canonical paths may share a display title.
  * @param path - Existing directory to own, in any path spelling.
  * @param title - Display title used only when a new record is created.
  * @returns the existing or newly durable workspace.
@@ -2595,7 +2595,7 @@ async resolveByPath(path: string): Promise<Workspace | undefined>
 
 Types: [SessionId](../core-data-structures/core.md)
 
-Source: [`packages/workspace/workspace/src/index.ts:92`](../../packages/workspace/workspace/src/index.ts)
+Source: [`packages/workspace/workspace/src/index.ts:81`](../../packages/workspace/workspace/src/index.ts)
 
 ## Inherited `ctx` members (cordis core + loader/hmr/timer)
 

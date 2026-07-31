@@ -19,7 +19,7 @@ The workspace manager must upsert the returned workspace before the selection ca
 - The picker accepts one directory on macOS, Windows, and Linux.
 - Cancelling the system dialog is silent and returns `null`.
 - A duplicate path selects the existing workspace.
-- A different path whose derived title conflicts with another workspace shows a focused error with **Choose again** and **Cancel** actions.
+- A different canonical path adopts a separate Workspace even when its derived title matches another Workspace ([identity decision](../bug-fix/2026-07-31-same-basename-workspace-adoption.md)).
 - Other picker failures show a compact retryable error.
 - The create-by-name flow this decision left untouched is gone; picking a directory is now the whole of adding a workspace ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)).
 
@@ -41,9 +41,9 @@ Platform adapters invoke native tools without a shell:
 
 ## Consequences
 
-The current GUI opens one local folder through a native picker on macOS, Windows, and Linux. Cancelling changes no state, failures remain retryable, and duplicate paths are idempotent while title conflicts require an explicit new choice. The selected workspace and its displayed name refresh before a new blank session starts. This picker is now the only route to a workspace ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)): the operator picks an existing directory, or creates one inside the chooser.
+The current GUI opens one local folder through a native picker on macOS, Windows, and Linux. Cancelling changes no state, failures remain retryable, duplicate paths are idempotent, and distinct same-basename paths coexist as separate Workspaces. The selected workspace and its displayed name refresh before a new blank session starts. This picker is now the only route to a workspace ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)): the operator picks an existing directory, or creates one inside the chooser.
 
-The added host, runtime, component, and GUI tests cover the native boundary, request trust checks, cancellation and failure handling, existing-path reuse, title conflicts, and the immediate visible-name update. The privileged RPC remains specific to the local desktop carrier; a remote Web directory browser is outside this decision.
+The added host, runtime, component, and GUI tests cover the native boundary, request trust checks, cancellation and failure handling, existing-path reuse, same-basename adoption, and the immediate visible-name update. The privileged RPC remains specific to the local desktop carrier; a remote Web directory browser is outside this decision.
 
 ## Risks
 

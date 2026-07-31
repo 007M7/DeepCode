@@ -1,7 +1,8 @@
 // Web e2e scenarios: workspace management — adding a workspace through the
 // composed directory dialog (its own New folder affordance is the product's
-// one creation route), the rename round trip over the real wire
-// (workspace.rename RPC + durable registry), duplicate-name pre-check, the
+// one creation route), same-basename directory adoption, the rename round
+// trip over the real wire (workspace.rename RPC + durable registry), the
+// duplicate-name pre-check, the
 // flat "In one list" view with its persisted group-by preference, the session
 // hover card and row action menu, and the session archive round trip (row
 // menu → workspace.archiveSession RPC → durable global set → row hidden
@@ -535,6 +536,27 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // reappear if selection restore lands on another stray — not this test's
     // concern).
     expect(await page.getByText(rowTitle, { exact: true }).count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
+  it('opens folders with identical basenames as distinct workspaces', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-duplicate-basename'))
+    const firstPath = join(scaffold.workspaceCwd, 'same-basename-a', 'xx')
+    const secondPath = join(scaffold.workspaceCwd, 'same-basename-b', 'xx')
+    await mkdir(firstPath, { recursive: true })
+    await mkdir(secondPath, { recursive: true })
+
+    await adoptDirectory(firstPath, { waitForAgent: true })
+    await adoptDirectory(secondPath, { waitForAgent: true })
+
+    const matchingWorkspaces = scaffold.ctx.workspace.list()
+      .filter(workspace => workspace.title === 'xx')
+    expect(matchingWorkspaces.map(workspace => workspace.path).sort())
+      .toEqual([firstPath, secondPath].sort())
+    await expect.poll(
+      () => page.locator('button[aria-label="Workspace actions for xx"]').count(),
+      { timeout: 10_000 },
+    ).toBe(2)
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 

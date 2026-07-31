@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-07-27-native-workspace-directory-picker.md
-2026-07-27-native-workspace-directory-picker.md: 8dd7084eb8ffa417d9366cbc54bcbc59170c64fe
-2026-07-27-native-workspace-directory-picker.zh.md: 9efc6571207b1f6a6996b9990c2a55afb70872bd
+2026-07-27-native-workspace-directory-picker.md: 98f9dc9bed5358e816d4324462d5ea7657f9007f
+2026-07-27-native-workspace-directory-picker.zh.md: ca765778fae734fd47a05652aea7021328ed4ab6
