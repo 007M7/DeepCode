@@ -45,7 +45,7 @@ export type {
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
   AssistantTiming, CodeSubCall, CommandNode, ComposerPhase, ContextMessageNode, ConversationNode,
-  ConversationSnapshot, QueuedMessage, RunningToolCall,
+  ConversationSnapshot, ModelRetryNode, QueuedMessage, RunningToolCall,
   SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type {
