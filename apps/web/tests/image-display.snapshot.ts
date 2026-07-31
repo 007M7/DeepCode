@@ -55,6 +55,9 @@ let unmount: (() => void) | undefined
 
 beforeEach(() => {
   localStorage.clear()
+  // Chinese pinned before boot so the localized role/text locators stay
+  // deterministic across runner browser languages.
+  localStorage.setItem('dsh.locale', 'zh')
   document.title = 'DeepSeek Harness'
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
