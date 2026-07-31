@@ -71,10 +71,12 @@ DSH_STAGING_BRANCH=dsh-staging/$DSH_STAMP
 DSH_STAGING=$DSH_SOURCE/staging-$DSH_STAMP
 
 # --- path helpers ---------------------------------------------------------------
-# Every path comparison below runs on physical paths. macOS resolves /var through
-# a symlink to /private/var, so comparing a git-reported (already resolved) path
-# against an unresolved one silently misclassifies an existing managed install as
-# a foreign clone and builds a second container beside the real one.
+# Every path comparison below runs on physical paths. Git always reports resolved
+# paths, so comparing one against an unresolved path disagrees whenever a symlink
+# sits anywhere above the checkout — a symlinked home directory is enough, and
+# macOS reaches every mktemp path that way through /var -> private/var. The
+# mismatch silently misclassifies an existing managed install as a foreign clone
+# and builds a second container beside the real one.
 # `git rev-parse --path-format=absolute` would do this, but it needs git 2.31+.
 #
 # A not-yet-created directory (the container on a fresh install) has no physical
