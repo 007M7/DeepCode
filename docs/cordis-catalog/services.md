@@ -1990,6 +1990,18 @@ async followup( parent: Agent, childId: SessionId, content: ContentBlock[], opti
 async drainContinuable(): Promise<void>
 
 /**
+ * Close continuable admission below exact live parent Agents, stop only their
+ * visible descendant Activations synchronously, then await admitted scoped
+ * materializations and release those forests child-first. The scoped cutoff
+ * lasts until each exact parent leaves the registry; unrelated parent trees
+ * remain live.
+ * @param parents - exact host-owned parent Agents entering teardown.
+ * @returns once every retained descendant Activation released its `AgentHandle`.
+ * @throws an aggregate error after all scoped branches settle when any failed.
+ */
+async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
+
+/**
  * Register a provider under its name. Registration is effect-scoped and HMR
  * safe; removing a provider blocks new starts but does not revoke runs that
  * were already returned to their holders.

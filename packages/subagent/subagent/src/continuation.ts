@@ -132,6 +132,12 @@ interface Activation {
   /** The retained live Agent handle, disposed exactly once at settlement. */
   readonly handle: AgentHandle
   /**
+   * Exact live Agent ancestry observed when this Activation materialized.
+   * Weak membership preserves host-scope identity across an intermediate
+   * ancestor leaving the registry without retaining that ancestor's runtime.
+   */
+  readonly ancestry: WeakSet<Agent>
+  /**
    * Session ids of the child Activations this one owns. Because one Session has
    * at most one live Activation, the id identifies the live child without
    * another runtime-incarnation reference. Non-empty blocks settlement.
@@ -166,6 +172,16 @@ interface MaterializeInputs {
   agentOptions: AgentOptions
   composition: { persona?: string | undefined; toolFilter?: ToolRestriction | undefined }
   signal: AbortSignal
+}
+
+/**
+ * One admitted materialization and the exact live ancestry observed at its
+ * synchronous admission boundary. Retaining identities lets a scoped teardown
+ * keep waiting even if an intermediate Agent leaves the registry meanwhile.
+ */
+interface Materialization {
+  readonly lineage: readonly Agent[]
+  readonly settled: Promise<void>
 }
 
 /**
@@ -218,10 +234,17 @@ export class SubagentContinuationManager {
   /** Child session id → its live Activation. Process-local, never durable. */
   private activations = new Map<SessionId, Activation>()
   /** Materializations admitted before drain, tracked through publication or rollback. */
-  private readonly materializations = new Set<Promise<void>>()
+  private readonly materializations = new Set<Materialization>()
   private readonly locks = new ChildLock()
   /** Structural Cordis owner of every Activation handle. */
   private readonly ownerCtx: Context
+  /**
+   * Exact roots whose host teardown has begun, with the live lineage members
+   * observed under each root. Entries remain until that exact root leaves the
+   * Agent registry, closing admission throughout its host's teardown without
+   * poisoning a later same-id replacement.
+   */
+  private readonly closingScopes = new Map<Agent, Set<Agent>>()
   private draining = false
 
   constructor(
@@ -236,6 +259,9 @@ export class SubagentContinuationManager {
     // child-first ordering.
     const scope = ctx.plugin(function activationOwner() {})
     this.ownerCtx = scope.ctx
+    ctx.on('agent/disposed', (agent) => {
+      this.closingScopes.delete(agent)
+    })
     ctx.effect(function* (this: SubagentContinuationManager) {
       yield scope.dispose
       yield () => this.drain()
@@ -258,10 +284,10 @@ export class SubagentContinuationManager {
    * @returns the durable child id and the accepted initial prompt's message id.
    */
   async startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
-    this.assertAdmitting()
-    this.requirePersistence()
     const request = spec.request
     const parent = request.parent
+    this.assertAdmitting(parent)
+    this.requirePersistence()
     assertSubagentMaxDepth(request.maxDepth)
     const childId = SessionId(randomUUID())
     const childDepth = resolveChildDepth(parent, request.maxDepth)
@@ -283,7 +309,7 @@ export class SubagentContinuationManager {
       signal: spec.signal,
     })
     spec.signal.throwIfAborted()
-    this.assertAdmitting()
+    this.assertAdmitting(parent)
 
     const lineageSeedLength = prepared.seed?.length ?? 0
     const seed = seedDescriptorTurn(childId, prepared.seed, descriptor)
@@ -331,7 +357,7 @@ export class SubagentContinuationManager {
     content: ContentBlock[],
     options: SubagentFollowupOptions,
   ): Promise<MessageId> {
-    this.assertAdmitting()
+    this.assertAdmitting(parent)
     while (true) {
       const live = await this.locks.run(childId, async () => {
         const activation = this.activations.get(childId)
@@ -350,7 +376,7 @@ export class SubagentContinuationManager {
       /* v8 ignore start -- only the lost-cutoff arm above returns undefined, so only that
        * race reaches the retry below, which then cold-resumes a new Activation. */
       if (live !== undefined) return live
-      this.assertAdmitting()
+      this.assertAdmitting(parent)
       options.signal.throwIfAborted()
       /* v8 ignore stop */
     }
@@ -370,7 +396,7 @@ export class SubagentContinuationManager {
     // already past that cutoff remain tracked until their handle is installed
     // or rollback completes, producing a stable forest for the later snapshot.
     this.draining = true
-    await Promise.all([...this.materializations])
+    await Promise.all([...this.materializations].map(materialization => materialization.settled))
     // Snapshot roots after closing admission: a root is an Activation no live
     // Activation owns, so disposing roots recurses child-first into the forest.
     const owned = new Set<SessionId>()
@@ -396,13 +422,127 @@ export class SubagentContinuationManager {
     }
   }
 
-  /** Reject new admission once the host or manager began draining. */
-  private assertAdmitting(): void {
+  /**
+   * Stop only the continuable descendants of exact live host-owned parents.
+   * Admission stays closed for those parent trees until each exact parent
+   * leaves the Agent registry; unrelated trees and manager-wide admission stay
+   * live.
+   * @param parents - exact live roots whose continuable descendants must stop.
+   * @returns once every retained descendant Activation released its handle.
+   * @throws an aggregate error after all scoped branches settle when any failed.
+   */
+  async drainDescendants(parents: readonly Agent[]): Promise<void> {
+    const roots = new Set(parents.filter(parent => this.ctx.agents.get(parent.id) === parent))
+    if (roots.size === 0) return
+
+    // Publish the scoped admission cutoff before the first await. Merge with an
+    // earlier call for the same exact root so a converging drain cannot forget
+    // descendants whose release is already in flight.
+    for (const root of roots) {
+      this.closingMembers(root).add(root)
+    }
+
+    const targets: Activation[] = []
+    for (const activation of this.activations.values()) {
+      const lineage = this.liveLineage(activation.handle.agent)
+      // Strict descendants only: a continuable Agent may itself be a
+      // host-owned root, and its host remains responsible for that root handle.
+      const owners = [...roots].filter(root => activation.handle.agent !== root
+        && activation.ancestry.has(root))
+      if (owners.length === 0) continue
+      targets.push(activation)
+      for (const owner of owners) {
+        const members = this.closingMembers(owner)
+        members.add(activation.handle.agent)
+        for (const agent of lineage) members.add(agent)
+      }
+    }
+    const materializations = [...this.materializations].filter((materialization) => {
+      const owners = [...roots].filter(root => materialization.lineage.includes(root))
+      for (const owner of owners) {
+        const members = this.closingMembers(owner)
+        for (const agent of materialization.lineage) members.add(agent)
+      }
+      return owners.length > 0
+    })
+
+    const ownedTargets = new Set<SessionId>()
+    for (const activation of targets) {
+      for (const child of activation.ownedChildren) ownedTargets.add(child)
+    }
+    const targetRoots = targets.filter(activation => !ownedTargets.has(activation.childId))
+
+    // Open every selected transaction before the materialization barrier.
+    // Disposal propagates cancellation top-down in the same synchronous span;
+    // handle release remains child-first.
+    for (const activation of targets) {
+      const disposal = this.dispose(activation)
+      void disposal.catch(() => undefined)
+    }
+
+    await Promise.all(materializations.map(materialization => materialization.settled))
+    const failures = await Promise.all(targetRoots.map(async (activation) => {
+      try {
+        await this.dispose(activation)
+        return undefined
+      } catch (error: unknown) {
+        return error
+      }
+    }))
+    const reasons = failures.filter(failure => failure !== undefined)
+    if (reasons.length > 0) {
+      throw new SubagentError(
+        `continuable subagent teardown failed for ${reasons.length} scoped activation(s): `
+        + reasons.map(reason => errorChain(reason)).join('; '),
+        'ACTIVATION_TEARDOWN_FAILED',
+      )
+    }
+  }
+
+  /** Return the retained member set for one exact scoped-teardown root. */
+  private closingMembers(root: Agent): Set<Agent> {
+    const existing = this.closingScopes.get(root)
+    if (existing !== undefined) return existing
+    const members = new Set<Agent>()
+    this.closingScopes.set(root, members)
+    return members
+  }
+
+  /**
+   * Return the exact currently resolvable ancestry from `agent` upward. The
+   * first element is always the supplied identity, even when it is already
+   * stale; each ancestor after it must be the registry's current exact entry.
+   */
+  private liveLineage(agent: Agent): Agent[] {
+    const lineage = [agent]
+    const seen = new Set<SessionId>([agent.id])
+    let parentSession = agent.session.header.parentSession
+    while (parentSession !== undefined) {
+      const parent = this.ctx.agents.get(parentSession)
+      if (parent === undefined || seen.has(parent.id)) break
+      lineage.push(parent)
+      seen.add(parent.id)
+      parentSession = parent.session.header.parentSession
+    }
+    return lineage
+  }
+
+  /** Reject new admission once the manager or this exact parent tree began draining. */
+  private assertAdmitting(agent: Agent): void {
     if (this.draining) {
       throw new SubagentError(
         'continuable subagents are draining; the operation was not admitted',
         'DRAINING',
       )
+    }
+    const lineage = this.liveLineage(agent)
+    for (const [root, members] of this.closingScopes) {
+      if (members.has(agent) || lineage.includes(root)) {
+        throw new SubagentError(
+          `continuable subagents below parent "${root.id}" are draining; the operation was not admitted`,
+          'DRAINING',
+        )
+      }
     }
   }
 
@@ -443,7 +583,7 @@ export class SubagentContinuationManager {
     }
     // The persistence seam takes no signal; recheck before any child work.
     options.signal.throwIfAborted()
-    this.assertAdmitting()
+    this.assertAdmitting(parent)
     // Authorize the persisted header before folding: only the durable child's
     // exact live direct parent may continue it.
     this.authorizeLineage(parent, childId, loaded.meta.parentSession)
@@ -505,11 +645,16 @@ export class SubagentContinuationManager {
    * and no ownership membership.
    */
   private materialize(inputs: MaterializeInputs): Promise<Activation> {
-    this.assertAdmitting()
+    this.assertAdmitting(inputs.parent)
     const settled = Promise.withResolvers<void>()
-    this.materializations.add(settled.promise)
-    return this.materializeTracked(inputs).finally(() => {
-      this.materializations.delete(settled.promise)
+    const lineage = this.liveLineage(inputs.parent)
+    const materialization: Materialization = {
+      lineage,
+      settled: settled.promise,
+    }
+    this.materializations.add(materialization)
+    return this.materializeTracked(inputs, lineage).finally(() => {
+      this.materializations.delete(materialization)
       settled.resolve()
     })
   }
@@ -519,7 +664,10 @@ export class SubagentContinuationManager {
    * registered until this either returns a resident Activation or finishes
    * rollback.
    */
-  private async materializeTracked(inputs: MaterializeInputs): Promise<Activation> {
+  private async materializeTracked(
+    inputs: MaterializeInputs,
+    parentLineage: readonly Agent[],
+  ): Promise<Activation> {
     const { childId, provider, parent } = inputs
     // No id pre-check here: the child lock serializes each durable child, both
     // callers reach this only after confirming no Activation exists, and
@@ -551,6 +699,7 @@ export class SubagentContinuationManager {
       childId,
       provider,
       handle,
+      ancestry: new WeakSet([handle.agent, ...parentLineage]),
       ownedChildren: new Set(),
       observer,
       disposal: undefined,
@@ -562,7 +711,7 @@ export class SubagentContinuationManager {
     this.activations.set(childId, activation)
     try {
       inputs.signal.throwIfAborted()
-      this.assertAdmitting()
+      this.assertAdmitting(parent)
       this.acquireOwnership(parent, childId)
       // Every accepted id leaves the inbox exactly once, through dequeue or
       // discard. Clearing it there is what lets `stateOf()` distinguish a truly
@@ -685,7 +834,7 @@ export class SubagentContinuationManager {
     signal: AbortSignal,
   ): MessageId {
     signal.throwIfAborted()
-    this.assertAdmitting()
+    this.assertAdmitting(parent)
     /* v8 ignore next 6 -- only a synchronous re-entrant disposer can change
      * this field between the caller's live check and this no-await boundary. */
     if (disposalOf(activation) !== undefined) {
@@ -767,83 +916,100 @@ export class SubagentContinuationManager {
   }
 
   /**
-   * Release one Activation child-first: dispose owned children, checkpoint
-   * durability, dispose the handle, and release parent ownership. Memoized, so
-   * host shutdown, manager unload, child release, and normal settlement
-   * converge on one teardown.
+   * Stop one Activation immediately, then release it child-first. The memoized
+   * transaction is installed before cancellation or recursive callbacks, so
+   * admission and reentrant teardown converge on the same owner.
    *
    * A failed final checkpoint is reported but never prevents handle disposal or
    * ownership release, because retaining a failed child would permanently pin
    * its ancestors in `waiting`.
+   * @param activation - the residency epoch to stop and release.
+   * @returns the one disposal transaction owned by this Activation.
    */
   private dispose(activation: Activation): Promise<void> {
-    return (activation.disposal ??= (async () => {
-      // The memoized assignment above already closed admission for this child:
-      // no caller may send to a handle after its disposal transaction begins.
-      this.wake(activation)
-      const { childId } = activation
-      let failure: Error | undefined
-      try {
-        // Child-first: every owned child must complete disposal before this
-        // handle is released.
-        const children = [...activation.ownedChildren]
-          .map(child => this.activations.get(child))
-          .filter((child): child is Activation => child !== undefined)
-        const childFailures = await Promise.all(children.map(async (child) => {
-          try {
-            await this.dispose(child)
-            return undefined
-          } catch (error: unknown) {
-            return error
-          }
-        }))
-        const reasons = childFailures.filter(reason => reason !== undefined)
-        if (reasons.length > 0) {
-          failure = new SubagentError(
-            `subagent "${childId}" child teardown failed: ${reasons.map(reason => errorChain(reason)).join('; ')}`,
-            'ACTIVATION_TEARDOWN_FAILED',
-          )
+    const existing = activation.disposal
+    if (existing !== undefined) return existing
+    const completion = Promise.withResolvers<void>()
+    // Presence is the admission cutoff. Assign it before the async helper starts
+    // because that helper cancels Agents and may synchronously re-enter callers.
+    activation.disposal = completion.promise
+    void this.finishDisposal(activation).then(completion.resolve, completion.reject)
+    return completion.promise
+  }
+
+  /**
+   * Propagate stop synchronously, then finish the child-first release.
+   * @param activation - the Activation whose disposal transaction is installed.
+   * @returns once the handle and ownership edge are released.
+   */
+  private async finishDisposal(activation: Activation): Promise<void> {
+    this.wake(activation)
+    const { childId } = activation
+    // Stop top-down before the first await. Slow descendant cleanup may delay
+    // release, but it cannot let this ancestor continue model or tool work.
+    activation.handle.agent.cancel({ kind: 'parent' })
+    const idle = activation.handle.agent.whenIdle()
+    const children = [...activation.ownedChildren]
+      .map(child => this.activations.get(child))
+      .filter((child): child is Activation => child !== undefined)
+    const childDisposals = children.map(child => this.dispose(child))
+
+    let failure: Error | undefined
+    try {
+      // Release remains child-first even though cancellation propagated
+      // top-down: every owned child completes before this handle is removed.
+      const childFailures = await Promise.all(childDisposals.map(async (disposal) => {
+        try {
+          await disposal
+          return undefined
+        } catch (error: unknown) {
+          return error
         }
-        // Quiesce before the checkpoint: a turn still running would keep
-        // appending events the flush cannot cover, and a slow flush would let
-        // model and tool work continue for the whole shutdown.
-        activation.handle.agent.cancel({ kind: 'parent' })
-        await activation.handle.agent.whenIdle()
-        const durability = await this.checkpoint(activation)
-        failure ??= durability
-        // Capture the child-dependent edge data while the child is still live:
-        // handle disposal unregisters it, and consumers read its log and scope.
-        activation.observer.capture(activation.handle.agent)
+      }))
+      const reasons = childFailures.filter(reason => reason !== undefined)
+      if (reasons.length > 0) {
+        failure = new SubagentError(
+          `subagent "${childId}" child teardown failed: ${reasons.map(reason => errorChain(reason)).join('; ')}`,
+          'ACTIVATION_TEARDOWN_FAILED',
+        )
+      }
+      // Quiesce before the checkpoint: a turn still running would keep
+      // appending events the flush cannot cover.
+      await idle
+      const durability = await this.checkpoint(activation)
+      failure ??= durability
+      // Capture the child-dependent edge data while the child is still live:
+      // handle disposal unregisters it, and consumers read its log and scope.
+      activation.observer.capture(activation.handle.agent)
+    } catch (error: unknown) {
+      failure ??= new SubagentError(
+        `subagent "${childId}" activation teardown failed: ${errorChain(error)}`,
+        'ACTIVATION_TEARDOWN_FAILED',
+        { cause: error },
+      )
+    } finally {
+      try {
+        await activation.handle.dispose()
       } catch (error: unknown) {
         failure ??= new SubagentError(
-          `subagent "${childId}" activation teardown failed: ${errorChain(error)}`,
+          `subagent "${childId}" activation handle disposal failed: ${errorChain(error)}`,
           'ACTIVATION_TEARDOWN_FAILED',
           { cause: error },
         )
       } finally {
-        try {
-          await activation.handle.dispose()
-        } catch (error: unknown) {
-          failure ??= new SubagentError(
-            `subagent "${childId}" activation handle disposal failed: ${errorChain(error)}`,
-            'ACTIVATION_TEARDOWN_FAILED',
-            { cause: error },
-          )
-        } finally {
-          // Only now is the Activation gone: keeping the entry until disposal
-          // settles makes a racing delivery wait for release rather than
-          // cold-resume into the still-registered agent.
-          this.activations.delete(childId)
-          // Release ownership even on failure: a retained failed child would
-          // pin its ancestors in `waiting` forever.
-          this.releaseOwnership(childId)
-          // Emit once the disposal outcome is known, so a rejecting scoped
-          // cleanup cannot be reported as a successful epoch.
-          activation.observer.settle(failure)
-        }
+        // Only now is the Activation gone: keeping the entry until disposal
+        // settles makes a racing delivery wait for release rather than
+        // cold-resume into the still-registered agent.
+        this.activations.delete(childId)
+        // Release ownership even on failure: a retained failed child would pin
+        // its ancestors in `waiting` forever.
+        this.releaseOwnership(childId)
+        // Emit once the disposal outcome is known, so a rejecting scoped cleanup
+        // cannot be reported as a successful epoch.
+        activation.observer.settle(failure)
       }
-      if (failure !== undefined) throw failure
-    })())
+    }
+    if (failure !== undefined) throw failure
   }
 
   /**

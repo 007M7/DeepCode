@@ -107,9 +107,9 @@ Agent inbox 是唯一队列。每条继续执行消息都使用 `Agent.followup(
 
 系统会一直保留所有权，直至 child 激活完成 dispose。后续改进可以更早释放限定到请求的 lease，但这需要精确关联轮次完成，而本 Task-free 提案特意不增加该机制。
 
-顶层拆卸由宿主负责，而不表示为另一次激活。宿主首先要求管理器同步进入 draining，拒绝新的创建、恢复和投递准入。管理器随后等待每个已经通过准入的物化过程，直至它安装驻留激活或完成回滚，再对稳定的在线森林创建快照，按 child-first 顺序 dispose，并等待全部 `AgentHandle.dispose()` 调用。每个已物化的 start 和在线投递都会在与 inbox 提交相同的同步区间内重新检查调用方取消、draining、激活 dispose 和确切的 parent 权限，因此只要拆卸或 parent 替换先于接受发生，就会阻止向正在关闭的 handle 投递。只有该 drain 结算后，宿主才能 dispose 顶层 Agent 和管理器作用域。管理器卸载使用相同的 drain。
+顶层拆卸由宿主负责，而不表示为另一次激活。管理器卸载使用 `drainContinuable()` 同步关闭管理器全局准入，等待每个已获准的物化过程完成发布或回滚，停止稳定的在线森林，并按 child-first 顺序释放。拥有选定顶层 Agent 的宿主则使用 `drainContinuableDescendants(parents)`：确切的 Agent 身份只关闭这些根之下的准入，直到每个身份离开注册表，而无关森林和管理器全局准入保持在线；管理器会在第一次 await 之前停止其可见后代，只等待这些根之下已获准的物化过程，并且只释放选定分支。每个已物化的 start 和在线投递都会在与 inbox 提交相同的同步区间内重新检查调用方取消、适用的 draining 作用域、Activation dispose 和确切的 parent 权限，因此只要拆卸或 parent 替换先于接受发生，就会阻止向正在关闭的 handle 投递。只有适用的 drain 结算后，宿主才能 dispose 自己的顶层 Agent；只有全局 drain 会先于管理器作用域 dispose。
 
-activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 按注册逆序撤销，无法表达动态 child 图。管理器初始化时先注册私有作用域的结构化 disposer，再注册自身的 drain disposer，使逆序撤销先执行 drain、再释放该作用域；如果只在与后续 Agent handle 相同的作用域上注册 cleanup effect，结构化 handle dispose 就可能绕过 child-first 顺序。管理器在关闭准入后对在线根节点创建快照，在取消前停止自身的对外生命周期通知，并保留内部所有权簿记，直至每个 handle 都结算。每次激活有一个记忆化的 dispose promise，使宿主关闭、管理器卸载、child 释放和正常结算能够汇合，而不会重复释放。同级分支独立 drain；系统会记录单次 dispose 失败，但仍会尝试其余 handle，聚合 drain 则在所有分支结算后报告失败。这次进程内拆卸不会销毁持久化 child 会话。
+activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 按注册逆序撤销，无法表达动态 child 图。管理器初始化时先注册私有作用域的结构化 disposer，再注册自身的 drain disposer，使逆序撤销先执行 drain、再释放该作用域；如果只在与后续 Agent handle 相同的作用域上注册 cleanup effect，结构化 handle dispose 就可能绕过 child-first 顺序。每个物化过程都会在启动内部事务前注册其屏障参与项，并对其确切的在线祖先建立快照，然后保持跟踪，直到安装 Activation 或完全回滚。Activation 会以弱引用方式记录其属于这组祖先，因此中间 Agent 即使离开注册表，也不会让仍在线的后代脱离宿主根节点的可见范围。每个 Activation 都会在取消或递归回调前安装一个记忆化的 dispose promise，使限定作用域的宿主关闭、全局管理器卸载、child 释放和正常结算能够汇合，而不会重复释放。取消会在等待缓慢的后代清理之前自顶向下传播；handle 释放仍是 child-first。同级分支独立 drain；系统会记录单次 dispose 失败，但仍会尝试其余选中 handle，聚合 drain 则在所有选中分支结算后报告失败。这次进程内拆卸不会销毁持久化 child 会话。
 
 ### 延后的报告投递
 
@@ -135,7 +135,7 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 
 没有 Task 后，系统不再提供 `task_output`、`task_kill`、Task 状态、逐消息结果 promise 或公开 subagent 取消操作。调用方 signal 只能在 inbox 接受消息前中止 start 或 follow-up。消息被接受后，parent 不能通过 `ctx.subagents` 取消该消息、轮次或激活；`Agent.cancel()` 仍是底层 Agent 能力，但本版本不通过 subagent 服务暴露它。
 
-宿主和管理器拆卸仍是覆盖整个生命周期的停止路径。它会关闭准入，按 child-first 顺序 dispose 每个在线激活森林，并保留持久化会话。
+宿主和管理器拆卸仍是生命周期停止路径。管理器卸载会全局应用它；宿主只会在自己确切拥有的顶层 Agent 之下应用它。两种形式都会关闭适用的准入作用域，停止选中的可见 Activation，等待该作用域中已获准的物化过程，按 child-first 顺序释放，并保留持久化 Session。
 
 每个轮次都会请求执行会话持久性检查点，激活最终结算时，管理器必须检查 `ctx.sessions.flush()`，而不能忽略其布尔结果。`true` 确认至少有一个持久性 listener 参与，且所有 listener 都成功结算。`false` 或 rejection 会报告 `DURABILITY_FAILED`；普通后台结算会记录该生命周期失败，显式的宿主或管理器 drain 则会在所有分支结算后，将其纳入聚合 rejection。无论结果如何，管理器仍会 dispose handle 并释放所有权，后续恢复时持久化 child 状态可能缺失或陈旧。
 
@@ -188,17 +188,17 @@ activation-owner 作用域之所以存在，是因为普通 Cordis owner effect 
 - `followup()` 只接受确切的在线直接 parent，并在任何物化之后的最终无 await 的 inbox 准入边界再次检查该身份；持久化消息来源信息不能授权投递。
 - 继续执行消息始终使用 `Agent.followup()` 并共享其 inbox FIFO，包括 child 已有开放轮次的情况。
 - `ctx.subagents.followup()` 及其 `send_message` 适配器只返回已接受的 `MessageId`；继续执行层不接受投递 target，也不定义 subagent 专属路由结果。
-- 本版本不暴露公开 subagent 取消操作；调用方 signal 只能在 inbox 接受消息前停止 start 和 follow-up，宿主和管理器拆卸则保留 child-first 全局清理。
+- 本版本不暴露公开 subagent 取消操作；调用方 signal 只能在 inbox 接受消息前停止 start 和 follow-up，限定到宿主的拆卸与管理器全局拆卸则保留 child-first 清理。
 - 本版本不暴露 subagent steering 操作或当前轮次控制方状态。
 - 带有在线所持 child 的空闲 Agent 会产生 `waiting` 激活，其 `AgentHandle` 继续保留。
 - 向 `waiting` 投递 `next-turn` 会唤醒同一个激活；完成 dispose 后投递消息会冷恢复新激活。
 - 每个由继续执行管理器管理的 parent 激活只会在直接持有的所有 child 激活完成 `AgentHandle` dispose 后进行 dispose；顶层 Agent 不加入等待图。
 - 激活最终结算时，只有 `ctx.sessions.flush(child.session) === true` 才确认持久性；`false` 和 rejection 会报告 `DURABILITY_FAILED`，但仍会 dispose child handle 并释放 parent 所有权，使持久性失败不会泄漏 `waiting` 激活。
-- 宿主和管理器拆卸会同步进入 draining，拒绝新的物化和投递，等待每个已获准的物化过程完成发布或回滚，停止由管理器负责的对外通知，按 child-first 顺序 dispose 稳定的在线激活森林，即使个别分支失败也会等待所有分支，之后才 dispose 顶层 Agent 和管理器作用域；私有 activation-owner 作用域会确保 Cordis effect 的逆序撤销不破坏该顺序，每次激活使用一个记忆化的 dispose promise，使并发的正常结算保持幂等。
+- 管理器拆卸会全局关闭准入；拥有选定顶层 Agent 的宿主则只关闭这些确切身份之下的准入，直到这些根离开注册表。两者都会按确切祖先关系跟踪已获准的物化过程，为每个选中的可见 Activation 安装一个记忆化 dispose 截止点，自顶向下传播取消，按 child-first 顺序释放 handle，即使个别分支失败也会等待所有选中分支，之后才 dispose 对应的顶层 Agent 或管理器作用域。
 - 本版本不暴露 `report` 工具，不提供从 child 到 parent 的内容投递，也不自动唤醒 parent。
 - 会话日志只能根据准入来源重建实际写入的消息；已被 inbox 接受但未写入日志的消息没有重启保证。
 - 可继续 subagent 路径不创建或依赖 Task、`TaskId`、Task 完成通知、Task 取消或中间的带结果执行包装层。
-- 单元覆盖固定 `startContinuable()` 在 inbox 接受消息时的返回边界、每条接受前和生命周期发布失败路径的完整回滚、drain 会等待夹在 Agent 发布与 Activation 注册之间的物化过程完全停稳、不依赖提供方的冷恢复、冷恢复物化后的最终确切 parent 再授权、接受前后两个阶段的调用方 signal 与拆卸所有权，以及已接受但未写入日志的消息不会自动回放。
+- 单元覆盖固定 `startContinuable()` 在 inbox 接受消息时的返回边界、每条接受前和生命周期发布失败路径的完整回滚、全局和限定到 parent 作用域的 drain 都会等待夹在 Agent 发布与 Activation 注册之间的物化过程完全停稳、同级森林隔离、中间 Agent 离开注册表后的确切祖先关系、不依赖提供方的冷恢复、冷恢复物化后的最终确切 parent 再授权、接受前后两个阶段的调用方 signal 与拆卸所有权，以及已接受但未写入日志的消息不会自动回放。
 - 单元覆盖固定仅由驻留状态决定的路由表、单 inbox 顺序、通过 inbox 事件关联 `MessageId`、在开放轮次期间 follow-up、等待唤醒、冷恢复、所有权注册与释放、child-first dispose、发送与 dispose 的竞争、最终持久性检查点返回 `false` 和 rejection 时都不泄漏所有权，以及不存在公开 subagent 取消、steering 和报告工具这一事实。
 - 一项无密钥整套应用快照覆盖 parent 委派和 follow-up 排队、不存在 subagent steering、报告投递和自动唤醒 parent、保留等待中的 `AgentHandle` 以及 child-first dispose。
 

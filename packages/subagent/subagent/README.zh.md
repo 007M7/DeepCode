@@ -32,6 +32,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 | `startContinuable(spec)` | 建立一个持久化可继续子 agent，并投递其初始提示词。子 agent 的 inbox 接受该提示词时，兑现为 `{ childId, messageId }`，无需等待轮次开始或消息写入 Session 日志；此前任何失败都会以无 id 拒绝，并完全回滚该子 agent。要求 `ctx.agents`、会话持久化以及具备 `prepareContinuable` 能力的提供方。 |
 | `followup(parent, childId, content, { source, signal })` | 将来自确切在线直接父级的一条后续消息作为子 agent 的下一个 FIFO 轮次投递，术语与 `Agent.followup()` 一致，并返回被接受的 `MessageId`。驻留中的子 agent 由其 inbox 直接接受（唤醒处于 waiting 的 Activation）；不驻留的则从其持久化 Session 冷恢复。要求 `ctx.agents`；冷恢复还要求会话持久化。 |
 | `drainContinuable()` | 同步关闭可继续准入，等待每个已经通过准入的物化过程完成发布或回滚，然后按 child-first 顺序 dispose 稳定的在线 Activation 森林。host 会在 dispose 顶层 agent 之前调用它，使任何后代都不会比拥有其拆卸职责的运行时存活更久。任一分支失败时，会在所有分支结算后抛出聚合错误。 |
+| `drainContinuableDescendants(parents)` | 在由 host 确切拥有的在线 parent Agent 之下关闭准入，只停止其可见的可继续后代，等待在这些根之下已获准的物化过程完成发布或回滚，再按 child-first 顺序释放所选森林。该截止状态会持续到每个确切 parent 离开注册表；无关的 parent 森林和管理器全局准入保持在线。 |
 
 `SubagentStartRequest.signal` 是必填项，也是一次性 `start` 的规范取消通道。发布前中止会使 `start()` 在回滚后拒绝；发布后中止会取消实时子 agent。请求还可以选择模型、要求结构化输出、限制委派深度、约束子 agent 工具或设置子 agent persona。对于可继续启动或后续操作，调用方信号只在 inbox 接受之前掌管查找、物化和准入；此后由管理器独立拥有 Activation，因此调用方后续取消既不会取消已接受的轮次，也不会 dispose 子 agent。
 
@@ -76,7 +77,7 @@ subagent seam 允许一个 agent（智能体）通过具名提供方把工作委
 
 管理器预留子 agent 身份、解析持久化描述符，通过私有的 activation-owner 作用域调用 `ctx.agents.create()`（冷恢复时为 `ctx.agents.resume()`），把返回的 `AgentHandle` 安装到 Activation 中，建立任何可继续父级所有权，然后提交提示词。冷恢复绝不通过提供方分发，因为持久化 Session 已持有初始前缀，折叠后的描述符即是全部重建输入。
 
-受继续执行管理的父级 Activation 会在子 agent 能够运行之前，把每个子 agent 的 Session id 记录到 `ownedChildren` 集合中，并且只有在每个所拥有的子 agent Activation 完成 `AgentHandle` dispose 之后才会 dispose（子先于父）。顶层及其他非继续执行的 Agent 没有 Activation，处于该等待图之外。最终结算只把 `ctx.sessions.flush(child.session) === true` 视为持久性确认；`false` 或拒绝会报告 `DURABILITY_FAILED`，但仍会 dispose 句柄并释放所有权，因为保留失败的子 agent 会使其祖先永久停留在 `waiting`。
+受继续执行管理的父级 Activation 会在子 agent 能够运行之前，把每个子 agent 的 Session id 记录到 `ownedChildren` 集合中，并且只有在每个所拥有的子 agent Activation 完成 `AgentHandle` dispose 之后才会 dispose（子先于父）。拆卸会先自顶向下传播 Agent 取消，再等待缓慢的后代，而 handle 释放仍保持 child-first。顶层及其他非继续执行的 Agent 没有 Activation，处于该等待图之外。最终结算只把 `ctx.sessions.flush(child.session) === true` 视为持久性确认；`false` 或拒绝会报告 `DURABILITY_FAILED`，但仍会 dispose 句柄并释放所有权，因为保留失败的子 agent 会使其祖先永久停留在 `waiting`。
 
 ## 生命周期事件
 

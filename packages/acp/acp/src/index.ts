@@ -49,8 +49,11 @@ export const inject = ['agents']
  * shutdown hook; an absent service means nothing continuable was materialized.
  */
 interface ContinuableDrain {
-  /** Close continuable admission, then dispose every live Activation child-first. */
-  drainContinuable(): Promise<void>
+  /**
+   * Close admission below exact host-owned parents, then dispose only their
+   * continuable descendants child-first.
+   */
+  drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 }
 
 /** Preserve invalid-parameter detail in the SDK wire error message. */
@@ -345,15 +348,16 @@ export function apply(ctx: Context, config: AcpConfig): void {
     }
     quiescing = (async () => {
       // Continuable subagents outlive the turn that started them, and their
-      // Activations own descendant teardown. Drain that forest child-first
-      // BEFORE disposing the top-level agents, so no descendant is left holding
-      // a runtime its owner already released.
+      // Activations own descendant teardown. Drain only these sessions' forests
+      // child-first BEFORE disposing the top-level agents, so no descendant is
+      // left holding a runtime its owner already released and another frontend
+      // sharing this Context remains live.
       // Read the one teardown method structurally: the bridge needs no other
       // part of the subagent seam, so it does not depend on that package.
       const subagents = ctx.get('subagents') as ContinuableDrain | undefined
       if (subagents !== undefined) {
         try {
-          await subagents.drainContinuable()
+          await subagents.drainContinuableDescendants(records.map(record => record.agent))
         } catch (error: unknown) {
           logger.warn(`acp: continuable subagent teardown failed: ${String(error)}`)
         }

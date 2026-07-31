@@ -663,6 +663,199 @@ describe('continuable durability and teardown', () => {
     expect(loaded.meta.id).toBe(started.childId)
   })
 
+  it('drains one parent forest without disabling a sibling parent forest', async () => {
+    const releaseTarget = Promise.withResolvers<undefined>()
+    const releaseGrandchild = Promise.withResolvers<undefined>()
+    const releaseSibling = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('target child'), gate: releaseTarget.promise },
+      { chunks: textResponse('sibling child'), gate: releaseSibling.promise },
+      { chunks: textResponse('target grandchild'), gate: releaseGrandchild.promise },
+      { chunks: textResponse('sibling follow-up') },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    const siblingParent = ctx.agentLoop.create(
+      SessionId('sibling-parent'),
+      { provider: 'mock', model: 'mock' },
+    )
+    const target = await ctx.subagents.startContinuable(startSpec(parent))
+    const sibling = await ctx.subagents.startContinuable(startSpec(siblingParent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
+    const targetChild = ctx.agents.get(target.childId)!
+    const siblingChild = ctx.agents.get(sibling.childId)!
+    const grandchild = await ctx.subagents.startContinuable(startSpec(targetChild))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(3) })
+    const cancellations: SessionId[] = []
+    ctx.on('agent/cancel-requested', (agent) => { cancellations.push(agent.id) })
+
+    const drained = ctx.subagents.drainContinuableDescendants([parent])
+    const convergedDrain = ctx.subagents.drainContinuableDescendants([parent])
+
+    // The scoped cutoff stops only the selected forest. The sibling child stays
+    // resident and can accept later work while target cleanup is still blocked.
+    expect(cancellations).toEqual([target.childId, grandchild.childId])
+    expect(ctx.agents.get(target.childId)).toBe(targetChild)
+    expect(ctx.agents.get(grandchild.childId)).toBeDefined()
+    expect(ctx.agents.get(sibling.childId)).toBe(siblingChild)
+    await expect(followup(ctx, siblingParent, sibling.childId, message('still live')))
+      .resolves.toBeTypeOf('string')
+    await expect(ctx.subagents.startContinuable(startSpec(parent)))
+      .rejects.toMatchObject({ code: 'DRAINING' })
+    await expect(followup(ctx, parent, target.childId, message('too late')))
+      .rejects.toMatchObject({ code: 'DRAINING' })
+
+    releaseTarget.resolve(undefined)
+    releaseGrandchild.resolve(undefined)
+    await Promise.all([drained, convergedDrain])
+    expect(ctx.agents.get(target.childId)).toBeUndefined()
+    expect(ctx.agents.get(grandchild.childId)).toBeUndefined()
+    expect(ctx.agents.get(sibling.childId)).toBe(siblingChild)
+    // The exact root remains closed until its host disposes it, even after all
+    // current descendants are gone.
+    await expect(ctx.subagents.startContinuable(startSpec(parent)))
+      .rejects.toMatchObject({ code: 'DRAINING' })
+
+    releaseSibling.resolve(undefined)
+    await waitNoActivation(ctx, sibling.childId)
+  })
+
+  it('retains a continuable root while draining only its descendants', async () => {
+    const releaseChild = Promise.withResolvers<undefined>()
+    const releaseGrandchild = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('child'), gate: releaseChild.promise },
+      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const child = ctx.agents.get(started.childId)!
+    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
+    const cancellations: SessionId[] = []
+    ctx.on('agent/cancel-requested', (agent) => { cancellations.push(agent.id) })
+
+    const drained = ctx.subagents.drainContinuableDescendants([child])
+
+    expect(cancellations).toEqual([grandchild.childId])
+    expect(ctx.agents.get(started.childId)).toBe(child)
+    releaseGrandchild.resolve(undefined)
+    await drained
+    expect(ctx.agents.get(grandchild.childId)).toBeUndefined()
+    expect(ctx.agents.get(started.childId)).toBe(child)
+    await expect(ctx.subagents.startContinuable(startSpec(child)))
+      .rejects.toMatchObject({ code: 'DRAINING' })
+
+    releaseChild.resolve(undefined)
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('finds scoped descendants after an intermediate one-shot Agent leaves the registry', async () => {
+    const releaseIntermediate = Promise.withResolvers<undefined>()
+    const releaseDescendant = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('one-shot'), gate: releaseIntermediate.promise },
+      { chunks: textResponse('continuable descendant'), gate: releaseDescendant.promise },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    const run = await ctx.subagents.start('spawn', {
+      prompt: message('one-shot task'),
+      parent,
+      signal: testSignal,
+    })
+    const intermediate = run.localAgent
+    expect(intermediate).toBeDefined()
+    if (intermediate === undefined) throw new Error('spawn must publish a local Agent')
+    const descendant = await ctx.subagents.startContinuable(startSpec(intermediate))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
+
+    const intermediateId = intermediate.id
+    const disposingIntermediate = run.dispose()
+    releaseIntermediate.resolve(undefined)
+    await disposingIntermediate
+    expect(ctx.agents.get(intermediateId)).toBeUndefined()
+    expect(ctx.agents.get(descendant.childId)).toBeDefined()
+    const cancellations: SessionId[] = []
+    ctx.on('agent/cancel-requested', (agent) => { cancellations.push(agent.id) })
+
+    const drained = ctx.subagents.drainContinuableDescendants([parent])
+
+    expect(cancellations).toEqual([descendant.childId])
+    releaseDescendant.resolve(undefined)
+    await drained
+    expect(ctx.agents.get(descendant.childId)).toBeUndefined()
+  })
+
+  it('awaits and rolls back an admitted materialization below a scoped root', async () => {
+    const { ctx, parent } = await setup([])
+    const manager = (ctx.subagents as unknown as {
+      continuations: { ownerCtx: Context }
+    }).continuations
+    const agents = manager.ownerCtx.agents
+    const create = agents.create.bind(agents)
+    const published = Promise.withResolvers<SessionId>()
+    const releaseMaterialization = Promise.withResolvers<undefined>()
+    const createSpy = vi.spyOn(agents, 'create').mockImplementation(async (options) => {
+      const handle = await create(options)
+      published.resolve(handle.agent.id)
+      await releaseMaterialization.promise
+      return handle
+    })
+
+    try {
+      const starting = ctx.subagents.startContinuable(startSpec(parent))
+      const childId = await published.promise
+      let drainResolved = false
+      const drained = ctx.subagents.drainContinuableDescendants([parent]).then(() => {
+        drainResolved = true
+      })
+      await Promise.resolve()
+      expect(drainResolved).toBe(false)
+
+      releaseMaterialization.resolve(undefined)
+      await expect(starting).rejects.toMatchObject({ code: 'DRAINING' })
+      await drained
+      expect(ctx.agents.get(childId)).toBeUndefined()
+    } finally {
+      createSpy.mockRestore()
+    }
+  })
+
+  it('ignores a stale scoped root without disabling its live same-id Agent', async () => {
+    const { ctx, parent } = await setup([textResponse('done')])
+    const stale = { ...parent, id: parent.id } as unknown as Agent
+
+    await ctx.subagents.drainContinuableDescendants([stale])
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+
+    await waitNoActivation(ctx, started.childId)
+  })
+
+  it('reports a scoped teardown failure after releasing the selected branch', async () => {
+    const hold = Promise.withResolvers<undefined>()
+    const adapter = new GatedAdapter([
+      { chunks: textResponse('target child'), gate: hold.promise },
+    ])
+    const { ctx, parent } = await setupWith(adapter)
+    const started = await ctx.subagents.startContinuable(startSpec(parent))
+    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
+    const manager = (ctx.subagents as unknown as {
+      continuations: { activations: Map<SessionId, { handle: { dispose: () => Promise<void> } }> }
+    }).continuations
+    const activation = manager.activations.get(started.childId)!
+    const realDispose = activation.handle.dispose.bind(activation.handle)
+    activation.handle.dispose = async () => {
+      await realDispose()
+      throw new Error('scoped child reap failed')
+    }
+
+    const drained = ctx.subagents.drainContinuableDescendants([parent])
+    hold.resolve(undefined)
+
+    await expect(drained).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
+    expect(ctx.agents.get(started.childId)).toBeUndefined()
+  })
+
   it('rejects new materialization and delivery once draining begins', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))

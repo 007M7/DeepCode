@@ -129,7 +129,7 @@ Agent 收件箱是唯一的队列。每条继续执行消息都会成为一个 `
 
 每个 Activation 都拥有自己的 `AgentHandle` 和一个 `ownedChildren: Set<SessionId>`；由于一份会话至多有一个存活 Activation，子会话 id 无需另一个运行时化身引用即可标识存活的子 agent。启动子 agent 或提交源自 parent 的工作，会在子 agent 能够运行之前将其注册到受继续执行管理的父级集合中；只要该集合非空，该父级就无法 settle。顶层或其他非继续执行的 Agent 没有 Activation，处于 waiting 图之外。只有当子 Agent 已停稳、该子 agent 的每个子级都已 dispose、最终的持久性检查点结算完毕，且子 agent 的 `AgentHandle` 完成 dispose 之后，才会释放子 agent。
 
-只有 `ctx.sessions.flush(session) === true` 才确认持久性；`false` 或 rejection 会报告 `DURABILITY_FAILED`。无论哪种情况，管理器仍会 dispose 该 handle 并释放所有权，因为保留一个失败的子 agent 会将其祖先永久钉在 `waiting`——此后持久化的子 agent 状态在后续恢复时可能缺失或陈旧。`drainContinuable()` 是覆盖整个生命周期的停止路径：它同步关闭准入，随后以子级优先的方式 dispose 每一片存活的 Activation 森林，尽管个别分支失败仍会等待每个分支。持久化子会话不受该进程内拆卸的影响。
+只有 `ctx.sessions.flush(session) === true` 才确认持久性；`false` 或 rejection 会报告 `DURABILITY_FAILED`。无论哪种情况，管理器仍会 dispose 该 handle 并释放所有权，因为保留一个失败的子 agent 会将其祖先永久钉在 `waiting`——此后持久化的子 agent 状态在后续恢复时可能缺失或陈旧。`drainContinuable()` 会关闭管理器全局准入并 dispose 每片在线森林；`drainContinuableDescendants(parents)` 只关闭由 host 确切拥有的在线 Agent 之下的准入，并 dispose 其可继续后代，而无关森林保持在线。两者都会等待各自作用域内已获准的物化过程，自顶向下传播取消，按 child-first 顺序释放 handle，并且即使个别分支失败也会等待所有选中分支。持久化子会话不受该进程内拆卸的影响。
 
 ```ts type-equiv
 /** Attribution for a model coordinator's follow-up to one of its children. */

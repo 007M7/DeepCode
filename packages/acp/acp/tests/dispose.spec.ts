@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { makeBridgeHarness, type BridgeHarness } from './harness.ts'
 
@@ -28,21 +29,25 @@ describe('ACP connection ownership', () => {
   it('drains continuable subagents before disposing its own sessions', async () => {
     harness = await makeBridgeHarness()
     const order: string[] = []
+    let drainedParents: readonly Agent[] = []
     // A continuable Activation outlives the turn that started it, so the bridge
     // must release that forest before the agents whose runtime it depends on.
     harness.ctx.provide('subagents', {
-      drainContinuable: () => {
+      drainContinuableDescendants: (parents: readonly Agent[]) => {
+        drainedParents = parents
         order.push('drained')
         return Promise.resolve()
       },
     } as never)
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    const agent = harness.ctx.agents.get(SessionId(sessionId))!
     harness.ctx.on('agent/disposed', () => { order.push('agent disposed') })
 
     await harness.acpFiber.dispose()
 
     expect(order).toEqual(['drained', 'agent disposed'])
+    expect(drainedParents).toEqual([agent])
     expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
   })
 
@@ -51,7 +56,7 @@ describe('ACP connection ownership', () => {
     const order: string[] = []
     const release = Promise.withResolvers<undefined>()
     harness.ctx.provide('subagents', {
-      drainContinuable: async () => {
+      drainContinuableDescendants: async () => {
         order.push('drain started')
         await release.promise
         order.push('drain finished')
@@ -79,7 +84,7 @@ describe('ACP connection ownership', () => {
     const warnings: string[] = []
     harness.ctx.logger.warn = (message: string) => { warnings.push(message) }
     harness.ctx.provide('subagents', {
-      drainContinuable: () => Promise.reject(new Error('activation teardown failed')),
+      drainContinuableDescendants: () => Promise.reject(new Error('activation teardown failed')),
     } as never)
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })

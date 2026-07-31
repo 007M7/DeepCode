@@ -897,6 +897,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Close continuable admission synchronously, then dispose every live\n * Activation forest child-first. A host calls this before disposing top-level\n * agents so no descendant outlives the runtime that owns its teardown.\n * @returns once every live Activation released its `AgentHandle`.\n * @throws an aggregate error after all branches settle when any failed.\n */',
       },
       {
+        signature: 'async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>',
+        jsDoc: '/**\n * Close continuable admission below exact live parent Agents, stop only their\n * visible descendant Activations synchronously, then await admitted scoped\n * materializations and release those forests child-first. The scoped cutoff\n * lasts until each exact parent leaves the registry; unrelated parent trees\n * remain live.\n * @param parents - exact host-owned parent Agents entering teardown.\n * @returns once every retained descendant Activation released its `AgentHandle`.\n * @throws an aggregate error after all scoped branches settle when any failed.\n */',
+      },
+      {
         signature: 'registerProvider(provider: SubagentProvider): () => void',
         jsDoc: '/**\n * Register a provider under its name. Registration is effect-scoped and HMR\n * safe; removing a provider blocks new starts but does not revoke runs that\n * were already returned to their holders.\n * @param provider - the trusted provider implementation.\n * @returns the exact Cordis effect disposer.\n */',
       },
