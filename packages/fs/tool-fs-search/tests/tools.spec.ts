@@ -27,7 +27,9 @@ import {
   formatGrepMatches,
   parseGrepMatches,
   presentGlobCall,
+  presentGlobResult,
   presentGrepCall,
+  presentGrepResult,
   previewLine,
   sampleAcrossTopLevel,
   toWorkdirRelative,
@@ -986,6 +988,73 @@ describe('presentation', () => {
   it('grep titles carry the pattern, target, and include filter', () => {
     expect(presentGrepCall({ pattern: 'todo' })).toMatchObject({ card: 'generic', title: 'Grep todo', kind: 'search' })
     expect(presentGrepCall({ pattern: 'todo', path: 'src', include: '*.ts' }).title).toBe('Grep todo in src (*.ts)')
+  })
+
+  it('grep projects a search card from a real execute, grouped by file with total and truncation', async () => {
+    const { ctx, bash } = await setup({ config: { grepMaxMatches: 2 } })
+    bash.handler = () => runResult([
+      matchLine('a.ts', 1, 'one'),
+      matchLine('a.ts', 2, 'two'),
+      matchLine('b.ts', 3, 'three'),
+      '',
+    ].join('\n'))
+    const result = await call(ctx, 'grep', { pattern: 'e' }, { agent: agent('/w') })
+    if (result.isError) throw new Error('expected grep success')
+    // The presentationMeta projection rides the result meta (a surface call).
+    expect(result.meta).toEqual({
+      shape: 'matches',
+      files: [{ path: 'a.ts', matches: [{ lineNumber: 1, line: 'one' }, { lineNumber: 2, line: 'two' }] }],
+      truncated: true,
+      total: 3,
+    })
+    const view = presentGrepResult({ pattern: 'e' }, result)
+    expect(view).toEqual({
+      card: 'search',
+      shape: 'matches',
+      files: [{ path: 'a.ts', matches: [{ lineNumber: 1, line: 'one' }, { lineNumber: 2, line: 'two' }] }],
+      truncated: true,
+      total: 3,
+    })
+  })
+
+  it('glob projects a search card from a real execute, a flat path list with total and truncation', async () => {
+    const { ctx, bash } = await setup({ config: { globMaxResults: 2 } })
+    bash.handler = () => runResult('a.ts\nb.ts\nc.ts\n')
+    const result = await call(ctx, 'glob', { pattern: '*.ts' }, { agent: agent('/w') })
+    if (result.isError) throw new Error('expected glob success')
+    expect(result.meta).toEqual({ shape: 'paths', paths: ['a.ts', 'b.ts'], truncated: true, total: 3 })
+    const view = presentGlobResult({ pattern: '*.ts' }, result)
+    expect(view).toEqual({ card: 'search', shape: 'paths', paths: ['a.ts', 'b.ts'], truncated: true, total: 3 })
+  })
+
+  it('nested Code dispatch computes no meta, so presentResult falls back to the generic card', async () => {
+    const { ctx, bash } = await setup()
+    bash.handler = () => runResult(`${matchLine('a.ts', 1, 'one')}\n`)
+    const result = await call(ctx, 'grep', { pattern: 'o' }, {
+      agent: agent('/w'),
+      parent: Symbol('run_code') as ToolExecutionToken,
+    })
+    if (result.isError) throw new Error('expected grep success')
+    expect(result.meta).toBeUndefined()
+    expect(presentGrepResult({ pattern: 'o' }, result)).toBeUndefined()
+  })
+
+  it('presentResult returns undefined for a failed result and for the other tool’s meta shape', () => {
+    const errorResult = { content: [{ type: 'text' as const, text: 'boom' }], isError: true }
+    expect(presentGrepResult({ pattern: 'x' }, errorResult)).toBeUndefined()
+    expect(presentGlobResult({ pattern: '*' }, errorResult)).toBeUndefined()
+    // A grep result carrying a paths-shaped meta (and vice versa) is not this
+    // tool's shape: each presenter narrows to its own shape and otherwise falls back.
+    const pathsResult = { content: [], isError: false, meta: { shape: 'paths', paths: ['a.ts'], truncated: false, total: 1 } }
+    const matchesResult = { content: [], isError: false, meta: { shape: 'matches', files: [], truncated: false, total: 0 } }
+    expect(presentGrepResult({ pattern: 'x' }, pathsResult)).toBeUndefined()
+    expect(presentGlobResult({ pattern: '*' }, matchesResult)).toBeUndefined()
+  })
+
+  it('presentResult falls back to the generic card on malformed replayed meta', () => {
+    const malformed = { content: [], isError: false, meta: { shape: 'matches', files: 'nope', truncated: false, total: 0 } }
+    expect(presentGrepResult({ pattern: 'x' }, malformed)).toBeUndefined()
+    expect(presentGlobResult({ pattern: '*' }, { content: [], isError: false, meta: 42 })).toBeUndefined()
   })
 })
 
