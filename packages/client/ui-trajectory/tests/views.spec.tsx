@@ -391,6 +391,28 @@ describe('timeline projection', () => {
     }],
   }] satisfies readonly TrajectoryTurnModel[]
 
+  it('cancels native scrolling across the timeline while zooming', () => {
+    render(
+      <TrajectoryTimeline
+        turns={longTurns}
+        mode="sequence"
+        range={null}
+        onRangeChange={vi.fn()}
+      />,
+    )
+    const plot = screen.getByLabelText('Timeline overview; drag horizontally to focus events')
+    vi.spyOn(plot, 'getBoundingClientRect').mockReturnValue({
+      x: 44, y: 0, left: 44, top: 0, right: 144, bottom: 50, width: 100, height: 50,
+      toJSON: () => ({}),
+    })
+
+    expect(fireEvent.wheel(plot, { clientX: 94, deltaY: -100 })).toBe(false)
+    expect(fireEvent.wheel(screen.getByText('Input'), {
+      clientX: 20,
+      deltaY: -100,
+    })).toBe(false)
+  })
+
   it('pans the zoomed viewport only far enough to reveal a newly selected record', async () => {
     const onRangeChange = vi.fn()
     const view = render(
