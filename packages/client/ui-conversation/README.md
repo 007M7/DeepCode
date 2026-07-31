@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Conversation domain: skeleton (header/tabs/composer/empty state), chat view (grouped step-summary flow, streaming tail isolation, per-tool row slot with a bash sample registrant and the todo row), composer dock (session stats sticky with the input), input dock (queue rows plus the todo plan strip), minimal details panel, scope-addressed ConversationService. Contract: api-contracts v3 §7 plus the slot terminal design (store seat / props shares).
+Conversation domain: skeleton (header/tabs/composer/empty state), chat view (grouped step-summary flow, streaming tail isolation, an animated left-to-right gradient `Deep diving...` turn status, per-tool row slot with a bash sample registrant and the todo row), composer dock (session stats sticky with the input), input dock (hairline-separated queue rows plus the todo plan strip), minimal details panel, scope-addressed ConversationService. Contract: api-contracts v3 §7 plus the slot terminal design (store seat / props shares).
 
 Compaction renders as one collapsed row at the checkpoint's flow position without replacing the transcript above it. The disclosure renders the checkpoint's `compact/summary` provenance; when that event is outside the loaded window, the row remains visible but non-expandable. The framed checkpoint payload is model-facing and never renders.
 
