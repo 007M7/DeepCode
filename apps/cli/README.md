@@ -23,11 +23,28 @@ The Web and headless surfaces boot `base.cordis.yml` plus `web.cordis.yml`, then
 
 The shipped TUI and Web compositions register the native DeepSeek adapter plus pi-ai OpenAI and Anthropic profiles. Credentials and endpoint overrides come from the provider-standard `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`, `OPENAI_API_KEY` / `OPENAI_BASE_URL`, and `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` pairs in the boot's layered environment.
 
-The Web/headless composition also registers only `web_search`. Search uses DeepSeek's Anthropic-compatible Messages endpoint, resolves the same `DEEPSEEK_API_KEY` reference for every call, and accepts the separate `DEEPSEEK_SEARCH_BASE_URL` endpoint override; each search is an auxiliary model request with its own latency and token cost. `web_fetch` remains disabled and the composition mounts no default fetch provider, so deployments that need arbitrary page retrieval must opt in through an overlay. The TUI composition does not mount Web tools by default. The deployment decision and its security boundary live in the [default Web search Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md).
+Every surface also registers `web_search` and only `web_search`. Search uses DeepSeek's Anthropic-compatible Messages endpoint, resolves the same `DEEPSEEK_API_KEY` reference for every call, and accepts the separate `DEEPSEEK_SEARCH_BASE_URL` endpoint override; each search is an auxiliary model request with its own latency and token cost. `web_fetch` remains disabled and the composition mounts no default fetch provider, so deployments that need arbitrary page retrieval must opt in through an overlay. The deployment decision and its security boundary live in the [default Web search Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md).
 
-`DSH_TOOLS_MODE` selects the tool presentation mode for the whole Web/headless process: `native` (the schema default when unset), `code` (the `run_code`-only Code Mode wire), or `both`; any other value fails loud at boot through the `dsh-tools` config schema. It is a TEMPORARY seam — process-wide because Loader composition is static — and is removed once the web UI owns per-session tool-mode selection; the TUI surface ignores it (its config tree pins its own mode).
+Every surface presents tools in `both` mode: the model receives every native schema **and** the Code Mode `run_code` transport, so a task that would be a long tool-call chain can be one program instead. Code Mode's trust posture is bash-equivalent by design — model code reaches Node APIs, but its tool calls pass the same `tools/pre-execute` gate as bash, and the worker adds containment bash has no equivalent for (a separate isolate, an empty environment, a heap cap, and hard termination). `DSH_TOOLS_MODE` overrides the presentation for a whole Web/headless process — `native` drops `run_code`, `code` sends only it — and any other value fails loud at boot through the `dsh-tools` config schema. It is a TEMPORARY seam, process-wide because Loader composition is static, removed once the web UI owns per-session tool-mode selection; the TUI surface ignores it (its config tree pins its own mode).
 
 Every `dsh` surface — TUI, Web, and headless — reports session telemetry by default (the row lives in the shared `base.cordis.yml`): every session-log event streams as OTLP/HTTP log records to `https://harness-telemetry.deepseeksvc.com/v1/logs` on a 10-second batch cadence. `DSH_TELEMETRY_OTLP_URL` points the exporter at a different collector; setting `DSH_TELEMETRY_DISABLED` to ANY non-empty value — including `0` or `false` — disables the row before it loads (a privacy switch prefers off-by-mistake over on-by-mistake). No redaction rule is mounted in this composition yet: exported records are the raw captured copy, including message text, tool arguments and results, and the session's working-directory path. The deployment rulings live in the [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md).
+
+MCP servers are not a shipped default, because a default would have to name one: `@deepseek-ai/dsh-mcp-client` mounts exactly one server per row and spawns it as a child process, outside `ctx.bash` and so outside the sandbox policy. The package is a runtime dependency of this CLI, so an installed `dsh` can mount your own servers from `$DSH_HOME/config.yaml` or a `--config` overlay without a source checkout:
+
+```yaml
+- insert:
+    - id: mcp-github
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: github
+        transport: stdio
+        command: npx
+        args: ['-y', '@modelcontextprotocol/server-github']
+        env:
+          GITHUB_TOKEN: !!js process.env.GITHUB_TOKEN
+```
+
+The model then sees `mcp__github__*`. See the [mcp-client README](../../packages/mcp/mcp-client/README.md) for the Streamable HTTP transport and the full field table.
 
 ## Install (developer machine)
 

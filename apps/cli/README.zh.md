@@ -23,11 +23,28 @@ Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 
 
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 
-Web／无头组合还只会注册 `web_search`。搜索使用 DeepSeek 的 Anthropic 兼容 Messages 端点，每次调用都会解析同一个 `DEEPSEEK_API_KEY` 凭据引用，并接受独立的 `DEEPSEEK_SEARCH_BASE_URL` 端点覆盖；每次搜索都是一次辅助模型请求，会产生独立的延迟与 token 成本。`web_fetch` 仍处于禁用状态，组合也未挂载默认抓取提供方；需要任意页面抓取能力的部署必须通过覆盖层选择启用。TUI 组合默认不挂载 Web 工具。部署决策及其安全边界见[默认 Web 搜索 Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md)。
+每个界面也都只注册 `web_search` 这一个 Web 工具。搜索使用 DeepSeek 的 Anthropic 兼容 Messages 端点，每次调用都会解析同一个 `DEEPSEEK_API_KEY` 凭据引用，并接受独立的 `DEEPSEEK_SEARCH_BASE_URL` 端点覆盖；每次搜索都是一次辅助模型请求，会产生独立的延迟与 token 成本。`web_fetch` 仍处于禁用状态，组合也未挂载默认抓取提供方；需要任意页面抓取能力的部署必须通过覆盖层选择启用。部署决策及其安全边界见[默认 Web 搜索 Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md)。
 
-`DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：可选值为 `native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 协议接口）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam：Loader 组合是静态的，因此该设置作用于整个进程；待 Web UI 负责逐会话工具模式选择后便会移除。TUI 界面会忽略该变量（其配置树固定了自身模式）。
+每个界面都以 `both` 模式呈现工具:模型同时收到全部原生 schema **和** Code Mode 的 `run_code` 传输通道,于是原本要一长串工具调用的任务可以写成一段程序。Code Mode 的信任立场按设计与 bash 同级——模型代码可以触达 Node API,但它的工具调用要过与 bash 相同的 `tools/pre-execute` 闸门,而该 worker 还提供了 bash 没有的收容(独立 isolate、空环境、堆上限、硬终止)。`DSH_TOOLS_MODE` 可为整个 Web／无头进程覆盖呈现模式——`native` 去掉 `run_code`,`code` 则只发它——任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam:Loader 组合是静态的,因此该设置作用于整个进程;待 Web UI 负责逐会话工具模式选择后便会移除。TUI 界面会忽略该变量(其配置树固定了自身模式)。
 
 每个 `dsh` 界面——TUI、Web 与无头——都默认上报会话遥测（该行位于共享的 `base.cordis.yml`）：每条会话日志事件以 OTLP/HTTP 日志记录的形式、按 10 秒批处理节奏流向 `https://harness-telemetry.deepseeksvc.com/v1/logs`。`DSH_TELEMETRY_OTLP_URL` 可将 exporter 指向其他 collector；将 `DSH_TELEMETRY_DISABLED` 设为**任意非空值**——包括 `0` 或 `false`——都会在该行加载前将其关停（隐私开关取「宁可误关、不可误开」）。该组合当前未挂载任何脱敏规则：导出记录即原始捕获副本，包含消息正文、工具参数与结果、以及会话工作目录路径。部署口径见 [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)。
+
+MCP 服务器不是交付默认值,因为默认值必须点名一台:`@deepseek-ai/dsh-mcp-client` 每一行只挂载一台服务器,并把它作为子进程 spawn,该进程不经 `ctx.bash`,因此也不受沙箱策略约束。该包是本 CLI 的运行时依赖,所以已安装的 `dsh` 无需源码检出即可从 `$DSH_HOME/config.yaml` 或 `--config` 覆盖层挂载你自己的服务器:
+
+```yaml
+- insert:
+    - id: mcp-github
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: github
+        transport: stdio
+        command: npx
+        args: ['-y', '@modelcontextprotocol/server-github']
+        env:
+          GITHUB_TOKEN: !!js process.env.GITHUB_TOKEN
+```
+
+模型随后会看到 `mcp__github__*`。Streamable HTTP 传输与完整字段表见 [mcp-client README](../../packages/mcp/mcp-client/README.md)。
 
 ## 安装（开发机）
 
