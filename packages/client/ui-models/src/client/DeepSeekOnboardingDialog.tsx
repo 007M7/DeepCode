@@ -91,10 +91,6 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
         {t('onboardingTitle')}
       </h2>
       <p className={styles['description']}>{t('onboardingDescription')}</p>
-      <div className={styles['provider']}>
-        <span className={styles['providerName']}>DeepSeek</span>
-        <span className={styles['providerRoute']}>deepseek-official</span>
-      </div>
       <div className={styles['actions']}>
         <Button variant="ghost" className={styles['later']} onClick={complete}>
           {t('onboardingLater')}
