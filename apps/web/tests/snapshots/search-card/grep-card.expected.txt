@@ -24,4 +24,4 @@ Line 35:   const search = searchCardModel(block)
 Line 52:       search={search}
 Line 73:     ctx.slots.register({ name: 'conversation.chat.toolview', key: 'grep', locale: NS }, SearchRow)
 
-(Full grep result stored at: fixture://spill/grep-68. Read it to see every match.)
+(Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)

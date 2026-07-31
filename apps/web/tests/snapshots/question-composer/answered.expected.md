@@ -9,8 +9,6 @@
   - img
 - button "Branch into a new conversation":
   - img
-- button "Edit":
-  - img
 - button "Context injection":
   - img
   - img
@@ -41,4 +39,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 95% Input 8.6K tok · Output 180 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 3% of 128K Cache hit 95% Input 8.6K tok · Output 180 tok

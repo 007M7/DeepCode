@@ -15,6 +15,7 @@ import type {
   AssistantMessage,
   ContentBlock,
   MessageSource,
+  TokenUsage,
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
@@ -138,34 +139,7 @@ const TERMINAL_EXIT_STATUS: Record<string, { exitCode: number } | { signal: stri
 }
 
 /**
- * Read-card sample for the read turn: a WINDOW past an offset, so the line
- * numbers start above 1 (the card's gutter keeps the file's own numbering) and
- * `totalLines` exceeds the window (the card shows a "showing N of M" note). The
- * fixture is client-side and cannot import the read tool, so the structured
- * window is authored inline exactly as the tool would project it through
- * `presentationMeta`. `lang` is a `ts` hint so the shiki path highlights it.
- */
-const READ_SAMPLE_FIRST_LINE = 41
-const READ_SAMPLE_SOURCE = [
-  'export interface ReadBlockProps {',
-  '  label?: string | undefined',
-  '  lines: readonly ReadBlockLine[]',
-  '  totalLines: number',
-  '  lang?: string | undefined',
-  '  maxLines?: number | undefined',
-  '  className?: string | undefined',
-  '}',
-  '',
-  '// A windowed read keeps the file line numbers in the gutter.',
-  'const marker = "fixture read sample"',
-]
-const READ_SAMPLE_LINES = READ_SAMPLE_SOURCE.map((text, index) => ({ number: READ_SAMPLE_FIRST_LINE + index, text }))
-const READ_SAMPLE_PATH = 'packages/client/ui-primitives/src/ReadBlock.tsx'
-const READ_SAMPLE_TOTAL = 180
-const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
-
-/**
- * Structured grep result for the search sample (turn 68): matches grouped by
+ * Structured grep result for the search sample (turn 66): matches grouped by
  * file, authored inline because the client-side fixture cannot import the tool
  * that produces the canonical value. `truncated` with a larger `total` than the
  * retained match count exercises the search card's capped indicator; the file
@@ -211,11 +185,11 @@ const SEARCH_MATCHES_TEXT = [
   ...SEARCH_MATCHES_FIXTURE.map(file =>
     [file.path, ...file.matches.map(m => `Line ${m.lineNumber}: ${m.line}`)].join('\n')),
   '',
-  '(Full grep result stored at: fixture://spill/grep-68. Read it to see every match.)',
+  '(Full grep result stored at: fixture://spill/grep-66. Read it to see every match.)',
 ].join('\n')
 
 /**
- * Structured glob result for the search sample (turn 69): a flat path list,
+ * Structured glob result for the search sample (turn 67): a flat path list,
  * truncated with a larger `total` so the path card shows its capped indicator.
  */
 const SEARCH_PATHS_FIXTURE = [
@@ -234,11 +208,38 @@ const SEARCH_PATHS_FIXTURE = [
 const SEARCH_PATHS_TEXT = [
   ...SEARCH_PATHS_FIXTURE,
   '',
-  '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-69. Read it to see every path.)',
+  '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-67. Read it to see every path.)',
 ].join('\n')
 
 /**
- * The structured `web_search` result view for fixture turn 70, authored inline
+ * Read-card sample for the read turn: a WINDOW past an offset, so the line
+ * numbers start above 1 (the card's gutter keeps the file's own numbering) and
+ * `totalLines` exceeds the window (the card shows a "showing N of M" note). The
+ * fixture is client-side and cannot import the read tool, so the structured
+ * window is authored inline exactly as the tool would project it through
+ * `presentationMeta`. `lang` is a `ts` hint so the shiki path highlights it.
+ */
+const READ_SAMPLE_FIRST_LINE = 41
+const READ_SAMPLE_SOURCE = [
+  'export interface ReadBlockProps {',
+  '  label?: string | undefined',
+  '  lines: readonly ReadBlockLine[]',
+  '  totalLines: number',
+  '  lang?: string | undefined',
+  '  maxLines?: number | undefined',
+  '  className?: string | undefined',
+  '}',
+  '',
+  '// A windowed read keeps the file line numbers in the gutter.',
+  'const marker = "fixture read sample"',
+]
+const READ_SAMPLE_LINES = READ_SAMPLE_SOURCE.map((text, index) => ({ number: READ_SAMPLE_FIRST_LINE + index, text }))
+const READ_SAMPLE_PATH = 'packages/client/ui-primitives/src/ReadBlock.tsx'
+const READ_SAMPLE_TOTAL = 180
+const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
+
+/**
+ * The structured `web_search` result view for the web-search turn, authored inline
  * because this client-side fixture cannot import the web tool that projects it.
  * The sources exercise the citation list's features: a titled source with a
  * snippet and a date, a source with no title (its hostname labels the link) and
@@ -268,7 +269,7 @@ const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'sear
   truncated: true,
 }
 
-/** The `web_fetch` result view for fixture turn 71, authored inline for the same reason. */
+/** The `web_fetch` result view for the web-fetch turn, authored inline for the same reason. */
 const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
   url: 'https://www.deepseek.com/blog/harness-architecture',
   statusCode: 200,
@@ -327,6 +328,16 @@ function sid(id: string): SessionId {
   return id as SessionId
 }
 
+/** Deterministic provider billing attached to fixture assistant messages. */
+function fixtureUsage(turn: number, step: number): TokenUsage {
+  return {
+    inputTokens: 20 + turn % 5,
+    outputTokens: 8 + step,
+    cacheReadTokens: turn === 0 ? 0 : 80,
+    cacheWriteTokens: turn % 10 === 0 ? 4 : 0,
+  }
+}
+
 /** fx-alpha history script: 60 turns (~130+ messages -> 3 pages at PAGE_MESSAGES=50),
  *  mixing reasoning blocks / tool call+result / steering / context. */
 function buildAlphaLog(): SessionEvent[] {
@@ -334,7 +345,17 @@ function buildAlphaLog(): SessionEvent[] {
   let time = Date.now() - 3_600_000
   const push = (e: Record<string, unknown>): number => {
     const seq = events.length
-    events.push({ seq, time: (time += 800), ...e })
+    const data = e['data'] as Record<string, unknown> | undefined
+    const authored = e['type'] === 'assistant/message' && data !== undefined
+      ? {
+        ...e,
+        data: {
+          ...data,
+          usage: fixtureUsage(data['turn'] as number, data['step'] as number),
+        },
+      }
+      : e
+    events.push({ seq, time: (time += 800), ...authored })
     return seq
   }
   for (let turn = 0; turn < 60; turn++) {
@@ -471,7 +492,17 @@ function buildAlphaLog(): SessionEvent[] {
   // strip empty and take the todo surfaces' own coverage with it.
   toolTurn(65, 'bash', '{"command":"pnpm run check","cwd":"/tmp/fixture/deep/nested"}', TERMINAL_OUTPUT_FIXTURE)
 
-  // Turn 66: the read sample — a WINDOW past an offset so the card draws file
+  // Turns 66-67: the search card's two shapes. `grep` emits a `card: 'search'`
+  // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
+  // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
+  // truncated). Both ride the keyed SearchRow registration under their own
+  // names; the render-site fallback row is covered by the model derivation
+  // tests, since every fixture search tool has a keyed row. Ordered before the
+  // todo turn for the same standing-plan reason the bash turn is.
+  toolTurn(66, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(67, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+
+  // Turn 68: the read sample — a WINDOW past an offset so the card draws file
   // line numbers starting above 1 and a "showing N of M" note (the window is
   // shorter than READ_SAMPLE_TOTAL), with a `ts` language hint the shiki path
   // highlights. Named `read`, so it exercises the keyed ReadRow registration.
@@ -482,19 +513,9 @@ function buildAlphaLog(): SessionEvent[] {
   // this fixture. The read render intent is result-side only, so its pending
   // call stays a generic `kind: 'read'` card; presentResult carries the
   // structured window.
-  toolTurn(66, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
+  toolTurn(68, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
 
-  // Turns 68-69: the search card's two shapes. `grep` emits a `card: 'search'`
-  // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
-  // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
-  // truncated). Both ride the keyed SearchRow registration under their own
-  // names; the render-site fallback row is covered by the model derivation
-  // tests, since every fixture search tool has a keyed row. Ordered before the
-  // todo turn for the same standing-plan reason the bash turn is.
-  toolTurn(68, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
-  toolTurn(69, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
-
-  // Turns 70-71: the web render intent — a web_search whose result view carries
+  // Turns 69-70: the web render intent — a web_search whose result view carries
   // structured sources plus an answer (the citation list, one source lacking a
   // title so its hostname labels the link, the capped indicator on), and a
   // web_fetch whose result view carries the fetched URL and its HTTP status.
@@ -503,11 +524,11 @@ function buildAlphaLog(): SessionEvent[] {
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
   // the todo turn for the same reason turn 65 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
-  toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  toolTurn(69, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(72, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
@@ -591,16 +612,6 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
 function presentResult(name: string, argsRaw: string, resultText: string): ToolResultView | undefined {
   const call = presentCall(name, argsRaw)
   if (call === undefined) return undefined
-  // The read result is the structured window the tool projects through
-  // `presentationMeta`; the fixture authors it inline (it cannot import the
-  // tool). Keyed on the name because the read pending call is a generic card,
-  // so `call.card` alone does not distinguish it from edit/write.
-  if (name === 'read') {
-    return {
-      card: 'read', path: READ_SAMPLE_PATH, offset: READ_SAMPLE_FIRST_LINE, lines: READ_SAMPLE_LINES,
-      totalLines: READ_SAMPLE_TOTAL, lang: 'ts', content: text(resultText),
-    }
-  }
   // Search is result-time only: the call stays a generic search card, and the
   // result view carries the structured shape the card renders. The view holds no
   // result text — a UI without a search card falls back to the raw tool/result
@@ -612,6 +623,16 @@ function presentResult(name: string, argsRaw: string, resultText: string): ToolR
   }
   if (name === 'glob') {
     return { card: 'search', shape: 'paths', paths: SEARCH_PATHS_FIXTURE, truncated: true, total: 23 }
+  }
+  // The read result is the structured window the tool projects through
+  // `presentationMeta`; the fixture authors it inline (it cannot import the
+  // tool). Keyed on the name because the read pending call is a generic card,
+  // so `call.card` alone does not distinguish it from edit/write.
+  if (name === 'read') {
+    return {
+      card: 'read', path: READ_SAMPLE_PATH, offset: READ_SAMPLE_FIRST_LINE, lines: READ_SAMPLE_LINES,
+      totalLines: READ_SAMPLE_TOTAL, lang: 'ts', content: text(resultText),
+    }
   }
   // The web tools keep a generic pending card, so their result card is chosen
   // by tool name rather than by the pending card tag: the structured `web` card
@@ -727,6 +748,113 @@ function permissionSelectOf(
   }
 }
 
+interface FixtureTokenUsageProjection {
+  uncachedInputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+interface FixtureUsageSample {
+  turn: number
+  step: number
+  usage: TokenUsage
+}
+
+/** Read one provider usage sample from either durable carrier. */
+function usageSampleOf(event: SessionEvent): FixtureUsageSample | undefined {
+  const item = event as unknown as {
+    type: string
+    data: {
+      turn?: number
+      step?: number
+      usage?: TokenUsage
+      chunk?: { type?: string; usage?: TokenUsage }
+    }
+  }
+  const usage = item.type === 'assistant/chunk' && item.data.chunk?.type === 'usage'
+    ? item.data.chunk.usage
+    : item.type === 'assistant/message'
+      ? item.data.usage
+      : undefined
+  return usage === undefined || item.data.turn === undefined || item.data.step === undefined
+    ? undefined
+    : { turn: item.data.turn, step: item.data.step, usage }
+}
+
+/** Fixture parallel of token-meter's last-sample-replacing usage projection. */
+function tokenUsageOf(log: readonly SessionEvent[]): FixtureTokenUsageProjection {
+  const totals: FixtureTokenUsageProjection = {
+    uncachedInputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+  }
+  let last: {
+    turn: number
+    step: number
+    buckets: FixtureTokenUsageProjection
+  } | null = null
+  for (const event of log) {
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
+    const buckets: FixtureTokenUsageProjection = {
+      uncachedInputTokens: sample.usage.inputTokens,
+      outputTokens: sample.usage.outputTokens,
+      cacheReadTokens: sample.usage.cacheReadTokens ?? 0,
+      cacheWriteTokens: sample.usage.cacheWriteTokens ?? 0,
+    }
+    const previous = last?.turn === sample.turn && last.step === sample.step
+      ? last.buckets
+      : undefined
+    totals.uncachedInputTokens += buckets.uncachedInputTokens - (previous?.uncachedInputTokens ?? 0)
+    totals.outputTokens += buckets.outputTokens - (previous?.outputTokens ?? 0)
+    totals.cacheReadTokens += buckets.cacheReadTokens - (previous?.cacheReadTokens ?? 0)
+    totals.cacheWriteTokens += buckets.cacheWriteTokens - (previous?.cacheWriteTokens ?? 0)
+    last = { turn: sample.turn, step: sample.step, buckets }
+  }
+  return totals
+}
+
+interface FixtureRequestContext {
+  provider: string
+  model: string
+  contextWindow?: number
+}
+
+/** Latest log-only route context, or undefined before any request ran. */
+function lastRequestContext(
+  log: readonly SessionEvent[],
+): FixtureRequestContext | undefined {
+  const event = log.findLast(item => (item as { type: string }).type === 'request/context')
+  return event === undefined
+    ? undefined
+    : (event as unknown as { data: FixtureRequestContext }).data
+}
+
+/**
+ * Fixture parallel of token-meter's request-pressure projection: the last
+ * provider-reported prompt size paired with the last recorded capacity. The
+ * two need not come from one request — see the token-meter README.
+ */
+function contextPressureOf(
+  log: readonly SessionEvent[],
+): { pressureTokens?: number; contextWindow?: number } {
+  let pressureTokens: number | undefined
+  for (const event of log) {
+    const sample = usageSampleOf(event)
+    if (sample === undefined) continue
+    pressureTokens = sample.usage.inputTokens
+      + (sample.usage.cacheReadTokens ?? 0)
+      + (sample.usage.cacheWriteTokens ?? 0)
+  }
+  const contextWindow = lastRequestContext(log)?.contextWindow
+  return {
+    ...pressureTokens === undefined ? {} : { pressureTokens },
+    ...contextWindow === undefined ? {} : { contextWindow },
+  }
+}
+
 function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   const titleEvent = log.findLast(item => (item as { type: string }).type === 'session/title')
@@ -741,12 +869,32 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
   values['plan'] = planViewOf(log)
   // Always present (GoalService unit composed): null before create / after clear.
   values['goal'] = backscanGoal(log)
+  // Always present (token-meter composed): full-log provider billing.
+  values['tokenUsage'] = tokenUsageOf(log)
+  // Always present (token-meter composed): last request pressure and capacity.
+  values['contextPressure'] = contextPressureOf(log)
   return values
 }
 
 /** Host push-frame parallel: emit one session/projection frame per key the given event advanced. */
 function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: SessionEvent): Extract<MuxFrame, { type: 'session/projection' }>[] {
   const type = (event as { type: string }).type
+  // One usage sample advances both token-meter units.
+  if (usageSampleOf(event) !== undefined) {
+    return [
+      { type: 'session/projection', sessionId: id, key: 'tokenUsage', value: tokenUsageOf(log), seq: event.seq },
+      { type: 'session/projection', sessionId: id, key: 'contextPressure', value: contextPressureOf(log), seq: event.seq },
+    ]
+  }
+  if (type === 'request/context') {
+    return [{
+      type: 'session/projection',
+      sessionId: id,
+      key: 'contextPressure',
+      value: contextPressureOf(log),
+      seq: event.seq,
+    }]
+  }
   if (type === 'session/title') {
     const values = projectionValuesOf(log)
     /* v8 ignore next -- the advancing title event is in the log, so the key is present. */
@@ -1443,7 +1591,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
       replays.delete(id)
       const done = pieces.slice(0, i).join('')
       append(id, { type: 'assistant/chunk', data: { turn, step, chunk: { type: 'block-end', index: 0, block: { type: 'text', text: done } } } })
-      append(id, { type: 'assistant/message', surfaceOp: 'append', data: { turn, step, message: assistantMessage(text(aborted ? `${done}（已中断）` : done)) } })
+      append(id, {
+        type: 'assistant/message',
+        surfaceOp: 'append',
+        data: {
+          turn,
+          step,
+          message: assistantMessage(text(aborted ? `${done}（已中断）` : done)),
+          usage: fixtureUsage(turn, step),
+        },
+      })
       append(id, { type: 'step/end', data: { turn, step } })
       append(id, { type: 'turn/end', data: { turn, reason: { kind: aborted ? 'cancelled' : 'completed' } } })
       setRunning(id, false)
@@ -1712,6 +1869,16 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
           append(id, { type: 'plan/mode', data: { active: plan.wanted } })
         }
         append(id, { type: 'user/message', surfaceOp: 'append', data: userMessage(content) })
+        // Capacity parallel of the host token-meter's request/context record:
+        // log-only, appended inside the open turn, and deduplicated against the
+        // route already recorded (the fixture never varies contextWindow).
+        const target = modelTargets.get(id) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+        if (lastRequestContext(logOf(id))?.model !== target.model) {
+          append(id, {
+            type: 'request/context',
+            data: { provider: target.provider, model: target.model, contextWindow: 128_000 },
+          })
+        }
         startReply(
           id,
           turn,
