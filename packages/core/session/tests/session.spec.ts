@@ -194,6 +194,21 @@ describe('Session', () => {
     expect(replayed.firstLiveSeq).toBe(original.seq)
   })
 
+  it('marks an explicitly empty seed without marking a fresh session', () => {
+    const fresh = new Session(SessionId('fresh-empty'))
+    expect(fresh.events).toEqual([])
+
+    const resumed = new Session(SessionId('resumed-empty'), [])
+    expect(resumed.firstLiveSeq).toBe(0)
+    expect(resumed.events).toMatchObject([
+      { type: 'session/end-seed', seq: 0, data: {} },
+    ])
+
+    const reopened = new Session(SessionId('reopened-empty'), resumed.events)
+    expect(reopened.firstLiveSeq).toBe(1)
+    expect(reopened.events).toEqual(resumed.events)
+  })
+
   it('rejects pre-provider request headers and assistant messages on seed/load', () => {
     const requestHeader = {
       type: 'request/header', seq: 0, time: 1,

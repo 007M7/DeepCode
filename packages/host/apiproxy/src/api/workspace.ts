@@ -37,8 +37,13 @@ export interface WorkspaceView {
 
 /** Workspace-domain unary methods (the map keys workspace.* of RpcMethodMap). */
 export interface WorkspaceApi {
-  /** Lists all workspaces in the registry's durable display order. */
-  list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: WorkspaceView[] }>>
+  /**
+   * Lists all workspaces in the registry's durable display order, plus the
+   * registry-global archive set (the reconnect baseline of
+   * `host/archived-sessions-changed`). Archived sessions stay in their
+   * workspace's `sessionIds` account; grouping surfaces hide them.
+   */
+  list(request: RpcRequest<{}>): Promise<RpcResponse<{ items: WorkspaceView[]; archivedSessionIds: SessionId[] }>>
 
   /**
    * Creates (or idempotently resolves) a workspace. Exactly one of `path` /
@@ -86,4 +91,15 @@ export interface WorkspaceApi {
     sessionId: SessionId
     beforeSessionId?: SessionId
   }>): Promise<RpcResponse<{ workspace: WorkspaceView }>>
+
+  /**
+   * Adds one session to the registry-global archive set: the session
+   * disappears from every grouping surface but keeps its session log and its
+   * workspace accounting slot (a future unarchive restores its position).
+   * Idempotent for an already archived id. A session neither live nor in
+   * session persistence fails with `session-not-found`. Returns the full
+   * updated set (same snapshot the changed frame carries).
+   */
+  archiveSession(request: RpcRequest<{ sessionId: SessionId }>):
+  Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>>
 }

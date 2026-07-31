@@ -32,7 +32,7 @@ const sessions: SessionListState = {
   ids: [], byId: {}, current: undefined, phase: 'ready',
 }
 const workspaceState = (items: readonly WorkspaceView[]): WorkspaceListState => ({
-  items, state: 'idle', phase: 'ready', error: null, baselinesReady: true,
+  items, archivedSessionIds: [], state: 'idle', phase: 'ready', error: null, baselinesReady: true,
   recentWorkspaceId: items[0]?.workspaceId,
 })
 function anchor(): { current: HTMLElement } {
