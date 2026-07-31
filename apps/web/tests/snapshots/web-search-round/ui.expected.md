@@ -11,10 +11,13 @@
   - img
 - button "Edit":
   - img
-- button "Search DeepSeek Harness snapshot search":
-  - img
-  - img
-  - text: Search DeepSeek Harness snapshot search
+- img
+- text: Search DeepSeek Harness snapshot search
+- list:
+  - listitem:
+    - link "Snapshot Search Result":
+      - /url: https://docs.example.test/search
+    - text: Snapshot search excerpt. 2026-07-31
 - paragraph: SEARCH_DONE
 - button "Copy":
   - img
