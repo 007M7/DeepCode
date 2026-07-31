@@ -1,6 +1,7 @@
 // Shared plumbing for the web smoke tests (dist location, free port, failure shots).
 import { existsSync, mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 
@@ -55,23 +56,32 @@ export function probeFreePort(): Promise<number> {
 }
 
 /**
- * Drive the hero's workspace picker through its create-by-name dialog until
- * the live composer unlocks. A fresh world has no Workspace, so the boot
+ * Drive the hero's workspace picker through the composed directory dialog
+ * until the live composer unlocks. A fresh world has no Workspace, so the boot
  * lands in the locked view state (startup auto-selection has nothing to
  * select); every scenario that types into the composer must connect one
- * first. The default name 'workspace' keeps the session header cwd at
- * <workspaceRoot>/workspace — the materialization proof several scenarios
+ * first. With nothing to list, the chip gesture raises the dialog directly —
+ * adding a workspace is the picker's only entry. The directory is staged here
+ * and adopted through the path editor, which is idempotent across the repeated
+ * connects a scenario may make; creating a folder from inside the dialog (the
+ * product's other half of the same route) is covered by
+ * workspace-management.e2e.ts. The default name 'workspace' keeps the session
+ * header cwd at <root>/workspace, the materialization proof several scenarios
  * assert.
  * @param page - the page under test.
- * @param name - workspace name typed into the create dialog.
+ * @param root - host directory the workspace folder is staged in (the scaffold's `workspaceCwd`).
+ * @param name - folder name staged and adopted as the workspace.
  */
-export async function connectFreshWorkspace(page: Page, name = 'workspace'): Promise<void> {
+export async function connectFreshWorkspace(page: Page, root: string, name = 'workspace'): Promise<void> {
+  mkdirSync(join(root, name), { recursive: true })
   await page.getByRole('button', { name: 'Choose workspace' }).click()
-  await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create a new workspace' })
+  const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
   await dialog.waitFor({ timeout: 10_000 })
-  await dialog.getByLabel('New workspace name').fill(name)
-  await dialog.getByRole('button', { name: 'Create workspace' }).click()
+  await dialog.getByRole('button', { name: 'Edit path' }).click()
+  const pathInput = dialog.getByRole('textbox', { name: 'Edit path' })
+  await pathInput.fill(join(root, name))
+  await pathInput.press('Enter')
+  await dialog.getByRole('button', { name: 'Open', exact: true }).click()
   // The pick connected the workspace: the blank session's live composer
   // replaces the locked placeholder and enables.
   await page.locator('textarea:enabled[placeholder="Describe what you want to build"]')

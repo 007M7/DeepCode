@@ -1,17 +1,18 @@
-// Web e2e scenarios: workspace management — the create-by-name dialog, the
-// rename round trip over the real wire (workspace.rename RPC + durable
-// registry), duplicate-name pre-check, the flat "In one list" view with its
-// persisted group-by preference, the session hover card, and the session
-// archive round trip (row menu → workspace.archiveSession RPC → durable
-// global set → row hidden across reload). Zero model calls:
-// workspace.create/rename/archiveSession are host RPCs with no model
-// involvement, and the one session row the flat/hover/archive scenarios need
-// comes from a seeded fixture (the seeded-history seed reused verbatim — no
-// new recording).
+// Web e2e scenarios: workspace management — adding a workspace through the
+// composed directory dialog (its own New folder affordance is the product's
+// one creation route), the rename round trip over the real wire
+// (workspace.rename RPC + durable registry), duplicate-name pre-check, the
+// flat "In one list" view with its persisted group-by preference, the session
+// hover card, and the session archive round trip (row menu →
+// workspace.archiveSession RPC → durable global set → row hidden across
+// reload). Zero model calls: workspace.create/rename/archiveSession are host
+// RPCs with no model involvement, and the one session row the
+// flat/hover/archive scenarios need comes from a seeded fixture (the
+// seeded-history seed reused verbatim — no new recording).
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import type { Browser, Page } from 'playwright'
+import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -36,21 +37,47 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
   let tripwire: ReturnType<typeof watchConsole>
 
   /**
-   * Drive the in-app browser to a directory via its path-edit affordance,
-   * confirm it, and wait for the adoption to settle host-side (workspace
-   * registered + the flow's New-Session agent up), so later test steps can't
-   * race the in-flight blank-session attach.
+   * Raise the region header's directory dialog and drive it to a directory via
+   * the path-edit affordance. Adding is the header button's only action, so
+   * the click lands in the dialog with no menu in between.
    */
-  async function openLocalFolder(path: string, options: { waitForAgent?: boolean } = {}): Promise<void> {
-    const agentsBefore = scaffold.ctx.agents.list().length
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
+  async function browseTo(path: string): Promise<Locator> {
+    await page.getByRole('button', { name: 'Add workspace' }).click()
     const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
     await dialog.waitFor({ timeout: 10_000 })
     await dialog.getByRole('button', { name: 'Edit path' }).click()
     await dialog.getByLabel('Edit path').fill(path)
     await dialog.getByLabel('Edit path').press('Enter')
-    await dialog.getByRole('button', { name: 'Open' }).click()
+    return dialog
+  }
+
+  /**
+   * Create a folder inside `parent` through the dialog and adopt it — the
+   * product's only route to a brand-new workspace directory.
+   */
+  async function addNewFolderWorkspace(parent: string, name: string): Promise<void> {
+    const dialog = await browseTo(parent)
+    await dialog.getByRole('button', { name: 'New folder' }).click()
+    await page.getByLabel('Folder name').fill(name)
+    await page.getByRole('button', { name: 'Create', exact: true }).click()
+    // Creating selects the new folder in the listing; Open adopts it.
+    await dialog.getByRole('button', { name: 'Open', exact: true }).click()
+    await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
+    await expect.poll(
+      () => scaffold.ctx.workspace.resolveByPath(join(parent, name)),
+      { timeout: 10_000 },
+    ).not.toBeUndefined()
+  }
+
+  /**
+   * Adopt an existing directory, waiting for the adoption to settle host-side
+   * (workspace registered + the flow's New-Session agent up), so later test
+   * steps can't race the in-flight blank-session attach.
+   */
+  async function adoptDirectory(path: string, options: { waitForAgent?: boolean } = {}): Promise<void> {
+    const agentsBefore = scaffold.ctx.agents.list().length
+    const dialog = await browseTo(path)
+    await dialog.getByRole('button', { name: 'Open', exact: true }).click()
     await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(path),
@@ -86,22 +113,17 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     await scaffold?.close()
   })
 
-  it('creates two workspaces by name through the region-header dialog', async () => {
+  it('adds two workspaces through the dialog, each on a folder it created', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-create'))
-    const createByName = async (name: string): Promise<void> => {
-      await page.getByRole('button', { name: 'Create workspace' }).click()
-      await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
-      const dialog = page.getByRole('dialog', { name: 'Create a new workspace' })
-      await dialog.waitFor({ timeout: 10_000 })
-      await dialog.getByLabel('New workspace name').fill(name)
-      await dialog.getByRole('button', { name: 'Create workspace' }).click()
-      await expect.poll(() => page.getByRole('dialog', { name: 'Create a new workspace' }).count(), { timeout: 10_000 }).toBe(0)
+    const add = async (name: string): Promise<void> => {
+      await addNewFolderWorkspace(scaffold.workspaceCwd, name)
       // The real workspace materializes in the tree as a group row.
       await expect.poll(() => page.getByText(name, { exact: true }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
     }
-    await createByName('alpha-ws')
-    await createByName('beta-ws')
-    // Durable on the host: both registered, newest first (create prepends).
+    await add('alpha-ws')
+    await add('beta-ws')
+    // Durable on the host: both registered, newest first (create prepends),
+    // each titled after the folder the dialog made.
     const titles = scaffold.ctx.workspace.list().map(workspace => workspace.title)
     expect(titles.slice(0, 2)).toEqual(['beta-ws', 'alpha-ws'])
     expect(tripwire.pageErrors).toEqual([])
@@ -167,7 +189,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
     // Register the scaffold's existing project directory through the real UI.
-    await openLocalFolder(scaffold.workspaceCwd, { waitForAgent: true })
+    await adoptDirectory(scaffold.workspaceCwd, { waitForAgent: true })
     const workspace = await scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd)
     if (workspace === undefined) throw new Error('GUI did not register the existing project directory')
     await workspace.attachSession(SessionId(SEED_ID))
@@ -225,7 +247,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     // Re-registering the exact deleted path immediately, without a reload, is
     // a supported reversible flow. It creates a fresh Workspace id without
     // re-adopting the retained Session.
-    await openLocalFolder(scaffold.workspaceCwd)
+    await adoptDirectory(scaffold.workspaceCwd)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(scaffold.workspaceCwd),
       { timeout: 10_000 },
@@ -295,7 +317,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       collect()
     })
 
-    await openLocalFolder(oldPath)
+    await adoptDirectory(oldPath)
     await expect.poll(
       () => scaffold.ctx.workspace.resolveByPath(oldPath),
       { timeout: 10_000 },
@@ -311,12 +333,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       .getByRole('button', { name: 'Delete workspace' }).click()
     await expect.poll(() => scaffold.ctx.workspace.get(oldWorkspace.id), { timeout: 10_000 }).toBeUndefined()
 
-    await page.getByRole('button', { name: 'Create workspace' }).click()
-    await page.getByRole('menuitem', { name: 'Create a new workspace' }).click()
-    const create = page.getByRole('dialog', { name: 'Create a new workspace' })
-    await create.getByLabel('New workspace name').fill(title)
-    await create.getByRole('button', { name: 'Create workspace' }).click()
-    await expect.poll(() => create.count(), { timeout: 10_000 }).toBe(0)
+    await addNewFolderWorkspace(scaffold.workspaceCwd, title)
     const fresh = scaffold.ctx.workspace.list().find(workspace => workspace.title === title)
     expect(fresh?.id).toBeDefined()
     expect(fresh?.id).not.toBe(oldWorkspace.id)
@@ -366,13 +383,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     process.env.HOME = scaffold.workspaceCwd
     process.env.USERPROFILE = scaffold.workspaceCwd
     try {
-      await page.getByRole('button', { name: 'Create workspace' }).click()
-      await page.getByRole('menuitem', { name: 'Open local folder…' }).click()
-      const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
-      await dialog.waitFor({ timeout: 10_000 })
-      await dialog.getByRole('button', { name: 'Edit path' }).click()
-      await dialog.getByLabel('Edit path').fill(staged)
-      await dialog.getByLabel('Edit path').press('Enter')
+      const dialog = await browseTo(staged)
       await expect.poll(() => dialog.getByText('alpha', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
       const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(BROWSER_EXPECTED, snapshot, MODE)

@@ -10,7 +10,7 @@ The desktop GUI asks users to type an absolute path when they add an existing wo
 
 ## Decision
 
-Add a single-folder `host.pickDirectory` RPC and expose it through `WorkspacesService`. The workspace menu presents two flat actions: **Open local folder...** and **Create a new workspace**. Selecting a folder reuses the existing `workspace.create({ path })` flow, selects the returned workspace, and starts a blank session.
+Add a single-folder `host.pickDirectory` RPC and expose it through `WorkspacesService`. The workspace menu presents the flat **Add workspace...** action (two actions when this was decided — **Open local folder...** beside a create-by-name entry the [one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md) later removed). Selecting a folder reuses the existing `workspace.create({ path })` flow, selects the returned workspace, and starts a blank session.
 
 The workspace manager must upsert the returned workspace before the selection callback runs. A newly adopted directory therefore renders its basename immediately. Reopening an already registered path preserves its existing workspace title.
 
@@ -21,7 +21,7 @@ The workspace manager must upsert the returned workspace before the selection ca
 - A duplicate path selects the existing workspace.
 - A different path whose derived title conflicts with another workspace shows a focused error with **Choose again** and **Cancel** actions.
 - Other picker failures show a compact retryable error.
-- The existing create-by-name flow remains unchanged.
+- The create-by-name flow this decision left untouched is gone; picking a directory is now the whole of adding a workspace ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)).
 
 ## Host boundary
 
@@ -41,7 +41,7 @@ Platform adapters invoke native tools without a shell:
 
 ## Consequences
 
-The current GUI opens one local folder through a native picker on macOS, Windows, and Linux. Cancelling changes no state, failures remain retryable, and duplicate paths are idempotent while title conflicts require an explicit new choice. The selected workspace and its displayed name refresh before a new blank session starts. Existing workspace creation by name remains available.
+The current GUI opens one local folder through a native picker on macOS, Windows, and Linux. Cancelling changes no state, failures remain retryable, and duplicate paths are idempotent while title conflicts require an explicit new choice. The selected workspace and its displayed name refresh before a new blank session starts. This picker is now the only route to a workspace ([one-route Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)): the operator picks an existing directory, or creates one inside the chooser.
 
 The added host, runtime, component, and GUI tests cover the native boundary, request trust checks, cancellation and failure handling, existing-path reuse, title conflicts, and the immediate visible-name update. The privileged RPC remains specific to the local desktop carrier; a remote Web directory browser is outside this decision.
 
