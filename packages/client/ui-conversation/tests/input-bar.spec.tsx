@@ -23,7 +23,7 @@ const SID = 's1' as SessionId
 
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
-    sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
@@ -287,6 +287,37 @@ describe('running and lock semantics (queue cut 1)', () => {
     } finally {
       host.remove()
     }
+  })
+
+  it('the decoration backdrop tracks the textarea offset (it paints every visible glyph)', () => {
+    const { view, textarea } = bench({ draft: 'line\n'.repeat(40) })
+    const backdrop = view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
+    Object.defineProperty(backdrop, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Object.defineProperty(textarea, 'scrollTop', { value: 0, writable: true, configurable: true })
+    // A scrolled draft: the textarea moves, the clipped backdrop must follow.
+    textarea.scrollTop = 120
+    fireEvent.scroll(textarea)
+    expect(backdrop.scrollTop).toBe(120)
+    // Every later move tracks too, including back to the top — a one-shot
+    // mirror would leave the glyphs parked at the first offset it saw.
+    textarea.scrollTop = 0
+    fireEvent.scroll(textarea)
+    expect(backdrop.scrollTop).toBe(0)
+  })
+
+  it('the backdrop carries the trailing-line sentinel that keeps its extent equal to the textarea', () => {
+    // jsdom has no layout, so the HEIGHTS this protects cannot be asserted here
+    // (the browser scenario owns that); what is checkable is that the backdrop's
+    // text is the draft plus exactly one newline. A textarea reserves a line box
+    // after a final newline and `pre-wrap` collapses one, so without the
+    // sentinel a draft ending in a newline leaves the backdrop a line short and
+    // the mirrored offset clamps.
+    const withNewline = bench({ draft: 'alpha\nbeta\n' })
+    const backdrop = withNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
+    expect(backdrop.textContent).toBe('alpha\nbeta\n\n')
+    const withoutNewline = bench({ draft: 'alpha\nbeta' })
+    const plain = withoutNewline.view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
+    expect(plain.textContent).toBe('alpha\nbeta\n')
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {

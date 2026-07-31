@@ -8,38 +8,37 @@ Each request must belong to an open agent turn. The service appends a paired `ap
 
 Answerers are `approval/request` waterfall listeners. Return an outcome to answer for an owned agent or call `next()` to delegate. Agent-scoped listeners receive only that agent's requests; compose one terminal answerer per deployment because sibling listener order is not a policy priority mechanism. The ACP automation bridge supplies one-shot machine decisions for sessions it owns.
 
-`ApprovalPolicy` is `'ask'` or `'never'`. The effective value is the last `approval/policy` event, falling back to config; `setApprovalPolicy()` is the write path. `'never'` rejects before interactive dispatch and is the only policy stated in the prompt. Switches produce at most one coalesced notice, attributed to the user when the override follows the last `request/header` and to operator/config otherwise.
+`ApprovalPolicy` is `'ask'` or `'never'`. The effective value is the last `approval/policy` event, falling back to config; `setApprovalPolicy()` is the write path. `'never'` rejects before interactive dispatch. Both policies contribute their complete current meaning to the cache-safe runtime-context snapshot.
 
 The tools pipeline routes `ask` decisions through this seam and fails closed when it is absent; the sandboxed bash tool also uses it for escalated retries. The ACP automation bridge answers calls for its own agents through the client's machine policy. Audit events remain log-only, so the model sees only the asking consumer's result. See the [approval-seam Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-approval-seam.md) and [sandbox Agent Note](../../../.agents/notes/implemented/feature/2026-07-06-sandbox.md).
 
 ## Model Experience
 
-### System prompt and policy notice
+### Current approval policy context
 
 #### What the model sees
 
-Under `ask`, every agent request carries the ask-policy prompt section below. Under `never`, it carries the never-policy prompt section below. A policy switch injects exactly `The approval policy changed from "<old>" to "<new>" (changed by the user).` or `The approval policy changed from "<old>" to "<new>" (changed by the operator/config).` before the next step.
+The first request and each effective policy change append a full runtime-context snapshot after retained history. Under `ask`, the approval contribution states that configured answerers may be consulted and absence fails closed. Under `never`, it states the deterministic rejection and non-escalation consequence. Unchanged requests retain the earlier snapshot without adding another message.
 
-##### Ask-policy prompt section
+##### Ask-policy contribution
 
 ```markdown
-<!-- dsh-user-approval-policy:ask -->
+Approval policy: ask. Operations that require approval may ask through the configured answerers; without an available answerer, the request fails closed.
 ```
 
-##### Never-policy prompt section
+##### Never-policy contribution
 
 ```markdown
 Approval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`).
-<!-- dsh-user-approval-policy:never -->
 ```
 
 #### Token effect
 
-Small fixed per-request cost, larger under `never`; a change notice is conditional and retained in history.
+One concise context message on the first request and on an effective change; unchanged requests add no duplicate policy tokens.
 
 #### KV Cache effect
 
-Prefix-stable while the approval policy is unchanged. An `ask`/`never` switch changes the system-prompt section and invalidates reuse from its first changed token; the accompanying notice is append-only.
+Append-only after retained history. An `ask`/`never` switch preserves the stable system and conversation prefix instead of rewriting the first wire message.
 
 ### Tool outcome
 

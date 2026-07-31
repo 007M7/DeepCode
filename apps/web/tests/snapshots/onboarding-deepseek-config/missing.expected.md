@@ -1,6 +1,5 @@
-- dialog "添加一个 API Key 开始使用":
+- region "添加一个 API Key 开始使用":
   - heading "添加一个 API Key 开始使用" [level=2]
-  - button "稍后配置":
-    - img
   - paragraph: 配置 DeepSeek 官方模型，即可开始使用。
+  - button "稍后配置"
   - button "前往配置"

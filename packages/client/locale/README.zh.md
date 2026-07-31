@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-locale 插件：LocaleService——浏览器 locale 偏好（`zh`／`en`，以 `dsh.locale` 持久化；`locale/change` 仅在切换语言时触发），加上 ns×locale 字典注册表（类型化 `register(ns, {zh, en})` 按 `LocaleNamespaceMap` 校验，`bind(ns)`→`TranslateNS<ns>`；查找链 ns → common → zh → key）。该服务实现 slot 系统的 `LocaleFace` 并经 `ctx.slots.installLocale` 自行安装，支撑框架注入的 `t` 标准席位（`Translate`／`TranslateNS` 是 ui-slots 的类型；请从那里导入——本包的再导出仅为字典所有者提供便利）。
+locale 插件：LocaleService——浏览器 locale 偏好（`zh`／`en`，以 `dsh.locale` 持久化；未持久化偏好时，全新浏览器以 `navigator` 请求的语言开场——按主子标签匹配，若其请求的语言本应用都不提供则为 `zh`；`locale/change` 仅在切换语言时触发），加上 ns×locale 字典注册表（类型化 `register(ns, {zh, en})` 按 `LocaleNamespaceMap` 校验，`bind(ns)`→`TranslateNS<ns>`；查找链 ns → common → zh → key）。该服务实现 slot 系统的 `LocaleFace` 并经 `ctx.slots.installLocale` 自行安装，支撑框架注入的 `t` 标准席位（`Translate`／`TranslateNS` 是 ui-slots 的类型；请从那里导入——本包的再导出仅为字典所有者提供便利）。
 
 ## 模型体验
 

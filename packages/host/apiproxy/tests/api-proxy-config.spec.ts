@@ -160,8 +160,8 @@ async function harness(options?: {
   await ctx.plugin(LlmService)
   if (options?.settings !== false) await ctx.plugin(MemorySettings, options?.settings)
   if (options?.credentials !== false) await ctx.plugin(MemoryCredentials, options?.credentials)
-  // Model-provider namespaces and the explicit Web preference allowlist are
-  // the proxy's complete settings surface.
+  // Model-provider namespaces plus the explicit Web preference and product
+  // onboarding allowlists are the proxy's complete settings surface.
   if (options?.configurableProviders !== false) {
     ctx.llm.registerConfigurableProviders([
       { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
@@ -226,8 +226,8 @@ describe('settings domain', () => {
     // The settings seam is general: any plugin may register a namespace for
     // its own configuration. The Web configuration plane remains opt-in, so a
     // future internal plugin cannot become remotely configurable just by
-    // registering; permission is the one non-model namespace intentionally
-    // admitted by this surface.
+    // registering; permission and the product onboarding namespace are the
+    // non-model namespaces intentionally admitted by this surface.
     const ctx = await harness()
     ctx.settings.register(NS, AdapterConfig)
     ctx.settings.register(settingsNamespace('some-other-plugin'), z.object({ secretPath: z.string() }))
@@ -256,6 +256,21 @@ describe('settings domain', () => {
     }
     // The write never reached the seam.
     expect(ctx.settings.describe().find(d => String(d.ns) === 'some-other-plugin')?.value).toEqual({})
+  })
+
+  it('serves the product onboarding namespace without invalidating the model catalog', async () => {
+    const ctx = await harness()
+    ctx.settings.register(settingsNamespace('ui-onboarding'), z.object({ welcomeNoticeVersion: z.string() }))
+    const api = createApiProxy(ctx, DEFAULTS)
+    expect(expectOk(await api.settings.describe(request({}))).namespaces.map(view => view.ns))
+      .toEqual(['ui-onboarding'])
+    const frames = await collectHost(api, ['host/settings-changed'], 1, async () => {
+      expectOk(await api.settings.mutate(request({
+        ns: 'ui-onboarding',
+        ops: [{ op: 'set', path: ['welcomeNoticeVersion'], value: 'v1' }],
+      })))
+    })
+    expect(frames).toEqual([{ type: 'host/settings-changed', ns: 'ui-onboarding' }])
   })
 
   it('refuses even a model-provider namespace once its directory entry is gone', async () => {

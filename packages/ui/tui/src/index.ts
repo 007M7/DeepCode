@@ -1563,6 +1563,7 @@ export function createTuiChat(
     disposeAgent()
     disposeSchemeListener()
     disposeTargetListeners()
+    modelController.detach()
   }
 
   // Sweep reveal of the whole banner: the header wipes in left-to-right over
