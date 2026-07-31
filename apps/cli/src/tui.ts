@@ -28,6 +28,7 @@ import {
   loadPersonalPatches,
   resolveConfigPath,
 } from '@deepseek-ai/dsh-app-boot'
+import { resolveDshHome } from '@deepseek-ai/dsh-paths'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { configHasTelemetryRow, resolveTelemetryPatch } from './app-cli-entry.ts'
 import { SESSION_QUERY_SQLITE_PATH_KEY } from '@deepseek-ai/dsh-session-query-sqlite'
@@ -40,6 +41,16 @@ import {
   type MainSessionIdentity,
   type TuiResumeHost,
 } from '@deepseek-ai/dsh-tui'
+import {
+  apply as applyTuiFirstRunWelcome,
+  hasTuiFirstRunWelcomeAcknowledgement,
+  inject as tuiFirstRunWelcomeInject,
+  name as tuiFirstRunWelcomeName,
+  needsTuiFirstRunWelcomeAsciiArt,
+} from './tui-onboarding/tui-first-run-welcome.ts'
+import {
+  TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+} from './tui-onboarding/tui-first-run-welcome-copy.ts'
 
 const NAME = 'dsh'
 
@@ -111,6 +122,11 @@ export async function runTui(
   // both together. Sessions themselves live under the Harness home so `/resume`
   // spans every workspace, and are unaffected by this chdir.
   if (workspace !== undefined) process.chdir(workspace)
+  const dshHome = resolveDshHome()
+  const showFirstRunWelcome = !await hasTuiFirstRunWelcomeAcknowledgement(
+    dshHome,
+    TUI_FIRST_RUN_WELCOME_NOTICE_VERSION,
+  )
   process.env.DSH_BUNDLED_SKILL_DIR = join(SOURCE_ROOT, 'skills')
   // The in-place `/resume` handoff re-execs `dsh` with a normalized `--resume`
   // flag, so the resumed process rehydrates through this same intake. The
@@ -229,5 +245,15 @@ export async function runTui(
   )
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
+  if (showFirstRunWelcome) {
+    await ctx.plugin({
+      name: tuiFirstRunWelcomeName,
+      inject: tuiFirstRunWelcomeInject,
+      apply: applyTuiFirstRunWelcome,
+    }, {
+      dshHome,
+      asciiArt: needsTuiFirstRunWelcomeAsciiArt(),
+    })
+  }
 }
 /* v8 ignore stop */

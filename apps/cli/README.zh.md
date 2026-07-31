@@ -12,6 +12,7 @@ TUI 界面：
 - 将 **调用目录** 视为 workspace：会话、相对路径和 workspace 指令都从 cwd 解析（`dsh meta` 是唯一例外，见下文）；
 - 告知 agent 自身源码所在位置：启动后添加一个命名此 harness checkout 的提示词段。该路径从启动器的真实路径解析，因此在 PATH 符号链接和任意 cwd 下仍然有效，使自指的 `cordis` 工具集可以读取并修改它；
 - 应用 `~/.dsh` 中的个人覆盖（参见 [app-boot 的个人配置](../../packages/ui/app-boot/README.md#personal-config)）：`config.yaml` 修补已启动的树，而那里的 `.env` 是凭据 provider 自己的存储（绝不会被提升进环境，因此密钥始终可轮换）。环境优先级为环境中已有的值 > 项目 `.env`。
+- 当 `DSH_HOME` 下不存在不可变确认标记时，通过已挂载的 TUI overlay 服务呈现[版本化首次运行欢迎页](../../.agents/notes/implemented/feature/2026-07-30-versioned-tui-first-run-welcome.md)；只有 Enter 会创建该版本的标记，Escape、资源释放或进程退出仍保留展示资格。官方 DeepSeek 图标、响应式终端栅格图、所有 locale 共用的中文文案和通知版本均由静态本地文件持有；overlay 不会写入会话事件或模型上下文。
 - 注册裸 `/compact`：agent 空闲时，即使未达到自动压力，也会摘要有效的较早历史；该命令拒绝参数，并只在独立替换标记对持久化后报告成功。压缩（compaction）期间提交的提示词保留其队列身份，并在该检查点之后启动；注入的上下文仍保持可见。
 
 `dsh meta` 是以本 harness checkout 为 workspace 的同一个 TUI，因此开发 dsh 自身无需 `cd`。它在环境确定之后才 chdir 到 checkout 根目录（从启动器的真实路径解析，与源码路径提示词段所指的根目录相同），因此环境优先级不变，而会话 cwd 与 HMR 监视根目录会一并移动。Meta 始终创建新会话，不接受默认界面的任何选项；恢复已持久化会话应使用普通的 `dsh --resume <id>`。
