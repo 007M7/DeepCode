@@ -7,12 +7,18 @@
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import { deferRegistration } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 // Type-only: pulls the shell's SlotMap merges (trigger/header/section/item).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ctx.locale and the 'settings.general.item' SlotMap merge.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
+import type { WelcomeNoticeInjected } from './WelcomeNotice.tsx'
+import { WelcomeNotice } from './WelcomeNotice.tsx'
+import { refreshWelcomeIfLoaded, WelcomeNoticeStore } from './welcome-store.ts'
+import { WELCOME_NOTICE_SETTINGS_NAMESPACE } from '../onboarding-copy.ts'
 import { en, zh, type SettingsKey } from './locales.ts'
 
 export type {
@@ -21,6 +27,8 @@ export type {
 export type {
   GeneralSectionComponentProps,
 } from './GeneralSection.tsx'
+export type { WelcomeNoticeInjected, WelcomeNoticeProps } from './WelcomeNotice.tsx'
+export type { WelcomeNoticeState } from './welcome-store.ts'
 export type { SettingsKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -38,7 +46,7 @@ const NS = 'settings'
  * ui-settings' apply, whose activation order relative to this one is NOT
  * constrained; registration goes through declaration-aware deferral.
  */
-export const inject = ['slots', 'locale']
+export const inject = ['slots', 'locale', 'connection']
 
 /**
  * Register the `settings` dictionaries, the chrome content, and the General
@@ -52,6 +60,25 @@ export function apply(ctx: ClientContext): void {
   // seat, and the nav label is a thunk the owner resolves per render — no
   // locale/change re-registration wiring.
   const t = ctx.locale.bind(NS)
+  const connection = ctx.get('connection') as ConnectionHandle
+  const welcomeController = new WelcomeNoticeStore(connection.api)
+  const useWelcomeSnapshot = bindSnapshotSelector(welcomeController.store)
+  const welcomeInjected = (): WelcomeNoticeInjected => ({
+    controller: welcomeController,
+    useSnapshot: useWelcomeSnapshot,
+  })
+
+  ctx.effect(() => {
+    const refresh = (ns?: string): void => {
+      if (ns !== undefined && ns !== WELCOME_NOTICE_SETTINGS_NAMESPACE) return
+      refreshWelcomeIfLoaded(welcomeController)
+    }
+    const disposers = [
+      ctx.on('settings/changed', refresh),
+      ctx.on('connection/reset', () => { refresh() }),
+    ]
+    return () => { for (const dispose of disposers) dispose() }
+  }, 'ui-settings-general: welcome invalidations')
   ctx.effect(() => {
     const trigger = deferRegistration(ctx.slots, 'settings.trigger', TriggerContent, () =>
       ctx.slots.register({ name: 'settings.trigger', locale: NS }, TriggerContent))
@@ -68,11 +95,20 @@ export function apply(ctx: ClientContext): void {
         locale: NS,
         children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
       }, GeneralSection))
+    const welcome = deferRegistration(ctx.slots, 'settings.onboarding', WelcomeNotice, () =>
+      ctx.slots.register({
+        name: 'settings.onboarding',
+        id: 'welcome-notice',
+        order: -100,
+        locale: NS,
+        inject: welcomeInjected,
+      }, WelcomeNotice))
     return () => {
       trigger.dispose()
       header.dispose()
       close.dispose()
       general.dispose()
+      welcome.dispose()
     }
-  }, 'ui-settings-general: chrome and section registrations')
+  }, 'ui-settings-general: chrome, section, and onboarding registrations')
 }
