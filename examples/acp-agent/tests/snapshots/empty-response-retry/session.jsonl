@@ -1,22 +1,23 @@
 {"type":"session","version":0,"id":"{{sessionId}}","createdAt":0,"cwd":"{{cwd}}","delegationDepth":0}
 {"type":"turn/start","seq":0,"time":0,"data":{"turn":1,"trigger":{"kind":"message","source":{"kind":"user"}}}}
-{"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"This prompt first receives an empty completion, then a retried reply."}],"source":{"kind":"user"},"role":"user","id":"7bba5889-c880-4301-94f8-b1007896f0f8"},"surfaceOp":"append"}
+{"type":"user/message","seq":1,"time":0,"data":{"content":[{"type":"text","text":"This prompt first receives an empty completion, then a retried reply."}],"source":{"kind":"user"},"role":"user","id":"c94e1add-a8cb-4c8d-b987-6471f5569f7a"},"surfaceOp":"append"}
 {"type":"session/title","seq":2,"time":0,"data":{"title":"This prompt first receives an","messageSeqs":[1],"source":{"kind":"fallback"}}}
-{"type":"user/message","seq":3,"time":1785464649169,"data":{"content":[{"type":"text","text":"Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."}],"source":{"kind":"plugin","plugin":"@deepseek-ai/dsh-system-prompt"},"role":"user","id":"ed22eb1e-8426-4b1a-adf0-f232c5e17b17"},"surfaceOp":"append"}
+{"type":"user/message","seq":3,"time":1785464649169,"data":{"content":[{"type":"text","text":"Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent DSH file policy: danger-full-access. The DSH file sandbox does not restrict file modifications by available operations.\n\nApproval prompts are disabled in this session: actions that require approval are rejected automatically — do not request sandbox escalation (do not set `sandbox_permissions`)."}],"source":{"kind":"plugin","plugin":"@deepseek-ai/dsh-system-prompt"},"role":"user","id":"13ccc421-f59c-44cb-8257-fc293353e56f"},"surfaceOp":"append"}
 {"type":"step/start","seq":4,"time":1785464649169,"data":{"turn":1,"step":1}}
 {"type":"request/header","seq":5,"time":1785464649170,"data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash"},"system":"{{system}}","tools":"{{tools}}"},"reason":"initial"}}
-{"type":"assistant/chunk","seq":6,"time":0,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":0,"outputTokens":0}}}}
-{"type":"assistant/chunk","seq":7,"time":1785464649179,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"error","failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}}
-{"type":"step/end","seq":8,"time":1785464649179,"data":{"turn":1,"step":1}}
-{"type":"llm/retry","seq":9,"time":1785464649179,"data":{"turn":1,"step":1,"provider":"deepseek-official","mode":"normal","policyKey":"[\"normal\",2,[\"EMPTY_RESPONSE\",\"RATE_LIMIT\",\"SERVER\",\"TIMEOUT\",\"TRANSPORT\"],1,1,0]","retry":1,"maxRetries":2,"delayMs":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}
-{"type":"turn/end","seq":10,"time":1785464649181,"data":{"turn":1,"reason":{"kind":"error","step":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}
-{"type":"turn/start","seq":11,"time":1785464649185,"data":{"turn":2,"trigger":{"kind":"retry"}}}
-{"type":"step/start","seq":12,"time":1785464649189,"data":{"turn":2,"step":1}}
-{"type":"assistant/chunk","seq":13,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
-{"type":"assistant/chunk","seq":14,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":0,"text":"Recovered."}}}
-{"type":"assistant/chunk","seq":15,"time":1785047244294,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"Recovered."}}}}
-{"type":"assistant/chunk","seq":16,"time":1785047244294,"data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":12,"outputTokens":3}}}}
-{"type":"assistant/chunk","seq":17,"time":1785464649194,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
-{"type":"assistant/message","seq":18,"time":1785464649195,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"Recovered."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"db985632-57e1-41c1-a1b9-a042285a45b0"},"usage":{"inputTokens":12,"outputTokens":3}},"sourceEventSeqs":[13,14,15,16,17],"surfaceOp":"append"}
-{"type":"step/end","seq":19,"time":1785464649195,"data":{"turn":2,"step":1}}
-{"type":"turn/end","seq":20,"time":1785464649195,"data":{"turn":2,"reason":{"kind":"completed"}}}
+{"type":"request/context","seq":6,"time":1785487606161,"data":{"provider":"deepseek-official","model":"deepseek-v4-flash"}}
+{"type":"assistant/chunk","seq":7,"time":1785464649179,"data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":0,"outputTokens":0}}}}
+{"type":"assistant/chunk","seq":8,"time":1785487606169,"data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"error","failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}}
+{"type":"step/end","seq":9,"time":1785487606169,"data":{"turn":1,"step":1}}
+{"type":"llm/retry","seq":10,"time":1785487606169,"data":{"turn":1,"step":1,"provider":"deepseek-official","mode":"normal","policyKey":"[\"normal\",2,[\"EMPTY_RESPONSE\",\"RATE_LIMIT\",\"SERVER\",\"TIMEOUT\",\"TRANSPORT\"],1,1,0]","retry":1,"maxRetries":2,"delayMs":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}
+{"type":"turn/end","seq":11,"time":1785487606171,"data":{"turn":1,"reason":{"kind":"error","step":1,"failure":{"message":"model returned a completed response with no content","code":"EMPTY_RESPONSE"}}}}
+{"type":"turn/start","seq":12,"time":1785487606176,"data":{"turn":2,"trigger":{"kind":"retry"}}}
+{"type":"step/start","seq":13,"time":1785487606181,"data":{"turn":2,"step":1}}
+{"type":"assistant/chunk","seq":14,"time":0,"data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","seq":15,"time":1785047244294,"data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":0,"text":"Recovered."}}}
+{"type":"assistant/chunk","seq":16,"time":1785047244294,"data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"Recovered."}}}}
+{"type":"assistant/chunk","seq":17,"time":1785464649194,"data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":12,"outputTokens":3}}}}
+{"type":"assistant/chunk","seq":18,"time":1785487606186,"data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/message","seq":19,"time":1785487606186,"data":{"turn":2,"step":1,"message":{"role":"assistant","content":[{"type":"text","text":"Recovered."}],"source":{"kind":"model","provider":"deepseek-official","model":"deepseek-v4-flash"},"id":"348c5576-4dc1-4931-891f-e86fe044b734"},"usage":{"inputTokens":12,"outputTokens":3}},"sourceEventSeqs":[14,15,16,17,18],"surfaceOp":"append"}
+{"type":"step/end","seq":20,"time":1785487606186,"data":{"turn":2,"step":1}}
+{"type":"turn/end","seq":21,"time":1785487606186,"data":{"turn":2,"reason":{"kind":"completed"}}}

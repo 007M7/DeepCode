@@ -44,4 +44,4 @@
   - text: DeepSeek-V4-Flash
   - img
 - button "Send message" [disabled]
-- text: 1 turns · 2 steps Tool call {{duration}} Cache hit 51% Input 10.2K tok · Output 346 tok
+- text: 1 turns · 2 steps Tool call {{duration}} Context 4% of 128K Cache hit 51% Input 10.2K tok · Output 346 tok

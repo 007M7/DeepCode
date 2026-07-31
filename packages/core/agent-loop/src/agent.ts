@@ -45,7 +45,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmCallConfig, LlmFailure, Message, PreparedLlmCall, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import { canonicalHeader, headerEquals } from '@deepseek-ai/dsh-session'
-import type { AssistantMessage, EpochHeader, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
+import type { AssistantMessage, EpochHeader, RequestContext, Session, SessionId, TurnEndReason, TurnTrigger, UserMessage } from '@deepseek-ai/dsh-session'
 import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { executeToolCalls } from './tool-calls.ts'
@@ -723,6 +723,24 @@ export class ReactLoopAgent implements Agent {
       this.requestHeaderLogged = true
     } else if (baseline === undefined || !headerEquals(baseline, header)) {
       session.append('request/header', { header, reason: 'change' })
+    }
+
+    // TODO: This looks like code smell.
+    // Context metadata for the route this request resolved to, recorded from the same
+    // registration-bound lookup that prepared the call (no second resolve).
+    // A route with unknown capacity is still recorded so it clears any older
+    // denominator; an unchanged route logs nothing.
+    const contextWindow = preparedCall?.context?.contextWindow
+    const requestContext: RequestContext = {
+      provider: config.provider,
+      model: config.model,
+      ...contextWindow === undefined ? {} : { contextWindow },
+    }
+    const previous = session.requestContext()
+    if (previous?.provider !== requestContext.provider
+      || previous.model !== requestContext.model
+      || previous.contextWindow !== requestContext.contextWindow) {
+      session.append('request/context', requestContext)
     }
 
     const request = markAgentLoopRequest(deepFreeze({
