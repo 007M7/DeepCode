@@ -465,7 +465,7 @@ describe('timeline projection', () => {
 
   it('auto-pans a zoomed viewport while a range drag pushes against an edge', () => {
     const onRangeChange = vi.fn()
-    render(
+    const view = render(
       <TrajectoryTimeline
         turns={longTurns}
         mode="sequence"
@@ -483,13 +483,26 @@ describe('timeline projection', () => {
     for (let index = 0; index < 24; index++) {
       fireEvent.pointerMove(plot, { clientX: 99, pointerId: 1 })
     }
+    const draftSelection = view.container.querySelectorAll<HTMLElement>(
+      '[data-dragging="true"]',
+    )
+    expect(draftSelection).toHaveLength(2)
+    for (const overlay of draftSelection) {
+      expect(Number.parseFloat(
+        overlay.style.getPropertyValue('--trajectory-selection-left'),
+      )).toBeLessThan(0)
+    }
     fireEvent.pointerUp(plot, { clientX: 99, pointerId: 1 })
 
     const selectedRange = onRangeChange.mock.calls.at(-1)?.[0] as
       | { start: number; end: number }
       | undefined
+    const fullRange = deriveTrajectoryTimeline(longTurns)
     expect(selectedRange).toBeDefined()
+    expect(fullRange).not.toBeNull()
     expect((selectedRange?.end ?? 0) - (selectedRange?.start ?? 0)).toBeGreaterThan(4)
+    expect(selectedRange?.start).toBeGreaterThanOrEqual(fullRange?.start ?? 0)
+    expect(selectedRange?.end).toBeLessThanOrEqual(fullRange?.end ?? 0)
   })
 
   it('uses equal-width operation slots and stable semantic lanes', () => {

@@ -321,6 +321,13 @@
   width: 76px;
 }
 
+.kindSlot :global([role='tooltip']) {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-shadow-lv2);
+  color: var(--dsw-alias-label-primary);
+}
+
 .content {
   padding-left: 4px !important;
   color: var(--dsw-alias-label-primary);

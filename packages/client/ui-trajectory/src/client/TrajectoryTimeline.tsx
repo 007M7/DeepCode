@@ -70,11 +70,17 @@ function rangeFraction(
   range: TrajectoryTimeRange,
   start: number,
   duration: number,
+  minimum: number,
+  maximum: number,
 ): FractionRange {
-  return orderedRange(
-    clampFraction((range.start - start) / duration),
-    clampFraction((range.end - start) / duration),
+  const bounded = orderedRange(
+    Math.min(maximum, Math.max(minimum, range.start)),
+    Math.min(maximum, Math.max(minimum, range.end)),
   )
+  return {
+    start: (bounded.start - start) / duration,
+    end: (bounded.end - start) / duration,
+  }
 }
 
 function LaneLabels() {
@@ -185,10 +191,10 @@ export const TrajectoryTimeline = memo(function TrajectoryTimeline({
     } as CSSProperties
   const committed = model === null || range === null
     ? null
-    : rangeFraction(range, domainStart, domainDuration)
+    : rangeFraction(range, domainStart, domainDuration, model.start, model.end)
   const draftFraction = model === null || draft === null
     ? null
-    : rangeFraction(draft, domainStart, domainDuration)
+    : rangeFraction(draft, domainStart, domainDuration, model.start, model.end)
   const visibleRange = draftFraction ?? committed
   const activeRange = draft ?? range
   useEffect(() => {
