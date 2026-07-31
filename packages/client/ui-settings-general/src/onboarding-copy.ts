@@ -8,7 +8,7 @@ export const WELCOME_NOTICE_ACK_FIELD = 'welcomeNoticeVersion'
  * Bump only when the notice changes materially and every user should see it
  * again. The acknowledgement is compared for exact equality.
  */
-export const WELCOME_NOTICE_VERSION = '2026-07-30.3'
+export const WELCOME_NOTICE_VERSION = '2026-07-30.5'
 
 /** The complete editable welcome notice in both supported GUI locales. */
 export const WELCOME_NOTICE_COPY = {
@@ -16,22 +16,22 @@ export const WELCOME_NOTICE_COPY = {
     title: '内测声明',
     paragraphs: [
       '感谢您愿意拨冗试用 DeepSeek Harness。',
-      '目前的版本仍处于内部测试阶段，有些功能仍待完善，有些体验难免粗粝。',
-      '“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中暴露的问题，也可能促使我们重新审视，甚至推翻已有的设计。',
-      '我们尤其希望听见那些失败、困惑与不顺手的时刻——如果它未能帮到您，甚至反而为工作平添了麻烦，请在企业微信群中留言，将使用感受告诉我们。每一条反馈，都会帮助我们把它打磨得更好。',
+      '目前的版本仍处于内部测试阶段，功能仍待完善，体验难免有些粗糙。',
+      '“如切如磋，如琢如磨。” 产品的成长，离不开一次次真实的碰撞与坦诚的反馈。您在真实使用中发现的问题，也可能促使我们重新审视，甚至推翻已有的设计。',
+      '我们尤其希望听见那些失败、困惑与不顺手的时刻——如果您有任何反馈与建议，请在企业微信群中留言告诉我们。每一条反馈，都会帮助我们把它打磨得更好。',
     ],
-    feedbackEmphasis: '如果它未能帮到您，甚至反而为工作平添了麻烦，请在企业微信群中留言',
+    feedbackEmphasis: '如果您有任何反馈与建议，请在企业微信群中留言告诉我们',
     continueLabel: '继续',
   },
   en: {
     title: 'Internal Testing Notice',
     paragraphs: [
       'Thank you for taking the time to try DeepSeek Harness.',
-      'This version is still in internal testing. Some features remain unfinished, and parts of the experience may feel rough.',
-      '“As one cuts and files, as one chisels and polishes.” A product grows through real encounters and candid feedback. Problems you uncover in real use may prompt us to reconsider—or even overturn—our existing designs.',
-      'We especially want to hear about failures, confusion, and friction. If it did not help you, or even made your work harder, please leave a message in the company WeChat group and tell us about your experience. Every piece of feedback helps us refine it.',
+      'This version is still in internal testing. Its functionality still needs improvement, and the experience may feel a little rough.',
+      '“As one cuts and files, as one chisels and polishes.” A product grows through real encounters and candid feedback. Problems you discover in real use may prompt us to reconsider—or even overturn—our existing designs.',
+      'We especially want to hear about failures, confusion, and friction. If you have any feedback or suggestions, please leave us a message in the company WeChat group. Every piece of feedback helps us refine it.',
     ],
-    feedbackEmphasis: 'If it did not help you, or even made your work harder, please leave a message in the company WeChat group',
+    feedbackEmphasis: 'If you have any feedback or suggestions, please leave us a message in the company WeChat group',
     continueLabel: 'Continue',
   },
 } as const
