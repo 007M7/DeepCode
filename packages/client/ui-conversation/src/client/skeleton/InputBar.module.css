@@ -192,20 +192,18 @@
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  /* Equal wrap width on every platform, which is what lets one scroll offset
-     be mirrored between the layers (InputBar's `scroll` listener). Only .input
-     scrolls, so only .input would otherwise lose width to a space-consuming
-     scrollbar — the kind Windows and Firefox draw, and the kind the theme's
-     `::-webkit-scrollbar` width makes chromium treat as occupying layout space
-     (see ui-theme styles/scrollbar.css and the sidebar-scrollbar scenario).
-     A narrower .input wraps a long soft-wrapped draft onto MORE lines than the
-     backdrop, so it grows taller, its scroll maximum exceeds the backdrop's,
-     and the mirrored offset clamps below the caret — the same failure the
-     trailing-line sentinel fixes, in the same direction. Reserving the gutter
-     on all three keeps the widths identical whatever that platform's
-     scrollbar costs; `overflow: hidden` is still a scroll container, so the
-     non-scrolling layers honour it. Measured: 8px reserved on each. */
-  scrollbar-gutter: stable;
+  /* These three MUST wrap at one width, because InputBar mirrors a single
+     scroll offset between .input and .backdrop and a layer that wraps onto
+     more lines is taller, has a larger scroll maximum, and clamps the mirrored
+     offset below the caret. Only .input scrolls, so only .input can lose
+     content width to a scrollbar that consumes layout space.
+     `scrollbar-gutter: stable` here does NOT buy that guarantee and was
+     removed after measuring: WebKit applies it to overflow-y:auto but not to
+     the overflow:hidden layers, so it left .input at 768 against 776 — the
+     same gap it was meant to close — while costing chromium 8px of text width
+     unconditionally. The gap it would have closed is measured and recorded in
+     the Agent Note (2026-07-31-composer-glyph-layer-tracks-the-textarea);
+     closing it needs one geometry every engine agrees on, not this property. */
 }
 
 /* figma 34:10434: #ADB2B8 light / #81858C dark — the caption pair exactly. */

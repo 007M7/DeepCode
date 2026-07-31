@@ -40,11 +40,11 @@
     "tests/seeded-history.e2e.ts",
     "tests/sidebar-scrollbar.e2e.ts",
     "tests/code-mode-round.e2e.ts",
+    "tests/composer-draft-scroll.e2e.ts",
     "tests/cordis-tool-round.e2e.ts",
     "tests/message-actions.e2e.ts",
     "tests/queue-actions.e2e.ts",
-    "tests/skill-invocation-policy.e2e.ts",
-    "tests/composer-draft-scroll.e2e.ts"
+    "tests/skill-invocation-policy.e2e.ts"
   ],
   "references": [
     {

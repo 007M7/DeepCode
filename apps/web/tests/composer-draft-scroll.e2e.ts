@@ -16,13 +16,13 @@
 // backdrop on every textarea `scroll`, which is the one event every way of
 // moving the box ends in.
 //
-// Mirroring an offset is only correct while both layers can reach it, so two
-// pieces of geometry are asserted here alongside the visible outcome: the
+// Mirroring an offset is only correct while both layers can reach it, so the
+// geometry underneath is asserted here alongside the visible outcome: the
 // backdrop's trailing-line sentinel (a textarea reserves a line box for the
-// caret after a final newline; `pre-wrap` collapses one) and the scrollbar
-// gutter reserved on all three layers (only the textarea scrolls, so only it
-// would lose wrap width to a space-consuming scrollbar). Either one breaks the
-// extent equality, and an unreachable offset clamps the glyphs below the caret.
+// caret after a final newline; `pre-wrap` collapses one), and one wrap width
+// across all three layers (only the textarea scrolls, so only it can lose
+// width to a scrollbar that consumes layout space). Either breaks the extent
+// equality, and an unreachable offset clamps the glyphs below the caret.
 //
 // Only a real engine can show this. Scrolling is layout: jsdom reports
 // `scrollHeight === clientHeight` for every element and never scrolls one, so
@@ -108,15 +108,8 @@ interface ComposerMetrics {
   inputWrapWidth: number
   /** Content width the backdrop wraps at — equal, or the layers break lines in different places. */
   backdropWrapWidth: number
-  /**
-   * Width each layer holds back for a scrollbar. Non-zero is the proof the
-   * reservation is in force: were it absent, both would read 0 here and stay
-   * equal on this engine's overlay scrollbar while diverging on a platform
-   * whose scrollbar consumes layout width.
-   */
-  inputGutter: number
-  /** The same reservation on the clipped layer, which never draws a scrollbar. */
-  backdropGutter: number
+  /** Content width the hidden auto-grow mirror wraps at — it decides the box's height. */
+  mirrorWrapWidth: number
 }
 
 /**
@@ -130,6 +123,11 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
     if (input === null) throw new Error('no live composer textarea in the DOM')
     const backdrop = input.parentElement?.querySelector<HTMLElement>('[data-input-backdrop]')
     if (backdrop === undefined || backdrop === null) throw new Error('no decoration backdrop beside the composer textarea')
+    // The hidden auto-grow mirror: the textarea's next sibling, and the layer
+    // that decides the box's height, so its wrap width matters as much as the
+    // two that carry glyphs.
+    const mirror = input.nextElementSibling
+    if (!(mirror instanceof HTMLElement)) throw new Error('no auto-grow mirror after the composer textarea')
     const box = input.getBoundingClientRect()
     // The draft carries no chips or claim token, so the decoration walk emits it
     // as one text node — the backdrop's first, ahead of the trailing-line
@@ -162,8 +160,7 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
       backdropMax,
       inputWrapWidth: input.clientWidth,
       backdropWrapWidth: backdrop.clientWidth,
-      inputGutter: Math.round(input.getBoundingClientRect().width - input.clientWidth),
-      backdropGutter: Math.round(backdrop.getBoundingClientRect().width - backdrop.clientWidth),
+      mirrorWrapWidth: mirror.clientWidth,
       overflows: input.scrollHeight > input.clientHeight,
       clientHeight: input.clientHeight,
       visibleLines: Math.floor(input.clientHeight / lineHeight),
@@ -187,6 +184,7 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
  * keeping the coupling.
  * @param top - metrics with the draft scrolled to its start.
  * @param bottom - metrics with the draft scrolled to its end.
+ * @param trailingNewline - metrics with the trailing-newline draft scrolled to its end.
  * @returns the golden body, without a trailing newline.
  */
 function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics, trailingNewline: ComposerMetrics): string {
@@ -198,8 +196,9 @@ function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics, trailingN
     `- draft overflows the capped box: ${String(top.overflows)}`,
     `- visible lines: ${String(top.visibleLines)}`,
     `- both layers share one scroll extent: ${String(top.inputMax === top.backdropMax)}`,
-    `- both layers wrap at one width: ${String(top.inputWrapWidth === top.backdropWrapWidth)}`,
-    `- scrollbar gutter reserved on each layer: ${String(top.inputGutter)}px / ${String(top.backdropGutter)}px`,
+    `- all three layers wrap at one width: ${String(
+      top.inputWrapWidth === top.backdropWrapWidth && top.backdropWrapWidth === top.mirrorWrapWidth,
+    )}`,
     `- textarea scroll offset: ${String(top.inputScrollTop)}px`,
     `- glyph layer tracks it: ${String(top.layersAgree)}`,
     `- first draft line is on screen: ${String(top.firstLineOffset >= 0 && top.firstLineOffset < top.clientHeight)}`,
@@ -269,22 +268,27 @@ describe('web e2e: composer draft scrolling', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('reserves one scrollbar gutter on every text layer, so they wrap at one width', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-gutter'))
-    // The premise under the mirror. Only the textarea scrolls, so only it would
-    // lose width to a space-consuming scrollbar — and a narrower textarea wraps
-    // a long draft onto more lines than the backdrop, ending up taller, with a
-    // larger maximum, which makes the mirrored offset clamp below the caret.
-    // Measured on a standalone harness: an 8px width difference moves a
-    // wrap-sensitive draft by 2 to 5 lines.
+  it('lays out all three text layers at one wrap width', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-wrap-width'))
+    // The premise under the mirror, asserted rather than assumed. Only .input
+    // scrolls, so only .input can lose content width to a scrollbar that
+    // consumes layout space; a narrower .input wraps a long draft onto more
+    // lines, ends up taller, and its larger maximum makes the mirrored offset
+    // clamp below the caret. Measured on a standalone harness, an 8px width
+    // difference is worth 2 to 5 lines on a wrap-sensitive draft.
+    //
+    // This holds on the lane's engine and is what a regression would break —
+    // it is NOT vacuous: measured on the same app, WebKit reports 768 against
+    // 776 here, which is the divergence the Agent Note records as a
+    // pre-existing, engine-specific limitation. The mirror is unaffected there
+    // today because the extents still agree; this assertion is what would
+    // notice if the lane's engine ever moved into the same state.
     const metrics = await measureComposer(page)
-    expect(metrics.inputWrapWidth).toBe(metrics.backdropWrapWidth)
-    // Not a tautology on this engine: the widths would also match with no
-    // reservation at all, because headless chromium draws an overlay scrollbar.
-    // The reserved band is what distinguishes the two states, and it is what
-    // carries the guarantee to a platform whose scrollbar takes real width.
-    expect(metrics.inputGutter).toBeGreaterThan(0)
-    expect(metrics.backdropGutter).toBe(metrics.inputGutter)
+    expect(metrics.backdropWrapWidth).toBe(metrics.inputWrapWidth)
+    // The mirror decides the box height, so it belongs in the same equality —
+    // were it alone to wrap wider, the box would be measured too short and
+    // clip content before the 14-line cap, with every other assertion green.
+    expect(metrics.mirrorWrapWidth).toBe(metrics.inputWrapWidth)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

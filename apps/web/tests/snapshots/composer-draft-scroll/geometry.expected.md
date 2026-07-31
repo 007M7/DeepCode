@@ -5,8 +5,7 @@
 - draft overflows the capped box: true
 - visible lines: 14
 - both layers share one scroll extent: true
-- both layers wrap at one width: true
-- scrollbar gutter reserved on each layer: 8px / 8px
+- all three layers wrap at one width: true
 - textarea scroll offset: 0px
 - glyph layer tracks it: true
 - first draft line is on screen: true
