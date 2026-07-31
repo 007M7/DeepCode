@@ -15,11 +15,13 @@ import { WorkspaceManager, type WorkspaceListPhase } from './manager.ts'
 export interface WorkspaceListState {
   items: readonly WorkspaceView[]
   /**
-   * Registry-global archive set: grouping surfaces hide these sessions
-   * everywhere (workspace groups and the ungrouped bucket) while their
-   * session logs and workspace accounting slots remain.
+   * Registry-global archive set in Host order: grouping surfaces hide these
+   * sessions everywhere (workspace groups and the ungrouped bucket) while
+   * their session logs and workspace accounting slots remain. A plain array
+   * (store-engine vocabulary; immer drafts reject Sets) — membership lookups
+   * build their own transient Set.
    */
-  archivedSessionIds: ReadonlySet<SessionId>
+  archivedSessionIds: readonly SessionId[]
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -64,7 +66,7 @@ export class WorkspacesService implements IWorkspaces {
   constructor(ctx: Context, private readonly api: IApiClient, private readonly sessions: SessionsPort) {
     this.manager = new WorkspaceManager(api)
     this.list = createSnapshotStore<WorkspaceListState>({
-      items: [], archivedSessionIds: new Set(), state: 'idle', phase: 'pending', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'pending', error: null,
       baselinesReady: false, recentWorkspaceId: undefined,
     })
     this.manager.subscribe(() => { this.project() })
@@ -101,7 +103,7 @@ export class WorkspacesService implements IWorkspaces {
     for (const id of sessions.ids) {
       const summary = sessions.byId[id]
       if (summary !== undefined && summary.blank && summary.cwd === workspace.path
-        && !archived.has(summary.id)) return summary.id
+        && !archived.includes(summary.id)) return summary.id
     }
     const attempt = this.sessions.create({ workspaceId })
       .finally(() => { this.connecting.delete(workspaceId) })
@@ -317,7 +319,7 @@ export class WorkspacesService implements IWorkspaces {
     // every install path with one rule: the local unary echo, another tab's
     // changed frame, and a reconnect baseline restoring a persisted
     // selection that was archived while this client was away.
-    if (sessions.current !== undefined && workspace.archivedSessionIds.has(sessions.current)) {
+    if (sessions.current !== undefined && workspace.archivedSessionIds.includes(sessions.current)) {
       this.sessions.clear()
     }
     this.list.set({

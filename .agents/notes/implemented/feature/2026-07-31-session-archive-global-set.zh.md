@@ -15,7 +15,7 @@ Sidebar workspace 浏览区的 session 行菜单里，「Delete session」一直
 - 存储：`archivedSessionIds: z.array(sessionId).default([])`，domain version 保持 2——纯增量字段，旧介质经 schema default 解析为空集合，无迁移代码。被归档的 session 保留其 `sessionIds` 席位（未来取消归档恢复原位置），因此与「一个 session 只被一个 workspace 记账」不变式零纠缠。
 - Registry：`ctx.workspace.archiveSession(id)` 走 `enqueueOperation` 与 create/delete 串行；未知 session（实时与持久化都查不到）抛 `WorkspaceUnknownSessionError`；已归档 id 不写盘不发事件。`archivedSessionIds` getter 暴露只读集合。
 - RPC：`workspace.archiveSession({sessionId}) → {archivedSessionIds}`（应答完整更新后集合）；`workspace.list` 响应携带集合作为重连基线；新 host 帧 `host/archived-sessions-changed` 在每次持久变更后推完整快照（与 `host/workspace-changed` 同姿态，从 `domain/changed` 的 global put 分支比对推帧）。未知 session 复用错误码 `session-not-found`。
-- client runtime：`WorkspaceListState.archivedSessionIds`（`ReadonlySet`，成员不变不换引用）；list 基线、unary 回声、changed 帧三路都整体替换安装。投影层在当前 selection 落入归档集合时统一清空回 New Session 视图（用户拍板：归档当前打开的 session 主视图回 hero）——一条规则同时覆盖本地 unary 回声、其他标签页的 changed 帧、以及重连基线恢复出一个离线期间被归档的 selection；帧/回声落在 in-flight `workspace.list` 期间时还会屏蔽旧基线对新集合的回滚。
+- client runtime：`WorkspaceListState.archivedSessionIds`（按 Host 顺序的 `readonly SessionId[]`，成员不变不换引用——公有快照状态保持 store 引擎的纯数据词汇：immer draft 不开 MapSet 插件就不接受 Set；membership 查询在派生函数内自建临时 Set，与 expandedProjects 同款）；list 基线、unary 回声、changed 帧三路都整体替换安装。投影层在当前 selection 落入归档集合时统一清空回 New Session 视图（用户拍板：归档当前打开的 session 主视图回 hero）——一条规则同时覆盖本地 unary 回声、其他标签页的 changed 帧、以及重连基线恢复出一个离线期间被归档的 selection；帧/回声落在 in-flight `workspace.list` 期间时还会屏蔽旧基线对新集合的回滚。
 - UI：菜单项 `delete`（visual-only）改为 `archive`（label「Archive session」，非 danger 样式，无确认对话框——非破坏性操作，误触后果只是列表隐藏）；过滤实现为 `tree.ts` 的 `sessionVisible` 判据加一档，`deriveGroups`/`deriveFlat` 增加 `archived` 集合入参，四个视图（分组循环、stray 兜底、搜索、平铺）同源生效。
 
 ## 已考虑的替代方案

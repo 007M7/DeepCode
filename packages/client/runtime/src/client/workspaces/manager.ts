@@ -14,8 +14,14 @@ export type WorkspaceListPhase = 'pending' | 'ready'
 /** Immutable workspace-list snapshot. */
 export interface WorkspaceListSnapshot {
   items: readonly WorkspaceView[]
-  /** Registry-global archive set (hidden from grouping surfaces; accounting slots retained). */
-  archivedSessionIds: ReadonlySet<SessionId>
+  /**
+   * Registry-global archive set in Host order (hidden from grouping
+   * surfaces; accounting slots retained). A plain array, not a Set: public
+   * snapshot state stays in the store engine's plain-data vocabulary
+   * (immer drafts reject Sets without the MapSet plugin); membership
+   * lookups build their own transient Set where they need one.
+   */
+  archivedSessionIds: readonly SessionId[]
   state: 'idle' | 'loading' | 'error'
   phase: WorkspaceListPhase
   error: RpcError | null
@@ -32,7 +38,7 @@ export class WorkspaceManager {
   private itemViewsCache: readonly WorkspaceView[] = []
   // Full-snapshot state (list response / unary response / changed frame all
   // carry the complete set), so deltas never merge — installs replace.
-  private archivedSessionIds: ReadonlySet<SessionId> = new Set()
+  private archivedSessionIds: readonly SessionId[] = []
   private state: WorkspaceListSnapshot['state'] = 'idle'
   private phase: WorkspaceListPhase = 'pending'
   private error: RpcError | null = null
@@ -230,12 +236,16 @@ export class WorkspaceManager {
     }
   }
 
-  /** Replace the archive set when membership actually changed (set identity backs Object.is short-circuits). */
+  /**
+   * Replace the archive set when membership actually changed (array identity
+   * backs Object.is short-circuits). Host snapshots are append-ordered, so
+   * positional comparison is exact, not merely heuristic.
+   */
   private installArchived(archivedSessionIds: readonly SessionId[]): void {
     if (this.refreshFrames !== null) this.archivedSupersedesRefresh = true
-    if (archivedSessionIds.length === this.archivedSessionIds.size
-      && archivedSessionIds.every(id => this.archivedSessionIds.has(id))) return
-    this.archivedSessionIds = new Set(archivedSessionIds)
+    if (archivedSessionIds.length === this.archivedSessionIds.length
+      && archivedSessionIds.every((id, index) => id === this.archivedSessionIds[index])) return
+    this.archivedSessionIds = [...archivedSessionIds]
     this.notifier.markDirty()
   }
 

@@ -554,7 +554,7 @@ describe('workspaces action face', () => {
     // Default archive mirrors the production effect: the id joins the list
     // state's archive set (features render against the same snapshot).
     await ws.archiveSession('s1' as SessionId)
-    expect([...ws.list.getSnapshot().archivedSessionIds]).toEqual(['s1'])
+    expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     expect(ws.calls.map(c => c.method)).toEqual(
       ['create', 'create', 'pickDirectory', 'rename', 'delete', 'openPath', 'insertSessionBefore', 'archiveSession'])
 
@@ -573,7 +573,7 @@ describe('workspaces action face', () => {
     expect((await ws.insertSessionBefore('w1' as WorkspaceId, 's1' as SessionId)).sessionIds).toEqual([])
     // The stub replaces the default set mutation: the set stays as-is.
     await ws.archiveSession('s2' as SessionId)
-    expect([...ws.list.getSnapshot().archivedSessionIds]).toEqual(['s1'])
+    expect(ws.list.getSnapshot().archivedSessionIds).toEqual(['s1'])
     await runtime.dispose()
   })
 })

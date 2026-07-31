@@ -309,13 +309,13 @@ describe('WorkspacesService', () => {
     // Archiving a non-current session installs the unary echo and keeps the selection.
     await expect(workspaces.archiveSession(sid('s-idle'))).resolves.toBeUndefined()
     expect(api.callsOf('workspace.archiveSession')).toEqual([{ sessionId: 's-idle' }])
-    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-idle'])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle'])
     expect(sessions.list.getSnapshot().current).toBe('s-open')
 
     // Archiving the current session clears it into the New Session view state.
     api.onWorkspaceArchiveSession = () => Promise.resolve(ok({ archivedSessionIds: [sid('s-idle'), sid('s-open')] }))
     await workspaces.archiveSession(sid('s-open'))
-    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-idle', 's-open'])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle', 's-open'])
     expect(sessions.list.getSnapshot().current).toBeUndefined()
 
     // A Host failure leaves the set and the selection untouched.
@@ -323,7 +323,7 @@ describe('WorkspacesService', () => {
       code: 'session-not-found', message: 'no session ghost', details: { sessionId: sid('ghost') },
     }))
     await expect(workspaces.archiveSession(sid('ghost'))).rejects.toThrow(/session-not-found/)
-    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-idle', 's-open'])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle', 's-open'])
 
     // The changed frame and the list baseline both re-install the full set.
     workspaces.handleHostEnvelope({
@@ -332,10 +332,10 @@ describe('WorkspacesService', () => {
     } as never)
     // Frame installs ride the notifier's microtask batch before projecting.
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-idle'])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-idle'])
     api.onWorkspaceList = () => Promise.resolve(ok({ items: [], archivedSessionIds: [sid('s-open')] }) as never)
     await workspaces.refresh()
-    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-open'])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
   })
 
   it('clears a current archived by a remote frame and shields the set from a stale in-flight baseline', async () => {
@@ -363,11 +363,11 @@ describe('WorkspacesService', () => {
     expect(sessions.list.getSnapshot().current).toBeUndefined()
     gate.resolve(ok({ items: [], archivedSessionIds: [] }))
     await hydration
-    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual(['s-open'])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
     // The next (fresh) baseline is authoritative again.
     api.onWorkspaceList = () => Promise.resolve(ok({ items: [], archivedSessionIds: [] }) as never)
     await workspaces.refresh()
-    expect([...workspaces.list.getSnapshot().archivedSessionIds]).toEqual([])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual([])
   })
 })
 
