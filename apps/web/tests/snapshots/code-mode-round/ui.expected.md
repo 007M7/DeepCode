@@ -5,11 +5,11 @@
     - tab "Chat" [selected]
     - tab "Trajectory"
 - text: "Using ONE run_code program: run bash `echo CODE_ROUND_OK`, then read the file missing.txt catching its error in the program. Return an object with both outcomes. Then reply DONE and stop. {{clock}}"
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
-- button "编辑":
+- button "Edit":
   - img
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
@@ -27,9 +27,9 @@
   - img
   - text: Think The program ran successfully. Let me now reply DONE as instructed.
 - paragraph: DONE
-- button "复制":
+- button "Copy":
   - img
-- button "在新对话中分支":
+- button "Branch into a new conversation":
   - img
 - text: {{clock}}
 - textbox "Message the agent"

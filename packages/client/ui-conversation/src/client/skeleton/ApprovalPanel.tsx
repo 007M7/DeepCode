@@ -41,10 +41,14 @@ export function ApprovalPanel(props: ApprovalComposerProps) {
   const approval = useMemo(() => new PendingApproval(props.matched), [props.matched])
   const command = props.useSession(s => commandOf(
     approval.callId === undefined ? undefined : s.runningCalls.find(call => call.callId === approval.callId)))
-  return <ApprovalFlow key={approval.key} pending={approval} {...command === undefined ? {} : { command }} />
+  return <ApprovalFlow key={approval.key} pending={approval} t={props.t} {...command === undefined ? {} : { command }} />
 }
 
-function ApprovalFlow({ pending, command }: { pending: PendingApproval; command?: string }) {
+function ApprovalFlow({ pending, command, t }: {
+  pending: PendingApproval
+  command?: string
+  t: ApprovalComposerProps['t']
+}) {
   // Local one-shot latch: the panel leaves only when the resolved frame
   // lands; until then the buttons must not re-fire. An answer failure
   // (rejected receipt / transport) re-arms them for retry.
@@ -56,20 +60,20 @@ function ApprovalFlow({ pending, command }: { pending: PendingApproval; command?
   return (
     <div className={css.root} data-approval-key={pending.key}>
       <div className={css.card}>
-        <div className={css.strip}><span className={css.dot} />等待审批</div>
+        <div className={css.strip}><span className={css.dot} />{t('approval.waiting')}</div>
         {/* Tab stop: the region scrolls once the command passes the cap and
             holds nothing focusable of its own, so without one a keyboard-only
             user cannot reach the command's tail before answering. */}
-        <div className={css.body} data-approval-scroll="" tabIndex={0} role="group" aria-label="审批详情">
-          <div className={css.headline}>{pending.reason ?? `工具 ${pending.toolName} 请求越权执行`}</div>
+        <div className={css.body} data-approval-scroll="" tabIndex={0} role="group" aria-label={t('approval.detail.aria')}>
+          <div className={css.headline}>{pending.reason ?? t('approval.escalation', { toolName: pending.toolName })}</div>
           {command !== undefined && <div className={css.command}>{command}</div>}
         </div>
         <div className={css.actionRow}>
           <button type="button" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
-            拒绝
+            {t('approval.reject')}
           </button>
           <button type="button" className={css.allow} disabled={answered} onClick={() => { answer('allowed-once') }}>
-            允许一次
+            {t('approval.allowOnce')}
           </button>
         </div>
       </div>

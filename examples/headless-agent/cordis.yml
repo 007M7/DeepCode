@@ -18,7 +18,8 @@
 # The DeepSeek adapter. Swap to '@deepseek-ai/dsh-llm-pi-ai' for the pi-ai-backed
 # twin (a `providers` dict keyed by route; `reasoning: high` replaces
 # thinking/reasoningEffort). Shipped default: full thinking at max effort on
-# every request (wire-only defaults; they never enter the request header).
+# every request. Exact-model resolution materializes request defaults before
+# the request header is logged.
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:

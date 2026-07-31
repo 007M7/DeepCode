@@ -253,7 +253,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       }
     })
     expect(dot.state).toBe('done')
-    expect(dot.label).toBe('已完成')
+    expect(dot.label).toBe('Done')
     expect(dot.beforePrompt).toBe(true)
     expect(dot.insideCard).toBe(true)
     expect(dot.leftOfPrompt).toBe(true)
@@ -270,7 +270,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
     await card.locator('[class*="_copyButton_"]').first().click()
     await expect.poll(() => card.locator('[class*="_copyButton_"]').first().textContent(), { timeout: 5_000 })
-      .toBe('复制成功')
+      .toBe('Copied')
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('NAVIGATION_OK')
   }, 60_000)
 

@@ -221,6 +221,10 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // workspace, keeping the composition untouched.
     { id: 'workspace-context', disabled: true },
     { id: 'session-title-llm', disabled: true },
+    // Fixture sessions must never leave the process: the shipped row defaults
+    // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
+    // names in the ambient environment).
+    { id: 'telemetry-otel', disabled: true },
     { id: 'webserver', config: { host: '127.0.0.1', port: 0, distIndex: DIST_INDEX } },
     { id: 'settings', config: { dshHome: harnessHome } },
     { id: 'credentials', config: { dshHome: harnessHome } },

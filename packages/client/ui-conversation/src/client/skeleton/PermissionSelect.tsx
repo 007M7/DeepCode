@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { PermissionSelect as PermissionSelectValue } from '@deepseek-ai/dsh-permission/client'
 import { Menu, RiskConfirmation } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ComposerBarProps } from '../contract/slots.ts'
 import css from './PermissionSelect.module.css'
 
 const FULL_ACCESS = 'danger-full-access'
@@ -26,7 +27,8 @@ export interface PermissionSelectProps {
   value: PermissionSelectValue | undefined
   locked: boolean
   command: (line: string) => Promise<boolean>
-  t: (key: string) => string
+  /** The owning bar's locale seat, passed down as a plain prop. */
+  t: ComposerBarProps['t']
 }
 
 export function PermissionSelect({ value, locked, command, t }: PermissionSelectProps) {
@@ -95,7 +97,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
           <button
             type="button"
             className={css.trigger}
-            aria-label={`Access mode, current: ${current === undefined ? displayName(currentValue) : optionLabel(current)}`}
+            aria-label={t('input.accessMode', { name: current === undefined ? displayName(currentValue) : optionLabel(current) })}
             title={current?.description}
             disabled={locked || busy}
             onClick={() => { setOpen(!open) }}
@@ -109,11 +111,11 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
       />
       <RiskConfirmation
         open={confirmation !== null}
-        title={t('confirm.title')}
-        description={t('confirm.description')}
-        acknowledgeLabel={t('confirm.acknowledge')}
-        cancelLabel={t('confirm.cancel')}
-        confirmLabel={t('confirm.enable')}
+        title={t('access.confirm.title')}
+        description={t('access.confirm.description')}
+        acknowledgeLabel={t('access.confirm.acknowledge')}
+        cancelLabel={t('access.confirm.cancel')}
+        confirmLabel={t('access.confirm.enable')}
         acknowledged={acknowledged}
         disabled={locked}
         onAcknowledgedChange={setAcknowledged}

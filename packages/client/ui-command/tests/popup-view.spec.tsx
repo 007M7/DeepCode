@@ -14,6 +14,12 @@ import type { SelectOption } from '../src/client/contract.ts'
 import type { PopupSpec, TokenSegment } from '../src/client/popup.ts'
 import { PopupSelectController } from '../src/client/popup.ts'
 import { PopupSelectView } from '../src/client/PopupSelectView.tsx'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { zh } from '../src/client/locales.ts'
+
+// The framework-injected t seat, stubbed over the zh dictionaries (the default locale).
+const t: Parameters<typeof PopupSelectView>[0]['t'] = makeTranslate(zh, commonZh)
 
 // jsdom has no scrollIntoView; the view calls it on the highlighted row.
 const scrollIntoView = vi.fn()
@@ -58,12 +64,12 @@ async function mountOpen(overrides: Partial<PopupSpec<string>> = {}, consumeResu
   const consume = vi.fn((_segment: TokenSegment) => consumeResult)
   const focusComposer = vi.fn()
   const popup = new PopupSelectController<string>({ consume, focusComposer })
-  const view = render(<PopupSelectView popup={popup} />)
+  const view = render(<PopupSelectView popup={popup} t={t} />)
   await act(async () => {
     popup.open('theme', spec(overrides), 'ctx-A', SEGMENT)
     await Promise.resolve()
   })
-  return { popup, view, consume, focusComposer, search: screen.getByRole('textbox', { name: 'Filter options' }) }
+  return { popup, view, consume, focusComposer, search: screen.getByRole('textbox', { name: '筛选选项' }) }
 }
 
 function rowLabels(): string[] {
@@ -73,13 +79,13 @@ function rowLabels(): string[] {
 describe('PopupSelectView', () => {
   it('renders null while closed, opens with focus in the search input', async () => {
     const popup = new PopupSelectController<string>({ consume: () => true, focusComposer: () => {} })
-    const view = render(<PopupSelectView popup={popup} />)
+    const view = render(<PopupSelectView popup={popup} t={t} />)
     expect(view.container.childElementCount).toBe(0)
     await act(async () => {
       popup.open('theme', spec(), 'ctx-A', SEGMENT)
       await Promise.resolve()
     })
-    const search = screen.getByRole('textbox', { name: 'Filter options' })
+    const search = screen.getByRole('textbox', { name: '筛选选项' })
     expect(document.activeElement).toBe(search)
     expect(rowLabels()).toEqual(['Dark', 'Light', 'Sepia'])
   })
@@ -93,7 +99,7 @@ describe('PopupSelectView', () => {
     expect(options).toHaveBeenCalledTimes(1)
     act(() => { fireEvent.change(search, { target: { value: 'zzz' } }) })
     expect(screen.queryByRole('option')).toBeNull()
-    expect(screen.queryByText('No options')).not.toBeNull()
+    expect(screen.queryByText('无选项')).not.toBeNull()
   })
 
   it('ArrowUp/Down move the filtered highlight; ArrowLeft/Right are left to the native caret', async () => {
@@ -121,13 +127,13 @@ describe('PopupSelectView', () => {
   it('caps the card height at the design maximum when the composer sits low enough', async () => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 800 } as DOMRect)
     await mountOpen()
-    expect(screen.getByLabelText('/theme options').style.maxHeight).toBe('320px')
+    expect(screen.getByLabelText('/theme 选项').style.maxHeight).toBe('320px')
   })
 
   it('clamps the card height to the space above the composer minus the safe margin', async () => {
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ bottom: 200 } as DOMRect)
     await mountOpen()
-    expect(screen.getByLabelText('/theme options').style.maxHeight).toBe('188px')
+    expect(screen.getByLabelText('/theme 选项').style.maxHeight).toBe('188px')
   })
 
   it('Enter selects the highlighted row: onSelect, consume, close, focusComposer', async () => {
@@ -161,7 +167,7 @@ describe('PopupSelectView', () => {
       onSelect,
     })
     await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
-    expect(screen.queryByLabelText('/theme options')).toBeNull()
+    expect(screen.queryByLabelText('/theme 选项')).toBeNull()
     expect(screen.getByRole('dialog', { name: 'Enable Full access?' })).toBeTruthy()
     const enable = screen.getByRole('button', { name: 'Enable Full access' }) as HTMLButtonElement
     expect(enable.disabled).toBe(true)
@@ -180,7 +186,7 @@ describe('PopupSelectView', () => {
     await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(screen.getByLabelText('/theme options')).toBeTruthy()
+    expect(screen.getByLabelText('/theme 选项')).toBeTruthy()
     await act(async () => { fireEvent.click(screen.getByRole('option', { name: 'Full access' })) })
     expect(screen.getByRole<HTMLInputElement>('checkbox').checked).toBe(false)
   })
@@ -190,7 +196,7 @@ describe('PopupSelectView', () => {
     const onSelect = vi.fn(() => new Promise<void>((resolve) => { release = resolve }))
     const { search, consume } = await mountOpen({ onSelect })
     await act(async () => { fireEvent.keyDown(search, { key: 'Enter' }) })
-    expect(screen.queryByText('Applying…')).not.toBeNull()
+    expect(screen.queryByText('正在应用…')).not.toBeNull()
     expect((search as HTMLInputElement).readOnly).toBe(true)
     await act(async () => {
       fireEvent.keyDown(search, { key: 'Enter' })
@@ -204,7 +210,7 @@ describe('PopupSelectView', () => {
     expect(consume).toHaveBeenCalledTimes(1)
   })
 
-  it('a failed options load shows the error with a Retry button that reloads', async () => {
+  it('a failed options load shows the error with a retry button that reloads', async () => {
     let attempts = 0
     await mountOpen({
       options: () => {
@@ -214,7 +220,7 @@ describe('PopupSelectView', () => {
     })
     expect(screen.getByRole('alert').textContent).toContain('directory down')
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      fireEvent.click(screen.getByRole('button', { name: '重试' }))
       await Promise.resolve()
     })
     expect(attempts).toBe(2)
@@ -225,7 +231,7 @@ describe('PopupSelectView', () => {
     const { search, consume } = await mountOpen({ onSelect: () => Promise.reject(new Error('host rejected')) })
     await act(async () => { fireEvent.keyDown(search, { key: 'Enter' }) })
     expect(screen.getByRole('alert').textContent).toContain('host rejected')
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
     expect(consume).not.toHaveBeenCalled()
     expect(screen.getAllByRole('option').length).toBe(3)
   })

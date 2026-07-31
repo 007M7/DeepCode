@@ -8,10 +8,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { ClientContext, ConversationSnapshot, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
+import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
@@ -42,8 +45,7 @@ interface BenchOptions {
   promptError?: ConversationSnapshot['promptError']
   variant?: 'hero' | 'composer'
   placeholder?: string
-  translateHint?: (key: string) => string
-  translateAccess?: (key: string) => string
+  t?: InputBarProps['t']
   command?: (line: string) => Promise<boolean>
   accessory?: React.ReactNode
   overlay?: React.ReactNode
@@ -103,18 +105,8 @@ function bench(over?: BenchOptions) {
     useLexicon: bindSnapshotSelector(shell.lexicon),
     stop,
     command: over?.command ?? (() => Promise.resolve(true)),
-    // Mirrors the en 'command.hint' locale entries the production apply wires in.
-    translateHint: over?.translateHint ?? ((key: string) => ({
-      'placeholder.default': 'Message the agent',
-      'placeholder.plan': 'describe your task to generate plan',
-    } as Record<string, string>)[key] ?? key),
-    translateAccess: over?.translateAccess ?? ((key: string) => ({
-      'confirm.title': 'Enable Full access?',
-      'confirm.description': 'Full access can perform sensitive operations.',
-      'confirm.acknowledge': 'I understand the risks and want to continue',
-      'confirm.cancel': 'Cancel',
-      'confirm.enable': 'Enable Full access',
-    } as Record<string, string>)[key] ?? key),
+    // Mirrors the real lookup chain (conversation namespace, then common).
+    t: over?.t ?? makeTranslate(zh, commonZh),
     renderSlot,
     variant: over?.variant ?? 'composer',
     ...(over?.placeholder !== undefined ? { placeholder: over.placeholder } : {}),
@@ -127,7 +119,7 @@ function bench(over?: BenchOptions) {
   const textarea = view.container.querySelector('textarea')!
   // aria-label (not role name): title carries the same label and would double-match.
   const button = view.container.querySelector<HTMLButtonElement>(
-    `button[aria-label="${over?.running === true ? 'Stop generating' : 'Send message'}"]`,
+    `button[aria-label="${over?.running === true ? '停止生成' : '发送消息'}"]`,
   )!
   return { view, textarea, button, props, sink, shell, wiring: shell, session, stop, slotCalls }
 }
@@ -205,7 +197,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     fireEvent.change(textarea, { target: { value: '排队消息2' } })
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(sink).toHaveBeenCalledWith('排队消息2', 'queue')
-    expect(button.getAttribute('aria-label')).toBe('Stop generating')
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
     fireEvent.click(button)
     expect(stop).toHaveBeenCalledTimes(1)
   })
@@ -213,8 +205,8 @@ describe('running and lock semantics (queue cut 1)', () => {
   it('disabled (session removed) locks the textarea and chrome', () => {
     const { textarea, view } = bench({ disabled: true })
     expect(textarea.disabled).toBe(true)
-    expect(textarea.placeholder).toBe('Session unavailable')
-    expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
+    expect(textarea.placeholder).toBe('会话不可用')
+    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('idle primary sends and disables on empty draft', () => {
@@ -231,7 +223,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     const textarea = first.view.container.querySelector('textarea')!
     expect(document.activeElement).toBe(textarea)
     textarea.blur()
-    fireEvent.mouseDown(first.view.container.querySelector('button[aria-label="Send message"]')!)
+    fireEvent.mouseDown(first.view.container.querySelector('button[aria-label="发送消息"]')!)
     expect(document.activeElement).toBe(textarea)
   })
 
@@ -294,22 +286,22 @@ describe('running and lock semantics (queue cut 1)', () => {
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
     const { textarea } = bench({ disabled: true })
-    expect(textarea.placeholder).toBe('Session unavailable')
+    expect(textarea.placeholder).toBe('会话不可用')
     const live = bench()
-    expect(live.textarea.placeholder).toBe('Message the agent')
+    expect(live.textarea.placeholder).toBe('给智能体发消息')
     const custom = bench({ placeholder: 'Custom placeholder' })
     expect(custom.textarea.placeholder).toBe('Custom placeholder')
   })
 
   it('the plan projection swaps the placeholder while its effective target is plan mode', () => {
     const active = bench({ plan: { active: true, pending: false } })
-    expect(active.textarea.placeholder).toBe('describe your task to generate plan')
+    expect(active.textarea.placeholder).toBe('描述你的任务以生成计划')
     // /plan just ran: pending entry already reads as the plan target.
     const entering = bench({ plan: { active: false, pending: true } })
-    expect(entering.textarea.placeholder).toBe('describe your task to generate plan')
+    expect(entering.textarea.placeholder).toBe('描述你的任务以生成计划')
     // Pending exit: target is default again.
     const leaving = bench({ plan: { active: true, pending: true } })
-    expect(leaving.textarea.placeholder).toBe('Message the agent')
+    expect(leaving.textarea.placeholder).toBe('给智能体发消息')
     // Owner placeholder outranks the plan swap.
     const custom = bench({ plan: { active: true, pending: false }, placeholder: 'Custom placeholder' })
     expect(custom.textarea.placeholder).toBe('Custom placeholder')
@@ -334,13 +326,14 @@ describe('machine pending lock', () => {
     expect(shell.snapshot.phase).toBe('submitting')
     const textarea = view.container.querySelector('textarea')!
     expect(textarea.readOnly).toBe(true)
-    expect(view.container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.disabled).toBe(true)
+    expect(view.container.querySelector<HTMLButtonElement>('button[aria-label="发送消息"]')!.disabled).toBe(true)
   })
 })
 
 describe('decorations', () => {
   it('claimed token renders the mirror highlight and the blank-args hint', () => {
-    const { view, shell } = bench()
+    // Dictionary-less stub: an unmatched hint key keeps the machine's raw hint.
+    const { view, shell } = bench({ t: makeTranslate({}) })
     act(() => {
       shell.setDraft('/goal ')
       shell.beginCommand(
@@ -358,8 +351,7 @@ describe('decorations', () => {
   })
 
   it('a locale entry for the claimed command overrides the raw claim hint (trailing-space token)', () => {
-    const dict: Record<string, string> = { goal: '输入目标，智能体将持续执行' }
-    const { view, shell } = bench({ translateHint: key => dict[key] ?? key })
+    const { view, shell } = bench()
     act(() => {
       shell.setDraft('/goal ')
       shell.beginCommand(
@@ -450,9 +442,9 @@ describe('strips and variants', () => {
 describe('placeholder chrome and control seats', () => {
   it('renders attach; the Access chip is absent without the permissions projection; plan/model seats render EMPTY without entries (B ruling)', () => {
     const { view, slotCalls } = bench()
-    expect(view.getByLabelText('Add attachment')).toBeTruthy()
+    expect(view.getByLabelText('添加附件')).toBeTruthy()
     // Capability absent (no projection value): the chip renders nothing.
-    expect(view.queryByLabelText(/^Access mode/)).toBeNull()
+    expect(view.queryByLabelText(/^访问模式/)).toBeNull()
     // Both seats dispatched, nothing rendered.
     expect(slotCalls.map(c => c.key)).toEqual(['conversation.input.plan', 'conversation.input.model'])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
@@ -470,7 +462,7 @@ describe('placeholder chrome and control seats', () => {
       currentValue: 'read-only',
     }
     const { view } = bench({ permissions, command })
-    const trigger = view.getByLabelText(/^Access mode/) as HTMLButtonElement
+    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
     // Title-case display is presentation only; the menu ids stay machine names.
     expect(trigger.textContent).toBe('Read Only')
     fireEvent.click(trigger)
@@ -478,12 +470,12 @@ describe('placeholder chrome and control seats', () => {
     expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
     fireEvent.click(items[1]!)
     // Optimistic pick + disable until admission resolves (command stub resolves true).
-    const busy = view.getByLabelText(/^Access mode/) as HTMLButtonElement
+    const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
     expect(busy.textContent).toBe('Workspace Write')
     expect(busy.disabled).toBe(true)
     expect(command).toHaveBeenCalledWith('/permission workspace-write')
     await act(async () => {})
-    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(false)
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('requires explicit risk acknowledgement before submitting Full access', async () => {
@@ -496,22 +488,22 @@ describe('placeholder chrome and control seats', () => {
       currentValue: 'workspace-write',
     }
     const { view } = bench({ permissions, command })
-    fireEvent.click(view.getByLabelText(/^Access mode/))
+    fireEvent.click(view.getByLabelText(/^访问模式/))
     fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
 
     expect(command).not.toHaveBeenCalled()
-    expect(view.getByRole('dialog', { name: 'Enable Full access?' })).toBeTruthy()
-    const enable = view.getByRole('button', { name: 'Enable Full access' }) as HTMLButtonElement
+    expect(view.getByRole('dialog', { name: '确认启用 Full access？' })).toBeTruthy()
+    const enable = view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement
     expect(enable.disabled).toBe(true)
 
-    fireEvent.click(view.getByRole('checkbox', { name: 'I understand the risks and want to continue' }))
+    fireEvent.click(view.getByRole('checkbox', { name: '我已了解风险，并愿意继续' }))
     expect(enable.disabled).toBe(false)
     fireEvent.click(enable)
 
     expect(command).toHaveBeenCalledOnce()
     expect(command).toHaveBeenCalledWith('/permission danger-full-access')
     expect(view.queryByRole('dialog')).toBeNull()
-    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).textContent).toBe('Full access')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Full access')
     await act(async () => {})
   })
 
@@ -526,19 +518,19 @@ describe('placeholder chrome and control seats', () => {
     }
     const { view } = bench({ permissions, command })
     const openConfirmation = () => {
-      fireEvent.click(view.getByLabelText(/^Access mode/))
+      fireEvent.click(view.getByLabelText(/^访问模式/))
       fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     }
 
     openConfirmation()
     fireEvent.click(view.getByRole('checkbox'))
-    fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(view.getByRole('button', { name: '取消' }))
     expect(command).not.toHaveBeenCalled()
-    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).textContent).toBe('Workspace Write')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Workspace Write')
 
     openConfirmation()
     expect((view.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
-    expect((view.getByRole('button', { name: 'Enable Full access' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('revokes an open Full access confirmation when the task locks', () => {
@@ -551,7 +543,7 @@ describe('placeholder chrome and control seats', () => {
       currentValue: 'workspace-write',
     }
     const { view, session } = bench({ permissions, command })
-    fireEvent.click(view.getByLabelText(/^Access mode/))
+    fireEvent.click(view.getByLabelText(/^访问模式/))
     fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     fireEvent.click(view.getByRole('checkbox'))
     act(() => { session.set(snapshotOf({ removed: true })) })
@@ -569,7 +561,7 @@ describe('placeholder chrome and control seats', () => {
       currentValue: 'workspace-write',
     }
     const { view, props } = bench({ permissions, command })
-    fireEvent.click(view.getByLabelText(/^Access mode/))
+    fireEvent.click(view.getByLabelText(/^访问模式/))
     fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     fireEvent.click(view.getByRole('checkbox'))
     view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />)
@@ -595,10 +587,10 @@ describe('placeholder chrome and control seats', () => {
   it('disabled locks the Access chip and attach control (running does not)', () => {
     const permissions = { options: [{ value: 'workspace-write', name: 'workspace-write' }], currentValue: 'workspace-write' }
     const { view } = bench({ disabled: true, permissions })
-    expect((view.getByLabelText('Add attachment') as HTMLButtonElement).disabled).toBe(true)
-    expect((view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(true)
     cleanup()
     const live = bench({ running: true, permissions })
-    expect((live.view.getByLabelText(/^Access mode/) as HTMLButtonElement).disabled).toBe(false)
+    expect((live.view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
   })
 })
