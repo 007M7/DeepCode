@@ -211,6 +211,7 @@ describe('live event path', () => {
     for (const event of retryTurn.slice(7)) feed(event)
     snapshot = session.getSnapshot()
     expect(snapshot.nodes.slice(-2).map(node => node.kind)).toEqual(['model-retry', 'assistant'])
+    expect(snapshot.nodes.some(node => node.kind === 'turn-error')).toBe(false)
     expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
 
@@ -219,6 +220,50 @@ describe('live event path', () => {
     await replay.session.open()
     expect(replay.session.getSnapshot().nodes).toEqual(snapshot.nodes)
     expect(replay.session.getSnapshot().partial).toBeNull()
+  })
+
+  it('projects unretried terminal failures at turn/end and reproduces them from history', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => {
+      session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+    }
+    const failedTurns = [
+      ev.turnStart(6, 1),
+      ev.user(7, '鉴权失败'),
+      at(8, {
+        type: 'turn/end',
+        data: {
+          turn: 1,
+          reason: {
+            kind: 'error',
+            step: 0,
+            failure: {
+              code: 'AUTH',
+              message: 'Authentication Fails, Your api key: sk-preview-secret is invalid',
+            },
+          },
+        },
+      }),
+      ev.turnStart(9, 2),
+      ev.user(10, '内部失败'),
+      at(11, {
+        type: 'turn/end',
+        data: { turn: 2, reason: { kind: 'error', step: 1, message: 'plugin exploded' } },
+      }),
+    ]
+    for (const event of failedTurns) feed(event)
+
+    const errors = session.getSnapshot().nodes.filter(node => node.kind === 'turn-error')
+    expect(errors).toMatchObject([
+      { seq: 8, turn: 1, step: 0, code: 'AUTH', message: 'API key is invalid' },
+      { seq: 11, turn: 2, step: 1, message: 'plugin exploded' },
+    ])
+    expect('code' in errors[1]!).toBe(false)
+
+    const replay = makeSession()
+    replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...failedTurns])
+    await replay.session.open()
+    expect(replay.session.getSnapshot().nodes).toEqual(session.getSnapshot().nodes)
   })
 
   it('rejects retry payloads outside the producer contract without retracting the current partial', async () => {

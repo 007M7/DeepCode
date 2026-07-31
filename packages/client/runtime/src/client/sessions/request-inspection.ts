@@ -8,6 +8,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   AssistantProvenanceView, AssistantRequestConfig,
 } from './conversation.ts'
+import { displayFailureMessage } from './failure-display.ts'
 
 export type {
   AssistantProvenanceView, AssistantRequestConfig,
@@ -319,7 +320,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       const event = sourceEvent as unknown as RetryEvent
       update(ordinaryByStep.get(requestKey(event.data.turn, event.data.step)), {
         status: 'error',
-        error: event.data.failure.message,
+        error: displayFailureMessage(event.data.failure),
         retry: event.data.retry,
         maxRetries: event.data.maxRetries,
         retryDelayMs: event.data.delayMs,
@@ -330,7 +331,7 @@ function deriveRequests(events: readonly SessionEvent[]): readonly RequestView[]
       const reason = sourceEvent.data.reason
       update(ordinaryByStep.get(requestKey(sourceEvent.data.turn, reason.step)), {
         status: 'error',
-        error: 'failure' in reason ? reason.failure.message : reason.message,
+        error: displayFailureMessage('failure' in reason ? reason.failure : reason),
       })
       continue
     }
