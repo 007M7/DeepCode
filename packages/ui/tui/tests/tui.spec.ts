@@ -3671,6 +3671,31 @@ describe('pi-tui chat lifecycle and transcript', () => {
     await dispose(result)
   })
 
+  it('stops listening for adapter registrations after channel detach', async () => {
+    // The listener disposer rides detachListeners() through the controller's
+    // detach(): after dispose, a registry commit must not re-enter resolution
+    // at all (the isDisposed() guard is a fallback, not the removal).
+    const calls: string[] = []
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelInfo: (provider) => {
+          calls.push(provider)
+          return Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER'))
+        },
+      },
+    })
+    await tick()
+    const callsAtDetach = calls.length
+    await result.controller.dispose()
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(calls.length).toBe(callsAtDetach)
+    await result.ctx.fiber.dispose()
+  })
+
   it('drops a deferred NO_ADAPTER resolution when the target moved before the adapter registered', async () => {
     const result = await setup({
       agentOptions: { provider: 'openai-codex', model: 'gpt-x' },

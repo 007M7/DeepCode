@@ -37,6 +37,8 @@ export interface ModelController {
   resetContextResolution(): void
   /** Forget the tracked selector overlay (shutdown). */
   clearOverlay(): void
+  /** Remove the adapter-registration listener (channel detach). */
+  detach(): void
 }
 
 type ContextResolution =
@@ -88,8 +90,9 @@ export function createModelController(deps: ModelControllerDeps): ModelControlle
   // The wait cannot go stale against `target.current`: every target change
   // re-enters resolveContextWindow, which clears it. A commit that still
   // lacks the route parks the resolution again rather than erroring, so
-  // unrelated topology changes stay silent.
-  ctx.on('llm/adapters-updated', () => {
+  // unrelated topology changes stay silent. The disposer rides the channel's
+  // detachListeners() through detach(), matching the sibling listeners.
+  const disposeAdapterListener = ctx.on('llm/adapters-updated', () => {
     if (deps.isDisposed() || !awaitingAdapter) return
     resolveContextWindow(target.current)
   })
@@ -205,6 +208,9 @@ export function createModelController(deps: ModelControllerDeps): ModelControlle
     },
     clearOverlay(): void {
       modelOverlay = undefined
+    },
+    detach(): void {
+      disposeAdapterListener()
     },
   }
 }
