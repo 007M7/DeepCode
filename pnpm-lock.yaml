@@ -312,6 +312,9 @@ importers:
       '@deepseek-ai/dsh-session-projection-cache':
         specifier: workspace:^
         version: link:../../packages/session-projection/session-projection-cache
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:^
+        version: link:../../packages/session-query/session-query
       '@deepseek-ai/dsh-session-query-sqlite':
         specifier: workspace:^
         version: link:../../packages/session-query/session-query-sqlite
@@ -1132,6 +1135,9 @@ importers:
       '@deepseek-ai/dsh-client-web-react':
         specifier: workspace:^
         version: link:../web-react
+      '@deepseek-ai/dsh-host-apiproxy':
+        specifier: workspace:^
+        version: link:../../host/apiproxy
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
@@ -1437,6 +1443,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: workspace:^
         version: link:../ui-conversation
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: workspace:^
+        version: link:../ui-primitives
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
@@ -3171,6 +3180,9 @@ importers:
       '@deepseek-ai/dsh-session-projection-cache':
         specifier: workspace:^
         version: link:../../session-projection/session-projection-cache
+      '@deepseek-ai/dsh-session-query':
+        specifier: workspace:^
+        version: link:../../session-query/session-query
       '@deepseek-ai/dsh-session-title':
         specifier: workspace:^
         version: link:../../session-title/session-title

@@ -4,8 +4,11 @@ import { createScope, scopeOf, SessionProvideChannel } from '@deepseek-ai/dsh-cl
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   ConversationSnapshot, ISessions, ObservableSnapshot, ProjectionsFace, SessionFace, SessionId,
-  SessionListState, SessionProvideDescriptor, SessionSummary, SnapshotStore,
+  SessionListState, SessionProvideDescriptor, SessionSearchResultItem, SessionSummary, SnapshotStore,
 } from '@deepseek-ai/dsh-client-runtime/client'
+// The double reports the wire schema's own search bound, like the production
+// service — a transport-varying limit would be a fiction no client can see.
+import { SESSION_SEARCH_RESULT_LIMIT } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { HostObservable, SessionMaybeProvideInfo, SessionProvideInfo } from '@deepseek-ai/dsh-client-ui-slots'
 import { conversationSnapshot } from './fixtures.ts'
 import type { SessionFixture, Stabilizer } from './fixtures.ts'
@@ -151,8 +154,8 @@ export interface TestSessionBinding {
  *
  * Implements the same ISessions face features receive as `ctx.sessions`, so
  * a production face change breaks this double at compile time; the extra
- * members (add/updateSnapshot/setCurrent/remove/behavior/calls and the
- * legacy provideInfo/maybeProvideInfo lookups) are bench-only surface.
+ * members (add/updateSnapshot/setCurrent/remove/behavior/calls/stubSearch and
+ * the legacy provideInfo/maybeProvideInfo lookups) are bench-only surface.
  */
 export class TestSessions implements ISessions {
   /** The useSessions standard feed (list rows + current selection). */
@@ -168,8 +171,14 @@ export class TestSessions implements ISessions {
   /** The production provide channel (roster, materialization rules, current projection) — no test-side mirror. */
   private readonly channel: SessionProvideChannel
 
-  /** Calls observed on the service-level face (open/clear), newest last. */
-  readonly calls: { method: 'open' | 'clear' | 'fork'; args: unknown[] }[] = []
+  /** Calls observed on the service-level face (open/clear/search/fork), newest last. */
+  readonly calls: { method: 'open' | 'clear' | 'search' | 'fork'; args: unknown[] }[] = []
+
+  /** The wire schema's `session.search` result bound (production parity). */
+  readonly searchResultLimit = SESSION_SEARCH_RESULT_LIMIT
+
+  /** Replaceable search behavior (see {@link TestSessions.stubSearch}). */
+  private searchStub: ((query: string, signal: AbortSignal) => { items: SessionSearchResultItem[]; hasMore: boolean }) | undefined
 
   /**
    * @param stabilize - the owning runtime's act wrapper.
@@ -390,6 +399,27 @@ export class TestSessions implements ISessions {
   clear(): void {
     this.calls.push({ method: 'clear', args: [] })
     this.list.update((draft) => { draft.current = undefined })
+  }
+
+  /**
+   * Replace the sidebar-search result page (the call is still recorded).
+   * @param impl - hits for a query, as the Host would rank them.
+   */
+  stubSearch(impl: (query: string, signal: AbortSignal) => { items: SessionSearchResultItem[]; hasMore: boolean }): void {
+    this.searchStub = impl
+  }
+
+  /**
+   * Content search over the fixture corpus (recorded). The default answers an
+   * empty page: content ranking is Host behavior, so a scenario that asserts
+   * hits declares them through {@link TestSessions.stubSearch}.
+   * @param query - non-blank literal phrase.
+   * @param signal - cancellation for a superseded search (recorded and forwarded).
+   * @returns the stubbed or empty result page.
+   */
+  search(query: string, signal: AbortSignal): ReturnType<ISessions['search']> {
+    this.calls.push({ method: 'search', args: [query, signal] })
+    return Promise.resolve({ ok: true, value: this.searchStub?.(query, signal) ?? { items: [], hasMore: false } })
   }
 
   /**

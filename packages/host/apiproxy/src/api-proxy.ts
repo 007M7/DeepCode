@@ -17,6 +17,7 @@ import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, lastActivityTime } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
@@ -26,9 +27,14 @@ import {
 import type {} from '@deepseek-ai/dsh-tools'
 import type {
   ApiProxy, CredentialView, GoalRef, HistoryEntry, HostFrame, ModelCatalogFailure, ModelProviderGroup,
-  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSummary,
-  SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
+  ModelReasoning, MuxFrame, QuestionResponsePayload, SessionProjectionsBlock, SessionSearchItem,
+  SessionSummary, SettingsNamespaceView, ToolEventView, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
+import {
+  SESSION_SEARCH_RESULT_LIMIT,
+  SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+  truncateUnicodeCodePoints,
+} from './api/session-search.ts'
 // Type-only: resolves `ctx.get('sessionProjections')` to the projection registry.
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
@@ -66,8 +72,19 @@ import { openNativePath } from './native-path-opener.ts'
 /** Page size when history is called without maxMessages. */
 const DEFAULT_MAX_MESSAGES = 50
 
+/** Provider work budget: at most 100 calls and 2,000 inspected hits. */
+const SESSION_SEARCH_PROVIDER_CALL_LIMIT = 100
+
+/** Bound cold-log stat fan-out and settle each started batch before cancellation returns. */
+const COLD_SUMMARY_BATCH_SIZE = 16
+
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+
+/** Read live abort state across awaits without treating it as synchronously immutable. */
+function isAborted(signal: AbortSignal): boolean {
+  return signal.aborted
+}
 
 /**
  * Message-boundary pagination: count maxMessages append-origin messages
@@ -266,15 +283,22 @@ function summarize(session: Session, running: boolean): SessionSummary {
  * updatedAt is the log file's mtime; backends without a per-session file
  * (locate() undefined) fall back to the header's createdAt.
  */
-async function summarizeCold(persistence: SessionPersistence, meta: SessionHeader): Promise<SessionSummary> {
+async function summarizeCold(
+  persistence: SessionPersistence,
+  meta: SessionHeader,
+  signal?: AbortSignal,
+): Promise<SessionSummary> {
+  signal?.throwIfAborted()
   let updatedAt = meta.createdAt
   const location = persistence.locate(meta)
+  signal?.throwIfAborted()
   if (location !== undefined) {
     try {
       updatedAt = (await stat(location.path)).mtimeMs
     } catch {
       // The log vanished between list() and stat() (concurrent cleanup); createdAt stands in.
     }
+    signal?.throwIfAborted()
   }
   return {
     sessionId: meta.id,
@@ -962,6 +986,62 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return operation
   }
 
+  /**
+   * Build the session.list baseline shared by listing and search visibility.
+   * Attached sessions come from memory; servable cold sessions merge from
+   * persistence, and the final order is newest-first.
+   */
+  async function listVisibleSessionSummaries(signal?: AbortSignal): Promise<SessionSummary[]> {
+    signal?.throwIfAborted()
+    const items = ctx.sessions.list().map((session) => {
+      const agent = ctx.agents.get(session.id)
+      const projections = listProjectionsFor(ctx, session.header, session)
+      return {
+        ...summarize(session, agent?.status === 'running'),
+        ...projections === undefined ? {} : { projections },
+      }
+    })
+    signal?.throwIfAborted()
+    const attached = new Set(items.map(item => item.sessionId))
+    const persistence = ctx.get('sessionPersistence')
+    if (persistence !== undefined) {
+      const cold = (await persistence.list(signal))
+        .filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
+      signal?.throwIfAborted()
+      for (let offset = 0; offset < cold.length; offset += COLD_SUMMARY_BATCH_SIZE) {
+        signal?.throwIfAborted()
+        const batch = cold.slice(offset, offset + COLD_SUMMARY_BATCH_SIZE)
+        const settled = await Promise.allSettled(
+          batch.map(async (meta) => {
+            // Cold rows read the persisted projection cache only — never a
+            // log load; a session without a cache row simply has no column.
+            const projections = listProjectionsFor(ctx, meta, undefined)
+            return {
+              ...await summarizeCold(persistence, meta, signal),
+              ...projections === undefined ? {} : { projections },
+            }
+          }),
+        )
+        const summaries: SessionSummary[] = []
+        let rejected = false
+        let failure: unknown
+        for (const result of settled) {
+          if (result.status === 'fulfilled') {
+            summaries.push(result.value)
+          } else if (!rejected) {
+            rejected = true
+            failure = result.reason
+          }
+        }
+        if (rejected) throw failure
+        signal?.throwIfAborted()
+        items.push(...summaries)
+      }
+    }
+    items.sort((a, b) => b.updatedAt - a.updatedAt)
+    return items
+  }
+
   /** Resolve the goal service; absent = the deployment did not compose @deepseek-ai/dsh-goal. */
   function goalService(): NonNullable<ReturnType<typeof ctx.get<'goals'>>> | { error: RpcError } {
     const goals = ctx.get('goals')
@@ -1104,30 +1184,137 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       // Legacy logs without a cwd (pre-project stance) are not served — every
       // session now records its project at create time.
       async list(request) {
-        const items = ctx.sessions.list().map((session) => {
-          const agent = ctx.agents.get(session.id)
-          const projections = listProjectionsFor(ctx, session.header, session)
-          return {
-            ...summarize(session, agent?.status === 'running'),
-            ...projections === undefined ? {} : { projections },
-          }
+        return ok(request, { items: await listVisibleSessionSummaries() })
+      },
+
+      async search(request, signal) {
+        const cancelled = () => err<{ items: SessionSearchItem[]; hasMore: boolean }>(request, {
+          code: 'cancelled',
+          message: 'session search was aborted',
+          details: {},
         })
-        const attached = new Set(items.map(item => item.sessionId))
-        const persistence = ctx.get('sessionPersistence')
-        if (persistence !== undefined) {
-          const cold = (await persistence.list()).filter(meta => !attached.has(meta.id) && meta.cwd !== undefined)
-          items.push(...await Promise.all(cold.map(async (meta) => {
-            // Cold rows read the persisted projection cache only — never a
-            // log load; a session without a cache row simply has no column.
-            const projections = listProjectionsFor(ctx, meta, undefined)
-            return {
-              ...await summarizeCold(persistence, meta),
-              ...projections === undefined ? {} : { projections },
-            }
-          })))
+        if (isAborted(signal)) return cancelled()
+        const sessionQuery = ctx.get('sessionQuery')
+        if (sessionQuery === undefined) {
+          return err(request, {
+            code: 'internal',
+            message: 'session search is unavailable: this deployment does not mount @deepseek-ai/dsh-session-query',
+            details: {},
+          })
         }
-        items.sort((a, b) => b.updatedAt - a.updatedAt)
-        return ok(request, { items })
+        try {
+          const visible = await listVisibleSessionSummaries(signal)
+          if (isAborted(signal)) return cancelled()
+          if (visible.length === 0) return ok(request, { items: [], hasMore: false })
+          const visibleIds = new Set(visible.map(item => item.sessionId))
+          const authorized: SessionSearchItem[] = []
+          const acceptedIds = new Set<SessionId>()
+          const seenCursors = new Set<SessionSearchCursor>()
+          let cursor: SessionSearchCursor | undefined
+          let providerCallCount = 0
+          let providerPageLimit = SESSION_SEARCH_RESULT_LIMIT
+          while (authorized.length <= SESSION_SEARCH_RESULT_LIMIT) {
+            if (isAborted(signal)) return cancelled()
+            if (providerCallCount >= SESSION_SEARCH_PROVIDER_CALL_LIMIT) {
+              throw new Error(
+                `session search provider exceeded the ${SESSION_SEARCH_PROVIDER_CALL_LIMIT}-call work budget`,
+              )
+            }
+            providerCallCount++
+            const requestedCursor = cursor
+            const requestedPageLimit = providerPageLimit
+            let page
+            try {
+              page = await sessionQuery.searchSessions({
+                query: request.payload.query,
+                eventFilters: [
+                  { kind: 'type', values: ['user/message', 'assistant/message', 'steering/message'] },
+                  { kind: 'surface', values: ['current'] },
+                ],
+                limit: requestedPageLimit,
+                ...requestedCursor === undefined ? {} : { cursor: requestedCursor },
+              }, { signal })
+            } catch (error: unknown) {
+              if (isAborted(signal)) return cancelled()
+              if (
+                requestedCursor === undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_INVALID_LIMIT'
+                && requestedPageLimit > 1
+              ) {
+                providerPageLimit = Math.max(1, Math.floor(requestedPageLimit / 2))
+                continue
+              }
+              if (
+                requestedCursor !== undefined
+                && error instanceof SessionQueryError
+                && error.code === 'SESSION_QUERY_STALE_CURSOR'
+              ) {
+                authorized.length = 0
+                acceptedIds.clear()
+                seenCursors.clear()
+                cursor = undefined
+                continue
+              }
+              throw error
+            }
+            if (isAborted(signal)) return cancelled()
+            const providerItemCount = page.items.length
+            if (providerItemCount > requestedPageLimit) {
+              throw new Error(
+                `session search provider returned ${providerItemCount} items; maximum is ${requestedPageLimit}`,
+              )
+            }
+            // Host visibility is the authorization boundary. Consume the
+            // provider's globally ranked stream rather than binding every
+            // visible id into one SQLite statement, then re-check complete
+            // provenance before emitting any snippet.
+            for (const hit of page.items) {
+              if (authorized.length > SESSION_SEARCH_RESULT_LIMIT) continue
+              if (
+                !visibleIds.has(hit.header.id)
+                || hit.bestMatch.sessionId !== hit.header.id
+                || hit.bestMatch.surface !== 'current'
+                || !MESSAGE_TYPES.has(hit.bestMatch.type)
+                || acceptedIds.has(hit.header.id)
+              ) continue
+              const snippet = truncateUnicodeCodePoints(
+                hit.bestMatch.snippet,
+                SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
+              )
+              acceptedIds.add(hit.header.id)
+              authorized.push({
+                sessionId: hit.header.id,
+                snippet,
+              })
+            }
+            const nextCursor = page.nextCursor
+            if (nextCursor !== undefined) {
+              if (seenCursors.has(nextCursor)) {
+                throw new Error('session search provider repeated a continuation cursor')
+              }
+              seenCursors.add(nextCursor)
+            }
+            if (authorized.length > SESSION_SEARCH_RESULT_LIMIT || nextCursor === undefined) break
+            cursor = nextCursor
+          }
+          return ok(request, {
+            items: authorized.slice(0, SESSION_SEARCH_RESULT_LIMIT),
+            hasMore: authorized.length > SESSION_SEARCH_RESULT_LIMIT,
+          })
+        } catch (error: unknown) {
+          if (
+            isAborted(signal)
+            || (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_ABORTED')
+          ) return cancelled()
+          // XXX: Redact provider details before exposing this gateway beyond
+          // its current single-user local deployment.
+          return err(request, {
+            code: 'internal',
+            message: `session search failed: ${String(error)}`,
+            details: {},
+          })
+        }
       },
 
       async create(request) {
