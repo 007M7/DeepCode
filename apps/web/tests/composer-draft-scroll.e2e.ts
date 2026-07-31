@@ -452,7 +452,10 @@ describe('web e2e: composer draft scrolling', () => {
       const data = new DataTransfer()
       data.setData('text/plain', text)
       el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
-    }, `\n${DRAFT}\n`)
+      // The ordinary shape — not ending in a newline — so the collapsed branch
+      // of the reveal keeps a real engine under it; the case above owns the
+      // after-newline branch.
+    }, `\n${DRAFT}`)
     await expect.poll(async () => (await measureComposer(page)).overflows, { timeout: 10_000 }).toBe(true)
     await expect.poll(async () => (await measureComposer(page)).scrollTop, { timeout: 10_000 }).toBeGreaterThan(0)
     const pasted = await measureComposer(page)

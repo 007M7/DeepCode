@@ -132,6 +132,14 @@ export function InputBar({
   // offset while the value swap puts the caret at the new draft's end, which is
   // off screen (measured on all three engines: offset 0 with the caret 940px
   // down). Suppress the walk, then reveal in our own box.
+  //
+  // `draft !== ''` is the third dependency because a persisted draft arrives
+  // AFTER this effect: ConversationSession adopts it in its own mount effect,
+  // and a parent's mount effect runs after its children's. Without that
+  // dependency the reveal would measure an empty mirror and never run again for
+  // the draft that then appeared, leaving a restored long draft showing its head
+  // with the caret at its end. Clearing on send and typing the first character
+  // flip it too, where both the focus and the reveal are no-ops.
   useEffect(() => {
     const el = inputRef.current
     if (locked || el === null) return
@@ -139,7 +147,7 @@ export function InputBar({
     // selectionStart is number|null in lib.dom; the type-aware lint program narrows it.
     // oxlint-disable-next-line typescript/no-unnecessary-condition
     revealCaret(el.selectionStart ?? el.value.length)
-  }, [locked, sessionId])
+  }, [locked, sessionId, draft !== ''])
 
   // Caret restore after an edit the composer performs itself. The machine owns
   // the draft and the undo log, so paste, ctrl/meta-Enter newline and cut all

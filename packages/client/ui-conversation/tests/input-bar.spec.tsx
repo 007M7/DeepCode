@@ -378,7 +378,7 @@ describe('running and lock semantics (queue cut 1)', () => {
     caretAt(500)
     fireEvent.paste(textarea, { clipboardData: { getData: () => 'block\n' } })
     await settle()
-    // The three pastes accumulate at the draft's head, so the caret is at the
+    // The four pastes accumulate at the draft's head, so the caret is at the
     // end of what they inserted — and the measured index is the newline before it.
     expect(measured!.offset).toBe('pastedmoreagainblock\n'.length - 1)
     expect(scroll.scrollTop).toBe(48 + 112) // from 48, by (524 + 24) - 436
@@ -419,6 +419,29 @@ describe('running and lock semantics (queue cut 1)', () => {
     // caret's own index is the mirror text's length minus its sentinel.
     expect(measured!.node).toBe(mirror.firstChild)
     expect(measured!.offset).toBe(textarea.value.length - 1)
+  })
+
+  it('a persisted draft adopted after mount gets its caret revealed too', () => {
+    // ConversationSession seeds the stored draft in its own mount effect, which
+    // runs after this component's: the first reveal measures an empty mirror,
+    // so the draft's arrival has to run it again.
+    const { view, textarea, shell } = bench()
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
+    // The restored draft ends in a newline, so the reveal takes the
+    // after-newline path and needs a resolvable line-height (jsdom says `normal`).
+    mirror.style.lineHeight = '24px'
+    onTestFinished(() => { Range.prototype.getBoundingClientRect = ZERO_RECT })
+    scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    Object.defineProperty(scroll, 'clientHeight', { value: 336, configurable: true })
+    Object.defineProperty(scroll, 'scrollHeight', { value: 964, configurable: true })
+    Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
+    Range.prototype.getBoundingClientRect = () => ({ top: 500, bottom: 524 }) as DOMRect
+    expect(scroll.scrollTop).toBe(0)
+    act(() => { shell.setDraft('restored\n'.repeat(40)) })
+    // The caret the machine left at the draft's end, revealed once the draft exists.
+    expect(textarea.selectionStart).toBe(textarea.value.length)
+    expect(scroll.scrollTop).toBe(112) // (524 + 24) - 436
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {

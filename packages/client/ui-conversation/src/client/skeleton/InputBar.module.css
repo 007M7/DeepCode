@@ -206,6 +206,10 @@
      share the stack, so placeholder advances agree by construction. */
   font-family: 'DshChipCell', var(--dsw-font-family);
   font-size: inherit;
+  /* Three consumers, not two: the mirror sizes the stack, the layers must break
+     lines identically, and the caret reveal parses this value to step one line
+     down for a caret that sits after a newline. That parse needs a length, so a
+     theme resolving this to `normal` would make the reveal a silent no-op. */
   line-height: inherit;
   white-space: pre-wrap;
   word-break: break-word;
