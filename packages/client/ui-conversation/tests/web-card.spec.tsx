@@ -190,7 +190,7 @@ describe('DetailsPanel web Output section', () => {
     if (selection !== null) chat.actions.select(selection)
     const sessions = createSnapshotStore<SessionListState>({ ids: [], byId: {}, current: undefined, phase: 'ready' })
     const workspaces = createSnapshotStore<WorkspaceListState>({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })
     return render(
@@ -212,7 +212,7 @@ describe('DetailsPanel web Output section', () => {
 
   function snapshot(over: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
     return {
-      sessionId: SID, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+      sessionId: SID, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
       pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
       openState: 'open', openError: null, hasMore: false, loadingOlder: false,
       promptError: null, blank: false, lastAgentError: null, ...over,

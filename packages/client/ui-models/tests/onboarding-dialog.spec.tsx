@@ -24,8 +24,8 @@ function fail<T>(message: string): RpcResponse<T> {
 
 function harness(options: {
   provider?: boolean
-  providerActive?: boolean
   providerSettingsNs?: string
+  providerActive?: boolean
   settingsNamespace?: boolean
   apiKeyEnv?: string | null
   literal?: boolean
@@ -40,9 +40,7 @@ function harness(options: {
   const face = {
     llm: {
       providers: () => {
-        if (options.providersReject === true) {
-          return Promise.reject(new Error('provider transport unavailable'))
-        }
+        if (options.providersReject === true) return Promise.reject(new Error('provider transport unavailable'))
         return Promise.resolve(ok({
           providers: options.provider === false
             ? []
@@ -91,9 +89,11 @@ function harness(options: {
   }
   const controller = new ModelsSettingsStore(face as never)
   const openSection = vi.fn()
+  const complete = vi.fn()
   const unusedHook = (() => { throw new Error('unused standard hook') }) as never
   const props: DeepSeekOnboardingDialogProps = {
-    active: true,
+    stepId: 'deepseek-official',
+    complete,
     openSection,
     useSessions: unusedHook,
     useWorkspaces: unusedHook,
@@ -101,36 +101,36 @@ function harness(options: {
     useSnapshot: bindSnapshotSelector(controller.store),
     t: key => en[key],
   }
-  return { controller, openSection, props, configure: () => { fileConfigured = true } }
+  return { controller, complete, openSection, props, configure: () => { fileConfigured = true } }
 }
 
 describe('DeepSeekOnboardingDialog', () => {
   it('loads on first entry and presents one accessible route to Models', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
-    expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: en.onboardingTitle })).toBeTruthy()
     expect(screen.getByText(en.onboardingDescription)).toBeTruthy()
     const action = screen.getByRole('button', { name: en.onboardingGoToSettings })
     expect(action).toBeTruthy()
-    expect(document.activeElement).toBe(action)
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: en.onboardingTitle }))
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 
   it('opens the Models section and dismisses the prompt', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
-    await screen.findByRole('dialog')
+    await screen.findByRole('region')
     fireEvent.click(screen.getByRole('button', { name: en.onboardingGoToSettings }))
+    expect(h.complete).toHaveBeenCalledOnce()
     expect(h.openSection).toHaveBeenCalledWith('models')
-    expect(screen.queryByRole('dialog', { name: en.onboardingTitle })).toBeNull()
   })
 
   it('allows configure-later dismissal without opening settings', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
-    await screen.findByRole('dialog')
+    await screen.findByRole('region')
     fireEvent.click(screen.getByRole('button', { name: en.onboardingLater }))
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(h.complete).toHaveBeenCalledOnce()
     expect(h.openSection).not.toHaveBeenCalled()
   })
 
@@ -146,7 +146,8 @@ describe('DeepSeekOnboardingDialog', () => {
     ]) {
       const view = render(<DeepSeekOnboardingDialog {...h.props} />)
       await act(async () => { await h.controller.load() })
-      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.queryByRole('region')).toBeNull()
+      await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
       expect(h.openSection).not.toHaveBeenCalled()
       view.unmount()
     }
@@ -161,7 +162,8 @@ describe('DeepSeekOnboardingDialog', () => {
     ]) {
       const view = render(<DeepSeekOnboardingDialog {...h.props} />)
       await act(async () => { await h.controller.load() })
-      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.queryByRole('region')).toBeNull()
+      await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
       view.unmount()
     }
   })
@@ -169,18 +171,10 @@ describe('DeepSeekOnboardingDialog', () => {
   it('closes when an external credential invalidation refreshes the shared join', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
-    await screen.findByRole('dialog')
+    await screen.findByRole('region')
     h.configure()
     await act(async () => { await h.controller.load() })
-    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
-  })
-
-  it('stays hidden while the onboarding owner is inactive', async () => {
-    const h = harness()
-    const view = render(<DeepSeekOnboardingDialog {...h.props} active={false} />)
-    await act(async () => { await h.controller.load() })
-    expect(screen.queryByRole('dialog')).toBeNull()
-    view.rerender(<DeepSeekOnboardingDialog {...h.props} active />)
-    expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+    await waitFor(() => { expect(screen.queryByRole('region')).toBeNull() })
+    expect(h.complete).toHaveBeenCalledOnce()
   })
 })

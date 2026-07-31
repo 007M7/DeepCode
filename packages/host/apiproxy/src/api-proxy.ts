@@ -21,7 +21,7 @@ import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-se
 import type { Workspace, WorkspaceRecord } from '@deepseek-ai/dsh-workspace'
 import {
   workspaceDomainState, workspaceRecord, WorkspaceId as brandWorkspaceId,
-  WorkspaceMoveInvalidError, WorkspaceNameConflictError,
+  WorkspaceMoveInvalidError, WorkspaceNameConflictError, WorkspaceUnknownSessionError,
 } from '@deepseek-ai/dsh-workspace'
 // Type-only: brings the `ctx.tools` Context merge into this program (viewFor reads presenters).
 import type {} from '@deepseek-ai/dsh-tools'
@@ -83,6 +83,9 @@ const COLD_SUMMARY_BATCH_SIZE = 16
 
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
+
+/** Product settings intentionally exposed beside model-provider namespaces. */
+const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
 
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {
@@ -1108,13 +1111,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * The settings namespaces this proxy serves: configurable model providers
-   * plus the small explicit Web preference allowlist. The settings seam
-   * remains general; a future registration does not become remotely readable
-   * or writable by default.
+   * plus the small explicit Web preference and product-owned allowlists. The
+   * settings seam remains general; a future registration does not become
+   * remotely readable or writable by default.
    */
   function exposedNamespaces(): Set<string> {
     const exposed = modelProviderNamespaces()
     for (const ns of WEB_SETTINGS_NAMESPACES) exposed.add(ns)
+    for (const ns of PRODUCT_SETTINGS_NAMESPACES) exposed.add(ns)
     return exposed
   }
 
@@ -1582,7 +1586,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
     workspace: {
       list(request) {
-        return Promise.resolve(ok(request, { items: ctx.workspace.list().map(workspaceView) }))
+        return Promise.resolve(ok(request, {
+          items: ctx.workspace.list().map(workspaceView),
+          archivedSessionIds: [...ctx.workspace.archivedSessionIds],
+        }))
       },
 
       // Exactly one of path/name arrives (schema refine). Existing-folder
@@ -1697,6 +1704,23 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           })
         }
         return ok(request, { workspace: workspaceView(workspace) })
+      },
+
+      async archiveSession(request) {
+        const { sessionId } = request.payload
+        try {
+          await ctx.workspace.archiveSession(sessionId)
+        } catch (error: unknown) {
+          // Only the registry's unknown-session rejection is the business
+          // code; storage/durability failures propagate as internal errors.
+          if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+          return err(request, {
+            code: 'session-not-found',
+            message: error.message,
+            details: { sessionId },
+          })
+        }
+        return ok(request, { archivedSessionIds: [...ctx.workspace.archivedSessionIds] })
       },
     },
 
@@ -2109,6 +2133,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const committedWorkspaceIds = new Set(
           ctx.workspace.list().map(workspace => String(workspace.id)),
         )
+        // Frame-dedup baseline, same posture as committedWorkspaceIds: the
+        // stream opens against the current set; workspace.list re-baselines
+        // reconnecting clients, so only later changes need frames.
+        let archivedSessionIds = ctx.workspace.archivedSessionIds
         const disposers = [
           ctx.on('session/created', (session: Session) => {
             queue.push(frame({
@@ -2144,6 +2172,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
                 }
                 committedWorkspaceIds.add(workspaceId)
                 queue.push(frame({ type: 'host/workspace-changed', workspace: workspaceView(workspace) }))
+              }
+              if (state.archivedSessionIds.length !== archivedSessionIds.length
+                || state.archivedSessionIds.some((id, index) => id !== archivedSessionIds[index])) {
+                archivedSessionIds = state.archivedSessionIds
+                queue.push(frame({
+                  type: 'host/archived-sessions-changed',
+                  archivedSessionIds: [...state.archivedSessionIds],
+                }))
               }
               return
             }

@@ -8,7 +8,8 @@
 import { useCallback, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { parseAnsiLines, type AnsiLine } from './ansi.ts'
-import { writeClipboard } from './clipboard.ts'
+import { headTailCap } from './head-tail-cap.ts'
+import { useCopyFeedback } from './use-copy-feedback.ts'
 import { Pill } from './Pill.tsx'
 import { StateDot, type StateDotState } from './StateDot.tsx'
 import css from './TerminalBlock.module.css'
@@ -202,18 +203,9 @@ export function TerminalBlock({
     return terminated ? parsed.slice(0, -1) : parsed
   }, [text])
   const [expanded, setExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  const onCopy = useCallback(() => {
-    if (copied) return
-    // The raw output, never the rendered tree: the prompt line and the status
-    // pill are chrome the user did not run.
-    void writeClipboard(text).then((ok) => {
-      if (!ok) return
-      setCopied(true)
-      window.setTimeout(() => { setCopied(false) }, 1000)
-    })
-  }, [copied, text])
+  // The raw output, never the rendered tree: the prompt line and the status pill
+  // are chrome the user did not run.
+  const { copied, onCopy } = useCopyFeedback(text)
 
   const onToggle = useCallback(() => { setExpanded(value => !value) }, [])
 
@@ -232,12 +224,7 @@ export function TerminalBlock({
   // the raw text drew an output box of blank rows plus a copy control for
   // invisible bytes, and hid the placeholder that belongs there.
   const empty = lines.every(line => line.every(span => span.text.trim() === ''))
-  const hidden = lines.length - maxLines
-  const capped = hidden > 0 && !expanded
-  // Same split arithmetic as the TUI transcript's collapsed tool card, so a
-  // command's head and tail slices agree between the two front ends.
-  const headLines = Math.ceil(maxLines / 2)
-  const tailLines = maxLines - headLines
+  const { hidden, capped, headLines, tailLines } = headTailCap(lines.length, maxLines, expanded)
 
   return (
     <div className={clsx(css.block, className)} data-terminal="" data-running={running ? '' : undefined}>

@@ -27,7 +27,7 @@ afterEach(() => {
 const t: MessageItemProps['t'] = makeTranslate(zh, commonZh)
 
 describe('MessageItem arms', () => {
-  it('user bubbles expose clock / copy / branch / edit; copy writes the text', () => {
+  it('user bubbles expose clock / copy / branch and no edit; copy writes the text', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -47,7 +47,7 @@ describe('MessageItem arms', () => {
     expect(screen.getByText('14:24')).toBeTruthy()
     expect(screen.getByRole('button', { name: '复制' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '在新对话中分支' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '编辑' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '编辑' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     expect(writeText).toHaveBeenCalledWith('hello bubble')
   })
@@ -162,6 +162,34 @@ describe('MessageItem arms', () => {
       <MessageItem t={t} node={{ kind: 'unknown', seq: 4, type: 'surface/next', data: { x: 1 } } as never} />,
     )
     expect(unknownView.getByText(/未知 surface 事件：surface\/next/)).toBeTruthy()
+  })
+
+  it('a compaction marker discloses its summary and never shows the framed checkpoint', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'compaction', seq: 5, time: 1_000,
+        summary: '## 摘要标题\n\n保留的事实。',
+      }}
+      />,
+    )
+    const row = view.getByRole('button', { name: /上下文已压缩/ })
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+    expect(view.queryByText(/保留的事实/)).toBeNull()
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByRole('heading', { name: '摘要标题' })).toBeTruthy()
+    fireEvent.click(row)
+    expect(row.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('a marker whose provenance fell outside the window is not expandable', () => {
+    const view = render(<MessageItem t={t} node={{ kind: 'compaction', seq: 6, time: 1_000, summary: null }} />)
+    const row = view.getByRole('button', { name: /上下文已压缩/ })
+    expect(row).toHaveProperty('disabled', true)
+    expect(row.getAttribute('aria-expanded')).toBeNull()
+    expect(view.getByText('压缩摘要不可用')).toBeTruthy()
+    fireEvent.click(row) // a disabled control stays collapsed
+    expect(row.getAttribute('aria-expanded')).toBeNull()
   })
 
   it('collapses retry details behind the durable model retry status', () => {
@@ -417,14 +445,19 @@ describe('small branch tails', () => {
   })
 
   it('StatsLine omits the cache-hit segment when no input accounting exists at all', () => {
-    // cacheHitPct is null only when input+cacheRead are both zero (pure
-    // output accounting) — any input makes it a real 0%.
+    // Cache hit is null only when all three prompt buckets are zero (pure
+    // output accounting) — any billed input makes it a real 0%.
     const snap = {
       nodes: [{ kind: 'assistant', seq: 1, turn: 1, step: 1, blocks: [], usage: { outputTokens: 10 } }],
     }
     const source = { getSnapshot: () => snap, subscribe: () => () => {} }
     const view = render(
-      <StatsLine useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']} />,
+      <StatsLine
+        useSession={bindSnapshotSelector(source) as unknown as StatsLineProps['useSession']}
+        useProjection={(key: string) => key === 'tokenUsage'
+          ? { uncachedInputTokens: 0, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0 }
+          : undefined}
+      />,
     )
     expect(view.container.textContent).toBe('1 turns · 1 steps|Input 0 tok · Output 10 tok')
   })

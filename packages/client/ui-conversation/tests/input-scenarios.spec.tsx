@@ -112,7 +112,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
   actx.on('slash/input-consume-token', req => shell.consumeToken(req.guard) ? true : undefined)
   const wiring = shell
   const sessionStore = createSnapshotStore<ConversationSnapshot>({
-    sessionId, nodes: [], foldDegraded: false, partial: null, runningCalls: [], codeDispatches: new Map(),
+    sessionId, nodes: [], partial: null, runningCalls: [], codeDispatches: new Map(),
     pending: [], queue: [], running: false, composerPhase: 'active', removed: false,
     openState: 'open', openError: null, hasMore: false, loadingOlder: false,
     promptError: null, blank: false, lastAgentError: null,
@@ -125,7 +125,7 @@ async function scopedBench(register?: (slash: SlashService) => void) {
       ids: [], byId: {}, current: undefined, phase: 'ready',
     })),
     useWorkspaces: bindSnapshotSelector(createSnapshotStore({
-      items: [], state: 'idle', phase: 'ready', error: null,
+      items: [], archivedSessionIds: [], state: 'idle', phase: 'ready', error: null,
       baselinesReady: true, recentWorkspaceId: undefined,
     })),
     useProjection: (() => undefined),
