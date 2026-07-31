@@ -9,7 +9,7 @@ import type { ReactNode } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { BrandWordmark, Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
-import type { DeepSeekReadiness, ModelsSettingsState, ModelsSettingsStore } from './store.ts'
+import type { ModelsSettingsState, ModelsSettingsStore } from './store.ts'
 import { deepSeekReadiness } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './DeepSeekOnboardingDialog.module.css'
@@ -28,33 +28,9 @@ export interface DeepSeekOnboardingInjected {
 export type DeepSeekOnboardingDialogProps =
   PropsRuntime<'settings.onboarding'> & DeepSeekOnboardingInjected
 
-type UnavailableReason = Extract<DeepSeekReadiness, { kind: 'unavailable' }>['reason']
-
 /* v8 ignore next 3 -- closed-union defaults only defend future source widening */
 function assertNever(_value: never): never {
   throw new Error('unexpected DeepSeek onboarding state')
-}
-
-function unavailableDiagnostic(
-  reason: UnavailableReason,
-  t: DeepSeekOnboardingInjected['t'],
-): string {
-  switch (reason) {
-    case 'load-failed':
-      return t('onboardingLoadFailed')
-    case 'credentials-unavailable':
-      return t('onboardingCredentialsUnavailable')
-    case 'settings-read-only':
-    case 'credential-read-only':
-      return t('onboardingReadOnly')
-    case 'provider-inactive':
-    case 'settings-unavailable':
-    case 'credential-ref-unavailable':
-      return t('onboardingConfigurationUnavailable')
-    /* v8 ignore next -- every current unavailable reason is handled above */
-    default:
-      return assertNever(reason)
-  }
 }
 
 /**
@@ -74,42 +50,34 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   }, [controller, state.status])
 
   useEffect(() => {
-    if (readiness.kind === 'adapter-absent' || readiness.kind === 'configured') complete()
+    if (
+      readiness.kind === 'adapter-absent'
+      || readiness.kind === 'configured'
+      || readiness.kind === 'unavailable'
+    ) complete()
   }, [complete, readiness.kind])
+
+  useEffect(() => {
+    if (readiness.kind === 'credential-missing') titleRef.current?.focus()
+  }, [readiness.kind])
 
   const openModels = (): void => {
     complete()
     openSection('models')
   }
 
-  useEffect(() => {
-    if (readiness.kind === 'credential-missing' || readiness.kind === 'unavailable') {
-      titleRef.current?.focus()
-    }
-  }, [readiness.kind])
-
-  let unavailableReason: UnavailableReason | undefined
   switch (readiness.kind) {
     case 'loading':
     case 'adapter-absent':
     case 'configured':
+    case 'unavailable':
       return null
     case 'credential-missing':
-      unavailableReason = undefined
-      break
-    case 'unavailable':
-      unavailableReason = readiness.reason
       break
     /* v8 ignore next -- every current readiness variant is handled above */
     default:
       return assertNever(readiness)
   }
-  const unavailable = unavailableReason !== undefined
-  const diagnostic = unavailableReason === undefined
-    ? undefined
-    : unavailableDiagnostic(unavailableReason, t)
-
-  const title = unavailable ? t('onboardingUnavailableTitle') : t('onboardingTitle')
 
   return (
     <section className={styles['page']} role="region" aria-labelledby="deepseek-onboarding-title">
@@ -120,11 +88,9 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
         className={styles['title']}
         tabIndex={-1}
       >
-        {title}
+        {t('onboardingTitle')}
       </h2>
-      {unavailable
-        ? <p className={styles['diagnostic']}>{diagnostic}</p>
-        : <p className={styles['description']}>{t('onboardingDescription')}</p>}
+      <p className={styles['description']}>{t('onboardingDescription')}</p>
       <div className={styles['provider']}>
         <span className={styles['providerName']}>DeepSeek</span>
         <span className={styles['providerRoute']}>deepseek-official</span>
@@ -133,11 +99,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
         <Button variant="ghost" className={styles['later']} onClick={complete}>
           {t('onboardingLater')}
         </Button>
-        <Button
-          variant="primary"
-          className={styles['primary']}
-          onClick={openModels}
-        >
+        <Button variant="primary" className={styles['primary']} onClick={openModels}>
           {t('onboardingGoToSettings')}
         </Button>
       </div>

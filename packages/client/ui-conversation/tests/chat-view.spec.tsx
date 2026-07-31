@@ -460,10 +460,14 @@ describe('ChatView', () => {
       name: 'plan', args: '', outcome: { kind: 'success', text: '已进入 plan mode' },
       ...over,
     })
-    // Settled success: the command line is the title, the outcome text the summary.
-    const settled = makeHarness({ nodes: [user(1, 'hi'), command({})] })
+    // Settled success: the bare command name is the title, the outcome text
+    // the summary — neither the dispatched `/` nor its arguments reach the row
+    // (the settlement text already says what the command did).
+    const settled = makeHarness({ nodes: [user(1, 'hi'), command({ args: ' now' })] })
     const view = render(<settled.ChatView {...settled.props} />)
-    expect(view.getByText('/plan')).toBeTruthy()
+    expect(view.getByText('plan')).toBeTruthy()
+    expect(view.queryByText('/plan')).toBeNull()
+    expect(view.queryByText('/plan now')).toBeNull()
     expect(view.getByText('已进入 plan mode')).toBeTruthy()
 
     // Error outcome flips the row state; a text-less error gets the default copy.
