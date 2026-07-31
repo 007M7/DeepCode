@@ -47,7 +47,7 @@ export type {
   AssistantTiming, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,
   ContextMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, QueuedMessage,
   RunningToolCall,
-  SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
+  SteeringMessageNode, TodoItem, ToolResultNode, TurnErrorNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type {
   ConversationContext, ConversationContextOriginKind,

@@ -622,7 +622,9 @@
         "tests/**/*.spec.ts",
         "tests/**/*.e2e.ts",
         "tests/**/*.snapshot.ts",
-        "tests/fixtures/tui-scripted-llm.ts"
+        "tests/fixtures/tui-scripted-llm.ts",
+        "tests/fixtures/composition-echo-llm.ts",
+        "tests/fixtures/composition-settled.ts"
       ],
       "project": [
         "src/**/*.ts",
