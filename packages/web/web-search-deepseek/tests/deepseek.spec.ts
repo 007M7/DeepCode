@@ -433,13 +433,13 @@ describe('web-search-deepseek plugin registration', () => {
       vi.stubGlobal('fetch', fetchMock)
       const ctx = new Context()
       await ctx.plugin(WebService, { searchProvider: DEEPSEEK_PROVIDER_ID })
-      const fiber = await ctx.plugin(deepseekPlugin, {})
+      deepseekPlugin.apply(ctx, {})
       await ctx.web.search({ query: 'q' })
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
       expect(url).toBe('https://api.deepseek.com/anthropic/v1/messages')
       expect((init.headers as Record<string, string>)['x-api-key']).toBe('env-key')
       expect(JSON.parse(init.body as string)).toMatchObject({ model: 'deepseek-v4-flash' })
-      await fiber.dispose()
+      await ctx.fiber.dispose()
     } finally {
       if (prev === undefined) delete process.env.DEEPSEEK_API_KEY
       else process.env.DEEPSEEK_API_KEY = prev
