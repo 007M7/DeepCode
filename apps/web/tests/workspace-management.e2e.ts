@@ -3,11 +3,11 @@
 // one creation route), the rename round trip over the real wire
 // (workspace.rename RPC + durable registry), duplicate-name pre-check, the
 // flat "In one list" view with its persisted group-by preference, the session
-// hover card, and the session archive round trip (row menu →
-// workspace.archiveSession RPC → durable global set → row hidden across
-// reload). Zero model calls: workspace.create/rename/archiveSession are host
-// RPCs with no model involvement, and the one session row the
-// flat/hover/archive scenarios need comes from a seeded fixture (the
+// hover card and row action menu, and the session archive round trip (row
+// menu → workspace.archiveSession RPC → durable global set → row hidden
+// across reload). Zero model calls: workspace.create/rename/archiveSession
+// are host RPCs with no model involvement, and the one session row the
+// flat/hover/menu/archive scenarios need comes from a seeded fixture (the
 // seeded-history seed reused verbatim — no new recording).
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -29,8 +29,12 @@ const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', impo
 const MODE = webSnapshotMode()
 const BROWSER_EXPECTED = join(SNAPSHOT_DIR, 'directory-browser.expected.md')
 const SEED_ID = 'workspace-management-web-e2e'
+// Both waits exceed ui-primitives' 200ms POINTER_GRACE_MS. Keep them coupled
+// to that contract if the shared grace tuning changes.
+const POINTER_TRANSIT_MS = 300
+const POINTER_HOLD_MS = 600
 
-describe('web e2e: workspace management (create / rename / flat view / hover card)', () => {
+describe('web e2e: workspace management (create / rename / flat view / hover affordances)', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -398,14 +402,17 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
-  it('shows the session hover card after a dwell on the row', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-hover'))
-    // Expand Ungrouped to reveal the seeded session row, then dwell on it
-    // (the card opens after a 500ms hover delay, portaled to body).
+  /**
+   * Expand Ungrouped and return its seeded session row. The only visible child
+   * is the non-blank persisted Session; the blank Session created while
+   * adopting the Workspace stays hidden.
+   * @returns the session row locator, already present.
+   */
+  async function seededSessionRow() {
     const ungroupedRow = page.getByText('Ungrouped', { exact: true }).locator('..').locator('..')
     const ungroupedSection = ungroupedRow.locator('..')
-    // Initial-current auto-expansion can race this following test's gesture;
-    // converge on expanded rather than assuming which update wins first.
+    // Initial-current auto-expansion can race this gesture; converge on
+    // expanded rather than assuming which update wins first.
     await expect.poll(async () => {
       if (await ungroupedRow.getAttribute('aria-expanded') !== 'true') {
         await page.getByText('Ungrouped', { exact: true }).click()
@@ -413,17 +420,72 @@ describe('web e2e: workspace management (create / rename / flat view / hover car
       }
       return await ungroupedRow.getAttribute('aria-expanded')
     }, { timeout: 5_000 }).toBe('true')
-    // The only visible child is the non-blank persisted Session; the blank
-    // Session created while adopting the Workspace remains hidden.
-    const sessionRow = ungroupedSection.locator('[role="treeitem"]').nth(1)
-    await sessionRow.waitFor({ timeout: 10_000 })
+    const row = ungroupedSection.locator('[role="treeitem"]').nth(1)
+    await row.waitFor({ timeout: 10_000 })
+    return row
+  }
+
+  it('shows the session hover card after a dwell on the row', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-hover'))
+    // Dwell on the seeded row; the card opens after a 500ms hover delay,
+    // portaled to body.
+    const sessionRow = await seededSessionRow()
+    const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
     await sessionRow.hover()
-    // Card content: the full title plus the Idle status line (display-only
-    // card; no aria role — text anchors are the stable selector).
+    // Card content: the full title plus the Idle status line (no aria role —
+    // text anchors are the stable selector).
     await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBeGreaterThanOrEqual(1)
-    // Leaving the anchor closes it with no delay.
+    // The card is REACHABLE: it sits 8px off the row, so getting to it means
+    // crossing ground that belongs to neither. Hovering it must not dismiss
+    // it — the regression this scenario guards.
+    const card = page.getByRole('button', { name: `Copy: ${rowTitle}` })
+    await card.hover()
+    await page.waitForTimeout(POINTER_HOLD_MS)
+    expect(await page.getByText('Idle', { exact: true }).count()).toBeGreaterThanOrEqual(1)
+    // The full title is the card's primary value: activating anywhere on the
+    // card writes it through the browser clipboard and localizes the success
+    // feedback through the English locale seat.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+    const cardHeight = (await card.boundingBox())?.height
+    await card.click()
+    const copied = page.getByRole('status').getByText('Copied', { exact: true })
+    await copied.waitFor({ timeout: 5_000 })
+    await page.waitForTimeout(POINTER_HOLD_MS)
+    expect((await card.boundingBox())?.height).toBe(cardHeight)
+    expect(await copied.isVisible()).toBe(true)
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(rowTitle)
+    // Leaving anchor and card together closes it after the grace.
     await page.getByRole('button', { name: 'Settings' }).hover()
-    await expect.poll(() => page.getByText('Idle', { exact: true }).count(), { timeout: 5_000 }).toBe(0)
+    await expect.poll(() => card.count(), { timeout: 5_000 }).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
+  it('keeps an open row menu up while the pointer moves between trigger and list', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-row-menu'))
+    const sessionRow = await seededSessionRow()
+    // The trigger is display:none until its row hovers.
+    await sessionRow.hover()
+    const trigger = sessionRow.locator('button[aria-label^="Session actions for "]')
+    await trigger.click()
+    const item = page.getByRole('menuitem', { name: 'Rename' })
+    await item.waitFor({ timeout: 5_000 })
+    // Into the list, then back up to the trigger across the 4px gap below it:
+    // that return trip used to fire the list's pointerleave and close the
+    // menu, so a hesitating pointer lost it. Order matters — clicking leaves
+    // the pointer ON the trigger, so entering the list has to come first for
+    // the return to be a real departure.
+    await item.hover()
+    await page.waitForTimeout(POINTER_TRANSIT_MS)
+    await trigger.hover()
+    await page.waitForTimeout(POINTER_HOLD_MS)
+    expect(await page.getByRole('menuitem', { name: 'Rename' }).count()).toBe(1)
+    // ...and back down into the list, which must still be there to enter.
+    await item.hover()
+    await page.waitForTimeout(POINTER_HOLD_MS)
+    expect(await page.getByRole('menuitem', { name: 'Rename' }).count()).toBe(1)
+    // Pointer-leave dismissal still applies once the pointer genuinely leaves.
+    await page.getByRole('button', { name: 'Settings' }).hover()
+    await expect.poll(() => page.getByRole('menuitem', { name: 'Rename' }).count(), { timeout: 5_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
