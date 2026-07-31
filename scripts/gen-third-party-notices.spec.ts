@@ -127,6 +127,11 @@ describe('parsePyprojectRequirements', () => {
       .toEqual(['httpx', 'requests'])
   })
 
+  it('reads single-quoted TOML literals and rejects an unreadable requirement', () => {
+    expect(parsePyprojectRequirements("[project]\ndependencies = ['requests', \"pydantic>=2\"]\n")).toEqual(['requests', 'pydantic'])
+    expect(() => parsePyprojectRequirements('[project]\ndependencies = ["!!broken"]\n')).toThrow(/cannot read a distribution name/)
+  })
+
   it('reads a multi-line array', () => {
     expect(parsePyprojectRequirements('[project]\ndependencies = [\n  "pydantic>=2.12",\n  "typing-extensions",\n]\n'))
       .toEqual(['pydantic', 'typing-extensions'])
@@ -137,6 +142,13 @@ describe('isPermissive', () => {
   it('accepts the licenses this project ships and rejects copyleft or unknown ones', () => {
     expect(['MIT', 'ISC', 'BSD-3-Clause', 'Apache-2.0', 'MIT / Apache-2.0', '(MIT OR CC0-1.0)'].every(isPermissive)).toBe(true)
     expect(['LGPL-3.0-only', 'MPL-2.0', 'GPL-3.0-or-later', 'SEE LICENSE IN LICENSE'].some(isPermissive)).toBe(false)
+  })
+
+  it('requires every operand of an AND, so a copyleft conjunct cannot ride along', () => {
+    expect(isPermissive('(MIT OR Apache-2.0) AND GPL-3.0-only')).toBe(false)
+    expect(isPermissive('MIT AND ISC')).toBe(true)
+    // An exception clause is not a recognized identifier, so it fails closed.
+    expect(isPermissive('GPL-2.0-only WITH Classpath-exception-2.0')).toBe(false)
   })
 })
 

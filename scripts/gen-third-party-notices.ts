@@ -177,7 +177,7 @@ function installedMetadata(name: string): { license: string; repo: string } {
   const rawRepo = typeof manifest?.repository === 'string' ? manifest.repository : manifest?.repository?.url ?? manifest?.homepage
   const repo = override?.repo ?? normalizeRepo(rawRepo)
   if (license === undefined || repo === undefined) {
-    throw new Error(`gen-third-party-notices: cannot resolve ${license === undefined ? 'license' : 'repository'} for ${name}; install the tree or add an OVERRIDES entry.`)
+    throw new Error(`gen-third-party-notices: cannot resolve ${license === undefined ? 'license' : 'repository'} for ${name}; run \`pnpm install\` (or, for a Landlock-only dependency, \`pnpm --dir native/landlock-run install\`), or add an OVERRIDES entry.`)
   }
   return { license, repo }
 }
@@ -296,9 +296,15 @@ function collectVendored(): VendoredRow[] {
  */
 export function parsePythonRequirements(block: string): string[] {
   const names: string[] = []
-  for (const match of block.matchAll(/"\s*([a-zA-Z][a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@].*?)?"/g)) {
-    const name = match[1]
-    if (name !== undefined) names.push(name)
+  // TOML strings are single- or double-quoted; every item must yield a name, so
+  // an unrecognized requirement fails loud instead of dropping a package.
+  for (const item of block.matchAll(/"([^"]*)"|'([^']*)'/g)) {
+    const requirement = item[1] ?? item[2] ?? ''
+    const name = /^\s*([a-zA-Z][a-zA-Z0-9._-]*)\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@].*)?$/.exec(requirement)?.[1]
+    if (name === undefined) {
+      throw new Error(`gen-third-party-notices: cannot read a distribution name from the requirement ${JSON.stringify(requirement)}.`)
+    }
+    names.push(name)
   }
   return names
 }
@@ -365,7 +371,9 @@ export function parsePyprojectRequirements(text: string): string[] {
 /** Direct Python dependencies named by the `pyproject.toml` manifests under `python/`. */
 function collectPython(): { name: string; license: string; repo: string; role: string }[] {
   const found = new Set<string>()
-  for (const path of ['python/sdk/pyproject.toml', 'python/sdk-runtime/pyproject.toml']) {
+  const manifests = globSync('python/*/pyproject.toml', { cwd: root })
+  if (manifests.length === 0) throw new Error('gen-third-party-notices: no python/*/pyproject.toml found; the Python tree moved.')
+  for (const path of manifests) {
     for (const name of parsePyprojectRequirements(readFileSync(resolve(root, path), 'utf8'))) {
       if (name.startsWith('deepseek')) continue
       found.add(name)
@@ -394,18 +402,29 @@ function verifyBuildTimePins(): void {
   }
 }
 
+/** SPDX identifiers this project may ship without further review. */
+const PERMISSIVE_LICENSES = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0'])
+
 /**
- * Whether an SPDX expression is a permissive license this project may ship.
- * Anything outside the list — copyleft or unrecognized — is reported rather
- * than silently rendered, because the tier tables assert what may be linked.
+ * Whether an SPDX expression grants terms this project may ship under.
+ * `OR` needs one permissive alternative, because the consumer chooses; `AND`
+ * needs all of them, because every obligation applies. Anything that is not a
+ * recognized permissive identifier — copyleft, an exception clause, or a
+ * license this list has never seen — evaluates to false, so an unfamiliar
+ * expression fails closed rather than passing on a partial match.
  * @param license - the SPDX expression from the package manifest.
- * @returns true when every alternative in the expression is permissive.
+ * @returns true when the expression's obligations are all permissive.
  */
 export function isPermissive(license: string): boolean {
-  const permissive = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0'])
-  return license.split('/').map(part => part.trim().replace(/^\(|\)$/g, ''))
-    .flatMap(part => part.split(' OR ').map(alternative => alternative.trim()))
-    .some(alternative => permissive.has(alternative))
+  // npm's legacy dual-license notation predates SPDX `OR`.
+  const normalized = license.replace(/\s*\/\s*/g, ' OR ').replace(/[()]/g, ' ').trim()
+  if (normalized.includes(' AND ')) {
+    return normalized.split(' AND ').every(operand => isPermissive(operand))
+  }
+  if (normalized.includes(' OR ')) {
+    return normalized.split(' OR ').some(operand => isPermissive(operand))
+  }
+  return PERMISSIVE_LICENSES.has(normalized.trim())
 }
 
 /**
@@ -457,7 +476,7 @@ export function render(): string {
 
 DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the third-party open-source software listed below. Each project remains under its own license; nothing in this file changes those terms.
 
-This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a manifest changes, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Run \`pnpm run verify-third-party-notices\` for the standalone check.
+This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run \`pnpm run verify-third-party-notices\` for the standalone check.
 
 The complete npm transitive closure, with exact pinned versions, is recorded in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded in [\`python/sdk/uv.lock\`](python/sdk/uv.lock), and the Landlock launcher workspace keeps its own in [\`native/landlock-run/pnpm-lock.yaml\`](native/landlock-run/pnpm-lock.yaml).
 
@@ -481,11 +500,10 @@ ${patchedLines.join('\n')}
 
 ## Development-only npm dependencies
 
-External packages declared only by repository tooling, test infrastructure, the documentation site, the demo leaves, or the native launcher's build workspace. They are not part of any shipped runtime artifact.
+External packages **directly declared** only by repository tooling, test infrastructure, the documentation site, the demo leaves, or the native launcher's build workspace. No shipped surface names them itself. A package here may still be pulled in transitively by a runtime dependency — \`pnpm-lock.yaml\` is the authority on the full closure — so this tier records who declares a package, not what a build ultimately bundles.
 
 ${renderNpmTable(devDeps)}
 ${renderNonPermissiveNote(nonPermissiveDev)}
-
 ## Python SDK dependencies (\`python/\`)
 
 Direct dependencies of the \`pyproject.toml\` manifests, plus \`uv\` as the development workflow tool.

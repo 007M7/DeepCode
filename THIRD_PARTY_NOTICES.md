@@ -5,7 +5,7 @@
 
 DeepSeek Harness is licensed under [BSD 3-Clause](LICENSE). It depends on the third-party open-source software listed below. Each project remains under its own license; nothing in this file changes those terms.
 
-This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by `scripts/gen-third-party-notices.ts`: a pre-commit hook regenerates it whenever a manifest changes, and `scripts/gen-third-party-notices.spec.ts` asserts in the test lane that the committed bytes match. Run `pnpm run verify-third-party-notices` for the standalone check.
+This file lists **direct** dependencies declared by the workspace. It is generated from the workspace manifests by `scripts/gen-third-party-notices.ts`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and `scripts/gen-third-party-notices.spec.ts` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run `pnpm run verify-third-party-notices` for the standalone check.
 
 The complete npm transitive closure, with exact pinned versions, is recorded in [`pnpm-lock.yaml`](pnpm-lock.yaml) — inspect it with `pnpm licenses list`. The Python closure is recorded in [`python/sdk/uv.lock`](python/sdk/uv.lock), and the Landlock launcher workspace keeps its own in [`native/landlock-run/pnpm-lock.yaml`](native/landlock-run/pnpm-lock.yaml).
 
@@ -87,7 +87,7 @@ pnpm applies local patches to the following packages at install time, so shipped
 
 ## Development-only npm dependencies
 
-External packages declared only by repository tooling, test infrastructure, the documentation site, the demo leaves, or the native launcher's build workspace. They are not part of any shipped runtime artifact.
+External packages **directly declared** only by repository tooling, test infrastructure, the documentation site, the demo leaves, or the native launcher's build workspace. No shipped surface names them itself. A package here may still be pulled in transitively by a runtime dependency — `pnpm-lock.yaml` is the authority on the full closure — so this tier records who declares a package, not what a build ultimately bundles.
 
 | Package | License |
 | --- | --- |
@@ -139,7 +139,6 @@ External packages declared only by repository tooling, test infrastructure, the 
 | [`vitest`](https://github.com/vitest-dev/vitest) | MIT |
 
 `eslint-plugin-sonarjs` (LGPL-3.0-only) and `lightningcss` (MPL-2.0) run only as development tooling; their code is not linked into or distributed with any DeepSeek Harness artifact.
-
 
 ## Python SDK dependencies (`python/`)
 
