@@ -82,10 +82,14 @@ export function validateDeepSeekModels(value: unknown): DeepSeekModelsValidation
   const models = modelDrafts(value)
   const seen = new Set<string>()
   for (const [index, model] of models.entries()) {
+    // Compared trimmed: surrounding whitespace is a paste artifact the adapter
+    // would never match, and an untrimmed compare lets `model ` slip past the
+    // duplicate check against its own twin.
     const id = model['id']
-    if (typeof id !== 'string' || id.length === 0) return { index, key: 'modelIdRequired' }
-    if (seen.has(id)) return { index, key: 'modelIdDuplicate' }
-    seen.add(id)
+    const trimmed = typeof id === 'string' ? id.trim() : undefined
+    if (trimmed === undefined || trimmed.length === 0) return { index, key: 'modelIdRequired' }
+    if (seen.has(trimmed)) return { index, key: 'modelIdDuplicate' }
+    seen.add(trimmed)
     const name = model['name']
     if (name !== undefined && (typeof name !== 'string' || name.length === 0)) {
       return { index, key: 'modelNameInvalid' }
@@ -123,10 +127,18 @@ export interface DeepSeekModelsEditorProps {
  * @returns the catalog editor.
  */
 export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNode {
-  // The context-window field is edited as text, so the keystrokes are held
-  // here while one row has focus: re-deriving the text from the parsed count
-  // on every change would rewrite `1000` to `1K` mid-word.
-  const [editing, setEditing] = useState<{ index: number; text: string } | undefined>(undefined)
+  // Context windows are edited as text, so a row's keystrokes are held here
+  // rather than re-derived from the parsed count on every change, which would
+  // rewrite `1000` to `1K` mid-word. Unreadable text is kept past blur so the
+  // save-time rejection names a row the user can still see — which is why
+  // this is one entry PER ROW: a single active buffer would be displaced by
+  // editing any other row, and the abandoned row would fall back to rendering
+  // its stored NaN as the literal `NaN`.
+  //
+  // Entries are keyed by row index, so the two operations that move indexes
+  // maintain them: `remove` re-keys around the dropped row, and reset clears
+  // them all because the rows they annotated are gone.
+  const [editing, setEditing] = useState<ReadonlyMap<number, string>>(() => new Map())
 
   const update = (index: number, key: 'id' | 'name' | 'contextWindow', value: unknown): void => {
     const next = props.models.map((model, at) => {
@@ -140,24 +152,41 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
   }
 
   const remove = (index: number): void => {
-    setEditing(undefined)
+    setEditing((current) => {
+      const next = new Map<number, string>()
+      for (const [at, text] of current) {
+        if (at === index) continue
+        next.set(at > index ? at - 1 : at, text)
+      }
+      return next
+    })
     props.onChange(props.models.filter((_model, at) => at !== index).map(model => ({ ...model })))
   }
 
-  /** The row's field text: the live keystrokes, else the stored count spelled short. */
+  const reset = (): void => {
+    setEditing(new Map())
+    props.onReset()
+  }
+
+  /** The row's field text: its live keystrokes, else the stored count spelled short. */
   const contextText = (model: DeepSeekModelDraft, index: number): string => {
-    if (editing?.index === index) return editing.text
+    const typed = editing.get(index)
+    if (typed !== undefined) return typed
     const value = model['contextWindow']
     return typeof value === 'number' ? formatContextWindow(value) : ''
   }
 
   const settleContext = (index: number): void => {
+    const typed = editing.get(index)
+    if (typed === undefined) return
+    // Unreadable text stays on screen: the save-time rejection names a row the
+    // user can still see and correct.
+    const parsed = parseContextWindow(typed)
+    if (parsed !== undefined && Number.isNaN(parsed)) return
     setEditing((current) => {
-      if (current?.index !== index) return current
-      // Unreadable text stays on screen: the save-time rejection names a row
-      // the user can still see and correct.
-      const parsed = parseContextWindow(current.text)
-      return parsed !== undefined && Number.isNaN(parsed) ? current : undefined
+      const next = new Map(current)
+      next.delete(index)
+      return next
     })
   }
 
@@ -176,7 +205,7 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
               type="button"
               className={styles['linkButton']}
               disabled={props.disabled}
-              onClick={props.onReset}
+              onClick={reset}
             >
               {props.t('resetModels')}
             </button>
@@ -203,6 +232,12 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
                   aria-label={`${props.t('modelId')} ${String(index + 1)}`}
                   disabled={props.disabled}
                   onChange={(event) => { update(index, 'id', event.target.value) }}
+                  onBlur={(event) => {
+                    // Settle a pasted id rather than trimming per keystroke,
+                    // which would stop the user typing an interior space.
+                    const trimmed = event.target.value.trim()
+                    if (trimmed !== event.target.value) update(index, 'id', trimmed)
+                  }}
                 />
                 <input
                   className={styles['input']}
@@ -225,8 +260,9 @@ export function DeepSeekModelsEditor(props: DeepSeekModelsEditorProps): ReactNod
                   aria-label={`${props.t('contextWindow')} ${String(index + 1)}`}
                   disabled={props.disabled}
                   onChange={(event) => {
-                    setEditing({ index, text: event.target.value })
-                    update(index, 'contextWindow', parseContextWindow(event.target.value))
+                    const text = event.target.value
+                    setEditing(current => new Map(current).set(index, text))
+                    update(index, 'contextWindow', parseContextWindow(text))
                   }}
                   onBlur={() => { settleContext(index) }}
                 />

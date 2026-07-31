@@ -477,6 +477,91 @@ describe('ModelsSection', () => {
       .toEqual(base === undefined ? ['deepseek-v4-flash', 'deepseek-v4-pro'] : ['pinned-by-deployment'])
   })
 
+  it('keeps every row\'s unreadable text, not just the last one edited', async () => {
+    // The regression: one active buffer meant editing a second row displaced
+    // the first, which then fell back to rendering its stored NaN as `NaN` —
+    // losing the text the user was told they could still correct.
+    await mountSection()
+    fireEvent.click(screen.getByText(en.customized))
+    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: 'not a number' } })
+    fireEvent.blur(windows[0] as HTMLInputElement)
+    fireEvent.change(windows[1] as HTMLInputElement, { target: { value: '2M' } })
+
+    expect((windows[0] as HTMLInputElement).value).toBe('not a number')
+    expect((windows[1] as HTMLInputElement).value).toBe('2M')
+  })
+
+  it('re-keys the typed text around a removed row', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByText(en.customized))
+    const windows = (): HTMLInputElement[] =>
+      screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    const removeRow = (at: number): void => {
+      fireEvent.click(screen.getAllByText(en.removeModel)[at] as HTMLElement)
+    }
+    // Three rows, with text parked on the outer two.
+    fireEvent.click(screen.getByText(en.addModel))
+    fireEvent.change(windows()[0] as HTMLInputElement, { target: { value: 'top text' } })
+    fireEvent.blur(windows()[0] as HTMLInputElement)
+    fireEvent.change(windows()[2] as HTMLInputElement, { target: { value: 'bottom text' } })
+    fireEvent.blur(windows()[2] as HTMLInputElement)
+
+    // Dropping the middle row leaves the row above untouched and carries the
+    // row below down with its own text, rather than stranding it.
+    removeRow(1)
+    expect(windows()).toHaveLength(2)
+    expect((windows()[0] as HTMLInputElement).value).toBe('top text')
+    expect((windows()[1] as HTMLInputElement).value).toBe('bottom text')
+
+    // Dropping a row that holds text takes that text with it; the survivor
+    // keeps its own rather than inheriting the deleted row's.
+    removeRow(0)
+    expect(windows()).toHaveLength(1)
+    expect((windows()[0] as HTMLInputElement).value).toBe('bottom text')
+  })
+
+  it('drops the typed text when reset replaces the rows it annotated', async () => {
+    // The regression: reset removed the override but left the buffer, so an
+    // inherited row displayed text no settings layer stores — and because an
+    // unreadable buffer never settles, it stayed there indefinitely.
+    const { mutate } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    const windows = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: 'garbage' } })
+    fireEvent.blur(windows[0] as HTMLInputElement)
+    fireEvent.click(screen.getByText(en.resetModels))
+
+    const restored = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.contextWindow))
+    expect((restored[0] as HTMLInputElement).value).toBe('1M')
+
+    // Reset put the draft back where it started, so Apply writes nothing at
+    // all rather than persisting whatever the stale text had parsed to.
+    fireEvent.click(screen.getByText(en.apply))
+    await waitFor(() => { expect(screen.getByText(en.apply)).toBeTruthy() })
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('settles a pasted id and refuses whitespace that would never match', async () => {
+    await mountSection()
+    fireEvent.click(screen.getByText(en.customized))
+    const ids = screen.getAllByLabelText<HTMLInputElement>(new RegExp(en.modelId))
+    fireEvent.change(ids[0] as HTMLInputElement, { target: { value: '  deepseek-v4-flash  ' } })
+    fireEvent.blur(ids[0] as HTMLInputElement)
+    expect((ids[0] as HTMLInputElement).value).toBe('deepseek-v4-flash')
+    // A settled id needs no second trim.
+    fireEvent.blur(ids[0] as HTMLInputElement)
+    expect((ids[0] as HTMLInputElement).value).toBe('deepseek-v4-flash')
+
+    // An id that is only whitespace is as absent as an empty one, and a padded
+    // id no longer slips past the duplicate check against its own twin.
+    expect(validateDeepSeekModels([{ id: '   ' }])).toEqual({ index: 0, key: 'modelIdRequired' })
+    expect(validateDeepSeekModels([{ id: 'model' }, { id: 'model ' }]))
+      .toEqual({ index: 1, key: 'modelIdDuplicate' })
+  })
+
   it('renders malformed draft fallbacks without inventing catalog values', () => {
     render(<DeepSeekModelsEditor
       models={[{}]}
