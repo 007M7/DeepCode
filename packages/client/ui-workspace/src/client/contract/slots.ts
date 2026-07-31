@@ -19,12 +19,14 @@
  * and a hole has exactly one declaring entry — they carry the same owner
  * contract and the same occupant.
  */
-import type { HostObservable, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pull the owner SlotMap merges into programs that resolve the
 // runtime shares below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  SessionId, SessionSearchResultItem, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
 /**
@@ -93,8 +95,20 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   startSession: (workspaceId?: WorkspaceId) => void
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
+  /**
+   * Search current visible conversation messages. The Host fixes the result
+   * bound; `hasMore` means the query needs narrowing.
+   */
+  searchSessions: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<{ items: readonly SessionSearchResultItem[]; hasMore: boolean }>
+  /** Maximum number of merged rows rendered for one search. */
+  searchResultLimit: number
   /** Rename a Session (explicit user title; resolves on host acceptance). */
   renameSession: (sessionId: SessionId, title: string) => Promise<void>
+  /** Fork a Session at its last completed turn and open the child. */
+  forkSession: (sessionId: SessionId) => void
   /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
   renameWorkspace: (workspaceId: WorkspaceId, title: string) => Promise<void>
   /** Delete only a Host Workspace registration; directory and Session logs remain. */
@@ -109,13 +123,14 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
 }
 
-/** Full browser props: shell owner share + viewing store + injected actions. */
+/** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
 export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
   & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>
   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
   & Omit<WorkspaceBrowserInjected, 'hooks'>
   & DirectoryPickingHooks
+  & PropsLocale<'workspace'>
 
 /**
  * Picker-private injected share. Pick semantics remain in the owner's onPick
@@ -128,12 +143,13 @@ export type WorkspacePickerInjected = DirectoryPickingInjected & {
 }
 
 /**
- * Full picker props: the owner share plus the creation callback. The two
- * picker holes (blank-session hero / New-Session view) share one owner
- * currency, so one composed type serves both registrations.
+ * Full picker props: the owner share plus the creation callback and the
+ * locale seat. The two picker holes (blank-session hero / New-Session view)
+ * share one owner currency, so one composed type serves both registrations.
  */
 export type WorkspacePickerProps =
   PropsRuntime<'conversation.hero.workspace'>
   & PropsRenderSlots<'conversation.hero.workspace.directoryFlow'>
   & Omit<WorkspacePickerInjected, 'hooks'>
   & DirectoryPickingHooks
+  & PropsLocale<'workspace'>

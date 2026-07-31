@@ -19,6 +19,7 @@ import { createUserMessage,
 } from '@deepseek-ai/dsh-llm'
 import { GOAL_CHANGE_VERSION, GoalId, renderGoalChange, type GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import CommandService, { type CommandInvocation } from '@deepseek-ai/dsh-commands'
+import { COMPACT_CHECKPOINT_SOURCE } from '@deepseek-ai/dsh-compact'
 import SessionStore, { SessionId, type JsonValue, type SessionEvent, type SessionHeader, type TurnEndReason } from '@deepseek-ai/dsh-session'
 import type { SessionRecord } from '@deepseek-ai/dsh-session-query'
 import SkillService, { type SkillCatalogSnapshot, type SkillDefinition, type SkillProvider, type SkillSummary } from '@deepseek-ai/dsh-skill'
@@ -246,7 +247,7 @@ describe('goodbye message and /resume', () => {
     ({ version: 0, id: SessionId(id), createdAt, cwd })
   const resumeEvents = (
     title: string,
-    provider = 'deepseek',
+    provider = 'deepseek-official',
     time = 100,
     reason: TurnEndReason = { kind: 'completed' },
   ): SessionEvent[] => [
@@ -318,8 +319,8 @@ describe('goodbye message and /resume', () => {
       sessionPersistence: {
         list: async () => [older, newer, header('foreign-session', 3000, '/elsewhere')],
         load: async id => id === newer.id
-          ? { meta: newer, events: resumeEvents('Newer product work', 'deepseek', 300) }
-          : { meta: older, events: resumeEvents('Older investigation', 'deepseek', 100) },
+          ? { meta: newer, events: resumeEvents('Newer product work', 'deepseek-official', 300) }
+          : { meta: older, events: resumeEvents('Older investigation', 'deepseek-official', 100) },
       },
     })
     result.terminal.send('/resume')
@@ -418,7 +419,7 @@ describe('goodbye message and /resume', () => {
         list: async () => targets,
         load: async id => ({
           meta: targets.find(target => target.id === id)!,
-          events: resumeEvents(`Paged ${id.slice('paged-'.length)}`, 'deepseek', 1000 - Number(id.slice('paged-'.length)) * 10),
+          events: resumeEvents(`Paged ${id.slice('paged-'.length)}`, 'deepseek-official', 1000 - Number(id.slice('paged-'.length)) * 10),
         }),
       },
     })
@@ -474,7 +475,7 @@ describe('goodbye message and /resume', () => {
       cwd: '/workspace',
       sessionPersistence: {
         list: async () => [target],
-        load: async () => ({ meta: target, events: resumeEvents(`Turn ${label}`, 'deepseek', 100, reason) }),
+        load: async () => ({ meta: target, events: resumeEvents(`Turn ${label}`, 'deepseek-official', 100, reason) }),
       },
     })
     result.terminal.send('/resume')
@@ -710,7 +711,7 @@ describe('goodbye message and /resume', () => {
   it('falls back to assistant provenance and header creation time for sparse logs', async () => {
     const assistantOnly = header('assistant-route', 20, '/workspace')
     const empty = header('empty-log', 10, '/workspace')
-    const events = resumeEvents('Assistant route', 'deepseek')
+    const events = resumeEvents('Assistant route', 'deepseek-official')
       .filter(event => event.type !== 'request/header')
       .map((event, seq) => ({ ...event, seq })) as SessionEvent[]
     const result = await setup({
@@ -725,7 +726,7 @@ describe('goodbye message and /resume', () => {
     result.terminal.send('/resume')
     result.terminal.send('\r')
     await tick(); await tick()
-    expect(result.terminal.output).toContain('deepseek/model-1')
+    expect(result.terminal.output).toContain('deepseek-official/model-1')
     expect(result.terminal.output).toContain(new Date(empty.createdAt).toISOString())
     await dispose(result)
   })
@@ -2396,7 +2397,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
       contextWindow: 128_000,
       contextTokens: 42_000,
       config: { showReasoning: false },
-      agentOptions: { provider: 'deepseek', model: 'deepseek-v4-pro' },
+      agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
       tools: {
         read: {
           name: 'read', description: 'Read a file', parameters: {},
@@ -2444,7 +2445,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     expect(result.terminal.output).toContain('main-session')
     expect(result.terminal.output).toContain('Inspect status \\x1b]2;unsafe\\x07')
     expect(result.terminal.output).toContain('/workspace/status')
-    expect(result.terminal.output).toContain('deepseek/deepseek-v4-pro (effort default; reasoning blocks')
+    expect(result.terminal.output).toContain('deepseek-official/deepseek-v4-pro (effort default; reasoning blocks')
     expect(result.terminal.output).toContain('hidden)')
     // 6 domain events + the /status invocation's own command/run (open turn: joined directly).
     expect(result.terminal.output).toContain('running · 7 events · 1 turn · 1 step · 2 tool calls')
@@ -3600,7 +3601,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const failed = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         listModels: () => Promise.reject(new Error('catalog offline')),
         resolveModelInfo: () => Promise.reject(new Error('capacity offline')),
@@ -3616,8 +3617,8 @@ describe('pi-tui chat lifecycle and transcript', () => {
 
     const reasoningFailed = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
-        models: [{ provider: 'deepseek', id: 'model-1', name: 'Model One' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
+        models: [{ provider: 'deepseek-official', id: 'model-1', name: 'Model One' }],
         resolveModelInfo: () => Promise.reject(new Error('reasoning metadata offline')),
       },
     })
@@ -3633,7 +3634,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const deferred = Promise.withResolvers<never[]>()
     const result = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         listModels: () => deferred.promise,
       },
@@ -3649,7 +3650,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const rejected = Promise.withResolvers<never[]>()
     const rejectedResult = await setup({
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         listModels: () => rejected.promise,
       },
@@ -3666,7 +3667,7 @@ describe('pi-tui chat lifecycle and transcript', () => {
     const contextResult = await setup({
       contextTokens: 99,
       catalog: {
-        providers: [{ id: 'deepseek', name: 'DeepSeek' }],
+        providers: [{ id: 'deepseek-official', name: 'DeepSeek' }],
         models: [],
         resolveModelInfo: () => context.promise.then(value => ({ context: value })),
       },
@@ -4317,6 +4318,25 @@ describe('tool cards and surface replay', () => {
         diffs: [{ path: 'src/only.ts', oldText: 'old', newText: 'new' }],
       }),
     },
+    scatteredDiff: {
+      name: 'scatteredDiff', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      // Three hunks in ONE file. The first two sides end in the terminator
+      // newline real write/edit content carries; the third removes a line and
+      // leaves an EMPTY added side (a full deletion), so `diffContentLines('')`
+      // returns zero lines. The footer must read `+2 -1 · 1 file`: each trailing
+      // newline terminates its line rather than adding a phantom empty one, the
+      // empty side contributes no `+ ` row, and the three hunks count as the
+      // single distinct path they touch.
+      presentCall: () => ({
+        card: 'diff',
+        title: 'Edit src/scatter.ts',
+        diffs: [
+          { path: 'src/scatter.ts', oldText: null, newText: 'first\n' },
+          { path: 'src/scatter.ts', oldText: null, newText: 'second\n' },
+          { path: 'src/scatter.ts', oldText: 'gone\n', newText: '' },
+        ],
+      }),
+    },
     generic: {
       name: 'generic', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Inspect value', rawInput: { alpha: 1 } }),
@@ -4375,6 +4395,14 @@ describe('tool cards and surface replay', () => {
       name: 'knownXml', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
       presentCall: () => ({ card: 'generic', title: 'Known XML' }),
     },
+    // A web card carries no `content` copy, so it falls back to the raw result
+    // content, which must still render through the dim Markdown path (bold
+    // markers stripped) rather than as bare text.
+    webCard: {
+      name: 'webCard', description: '', parameters: {}, output: UNUSED_TOOL_OUTPUT, execute: async () => [],
+      presentCall: () => ({ card: 'generic', title: 'Fetch page', kind: 'fetch' }),
+      presentResult: () => ({ card: 'web', kind: 'fetch', title: 'https://a.test', url: 'https://a.test', statusCode: 200, truncated: false }),
+    },
   }
 
   it('uses terminal, diff, generic, fallback, and collapsed tool presentations', async () => {
@@ -4395,6 +4423,7 @@ describe('tool cards and surface replay', () => {
       ['c11', 'terminalResult', '{}'],
       ['c12', 'symbolic', '{}'],
       ['c13', 'knownXml', '{}'],
+      ['c16', 'webCard', '{}'],
     ] as const
     appendAssistant(result.session, [
       { type: 'text', text: 'Calling tools' },
@@ -4489,6 +4518,14 @@ describe('tool cards and surface replay', () => {
       }),
     }, { surfaceOp: 'append' })
     result.session.append('tool/result', {
+      turn: 1, step: 1,
+      message: createToolResultMessage({
+        callId: 'c16' as never,
+        content: [{ type: 'text', text: 'Fetched **body** text' }],
+        isError: false,
+      }),
+    }, { surfaceOp: 'append' })
+    result.session.append('tool/result', {
       turn: 1,
       step: 1,
       message: createToolResultMessage({
@@ -4537,6 +4574,11 @@ describe('tool cards and surface replay', () => {
     expect(output).toContain('Empty card')
     expect(output).toContain('converted terminal')
     expect(output).toContain('<known><value>literal</value></known>')
+    // A web card carries no `content` copy, so it falls back to the raw result
+    // content, which still renders through the dim Markdown path: the bold
+    // markers are stripped rather than shown literally.
+    expect(output).toContain('Fetched body text')
+    expect(output).not.toContain('Fetched **body** text')
     expect(output).toContain('path: /tmp/a.txt')
     expect(output).toContain('line (number="1"): hello')
     expect(output).not.toContain('<result>')
@@ -4621,6 +4663,35 @@ describe('tool cards and surface replay', () => {
     await dispose(result)
   })
 
+  it('counts a same-file diff once and terminates its trailing newline', async () => {
+    // A budget past the card's row count so every hunk row stays visible (the
+    // collapse arithmetic is covered elsewhere); this test is about the
+    // terminator rule and the distinct-path footer count.
+    const result = await setup({ tools, config: { maxToolOutputLines: 20 } })
+    appendUser(result.session, 'scatter edits in one file')
+    appendAssistant(result.session, [
+      { type: 'text', text: 'Editing' },
+      { type: 'tool-call', id: 'scatter' as never, name: 'scatteredDiff', arguments: '{}' },
+    ])
+    result.session.append('tool/call', {
+      turn: 1, step: 1, callId: 'scatter' as never, name: 'scatteredDiff', arguments: '{}',
+    })
+    await tick()
+    const output = result.terminal.output
+    // Three hunks, one path: distinct-path count, same as the Web DiffBlock.
+    expect(output).toContain('· 1 file')
+    expect(output).not.toContain('· 3 files')
+    // The `first\n`/`second\n` sides each contribute exactly one added line —
+    // the trailing newline terminates rather than adding a phantom empty `+ `.
+    expect(output).toContain('+ first')
+    expect(output).toContain('+ second')
+    // The third hunk removes `gone` and leaves an empty added side, which
+    // contributes no `+ ` row (diffContentLines('') is zero lines).
+    expect(output).toContain('- gone')
+    expect(output).toContain('+2 -1')
+    await dispose(result)
+  })
+
   it('drops blank rows from a terminal card result that the dim styling wraps', async () => {
     const blankRowTools: Record<string, ToolDefinition> = {
       trailing: {
@@ -4661,10 +4732,10 @@ describe('tool cards and surface replay', () => {
     await dispose(result)
   })
 
-  it('rebuilds after a surface replacement and hides shadowed tool calls', async () => {
+  it('keeps append-origin history and marks a landed compaction, live and on rebuild', async () => {
     const result = await setup({ tools })
     appendUser(result.session, 'old prompt')
-    const assistant = result.session.append('assistant/message', {
+    result.session.append('assistant/message', {
       turn: 1,
       step: 1,
       message: createMessage({
@@ -4687,21 +4758,116 @@ describe('tool cards and surface replay', () => {
         isError: false,
       }),
     }, { surfaceOp: 'append' })
-    const start = result.session.surface.nodes[0] as number
-    result.session.append('user/message', createUserMessage({
-      content: [{ type: 'text', text: 'summary replacement' }],
-      source: { kind: 'plugin', plugin: 'compact' },
-    }), {
-      surfaceOp: { op: 'replace', start, end: toolResult.seq },
-      sourceEventSeqs: [start, assistant.seq, toolResult.seq],
+    // Result pruning rewrites one node's content in place: model-only, and no
+    // boundary in the conversation, so the terminal keeps the full output.
+    const originalResult = toolResult.data.message.content[0]
+    result.session.append('tool/result', {
+      ...toolResult.data,
+      message: freezeMessage({
+        ...toolResult.data.message,
+        content: [{ ...originalResult, content: [{ type: 'text', text: 'pruned result copy' }] }] as [typeof originalResult],
+      }),
+    }, {
+      surfaceOp: { op: 'replace', start: toolResult.seq, end: toolResult.seq },
+      sourceEventSeqs: [toolResult.seq],
     })
+    const nodes = [...result.session.surface.nodes]
+    const checkpoint = result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: '<context_checkpoint>model-only summary payload</context_checkpoint>' }],
+      source: COMPACT_CHECKPOINT_SOURCE,
+    }), {
+      surfaceOp: { op: 'replace', start: nodes[0] as number, end: nodes.at(-1) as number },
+      sourceEventSeqs: nodes,
+    })
+    // A regenerated assistant message replaces one node without summarizing
+    // anything, so it marks no boundary either.
+    const generic = result.session.append('assistant/message', {
+      turn: 1,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'generic replacement copy' }],
+        source: {
+          kind: 'model',
+          ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+        },
+      }),
+    }, { surfaceOp: { op: 'replace', start: checkpoint.seq, end: checkpoint.seq }, sourceEventSeqs: [checkpoint.seq] })
+    // Only a checkpoint carrying the compaction seam's source marks a boundary:
+    // another plugin replacing a node is model-only.
+    result.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'foreign plugin replacement copy' }],
+      source: { kind: 'plugin', plugin: 'other' },
+    }), { surfaceOp: { op: 'replace', start: generic.seq, end: generic.seq }, sourceEventSeqs: [generic.seq] })
     await tick()
 
     result.terminal.resize(89)
     await tick()
-    const lastFullRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
-    expect(lastFullRender).toContain('summary replacement')
-    expect(lastFullRender).not.toContain('old output')
+    const liveRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(liveRender).toContain('old prompt')
+    // The shadowed step keeps its card: one call row, one full result, no
+    // second card from the pruned copy.
+    expect(liveRender.split('$ printf hello')).toHaveLength(2)
+    expect(liveRender).toContain('third')
+    expect(liveRender.split('[exit 0]')).toHaveLength(2)
+    expect(liveRender.split('… earlier context was compacted …')).toHaveLength(2)
+    expect(liveRender).not.toContain('model-only summary payload')
+    expect(liveRender).not.toContain('generic replacement copy')
+    expect(liveRender).not.toContain('foreign plugin replacement copy')
+
+    // Ctrl+R toggles reasoning, which rebuilds the transcript from the log; the
+    // replayed projection matches what the live appends produced, including the
+    // shadowed assistant message's tool card.
+    result.terminal.send('\x12')
+    await tick()
+    result.terminal.resize(90)
+    await tick()
+    const replayRender = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(replayRender).toContain('old prompt')
+    expect(replayRender.split('$ printf hello')).toHaveLength(2)
+    expect(replayRender).toContain('third')
+    expect(replayRender.split('[exit 0]')).toHaveLength(2)
+    expect(replayRender.split('… earlier context was compacted …')).toHaveLength(2)
+    expect(replayRender).not.toContain('model-only summary payload')
+    expect(replayRender).not.toContain('generic replacement copy')
+    expect(replayRender).not.toContain('foreign plugin replacement copy')
+    await dispose(result)
+  })
+
+  it('replays a stored compaction as preserved history plus its marker', async () => {
+    const result = await setup({
+      beforeMount(session) {
+        appendUser(session, 'prompt before compaction')
+        session.append('assistant/message', {
+          turn: 1,
+          step: 1,
+          message: createMessage({
+            role: 'assistant',
+            content: [{ type: 'text', text: 'reply before compaction' }],
+            source: {
+              kind: 'model',
+              ...{ provider: 'mock', model: 'deepseek-v4-flash' },
+            },
+          }),
+        }, { surfaceOp: 'append' })
+        const nodes = [...session.surface.nodes]
+        session.append('user/message', createUserMessage({
+          content: [{ type: 'text', text: '<context_checkpoint>stored model-only payload</context_checkpoint>' }],
+          source: COMPACT_CHECKPOINT_SOURCE,
+        }), {
+          surfaceOp: { op: 'replace', start: nodes[0] as number, end: nodes.at(-1) as number },
+          sourceEventSeqs: nodes,
+        })
+      },
+    })
+    result.terminal.resize(89)
+    await tick()
+
+    const mounted = result.terminal.output.slice(result.terminal.output.lastIndexOf('\x1b[2J'))
+    expect(mounted).toContain('prompt before compaction')
+    expect(mounted).toContain('reply before compaction')
+    expect(mounted.split('… earlier context was compacted …')).toHaveLength(2)
+    expect(mounted).not.toContain('stored model-only payload')
     await dispose(result)
   })
 })

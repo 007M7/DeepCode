@@ -131,13 +131,13 @@ afterEach(async () => {
 describe('create arguments', () => {
   it('parses public options and the private repository link mode', () => {
     expect(parseCreateArgs([
-      'agent', '--description=demo', '--provider', 'deepseek', '--base-url=https://api.example',
+      'agent', '--description=demo', '--provider', 'deepseek-official', '--base-url=https://api.example',
       '--api-key', 'key', '--model=m', '--interface', 'acp', '--pm=pnpm', '--no-install',
       '--link-workspace',
     ])).toEqual({
       directory: 'agent',
       description: 'demo',
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       baseURL: 'https://api.example',
       apiKey: 'key',
       model: 'm',
@@ -205,7 +205,7 @@ describe('CreateWizard and scaffolder', () => {
     const args = parseCreateArgs([
       'my-agent',
       '--description=demo',
-      '--provider=deepseek',
+      '--provider=deepseek-official',
       '--api-key=deepseek-key',
       '--model=deepseek-v4-flash',
       '--interface=tui',
@@ -246,7 +246,7 @@ describe('CreateWizard and scaffolder', () => {
     ]
     const resolved = await new CreateWizard({
       args: parseCreateArgs([
-        'my-agent', '--description=demo', '--provider=deepseek', '--api-key=deepseek-key',
+        'my-agent', '--description=demo', '--provider=deepseek-official', '--api-key=deepseek-key',
         '--model=deepseek-v4-flash', '--interface=tui', '--pm=npm', '--no-install',
       ]),
       port: new HeadlessPromptPort(),
@@ -274,7 +274,7 @@ describe('CreateWizard and scaffolder', () => {
     ] as unknown as FeatureSelection[]
     await expect(new CreateWizard({
       args: parseCreateArgs([
-        'my-agent', '--description=demo', '--provider=deepseek', '--api-key=k',
+        'my-agent', '--description=demo', '--provider=deepseek-official', '--api-key=k',
         '--model=m', '--interface=tui', '--pm=npm', '--no-install',
       ]),
       port: new HeadlessPromptPort(),
@@ -295,7 +295,7 @@ describe('CreateWizard and scaffolder', () => {
       packageManager: new NpmPackageManager('10.0.0'),
       releaseVersion: '0.0.1',
       features: [
-        { id: featureId('provider'), options: ['deepseek'], secrets: { apiKey: 'key' } },
+        { id: featureId('provider'), options: ['deepseek-official'], secrets: { apiKey: 'key' } },
         { id: featureId('bash'), options: ['local'] },
         { id: featureId('app'), options: ['embed'] },
         { id: featureId('persistence'), options: ['jsonl'] },
@@ -346,7 +346,7 @@ describe('CreateWizard and scaffolder', () => {
     ])
     const resolved = await new CreateWizard({
       args: parseCreateArgs([
-        'workflow-agent', '--description=test', '--provider=deepseek', '--api-key=key',
+        'workflow-agent', '--description=test', '--provider=deepseek-official', '--api-key=key',
         '--interface=embed', '--pm=npm', '--no-install',
       ]),
       port,
@@ -371,7 +371,7 @@ describe('CreateWizard and scaffolder', () => {
     ])
     const resolved = await new CreateWizard({
       args: parseCreateArgs([
-        'empty-key-agent', '--description=test', '--provider=deepseek',
+        'empty-key-agent', '--description=test', '--provider=deepseek-official',
         '--interface=embed', '--pm=npm', '--no-install',
       ]),
       port,
@@ -398,7 +398,7 @@ describe('CreateWizard and scaffolder', () => {
       'embed',
       [
         { value: featureId('persistence'), choices: ['jsonl'] },
-        { value: featureId('web'), choices: ['deepseek'] },
+        { value: featureId('web'), choices: ['deepseek-official'] },
       ],
       true,
       'none',
@@ -426,14 +426,14 @@ describe('CreateWizard and scaffolder', () => {
       'agent',
       [
         { value: featureId('persistence'), choices: ['jsonl'] },
-        { value: featureId('web'), choices: ['deepseek'] },
+        { value: featureId('web'), choices: ['deepseek-official'] },
         { value: featureId('timeout-policy'), choices: ['default'] },
       ],
       'none',
     ])
     const resolved = await new CreateWizard({
       args: parseCreateArgs([
-        'agent', '--description=test', '--provider=deepseek', '--api-key=key',
+        'agent', '--description=test', '--provider=deepseek-official', '--api-key=key',
         '--interface=embed', '--pm=npm', '--no-install',
       ]),
       port,
@@ -451,7 +451,7 @@ describe('CreateWizard and scaffolder', () => {
     ])
     const resolved = await new CreateWizard({
       args: parseCreateArgs([
-        name, '--description=test', '--provider=deepseek', '--api-key=key',
+        name, '--description=test', '--provider=deepseek-official', '--api-key=key',
         '--interface=embed', '--pm=npm', '--no-install',
       ]),
       port,
@@ -467,7 +467,7 @@ describe('CreateWizard and scaffolder', () => {
 
 describe('create command composition', () => {
   const argv = (directory: string, install: boolean): string[] => [
-    directory, '--description=test', '--provider=deepseek', '--api-key=key',
+    directory, '--description=test', '--provider=deepseek-official', '--api-key=key',
     '--interface=embed', '--pm=npm', install ? '--install' : '--no-install',
   ]
 
@@ -490,7 +490,7 @@ describe('create command composition', () => {
     const root = await mkdtemp(join(tmpdir(), 'create-headless-cmd-'))
     temporary.push(root)
     const spec = JSON.stringify({
-      directory: 'agent', description: 'test', provider: 'deepseek', apiKey: 'key',
+      directory: 'agent', description: 'test', provider: 'deepseek-official', apiKey: 'key',
       model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: false,
       features: [{ id: 'persistence', options: ['jsonl'] }],
     })
@@ -510,7 +510,7 @@ describe('create command composition', () => {
     const ok = commandContext(root)
     ok.stdin.isTTY = false
     ok.stdout.isTTY = false
-    const okSpec = JSON.stringify({ ...base, directory: 'done-agent', provider: 'deepseek', apiKey: 'key', features: [] })
+    const okSpec = JSON.stringify({ ...base, directory: 'done-agent', provider: 'deepseek-official', apiKey: 'key', features: [] })
     await expect(runCreateCommand(['--config-json', okSpec, '--json'], ok)).resolves.toBe(0)
     expect(ok.readStdout()).toContain('{"type":"done"}')
     // stdout stays pure NDJSON: every line parses, human progress goes to stderr
@@ -573,7 +573,7 @@ describe('create command composition', () => {
     expect(install).toHaveBeenCalledOnce()
     expect(build).toHaveBeenCalledOnce()
     const spec = JSON.stringify({
-      directory: 'json-agent', description: 'test', provider: 'deepseek', apiKey: 'key',
+      directory: 'json-agent', description: 'test', provider: 'deepseek-official', apiKey: 'key',
       model: 'deepseek-v4-flash', interface: 'embed', pm: 'npm', install: true, features: [],
     })
     const json = commandContext(root)

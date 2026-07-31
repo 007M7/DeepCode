@@ -55,7 +55,7 @@ root
             └─ models (order 10)         ui-models 注册
 ```
 
-section/item contribution 均使用 declaration-aware deferral（ui-slots 的 `deferRegistration()`：ledger 判在位、`refresh()` 换本地化 label、一键 dispose），不依赖 client manifest 的 apply 顺序。SlotMap 类型分家：trigger/header/close/section 正家在 ui-settings contract（消费者 general/models 均依赖壳，无环）；`settings.general.item` 正家在 locale 包——它是全部 item 注册方的最低公共依赖（设置行必带文案），而声明方 general 的 contract 对 locale/ui-theme 不可达（会成环）；ui-theme 经 re-export seam 消费。
+section/item contribution 均使用 declaration-aware deferral（ui-slots 的 `deferRegistration()`：ledger 判在位、一键 dispose；本地化 label 走 [全量接入 Note](../../implemented/architecture/2026-07-30-client-locale-full-rollout.md) 的 label thunk，不再 `refresh()`），不依赖 client manifest 的 apply 顺序。SlotMap 类型分家：trigger/header/close/section 正家在 ui-settings contract（消费者 general/models 均依赖壳，无环）；`settings.general.item` 正家在 locale 包——它是全部 item 注册方的最低公共依赖（设置行必带文案），而声明方 general 的 contract 对 locale/ui-theme 不可达（会成环）；ui-theme 经 re-export seam 消费。
 
 ### Future work：坑位声明升格为可 inject 的一等等待物
 

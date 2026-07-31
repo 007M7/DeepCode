@@ -133,6 +133,12 @@
   --dsh-composer-stack-gap: 6px;
   --dsh-queue-composer-overlap: 5px;
 
+  /* InputBar and dock registrants derive their horizontal geometry from the
+     same card width, outer clearance, and dock inset. */
+  --dsh-composer-card-max-width: 800px;
+  --dsh-composer-side-clearance: 32px;
+  --dsh-composer-dock-inset: 12px;
+
   display: flex;
   flex-direction: column;
   gap: var(--dsh-composer-stack-gap);
@@ -143,6 +149,14 @@
   display: flex;
   flex: none;
   flex-direction: column;
+  /* One cap for every scrolling text region a composer seat can hold: the
+     InputBar draft (figma Input 75:8208 max 14 lines × 24px line) and the
+     takeover panels' bodies top out at the same height, so electing a
+     takeover never grows the footer past the card it replaces. Declared on
+     the seat because it is the chain's only shared ancestor — fallback and
+     elected overlay are siblings — and custom properties inherit down to
+     whichever entry is mounted. */
+  --dsh-composer-text-max-height: 336px;
 }
 
 /* Active phase: header is ordinary column chrome above the scrollport (not

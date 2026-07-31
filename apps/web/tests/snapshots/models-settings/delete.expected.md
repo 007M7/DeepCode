@@ -1,0 +1,7 @@
+- dialog "删除模型提供方？":
+  - heading "删除模型提供方？" [level=2]
+  - button "关闭":
+    - img
+  - paragraph: 删除此模型提供方会移除其配置。在重新添加前，你将无法继续使用其模型。
+  - button "取消"
+  - button "删除提供方"
