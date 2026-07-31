@@ -248,13 +248,18 @@
 
 /* The block-shaped expanded bodies: the code variant's run_code program
    through CodeBlock (shiki-highlighted TypeScript), a terminal card's command
-   output through TerminalBlock, and a search card's grouped matches or path
-   list through SearchBlock. All are drawn by the shared primitive, so only the
-   row's indentation is this file's concern — the margin also replaces each
+   output through TerminalBlock, a diff card through DiffBlock, a read card's
+   line-numbered window through ReadBlock, a search card's grouped matches or
+   path list through SearchBlock, and a web card's citation/source list through
+   WebBlock. All are drawn by the shared primitive, so only the row's
+   indentation is this file's concern — the margin also replaces each
    primitive's own standalone vertical spacing with the flow's row rhythm. */
 .codeBody,
 .terminalBody,
-.searchBody {
+.diffBody,
+.readBody,
+.searchBody,
+.webBody {
   margin: 4px 0 4px 4px;
 }
 
@@ -267,12 +272,6 @@
   overflow-wrap: anywhere;
   font: var(--dsw-font-xs-13);
   color: var(--dsw-alias-label-tertiary);
-}
-
-/* A write/edit diff renders through DiffBlock; like the terminal card it draws
-   its own surface, so only the row indentation is this file's concern. */
-.diffBody {
-  margin: 4px 0 4px 4px;
 }
 
 /* In-row code renders at the smaller code size (12/18) via each primitive's
@@ -289,4 +288,16 @@
   --dsl-terminal-line-height: 18px;
   --dsl-terminal-output-max-height: 224px;
   border: 1px solid var(--dsw-alias-border-l1);
+}
+
+/* Visually hidden run-state label for assistive technology: the StateDot and
+   the running sweep are aria-hidden / colour-only, so the text carries the
+   running/failed/interrupted state to a screen reader. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
