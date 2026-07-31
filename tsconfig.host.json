@@ -44,6 +44,7 @@
     "apps/web/tests/startup-auto-selection.e2e.ts",
     "apps/web/tests/subagent-conversation.e2e.ts",
     "apps/web/tests/bash-abort-row.e2e.ts",
+    "apps/web/tests/complex-history.perf.ts",
     "apps/cli/tests/**/*.ts",
     "examples/*/src/**/*.ts",
     "examples/*/start.ts",
