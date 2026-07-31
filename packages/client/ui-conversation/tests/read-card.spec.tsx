@@ -2,8 +2,9 @@
 // The read render intent on the web side: the pure readCardModel derivation
 // over the settled result view, and both conversation render sites that consume
 // it — the chat tool row (the keyed ReadRow and the GenericToolCard fallback,
-// each with the read card resident under the summary) and the details panel's
-// Output section. Also pins the keyed 'read' toolview registration.
+// each composing ToolRow with the read card as its collapsed-by-default expanded
+// body) and the details panel's Output section (resident, full height). Also
+// pins the keyed 'read' toolview registration.
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
@@ -16,7 +17,7 @@ import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { CHAT_READ_MAX_LINES, readCardModel } from '../src/client/contract/read-card-model.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { GenericToolCard, type GenericToolCardProps } from '../src/client/chat/GenericToolCard.tsx'
@@ -128,11 +129,19 @@ describe('GenericToolCard read body', () => {
     callId: 'c1', toolName: 'web_fetch', block, openFile: vi.fn(), t,
   })
 
-  it('renders the read card resident under the summary, capped tighter than the panel', () => {
+  /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
+  const toggleRow = (view: { container: HTMLElement }) => {
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+  }
+
+  it('expands to the read card, capped tighter than the panel', () => {
     expect(CHAT_READ_MAX_LINES).toBeLessThan(16)
     // web_fetch lands on the read variant without its own keyed row, so the
-    // fallback card owns the resident read block.
+    // fallback card owns the read block once expanded.
     const view = render(<GenericToolCard {...ownerProps(settled({ call: { name: 'web_fetch', argsRaw: WEB_FETCH_ARGS } }))} />)
+    // Collapsed: no read card in the DOM yet.
+    expect(view.container.querySelector('[data-read]')).toBeNull()
+    toggleRow(view)
     expect(view.container.querySelector('[data-read]')).not.toBeNull()
     expect(contentTexts(view.container)).toContain('export const a = 1')
     // The gutter keeps the file's own line numbers.
@@ -145,6 +154,7 @@ describe('GenericToolCard read body', () => {
         call: { name: 'echo', argsRaw: '{"text":"x"}' }, callView: null, resultView: null,
       }), openFile: vi.fn(), t,
     })} />)
+    toggleRow(view)
     expect(view.container.querySelector('[data-read]')).toBeNull()
   })
 
@@ -162,19 +172,34 @@ describe('ReadRow keyed toolview', () => {
     phase: 'ready',
   })
 
-  const rowProps = (block: RunningToolCall | ToolResultNode): ToolRowProps => ({
+  const rowProps = (block: RunningToolCall | ToolResultNode): Parameters<typeof ReadRow>[0] => ({
     callId: 'c1', toolName: 'read', block, openFile: vi.fn(),
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
-  } as unknown as ToolRowProps)
+    t,
+  } as unknown as Parameters<typeof ReadRow>[0])
 
-  it('renders the file path summary and the resident read card', () => {
+  /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
+  const toggleRow = (view: { container: HTMLElement }) => {
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+  }
+
+  it('collapses to the path summary; the whole row toggles the read card', () => {
     const view = render(<ReadRow {...rowProps(settled())} />)
     expect(view.getByText('Read')).toBeTruthy()
-    // The path appears twice: the row summary link and the card's banner label.
+    // Collapsed: the path is the summary link alone, and the card is absent.
+    expect(view.getAllByText('src/a.ts').length).toBe(1)
+    expect(view.container.querySelector('[data-read]')).toBeNull()
+    toggleRow(view)
+    // Expanded: the summary link stays inline and the card's banner label adds a
+    // second occurrence of the path.
     expect(view.getAllByText('src/a.ts').length).toBe(2)
     expect(view.container.querySelector('[data-read]')).not.toBeNull()
     expect(contentTexts(view.container)).toContain('export const a = 1')
     expect(view.getByText('显示 3 / 180 行')).toBeTruthy()
+    // Collapse back in place: the card unmounts, the summary link returns.
+    toggleRow(view)
+    expect(view.container.querySelector('[data-read]')).toBeNull()
+    expect(view.getAllByText('src/a.ts').length).toBe(1)
   })
 
   it('the path summary opens the file through the host', () => {
@@ -212,7 +237,8 @@ describe('ReadRow keyed toolview', () => {
     const registered: { name: unknown; key?: unknown }[] = []
     const ctx = { slots: { register: (options: { name: unknown; key?: unknown }) => { registered.push(options) } } } as unknown as Context
     readToolview.apply(ctx)
-    expect(registered).toEqual([{ name: 'conversation.chat.toolview', key: 'read' }])
+    // The row composes ToolRow, so it declares its locale namespace at the seat.
+    expect(registered).toEqual([{ name: 'conversation.chat.toolview', key: 'read', locale: 'conversation' }])
     expect(readToolview.inject).toContain('conversation')
   })
 })

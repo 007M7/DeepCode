@@ -165,7 +165,7 @@ const READ_SAMPLE_TOTAL = 180
 const READ_SAMPLE_TEXT = READ_SAMPLE_SOURCE.map((text, index) => `${READ_SAMPLE_FIRST_LINE + index}: ${text}`).join('\n')
 
 /**
- * Structured grep result for the search sample (turn 67): matches grouped by
+ * Structured grep result for the search sample (turn 68): matches grouped by
  * file, authored inline because the client-side fixture cannot import the tool
  * that produces the canonical value. `truncated` with a larger `total` than the
  * retained match count exercises the search card's capped indicator; the file
@@ -211,11 +211,11 @@ const SEARCH_MATCHES_TEXT = [
   ...SEARCH_MATCHES_FIXTURE.map(file =>
     [file.path, ...file.matches.map(m => `Line ${m.lineNumber}: ${m.line}`)].join('\n')),
   '',
-  '(Full grep result stored at: fixture://spill/grep-67. Read it to see every match.)',
+  '(Full grep result stored at: fixture://spill/grep-68. Read it to see every match.)',
 ].join('\n')
 
 /**
- * Structured glob result for the search sample (turn 68): a flat path list,
+ * Structured glob result for the search sample (turn 69): a flat path list,
  * truncated with a larger `total` so the path card shows its capped indicator.
  */
 const SEARCH_PATHS_FIXTURE = [
@@ -234,11 +234,11 @@ const SEARCH_PATHS_FIXTURE = [
 const SEARCH_PATHS_TEXT = [
   ...SEARCH_PATHS_FIXTURE,
   '',
-  '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-68. Read it to see every path.)',
+  '(Showing 5 of 23 paths. Full sorted result stored at: fixture://spill/glob-69. Read it to see every path.)',
 ].join('\n')
 
 /**
- * The structured `web_search` result view for fixture turn 69, authored inline
+ * The structured `web_search` result view for fixture turn 70, authored inline
  * because this client-side fixture cannot import the web tool that projects it.
  * The sources exercise the citation list's features: a titled source with a
  * snippet and a date, a source with no title (its hostname labels the link) and
@@ -268,7 +268,7 @@ const WEB_SEARCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'sear
   truncated: true,
 }
 
-/** The `web_fetch` result view for fixture turn 70, authored inline for the same reason. */
+/** The `web_fetch` result view for fixture turn 71, authored inline for the same reason. */
 const WEB_FETCH_RESULT: Omit<Extract<ToolResultView, { card: 'web'; kind: 'fetch' }>, 'card' | 'kind'> = {
   url: 'https://www.deepseek.com/blog/harness-architecture',
   statusCode: 200,
@@ -484,17 +484,17 @@ function buildAlphaLog(): SessionEvent[] {
   // structured window.
   toolTurn(66, 'read', `{"file_path":${JSON.stringify(READ_SAMPLE_PATH)},"offset":${READ_SAMPLE_FIRST_LINE}}`, READ_SAMPLE_TEXT)
 
-  // Turns 67-68: the search card's two shapes. `grep` emits a `card: 'search'`
+  // Turns 68-69: the search card's two shapes. `grep` emits a `card: 'search'`
   // `shape: 'matches'` result view (grouped-by-file matches, truncated with a
   // larger `total`), `glob` emits `shape: 'paths'` (a flat path list, likewise
   // truncated). Both ride the keyed SearchRow registration under their own
   // names; the render-site fallback row is covered by the model derivation
   // tests, since every fixture search tool has a keyed row. Ordered before the
   // todo turn for the same standing-plan reason the bash turn is.
-  toolTurn(67, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
-  toolTurn(68, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
+  toolTurn(68, 'grep', '{"pattern":"SEARCH_MAX_LINES","path":"packages/client"}', SEARCH_MATCHES_TEXT)
+  toolTurn(69, 'glob', '{"pattern":"**/SearchBlock*","path":"packages/client"}', SEARCH_PATHS_TEXT)
 
-  // Turns 69-70: the web render intent — a web_search whose result view carries
+  // Turns 70-71: the web render intent — a web_search whose result view carries
   // structured sources plus an answer (the citation list, one source lacking a
   // title so its hostname labels the link, the capped indicator on), and a
   // web_fetch whose result view carries the fetched URL and its HTTP status.
@@ -503,11 +503,11 @@ function buildAlphaLog(): SessionEvent[] {
   // the real tools so they hit the keyed WebRow registration. Ordered BEFORE
   // the todo turn for the same reason turn 65 is: the standing plan retires at
   // the next turn/start, so a turn after it would empty the dock's plan strip.
-  toolTurn(69, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
-  toolTurn(70, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
+  toolTurn(70, 'web_search', '{"query":"deepseek harness architecture"}', 'Search results for deepseek harness architecture.')
+  toolTurn(71, 'web_fetch', '{"url":"https://www.deepseek.com/blog/harness-architecture"}', '# Harness architecture\n\nEverything is a plugin.')
 
   const todoArgs = JSON.stringify({ todos: fixtureTodos })
-  toolTurn(71, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
+  toolTurn(72, 'todo_write', todoArgs, 'Updated todo list: 1 pending, 1 in progress, 1 completed.')
   // The real tool appends the snapshot mid-execution — between tool/call and
   // tool/result — so the fixture reproduces that exact ordering (the last
   // toolTurn events run ... tool/call, tool/result, step/end, turn/end).
