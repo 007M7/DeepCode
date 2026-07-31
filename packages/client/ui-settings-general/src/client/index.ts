@@ -1,8 +1,7 @@
 /**
  * Settings ownerless-copy plugin, browser half: registers everything on the
  * Settings surface that belongs to no single feature — the trigger/header
- * chrome content, the General section (`settings.general.item` slot plus the
- * ownerless Tool Call skeleton), and the `settings` dictionaries.
+ * chrome content, the General section, and the `settings` dictionaries.
  * Feature-owned rows and sections stay with their features.
  * Export discipline: packages/client/AGENTS.md.
  */
@@ -13,14 +12,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ctx.locale and the 'settings.general.item' SlotMap merge.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
-import { GeneralSection, ToolCallSkeleton } from './GeneralSection.tsx'
+import { GeneralSection } from './GeneralSection.tsx'
 import { en, zh, type SettingsKey } from './locales.ts'
 
 export type {
   CloseLabelProps, HeaderContentProps, TriggerContentProps,
 } from './chrome.tsx'
 export type {
-  GeneralSectionComponentProps, ToolCallSkeletonProps,
+  GeneralSectionComponentProps,
 } from './GeneralSection.tsx'
 export type { SettingsKey } from './locales.ts'
 
@@ -69,19 +68,11 @@ export function apply(ctx: ClientContext): void {
         locale: NS,
         children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
       }, GeneralSection))
-    const toolCall = deferRegistration(ctx.slots, 'settings.general.item', ToolCallSkeleton, () =>
-      ctx.slots.register({
-        name: 'settings.general.item',
-        id: 'tool-call',
-        order: -10,
-        locale: NS,
-      }, ToolCallSkeleton))
     return () => {
       trigger.dispose()
       header.dispose()
       close.dispose()
       general.dispose()
-      toolCall.dispose()
     }
   }, 'ui-settings-general: chrome and section registrations')
 }

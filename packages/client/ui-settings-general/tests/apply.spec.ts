@@ -6,7 +6,7 @@ import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
-import { GeneralSection, ToolCallSkeleton } from '../src/client/GeneralSection.tsx'
+import { GeneralSection } from '../src/client/GeneralSection.tsx'
 
 /** The four seats this plugin fills (slot name → expected component). */
 const SEATS = [
@@ -61,17 +61,11 @@ describe('ui-settings-general apply', () => {
     // The nav label is a locale-following thunk; owners resolve at read time.
     expect(resolveSlotLabel(entry.options.label)).toBe('通用设置')
     expect(before.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
-    const toolEntry = before.slots.entries('settings.general.item')[0]!
-    expect(toolEntry).toMatchObject({
-      component: ToolCallSkeleton,
-      options: { id: 'tool-call', order: -10 },
-    })
+    expect(before.slots.entries('settings.general.item')).toEqual([])
     // Copy rides the standard locale seat: every seat declares the namespace.
     for (const [name] of SEATS) {
       expect(before.slots.entries(name)[0]!.locale).toBe('settings')
     }
-    expect(toolEntry.locale).toBe('settings')
-
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
     for (const [name] of SEATS) expect(after.slots.entries(name)).toHaveLength(0)
@@ -83,7 +77,7 @@ describe('ui-settings-general apply', () => {
       expect(after.slots.entries(name)).toHaveLength(1)
     }
     await vi.waitFor(() => {
-      expect(after.slots.entries('settings.general.item')[0]!.component).toBe(ToolCallSkeleton)
+      expect(after.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     })
   })
 
@@ -133,7 +127,7 @@ describe('ui-settings-general apply', () => {
     for (const [name, component] of SEATS) {
       expect(b.slots.entries(name)[0]!.component).toBe(component)
     }
-    expect(b.slots.entries('settings.general.item')[0]!.component).toBe(ToolCallSkeleton)
+    expect(b.slots.entries('settings.general.item')).toEqual([])
     expect(b.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     // The recovered registrations still ride the locale path.
     b.locale.setLocale('en')

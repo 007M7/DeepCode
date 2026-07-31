@@ -1,18 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import type {
-  GeneralSectionComponentProps, ToolCallSkeletonProps,
-} from '../src/client/GeneralSection.tsx'
-import { GeneralSection, ToolCallSkeleton } from '../src/client/GeneralSection.tsx'
+import type { GeneralSectionComponentProps } from '../src/client/GeneralSection.tsx'
+import { GeneralSection } from '../src/client/GeneralSection.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
+import type { TriggerContentProps } from '../src/client/chrome.tsx'
 import { en } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
 // The seat's key domain is settings ∪ common; the stub answers from the
 // package dictionary and falls back to the key like the real chain.
-const t: ToolCallSkeletonProps['t'] = key => (en as Record<string, string>)[key] ?? key
+const t: TriggerContentProps['t'] = key => (en as Record<string, string>)[key] ?? key
 
 // Global standard kit stubs: none of these components consume the hooks.
 const unusedHook = (() => { throw new Error('unused by settings-general components') }) as never
@@ -53,18 +52,5 @@ describe('GeneralSection', () => {
     const { renderSlot } = mount()
     expect(renderSlot).toHaveBeenCalledWith('settings.general.item', {})
     expect(screen.getByTestId('slot-settings.general.item')).toBeTruthy()
-  })
-})
-
-describe('ToolCallSkeleton', () => {
-  it('renders the mode cubes with schema pinned selected', () => {
-    render(<ToolCallSkeleton {...kit} t={t} />)
-    expect(screen.getByText('Tool Call')).toBeTruthy()
-    const schema = screen.getByText('Schema mode')
-    const code = screen.getByText('Code mode')
-    expect(schema.parentElement!.className).toContain('selected')
-    expect(code.parentElement!.className).not.toContain('selected')
-    expect(screen.getByText('Traditional function calling — invoke tools one at a time')).toBeTruthy()
-    expect(screen.getByText('Chain multiple tools with code — multi-step orchestration')).toBeTruthy()
   })
 })

@@ -14,7 +14,7 @@
   - button "Danger Full Access":
     - text: Danger Full Access
     - img
-  - text: 工具调用 Schema mode Traditional function calling — invoke tools one at a time Code mode Chain multiple tools with code — multi-step orchestration 语言
+  - text: 语言
   - button "中文":
     - text: 中文
     - img

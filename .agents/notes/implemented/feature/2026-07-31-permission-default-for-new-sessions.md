@@ -14,7 +14,7 @@ The Web General-settings page displayed Permission as a disabled skeleton even t
 
 The service reads the current Settings value synchronously at `session/created`. A genuinely fresh session receives three explicit events: `permission/preset`, `sandbox/mode`, and `approval/policy`. Those facts pin the permission selected at creation, so a later Settings change affects only later sessions. A seeded or partially initialized session preserves its effective knobs and receives only missing facts; it never adopts the latest user default while resuming.
 
-The existing `/permission` command and `permissions` projection remain the current-session path. The browser plugin now contributes the Permission row to `settings.general.item`, reads the dynamic enum from the redacted Settings descriptor, and writes only `defaultPreset` through a revision-checked `settings.mutate`. The ownerless General-settings package retains only the Tool Call skeleton.
+The existing `/permission` command and `permissions` projection remain the current-session path. The browser plugin now contributes the Permission row to `settings.general.item`, reads the dynamic enum from the redacted Settings descriptor, and writes only `defaultPreset` through a revision-checked `settings.mutate`. The ownerless General-settings package contributes no placeholder rows.
 
 ApiProxy explicitly adds `permission` to its Web settings allowlist beside the configurable-provider namespaces. This is a local boundary decision, not a general registration flag or a `local-client` access model: registering another Settings namespace still does not expose it. Permission changes emit `host/settings-changed` but not `host/models-changed`.
 

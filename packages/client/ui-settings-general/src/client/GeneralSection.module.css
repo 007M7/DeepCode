@@ -1,7 +1,5 @@
-/* General section rows (figma 501:29983 'Options'): stacked groups, 16px
- * vertical padding each, hairline separator under all but the last child
- * (feature-contributed rows carry their own row chrome and separators; the
- * :last-child rule strips the trailing one wherever the column ends). */
+/* Feature-contributed rows own their chrome and separators; the section
+ * strips the trailing separator wherever the column ends. */
 
 .section {
   display: flex;
@@ -11,65 +9,4 @@
 
 .section > :last-child {
   border-bottom: none;
-}
-
-/* Title + full-width body group (figma 'Frame 2117131229': column, gap 8). */
-.group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-
-.title {
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 22px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.desc {
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/* Tool Call mode cubes share an 8px gap and wrap to one per row when the
-   panel is too narrow. */
-.cubeRow {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-/* Tool Call mode cube (figma '.Selector Cube' 418w r16, flexed to fit the
- * 800 panel; horizontal inset = outer pad 4 + inner .Menu_cell pad 10,
- * vertical = inner pad 8). */
-.modeCube {
-  box-sizing: border-box;
-  flex: 1 1 276px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: 8px 14px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 16px;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.modeCube:hover:not(.selected) {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-/* Selected cube: #F5F6F7 fill + #ADB2B8 border (static token — the bluish-400
- * step has no alias-layer name). */
-.selected {
-  background: var(--dsw-alias-bg-module-platform);
-  border-color: var(--dsw-static-neutral-bluish-400);
 }

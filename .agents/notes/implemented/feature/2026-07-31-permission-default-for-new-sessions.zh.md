@@ -14,7 +14,7 @@ Web「通用」设置页将「权限」显示为禁用的骨架控件，尽管 `
 
 服务会在 `session/created` 时同步读取当前 Settings 值。真正的新会话会收到三个显式事件：`permission/preset`、`sandbox/mode` 和 `approval/policy`。这些事实将创建时选中的权限固定下来，因此后续 Settings 变更只影响之后的会话。带 seed 或只完成部分初始化的会话会保留其有效调节项，只补齐缺失的事实；恢复时绝不会采用最新的用户默认值。
 
-现有 `/permission` 命令和 `permissions` 投影仍是当前会话的操作路径。浏览器插件现在向 `settings.general.item` 贡献「权限」行，从脱敏后的 Settings 描述符读取动态 enum，并只通过经过 revision 校验的 `settings.mutate` 写入 `defaultPreset`。无归属的「通用」设置包只保留「工具调用」骨架。
+现有 `/permission` 命令和 `permissions` 投影仍是当前会话的操作路径。浏览器插件现在向 `settings.general.item` 贡献「权限」行，从脱敏后的 Settings 描述符读取动态 enum，并只通过经过 revision 校验的 `settings.mutate` 写入 `defaultPreset`。无归属的「通用」设置包不贡献任何占位行。
 
 ApiProxy 在可配置提供方 namespace 之外，将 `permission` 显式加入 Web Settings allowlist。这是局部的边界决策，而不是通用注册标志或 `local-client` 访问模型：注册其他 Settings namespace 仍不会将其暴露。权限变更会发出 `host/settings-changed`，但不会发出 `host/models-changed`。
 
