@@ -8,6 +8,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { Session } from '../src/client/sessions/session.ts'
 import { FakeApiClient, deferred, err, ok } from './fake-api.ts'
@@ -161,6 +162,214 @@ describe('live event path', () => {
     expect((last as { interrupted?: true }).interrupted).toBeUndefined()
   })
 
+  it('retracts the failed step partial on retry and keeps a replayable notice before the recovered response', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    const retryTurn = [
+      ev.turnStart(6, 1),
+      ev.user(7, '请重试'),
+      ev.stepStart(8, 1),
+      ev.chunkStart(9, 1),
+      ev.chunkText(10, 1, '不完整回复'),
+      ev.stepEnd(11, 1),
+      ev.retry(12, 1, 0, 1, 2, 450, '连接被重置'),
+      at(13, {
+        type: 'turn/end',
+        data: {
+          turn: 1,
+          reason: {
+            kind: 'error', step: 0,
+            failure: { code: 'TRANSPORT', message: '连接被重置' },
+          },
+        },
+      }),
+      at(14, { type: 'turn/start', data: { turn: 2, trigger: { kind: 'retry' } } }),
+      ev.stepStart(15, 2),
+      ev.assistant(16, 2, '完整回复'),
+      ev.stepEnd(17, 2),
+      ev.turnEnd(18, 2),
+    ]
+    for (const event of retryTurn.slice(0, 7)) feed(event)
+
+    let snapshot = session.getSnapshot()
+    expect(snapshot.partial).toBeNull()
+    expect(snapshot.nodes.at(-1)).toMatchObject({
+      kind: 'model-retry',
+      retryState: 'scheduled',
+      turn: 1,
+      step: 0,
+      provider: 'fake',
+      mode: 'normal',
+      policyKey: 'fake-normal',
+      retry: 1,
+      maxRetries: 2,
+      delayMs: 450,
+      failure: { code: 'TRANSPORT', message: '连接被重置' },
+    })
+    expect(JSON.stringify(snapshot.nodes)).not.toContain('不完整回复')
+
+    for (const event of retryTurn.slice(7)) feed(event)
+    snapshot = session.getSnapshot()
+    expect(snapshot.nodes.slice(-2).map(node => node.kind)).toEqual(['model-retry', 'assistant'])
+    expect(snapshot.nodes.at(-2)).toMatchObject({ kind: 'model-retry', retryState: 'started' })
+    expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'assistant', blocks: [{ kind: 'text', text: '完整回复' }] })
+
+    const replay = makeSession()
+    replay.api.onHistory = () => histResponse([...plainTurn(0, 0, 'a', 'b'), ...retryTurn])
+    await replay.session.open()
+    expect(replay.session.getSnapshot().nodes).toEqual(snapshot.nodes)
+    expect(replay.session.getSnapshot().partial).toBeNull()
+  })
+
+  it('rejects retry payloads outside the producer contract without retracting the current partial', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    feed(ev.turnStart(6, 1))
+    feed(ev.chunkStart(7, 1))
+    feed(ev.chunkText(8, 1, '仍在生成'))
+    const valid = {
+      turn: 1, step: 0,
+      provider: 'fake', mode: 'normal', policyKey: 'fake-normal',
+      retry: 1, maxRetries: 2, delayMs: 500,
+      failure: { code: 'TRANSPORT', message: 'temporary failure' },
+    }
+    const invalid = [
+      { ...valid, turn: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, step: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, provider: '' },
+      { ...valid, policyKey: '' },
+      { ...valid, retry: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, maxRetries: Number.MAX_SAFE_INTEGER + 1 },
+      { ...valid, delayMs: -1 },
+      { ...valid, delayMs: Number.POSITIVE_INFINITY },
+      { ...valid, delayMs: MAX_TIMER_DELAY_MS + 1 },
+      { ...valid, failure: { ...valid.failure, message: '' } },
+      { ...valid, failure: { ...valid.failure, code: '' } },
+      { ...valid, failure: { ...valid.failure, status: '429' } },
+      { ...valid, failure: { ...valid.failure, status: 99 } },
+      { ...valid, failure: { ...valid.failure, status: 429.5 } },
+      { ...valid, failure: { ...valid.failure, status: 600 } },
+      { ...valid, failure: { ...valid.failure, providerRetryAfterMs: 0 } },
+      { ...valid, failure: { ...valid.failure, providerRetryAfterMs: Number.POSITIVE_INFINITY } },
+      { ...valid, failure: { ...valid.failure, requestId: 1 } },
+      { ...valid, failure: { ...valid.failure, requestId: '' } },
+    ]
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      for (const [index, data] of invalid.entries()) {
+        feed(at(9 + index, { type: 'llm/retry', data }))
+      }
+      expect(session.getSnapshot().partial?.blocks).toEqual([{ kind: 'text', text: '仍在生成' }])
+      expect(session.getSnapshot().nodes.filter(node => node.kind === 'model-retry')).toEqual([])
+      expect(errorSpy).toHaveBeenCalledTimes(invalid.length)
+      expect(errorSpy).toHaveBeenCalledWith('[web-runtime] ignored malformed llm/retry event at seq 9')
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it('accepts complete retry payloads at the producer field boundaries', async () => {
+    const { session } = await opened()
+    session.handleMuxEnvelope('r' as never, {
+      type: 'session/event',
+      sessionId: SID,
+      event: at(6, {
+        type: 'llm/retry',
+        data: {
+          turn: Number.MAX_SAFE_INTEGER,
+          step: Number.MAX_SAFE_INTEGER,
+          provider: 'fake',
+          mode: 'normal',
+          policyKey: 'fake-normal',
+          retry: Number.MAX_SAFE_INTEGER,
+          maxRetries: Number.MAX_SAFE_INTEGER,
+          delayMs: MAX_TIMER_DELAY_MS,
+          failure: {
+            code: 'RATE_LIMIT',
+            message: 'provider busy',
+            status: 599,
+            providerRetryAfterMs: Number.MIN_VALUE,
+            requestId: 'req-1',
+          },
+        },
+      }),
+    })
+    expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+      kind: 'model-retry',
+      retryState: 'scheduled',
+      retry: Number.MAX_SAFE_INTEGER,
+      delayMs: MAX_TIMER_DELAY_MS,
+      failure: { status: 599, providerRetryAfterMs: Number.MIN_VALUE, requestId: 'req-1' },
+    })
+  })
+
+  it('projects always-mode retries and rejects mode-specific maximums or unknown modes', async () => {
+    const { session } = await opened()
+    const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      feed(at(6, {
+        type: 'llm/retry',
+        data: {
+          turn: 1, step: 0,
+          provider: 'fake', mode: 'always', policyKey: 'fake-always',
+          retry: 3, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'retry forever' },
+        },
+      }))
+      expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+        kind: 'model-retry',
+        retryState: 'scheduled',
+        mode: 'always',
+        retry: 3,
+      })
+
+      feed(at(7, {
+        type: 'llm/retry',
+        data: {
+          turn: 2, step: 0,
+          provider: 'fake', mode: 'always', policyKey: 'fake-always',
+          retry: 4, maxRetries: 4, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'unexpected maximum' },
+        },
+      }))
+      feed(at(8, {
+        type: 'llm/retry',
+        data: {
+          turn: 2, step: 0,
+          provider: 'fake', mode: 'sometimes', policyKey: 'fake-unknown',
+          retry: 4, delayMs: 500,
+          failure: { code: 'TRANSPORT', message: 'unknown mode' },
+        },
+      }))
+      expect(session.getSnapshot().nodes.filter(node => node.kind === 'model-retry')).toHaveLength(1)
+      expect(errorSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
+  it.each(['aborted', 'disposed'] as const)(
+    'marks a scheduled retry as cancelled when its failed turn ends %s',
+    async (reason) => {
+      const { session } = await opened()
+      const feed = (event: SessionEvent) => {
+        session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event })
+      }
+      feed(ev.turnStart(6, 1))
+      feed(ev.retry(7, 1))
+      expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+        kind: 'model-retry',
+        retryState: 'scheduled',
+      })
+      feed(ev.turnEnd(8, 1, reason))
+      expect(session.getSnapshot().nodes.at(-1)).toMatchObject({
+        kind: 'model-retry',
+        retryState: 'cancelled',
+      })
+    },
+  )
+
   it('freezes an unfinalized partial into an interrupted node on turn/end (cancel path)', async () => {
     const { session } = await opened()
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
@@ -168,7 +377,7 @@ describe('live event path', () => {
     feed(ev.user(7, '要被打断的'))
     feed(ev.chunkStart(8, 1))
     feed(ev.chunkText(9, 1, '说到一半'))
-    feed(ev.turnEnd(10, 1, 'cancelled')) // no assistant/message ever arrives
+    feed(ev.turnEnd(10, 1, 'aborted')) // no assistant/message ever arrives
     const snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
     const frozen = snapshot.nodes.at(-1)
@@ -187,7 +396,7 @@ describe('live event path', () => {
     expect(session.getSnapshot().runningCalls).toEqual([])
     // Second call never resolves: turn/end freezes it as an error card.
     feed(ev.toolCall(9, 1, 'c2', 'slow_tool', '{}'))
-    feed(ev.turnEnd(10, 1, 'cancelled'))
+    feed(ev.turnEnd(10, 1, 'aborted'))
     const snapshot = session.getSnapshot()
     expect(snapshot.runningCalls).toEqual([])
     expect(snapshot.nodes.at(-1)).toMatchObject({
@@ -529,7 +738,7 @@ describe('remaining branches', () => {
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.turnStart(6, 1))
     feed(ev.chunkStart(7, 1)) // empty text block only, no delta
-    feed(ev.turnEnd(8, 1, 'cancelled'))
+    feed(ev.turnEnd(8, 1, 'aborted'))
     const snapshot = session.getSnapshot()
     expect(snapshot.partial).toBeNull()
     expect(snapshot.nodes.filter(n => n.kind === 'assistant' && (n as { interrupted?: true }).interrupted)).toEqual([])
@@ -543,7 +752,7 @@ describe('remaining branches', () => {
     feed(ev.turnStart(6, 1))
     feed(ev.toolCall(7, 1, 'turn1-call', 'echo', '{}'))
     feed(ev.toolCall(8, 2, 'turn2-call', 'echo', '{}')) // stray call attributed to a later turn
-    feed(ev.turnEnd(9, 1, 'cancelled'))
+    feed(ev.turnEnd(9, 1, 'aborted'))
     const snapshot = session.getSnapshot()
     expect(snapshot.runningCalls.map(c => c.callId)).toEqual(['turn2-call'])
     expect(snapshot.nodes.at(-1)).toMatchObject({ kind: 'tool-result', callId: 'turn1-call', isError: true })
@@ -637,7 +846,7 @@ describe('remaining branches', () => {
     const feed = (event: SessionEvent) => { session.handleMuxEnvelope('r' as never, { type: 'session/event', sessionId: SID, event }) }
     feed(ev.turnStart(6, 1))
     feed(at(7, { type: 'assistant/chunk', data: { turn: 1, step: 0, chunk: { type: 'tool-call-delta', index: 0, id: 'c1', name: 'echo', argumentsDelta: '{' } } }))
-    feed(ev.turnEnd(8, 1, 'cancelled'))
+    feed(ev.turnEnd(8, 1, 'aborted'))
     const frozen = session.getSnapshot().nodes.at(-1)
     expect(frozen).toMatchObject({ kind: 'assistant', interrupted: true, blocks: [{ kind: 'tool-call', callId: 'c1' }] })
   })
