@@ -3,7 +3,7 @@ import type { ReactNode, RefObject } from 'react'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ComposerKeyboard, EditSelection, InputActions, InputNotice, InputState } from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
@@ -244,8 +244,6 @@ export interface ConversationSessionInjected {
   }
   /** Bind the input machine's draft persistence mirror to the session store. */
   bindDraftMirror: (write: (text: string) => void) => () => void
-  /** Select a real Session through the runtime navigation owner. */
-  open: (sessionId: SessionId) => void
 }
 
 /**
@@ -355,7 +353,6 @@ export type ConversationSessionSlotProps =
   & PropsRenderSlots<'conversation.view'>
   & PropsStore<ChatStore>
   & ConversationSessionInjected
-  & PropsLocale<'conversation'>
 
 /** The pending approval carrier the owner dispatches into the composer chain. */
 export type ApprovalWait = PendingWait<'approval'>

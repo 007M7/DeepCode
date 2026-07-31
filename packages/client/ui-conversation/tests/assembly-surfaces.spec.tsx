@@ -20,7 +20,7 @@
  * suite only proves the assembled wiring.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId, TodoItem, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
@@ -256,16 +256,14 @@ describe('prompt rejection through the assembled composer', () => {
 })
 
 describe('title projection across assembled surfaces', () => {
-  it('one summary update re-labels the breadcrumb and document.title consumers together', async () => {
+  it('one summary update re-labels the current-session heading', async () => {
     const runtime = await bench([])
     const view = runtime.renderRoot()
-    // The strict session header breadcrumb reads useSessions ancestry.
-    const crumb = within(view.container.querySelector('[aria-label="会话层级"]') as HTMLElement)
-    expect(crumb.getByText('S')).toBeTruthy()
+    expect(view.getByRole('heading', { name: 'S', level: 1 })).toBeTruthy()
 
     await runtime.sessions.updateSummary(SID, { displayTitle: '修订标题', title: '修订标题' })
-    await waitFor(() => { expect(crumb.getByText('修订标题')).toBeTruthy() })
-    expect(crumb.queryByText('S')).toBeNull()
+    await waitFor(() => { expect(view.getByRole('heading', { name: '修订标题', level: 1 })).toBeTruthy() })
+    expect(view.queryByRole('heading', { name: 'S', level: 1 })).toBeNull()
     await runtime.dispose()
   })
 })
