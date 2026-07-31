@@ -3,7 +3,7 @@
  * for the Web/headless surface.
  * Everything here is what must exist before the Loader runs: the patch
  * composition over the shipped base and surface overlay (profile json + CLI
- * flags + the resolved frontend dist), and the fail-loud triple after the tree
+ * flags + the resolved frontend dist), and the fail-loud activation audit after the tree
  * settles. The environment is what the bin already loaded (ambient plus the
  * invoking directory's `.env`); `$DSH_HOME/.env` belongs to the credential
  * provider and is never hoisted here.
@@ -246,7 +246,7 @@ export class AppCLIEntry {
     if (telemetryPatch !== undefined) this.patches.push(telemetryPatch)
   }
 
-  /** Shared Loader boot; the dev HMR row mounts before await so the fail-loud sweep covers it. */
+  /** Shared Loader boot; the dev HMR row mounts before await so the activation audit covers it. */
   private async bootTree(): Promise<void> {
     // One include of the shared base with every overlay as a sibling patch
     // list: patches never cross an include boundary, so nesting them would

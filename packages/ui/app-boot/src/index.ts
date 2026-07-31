@@ -160,16 +160,46 @@ export interface FailLoudProcess {
   exit(code: number): void
 }
 
+// Loader rc.5 derives and drops a rejected promise after a fiber fails. Keep
+// exact reasons already folded into the boot diagnostic visible through the
+// next process rejection checkpoint so the process guard can coalesce them.
+const assembledActivationRejections = new Map<unknown, number>()
+
+function retainAssembledRejection(reason: unknown): void {
+  assembledActivationRejections.set(reason, (assembledActivationRejections.get(reason) ?? 0) + 1)
+}
+
+function releaseAssembledRejection(reason: unknown): void {
+  const count = assembledActivationRejections.get(reason)
+  if (count === undefined || count === 1) {
+    assembledActivationRejections.delete(reason)
+  } else {
+    assembledActivationRejections.set(reason, count - 1)
+  }
+}
+
+async function observeLoaderRejectionCheckpoint(reasons: readonly unknown[]): Promise<void> {
+  for (const reason of reasons) retainAssembledRejection(reason)
+  try {
+    await new Promise<void>(resolve => setImmediate(resolve))
+  } finally {
+    for (const reason of reasons) releaseAssembledRejection(reason)
+  }
+}
+
 /**
  * Install before boot to turn a late unhandled plugin-init rejection into one
- * labelled stderr diagnostic and `exit(1)`. Stdout remains untouched for ACP;
- * the returned function removes the handler.
+ * labelled stderr diagnostic and `exit(1)`. A rejection already included by
+ * {@link assertEntriesActivated} is ignored during its process checkpoint;
+ * every other rejection remains fatal. Stdout remains untouched for ACP; the
+ * returned function removes the handler.
  * @param binName - the diagnostic prefix on the fatal-failure line.
  * @param proc - the process slice to register on; tests inject a fake.
  * @returns the uninstaller that removes the rejection handler.
  */
 export function installFailLoud(binName: string, proc: FailLoudProcess = process): () => void {
   const handler = (err: unknown): void => {
+    if (assembledActivationRejections.has(err)) return
     proc.stderr.write(`${binName}: fatal load failure: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`)
     proc.exit(1)
   }
@@ -192,28 +222,64 @@ export function assertEntriesLoaded(ctx: Context, binName: string): void {
   }
 }
 
-/** Runtime mirrors for Cordis's erased const-enum fiber states. */
-const FIBER_ACTIVE = 2 as FiberState.ACTIVE
+/**
+ * Value mirrors used because Cordis's const enum has no runtime object to import.
+ * Keep aligned with `packages/cordis/tool-cordis/src/fiber-state.ts` and
+ * `packages/client/web/src/loader-status.ts`.
+ */
 const FIBER_PENDING = 0 as FiberState.PENDING
+const FIBER_ACTIVE = 2 as FiberState.ACTIVE
+const FIBER_FAILED = 3 as FiberState.FAILED
+
+/** Render a thrown plugin value without discarding an Error's original stack. */
+function formatActivationError(error: unknown): string {
+  return error instanceof Error ? error.stack ?? error.message : String(error)
+}
 
 /**
- * Reject enabled Loader entries whose fibers did not reach ACTIVE after settle.
- * @param ctx - The settled application root.
- * @param binName - Diagnostic prefix.
+ * Reject a settled Loader tree when an enabled entry failed or remains inactive.
+ * Plugin failures include the original thrown stack; pending entries name their
+ * unresolved services because no plugin error exists for that state. Active
+ * entries require no further wait; only failed fibers are awaited to recover
+ * their private rejection reason.
+ * @param ctx - the settled context whose Loader entries to audit.
+ * @param binName - the diagnostic prefix on the thrown error.
+ * @returns nothing when every enabled entry is active.
+ * @throws after one process rejection checkpoint when an entry failed to
+ * import, rejected during activation, or did not become active.
  */
-export function assertEntriesActive(ctx: Context, binName: string): void {
+export async function assertEntriesActivated(ctx: Context, binName: string): Promise<void> {
+  assertEntriesLoaded(ctx, binName)
   const failures: string[] = []
+  const rejectionReasons: unknown[] = []
   for (const entry of ctx.loader.entries()) {
-    if (entry.fiber === undefined || entry.disabled || entry.fiber.state === FIBER_ACTIVE) continue
-    if (entry.fiber.state === FIBER_PENDING) {
-      const missing = Object.keys(entry.fiber.inject).filter(service => ctx.get(service) === undefined)
-      failures.push(`${entry.options.name}: pending (waiting for service${missing.length === 1 ? '' : 's'}: ${missing.join(', ') || 'unknown'})`)
+    const fiber = entry.fiber
+    if (fiber === undefined || entry.disabled) continue
+    const state = fiber.state
+    if (state === FIBER_ACTIVE) continue
+    if (state === FIBER_FAILED) {
+      try {
+        await fiber.await()
+      } catch (error) {
+        rejectionReasons.push(error)
+        failures.push(`${entry.options.name}: ${formatActivationError(error)}`)
+      }
+      continue
+    }
+    if (state === FIBER_PENDING) {
+      const missing = Object.keys(fiber.inject).filter(service => fiber.ctx.get(service) === undefined)
+      const subject = missing.length === 1 ? 'service' : 'services'
+      failures.push(`${entry.options.name}: pending (waiting for ${subject}: ${missing.join(', ') || 'unknown'})`)
     } else {
-      failures.push(`${entry.options.name}: fiber state ${String(entry.fiber.state)}`)
+      failures.push(`${entry.options.name}: fiber state ${String(state)}`)
     }
   }
   if (failures.length > 0) {
-    throw new Error(`${binName}: ${String(failures.length)} entr${failures.length === 1 ? 'y' : 'ies'} did not activate\n${failures.join('\n')}`)
+    if (rejectionReasons.length > 0) {
+      await observeLoaderRejectionCheckpoint(rejectionReasons)
+    }
+    const noun = failures.length === 1 ? 'entry' : 'entries'
+    throw new Error(`${binName}: ${String(failures.length)} ${noun} did not activate\n${failures.join('\n')}`)
   }
 }
 
@@ -225,9 +291,13 @@ export function assertEntriesActive(ctx: Context, binName: string): void {
  * bootstrap include is therefore statically imported and mounted as the
  * `cordis:include` builtin, loading through the ambient module pipeline
  * (vite/tsx/plain ESM) while the included tree's own specifiers stay
- * config-relative. A missing fiber rejects here; a later init rejection is
- * handled by {@link installFailLoud}. Built bins need the Loader's native
- * helper for bare plugin specifiers; relative specifiers do not.
+ * config-relative. The package build embeds Include while leaving Loader
+ * external, so the built include tree and host share one Loader peer. A
+ * missing fiber rejects here; a later init rejection is rethrown with its
+ * original stack by {@link assertEntriesActivated}; later unhandled
+ * rejections remain covered by {@link installFailLoud}. Built bins need the
+ * Loader's native helper for bare plugin specifiers; relative specifiers do
+ * not.
  * @param binName - the diagnostic prefix for load-failure errors.
  * @param absoluteConfigPath - the config to include; must already be absolute
  * (see {@link resolveConfigPath}).
@@ -259,12 +329,11 @@ export async function boot(
   // A surface can finish and dispose the whole tree while that await is still
   // pending: the TUI renders as soon as its own fiber starts, so an `/exit`
   // typed before the last entry settles tears the context down under us. The
-  // Loader service goes with it, and both assertions below describe a live
+  // Loader service goes with it, and the activation audit describes a live
   // tree — reading `ctx.loader` here would throw a TypeError over an app that
   // exited exactly as asked.
   if (ctx.get('loader') === undefined) return ctx
-  assertEntriesLoaded(ctx, binName)
-  assertEntriesActive(ctx, binName)
+  await assertEntriesActivated(ctx, binName)
   return ctx
 }
 
