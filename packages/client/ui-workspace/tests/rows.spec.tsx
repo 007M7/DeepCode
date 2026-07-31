@@ -5,8 +5,8 @@ import type { SessionId, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/cli
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
-import { ProjectRowItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
-import type { GroupNode, SessionNode } from '../src/client/tree.ts'
+import { ProjectRowItem, SearchResultItem, SessionNodeItem } from '../src/client/rows/Rows.tsx'
+import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -44,6 +44,25 @@ function fireDrag(row: HTMLElement, kind: 'dragOver' | 'drop', clientY: number):
 }
 
 describe('workspace browser rows', () => {
+  it('renders a selected content-search row and opens only its session', () => {
+    const onOpen = vi.fn()
+    const result: SearchResultNode = {
+      id: sid('result'),
+      title: 'Result title',
+      workspace: 'Workspace context',
+      running: true,
+      snippet: 'matching message excerpt',
+    }
+    render(<SearchResultItem result={result} currentId={result.id} onOpen={onOpen} />)
+    const row = screen.getByRole('treeitem')
+    expect(row.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('Workspace context')).toBeTruthy()
+    expect(screen.getByText('matching message excerpt')).toBeTruthy()
+    expect(row.hasAttribute('draggable')).toBe(false)
+    fireEvent.click(row)
+    expect(onOpen).toHaveBeenCalledWith(result.id)
+  })
+
   it('renders an active Workspace and keeps its create action separate from toggling', () => {
     const onToggle = vi.fn()
     const onCreate = vi.fn()

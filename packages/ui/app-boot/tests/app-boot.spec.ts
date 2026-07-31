@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import {
-  addHarnessSourceSection, assertEntriesActive, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
+  addHarnessSourceSection, assertEntriesActivated, assertEntriesLoaded, boot, HARNESS_SOURCE_SECTION,
   installFailLoud, loadEnv, loadOverlayPatches, resolveConfigPath, type FailLoudProcess,
 } from '../src/index.ts'
 
@@ -135,6 +135,33 @@ describe('installFailLoud', () => {
     uninstallReal()
     expect(process.listenerCount('unhandledRejection')).toBe(before)
   })
+
+  it('does not report an activation rejection shared by entries in the boot audit', async () => {
+    const proc = fakeProc()
+    installFailLoud(NAME, proc)
+    const error = new Error('assembled activation failure')
+    const audit = assertEntriesActivated({
+      loader: {
+        entries: () => ['broken-a', 'broken-b'].map(name => ({
+          options: { name },
+          fiber: {
+            state: 3,
+            inject: {},
+            ctx: { get: () => undefined },
+            await: async () => { throw error },
+          },
+        })),
+      },
+    } as unknown as Context, NAME)
+    await Promise.resolve()
+    await Promise.resolve()
+    proc.handlers[0]!(error)
+    expect(proc.written).toEqual([])
+    expect(proc.exits).toEqual([])
+    await expect(audit).rejects.toThrow('assembled activation failure')
+    proc.handlers[0]!(error)
+    expect(proc.exits).toEqual([1])
+  })
 })
 
 describe('assertEntriesLoaded', () => {
@@ -154,6 +181,97 @@ describe('assertEntriesLoaded', () => {
       { options: { name: 'broken-a' } },
       { options: { name: 'broken-b' } },
     ]), NAME) }).toThrow(`${NAME}: plugin(s) failed to load: broken-a, broken-b`)
+  })
+})
+
+describe('assertEntriesActivated', () => {
+  interface FakeFiber {
+    state: number
+    inject: Record<string, unknown>
+    ctx: { get(name: string): unknown }
+    await(): Promise<unknown>
+  }
+
+  const ctxWith = (entries: Array<{ fiber?: FakeFiber; disabled?: boolean; options: { name: string } }>): Context => ({
+    loader: { entries: () => entries },
+  }) as unknown as Context
+
+  const fiber = (
+    state: number,
+    error?: unknown,
+    inject: Record<string, unknown> = {},
+    services: string[] = [],
+  ): FakeFiber => ({
+    state,
+    inject,
+    ctx: { get: name => services.includes(name) ? {} : undefined },
+    await: error === undefined ? async () => undefined : async () => { throw error },
+  })
+
+  it('passes active entries and ignores disabled entries', async () => {
+    let awaitCalls = 0
+    const active = fiber(2)
+    active.await = async () => {
+      awaitCalls++
+      return undefined
+    }
+    const disabled = fiber(3, new Error('disabled failure'))
+    disabled.await = async () => {
+      awaitCalls++
+      throw new Error('disabled failure')
+    }
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: active, options: { name: 'active' } },
+      { fiber: disabled, disabled: true, options: { name: 'disabled' } },
+    ]), NAME)).resolves.toBeUndefined()
+    expect(awaitCalls).toBe(0)
+  })
+
+  it('reports the plugin name and original activation stack instead of fiber state 3', async () => {
+    const original = new Error('actual plugin failure')
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(3, original), options: { name: 'broken-plugin' } },
+    ]), NAME)).rejects.toThrow(`${NAME}: 1 entry did not activate\nbroken-plugin: ${original.stack!}`)
+  })
+
+  it('formats stackless and non-Error activation failures', async () => {
+    const stackless = new Error('stackless failure')
+    delete (stackless as { stack?: string }).stack
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(3, stackless), options: { name: 'stackless' } },
+      { fiber: fiber(3, 'plain failure'), options: { name: 'plain' } },
+    ]), NAME)).rejects.toThrow(`${NAME}: 2 entries did not activate\nstackless: stackless failure\nplain: plain failure`)
+  })
+
+  it('reports unresolved services for pending entries', async () => {
+    let awaitCalls = 0
+    const expected = [
+      `${NAME}: 3 entries did not activate`,
+      'waiting: pending (waiting for services: missingA, missingB)',
+      'single-wait: pending (waiting for service: missing)',
+      'unknown-wait: pending (waiting for services: unknown)',
+    ].join('\n')
+    const waiting = fiber(0, undefined, { ready: {}, missingA: {}, missingB: {} }, ['ready'])
+    const singleWait = fiber(0, undefined, { missing: {} })
+    const unknownWait = fiber(0)
+    for (const item of [waiting, singleWait, unknownWait]) {
+      item.await = async () => {
+        awaitCalls++
+        return undefined
+      }
+    }
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: waiting, options: { name: 'waiting' } },
+      { fiber: singleWait, options: { name: 'single-wait' } },
+      { fiber: unknownWait, options: { name: 'unknown-wait' } },
+    ]), NAME)).rejects.toThrow(expected)
+    expect(awaitCalls).toBe(0)
+  })
+
+  it('retains the numeric diagnostic for a settled unexpected state', async () => {
+    await expect(assertEntriesActivated(ctxWith([
+      { fiber: fiber(4), options: { name: 'disposed' } },
+    ]), NAME)).rejects.toThrow('disposed: fiber state 4')
   })
 })
 
@@ -232,31 +350,14 @@ describe('boot', () => {
     await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow(`${NAME}: plugin(s) failed to load: ./missing.mjs`)
   })
 
-  it('rejects a settled tree with a pending inject and names every missing service', async () => {
+  it('reports a pending real Loader fiber and the service unresolved in its own context', async () => {
     const dir = tmp()
-    writeFileSync(join(dir, 'waiting.mjs'), "export const inject = ['alpha', 'beta']\nexport function apply() {}\n")
+    writeFileSync(join(dir, 'waiting.mjs'), 'export const inject = ["neverProvided"]\nexport function apply() {}\n')
     writeFileSync(join(dir, 'cordis.yml'), '- id: waiting\n  name: ./waiting.mjs\n')
-    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow('./waiting.mjs: pending (waiting for services: alpha, beta)')
-  })
-
-  it('uses singular diagnostics for one missing pending dependency', () => {
-    const ctx = {
-      loader: { entries: () => [{ disabled: false, options: { name: 'waiting' }, fiber: { state: 0, inject: { alpha: {} } } }] },
-      get: () => undefined,
-    } as unknown as Context
-    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow('waiting: pending (waiting for service: alpha)')
-  })
-
-  it('reports unknown pending dependencies and unexpected fiber states', () => {
-    const entries = [
-      { disabled: false, options: { name: 'unknown' }, fiber: { state: 0, inject: {} } },
-      { disabled: false, options: { name: 'failed' }, fiber: { state: 3, inject: {} } },
-    ]
-    const ctx = {
-      loader: { entries: () => entries },
-      get: () => undefined,
-    } as unknown as Context
-    expect(() =>{  assertEntriesActive(ctx, NAME) }).toThrow(`${NAME}: 2 entries did not activate\nunknown: pending (waiting for services: unknown)\nfailed: fiber state 3`)
+    await expect(boot(NAME, join(dir, 'cordis.yml'))).rejects.toThrow([
+      `${NAME}: 1 entry did not activate`,
+      './waiting.mjs: pending (waiting for service: neverProvided)',
+    ].join('\n'))
   })
 })
 

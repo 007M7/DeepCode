@@ -58,6 +58,47 @@ interface PkgMeta {
   immediately: boolean
 }
 
+/** Recovery instruction shared by grouped startup and steady-state bundle diagnostics. */
+const CLIENT_BUNDLE_BUILD_INSTRUCTION = 'run `pnpm run build` before launch'
+
+/** Missing built client export, retained as structured data for activation-error grouping. */
+class MissingClientBundleError extends Error {
+  constructor(
+    readonly packageName: string,
+    readonly clientPath: string,
+    cause: unknown,
+  ) {
+    super(
+      [
+        `client-modules: client bundle not found; ${CLIENT_BUNDLE_BUILD_INSTRUCTION}:`,
+        `  package: ${packageName}`,
+        `  path: ${clientPath}`,
+      ].join('\n'),
+      { cause },
+    )
+  }
+}
+
+/** Activation failures grouped by actionable package-build errors and unrelated failures. */
+class ClientPackageCompositionError extends AggregateError {
+  constructor(failures: Error[]) {
+    const missingBundles = failures.filter((error): error is MissingClientBundleError => error instanceof MissingClientBundleError)
+    const otherFailures = failures.filter(error => !(error instanceof MissingClientBundleError))
+    const packageNoun = failures.length === 1 ? 'package' : 'packages'
+    const lines = [`client-modules: ${String(failures.length)} client ${packageNoun} failed to compose:`]
+    if (missingBundles.length > 0) {
+      lines.push(`  client bundles not found; ${CLIENT_BUNDLE_BUILD_INSTRUCTION}:`)
+      for (const error of missingBundles) {
+        lines.push(`    - package: ${error.packageName}`, `      path: ${error.clientPath}`)
+      }
+    }
+    if (otherFailures.length > 0) {
+      lines.push('  other failures:', ...otherFailures.map(error => `    - ${error.message}`))
+    }
+    super(failures, lines.join('\n'))
+  }
+}
+
 /** One composed table row: the wire entry plus its bundle path. */
 interface WebPluginRecord {
   entry: WebBootEntry
@@ -138,7 +179,7 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
  * + bundle route + index tap. Construction runs the activation scan
  * synchronously — a malformed declaration or missing bundle among the
  * already-loaded entries aggregates into one loud throw (FAILED fiber; the
- * boot sweep reports it).
+ * boot activation audit reports it).
  */
 export class ClientModuleHostService extends Service {
   static inject = ['httpServer', 'loader']
@@ -194,10 +235,7 @@ export class ClientModuleHostService extends Service {
     const failures: Error[] = []
     this.flush(err => failures.push(err))
     if (failures.length > 0) {
-      throw new AggregateError(
-        failures,
-        `client-modules: ${String(failures.length)} client package(s) failed to compose:\n${failures.map(e => `  - ${e.message}`).join('\n')}`,
-      )
+      throw new ClientPackageCompositionError(failures)
     }
 
     ctx.effect(
@@ -322,6 +360,22 @@ export class ClientModuleHostService extends Service {
     return meta
   }
 
+  /**
+   * Read the activation-time bundle revision.
+   * @param pkgName - package that declares the client bundle.
+   * @param clientPath - absolute path of the built client artifact.
+   * @returns the bundle content's short hash for use as its revision.
+   * @throws {MissingClientBundleError} when the read fails with `ENOENT`; other filesystem errors are rethrown unchanged.
+   */
+  private initialBundleRevision(pkgName: string, clientPath: string): string {
+    try {
+      return shortHash(readFileSync(clientPath))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      throw new MissingClientBundleError(pkgName, clientPath, error)
+    }
+  }
+
   /** Reconcile one entry name against the live loader entries. @returns whether the table changed. */
   private processOne(entryName: string): boolean {
     let qualifies = false
@@ -337,7 +391,7 @@ export class ClientModuleHostService extends Service {
     if (meta === null) return false
     // The rev rides the row from here on: a fiber restart reuses the row (and
     // its rev) untouched; only rebuilt() re-reads the bundle.
-    const rev = shortHash(readFileSync(meta.clientPath))
+    const rev = this.initialBundleRevision(entryName, meta.clientPath)
     this.table.set(entryName, { entry: graphRow(entryName, rev, meta.inject, meta.immediately), clientPath: meta.clientPath })
     return true
   }
