@@ -234,7 +234,7 @@ describe('DetailsPanel web Output section', () => {
     expect(view.getByText('HTTP 200')).toBeTruthy()
     // The card is a summary (URL + status only); the panel is the single-call
     // reading surface, so the fetched body still renders below the card.
-    const output = view.getByText('Output').closest('section')
+    const output = view.getByText('输出').closest('section')
     expect(output?.querySelector('pre')?.textContent).toContain('fetch body')
   })
 
@@ -243,7 +243,7 @@ describe('DetailsPanel web Output section', () => {
       nodes: [settledSearch({ callView: null, resultView: null })],
     }), { turnSeq: 10, callId: 'c1', toolName: 'web_search' })
     expect(view.container.querySelector('[data-web]')).toBeNull()
-    const output = view.getByText('Output').closest('section')
+    const output = view.getByText('输出').closest('section')
     expect(output?.querySelector('pre')?.textContent).toContain('search text')
   })
 })
