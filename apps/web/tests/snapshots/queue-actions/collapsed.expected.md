@@ -12,6 +12,7 @@
 - button "Edit":
   - img
 - paragraph: partial
+- status: Deep diving...
 - button "2 queued messages"
 - textbox "Message the agent"
 - button "Commands":
