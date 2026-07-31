@@ -30,11 +30,11 @@ The policy owner contributes capability-neutral `sandbox:policy` context. Indire
 
 #### Token effect
 
-The current-policy clause adds a small fixed prefix while this backend is mounted; a denial adds the bounded marker and escalation hint to conversation history.
+The current-policy clause adds a small runtime-context message while this backend is mounted; a denial adds the bounded marker and escalation hint to conversation history.
 
 #### KV Cache effect
 
-A standing-policy change updates the owner-rendered request prefix; operation results remain append-only.
+A standing-policy change appends an owner-rendered superseding runtime-context snapshot after retained history; operation results remain append-only.
 
 ## Known Limitations and Deferred Work
 

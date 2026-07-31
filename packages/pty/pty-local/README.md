@@ -26,7 +26,7 @@ The current-policy clause is present while this backend is mounted. Retained PTY
 
 #### KV Cache effect
 
-A standing-policy change updates the owner-rendered request prefix; consumer results remain append-only.
+A standing-policy change appends an owner-rendered superseding runtime-context snapshot after retained history; consumer results remain append-only.
 
 ## Known Limitations and Deferred Work
 
