@@ -383,6 +383,13 @@ export function InputBar({
     // offset at the very bottom clamps and the glyphs sit a line behind the
     // caret. The extra newline is absorbed by that same collapse when the draft
     // does not end in one, so it costs no height in the ordinary case.
+    //
+    // The mirror only fails one way — a backdrop SHORTER than the textarea
+    // clamps the assignment, while a taller one takes every offset exactly and
+    // hides the surplus below the clip. That is why the ghost hint needs no
+    // handling of its own: it can only add content after the draft and before
+    // this sentinel, never remove a line box, so it moves the pair to equal or
+    // to the safe side.
     backdrop.push('\n')
   }
 
