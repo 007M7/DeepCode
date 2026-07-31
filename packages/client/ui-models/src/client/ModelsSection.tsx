@@ -11,6 +11,7 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+import { IconPlusOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-web-react'
 import { messageOf } from './store.ts'
 import type { ModelsSettingsState, ModelsSettingsStore, ProviderRow } from './store.ts'
@@ -272,7 +273,8 @@ function Loaded({ injected }: { injected: ModelsSectionInjected }): ReactNode {
                 setEditing(targetOf(first))
               }}
             >
-              {`+ ${t('add')}`}
+              <IconPlusOutline16 size={14} />
+              {t('add')}
             </button>
           )}
       </div>

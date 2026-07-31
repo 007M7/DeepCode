@@ -8,6 +8,9 @@ import type { RpcResponse, SettingsNamespaceView } from '@deepseek-ai/dsh-client
 import { ModelsSection, needsSetup, removeProviderProfile } from '../src/client/ModelsSection.tsx'
 import type { ModelsSectionInjected, ModelsSectionProps } from '../src/client/ModelsSection.tsx'
 import { pathOps } from '../src/client/ProviderEditor.tsx'
+import {
+  DeepSeekModelsEditor, modelDrafts, validateDeepSeekModels,
+} from '../src/client/DeepSeekModelsEditor.tsx'
 import { deriveKeyRef, ModelsSettingsStore } from '../src/client/store.ts'
 import type { ProviderRow } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
@@ -32,15 +35,38 @@ const DeepSeekConfig = Schema.object({
   apiKeyEnv: Schema.string().role('credential-ref'),
   baseURL: Schema.string().pattern(/^https:\/\//),
   reasoningEffort: Schema.union(['off', 'high', 'max']),
+  defaultContextWindow: Schema.number().step(1).min(1),
+  models: Schema.array(Schema.object({
+    id: Schema.string().required(),
+    name: Schema.string(),
+    description: Schema.string(),
+    contextWindow: Schema.number().step(1).min(1),
+  })),
 })
+
+const DEFAULT_DEEPSEEK_MODELS = [
+  {
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek-V4-Flash',
+    description: 'Preserved hidden detail',
+    contextWindow: 1_000_000,
+  },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: 1_000_000 },
+]
 
 function wireNamespaces(): SettingsNamespaceView[] {
   return [
     {
       ns: 'llm-deepseek',
       schema: JSON.parse(JSON.stringify(DeepSeekConfig.toJSON())) as unknown,
-      value: { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: 'https://base', reasoningEffort: 'high' },
-      base: {},
+      value: {
+        apiKeyEnv: 'DEEPSEEK_API_KEY',
+        baseURL: 'https://base',
+        reasoningEffort: 'high',
+        defaultContextWindow: 1_000_000,
+        models: DEFAULT_DEEPSEEK_MODELS,
+      },
+      base: { defaultContextWindow: 1_000_000, models: DEFAULT_DEEPSEEK_MODELS },
       user: { reasoningEffort: 'high' },
       applies: 'live',
       secrets: [{ path: ['apiKey'], set: false }],
@@ -156,7 +182,7 @@ describe('ModelsSection', () => {
     expect(screen.getByText('openai')).toBeTruthy()
     expect(screen.getAllByText(en.active)).toHaveLength(1)
     expect(screen.getByText(en.dormant)).toBeTruthy()
-    expect(screen.getByText(`+ ${en.add}`)).toBeTruthy()
+    expect(screen.getByText(en.add)).toBeTruthy()
   })
 
   it('turns the setup card into a row once the credential reports configured', async () => {
@@ -241,6 +267,115 @@ describe('ModelsSection', () => {
     expect(mutate.mock.calls[0]?.[0]).toEqual({
       ns: 'llm-deepseek',
       ops: [{ op: 'set', path: ['baseURL'], value: 'https://next2' }],
+      expectedRevision: 0,
+    })
+  })
+
+  it('materializes inherited models and adds an arbitrary DeepSeek id', async () => {
+    const { mutate } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    expect(screen.getByText(en.modelsInherited)).toBeTruthy()
+    expect(screen.getAllByLabelText(new RegExp(en.modelId)).map(input => (input as HTMLInputElement).value))
+      .toEqual(['deepseek-v4-flash', 'deepseek-v4-pro'])
+
+    fireEvent.click(screen.getByText(en.addModel))
+    const ids = screen.getAllByLabelText(new RegExp(en.modelId))
+    const names = screen.getAllByLabelText(new RegExp(en.modelName))
+    const windows = screen.getAllByLabelText(new RegExp(en.contextWindow))
+    fireEvent.change(ids[2] as HTMLInputElement, { target: { value: 'private-preview' } })
+    fireEvent.change(names[2] as HTMLInputElement, { target: { value: 'Private Preview' } })
+    fireEvent.change(windows[2] as HTMLInputElement, { target: { value: '131072' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{
+        op: 'set',
+        path: ['models'],
+        value: [
+          ...DEFAULT_DEEPSEEK_MODELS,
+          { id: 'private-preview', name: 'Private Preview', contextWindow: 131_072 },
+        ],
+      }],
+      expectedRevision: 0,
+    })
+  })
+
+  it('rejects duplicate DeepSeek model ids before writing', async () => {
+    const { mutate } = await mountSection()
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.click(screen.getByText(en.addModel))
+    const ids = screen.getAllByLabelText(new RegExp(en.modelId))
+    fireEvent.change(ids[2] as HTMLInputElement, { target: { value: 'deepseek-v4-flash' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await screen.findByText(`Model 3: ${en.modelIdDuplicate}`)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('validates every adapter-owned model catalog invariant', () => {
+    expect(modelDrafts(undefined)).toEqual([])
+    expect(modelDrafts([null, 'bad', { id: 'ok' }])).toEqual([{}, {}, { id: 'ok' }])
+    expect(validateDeepSeekModels([{}])).toEqual({ index: 0, key: 'modelIdRequired' })
+    expect(validateDeepSeekModels([{ id: 'same' }, { id: 'same' }]))
+      .toEqual({ index: 1, key: 'modelIdDuplicate' })
+    expect(validateDeepSeekModels([{ id: 'model', name: '' }]))
+      .toEqual({ index: 0, key: 'modelNameInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', contextWindow: null }]))
+      .toEqual({ index: 0, key: 'modelContextInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', contextWindow: 1.5 }]))
+      .toEqual({ index: 0, key: 'modelContextInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', contextWindow: 0 }]))
+      .toEqual({ index: 0, key: 'modelContextInvalid' })
+    expect(validateDeepSeekModels([{ id: 'model', contextWindow: 1 }])).toBeUndefined()
+  })
+
+  it('renders malformed draft fallbacks without inventing catalog values', () => {
+    render(<DeepSeekModelsEditor
+      models={[{}]}
+      overridden={false}
+      defaultContextWindow={undefined}
+      t={t}
+      disabled={true}
+      onChange={vi.fn()}
+      onReset={vi.fn()}
+    />)
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.modelId} 1`).value).toBe('')
+    expect(screen.getByLabelText<HTMLInputElement>(`${en.contextWindow} 1`).placeholder)
+      .toBe(en.contextWindowPlaceholder)
+  })
+
+  it('can empty and reset the model override, then clear optional fields without dropping hidden data', async () => {
+    const { mutate } = await mountSection({
+      mutate: vi.fn(() => Promise.resolve(ok(wireNamespaces()[0]))),
+    })
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.click(screen.getAllByText(en.removeModel)[0] as HTMLElement)
+    fireEvent.click(screen.getByText(en.removeModel))
+    expect(screen.getByText(en.modelsEmpty)).toBeTruthy()
+    fireEvent.click(screen.getByText(en.resetModels))
+    expect(screen.getByText(en.modelsInherited)).toBeTruthy()
+
+    const names = screen.getAllByLabelText(new RegExp(en.modelName))
+    const windows = screen.getAllByLabelText(new RegExp(en.contextWindow))
+    fireEvent.change(names[0] as HTMLInputElement, { target: { value: '' } })
+    fireEvent.change(windows[0] as HTMLInputElement, { target: { value: '' } })
+    fireEvent.click(screen.getByText(en.apply))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledTimes(1) })
+    expect(mutate.mock.calls[0]?.[0]).toEqual({
+      ns: 'llm-deepseek',
+      ops: [{
+        op: 'set',
+        path: ['models'],
+        value: [
+          { id: 'deepseek-v4-flash', description: 'Preserved hidden detail' },
+          DEFAULT_DEEPSEEK_MODELS[1],
+        ],
+      }],
       expectedRevision: 0,
     })
   })
@@ -333,7 +468,7 @@ describe('ModelsSection', () => {
 
   it('adds a dormant provider with a derived reference and stores its key', async () => {
     const { mutate, set } = await mountSection()
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
     expect([...pick.options].map(option => option.value)).toEqual(['anthropic', 'broken', 'plain'])
     expect(pick.value).toBe('anthropic')
@@ -357,7 +492,7 @@ describe('ModelsSection', () => {
 
   it('switches the add card target and degrades unknown or broken targets loudly', async () => {
     await mountSection()
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     const pick = await screen.findByLabelText<HTMLSelectElement>(en.provider)
     fireEvent.change(pick, { target: { value: 'broken' } })
     await screen.findByText(/unresolvable settings path/)
@@ -375,7 +510,7 @@ describe('ModelsSection', () => {
     const { set } = await mountSection({
       mutate: vi.fn(() => Promise.resolve(fail('llm-pi-ai: unknown pi-ai provider "bogus"'))),
     })
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
     const keys = screen.getAllByLabelText<HTMLInputElement>(en.keyInput)
     fireEvent.change(keys[keys.length - 1] as HTMLInputElement, { target: { value: 'sk-x' } })
@@ -515,7 +650,7 @@ describe('ModelsSection', () => {
     />)
     expect(screen.getByText(en.readOnly)).toBeTruthy()
     expect(screen.getAllByText<HTMLButtonElement>(en.remove).every(button => button.disabled)).toBe(true)
-    expect(screen.getByText<HTMLButtonElement>(`+ ${en.add}`).disabled).toBe(true)
+    expect(screen.getByText<HTMLButtonElement>(en.add).disabled).toBe(true)
   })
 
   it('toggles the row editor closed on a second edit click and on cancel', async () => {
@@ -534,10 +669,10 @@ describe('ModelsSection', () => {
 
   it('cancels the add card back to the add button', async () => {
     await mountSection()
-    fireEvent.click(screen.getByText(`+ ${en.add}`))
+    fireEvent.click(screen.getByText(en.add))
     await screen.findByLabelText(en.provider)
     fireEvent.click(screen.getAllByText(en.cancel)[1] as HTMLElement)
-    await screen.findByText(`+ ${en.add}`)
+    await screen.findByText(en.add)
     expect(screen.queryByLabelText(en.provider)).toBeNull()
   })
 

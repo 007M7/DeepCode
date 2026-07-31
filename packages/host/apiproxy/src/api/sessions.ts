@@ -89,8 +89,6 @@ export interface ModelCatalogModel {
   name: string
   /** Optional provider-supplied description. */
   description?: string
-  /** The current model was inserted because the advisory catalog omitted it. */
-  unlisted?: true
   /** Exact-route reasoning metadata when the adapter exposes it. */
   reasoning?: ModelReasoning
 }

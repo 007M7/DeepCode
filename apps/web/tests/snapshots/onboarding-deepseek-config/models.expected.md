@@ -1,0 +1,58 @@
+- dialog "设置":
+  - navigation:
+    - text: 设置
+    - button "通用设置":
+      - img
+      - text: 通用设置
+    - button "模型":
+      - img
+      - text: 模型
+  - button "关闭":
+    - img
+    - text: 关闭
+  - heading "模型" [level=2]
+  - paragraph: 填入各提供方的 API 密钥即可使用其模型。
+  - list:
+    - listitem:
+      - text: DeepSeek 已启用
+      - button "编辑"
+      - text: DeepSeek deepseek-official API 密钥
+      - textbox "API 密钥":
+        - /placeholder: 已配置——输入新值可替换
+      - group:
+        - text: 自定义设置 API 地址
+        - textbox "API 地址":
+          - /placeholder: https://api.deepseek.com
+        - text: 推理强度
+        - combobox "推理强度":
+          - option "默认" [selected]
+          - option "off"
+          - option "high"
+          - option "max"
+        - region "模型目录":
+          - text: 模型目录 已自定义模型目录
+          - button "恢复默认模型"
+          - textbox "模型 ID 1": deepseek-v4-pro
+          - textbox "显示名称 1":
+            - /placeholder: 留空时使用模型 ID
+            - text: DeepSeek-V4-Pro
+          - spinbutton "上下文窗口 1": "1000000"
+          - button "删除模型":
+            - img
+            - text: 删除模型
+          - textbox "模型 ID 2": private-preview
+          - textbox "显示名称 2":
+            - /placeholder: 留空时使用模型 ID
+            - text: Private Preview
+          - spinbutton "上下文窗口 2": "131072"
+          - button "删除模型":
+            - img
+            - text: 删除模型
+          - button "添加模型":
+            - img
+            - text: 添加模型
+      - button "取消"
+      - button "保存"
+  - button "添加提供方":
+    - img
+    - text: 添加提供方
