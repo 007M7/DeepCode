@@ -193,7 +193,7 @@ export function InputBar({
     e.preventDefault()
     if (e.repeat) return // held-down Enter must not machine-gun sends
     if (locked || machineBusy) return
-    inputActions.submit('queue')
+    inputActions.submit()
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
@@ -291,7 +291,7 @@ export function InputBar({
       return
     }
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit('queue')
+    if (!empty && !disabled && !machineBusy) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
