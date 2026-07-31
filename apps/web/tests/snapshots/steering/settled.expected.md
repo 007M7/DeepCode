@@ -15,10 +15,11 @@
   - img
   - img
   - text: Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.
-- button:
+- button "Ask question 1/1 answered":
   - img
   - img
-- text: "Ask question 1/1 answered Interjection Interjection: include the word BANANA in your final reply."
+  - text: Ask question 1/1 answered
+- text: "Interjection Interjection: include the word BANANA in your final reply."
 - button "Think The user selected \"Yes\" and wants me to include the word \"BANANA\" in my final reply. Let me acknowledge their answer.":
   - img
   - img

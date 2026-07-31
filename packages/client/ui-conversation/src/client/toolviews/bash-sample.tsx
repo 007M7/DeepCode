@@ -4,20 +4,24 @@
 // Child sessions keep a scoped badge so session-dimension differentiation stays
 // observable inside the component (no parallel registry).
 //
-// A bash call declares the terminal render intent, so this row also renders
-// the command's own output through TerminalBlock. This row has no expand
-// control and is not a details-panel target either (tool rows stopped being
-// one), so its terminal body is resident rather than expand-gated as in
-// ToolRow, and the card's own copy and expand controls are the row's only
-// interactions. CHAT_TERMINAL_MAX_LINES is passed as `maxLines` — the chat
-// flow's tighter cap over the block's own default of 16 — and the block's
-// internal expander keeps a long output from taking over the message flow.
+// A bash call declares the terminal render intent, so this row renders the
+// command's own output through TerminalBlock — expand-gated exactly like
+// ToolRow's unified interaction: collapsed by default, the whole summary row
+// is the toggle (click / Enter / Space, icon→chevron hover preview; the
+// summary stays inline while open),
+// and the expanded card max-height-scrolls inside its own surface with the
+// full output (maxLines Infinity — no middle collapse). An error row's
+// collapsed summary is the failure's first line in the error color.
 
+import { useState, type KeyboardEvent } from 'react'
 import type { Context } from 'cordis'
-import { IconApiOutline14, StateDot, TerminalBlock } from '@deepseek-ai/dsh-client-ui-primitives'
+import clsx from 'clsx'
+import {
+  IconApiOutline14, IconChevronDownOutline14, StateDot, TerminalBlock,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolRowProps } from '../contract/slots.ts'
-import { CHAT_TERMINAL_MAX_LINES, terminalBlockLabels, terminalCardModel } from '../contract/terminal-card-model.ts'
+import { terminalBlockLabels, terminalCardModel, terminalFailed } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
 import { NS } from '../locales.ts'
 import css from './bash-sample.module.css'
@@ -45,43 +49,89 @@ function stateStatus(state: ToolRowState, t: BashRowProps['t']): string | null {
 }
 
 /**
- * Bash row: icon + Bash · {description} in the shared ToolRow chrome, with the
- * command's terminal card resident below it. The summary row is not a
- * details-panel control (tool rows stopped being one), so the card's copy and
- * expand controls are the row's only interactions.
+ * Bash row: icon + Bash · {description} in the shared ToolRow chrome, the
+ * whole row toggling the command's terminal card (ToolRow's unified
+ * expand interaction, replicated locally per the registrant posture).
  */
-export function BashRow({ toolName, block, sessionId, useSessions, t }: BashRowProps) {
+export function BashRow({ toolName, block, sessionId, useSessions, inspect, t }: BashRowProps) {
   const model = toolRowModel(toolName, block)
   // Session workspace root: the terminal view's cwd resolves against it (an
   // omitted workdir IS the workspace), which the pure presenter cannot do.
   const cwd = useSessions(list => list.byId[sessionId]?.cwd)
   const terminal = terminalCardModel(block, cwd)
+  // A failing exit status is the terminal card's own error signal (the call
+  // itself settles isError:false), surfaced as the row's red state dot.
+  const state = model.state === 'ok' && terminal !== null && terminalFailed(terminal)
+    ? 'error'
+    : model.state
   const isChild = useSessions(list => list.byId[sessionId]?.parentId !== undefined)
-  const status = stateStatus(model.state, t)
+  const status = stateStatus(state, t)
+  const [expanded, setExpanded] = useState(false)
+  const expandable = terminal !== null
+  const open = expanded && expandable
+  const failureLine = model.state === 'error' ? model.errorSummary : null
+  const toggleExpand = () => {
+    setExpanded(v => !v)
+  }
+  const toggleFromKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!expandable || (event.key !== 'Enter' && event.key !== ' ')) return
+    event.preventDefault()
+    toggleExpand()
+  }
+  const leading = open
+    ? <IconChevronDownOutline14 className={css.chevron} />
+    : expandable
+      ? (
+        <>
+          <span className={css.iconIdle}>{leadingFor(state)}</span>
+          <IconChevronDownOutline14 className={clsx(css.chevron, css.chevronHover)} />
+        </>
+      )
+      : leadingFor(state)
   return (
     <div className={css.card}>
       <div
         className={css.root}
         data-sample={isChild ? 'bash-scoped' : 'bash-global'}
         data-variant="bash"
-        data-state={model.state}
+        data-state={state}
+        data-expandable={expandable || undefined}
+        role={expandable ? 'button' : undefined}
+        tabIndex={expandable ? 0 : undefined}
+        aria-expanded={expandable ? open : undefined}
+        onClick={expandable ? toggleExpand : undefined}
+        onKeyDown={expandable ? toggleFromKeyboard : undefined}
       >
-        <span className={css.leading}>{leadingFor(model.state)}</span>
+        <span className={css.leading}>{leading}</span>
         {status !== null && <span className={css.visuallyHidden}>{status}</span>}
         {isChild && <span className={css.scopeBadge}>scoped</span>}
         <span className={css.title}>{model.title}</span>
         <span className={css.sep} aria-hidden />
         {/* The terminal presenter's description is the contractual
-            above-card summary; it outranks the args-derived one. */}
-        <span className={css.summary}>{terminal?.description ?? model.summary}</span>
+            above-card summary; a failure's first line outranks both. */}
+        <span className={clsx(css.summary, failureLine !== null && css.errorSummary)}>
+          {failureLine ?? terminal?.description ?? model.summary}
+        </span>
       </div>
-      {terminal !== null && (
-        <TerminalBlock
-          {...terminal.card}
-          maxLines={CHAT_TERMINAL_MAX_LINES}
-          labels={terminalBlockLabels(t)}
-          className={css.terminal}
-        />
+      {terminal !== null && open && (
+        /* Same hover-Inspect posture as ToolRow's expanded body, replicated
+           locally per the registrant posture. */
+        <div className={css.bodyWrap}>
+          <TerminalBlock
+            {...terminal.card}
+            maxLines={Infinity}
+            labels={terminalBlockLabels(t)}
+            className={css.terminal}
+          />
+          {inspect !== undefined && (
+            <button type="button" className={css.inspectButton} onClick={inspect}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                <path d="M16 8L10.8571 12V10.552L14.1383 8L10.8571 5.448V4L16 8ZM5.14286 10.552L1.86171 8L5.14286 5.448V4L0 8L5.14286 12V10.552ZM9.02514 4L5.59657 12H6.84057L10.2691 4H9.02514Z" fill="currentColor" />
+              </svg>
+              Inspect
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
