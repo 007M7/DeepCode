@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-07-31-composer-text-layers-share-one-scrollport.md
-2026-07-31-composer-text-layers-share-one-scrollport.md: ef182f6a62dabfaf5330916c45baf98d1543e6e5
-2026-07-31-composer-text-layers-share-one-scrollport.zh.md: b6f5534300f302ff58022733c3493af5eb53428f
+2026-07-31-composer-text-layers-share-one-scrollport.md: 480db5f4b45ab22091bbe2e429cbc867d9a198bc
+2026-07-31-composer-text-layers-share-one-scrollport.zh.md: 5c3253b9a41fb5586a55b57037002bddb6da01d0

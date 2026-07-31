@@ -63,6 +63,7 @@ export function InputBar({
   const empty = draft.trim() === ''
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const mirrorRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
   // clearing is deferred one tick because Safari delivers the closing keydown AFTER compositionend.
   const composingRef = useRef(false)
@@ -87,10 +88,42 @@ export function InputBar({
   const locked = disabled
   const machineBusy = input?.phase === 'adjudicating' || input?.phase === 'submitting'
 
-  // Unlock (mount / session switch) returns focus to the box.
+  // Unlock (mount / session switch) returns focus to the box. `preventScroll`
+  // because this focus is ours, not a gesture: the textarea is as tall as the
+  // draft, so an unsuppressed reveal would walk up to the conversation
+  // scrollport and move the transcript under a user who only switched session.
   useEffect(() => {
-    if (!locked) inputRef.current?.focus()
+    if (!locked) inputRef.current?.focus({ preventScroll: true })
   }, [locked, sessionId])
+
+  // Caret restore after an edit the composer performs itself. The machine owns
+  // the draft and the undo log, so paste, ctrl/meta-Enter newline and cut all
+  // suppress the native edit and write the value through the machine — and a
+  // programmatic selection change reveals nothing: measured in chromium and
+  // WebKit, pasting a long block leaves the view where it was while the caret
+  // sits at the end of the draft. Native typing gets its reveal from the
+  // browser; these three have to ask for it, so they share one restore.
+  //
+  // The mirror is the caret's ruler: it renders the same draft at the same
+  // metrics and the same wrap width in the same stack (that is what makes it
+  // the height authority), so a Range collapsed at the caret's index reports
+  // where the caret is without a caret API. Minimal scroll, matching what the
+  // browser does for typing: move only far enough to bring the line inside.
+  const restoreCaret = (el: HTMLTextAreaElement, caret: number): void => {
+    requestAnimationFrame(() => {
+      el.setSelectionRange(caret, caret)
+      const scrollEl = scrollRef.current
+      const text = mirrorRef.current?.firstChild
+      if (scrollEl === null || !(text instanceof Text)) return
+      const range = document.createRange()
+      range.setStart(text, Math.min(caret, text.data.length))
+      range.collapse(true)
+      const at = range.getBoundingClientRect()
+      const box = scrollEl.getBoundingClientRect()
+      if (at.bottom > box.bottom) scrollEl.scrollTop += at.bottom - box.bottom
+      else if (at.top < box.top) scrollEl.scrollTop -= box.top - at.top
+    })
+  }
 
   // Wheel chaining on the draft scrollport, one lifetime (it is never
   // unmounted — the inert state renders the same element disabled). While the
@@ -167,8 +200,7 @@ export function InputBar({
         const el = e.currentTarget
         const sel = selectionOf(el)
         keyboard.newline(sel)
-        const caret = sel.start + 1
-        requestAnimationFrame(() => { el.setSelectionRange(caret, caret) })
+        restoreCaret(el, sel.start + 1)
       }
       return
     }
@@ -224,7 +256,7 @@ export function InputBar({
     e.clipboardData.setData('text/plain', text)
     if (cut && !machineBusy && !locked) {
       keyboard.setDraft(draft.slice(0, start) + draft.slice(end), { start, end, insertedLength: 0 })
-      requestAnimationFrame(() => { el.setSelectionRange(start, start) })
+      restoreCaret(el, start)
     }
     void slice
   }
@@ -243,7 +275,7 @@ export function InputBar({
     // land (paste-upgrade). The DOM layer only starts the transaction.
     keyboard.pasteBegin(text, sel)
     const caret = sel.start + text.length
-    requestAnimationFrame(() => { el.setSelectionRange(caret, caret) })
+    restoreCaret(el, caret)
     keyboard.track(keyboard.snapshot.draft, caret)
   }
 
@@ -404,7 +436,7 @@ export function InputBar({
               onCompositionStart={onCompositionStart}
               onCompositionEnd={onCompositionEnd}
             />
-            <div aria-hidden className={css.mirror}>{`${draft}\n`}</div>
+            <div ref={mirrorRef} aria-hidden className={css.mirror} data-input-mirror>{`${draft}\n`}</div>
           </div>
         </div>
         <div className={css.row}>

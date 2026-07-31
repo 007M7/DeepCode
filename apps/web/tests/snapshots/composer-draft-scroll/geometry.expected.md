@@ -23,3 +23,9 @@
 
 - caret sits on its own glyphs: true
 - the draft's own last line is on screen: true
+
+## Right after pasting a long block at the end
+
+- the composer scrolled to the caret it left: true
+- caret and glyphs stay level when the offset changes: true
+- the pasted block's last line is on screen: true

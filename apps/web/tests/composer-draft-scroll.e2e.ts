@@ -198,9 +198,12 @@ function measureComposer(page: Page): Promise<ComposerMetrics> {
  * @param top - metrics with the draft scrolled to its start.
  * @param bottom - metrics with the draft scrolled to its end.
  * @param trailingNewline - metrics with the trailing-newline draft scrolled to its end.
+ * @param pasted - metrics right after a long block was pasted at the draft's end.
  * @returns the golden body, without a trailing newline.
  */
-function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics, trailingNewline: ComposerMetrics): string {
+function renderGeometry(
+  top: ComposerMetrics, bottom: ComposerMetrics, trailingNewline: ComposerMetrics, pasted: ComposerMetrics,
+): string {
   return [
     '# Composer draft scrolling (14-line cap, two text layers, one scrollport)',
     '',
@@ -230,6 +233,14 @@ function renderGeometry(top: ComposerMetrics, bottom: ComposerMetrics, trailingN
     `- caret sits on its own glyphs: ${String(trailingNewline.caretGlyphGap === top.caretGlyphGap)}`,
     `- the draft's own last line is on screen: ${String(
       trailingNewline.lastLineOffset >= 0 && trailingNewline.lastLineOffset < trailingNewline.clientHeight,
+    )}`,
+    '',
+    '## Right after pasting a long block at the end',
+    '',
+    `- the composer scrolled to the caret it left: ${String(pasted.scrollTop > 0)}`,
+    `- caret and glyphs stay level when the offset changes: ${String(pasted.gapShiftOnScroll === 0)}`,
+    `- the pasted block's last line is on screen: ${String(
+      pasted.lastLineOffset >= 0 && pasted.lastLineOffset < pasted.clientHeight,
     )}`,
   ].join('\n').trimEnd()
 }
@@ -353,6 +364,37 @@ describe('web e2e: composer draft scrolling', () => {
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
+  it('pasting a long block scrolls to the caret it leaves at the end', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-paste'))
+    // The composer suppresses the native paste — the machine owns the draft and
+    // the undo log — and restores the caret programmatically, which reveals
+    // nothing on its own: measured in chromium and WebKit, the view stayed
+    // where it was while the caret sat at the end of the pasted block. The
+    // restore now scrolls it into view, and this is the case that proves it.
+    const input = page.locator('textarea:enabled').first()
+    await input.fill('one short line')
+    await input.press('End')
+    // A real `paste` event carrying real clipboard data, dispatched at the
+    // textarea: the same event a Cmd-V delivers, and it runs the same handler.
+    await input.evaluate((el, text) => {
+      const data = new DataTransfer()
+      data.setData('text/plain', text)
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    }, `\n${DRAFT}`)
+    await expect.poll(async () => (await measureComposer(page)).overflows, { timeout: 10_000 }).toBe(true)
+    // The restore lands one frame after the machine commits the draft, so the
+    // box overflows before it moves; waiting on the offset is waiting for the
+    // behavior itself, and its absence fails this poll.
+    await expect.poll(async () => (await measureComposer(page)).scrollTop, { timeout: 10_000 }).toBeGreaterThan(0)
+    const metrics = await measureComposer(page)
+    // The caret is at the end of what was pasted, so the draft's last line is
+    // what has to be on screen.
+    expect(metrics.lastLineOffset).toBeGreaterThanOrEqual(0)
+    expect(metrics.lastLineOffset).toBeLessThan(metrics.clientHeight)
+    expect(metrics.gapShiftOnScroll).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 60_000)
+
   it('a draft ending in a newline scrolls to its true end, not a line above it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-composer-draft-scroll-trailing-newline'))
     // The layers reserve a final line box on different terms, so this shape is
@@ -399,7 +441,19 @@ describe('web e2e: composer draft scrolling', () => {
       return m.scrollTop === m.scrollMax
     }, { timeout: 10_000 }).toBe(true)
     const trailingNewline = await measureComposer(page)
-    await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(top, bottom, trailingNewline), MODE)
+    // The paste path, measured the way a user meets it: a short draft, the
+    // caret at its end, one long block pasted in.
+    await input.fill('one short line')
+    await input.press('End')
+    await input.evaluate((el, text) => {
+      const data = new DataTransfer()
+      data.setData('text/plain', text)
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    }, `\n${DRAFT}`)
+    await expect.poll(async () => (await measureComposer(page)).overflows, { timeout: 10_000 }).toBe(true)
+    await expect.poll(async () => (await measureComposer(page)).scrollTop, { timeout: 10_000 }).toBeGreaterThan(0)
+    const pasted = await measureComposer(page)
+    await compareOrRefreshGolden(GEOMETRY_EXPECTED, renderGeometry(top, bottom, trailingNewline, pasted), MODE)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 

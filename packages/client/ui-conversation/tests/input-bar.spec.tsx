@@ -4,7 +4,7 @@
 // semantics (input stays free; primary turns stop), the machine pending lock,
 // decoration backdrop, error/notice strips, and the focus-keeping mousedown.
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
@@ -17,6 +17,13 @@ import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+// jsdom implements no Range geometry at all — `Range.prototype.getBoundingClientRect`
+// is absent — and the composer measures the caret with one when it restores the
+// selection after an edit it performed itself. Every case here runs against a
+// zero rect; the reveal case below substitutes its own and restores this one.
+const ZERO_RECT = (): DOMRect => ({ top: 0, bottom: 0 }) as DOMRect
+Range.prototype.getBoundingClientRect = ZERO_RECT
 
 const SCTX = {} as ClientContext
 const SID = 's1' as SessionId
@@ -296,14 +303,49 @@ describe('running and lock semantics (queue cut 1)', () => {
     const backdrop = view.container.querySelector<HTMLElement>('[data-input-backdrop]')!
     // The caret is the textarea's and every visible glyph is the backdrop's, so
     // one box has to carry both or an offset can exist in one and not the other.
-    // jsdom has no layout — the browser scenario owns the geometry; what is
-    // checkable here is that there is exactly one scrolling box and it holds
-    // both layers.
+    // jsdom has no layout and loads no stylesheet — which box scrolls is the
+    // browser scenario's to assert; what is checkable here is that the
+    // scrollport element holds both layers.
     expect(scroll.contains(textarea)).toBe(true)
     expect(scroll.contains(backdrop)).toBe(true)
     // The glyph layer carries the draft and nothing else: with one scrollport
     // it no longer pads its own height to match a second box's scroll extent.
     expect(backdrop.textContent).toBe('line\n'.repeat(40))
+  })
+
+  it('an edit the composer performs itself scrolls the caret back into view', async () => {
+    // Paste, ctrl-Enter newline and cut suppress the native edit, so no engine
+    // reveals the caret for them. jsdom has no layout: the rects are stubbed,
+    // and what is asserted is the arithmetic — minimal scroll, in both
+    // directions, and nothing at all for a caret already inside the box.
+    const { view, textarea } = bench({ draft: 'line\n'.repeat(40) })
+    const scroll = view.container.querySelector<HTMLElement>('[data-input-scroll]')!
+    const mirror = view.container.querySelector<HTMLElement>('[data-input-mirror]')!
+    expect(mirror.firstChild).toBeInstanceOf(Text)
+    scroll.getBoundingClientRect = () => ({ top: 100, bottom: 436 }) as DOMRect
+    Object.defineProperty(scroll, 'scrollTop', { value: 0, writable: true, configurable: true })
+    onTestFinished(() => { Range.prototype.getBoundingClientRect = ZERO_RECT })
+    const caretAt = (top: number): void => {
+      Range.prototype.getBoundingClientRect = () => ({ top, bottom: top + 24 }) as DOMRect
+    }
+    const settle = async (): Promise<void> => {
+      await act(async () => { await new Promise((resolve) => { requestAnimationFrame(() => { resolve(null) }) }) })
+    }
+    // Pasted text lands below the fold: scroll down by exactly the overshoot.
+    caretAt(500)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'pasted' } })
+    await settle()
+    expect(scroll.scrollTop).toBe(88) // 524 - 436
+    // A caret already inside the box does not move it.
+    caretAt(200)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'more' } })
+    await settle()
+    expect(scroll.scrollTop).toBe(88)
+    // Above the fold (a cut can leave it there): scroll back up.
+    caretAt(60)
+    fireEvent.paste(textarea, { clipboardData: { getData: () => 'again' } })
+    await settle()
+    expect(scroll.scrollTop).toBe(48) // 88 - (100 - 60)
   })
 
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
