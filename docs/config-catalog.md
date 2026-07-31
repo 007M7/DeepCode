@@ -2174,7 +2174,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:41`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:43`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 

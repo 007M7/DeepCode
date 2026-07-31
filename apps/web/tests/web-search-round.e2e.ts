@@ -85,7 +85,8 @@ describe('web e2e: shipped default web search', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
-  let searchServer: Server
+  let searchServer: Server | undefined
+  let searchBaseURL: string
   let tripwire: ReturnType<typeof watchConsole>
   const searchRequests: CapturedSearchRequest[] = []
   const sessionEvents: SessionEvent[] = []
@@ -93,6 +94,7 @@ describe('web e2e: shipped default web search', () => {
   beforeAll(async () => {
     const search = await startSearchServer(searchRequests)
     searchServer = search.server
+    searchBaseURL = search.baseURL
     scaffold = await launchWebScaffold({
       deepSeekSearch: {
         baseURL: search.baseURL,
@@ -151,6 +153,16 @@ describe('web e2e: shipped default web search', () => {
         }],
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       },
+    })
+
+    const auxiliaryRequest = sessionEvents.find(
+      (event): event is Extract<SessionEvent, { type: 'web/deepseek-search-llm-request' }> =>
+        event.type === 'web/deepseek-search-llm-request',
+    )
+    expect(auxiliaryRequest?.data).toEqual({
+      endpoint: `${searchBaseURL}/messages`,
+      apiVersion: '2023-06-01',
+      body: searchRequests[0]?.body,
     })
 
     const searchCall = sessionEvents.find(

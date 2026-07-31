@@ -7,7 +7,9 @@
 
 import type { Context } from 'cordis'
 import z from 'schemastery'
+import type {} from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-web'
 import {
   DeepSeekSearchProvider,
@@ -27,7 +29,7 @@ export {
   DEEPSEEK_DEFAULT_MODEL,
   DEEPSEEK_PROVIDER_ID,
 } from './provider.ts'
-export type { DeepSeekSearchProviderOptions } from './provider.ts'
+export type { DeepSeekSearchLlmRequest, DeepSeekSearchProviderOptions } from './provider.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'web-search-deepseek'
@@ -87,5 +89,11 @@ export function apply(ctx: Context, config: Config): void {
     apiVersion: config.apiVersion ?? DEEPSEEK_DEFAULT_API_VERSION,
     maxTokens,
     maxUses,
+    recordRequest: (request) => {
+      ctx.get('agents')?.currentInitiator()?.session.append(
+        'web/deepseek-search-llm-request',
+        request,
+      )
+    },
   }))
 }

@@ -161,10 +161,11 @@ describe('DeepSeekSearchProvider availability', () => {
 })
 
 describe('DeepSeekSearchProvider request mapping', () => {
-  it('posts an Anthropic Messages request enabling the web_search server tool', async () => {
+  it('records and posts the same Anthropic Messages request with the web_search server tool', async () => {
     const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
+    const recordRequest = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    await new DeepSeekSearchProvider(options).search({ query: 'hello' })
+    await new DeepSeekSearchProvider({ ...options, recordRequest }).search({ query: 'hello' })
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://api.deepseek.test/anthropic/v1/messages')
     expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
@@ -172,12 +173,20 @@ describe('DeepSeekSearchProvider request mapping', () => {
     expect(headers['x-api-key']).toBe('ds-key')
     expect(headers['authorization']).toBe('Bearer ds-key')
     expect(headers['anthropic-version']).toBe('2023-06-01')
-    expect(JSON.parse(init.body as string)).toEqual({
+    const body = {
       model: 'deepseek-chat',
       max_tokens: 4096,
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Perform a web search for the query: hello' }] }],
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+    }
+    expect(JSON.parse(init.body as string)).toEqual(body)
+    expect(recordRequest).toHaveBeenCalledOnce()
+    expect(recordRequest).toHaveBeenCalledWith({
+      endpoint: url,
+      apiVersion: '2023-06-01',
+      body,
     })
+    expect(recordRequest.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0] ?? 0)
   })
 
   it('forwards the abort signal', async () => {
@@ -191,6 +200,91 @@ describe('DeepSeekSearchProvider request mapping', () => {
 })
 
 describe('DeepSeekSearchProvider error handling', () => {
+  it('does not start credential resolution or dispatch for a pre-aborted call', async () => {
+    const resolveApiKey = vi.fn(async () => 'late-key')
+    const recordRequest = vi.fn()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    controller.abort(new Error('caller stopped'))
+    await expect(new DeepSeekSearchProvider({
+      ...options,
+      apiKey: '',
+      resolveApiKey,
+      recordRequest,
+    }).search({ query: 'q' }, controller.signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+    expect(resolveApiKey).not.toHaveBeenCalled()
+    expect(recordRequest).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('aborts while an uncooperative credential resolver remains pending', async () => {
+    const resolveApiKey = vi.fn(() => new Promise<string>(() => {}))
+    const recordRequest = vi.fn()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    const search = new DeepSeekSearchProvider({
+      ...options,
+      apiKey: '',
+      resolveApiKey,
+      recordRequest,
+    }).search({ query: 'q' }, controller.signal)
+    controller.abort(new Error('deadline'))
+    await expect(search).rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+    expect(resolveApiKey).toHaveBeenCalledOnce()
+    expect(recordRequest).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('resolves credentials under an active cancellation signal', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(searchResponse()))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    await expect(new DeepSeekSearchProvider({
+      ...options,
+      apiKey: '',
+      resolveApiKey: async () => 'resolved-key',
+    }).search({ query: 'q' }, controller.signal)).resolves.toMatchObject({ truncated: false })
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect((init.headers as Record<string, string>)['x-api-key']).toBe('resolved-key')
+  })
+
+  it('maps a credential resolver rejection under an active signal to WEB_PROVIDER_ERROR', async () => {
+    const controller = new AbortController()
+    await expect(new DeepSeekSearchProvider({
+      ...options,
+      apiKey: '',
+      resolveApiKey: () => Promise.reject(new Error('credential backend failed')),
+    }).search({ query: 'q' }, controller.signal))
+      .rejects.toThrow(expect.objectContaining({
+        code: 'WEB_PROVIDER_ERROR',
+        message: 'DeepSeek search credential resolution failed: Error: credential backend failed',
+      }))
+  })
+
+  it('uses the default credential reference when no resolver is configured', async () => {
+    await expect(new DeepSeekSearchProvider({ ...options, apiKey: '' }).search({ query: 'q' }))
+      .rejects.toThrow('DeepSeek search has no API key for "DEEPSEEK_API_KEY"')
+  })
+
+  it('observes cancellation triggered synchronously by credential resolution', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(new DeepSeekSearchProvider({
+      ...options,
+      apiKey: '',
+      resolveApiKey: () => {
+        controller.abort(new Error('resolver cancelled caller'))
+        return Promise.resolve('unused-key')
+      },
+    }).search({ query: 'q' }, controller.signal))
+      .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('maps an HTTP error to WEB_PROVIDER_ERROR with the provider message', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { message: 'rate limited' } }, { status: 429 })))
     await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
@@ -219,6 +313,17 @@ describe('DeepSeekSearchProvider error handling', () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new DOMException('aborted', 'AbortError'))))
     await expect(new DeepSeekSearchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
+  })
+
+  it('maps a custom abort reason to WEB_ABORTED', async () => {
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => { reject(new Error('custom abort reason')) }, { once: true })
+      })))
+    const search = new DeepSeekSearchProvider(options).search({ query: 'q' }, controller.signal)
+    controller.abort(new Error('timeout reason'))
+    await expect(search).rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('maps an unparseable success body to WEB_PROVIDER_ERROR', async () => {
