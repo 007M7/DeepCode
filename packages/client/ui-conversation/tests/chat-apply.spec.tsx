@@ -8,8 +8,8 @@
 // machinery spec (chat-toolview-slot.spec.tsx) and the shell e2e; this spec
 // stops at the assembly surface.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SlotTestRuntime, pinBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { describe, expect, it, vi } from 'vitest'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -17,9 +17,7 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
-let restoreLanguages: () => void
-beforeEach(() => { restoreLanguages = pinBrowserLanguages('zh-CN') })
-afterEach(() => { restoreLanguages() })
+usePinnedBrowserLanguages('zh-CN')
 
 const ROOT = 'root-1' as SessionId
 const CHILD = 'child-1' as SessionId

@@ -11,7 +11,13 @@ const make = (): { ctx: Context; svc: LocaleService; events: LocaleSnapshot[] } 
   return { ctx, svc: new LocaleService(ctx), events }
 }
 
-/** Pin the browser environment a fresh service reads its initial locale from. */
+/**
+ * Pin the browser environment a fresh service reads its initial locale from.
+ * This package's own specs stub the globals directly instead of using
+ * `usePinnedBrowserLanguages` (dsh-client-test-runtime): they need the shapes
+ * that helper deliberately cannot express — a missing `languages` list, a
+ * list decoupled from `language`, and a non-browser run with no `window`.
+ */
 const stubLanguages = (...tags: string[]): void => {
   vi.stubGlobal('navigator', { languages: tags, language: tags[0] ?? '' })
 }
@@ -158,8 +164,11 @@ describe('LocaleService', () => {
     // An unshipped language walks the list to the first one this app ships.
     stubLanguages('fr-FR', 'en-US')
     expect(make().svc.getLocale().active).toBe('en')
-    // Only `language` populated (browsers that expose no ordered list).
+    // Only `language` populated: an empty ordered list, and a host that
+    // exposes no `languages` property at all.
     vi.stubGlobal('navigator', { languages: [], language: 'en-US' })
+    expect(make().svc.getLocale().active).toBe('en')
+    vi.stubGlobal('navigator', { language: 'en-US' })
     expect(make().svc.getLocale().active).toBe('en')
     // No shipped language anywhere in the browser's preferences: zh remains
     // the product default rather than an arbitrary near-match.
@@ -167,9 +176,12 @@ describe('LocaleService', () => {
     expect(make().svc.getLocale().active).toBe('zh')
   })
 
-  it('runs without localStorage or navigator (node boots): defaults on read, no-op on write', () => {
+  it('runs outside a browser (node boots): the fallback decides, the machine language does not, writes no-op', () => {
     vi.stubGlobal('localStorage', undefined)
-    vi.stubGlobal('navigator', undefined)
+    vi.stubGlobal('window', undefined)
+    // Node exposes its own global navigator; without a window it must not
+    // reach the resolution at all.
+    stubLanguages('en-US')
     const { svc } = make()
     expect(svc.getLocale().active).toBe('zh')
     svc.setLocale('en')

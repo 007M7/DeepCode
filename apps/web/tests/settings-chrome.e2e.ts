@@ -232,7 +232,10 @@ describe('web e2e: settings modal and General preferences', () => {
       const dialog = enPage.getByRole('dialog', { name: 'Settings' })
       await dialog.waitFor({ timeout: 10_000 })
       await dialog.getByRole('button', { name: 'English' }).waitFor({ timeout: 10_000 })
+      // This page has no closing inventory spec to sweep its console, so the
+      // scenario clears both tripwire channels itself.
       expect(enTripwire.pageErrors).toEqual([])
+      expect(enTripwire.warnings).toEqual([])
     } finally {
       await enPage.close()
     }

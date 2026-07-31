@@ -14,8 +14,8 @@
 // guards would mask. Rendering-path acceptance lives in
 // chat-toolview-slot.spec.tsx.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SlotTestRuntime, pinBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
+import { describe, expect, it, vi } from 'vitest'
+import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import type { ISession, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -27,9 +27,7 @@ import type { createChatStore } from '../src/client/stores.ts'
 
 // The service reads its initial locale from the browser; these specs assert
 // the shipped Chinese copy, so they state the browser they assume.
-let restoreLanguages: () => void
-beforeEach(() => { restoreLanguages = pinBrowserLanguages('zh-CN') })
-afterEach(() => { restoreLanguages() })
+usePinnedBrowserLanguages('zh-CN')
 
 const ROOT = 'root-1' as SessionId
 

@@ -315,13 +315,20 @@ function restorePreference(): LocaleId | undefined {
 /**
  * The first shipped locale the browser asks for, matched on the primary
  * subtag so every regional variant lands on its language (`zh-Hans-CN` -> zh,
- * `en-GB` -> en). `navigator.language` trails the ordered `languages` list
- * because a browser may expose only the former.
+ * `en-GB` -> en). `window` is the browser test, not `navigator`: Node exposes
+ * a global `navigator` reporting the machine's own language, which would
+ * otherwise decide the locale for non-browser runs (node e2e booting the
+ * client tree). `navigator.language` trails the ordered `languages` list and
+ * covers its absence on hosts that expose only the single tag.
  */
 function detectBrowserLocale(): LocaleId | undefined {
-  // Non-browser runs (node e2e booting the client tree) have no navigator.
-  if (typeof navigator === 'undefined') return undefined
-  for (const tag of [...navigator.languages, navigator.language]) {
+  if (typeof window === 'undefined') return undefined
+  /* oxlint-disable-next-line typescript/no-unnecessary-condition --
+   * The DOM lib types `languages` as always present; embedders and older
+   * WebViews ship a Navigator without it, and spreading undefined would
+   * throw at boot. Same environment-boundary distrust as the localStorage
+   * guards below. */
+  for (const tag of [...(navigator.languages ?? []), navigator.language]) {
     const primary = tag.toLowerCase().split('-')[0]
     const match = LOCALES.find(locale => locale.id === primary)
     if (match) return match.id
