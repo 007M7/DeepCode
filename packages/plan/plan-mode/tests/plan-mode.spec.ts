@@ -6,7 +6,9 @@ import ToolRegistry, { RUN_CODE_NAME, defineContentToolFixture } from '@deepseek
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import UserInteractionService, { type AskUserQuestionRequest } from '@deepseek-ai/dsh-user-interaction'
+import UserInteractionService, {
+  UserInteractionError, type AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-interaction'
 import CommandService from '@deepseek-ai/dsh-commands'
 import { CodeRuntime, type CodeRunRequest, type CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import PlanModeService, { EXIT_PLAN_MODE, foldPlanMode, resolveConfig } from '../src/index.ts'
@@ -892,6 +894,40 @@ describe('exit_plan_mode', () => {
     const result = await callExit(ctx, agent)
     expect(result.isError).toBe(true)
     expect(result.content).toEqual([{ type: 'text', text: 'Error: The user chose to keep planning; revise the plan and present it again.' }])
+  })
+
+  it('declares the plan-review presentation intent naming its approve option', async () => {
+    const { ctx, agent, asked } = await setupWithReview({ selected: ['Approve'] })
+    await callExit(ctx, agent)
+    const question = asked[0]?.questions[0]
+    expect(question?.intent).toEqual({ kind: 'plan-review', approve: 'Approve' })
+    // The named label is one this same question offers, so a UI honouring the
+    // intent answers a choice this tool accepts.
+    expect(question?.options?.map(option => option.label)).toContain(question?.intent?.approve)
+  })
+
+  it('reads a dismissed review as the user taking the turn back, not as a failure', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({
+      ask: () => Promise.reject(new UserInteractionError(
+        'the user cancelled ask_user_question', 'ASK_CANCELLED')),
+    })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: The user dismissed the plan review to speak instead; stay in plan mode, stop here, and wait for their message.' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
+  })
+
+  it('leaves every other review failure its own message', async () => {
+    const { ctx, agent } = await setupWithReview()
+    ctx.userInteraction.registerProvider({
+      ask: () => Promise.reject(new UserInteractionError(
+        'ask_user_question was aborted before the user answered', 'ASK_ABORTED')),
+    })
+    const result = await callExit(ctx, agent)
+    expect(result.isError).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'Error: ask_user_question was aborted before the user answered' }])
+    expect(foldPlanMode(agent.session.events)).toBe(true)
   })
 
   it('forwards the execution abort signal to the review question', async () => {

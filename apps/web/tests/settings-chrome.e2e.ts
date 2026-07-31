@@ -58,7 +58,7 @@ describe('web e2e: settings modal, appearance gesture, language switch', () => {
     // Golden of the freshly opened dialog (default zh, General active).
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(DIALOG_EXPECTED, snapshot, MODE)
-    // Section switch: aria-current moves; Models is deliberately empty.
+    // Section switch: aria-current moves (the Models page itself has its own scenario file).
     await dialog.getByRole('button', { name: '模型' }).click()
     await expect.poll(() => dialog.getByRole('button', { name: '模型' }).getAttribute('aria-current'), { timeout: 5_000 }).toBe('true')
     expect(await dialog.getByRole('button', { name: '通用设置' }).getAttribute('aria-current')).toBeNull()

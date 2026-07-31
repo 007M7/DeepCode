@@ -50,7 +50,7 @@ async function harness(): Promise<{ ctx: Context; agent: Agent }> {
   const handle = await ctx.agents.create({
     sessionId: SessionId('workspace-context-e2e-session'),
     meta: { cwd: workdir },
-    agentOptions: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+    agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
   })
   return { ctx, agent: handle.agent }
 }

@@ -10,8 +10,13 @@
 import { Fragment, useEffect, useRef, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './MenuView.module.css'
 import type { MenuViewInjected } from './slots.ts'
+import type { MenuKey } from './locales.ts'
+
+/** Full menu props: injected face + the locale seat. */
+export type MenuViewProps = MenuViewInjected & PropsLocale<'slash.menu'>
 
 /** Design cap on the list height (figma SLASH 39:26572 MenuDropdown). */
 const MAX_HEIGHT = 320
@@ -23,10 +28,10 @@ function optionId(source: string, index: number): string {
 
 /**
  * Render the candidate menu overlay entry.
- * @param props - injected face: the menu store, the pick route, and the menu-namespace translator.
+ * @param props - injected face (the menu store and the pick route); `t` rides the standard locale seat.
  * @returns the dropdown while open; null while closed.
  */
-export function MenuView({ menu, onPick, onDismiss, t }: MenuViewInjected) {
+export function MenuView({ menu, onPick, onDismiss, t }: MenuViewProps) {
   const state = useSyncExternalStore(
     fn => menu.subscribe(fn),
     () => menu.getSnapshot(),
@@ -65,7 +70,7 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewInjected) {
       className={css.menu}
       style={{ maxHeight }}
       role="listbox"
-      aria-label="Trigger suggestions"
+      aria-label={t('suggestions.aria')}
       aria-activedescendant={highlight !== null ? optionId(highlight.source, highlight.index) : undefined}
     >
       <div className={css.viewport}>
@@ -73,7 +78,10 @@ export function MenuView({ menu, onPick, onDismiss, t }: MenuViewInjected) {
           ? null
           : (
             <Fragment key={group.source}>
-              <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source)}</div>
+              {/* Source names key the dictionary open-endedly: the lookup chain
+                  returns an unknown key verbatim, so an unregistered source
+                  shows its raw name — hence the cast past the typed key union. */}
+              <div className={css.groupTitle} role="presentation" data-source={group.source}>{t(group.source as MenuKey)}</div>
               {group.status === 'pending'
                 ? <div className={css.loading} data-source={group.source}>{t('loading')}</div>
                 : group.items.map((item, index) => {

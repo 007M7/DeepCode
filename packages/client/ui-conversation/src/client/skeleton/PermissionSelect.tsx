@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { PermissionSelect as PermissionSelectValue } from '@deepseek-ai/dsh-permission/client'
 import { Menu } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ComposerBarProps } from '../contract/slots.ts'
 import css from './PermissionSelect.module.css'
 
 /**
@@ -19,9 +20,11 @@ export interface PermissionSelectProps {
   value: PermissionSelectValue | undefined
   locked: boolean
   command: (line: string) => Promise<boolean>
+  /** The owning bar's locale seat, passed down as a plain prop. */
+  t: ComposerBarProps['t']
 }
 
-export function PermissionSelect({ value, locked, command }: PermissionSelectProps) {
+export function PermissionSelect({ value, locked, command, t }: PermissionSelectProps) {
   const [pick, setPick] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
 
@@ -56,7 +59,7 @@ export function PermissionSelect({ value, locked, command }: PermissionSelectPro
         <button
           type="button"
           className={css.trigger}
-          aria-label={`Access mode, current: ${displayName(current?.name ?? currentValue)}`}
+          aria-label={t('input.accessMode', { name: displayName(current?.name ?? currentValue) })}
           title={current?.description}
           disabled={locked || busy}
           onClick={() => { setOpen(!open) }}

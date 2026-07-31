@@ -7,7 +7,7 @@
       - id: cli-agent
         name: '@deepseek-ai/dsh-cli-demo'
         config:
-          provider: deepseek
+          provider: deepseek-official
           model: deepseek-v4-pro
           persistenceRoot: './.sessions'
           persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"

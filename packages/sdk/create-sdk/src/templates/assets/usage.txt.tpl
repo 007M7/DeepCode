@@ -2,7 +2,7 @@ Usage: create-sdk [directory] [options]
 
 Options:
   --description <text>
-  --provider <deepseek|custom>
+  --provider <deepseek-official|custom>
   --base-url <url>
   --api-key <key>
   --model <name>
