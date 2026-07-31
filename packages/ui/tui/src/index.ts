@@ -1603,6 +1603,9 @@ export function createTuiChat(
     // TUI stays mounted. Retained agents accept deliveries after detachment, so
     // without this a later send would drive a zombie agent/session; mark
     // disposed so dispatchMessage reports it instead.
+    // The hard clear also retires live compaction. A later compact/end is
+    // intentionally presentation-silent: this disposal notice owns the
+    // terminal outcome, and no animation may survive agent detachment.
     clearStatus()
     appendNotice(`Agent "${agent.id}" was disposed.`, 'warning')
     disposed = true
