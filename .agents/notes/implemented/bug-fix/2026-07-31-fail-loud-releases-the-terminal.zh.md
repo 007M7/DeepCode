@@ -54,6 +54,6 @@ Loader 并发挂载各个条目，因此条目失败的顺序并不等于启动�
 
 `packages/ui/app-boot/tests/app-boot.spec.ts` 覆盖 release 契约：退出提交前会等待该回调；回调 rejection 时仍退出 1；永不结算的回调会在 `FAIL_LOUD_RELEASE_TIMEOUT_MS` 后退出；以及一连串 rejection 只报告第一个，同时 release 仍能跑完。
 
-这些基于假进程的测试无法观测到最关键的两种失败形态——真实事件循环下的进程退出码，以及退出之后的终端状态——因此回归用例放在 `apps/cli/tests/tui-keyless-smoke.e2e.ts`。它在真实 PTY 中以 `fixtures/tui-invalid-provider.cordis.yml`（`providers` 为列表形状，正是用户真实会犯的错误）启动出厂配置树，期望退出码为 1，并断言捕获到的字节流同时包含诊断信息与 `ESC[?2004l`。在修复前的源码上，捕获流止于 `ESC[?2004h ESC[>7u ESC[?u ESC[c` 而没有任何重置，该用例正是在这条断言上失败。
+这些基于假进程的测试无法观测到最关键的两种失败形态——真实事件循环下的进程退出码，以及退出之后的终端状态——因此回归用例放在 `apps/cli/tests/tui-keyless-smoke.e2e.ts`。它在真实 PTY 中以 `fixtures/tui-invalid-provider.cordis.yml`（`providers` 为列表形状，正是用户真实会犯的错误）启动出厂配置树，期望退出码为 1，并断言捕获到的字节流同时包含诊断信息与 `ESC[?2004l`。在修复前的源码上，捕获内容仍能看到终端被接管（`ESC[?2004h ESC[>7u ESC[?u ESC[c`）以及诊断信息被打印，但其后始终没有任何重置序列，该用例仅在 `ESC[?2004l` 这条断言上失败。
 
 测试规范要求：只要改动终端拆卸，就必须有 PTY 用例——这就是它。`/exit` 路径保留其原有断言，确认正常退出时同样会出现该重置序列。

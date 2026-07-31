@@ -295,6 +295,11 @@ export interface FailLoudProcess {
   on(event: 'unhandledRejection', handler: (err: unknown) => void): unknown
   off(event: 'unhandledRejection', handler: (err: unknown) => void): unknown
   stderr: { write(chunk: string): unknown }
+  /**
+   * Terminate the process. Callers treat this as the end of the run, as
+   * `process.exit` is; a fake that returns lets the caller continue, which only
+   * a test observes.
+   */
   exit(code: number): void
 }
 
