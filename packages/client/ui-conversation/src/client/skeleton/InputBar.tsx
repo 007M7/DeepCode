@@ -71,6 +71,7 @@ export function InputBar({
   const [dropError, setDropError] = useState<string | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const dragDepthRef = useRef(0)
+  const backdropRef = useRef<HTMLDivElement | null>(null)
   // IME guard: composition Enter picks a candidate, it must not send. The ref outlives renders;
   // clearing is deferred one tick because Safari delivers the closing keydown AFTER compositionend.
   const composingRef = useRef(false)
@@ -111,11 +112,22 @@ export function InputBar({
     if (!locked) inputRef.current?.focus()
   }, [locked, sessionId])
 
-  // Active conversation scrollport: chain the wheel. While the textarea (capped
-  // at 14 lines with overflow-y:auto) can still move in this direction, keep
-  // the native scroll; only at its own edge forward delta to the host so a
-  // short draft never traps the gesture and a long draft stays scrollable.
-  // Hero mounts have no host and keep native wheel scrolling.
+  // Two DOM listeners on the textarea, one lifetime (it is never unmounted —
+  // the inert state renders the same element disabled).
+  //
+  // wheel — active conversation scrollport: chain the gesture. While the
+  // textarea (capped at 14 lines with overflow-y:auto) can still move in this
+  // direction, keep the native scroll; only at its own edge forward delta to
+  // the host so a short draft never traps the gesture and a long draft stays
+  // scrollable. Hero mounts have no host and keep native wheel scrolling.
+  //
+  // scroll — the backdrop paints every visible glyph (the textarea's own text
+  // is transparent) but is clipped, not scrolled, so it does not follow the
+  // textarea on its own: without this mirror a draft past the cap moves the
+  // caret while the words stay frozen in place. Every way the box moves ends
+  // in a `scroll` event, edits included (the caret is scrolled into view), and
+  // the layers share an extent, so a draft that shrinks past the offset clamps
+  // both to the same maximum — one listener covers the coupling.
   useEffect(() => {
     const el = inputRef.current
     if (el === null) return
@@ -128,8 +140,16 @@ export function InputBar({
       e.preventDefault()
       host.scrollTop += e.deltaY
     }
+    const onScroll = (): void => {
+      const backdropEl = backdropRef.current
+      if (backdropEl !== null) backdropEl.scrollTop = el.scrollTop
+    }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => { el.removeEventListener('wheel', onWheel) }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('scroll', onScroll)
+    }
   }, [])
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -419,6 +439,22 @@ export function InputBar({
       const displayHint = translated !== hintKey ? translated : deco.hint
       backdrop.push(<span key="hint" className={css.hint} data-decoration="hint">{displayHint}</span>)
     }
+    // Trailing-line sentinel, the same one the mirror div carries and for the
+    // same reason: a textarea reserves a line box for the caret after a final
+    // newline, while `white-space: pre-wrap` collapses a text node's trailing
+    // newline and generates none. Without it a draft ending in a newline makes
+    // the backdrop exactly one line SHORTER than the textarea, so mirroring the
+    // offset at the very bottom clamps and the glyphs sit a line behind the
+    // caret. The extra newline is absorbed by that same collapse when the draft
+    // does not end in one, so it costs no height in the ordinary case.
+    //
+    // The mirror only fails one way — a backdrop SHORTER than the textarea
+    // clamps the assignment, while a taller one takes every offset exactly and
+    // hides the surplus below the clip. That is why the ghost hint needs no
+    // handling of its own: it can only add content after the draft and before
+    // this sentinel, never remove a line box, so it moves the pair to equal or
+    // to the safe side.
+    backdrop.push('\n')
   }
 
   return (
@@ -474,7 +510,7 @@ export function InputBar({
             (min/max capped in CSS); the absolutely-positioned textarea rides its height. Counting
             rows by '\n' cannot see soft wraps. */}
         <div className={css.grow}>
-          <div aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
+          <div ref={backdropRef} aria-hidden className={css.backdrop} data-input-backdrop>{backdrop}</div>
           <textarea
             ref={inputRef}
             className={css.input}

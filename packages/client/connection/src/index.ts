@@ -58,6 +58,7 @@ const PRIVILEGED_METHODS = new Set([
   'settings.describe',
   'settings.update',
   'settings.replace',
+  'settings.mutate',
   'credentials.describe',
   'credentials.set',
   'credentials.unset',

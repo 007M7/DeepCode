@@ -5,11 +5,15 @@
  * for the default-exported Service class.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { createServer, type Server } from 'node:http'
 import { once } from 'node:events'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { Context } from 'cordis'
+import { getOrCreateAnonymousUserId } from '../src/user-id.ts'
 import Loader from '@cordisjs/plugin-loader'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import TelemetryOtel, { Config } from '../src/index.ts'
@@ -36,6 +40,21 @@ interface OtlpLogsRequest {
 }
 
 const servers: Server[] = []
+
+// The backend resolves the harness home's anonymous user id at construction;
+// pin DSH_HOME to a temp dir so the suite never touches the ambient ~/.dsh.
+let tempHome: string
+let previousDshHome: string | undefined
+beforeAll(() => {
+  tempHome = mkdtempSync(join(tmpdir(), 'dsh-otel-home-'))
+  previousDshHome = process.env.DSH_HOME
+  process.env.DSH_HOME = tempHome
+})
+afterAll(() => {
+  if (previousDshHome === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = previousDshHome
+  rmSync(tempHome, { recursive: true, force: true })
+})
 
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -104,6 +123,7 @@ describe('TelemetryOtel wire', () => {
 
     const resource = first.body.resourceLogs[0]!.resource.attributes
     expect(resource).toContainEqual({ key: 'service.name', value: { stringValue: 'deepseek-harness' } })
+    expect(resource).toContainEqual({ key: 'user.id', value: { stringValue: getOrCreateAnonymousUserId() } })
 
     const records = allRecords(captures)
     const ledger = records.filter(r => r.scope === '@deepseek-ai/dsh-session-telemetry-otel')

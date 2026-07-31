@@ -27,6 +27,7 @@
     "apps/web/tests/seeded-history.e2e.ts",
     "apps/web/tests/sidebar-scrollbar.e2e.ts",
     "apps/web/tests/code-mode-round.e2e.ts",
+    "apps/web/tests/composer-draft-scroll.e2e.ts",
     "apps/web/tests/cordis-tool-round.e2e.ts",
     "apps/web/tests/message-actions.e2e.ts",
     "apps/web/tests/queue-actions.e2e.ts",
