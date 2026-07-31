@@ -108,6 +108,26 @@ describe('HoverCard', () => {
     expect(screen.queryByText('card body')).toBeNull()
   })
 
+  it('a press on the card starts a selection instead of dismissing it', () => {
+    // The card is a React child of the wrapper, so capture-phase presses on
+    // it reach the wrapper's dismissal handler too; they must not close it,
+    // or the first pointerdown of a text-selection drag would kill the card.
+    const { wrapper } = mount()
+    fireEvent.pointerEnter(wrapper)
+    act(() => { vi.advanceTimersByTime(500) })
+    fireEvent.pointerDown(screen.getByText('card body'))
+    // Still mounted after a grace's worth of time: no close was armed either.
+    act(() => { vi.advanceTimersByTime(POINTER_GRACE_MS) })
+    expect(screen.getByText('card body')).toBeTruthy()
+  })
+
+  it('a press while closed leaves the card closed', () => {
+    mount()
+    fireEvent.pointerDown(screen.getByText('row'))
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(screen.queryByText('card body')).toBeNull()
+  })
+
   it('disabled suppresses opening entirely', () => {
     const { wrapper } = mount({ disabled: true })
     fireEvent.pointerEnter(wrapper)

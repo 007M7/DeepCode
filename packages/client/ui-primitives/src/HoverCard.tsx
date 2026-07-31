@@ -109,11 +109,17 @@ export function HoverCard({ anchor, content, openDelayMs = 500, disabled = false
       }}
       onPointerLeave={() => {
         clearTimer()
-        armClose()
+        // Leaving a closed card schedules a no-op close; only arm while
+        // open, matching Menu's shape.
+        if (open) armClose()
       }}
-      // Any press inside the anchor (row click, menu trigger) dismisses the
+      // A press inside the anchor (row click, menu trigger) dismisses the
       // card immediately, without waiting for the owner to flip `disabled`.
-      onPointerDownCapture={() => {
+      // Capture presses reach this handler from the card too — it is a React
+      // child of the wrapper — but a press there starts a selection, so the
+      // card must stay mounted under it (and the browser's click with it).
+      onPointerDownCapture={(e) => {
+        if (cardRef.current?.contains(e.target as Node)) return
         clearTimer()
         cancelClose()
         setOpen(false)
