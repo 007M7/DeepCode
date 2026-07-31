@@ -411,6 +411,9 @@ importers:
       '@deepseek-ai/dsh-tool-todo':
         specifier: workspace:^
         version: link:../../packages/todo/tool-todo
+      '@deepseek-ai/dsh-tool-web':
+        specifier: workspace:^
+        version: link:../../packages/web/tool-web
       '@deepseek-ai/dsh-tool-workflow':
         specifier: workspace:^
         version: link:../../packages/workflow/tool-workflow
@@ -426,6 +429,12 @@ importers:
       '@deepseek-ai/dsh-user-interaction':
         specifier: workspace:^
         version: link:../../packages/ui/user-interaction
+      '@deepseek-ai/dsh-web':
+        specifier: workspace:^
+        version: link:../../packages/web/web
+      '@deepseek-ai/dsh-web-search-deepseek':
+        specifier: workspace:^
+        version: link:../../packages/web/web-search-deepseek
       '@deepseek-ai/dsh-workflow-workerthread':
         specifier: workspace:^
         version: link:../../packages/workflow/workflow-workerthread
@@ -5798,9 +5807,21 @@ importers:
         specifier: ^3.18.0
         version: 3.18.0
     devDependencies:
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-credentials':
+        specifier: workspace:^
+        version: link:../../credentials/credentials
+      '@deepseek-ai/dsh-credentials-local':
+        specifier: workspace:^
+        version: link:../../credentials/credentials-local
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../support/invariants
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
       '@deepseek-ai/dsh-web':
         specifier: workspace:^
         version: link:../web

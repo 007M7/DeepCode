@@ -2164,8 +2164,10 @@ Requires: `web`
 ```ts config-catalog
 /** Plugin config (all optional — `apply` fills env-var and constant defaults). */
 export interface Config {
-  /** DeepSeek API key. Falls back to `$DEEPSEEK_API_KEY`. Empty → unavailable. */
+  /** Literal DeepSeek API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
   apiKey?: string
+  /** Credential reference resolved for each search; defaults to `DEEPSEEK_API_KEY`. */
+  apiKeyEnv?: string
   /** Anthropic-compatible endpoint base; `/messages` is appended. */
   baseURL?: string
   /** Anthropic-format model name. Defaults to `deepseek-v4-flash`. */
@@ -2179,7 +2181,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/web/web-search-deepseek/src/index.ts:38`](../packages/web/web-search-deepseek/src/index.ts)
+Source: [`packages/web/web-search-deepseek/src/index.ts:43`](../packages/web/web-search-deepseek/src/index.ts)
 
 ## `@deepseek-ai/dsh-web-search-exa`
 

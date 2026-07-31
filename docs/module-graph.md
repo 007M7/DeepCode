@@ -431,8 +431,6 @@ flowchart TD
   pkg_web_fetch_local --> pkg_invariants
   pkg_web_fetch_local --> pkg_timeout
   pkg_web_fetch_local --> pkg_web
-  pkg_web_search_deepseek --> pkg_invariants
-  pkg_web_search_deepseek --> pkg_web
   pkg_web_search_exa --> pkg_invariants
   pkg_web_search_exa --> pkg_web
   pkg_web_search_perplexity --> pkg_invariants
@@ -528,6 +526,11 @@ flowchart TD
   pkg_compact_basic --> pkg_llm
   pkg_compact_basic --> pkg_session
   pkg_compact_basic --> pkg_token_meter
+  pkg_web_search_deepseek --> pkg_agent
+  pkg_web_search_deepseek --> pkg_credentials
+  pkg_web_search_deepseek --> pkg_invariants
+  pkg_web_search_deepseek --> pkg_session
+  pkg_web_search_deepseek --> pkg_web
   pkg_spill_local --> pkg_invariants
   pkg_spill_local --> pkg_spill
   pkg_hook_protocol --> pkg_bash
@@ -1104,7 +1107,6 @@ flowchart TD
 | [`compact`](../packages/compact/compact) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`invariants`](../packages/support/invariants), [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
-| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
@@ -1129,6 +1131,7 @@ flowchart TD
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants) |
 | [`skill-local`](../packages/skill/skill-local) | `skill` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`skill`](../packages/skill/skill) |
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
+| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`agent`](../packages/core/agent), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`web`](../packages/web/web) |
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`invariants`](../packages/support/invariants), [`spill`](../packages/spill/spill) |
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |
