@@ -365,11 +365,13 @@ flowchart TD
   pkg_client_ui_models --> pkg_invariants
   pkg_client_ui_question --> pkg_client_locale
   pkg_client_ui_question --> pkg_invariants
+  pkg_client_ui_settings_general --> pkg_client_connection
   pkg_client_ui_settings_general --> pkg_client_locale
   pkg_client_ui_settings_general --> pkg_client_runtime
   pkg_client_ui_settings_general --> pkg_client_ui_primitives
   pkg_client_ui_settings_general --> pkg_client_ui_settings
   pkg_client_ui_settings_general --> pkg_client_ui_slots
+  pkg_client_ui_settings_general --> pkg_client_web_react
   pkg_client_ui_settings_general --> pkg_invariants
   pkg_client_ui_sidebar --> pkg_client_locale
   pkg_client_ui_sidebar --> pkg_client_runtime
@@ -429,8 +431,6 @@ flowchart TD
   pkg_web_fetch_local --> pkg_invariants
   pkg_web_fetch_local --> pkg_timeout
   pkg_web_fetch_local --> pkg_web
-  pkg_web_search_deepseek --> pkg_invariants
-  pkg_web_search_deepseek --> pkg_web
   pkg_web_search_exa --> pkg_invariants
   pkg_web_search_exa --> pkg_web
   pkg_web_search_perplexity --> pkg_invariants
@@ -526,6 +526,11 @@ flowchart TD
   pkg_compact_basic --> pkg_llm
   pkg_compact_basic --> pkg_session
   pkg_compact_basic --> pkg_token_meter
+  pkg_web_search_deepseek --> pkg_agent
+  pkg_web_search_deepseek --> pkg_credentials
+  pkg_web_search_deepseek --> pkg_invariants
+  pkg_web_search_deepseek --> pkg_session
+  pkg_web_search_deepseek --> pkg_web
   pkg_spill_local --> pkg_invariants
   pkg_spill_local --> pkg_spill
   pkg_hook_protocol --> pkg_bash
@@ -1086,7 +1091,7 @@ flowchart TD
 | [`web`](../packages/web/web) | `web` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm) |
 | [`client-ui-models`](../packages/client/ui-models) | `client` | [`client-connection`](../packages/client/connection), [`client-runtime`](../packages/client/runtime), [`client-schema-form`](../packages/client/schema-form), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/support/invariants) |
 | [`client-ui-question`](../packages/client/ui-question) | `client` | [`client-locale`](../packages/client/locale), [`invariants`](../packages/support/invariants) |
-| [`client-ui-settings-general`](../packages/client/ui-settings-general) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
+| [`client-ui-settings-general`](../packages/client/ui-settings-general) | `client` | [`client-connection`](../packages/client/connection), [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`client-web-react`](../packages/client/web-react), [`invariants`](../packages/support/invariants) |
 | [`client-ui-sidebar`](../packages/client/ui-sidebar) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-slash`](../packages/client/ui-slash) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
 | [`client-ui-theme`](../packages/client/ui-theme) | `client` | [`client-locale`](../packages/client/locale), [`client-runtime`](../packages/client/runtime), [`client-ui-primitives`](../packages/client/ui-primitives), [`client-ui-slots`](../packages/client/ui-slots), [`invariants`](../packages/support/invariants) |
@@ -1102,7 +1107,6 @@ flowchart TD
 | [`compact`](../packages/compact/compact) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune) | `compact` | [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`web-fetch-local`](../packages/web/web-fetch-local) | `web` | [`invariants`](../packages/support/invariants), [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
-| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`invariants`](../packages/support/invariants), [`web`](../packages/web/web) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
@@ -1127,6 +1131,7 @@ flowchart TD
 | [`fs-policy`](../packages/fs/fs-policy) | `fs` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants) |
 | [`skill-local`](../packages/skill/skill-local) | `skill` | [`fs`](../packages/fs/fs), [`invariants`](../packages/support/invariants), [`paths`](../packages/util/paths), [`skill`](../packages/skill/skill) |
 | [`compact-basic`](../packages/compact/compact-basic) | `compact` | [`agent`](../packages/core/agent), [`compact`](../packages/compact/compact), [`compact-tool-result-prune`](../packages/compact/compact-tool-result-prune), [`invariants`](../packages/support/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
+| [`web-search-deepseek`](../packages/web/web-search-deepseek) | `web` | [`agent`](../packages/core/agent), [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`web`](../packages/web/web) |
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`invariants`](../packages/support/invariants), [`spill`](../packages/spill/spill) |
 | [`hook-protocol`](../packages/hooks/hook-protocol) | `hooks` | [`bash`](../packages/bash/bash), [`invariants`](../packages/support/invariants), [`session`](../packages/core/session) |
 | [`session-persistence-jsonl`](../packages/session-persistence/session-persistence-jsonl) | `session-persistence` | [`invariants`](../packages/support/invariants), [`session`](../packages/core/session), [`session-persistence`](../packages/session-persistence/session-persistence) |

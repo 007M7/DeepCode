@@ -84,6 +84,9 @@ const COLD_SUMMARY_BATCH_SIZE = 16
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message', 'steering/message'])
 
+/** Product settings intentionally exposed beside model-provider namespaces. */
+const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding'])
+
 /** Read live abort state across awaits without treating it as synchronously immutable. */
 function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
@@ -1108,13 +1111,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * The settings namespaces this proxy serves: configurable model providers
-   * plus the small explicit Web preference allowlist. The settings seam
-   * remains general; a future registration does not become remotely readable
-   * or writable by default.
+   * plus the small explicit Web preference and product-owned allowlists. The
+   * settings seam remains general; a future registration does not become
+   * remotely readable or writable by default.
    */
   function exposedNamespaces(): Set<string> {
     const exposed = modelProviderNamespaces()
     for (const ns of WEB_SETTINGS_NAMESPACES) exposed.add(ns)
+    for (const ns of PRODUCT_SETTINGS_NAMESPACES) exposed.add(ns)
     return exposed
   }
 
