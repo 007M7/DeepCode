@@ -17,6 +17,7 @@ import { IconSearchOutline16, SearchBlock, StateDot } from '@deepseek-ai/dsh-cli
 import type { ToolRowProps } from '../contract/slots.ts'
 import { CHAT_SEARCH_MAX_LINES, searchCardModel } from '../contract/search-card-model.ts'
 import { toolRowModel, type ToolRowState } from '../contract/tool-call-model.ts'
+import { rowResultText, rowStateStatus } from '../contract/toolview-status.ts'
 import css from './search-row.module.css'
 
 /** Leading-slot glyph substitution: the search icon yields to the terminal
@@ -30,40 +31,6 @@ function leadingFor(state: ToolRowState) {
   }
 }
 
-/** Visually hidden status — StateDot is aria-hidden; assistive technology needs a text label. */
-function stateStatus(state: ToolRowState): string | null {
-  switch (state) {
-    case 'running': return '运行中'
-    case 'error': return '失败'
-    case 'stopped': return '已停止'
-    default: return null
-  }
-}
-
-/**
- * A settled result's text, flattened from its content blocks, for the arm that
- * shows a result the search card cannot. Two cases reach it: an errored search
- * (grep/glob emit no `presentResult` on an error result, so an errored search
- * has no card), and a settled call whose result view is not a search card at all
- * — a nested `run_code` sub-dispatch (the backend computes no presentationMeta
- * for it, so `resultView` is null) or a legacy generic result. In both the keyed
- * SearchRow owns the render slot, so without this arm the model-facing text would
- * have nowhere to go: an errored search would read as a bare red dot, and a
- * successful cardless result would show only its summary with its content lost.
- * @param block - the frozen call slice.
- * @returns the result text, or null for a running call or an empty result.
- */
-function errorText(block: ToolRowProps['block']): string | null {
-  if (!('kind' in block)) return null
-  const parts: string[] = []
-  for (const item of block.content) {
-    if (item.type === 'text') parts.push(item.text)
-  }
-  if (parts.length === 0 && block.error !== undefined) parts.push(`${block.error.name}: ${block.error.code}`)
-  const text = parts.join('\n')
-  return text === '' ? null : text
-}
-
 /**
  * Search row: icon + Search · {summary} in the shared ToolRow chrome, with the
  * completed search's card resident below it, and — when the result was capped —
@@ -75,15 +42,15 @@ function errorText(block: ToolRowProps['block']): string | null {
 export function SearchRow({ toolName, block }: ToolRowProps) {
   const model = toolRowModel(toolName, block)
   const search = searchCardModel(block)
-  const status = stateStatus(model.state)
+  const status = rowStateStatus(model.state)
   // A settled call with no search card — an errored search (grep/glob emit no
   // result view on error), a successful nested run_code sub-dispatch, or a
   // legacy generic result — has its model-facing text nowhere else to go, since
   // the keyed SearchRow owns this render slot. Surface it as the fallback body.
-  // A running call ('kind' absent) has no result to flatten; errorText returns
-  // null for it, so the arm stays closed until settle.
+  // A running call ('kind' absent) has no result to flatten; rowResultText
+  // returns null for it, so the arm stays closed until settle.
   const settled = 'kind' in block
-  const fallback = search === null && settled ? errorText(block) : null
+  const fallback = search === null && settled ? rowResultText(block) : null
   return (
     <div className={css.card}>
       <div className={css.root} data-variant="search" data-tool={toolName} data-state={model.state}>
