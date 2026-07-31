@@ -16,7 +16,7 @@ Harnesses are [Cordis](cordis-primer.md) contexts; packages contribute services,
 |---|---|---|
 | — | [`dsh-scope`](../packages/core/scope/README.md) | scoped-context registrations and shared layer storage (library) |
 | `ctx.sessions` | `dsh-session` | in-memory event-sourced sessions |
-| `ctx.systemPrompt` | `dsh-system-prompt` | ordered prompt sections, tool schemas, and variables |
+| `ctx.systemPrompt` | `dsh-system-prompt` | ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables |
 | `ctx.tools` | `dsh-tools` | tool registry and [execution pipeline](tool-execution-pipeline.md) |
 | `ctx.agents` | `dsh-agent` | live agents, delegated creation, `agent/*` events, process-local initiator scope |
 | `ctx.agentLoop` | `dsh-agent-loop` | concrete `Agent` driver |
@@ -93,7 +93,8 @@ forever:
     STEP loop:
       agent/step
       drain injected context and steering (steering bypasses prompt-submit)
-      assemble system prompt and tool schemas
+      assemble system prompt and tools
+      materialize changed runtime context as sourced 'user/message'
       snapshot the derived messages (the reconstruction boundary)
       'step/start'
       agent/request (config only) -> prepare adapter defaults/provenance under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
@@ -117,7 +118,7 @@ idle inject:
   do not open a turn or run the model
 ```
 
-Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
+Each step assembles ordered stable system sections, cache-safe dynamic contexts, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
 Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
 
@@ -145,7 +146,7 @@ Each agent owns scoped `agent.ctx`; shared storage overlays its tool, prompt, an
 
 The session log is authoritative. `deriveMessages()` projects model history; raw `assistant/chunk` events preserve replay and UI fidelity. Fork, resume, transcript rendering, telemetry, and persistence derive from this stream.
 
-**Model-visible ⟺ logged**: messages at `step/start` plus the folded `request/header` reconstruct every request; the header also marks adapter-materialized defaults so the next proposal can discard them and resolve the selected route without losing explicit conversation settings. Package-owned `dsh-agent-loop/invariant` can assert reconstructability through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
+**Model-visible ⟺ logged**: before `step/start`, the loop appends the full current runtime-context snapshot as a sourced `user/message`, then snapshots derived messages. Those messages and the folded `request/header` reconstruct each request. The header marks adapter defaults so later proposals discard them and re-resolve the route without losing explicit settings. `dsh-agent-loop/invariant` asserts this through `ctx.invariants` ([reconstructability](../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)).
 
 Durability is a plugin concern. Backends eagerly drain synchronous `session/event` notifications. `session/flush` barriers precede each request and top-level tool dispatch, then follow `turn/end` before another queued turn or idle observation. `SessionPersistence` stores `SessionEvent` directly and metadata in `SessionHeader`; JSONL defaults to checksummed Zstandard, while SQLite shares the contract ([decision](../.agents/notes/implemented/bug-fix/2026-07-21-semantic-session-checkpoints.md)).
 

@@ -254,7 +254,7 @@ describe('agent loop', () => {
     // NO system field at all (not an empty string).
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
-    ctx.on('system-prompt/assemble', async () => ({ sections: [], tools: [], variables: {} }))
+    ctx.on('system-prompt/assemble', async () => ({ sections: [], contexts: [], tools: [], variables: {} }))
     const agent = ctx.agentLoop.create(SessionId('a-no-system'), { provider: 'mock', model: 'mock' })
 
     send(agent, 'hi')
@@ -262,6 +262,178 @@ describe('agent loop', () => {
 
     expect(adapter.requests).toHaveLength(1)
     expect('system' in adapter.requests[0]!).toBe(false)
+  })
+
+  it('materializes changed runtime context at the history tail without rewriting the system header', async () => {
+    const adapter = new MockAdapter([
+      textResponse('one'),
+      textResponse('two'),
+      textResponse('three'),
+      textResponse('four'),
+      textResponse('five'),
+    ])
+    const ctx = await harness(adapter)
+    let mode = 'read-only'
+    const dispose = ctx.systemPrompt.context({ name: 'policy', order: 0, text: () => `Mode: ${mode}.` })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context'), { provider: 'mock', model: 'mock' })
+    const contextEvents = () => agent.session.events.flatMap(event =>
+      event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+        ? [event]
+        : [])
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(1)
+    expect(contextEvents()[0]?.data.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nMode: read-only.',
+    }])
+
+    send(agent, 'unchanged')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(1)
+
+    mode = 'danger-full-access'
+    send(agent, 'changed')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(2)
+    const changedBlock = contextEvents()[1]?.data.content[0]
+    expect(changedBlock?.type).toBe('text')
+    if (changedBlock?.type !== 'text') throw new Error('changed runtime context is not text')
+    expect(changedBlock.text).toContain('danger-full-access')
+
+    dispose()
+    send(agent, 'cleared')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(3)
+    expect(contextEvents()[2]?.data.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.',
+    }])
+
+    send(agent, 'still clear')
+    await waitForIdle(ctx, agent)
+    expect(contextEvents()).toHaveLength(3)
+    expect(adapter.requests.map(request => request.system)).toEqual(Array(5).fill(adapter.requests[0]?.system))
+    expect(agent.session.events.filter(event => event.type === 'request/header')).toHaveLength(1)
+  })
+
+  it('re-emits unchanged runtime context when a surface replacement removed the retained snapshot', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-compacted'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    const contextEvent = agent.session.events.find(event =>
+      event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    if (contextEvent?.type !== 'user/message') throw new Error('first turn did not materialize runtime context')
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'compacted summary' }],
+      source: { kind: 'plugin', plugin: 'test-compaction' },
+    }), {
+      surfaceOp: { op: 'replace', start: contextEvent.seq, end: contextEvent.seq },
+      sourceEventSeqs: [contextEvent.seq],
+    })
+
+    send(agent, 'after compaction')
+    await waitForIdle(ctx, agent)
+    const runtimeContexts = agent.session.events.flatMap(event =>
+      event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+        ? [event]
+        : [])
+    expect(runtimeContexts).toHaveLength(2)
+    expect(adapter.requests[1]?.messages.some(message =>
+      message.source.kind === 'plugin'
+      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(true)
+  })
+
+  it('clears compacted runtime context after the active set becomes empty', async () => {
+    const adapter = new MockAdapter([textResponse('one'), textResponse('two')])
+    const ctx = await harness(adapter)
+    const dispose = ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-compacted-clear'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'first')
+    await waitForIdle(ctx, agent)
+    const contextEvent = agent.session.events.find(event =>
+      event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    if (contextEvent?.type !== 'user/message') throw new Error('first turn did not materialize runtime context')
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'summary retaining old mode: read-only' }],
+      source: { kind: 'plugin', plugin: 'test-compaction' },
+    }), {
+      surfaceOp: { op: 'replace', start: contextEvent.seq, end: contextEvent.seq },
+      sourceEventSeqs: [contextEvent.seq],
+    })
+    dispose()
+
+    send(agent, 'after compaction')
+    await waitForIdle(ctx, agent)
+    const clearing = adapter.requests[1]?.messages.find(message =>
+      message.source.kind === 'plugin'
+      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')
+    expect(clearing?.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context: none. Earlier runtime-context snapshots no longer apply.',
+    }])
+  })
+
+  it('does not clear runtime context after an unrelated replacement', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-unrelated-compaction'), { provider: 'mock', model: 'mock' })
+    const original = agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'old context' }],
+      source: { kind: 'plugin', plugin: 'test-context' },
+    }), { surfaceOp: 'append' })
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'compacted summary' }],
+      source: { kind: 'plugin', plugin: 'test-compaction' },
+    }), {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })
+
+    send(agent, 'after compaction')
+    await waitForIdle(ctx, agent)
+    expect(adapter.requests[0]?.messages.some(message =>
+      message.source.kind === 'plugin'
+      && message.source.plugin === '@deepseek-ai/dsh-system-prompt')).toBe(false)
+  })
+
+  it('replaces a malformed retained runtime-context message with the current complete snapshot', async () => {
+    const adapter = new MockAdapter([textResponse('ok')])
+    const ctx = await harness(adapter)
+    ctx.systemPrompt.context({ name: 'policy', order: 0, text: 'Mode: read-only.' })
+    const agent = ctx.agentLoop.create(SessionId('a-runtime-context-malformed'), { provider: 'mock', model: 'mock' })
+    agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'broken' }, { type: 'text', text: 'snapshot' }],
+      source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+    }), { surfaceOp: 'append' })
+
+    send(agent, 'repair context')
+    await waitForIdle(ctx, agent)
+    const runtimeContexts = agent.session.events.flatMap(event =>
+      event.type === 'user/message'
+        && event.data.source.kind === 'plugin'
+        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt'
+        ? [event]
+        : [])
+    expect(runtimeContexts).toHaveLength(2)
+    expect(runtimeContexts[1]?.data.content).toEqual([{
+      type: 'text',
+      text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nMode: read-only.',
+    }])
   })
 
   it('records raw chunks for replay as assistant/chunk session events', async () => {

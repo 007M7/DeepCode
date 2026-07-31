@@ -11,6 +11,10 @@
   - img
 - button "Edit":
   - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
 - 'button "Think The user wants me to write a single `run_code` program that:"':
   - img
   - img

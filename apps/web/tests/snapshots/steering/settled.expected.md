@@ -11,6 +11,10 @@
   - img
 - button "Edit":
   - img
+- button "Context injection":
+  - img
+  - img
+  - text: Context injection
 - button "Think The user wants me to use the ask_user_question tool to ask them a specific question with the given parameters. Let me do exactly that.":
   - img
   - img
