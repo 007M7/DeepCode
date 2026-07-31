@@ -14,7 +14,7 @@ This version is still in internal testing. Some features remain unfinished, and 
 
 “As one cuts and files, as one carves and polishes.” Products grow through repeated encounters with real use and candid feedback. The problems you uncover in practice may lead us to re-examine, or even discard, existing designs.
 
-We especially want to hear about moments of failure, confusion, or friction. If DeepSeek Harness does not help—or instead makes your work harder—please leave a message in our WeCom group and tell us about your experience. Every report will help us refine it.
+We especially want to hear about moments of failure, confusion, or friction. If DeepSeek Harness does not help—or instead makes your work harder—please leave a message in our <a href="https://wj.qq.com/s2/27234598/03eb/">WeCom group</a> and tell us about your experience. Every report will help us refine it.
 
 ## Install
 
@@ -39,7 +39,7 @@ For the recommended local interface, build the active checkout after installatio
 dsh web
 ```
 
-The build path above is the installer's default; see [`scripts/install.sh`](scripts/install.sh) for alternate locations. The Web UI is served at `http://127.0.0.1:3080` by default.
+The full build produces the library and client bundles plus the frontend dist. The path above is the installer's default. If you set `DSH_SOURCE` or `DSH_CURRENT`, or reused an existing checkout, replace `~/.dsh/source/current` with that checkout path; see [`scripts/install.sh`](scripts/install.sh) for details. The Web UI is served at `http://127.0.0.1:3080` by default.
 
 ### TUI
 
@@ -59,17 +59,17 @@ dsh -p "summarize this workspace"
 
 ### Automation and SDKs
 
-From a source checkout, start the ACP automation server:
+From a source checkout with `DEEPSEEK_API_KEY` in the environment or its root `.env`, start the ACP automation server:
 
 ```sh
 pnpm run demo:acp
 ```
 
-The [Python SDK](python/README.md) drives a bundled JSON-RPC runtime. The [examples](examples/README.md) cover the runnable TUI, headless, ACP, JSON-RPC, Code Mode, and self-referential compositions.
+The [Python SDK](python/README.md) drives a bundled JSON-RPC runtime. The [examples](examples/README.md) cover the runnable headless, ACP, JSON-RPC, Code Mode, and self-referential compositions.
 
 ## Why DeepSeek Harness
 
-Built-in capabilities cover file reading, editing, and search; shell and persistent PTY execution; reusable skills; task tracking, goals, plans, todos, and background tasks; subagents and workflows; sandboxing and approvals; persistent, resumable, forkable, and queryable sessions; LSP and web access; context compaction; and telemetry. Each composition selects the subset appropriate to its surface. The TUI also includes Plan Mode.
+Built-in capabilities cover file reading, editing, and search; shell and persistent PTY execution; reusable skills; task tracking, goals, plans, todos, and background tasks; subagents and workflows; sandboxing and approvals; settings and credentials; persistent, resumable, forkable, and queryable sessions; LSP and web access; context compaction; and telemetry. Each composition selects the subset appropriate to its surface. The TUI and Web UI both include Plan Mode.
 
 - **Everything is a plugin.** Models, tools, policies, storage, context management, and interfaces are composable [Cordis plugins](docs/user/develop/basic/index.md), so deployments can extend or replace behavior without forking the agent loop. See the [architecture](docs/architecture.md) for the underlying design.
 - **Runs are reconstructable.** Anything visible to the model is logged in the authoritative session stream; persistence, resume/fork/query, replay, telemetry, and UIs derive from the same events. See the [session-log architecture](docs/architecture.md#session-log).
