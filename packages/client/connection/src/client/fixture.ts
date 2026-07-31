@@ -300,6 +300,13 @@ function buildAlphaLog(): SessionEvent[] {
   toolTurn(61, 'fx-write', '{"path":"notes/demo.txt","content":"hello fixture\\n"}', 'wrote notes/demo.txt')
   toolTurn(62, 'edit', '{"file_path":"notes/demo.txt","old_string":"hello","new_string":"hello fixture"}', '已编辑')
   toolTurn(63, 'write', '{"file_path":"notes/new-demo.txt","content":"hello fixture\\n"}', '已写入')
+  // Turn 67: a multi-hunk edit — two scattered replacements in one file. Named
+  // `edit` so it lands on the keyed FileMutationRow (the resident diff card the
+  // single-hunk turn 62 also uses), and file_path `src/config.ts` is the marker
+  // the presenter reads to emit the two-hunk sample: the card draws one path
+  // header, the first hunk, a `⋯` gap, then the second (the same-file
+  // second-hunk arm turns 62/63 cannot reach).
+  toolTurn(67, 'edit', '{"file_path":"src/config.ts","old_string":"const timeout = 30","new_string":"const timeout = 60"}', '已编辑')
   // Turn 64: one run_code turn with three logged sub-dispatches — the Code
   // Mode acceptance surface (parent code row + nested native-identical rows,
   // including an isError sub-call and a bash sub-call that must hit the same
@@ -413,9 +420,26 @@ function presentCall(name: string, argsRaw: string): ToolCallView | undefined {
         diffs: [{ path: str(args.path), oldText: null, newText: str(args.content) }],
       }
     case 'edit':
-      return { card: 'generic', title: `Edit ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      // The multi-hunk sample (turn 67) is keyed on its file_path, so the two
+      // scattered hunks share one path header and the card draws the `⋯` gap.
+      if (str(args.file_path) === 'src/config.ts') {
+        return {
+          card: 'diff', title: `Edit ${str(args.file_path)}`,
+          diffs: [
+            { path: str(args.file_path), oldText: 'const timeout = 30', newText: 'const timeout = 60' },
+            { path: str(args.file_path), oldText: 'retries: 1', newText: 'retries: 3' },
+          ],
+        }
+      }
+      return {
+        card: 'diff', title: `Edit ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: str(args.old_string), newText: str(args.new_string) }],
+      }
     case 'write':
-      return { card: 'generic', title: `Write ${str(args.file_path)}`, kind: 'edit', rawInput: args }
+      return {
+        card: 'diff', title: `Write ${str(args.file_path)}`,
+        diffs: [{ path: str(args.file_path), oldText: null, newText: str(args.content) }],
+      }
     // The web tools keep a GENERIC pending card and add the `web` result card
     // only at result time (the contract's result-only web shape); their pending
     // kind matches the result kind so a call and its result read as one category.
