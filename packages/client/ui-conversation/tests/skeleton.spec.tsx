@@ -111,7 +111,6 @@ function mount(
   const useInput = bindSnapshotSelector(wiring.state)
   const inputActions = wiring.actions
   const stop = vi.fn()
-  const open = vi.fn()
   const slotCalls: string[] = []
   let pickerOwner: unknown
   const renderSlot = ((key: string, owner: object, opts?: { only?: string }) => {
@@ -140,8 +139,6 @@ function mount(
             version: () => 1,
           }}
           bindDraftMirror={write => wiring.bindMirror(write)}
-          open={open}
-          t={t}
           {...owner}
         />
       )
@@ -203,7 +200,7 @@ function mount(
   }
   const view = render(<ConversationRoot {...props} />)
   return {
-    view, chat, sink, open, retargetWorkspace, session, slotCalls,
+    view, chat, sink, retargetWorkspace, session, slotCalls,
     pickerOwner: () => pickerOwner,
     rerender: () => { view.rerender(<ConversationRoot {...props} />) },
   }
@@ -218,8 +215,8 @@ describe('ConversationRoot resident composer', () => {
     expect(b.chat.store.getSnapshot().draft).toBe('ordinary revised')
     fireEvent.keyDown(box, { key: 'Enter' })
     expect(b.sink).toHaveBeenCalledWith('ordinary revised')
-    fireEvent.click(b.view.getByRole('button', { name: 'Root' }))
-    expect(b.open).toHaveBeenCalledWith(sid('root'))
+    expect(b.view.getByRole('heading', { name: 'Child', level: 1 })).toBeTruthy()
+    expect(b.view.queryByText('Root')).toBeNull()
   })
 
   it('active phase: fixed header outside the scrollport; sticky composer seat inside it', () => {
