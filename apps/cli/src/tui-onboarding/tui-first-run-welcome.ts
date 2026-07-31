@@ -35,6 +35,9 @@ import {
   type TuiFirstRunWelcomeArtTier,
 } from './tui-first-run-welcome-art.ts'
 
+// TODO: Move acknowledgement persistence behind @deepseek-ai/dsh-storage once
+// its backend contract supports concurrent host processes. This same-value
+// marker must not inherit JSON lost updates or SQLite busy failures.
 const ACKNOWLEDGEMENT_DIRECTORY = 'notices'
 const ACKNOWLEDGEMENT_BASENAME = 'tui-first-run-welcome'
 
