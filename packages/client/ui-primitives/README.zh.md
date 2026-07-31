@@ -24,5 +24,5 @@
 - **字形级图标是重新绘制的近似版本**：鱼形标志（以及 ui-conversation 持有的闪光图标）来自字体字形，而本地设计数据无法导出其矢量几何；在获得精确导出路径前，使用手工重建版本代替。
 - **Pill 与 Input 没有设计来源**：两个原子组件均自行定义；与其相似的侧边栏搜索字段和视图标签条由消费方组合，不是这些原子组件。
 - **StateDot 的 `Active` 变体是设计中的隐藏占位符**：尚未实现；已交付的四种状态（done/warning/ongoing/error）构成完整的 P-I 表层。
-- **本包面向用户的文案是内联中文，未做本地化**：这些原子组件是 zero-cordis 的，因此拿不到 `ctx.locale`；`TerminalBlock` 的退出码与信号胶囊、它的复制与展开控件，以及 `CodeBlock` 的复制控件全部硬编码。这与 locale 包记录的全仓现状一致（只有 Settings 表面做了翻译）；把它们抽取进 `zh`/`en` 字典需要为 zero-cordis 原子组件提供一条本地化通道，属于那次全仓抽取的范围。
+- **面向用户的文案经 label props 本地化，默认值为原中文字面量**：这些原子组件是 zero-cordis 的，拿不到 `ctx.locale`，因此 `TerminalBlock`（`labels`）、`JsonTree`（`labels`）、`CodeBlock`（`copyLabel`/`copiedLabel`）、`MarkdownText`（`codeLabels`）、`JsonBlock`（`truncatedLabel`）、`ConnectionBanner`（`label`）和 `Modal`（`closeLabel`）都把文案作为可选 props 接收，默认值即此前的硬编码字符串。已本地化的插件用自己的 `t` 席位传入字典驱动的 label；什么都不传的消费者渲染与本地化之前逐字节一致。
 - **`TerminalBlock` 不是终端模拟器**：它渲染已结束或仍在运行的命令输出，而不是交互式会话：SGR 颜色与属性会被遵循，进度行所用的行内光标移动同样被遵循——回车、退格、行内擦除、制表位与字符宽度。绝对光标定位、清屏与备用屏幕序列会被剥离。基础 16 色中的洋红与青色没有对应 token，保持字面 rgb。

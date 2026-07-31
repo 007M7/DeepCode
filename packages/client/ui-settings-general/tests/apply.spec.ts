@@ -1,10 +1,10 @@
-/** Ownerless-copy registrations: the four seats, the dictionaries, locale refresh, and HMR recovery. */
+/** Ownerless-copy registrations: the four seats, the dictionaries, thunked labels, and HMR recovery. */
 import { Context } from 'cordis'
 import { describe, expect, it } from 'vitest'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-settings-general/client'
-import type { GeneralSectionInjected } from '@deepseek-ai/dsh-client-ui-settings-general/client'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
 
@@ -57,13 +57,14 @@ describe('ui-settings-general apply', () => {
       expect(before.slots.entries(name)[0]!.component).toBe(component)
     }
     const entry = generalEntry(before.slots)!
-    expect(entry.options).toEqual({ id: 'general', order: 0, label: '通用设置' })
+    expect(entry.options).toMatchObject({ id: 'general', order: 0 })
+    // The nav label is a locale-following thunk; owners resolve at read time.
+    expect(resolveSlotLabel(entry.options.label)).toBe('通用设置')
     expect(before.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
-    const injected = (entry.inject as unknown as () => GeneralSectionInjected)()
-    expect(injected.t('permission.title')).toBe('权限')
-    // The chrome seats share one inject face: the settings-ns translate.
-    const chrome = (before.slots.entries('settings.trigger')[0]!.inject as unknown as () => GeneralSectionInjected)()
-    expect(chrome.t('trigger')).toBe('设置')
+    // Copy rides the standard locale seat: every seat declares the namespace.
+    for (const [name] of SEATS) {
+      expect(before.slots.entries(name)[0]!.locale).toBe('settings')
+    }
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
@@ -87,33 +88,26 @@ describe('ui-settings-general apply', () => {
     expect(b.locale.bind('settings')('close')).toBe('Close')
     b.locale.setLocale('zh')
     await fiber.dispose()
-    // The (ns, locale) seats are free again — the dictionary disposers ran.
+    // The (ns, locale) seats are free again — the dictionary disposer ran.
     expect(() => b.locale.register('settings', 'zh', {})).not.toThrow()
     expect(() => b.locale.register('settings', 'en', {})).not.toThrow()
   })
 
-  it('refreshes all four seats on locale change with fresh General label text', async () => {
+  it('the nav label thunk follows the active locale without re-registration', async () => {
     const b = await bench()
     declare(b.slots)
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const zhVersions = SEATS.map(([name]) => b.slots.getVersion(name))
     b.locale.setLocale('en')
-    // Every seat re-registered (version moved) and the label re-resolved.
+    // No ledger churn: freshness rides the thunk (and the renderer's locale
+    // subscription), not re-registration.
     SEATS.forEach(([name], i) => {
-      expect(b.slots.getVersion(name)).toBeGreaterThan(zhVersions[i]!)
+      expect(b.slots.getVersion(name)).toBe(zhVersions[i]!)
       expect(b.slots.entries(name)).toHaveLength(1)
     })
-    expect(generalEntry(b.slots)!.options.label).toBe('General')
+    expect(resolveSlotLabel(generalEntry(b.slots)!.options.label)).toBe('General')
     b.locale.setLocale('zh')
-    expect(generalEntry(b.slots)!.options.label).toBe('通用设置')
-  })
-
-  it('locale change while the slots are undeclared stays a no-op', async () => {
-    const b = await bench()
-    await b.ctx.plugin({ inject: [...inject], apply }).await()
-    b.locale.setLocale('en')
-    for (const [name] of SEATS) expect(b.slots.entries(name)).toHaveLength(0)
-    b.locale.setLocale('zh')
+    expect(resolveSlotLabel(generalEntry(b.slots)!.options.label)).toBe('通用设置')
   })
 
   it('re-registers after an HMR collapse of the declaring chain (stale disposers must not block)', async () => {
@@ -133,7 +127,7 @@ describe('ui-settings-general apply', () => {
     expect(b.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     // The recovered registrations still ride the locale path.
     b.locale.setLocale('en')
-    expect(generalEntry(b.slots)!.options.label).toBe('General')
+    expect(resolveSlotLabel(generalEntry(b.slots)!.options.label)).toBe('General')
     b.locale.setLocale('zh')
   })
 

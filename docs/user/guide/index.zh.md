@@ -20,7 +20,7 @@ Harness 将一个 AI Agent（智能体） 所需要的所有能力——LLM 调�
   config:
     agents:
       - id: main
-        provider: deepseek
+        provider: deepseek-official
         model: deepseek-v4-flash
 
 # Select the interactive front door

@@ -1,6 +1,7 @@
 import { Context } from 'cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { SlotsService } from '@deepseek-ai/dsh-client-runtime/client'
+import { LocaleService } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type { WorkspaceBrowserInjected, WorkspacePickerInjected } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
@@ -19,11 +20,19 @@ async function bench() {
   const insertSessionBefore = vi.fn(async () => ({}))
   const open = vi.fn()
   const clear = vi.fn()
+  const renameSession = vi.fn(async (title: string) => ({ ok: true, value: { title, seq: 1 } }))
+  const binding = vi.fn(() => ({ session: { rename: renameSession } }))
+  const fork = vi.fn(async () => 'forked' as never)
   ctx.provide('workspaces', {
     create, startSession, rename, insertSessionBefore,
   } as never)
-  ctx.provide('sessions', { open, clear } as never)
-  return { ctx, slots: ctx.get('slots') as SlotsService, create, startSession, rename, insertSessionBefore, open, clear }
+  ctx.provide('sessions', { open, clear, binding, fork } as never)
+  const locale = new LocaleService(ctx)
+  ctx.provide('locale', locale)
+  return {
+    ctx, slots: ctx.get('slots') as SlotsService, locale, create, startSession, rename,
+    insertSessionBefore, open, clear, renameSession, binding, fork,
+  }
 }
 
 type HoleName = 'sidebar.workspaces' | 'conversation.hero.workspace' | 'conversation.empty.workspace'
@@ -36,7 +45,7 @@ function declare(slots: SlotsService, ...names: HoleName[]): () => void {
 
 describe('ui-workspace apply', () => {
   it('declares the services it drives', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale'])
   })
 
   it('registers browser and pickers for declarations arriving before or after apply', async () => {
@@ -44,6 +53,10 @@ describe('ui-workspace apply', () => {
     declare(before.slots, 'sidebar.workspaces')
     await before.ctx.plugin({ inject: [...inject], apply }).await()
     expect(before.slots.entries('sidebar.workspaces')[0]!.component).toBe(WorkspaceBrowser)
+    // Copy rides the standard locale seat: the entry declares the namespace
+    // and apply registered both dictionaries.
+    expect(before.slots.entries('sidebar.workspaces')[0]!.locale).toBe('workspace')
+    expect(before.locale.bind('workspace')('session.new')).toBe('新会话')
 
     const after = await bench()
     await after.ctx.plugin({ inject: [...inject], apply }).await()
@@ -66,6 +79,14 @@ describe('ui-workspace apply', () => {
     expect(b.startSession).toHaveBeenLastCalledWith(undefined)
     browser.open('session' as never)
     expect(b.open).toHaveBeenCalledWith('session')
+    await browser.renameSession('session' as never, 'renamed session')
+    expect(b.binding).toHaveBeenCalledWith('session')
+    expect(b.renameSession).toHaveBeenCalledWith('renamed session')
+    browser.forkSession('session' as never)
+    await vi.waitFor(() => {
+      expect(b.open).toHaveBeenCalledWith('forked')
+    })
+    expect(b.fork).toHaveBeenCalledWith({ sessionId: 'session', increaseTitle: true })
     await browser.renameWorkspace('ws' as never, 'renamed')
     expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
     await browser.insertSessionBefore('ws' as never, 's1' as never, 's2' as never)

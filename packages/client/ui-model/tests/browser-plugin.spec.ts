@@ -21,7 +21,7 @@ import { apply, inject } from '../src/client/index.ts'
 const sid = (k: string): SessionId => k as SessionId
 
 const GROUPS = [{
-  id: 'deepseek',
+  id: 'deepseek-official',
   name: 'DeepSeek',
   models: [
     {
@@ -54,7 +54,7 @@ const GROUPS = [{
 /** Boot the plugin over fake faces + a stateful fake host (current moves on selectModel). */
 async function bench() {
   const ctx = new Context()
-  let current: ModelTarget = { provider: 'deepseek', model: 'deepseek-v4-flash' }
+  let current: ModelTarget = { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
   const calls = { models: 0, select: 0 }
   ctx.provide('connection', { api: { sessions: {
     models: () => {
@@ -138,17 +138,17 @@ describe('ui-model dual entry', () => {
     const seatFace = b.seat().inject!(sid('s1'))
     // Switch through the SEAT entry.
     expect(await seatFace.select({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     })).toBe(true)
     expect(b.hostCurrent()).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     })
     expect(seatFace.directory.getSnapshot().current).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
     })
@@ -165,7 +165,7 @@ describe('ui-model dual entry', () => {
     const pro = options.find((o: SelectOption) => o.label === 'DeepSeek-V4-Pro')!
     await b.contribution().ui.onSelect(pro, projection('s1'))
     expect(seatFace.directory.getSnapshot().current).toEqual({
-      provider: 'deepseek',
+      provider: 'deepseek-official',
       model: 'deepseek-v4-pro',
       reasoningEffort: 'high',
     })
@@ -188,14 +188,14 @@ describe('ui-model dual entry', () => {
     const b = await bench()
     b.mint('s1')
     const face = b.seat().inject!(sid('s1'))
-    await face.select({ provider: 'deepseek', model: 'deepseek-v4-pro' })
-    b.setHostCurrent({ provider: 'deepseek', model: 'deepseek-v4-flash' })
+    await face.select({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    b.setHostCurrent({ provider: 'deepseek-official', model: 'deepseek-v4-flash' })
 
     b.ctx.emit('connection/reset')
     expect(face.directory.getSnapshot()).toMatchObject({ current: null, status: 'loading' })
     await Promise.resolve()
     expect(face.directory.getSnapshot()).toMatchObject({
-      current: { provider: 'deepseek', model: 'deepseek-v4-flash' },
+      current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       status: 'ready',
     })
   })

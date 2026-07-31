@@ -28,6 +28,12 @@ class SessionStore extends Service {
 
 空前缀可以被 fork；任何非空边界都必须是位于开放轮次之外且安全、已存在的序号。类型化的错误区分源缺失、对象陈旧、子 id 重复、边界无效和前缀结束于执行过程中等情况。更广泛的日志校验与崩溃恢复仍由其现有的负责方处理。
 
+### Host 与浏览器适配
+
+Host 的 `session.fork` RPC 接受 `atSeq`，并将其视为所需轮次内的锚点，而非 store 中包含该序号的安全边界。它选择该锚点处或其后的首个 `turn/end`；锚点省略或超过末尾时，选择最后一个已完成轮次。若锚点已在日志中，但从该锚点起找不到匹配的 `turn/end`，则返回 `fork-unavailable`，绝不回退到更早的轮次，因此消息操作不会静默遗漏所点击的消息。
+
+Host 通过 agent（智能体）注册表，以选定的种子和谱系创建子会话；发布前 setup 会先安装日志中最新的提供方、模型和推理（reasoning）目标，子会话才能运行。随后，Host 将子会话附加到源 Workspace。若附加失败，则返回 `workspace-attach-failed` 及已发布的子会话 id；客户端先将该子会话对账到摘要列表，再向调用方报告错误。Session 行操作使用最后一个已完成轮次，消息操作则提供其事件 seq；两者都会在成功后打开子会话，展开谱系后可在源会话下看到它。
+
 ## 曾考虑的替代方案
 
 **独立的 `ctx.sessionFork` 服务。** 这是最初的实现，但评审表明它过度套用了 capability-seam 模式。代码没有可替换的后端、没有额外的事件面、没有独立的所有权生命周期，也没有超出 `ctx.sessions.create({ seed, meta })` 的持久化行为。保留独立包会迫使调用方为了在会话存储原语之上执行一层策略而去发现并安装第二个服务。
@@ -40,4 +46,4 @@ class SessionStore extends Service {
 
 公开接口保持精简且易于发现：活跃会话分支是 `ctx.sessions` 的一部分，紧邻 `create({ seed })`，而非一个独立服务或一对两步辅助函数。持久化继续通过现有的 `session/created` 和 `session/flush` 行为运作：fork 出的子会话以种子事件开始生命，因此现有后端只需持久化该种子一次，并在 header 中保存 `parentSession`／`seedLength`。
 
-v1 范围仍然排除 ACP（Agent Client Protocol） `session/fork`、对未加载的已持久化会话的 fork、面向模型的工具，以及 subagent 重构。如果未来添加 ACP 方法，应在具备协议与快照覆盖后才广播该能力；本 Agent Note 不添加任何 ACP 协议行为，因此不需要 ACP 快照。fork 子会话的回放仍由现有的[种子边界测试 Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md) 覆盖，而本 API 则获得专门的 `dsh-session` 单元测试加 JSONL 持久化覆盖。
+v1 范围仍然排除 ACP（Agent Client Protocol） `session/fork`、对未加载的已持久化会话的 fork、面向模型的工具，以及 subagent 重构。如果未来添加 ACP 方法，应在具备协议与快照覆盖后才广播该能力；本 Agent Note 不添加任何 ACP 协议行为，因此不需要 ACP 快照。fork 子会话的回放仍由现有的[种子边界测试 Agent Note](../testing/2026-06-22-fork-child-replay-seed-boundary.md) 覆盖；store、Host、载体与客户端的专项测试固定边界和对账契约，真实 Chromium 场景则固定组装后的消息操作与谱系树。

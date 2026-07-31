@@ -389,10 +389,23 @@ export class ToolCardComponent implements Component {
     const glyph = this.result === undefined ? '○' : '●'
     const rawBody = this.renderBody()
     const view = this.resultView ?? this.callView
-    const genericContent = view.card === 'generic' ? view.content ?? this.result?.content : undefined
-    const unknownXml = this.definition === undefined && genericContent !== undefined
+    // A generic card's own content, or a web card's fallback to the raw result
+    // content (the `web` view carries no `content` copy), both render as one dim
+    // Markdown block below, so links/lists/headings keep the unified dim styling
+    // rather than reading as bare text. Terminal and diff cards own their body
+    // styling, so they are excluded (mirrors renderBody's post-terminal/diff fallback).
+    const markdownContent = view.card === 'generic'
+      ? view.content ?? this.result?.content
+      : view.card === 'web'
+        // A web resultView is only assigned alongside this.result (the result
+        // handler sets both) and the pending callView is never a web card, so
+        // the optional-chain undefined side is unreachable here.
+        /* v8 ignore next */
+        ? this.result?.content
+        : undefined
+    const unknownXml = this.definition === undefined && markdownContent !== undefined
       ? renderUnknownXml(
-        displayText(contentText(genericContent)),
+        displayText(contentText(markdownContent)),
         this.maxOutputLines,
         this.visibility === 'expanded',
         displayText,
@@ -405,7 +418,7 @@ export class ToolCardComponent implements Component {
     // A generic card renders title and result as one Markdown document, so the
     // document's own block spacing is preserved, then dims every row — the whole
     // card body reads as one dim block under the status-colored header.
-    const body = unknownXml ?? (genericContent !== undefined && rawBody.lines.length > 0
+    const body = unknownXml ?? (markdownContent !== undefined && rawBody.lines.length > 0
       ? this.dimBody(rawBody, width)
       : [...rawBody.prelude, ...rawBody.lines])
     const visibleBody = unknownXml !== undefined || this.visibility === 'expanded'
@@ -502,7 +515,11 @@ export class ToolCardComponent implements Component {
       // rather than under the dim result-output color.
       return { prelude: [...hunks, footer], lines: [] }
     }
-    const content = view.content ?? this.result?.content
+    // The web card carries no `content` copy, so a `web` result view falls back
+    // to the raw result content here (`view.card === 'generic'` narrows the
+    // generic union arm; a `web` card takes the same fallback, mirroring the
+    // `markdownContent` selection in render()).
+    const content = (view.card === 'generic' ? view.content : undefined) ?? this.result?.content
     const prelude: string[] = []
     const lines: string[] = []
     // The presenter title headlines the body now that the header is a fixed

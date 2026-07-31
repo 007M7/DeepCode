@@ -1,6 +1,7 @@
 import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 import { vitestExecArgv } from './vitest.shared.ts'
+import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './scripts/coverage-exempt.ts'
 
 // Resolution facade shared by every plugin instance below: tsconfig.base.json
 // has no include, which vite-tsconfig-paths treats as match-all, so its paths
@@ -38,6 +39,17 @@ const testIncludes = [
   'scripts/**/*.spec.ts',
 ]
 
+// The instrumented coverage gate sets this env; the exempt heavy suites then
+// run beside it uninstrumented (membership contract in scripts/coverage-exempt.ts).
+// A set-but-not-'1' value is a misconfiguration, not a silent no-op.
+const coverageExemptRaw = process.env[COVERAGE_EXEMPT_ENV]
+if (coverageExemptRaw !== undefined && coverageExemptRaw !== '' && coverageExemptRaw !== '1') {
+  throw new Error(`vitest config: ${COVERAGE_EXEMPT_ENV} must be '1' or unset, got ${JSON.stringify(coverageExemptRaw)}.`)
+}
+const coverageExemptExcludes = coverageExemptRaw === '1'
+  ? coverageExemptHeavySuites.map(suite => suite.exclude)
+  : []
+
 // These suites exercise process-global state, process APIs, or timing-sensitive process I/O
 // that worker threads cannot isolate reliably under aggregate gate contention.
 // Keep the narrow exception in forks while the rest of the inventory avoids per-file processes.
@@ -56,23 +68,27 @@ export default defineConfig({
     // .tsx: client component specs (jsdom via per-file @vitest-environment pragma).
     include: testIncludes,
     exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
-    // One coverage invocation aggregates both projects. Most suites use threads
-    // for lower startup/IPC overhead; only explicit process-bound suites fork.
+    // One coverage invocation aggregates both projects. Regular suites fork on
+    // POSIX for Node stability and use threads on Windows; process-bound suites
+    // always fork.
     projects: [
       {
         plugins: [pathsPlugin()],
         test: {
           name: 'thread-safe',
           execArgv: vitestExecArgv,
-          // Node 24 has aborted in its CJS lexer from a macOS arm64 worker
-          // thread. A fork contains that external runtime failure to the test
-          // process; other hosts retain the lower-overhead thread pool.
-          pool: process.platform === 'darwin' ? 'forks' : 'threads',
+          // Node 24 has aborted in its CJS lexer (v8::ToLocalChecked Empty
+          // MaybeLocal in cjs_lexer::Parse) from worker threads on macOS
+          // arm64 and later on Linux. A fork contains that external runtime
+          // failure to the test process; Windows keeps the thread pool, where
+          // the abort has not reproduced and process spawn is costlier.
+          pool: process.platform === 'win32' ? 'threads' : 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: testIncludes,
           exclude: [
             ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
             ...processBoundTests,
+            ...coverageExemptExcludes,
           ],
         },
       },
@@ -84,7 +100,10 @@ export default defineConfig({
           pool: 'forks',
           setupFiles: ['./scripts/test-invariants.ts'],
           include: processBoundTests,
-          exclude: windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+          exclude: [
+            ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+            ...coverageExemptExcludes,
+          ],
         },
       },
     ],
@@ -157,9 +176,13 @@ export default defineConfig({
         'packages/client/ui-sidebar/src/client/index.ts',
         'packages/client/ui-skill/src/client/index.ts',
         'packages/client/ui-workspace/src/client/index.ts',
-        'packages/typert/generator/src/analyzer.ts',
-        'packages/typert/generator/src/renderer.ts',
-        'packages/typert/generator/src/cordis-catalog.ts',
+        'packages/client/test-runtime/src/translate.ts',
+        'packages/client/ui-primitives/src/JsonTree.tsx',
+        // Typert generator: correctness is pinned by its fixture suites and
+        // the byte-for-byte catalog reproduction test; per-file coverage
+        // would put whole-workspace compiler analysis under v8
+        // instrumentation — the coverage lane's longest tail.
+        'packages/typert/generator/src/*.ts',
         'packages/host/apiproxy/src/index.ts',
         'packages/host/apiproxy/src/invariant.ts',
         'packages/host/apiproxy/src/api-proxy.ts',
