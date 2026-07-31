@@ -122,6 +122,18 @@ function followup(
   })
 }
 
+/**
+ * Exercise manager-wide teardown through the package-private owner rather than
+ * adding the irreversible operation to the public service contract.
+ */
+function drainManager(ctx: Context): Promise<void> {
+  const manager = (ctx.subagents as unknown as {
+    continuations?: { drain(): Promise<void> }
+  }).continuations
+  if (manager === undefined) throw new Error('expected a bound continuation manager')
+  return manager.drain()
+}
+
 /** Wait until a child's Activation is gone, i.e. its handle finished disposal. */
 async function waitNoActivation(ctx: Context, childId: SessionId): Promise<void> {
   await vi.waitFor(() => {
@@ -245,7 +257,7 @@ describe('SubagentService.startContinuable', () => {
       expect(ctx.agents.list().map(agent => agent.id)).toEqual([SessionId('parent')])
     })
     expect(ends).toEqual([])
-    await expect(ctx.subagents.drainContinuable()).resolves.toBeUndefined()
+    await expect(drainManager(ctx)).resolves.toBeUndefined()
   })
 
   it('rejects a continuable child that would exceed the configured depth cap', async () => {
@@ -283,7 +295,7 @@ describe('SubagentService.startContinuable', () => {
       version: SUBAGENT_DESCRIPTOR_VERSION,
       provider: 'spawn',
     })
-    await ctx.subagents.drainContinuable()
+    await drainManager(ctx)
   })
 
   it('records a declared tool filter in the descriptor', async () => {
@@ -316,7 +328,7 @@ describe('SubagentService.startContinuable', () => {
         provider: 'spawn',
         toolFilter: { deny: ['noop'] },
       })
-    await ctx.subagents.drainContinuable()
+    await drainManager(ctx)
   })
 
   it('cold-resumes without inventing a model route the descriptor never declared', async () => {
@@ -341,7 +353,7 @@ describe('SubagentService.startContinuable', () => {
     })
     expect(resumed.options.provider).toBeUndefined()
     expect(resumed.options.model).toBeUndefined()
-    await fresh.subagents.drainContinuable()
+    await drainManager(fresh)
   })
 
   it('numbers the descriptor turn after an inherited fork prefix', async () => {
@@ -649,7 +661,7 @@ describe('continuable durability and teardown', () => {
 
     const disposals: SessionId[] = []
     ctx.on('agent/disposed', (agent) => { disposals.push(agent.id) })
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     // Let the held model call observe its cancellation so quiescence can settle.
     hold.resolve(undefined)
     await drained
@@ -861,7 +873,7 @@ describe('continuable durability and teardown', () => {
     const started = await ctx.subagents.startContinuable(startSpec(parent))
     await waitNoActivation(ctx, started.childId)
 
-    await ctx.subagents.drainContinuable()
+    await drainManager(ctx)
 
     await expect(ctx.subagents.startContinuable(startSpec(parent)))
       .rejects.toMatchObject({ code: 'DRAINING' })
@@ -873,7 +885,7 @@ describe('continuable durability and teardown', () => {
     const { ctx, parent } = await setup([])
     const drains: Promise<void>[] = []
     const accepted: MessageId[] = []
-    ctx.on('subagent/start', () => { drains.push(ctx.subagents.drainContinuable()) })
+    ctx.on('subagent/start', () => { drains.push(drainManager(ctx)) })
     ctx.on('agent/inbox/enqueue', (_agent, item) => { accepted.push(item.message.id) })
 
     await expect(ctx.subagents.startContinuable(startSpec(parent)))
@@ -890,7 +902,7 @@ describe('continuable durability and teardown', () => {
     const drains: Promise<void>[] = []
     ctx.on('agent/created', (child) => {
       if (child === parent) return
-      const draining = ctx.subagents.drainContinuable().then(() => { order.push('drain') })
+      const draining = drainManager(ctx).then(() => { order.push('drain') })
       drains.push(draining)
     })
     ctx.on('agent/disposed', (child) => {
@@ -926,7 +938,7 @@ describe('continuable durability and teardown', () => {
     // Let the child-lock operation reach the live admission cutoff. Admission
     // and inbox submission must then complete in one synchronous span.
     await Promise.resolve()
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     hold.resolve(undefined)
 
     await expect(delivery).resolves.toBeTypeOf('string')
@@ -943,7 +955,7 @@ describe('continuable durability and teardown', () => {
     // Accepted into the inbox, but this queued turn never opens.
     await followup(ctx, parent, started.childId, message('never logged'))
 
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     hold.resolve(undefined)
     await drained
     await waitNoActivation(ctx, started.childId)
@@ -1024,7 +1036,7 @@ describe('continuable review regressions', () => {
     expect(activation.accepted.size).toBe(0)
 
     child.followup = realFollowup
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     hold.resolve(undefined)
     await drained
   })
@@ -1131,7 +1143,7 @@ describe('continuable review regressions', () => {
       throw new Error('scoped cleanup failed')
     }
 
-    await expect(ctx.subagents.drainContinuable()).rejects.toThrow()
+    await expect(drainManager(ctx)).rejects.toThrow()
     await vi.waitFor(() => { expect(ends).toHaveLength(1) })
     // Emitting before disposal would have reported this failed epoch as success.
     expect(ends[0]!.stopReason).toBe('error')
@@ -1153,7 +1165,7 @@ describe('continuable review regressions', () => {
     const activation = manager.activations.get(started.childId)!
     activation.observer.capture = () => { throw new Error('capture failed') }
 
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     hold.resolve(undefined)
     await expect(drained).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
     await vi.waitFor(() => { expect(ends).toHaveLength(1) })
@@ -1177,7 +1189,7 @@ describe('continuable review regressions', () => {
     })
     child.ctx.on('agent/cancel-requested', () => { order.push('cancel') })
 
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     hold.resolve(undefined)
     await drained
 
@@ -1196,7 +1208,7 @@ describe('continuable review regressions', () => {
     // Activation must still reach settlement instead of waiting on that id.
     await followup(ctx, parent, started.childId, message('discarded'))
 
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     hold.resolve(undefined)
     await drained
 
@@ -1456,7 +1468,7 @@ describe('continuable errors', () => {
     })
 
     // Begin the parent Activation's teardown, then try to give it a child.
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     await expect(ctx.subagents.startContinuable(startSpec(child)))
       .rejects.toMatchObject({ code: 'DRAINING' })
     hold.resolve(undefined)
@@ -1490,7 +1502,7 @@ describe('continuable errors', () => {
       throw new Error('grandchild reap failed')
     }
 
-    const drained = ctx.subagents.drainContinuable()
+    const drained = drainManager(ctx)
     hold.resolve(undefined)
     await expect(drained).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
     // The other branch still released, and durable sessions survive.
@@ -1550,14 +1562,6 @@ describe('continuable errors', () => {
       expect(ctx.agents.get(started.childId)?.options.model).toBe('child-model')
     })
     await waitNoActivation(ctx, started.childId)
-  })
-
-  it('drains without continuation services as a no-op', async () => {
-    const ctx = new Context()
-    await mountAgentLoopTestDependencies(ctx)
-    await ctx.plugin(SubagentService)
-    // No `ctx.agents`, so no manager was ever bound and nothing was materialized.
-    await expect(ctx.subagents.drainContinuable()).resolves.toBeUndefined()
   })
 
   it('unloading the manager drains its live activations', async () => {

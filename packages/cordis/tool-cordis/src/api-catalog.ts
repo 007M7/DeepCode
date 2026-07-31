@@ -893,10 +893,6 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         jsDoc: '/**\n * Deliver one later message to a continuable child as its next FIFO turn. A\n * resident child\'s Agent inbox accepts it directly (waking a `waiting`\n * Activation), while an absent one is cold-resumed from its persisted\n * Session. The Agent inbox is the only queue, so every accepted message has\n * one observable order.\n * @param parent - the exact live direct parent authorizing this delivery.\n * @param childId - durable child session id.\n * @param content - user-role content to deliver.\n * @param options - durable provenance and caller cancellation, which stops the\n *   operation only before inbox acceptance.\n * @returns the accepted message\'s inbox id.\n * @throws when continuation services are unavailable, parent authority is\n *   rejected, or the message was not admitted.\n */',
       },
       {
-        signature: 'async drainContinuable(): Promise<void>',
-        jsDoc: '/**\n * Close continuable admission synchronously, then dispose every live\n * Activation forest child-first. A host calls this before disposing top-level\n * agents so no descendant outlives the runtime that owns its teardown.\n * @returns once every live Activation released its `AgentHandle`.\n * @throws an aggregate error after all branches settle when any failed.\n */',
-      },
-      {
         signature: 'async drainContinuableDescendants(parents: readonly Agent[]): Promise<void>',
         jsDoc: '/**\n * Close continuable admission below exact live parent Agents, stop only their\n * visible descendant Activations synchronously, then await admitted scoped\n * materializations and release those forests child-first. The scoped cutoff\n * lasts until each exact parent leaves the registry; unrelated parent trees\n * remain live.\n * @param parents - exact host-owned parent Agents entering teardown.\n * @returns once every retained descendant Activation released its `AgentHandle`.\n * @throws an aggregate error after all scoped branches settle when any failed.\n */',
       },

@@ -202,20 +202,6 @@ export class SubagentService extends Service {
   }
 
   /**
-   * Close continuable admission synchronously, then dispose every live
-   * Activation forest child-first. A host calls this before disposing top-level
-   * agents so no descendant outlives the runtime that owns its teardown.
-   * @returns once every live Activation released its `AgentHandle`.
-   * @throws an aggregate error after all branches settle when any failed.
-   */
-  async drainContinuable(): Promise<void> {
-    const manager = this.continuations
-    // Absent continuation services means nothing was ever materialized.
-    if (manager === undefined) return
-    await manager.drain()
-  }
-
-  /**
    * Close continuable admission below exact live parent Agents, stop only their
    * visible descendant Activations synchronously, then await admitted scoped
    * materializations and release those forests child-first. The scoped cutoff
