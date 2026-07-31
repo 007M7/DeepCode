@@ -135,8 +135,18 @@ async function scopedBench(register?: (slash: SlashService) => void) {
     addImages: () => null,
     removeImage: () => {},
     draftImages: () => [],
+    toggleCommandMenu: (selection) => {
+      const snapshot = shell.snapshot
+      controller.toggleSource('command', {
+        trigger: '/',
+        query: '',
+        position: snapshot.draft.slice(0, selection.start).trim() === '' ? 'leading' : 'inline',
+        span: { ...selection, draftRev: snapshot.draftRev },
+      })
+    },
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
+    useMenuLauncher: bindSnapshotSelector(controller.launcher),
     renderSlot: (() => null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     command: () => Promise.resolve(true),

@@ -6,7 +6,9 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CommandNode, ConversationSnapshot, ObservableSnapshot, PendingInteraction, PendingWait, SessionId, ToolCallBlock, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { ComposerKeyboard, DraftAttachmentId, InputActions, InputNotice, InputState } from '../input/contract.ts'
+import type {
+  ComposerKeyboard, DraftAttachmentId, EditSelection, InputActions, InputNotice, InputState,
+} from '../input/contract.ts'
 import type { createChatStore } from '../stores.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
@@ -285,8 +287,6 @@ export interface ComposerBarOwnerProps {
   rightItems?: ReactNode
   /** composer.dock entries (stats line), rendered under the card inside the bar's width column. */
   footer?: ReactNode
-  onAdd?: () => void
-  addLabel?: string
 }
 
 /** Injected share of the composer-bar entry (package-internal faces). */
@@ -299,6 +299,8 @@ export interface ComposerBarInjected {
   removeImage: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve ordered input-state ids to browser-owned draft attachments; absent with the session. */
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
+  /** Toggle the shared slash menu with only its command source; absent without ui-slash or a session. */
+  toggleCommandMenu: ((selection: EditSelection) => void) | undefined
   /** Cancel the in-flight turn; absent with the session. */
   stop: (() => void) | undefined
   /**
@@ -318,6 +320,8 @@ export interface ComposerBarInjected {
     notices: ObservableSnapshot<InputNotice | null>
     /** Hot plain-text reference lexicon for the decoration scan (decision 21). */
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
+    /** Source name opened by the programmatic menu launcher, or null. */
+    menuLauncher: ObservableSnapshot<string | null>
   }
 }
 

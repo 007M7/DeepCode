@@ -156,8 +156,10 @@ function mount(
           addImages={() => null}
           removeImage={() => {}}
           draftImages={() => []}
+          toggleCommandMenu={vi.fn()}
           useNotices={bindSnapshotSelector(wiring.notices)}
           useLexicon={bindSnapshotSelector(wiring.lexicon)}
+          useMenuLauncher={bindSnapshotSelector(createSnapshotStore<string | null>(null))}
           stop={stop}
           command={() => Promise.resolve(true)}
           t={t}
