@@ -21,6 +21,7 @@ import { ChatView } from './chat/ChatView.tsx'
 import { StatsLine } from './chat/StatsLine.tsx'
 import { bashToolviewSample } from './toolviews/bash-sample.tsx'
 import { readToolview } from './toolviews/read-row.tsx'
+import { webToolview } from './toolviews/web-row.tsx'
 import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
 import { todoToolview } from './toolviews/todo-row.tsx'
 import { askQuestionToolview } from './toolviews/ask-question-row.tsx'
@@ -322,6 +323,11 @@ export function apply(ctx: Context): void {
   // The read row rides the same seam (a product registration, not a sample):
   // Read · {path} chrome with the file's read card resident below it.
   ctx.plugin(readToolview)
+
+  // The web rows ride the same seam: one WebRow registered under both
+  // web_search and web_fetch, rendering the completed retrieval's web card
+  // resident under the summary (a product registration, not a sample).
+  ctx.plugin(webToolview)
 
   // The todo_write row rides the same seam (a product registration, not a sample).
   ctx.plugin(todoToolview)

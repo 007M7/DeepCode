@@ -107,8 +107,9 @@
   margin: 0;
 }
 
-/* The read card sits directly under its section label, same as the terminal
-   card: drop the primitive's standalone vertical margin. */
-.read {
+/* The read and web cards sit directly under their section label, same as the
+   terminal card: drop the primitive's standalone vertical margin. */
+.read,
+.web {
   margin: 0;
 }

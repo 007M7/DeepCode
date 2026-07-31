@@ -19,6 +19,10 @@ interface TimingHooks {
   failNextHistory(): void
   appendUser(id: string, msg: string): void
   appendTitle(id: string, title: string): void
+  beginModelRetry(id: string): void
+  scheduleModelRetry(id: string, retry?: number, delayMs?: number): void
+  cancelModelRetryDuringBackoff(id: string, delayMs?: number): void
+  completeModelRetry(id: string): void
   appendSilent(id: string, msg: string): void
   breakStreams(): void
 }
@@ -814,8 +818,18 @@ describe('createFixtureApi', () => {
     hooks.appendSilent('fx-alpha', '静默丢帧')
     hooks.appendUser('fx-alpha', '正常直播')
     hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
+    hooks.beginModelRetry('fx-alpha')
+    hooks.scheduleModelRetry('fx-alpha')
+    hooks.completeModelRetry('fx-alpha')
+    hooks.beginModelRetry('fx-alpha')
+    hooks.cancelModelRetryDuringBackoff('fx-alpha')
     await vi.waitFor(() => {
       expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('正常直播'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/event' && (f.event as { type: string }).type === 'llm/retry')).toBe(true)
+      expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('重试后的完整回复'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/event'
+        && f.event.type === 'turn/end'
+        && f.event.data.reason.kind === 'aborted')).toBe(true)
       expect(seen.some(f => f.type === 'session/projection' && f.key === 'title' && f.value === 'Fixture 修订标题')).toBe(true)
     })
     expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('静默丢帧'))).toBe(false)
