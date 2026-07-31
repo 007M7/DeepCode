@@ -11,7 +11,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps, ToolRowOwnerProps } from '../contract/slots.ts'
 import { diffCardModel } from '../contract/diff-card-model.ts'
-import { terminalCardModel } from '../contract/terminal-card-model.ts'
+import { terminalCardModel, terminalFailed } from '../contract/terminal-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../contract/tool-call-model.ts'
 import { ToolRow } from './ToolRow.tsx'
 
@@ -32,10 +32,15 @@ export interface GenericToolCardProps extends ToolRowOwnerProps {
   t: ChatViewSlotProps['t']
 }
 
-export function GenericToolCard({ toolName, block, cwd, openFile, t }: GenericToolCardProps) {
+export function GenericToolCard({ toolName, block, cwd, openFile, inspect, t }: GenericToolCardProps) {
   const model = toolRowModel(toolName, block, cwd)
   const terminal = terminalCardModel(block, cwd)
   const diff = diffCardModel(block)
+  // A failing exit status is the terminal card's own error signal (the call
+  // itself settles isError:false), surfaced as the row's red state dot.
+  const state = model.state === 'ok' && terminal !== null && terminalFailed(terminal)
+    ? 'error'
+    : model.state
   const singleFile = model.filePath !== undefined
   return (
     <ToolRow
@@ -51,11 +56,14 @@ export function GenericToolCard({ toolName, block, cwd, openFile, t }: GenericTo
       // args interaction. A diff card is not an args body: a write/edit row is
       // single-file AND carries a diff, so the card expands under the path link.
       body={singleFile ? null : model.body}
+      output={model.output}
+      errorSummary={model.errorSummary}
       terminal={terminal}
       diff={diff}
-      state={model.state}
+      state={state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
+      inspect={inspect}
     />
   )
 }
