@@ -52,4 +52,4 @@ Cost: a seeded session's log is one event longer, including an empty resumed log
 
 `session/end-seed` joins the on-disk vocabulary. Under the pre-release stance (`SESSION_FORMAT_VERSION` pinned at `0`, no compatibility promise) older logs simply lack it, and a log without a boundary correctly classifies nothing as constructor-seed history.
 
-Not built here: no plugin reads the boundary yet. Wiring the compaction seam's staleness check to it is the follow-up that motivated this boundary; the predicate helper belongs with that seam, where a real consumer decides its shape, rather than shipping into core untested against one.
+The [queued manual compaction decision](../feature/2026-07-30-queued-manual-compaction.md) now supplies the first consumer. Its tail scan independently finds the unmatched `compact/start` and newest end-seed, treats only a start after that boundary as live, and clears the invariant trace on the same replay transition. The predicate remains in the compaction package rather than becoming a generic core helper.

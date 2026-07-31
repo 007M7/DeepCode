@@ -42,6 +42,7 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     followup: () => {},
     steer: () => {},
     inject(input) { appendInjection(session, input) },
+    reserveTurnAdmission: () => undefined,
     cancel() { status = 'idle' },
     whenIdle() { return Promise.resolve() },
   }

@@ -201,6 +201,11 @@
 - id: compact-basic
   name: '@deepseek-ai/dsh-compact-basic'
 
+# Human `/compact`: one useful reduction below the automatic threshold. Backend
+# independent, so it follows whichever compaction service this leaf mounts.
+- id: command-compact
+  name: '@deepseek-ai/dsh-command-compact'
+
 - id: subagent
   name: '@deepseek-ai/dsh-subagent'
 

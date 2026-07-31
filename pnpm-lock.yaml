@@ -225,6 +225,9 @@ importers:
       '@deepseek-ai/dsh-code-runtime-worker':
         specifier: workspace:^
         version: link:../../packages/code-runtime/code-runtime-worker
+      '@deepseek-ai/dsh-command-compact':
+        specifier: workspace:^
+        version: link:../../packages/compact/command-compact
       '@deepseek-ai/dsh-command-goal':
         specifier: workspace:^
         version: link:../../packages/goal/command-goal
@@ -1093,15 +1096,15 @@ importers:
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:^
         version: link:../connection
-      '@deepseek-ai/dsh-compact':
-        specifier: workspace:^
-        version: link:../../compact/compact
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../ui-slots
       '@deepseek-ai/dsh-commands':
         specifier: workspace:^
         version: link:../../ui/commands
+      '@deepseek-ai/dsh-compact':
+        specifier: workspace:^
+        version: link:../../compact/compact
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: workspace:^
         version: link:../../host/apiproxy
@@ -2061,6 +2064,36 @@ importers:
       cordis:
         specifier: ^4.0.0-rc.7
         version: 4.0.0-rc.7(@cordisjs/plugin-include@1.0.4)(@cordisjs/plugin-loader@1.0.0-rc.5)
+
+  packages/compact/command-compact:
+    devDependencies:
+      '@cordisjs/plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
+      '@cordisjs/plugin-loader':
+        specifier: workspace:^
+        version: link:../../../vendor/loader
+      '@deepseek-ai/dsh-agent':
+        specifier: workspace:^
+        version: link:../../core/agent
+      '@deepseek-ai/dsh-commands':
+        specifier: workspace:^
+        version: link:../../ui/commands
+      '@deepseek-ai/dsh-compact':
+        specifier: workspace:^
+        version: link:../compact
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../support/invariants
+      '@deepseek-ai/dsh-llm':
+        specifier: workspace:^
+        version: link:../../llm/llm
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      cordis:
+        specifier: ^4.0.0-rc.7
+        version: 4.0.0-rc.7(@cordisjs/plugin-include@vendor+include)(@cordisjs/plugin-loader@vendor+loader)
 
   packages/compact/compact:
     devDependencies:

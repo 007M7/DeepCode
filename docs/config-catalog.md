@@ -349,7 +349,7 @@ Source: [`packages/code-runtime/code-runtime-worker/src/index.ts:25`](../package
 
 ## `@deepseek-ai/dsh-compact-basic`
 
-Requires: `llm` · `tokenMeter`
+Requires: `llm` · `tokenMeter` · `sessions`
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -2308,6 +2308,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-client-ui-theme` ([`packages/client/ui-theme/src/index.ts`](../packages/client/ui-theme/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-trajectory` ([`packages/client/ui-trajectory/src/index.ts`](../packages/client/ui-trajectory/src/index.ts))
 - `@deepseek-ai/dsh-client-ui-workspace` ([`packages/client/ui-workspace/src/index.ts`](../packages/client/ui-workspace/src/index.ts))
+- `@deepseek-ai/dsh-command-compact` — requires `commands` · `compact` ([`packages/compact/command-compact/src/index.ts`](../packages/compact/command-compact/src/index.ts))
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/ui/commands/src/index.ts`](../packages/ui/commands/src/index.ts))
 - `@deepseek-ai/dsh-fs-policy` ([`packages/fs/fs-policy/src/index.ts`](../packages/fs/fs-policy/src/index.ts))

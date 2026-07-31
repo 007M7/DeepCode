@@ -9,6 +9,7 @@ import {
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compact'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { CompactAgentContext } from '@deepseek-ai/dsh-compact'
+import type { ManualCompactAgentContext } from '@deepseek-ai/dsh-compact'
 
 /**
  * A trivial concrete CompactService implementing the abstract contract. The
@@ -23,6 +24,14 @@ class StubCompactService extends CompactService {
   override async compactIfNeeded(
     _agent: CompactAgentContext,
     _trigger: CompactionTrigger,
+    signal: AbortSignal,
+  ): Promise<CompactionResult | null> {
+    this.lastSignal = signal
+    return null
+  }
+
+  override async compactNow(
+    _agent: ManualCompactAgentContext,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
     this.lastSignal = signal
@@ -98,6 +107,12 @@ describe('CompactService seam', () => {
     const svc = new StubCompactService(ctx)
     const session = new Session(SessionId('s'))
     expect(await svc.compactIfNeeded(stubAgent(session), 'pressure', new AbortController().signal)).toBeNull()
+    const signal = new AbortController().signal
+    expect(await svc.compactNow({
+      ...stubAgent(session),
+      reserveTurnAdmission: () => () => undefined,
+    }, signal)).toBeNull()
+    expect(svc.lastSignal).toBe(signal)
   })
 
   it('compact/* events merge into SessionEventMap and are log-only', async () => {

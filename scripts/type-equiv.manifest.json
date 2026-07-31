@@ -1071,6 +1071,11 @@
     },
     {
       "doc": "docs/core-data-structures/compaction.md",
+      "symbol": "ManualCompactionErrorCode",
+      "source": "packages/compact/compact/src/index.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/compaction.md",
       "symbol": "PrunedEntry",
       "source": "packages/compact/compact-tool-result-prune/src/types.ts"
     },

@@ -615,6 +615,20 @@ interface Agent {
   send(message: UserMessage, options: SendOptions): void
 
   /**
+   * Reserve admission of the next ordinary turn while this agent is idle, so an
+   * operation can mutate durable history before any queued prompt derives a
+   * request from it. Already-accepted waking work has right of way, including a
+   * send whose wake is still a pending microtask. Later sends keep their
+   * ordinary placement, FIFO order, and `wakeup` facts, and
+   * {@link acceptsNextStep} stays `false`, so a waking `next-step` send becomes
+   * a queued follow-up rather than steering; cancellation and disposal may
+   * still discard them. {@link inject} is not withheld. {@link whenIdle} treats
+   * a live reservation as activity, while lifecycle teardown does not await it.
+   * @returns the idempotent release, or `undefined` when the agent is running, already reserved, or already committed to waking work.
+   */
+  reserveTurnAdmission(): (() => void) | undefined
+
+  /**
    * Mutate one still-pending queued occurrence synchronously. Editing preserves
    * the message identity and queue position; removal publishes its terminal
    * discard. Steering occurrences and driver-claimed items return `not-found`.
@@ -671,7 +685,7 @@ interface Agent {
 }
 ```
 
-`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `acceptsNextStep` is the narrower routing predicate for callers that must choose between steering the current admission/turn and submitting a fresh admitted prompt. `AgentOptions` is merge-extensible: core declares `provider?`, `model?`, and `maxTokens?` (dispatch requires provider and model after `agent/request`). When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission allows the exact-model adapter default to materialize before the request header, or otherwise leaves provider behavior unchanged. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `acceptsNextStep` is the narrower routing predicate for callers that must choose between steering the current admission/turn and submitting a fresh admitted prompt. A live turn-admission reservation is quiescence-relevant without changing `status` or turning later queue entries into steering; its only authority is to defer the next driver claim until release. `AgentOptions` is merge-extensible: core declares `provider?`, `model?`, and `maxTokens?` (dispatch requires provider and model after `agent/request`). When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission allows the exact-model adapter default to materialize before the request header, or otherwise leaves provider behavior unchanged. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
 The cause is a TypeScript-enforced same-process input. An active `TurnCancellation` holder copies its discriminant into the runtime-only `AbortSignal.reason` and is retired before `turn/end` publication; the frozen `AbortSignal.reason` remains readable after that retirement. Only the loop reads the cause (`user`, `parent`, or lifecycle-only `disposed`) back off its own machine-private signal at settlement — there is no public reader, and a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
 
