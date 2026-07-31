@@ -29,7 +29,7 @@ export interface SessionInput extends InputTarget {
   /** Single write path for draft text (all mutation rides machine events). */
   setDraft(text: string): void
   /** THE complexity sink: enter adjudication, submit transaction, and the default sink live inside. */
-  submit(mode?: 'queue' | 'steer'): void
+  submit(): void
   /**
    * Surface a notice outside the machine's own effect stream: detached
    * command results and business notifications render through here.
@@ -60,7 +60,7 @@ export interface InputActions {
   /** Single public draft write path (full next draft; occurrence math via diff scan). */
   setDraft(text: string): void
   /** Enter submission (adjudication / claim transaction / default sink inside). */
-  submit(mode?: 'queue' | 'steer'): void
+  submit(): void
 }
 
 /** One surfaced notice (command results, adjudication failures). seq keys re-render of repeats. */
@@ -239,7 +239,7 @@ export type InputEvent =
   | { readonly type: 'paste-upgrade'; readonly attemptId: number; readonly span: TokenSpan; readonly reference: ReferenceInsert }
   /** Shell-observed attempt killers the machine cannot see itself (caret/selection ops, Slash interaction updates). */
   | { readonly type: 'invalidate-paste' }
-  | { readonly type: 'enter'; readonly mode: 'queue' | 'steer' }
+  | { readonly type: 'enter' }
   | { readonly type: 'adjudicated'; readonly attempt: SubmitAttempt; readonly outcome: PickOutcome }
   | { readonly type: 'adjudication-failed'; readonly attempt: SubmitAttempt; readonly message: string }
   | { readonly type: 'submit-settled'; readonly attempt: SubmitAttempt; readonly ok: boolean; readonly outcome?: SubmitOutcome; readonly message?: string }
@@ -258,5 +258,5 @@ export type InputEvent =
 export type InputEffect =
   | { readonly type: 'adjudicate'; readonly attempt: SubmitAttempt; readonly draft: string }
   | { readonly type: 'begin-submit'; readonly attempt: SubmitAttempt; readonly claim: CommandClaim; readonly args: string }
-  | { readonly type: 'default-sink'; readonly draft: string; readonly mode: 'queue' | 'steer' }
+  | { readonly type: 'default-sink'; readonly draft: string }
   | { readonly type: 'notice'; readonly level: 'info' | 'error'; readonly text: string }

@@ -1,0 +1,83 @@
+// Boots the shipped Web composition over the built dist this lane already uses
+// and asserts what that composition produces: the model-visible tool catalog
+// and the sandbox/approval knobs it ships with. No browser and no model call —
+// these are composition facts, and the browser scenarios in this lane cover the
+// surface itself.
+import { tmpdir } from 'node:os'
+import { afterEach, expect, it } from 'vitest'
+import { canonicalPath, writableRoots } from '@deepseek-ai/dsh-sandbox'
+// Empty type imports carry the tools/sandboxPolicy/approval Context merges.
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import type {} from '@deepseek-ai/dsh-user-approval'
+import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
+
+/**
+ * The catalog the shipped Web composition puts in front of the model, minus the
+ * ripgrep-dependent pair below. The absences are deliberate, not incidental
+ * gaps: the `cordis_*` toolset executes model-written JavaScript that no
+ * sandbox row confines, `web_fetch` chooses its own request target, and
+ * `mcp_*` servers spawn outside `ctx.bash`. The composition Agent Note owns the
+ * rationale and its sources.
+ */
+const EXPECTED_TOOLS = [
+  'ask_user_question',
+  'bash',
+  'create_goal',
+  'edit',
+  'exit_plan_mode',
+  'get_goal',
+  'ralph',
+  'read',
+  'session_event_read',
+  'session_event_search',
+  'session_event_trace',
+  'session_search',
+  'session_trace',
+  'skill',
+  'str_replace_editor',
+  'subagent',
+  'subagent_fork',
+  'task_kill',
+  'task_list',
+  'task_output',
+  'todo_write',
+  'update_goal',
+  'web_search',
+  'workflow',
+  'write',
+]
+
+/**
+ * `glob` and `grep` come from `dsh-tool-fs-search`, which probes `command -v rg`
+ * through the mounted bash executor at load and registers neither tool when
+ * ripgrep is absent. That is a host dependency, not a composition decision, so the
+ * pair is asserted separately — present together or absent together.
+ */
+const RIPGREP_TOOLS = ['glob', 'grep']
+
+let scaffold: WebScaffold | undefined
+
+afterEach(async () => {
+  await scaffold?.close()
+  scaffold = undefined
+})
+
+it('assembles the shipped Web catalog and keeps its access default', async () => {
+  scaffold = await launchWebScaffold()
+  const names = scaffold.ctx.tools.schemas().map(schema => schema.name).sort()
+  expect(names.filter(name => !RIPGREP_TOOLS.includes(name))).toEqual(EXPECTED_TOOLS)
+  expect([[], RIPGREP_TOOLS]).toContainEqual(names.filter(name => RIPGREP_TOOLS.includes(name)))
+  // `workspace-write` is not "the workspace and nothing else": the shared roots
+  // helper always admits the temp directories too. Pinning it against an
+  // explicit mode keeps the claim independent of this surface's default, and
+  // keeps a future boundary test from being run inside /tmp — where an
+  // "escape" write succeeds by design and reads as a sandbox failure.
+  expect(writableRoots(scaffold.ctx.sandboxPolicy.resolve({ mode: 'workspace-write' }))).toEqual(
+    expect.arrayContaining([canonicalPath('/tmp'), canonicalPath(tmpdir())]),
+  )
+  // The Web surface keeps its shipped access default; the base's confined one
+  // reaches the TUI. Pinning both keeps a base change from moving Web silently.
+  expect(scaffold.ctx.sandboxPolicy.defaultMode).toBe('danger-full-access')
+  expect(scaffold.ctx.approval.config.policy).toBe('never')
+}, 120_000)

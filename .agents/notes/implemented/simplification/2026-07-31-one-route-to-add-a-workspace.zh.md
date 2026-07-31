@@ -31,7 +31,7 @@ Host 侧的 `workspace.create` 仍接受 `{ name }`，`dsh web --workspace-root`
 
 ## Testing
 
-`connectFreshWorkspace`——所有 web e2e 场景启动时都会走的辅助函数——会预先备好 `<root>/workspace`，再经对话框的路径编辑器接纳它，因此产出的会话 cwd 与按名称创建时完全一致，场景 golden 保持有效。选择预先备好而不是在对话框内新建，是为了让该辅助函数在一个场景可能发生的多次连接之间保持幂等（第二次创建同名文件夹会失败，而创建对话框会在失败时把流程停在原地）。在选择器内新建文件夹——同一条路径的另一半——由 `workspace-management.e2e.ts` 覆盖，它承担针对性覆盖：在对话框自己创建的文件夹上添加两个 workspace、在另一个目录上复用已删除的标题、以及浏览对话框的 aria golden。
+`connectFreshWorkspace`——所有 web e2e 场景启动时都会走的辅助函数——会预先备好 `<root>/workspace`，再经对话框的路径编辑器接纳它，因此产出的会话 cwd 与按名称创建时完全一致，场景 golden 保持有效。选择预先备好而不是在对话框内新建，是为了让该辅助函数在一个场景可能发生的多次连接之间保持幂等（第二次创建同名文件夹会失败，而创建对话框会在失败时把流程停在原地）。在选择器内新建文件夹——同一条路径的另一半——由 `workspace-management.e2e.ts` 覆盖，它承担针对性覆盖：在对话框自己创建的文件夹上添加两个 workspace、接纳 basename 相同的不同目录并保持彼此独立、在另一个目录上复用已删除的标题、以及浏览对话框的 aria golden。
 
 `smoke-real.e2e.ts` 是唯一启动未打补丁的出厂配置树的场景，其中 `-auto` 行会按宿主机解析；它现在通过 `--config` overlay 钉死 `-browse`，使开发机的显示环境无法决定选择器是否可被驱动。
 

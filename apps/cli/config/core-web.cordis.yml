@@ -37,6 +37,20 @@
 - id: tool-todo
   disabled: true
 
+# These consumers are shared defaults on the ordinary shipped surfaces, but
+# this opt-in profile keeps exactly its two named tools.
+- id: tool-goal
+  disabled: true
+
+- id: tool-ralph
+  disabled: true
+
+- id: tool-session-query
+  disabled: true
+
+- id: tool-str-replace-editor
+  disabled: true
+
 # The matching browser controls must not offer host tools that this profile
 # omits. ui-question's host half owns the ask_user_question registration.
 - id: ui-plan

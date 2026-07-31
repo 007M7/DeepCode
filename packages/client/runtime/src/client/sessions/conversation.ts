@@ -135,6 +135,19 @@ export type ModelRetryNode = LlmRetryEventData & {
   retryState: 'scheduled' | 'started' | 'cancelled'
 }
 
+/** Durable terminal failure for a turn that has no scheduled retry. */
+export interface TurnErrorNode {
+  kind: 'turn-error'
+  /** Seq of the owning turn/end event. */
+  seq: number
+  /** Unix epoch ms from the turn/end event. */
+  time: number
+  turn: number
+  step: number
+  message: string
+  code?: string
+}
+
 /** A tool result paired (when in-window) with its call head. */
 export interface ToolResultNode {
   kind: 'tool-result'
@@ -223,6 +236,7 @@ export type ConversationNode =
   | SteeringMessageNode
   | ContextMessageNode
   | ModelRetryNode
+  | TurnErrorNode
   | ToolResultNode
   | CommandNode
   | CompactionSummaryNode
