@@ -328,7 +328,7 @@ Source: [`packages/bash/tool-bash/src/index.ts:104`](../../packages/bash/tool-ba
 
 ## `ctx.clientModuleHost` — `ClientModuleHostService`
 
-The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot sweep reports it).
+The web plugin table service: incremental dshClient scan + wire composition + bundle route + index tap. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).
 
 ```ts cordis-catalog
 /**
@@ -368,7 +368,7 @@ onRebuilt(listener: (id: string, rev: string) => void): () => void
 onGraphChanged(listener: () => void): () => void
 ```
 
-Source: [`packages/client/modules/src/index.ts:143`](../../packages/client/modules/src/index.ts)
+Source: [`packages/client/modules/src/index.ts:184`](../../packages/client/modules/src/index.ts)
 
 ## `ctx.codeRuntime` — `CodeRuntime` (abstract seam)
 

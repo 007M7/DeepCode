@@ -31,7 +31,7 @@ export type { IWorkspaces } from './contract/workspaces.ts'
 export type {
   SessionBinding, SessionListState, SessionProvideContribution, SessionProvideDescriptor, SessionSummary,
 } from './sessions/service.ts'
-export type { SessionListPhase } from './sessions/manager.ts'
+export type { SessionListPhase, SessionSearchResultItem } from './sessions/manager.ts'
 export type { WorkspaceListPhase } from './workspaces/manager.ts'
 export type { WorkspaceListState } from './workspaces/service.ts'
 export type {
@@ -45,7 +45,8 @@ export type {
 export type {
   AssistantBlock, AssistantMessageNode, AssistantProvenanceView, AssistantRequestConfig,
   AssistantTiming, CodeSubCall, CommandNode, CompactionSummaryNode, ComposerPhase,
-  ContextMessageNode, ConversationNode, ConversationSnapshot, QueuedMessage, RunningToolCall,
+  ContextMessageNode, ConversationNode, ConversationSnapshot, ModelRetryNode, QueuedMessage,
+  RunningToolCall,
   SteeringMessageNode, TodoItem, ToolResultNode, UnknownSurfaceNode, UserMessageNode,
 } from './sessions/conversation.ts'
 export type {

@@ -133,6 +133,12 @@
   --dsh-composer-stack-gap: 6px;
   --dsh-queue-composer-overlap: 5px;
 
+  /* InputBar and dock registrants derive their horizontal geometry from the
+     same card width, outer clearance, and dock inset. */
+  --dsh-composer-card-max-width: 800px;
+  --dsh-composer-side-clearance: 32px;
+  --dsh-composer-dock-inset: 12px;
+
   display: flex;
   flex-direction: column;
   gap: var(--dsh-composer-stack-gap);

@@ -88,7 +88,8 @@
       (() => { const path = process.getBuiltinModule('node:path'); const home = process.getBuiltinModule('node:os').homedir(); const configured = process.env.DSH_HOME; const selected = configured !== undefined && configured.trim().length > 0 ? configured : path.join(home, '.dsh'); const expanded = selected === '~' ? home : selected.startsWith('~/') || selected.startsWith('~\\') ? path.join(home, selected.slice(2)) : selected; return path.join(path.resolve(expanded), 'sessions') })()
 
 # TUI consumes this shared session capability. Its launcher supplies a unique
-# process-local path; non-TUI surfaces disable the row in their overlay.
+# process-local path; other surfaces repoint or disable the row in their
+# overlay (web patches it to an ephemeral in-memory index).
 - id: session-query-sqlite
   name: '@deepseek-ai/dsh-session-query-sqlite'
   config:

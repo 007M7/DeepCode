@@ -19,6 +19,10 @@ interface TimingHooks {
   failNextHistory(): void
   appendUser(id: string, msg: string): void
   appendTitle(id: string, title: string): void
+  beginModelRetry(id: string): void
+  scheduleModelRetry(id: string, retry?: number, delayMs?: number): void
+  cancelModelRetryDuringBackoff(id: string, delayMs?: number): void
+  completeModelRetry(id: string): void
   appendSilent(id: string, msg: string): void
   breakStreams(): void
 }
@@ -46,6 +50,59 @@ describe('createFixtureApi', () => {
     if (!response.result.ok) throw new Error('list failed')
     expect(response.result.value.items.map(s => s.sessionId)).toEqual(['fx-alpha', 'fx-beta', 'fx-gamma'])
     expect(response.result.value.items[1]?.parentSessionId).toBe('fx-alpha') // lineage material
+  })
+
+  it('searches current message text with literal unicode61-style token phrases', async () => {
+    const api = createFixtureApi()
+    const signal = new AbortController().signal
+    const phrase = await api.sessions.search(req({ query: 'FIXTURE 历史消息' }), signal)
+    expect(phrase.result).toMatchObject({
+      ok: true,
+      value: {
+        items: [{ sessionId: 'fx-alpha' }],
+        hasMore: false,
+      },
+    })
+    if (!phrase.result.ok) throw new Error('search failed')
+    expect(phrase.result.value.items[0]?.snippet).toContain('fixture 历史消息')
+
+    timing().appendUser(
+      'fx-alpha',
+      `${'leading context '.repeat(20)}late café token${' trailing context'.repeat(20)}`,
+    )
+    const late = await api.sessions.search(req({ query: 'LATE CAFE TOKEN' }), signal)
+    if (!late.result.ok) throw new Error('late search failed')
+    const lateSnippet = late.result.value.items[0]?.snippet ?? ''
+    expect(lateSnippet).toContain('late café token')
+    expect(lateSnippet.startsWith('…')).toBe(true)
+    expect(lateSnippet.endsWith('…')).toBe(true)
+    expect(Array.from(lateSnippet).length).toBeLessThanOrEqual(120)
+
+    timing().appendUser('fx-alpha', 'Greek final sigma: ος')
+    const finalSigma = await api.sessions.search(req({ query: 'ΟΣ' }), signal)
+    if (!finalSigma.result.ok) throw new Error('final sigma search failed')
+    expect(finalSigma.result.value.items[0]?.snippet).toContain('ος')
+
+    const substring = await api.sessions.search(req({ query: 'ixtur' }), signal)
+    expect(substring.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+    const punctuationOnly = await api.sessions.search(req({ query: '*' }), signal)
+    expect(punctuationOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+    const reasoningOnly = await api.sessions.search(req({ query: '思考过程' }), signal)
+    expect(reasoningOnly.result).toEqual({
+      ok: true,
+      value: { items: [], hasMore: false },
+    })
+
+    const aborted = new AbortController()
+    aborted.abort()
+    await expect(api.sessions.search(req({ query: 'fixture' }), aborted.signal))
+      .resolves.toMatchObject({ result: { ok: false, error: { code: 'cancelled' } } })
   })
 
   it('pages history backwards on message-boundary cuts with seq-contiguous stitching', async () => {
@@ -761,8 +818,18 @@ describe('createFixtureApi', () => {
     hooks.appendSilent('fx-alpha', '静默丢帧')
     hooks.appendUser('fx-alpha', '正常直播')
     hooks.appendTitle('fx-alpha', 'Fixture 修订标题')
+    hooks.beginModelRetry('fx-alpha')
+    hooks.scheduleModelRetry('fx-alpha')
+    hooks.completeModelRetry('fx-alpha')
+    hooks.beginModelRetry('fx-alpha')
+    hooks.cancelModelRetryDuringBackoff('fx-alpha')
     await vi.waitFor(() => {
       expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('正常直播'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/event' && (f.event as { type: string }).type === 'llm/retry')).toBe(true)
+      expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('重试后的完整回复'))).toBe(true)
+      expect(seen.some(f => f.type === 'session/event'
+        && f.event.type === 'turn/end'
+        && f.event.data.reason.kind === 'aborted')).toBe(true)
       expect(seen.some(f => f.type === 'session/projection' && f.key === 'title' && f.value === 'Fixture 修订标题')).toBe(true)
     })
     expect(seen.some(f => f.type === 'session/event' && JSON.stringify(f.event.data).includes('静默丢帧'))).toBe(false)
@@ -819,6 +886,10 @@ describe('FixtureApiClient (protocol-level fake carrier)', () => {
 
   it('covers the whole unary dispatch table', async () => {
     const client = new FixtureApiClient()
+    expect((await client.sessions.search(
+      { query: 'fixture' },
+      new AbortController().signal,
+    )).result.ok).toBe(true)
     const created = await client.sessions.create({})
     if (!created.result.ok) throw new Error('create failed')
     const id = created.result.value.sessionId

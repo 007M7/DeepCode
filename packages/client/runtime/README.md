@@ -12,6 +12,8 @@ Workspace and Session lists have independent monotone `pending` → `ready` base
 
 SlotsService gives the renderer separate bare observables for `useSessions` and `useWorkspaces`; web-react creates the hooks. Workspace business state does not enter `SessionListState` or an entry store.
 
+`SessionsService.search(query, signal)` is a stateless one-shot action over the `session.search` RPC. It returns ranked session/snippet pairs without putting query, loading, or error state into the shared Session list, so each UI owner controls debounce, cancellation, stale-response suppression, and fallback presentation. `searchResultLimit` re-exposes `SESSION_SEARCH_RESULT_LIMIT` — the bound the response schema itself enforces — as injected presentation data, so client plugins do not duplicate it. It is a protocol constant rather than per-connection state, so the connection handle does not carry it.
+
 ## New Session and the blank mirror
 
 `WorkspacesService.connectWorkspace(workspaceId)` resolves the session a New Session flow lands in: it reuses the workspace's existing blank session from the list mirror (`blank && cwd == workspace.path`) or calls `session.create({workspaceId})`, returning the session id for the caller to open. `SessionSummary.blank` mirrors the host's derived empty-log bit and only ever lowers on the client: seeded by `session.list` / the `host/session-added` frame, flipped false by the first ACCEPTED local `prompt()` (on the RPC success response — acceptance proves the user message is in the host log; a rejected first prompt keeps the session blank and reusable) and by any `running: true` status frame, re-aligned by every list re-pull. List surfaces hide blank rows; the store carries every row. `SessionsService.create` accepts an optional caller-preallocated SessionId and throws `SessionCreateError` (carrying `requestedSessionId`) on failure.
@@ -37,6 +39,10 @@ Because the projection is log-ordered, the node array is seq-monotonic by constr
 ## Session title projection
 
 `SessionManager` retains the latest validated `session/title` control snapshot independently of list and session-instance arrival. Newer event seqs replace older snapshots, title timestamps contribute to list recency, and a subscription baseline discards any retained title beyond its `lastSeq` before the optional folded title arrives. Explicit session removal also clears the retained title. The client-facing `SessionSummary.title` is therefore only the actual durable title; `displayTitle` is always present and falls back through the cwd basename and session id. A cold persisted session keeps that fallback until opening or resuming it causes the host to fold and project its log-backed title. `ISession.rename` settles the `title` projection cell directly from the unary response's `{title, seq}` under the same higher-seq-wins rule — the list row and every `useProjection('title')` reader update ahead of the push frame, whose later replay of the same seq is a no-op.
+
+## Model retry projection
+
+The Session object validates plugin-owned, provider-routed `llm/retry` payloads at the event wire boundary against the producer's complete field contract, including timer, integer, status, provider-delay, and non-empty diagnostic bounds. A valid event removes the matching failed step's streaming partial and inserts a durable retry notice at the event's sequence position. The notice is `scheduled` until a following retry turn starts; an aborted or disposed source turn marks it `cancelled`, while the retry turn marks it `started`. Normal-mode notices carry their finite maximum; always-mode notices remain explicitly unbounded. Window rebuild and history replay apply the same projection, so logged chunks from the discarded attempt never reappear as an interrupted reply after refresh. A terminal turn without `llm/retry` retains the existing behavior: visible unfinalized output is frozen as an interrupted assistant node.
 
 ## Session forking
 

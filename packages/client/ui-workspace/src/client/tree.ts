@@ -3,7 +3,9 @@
  * Unassigned Sessions trail under Ungrouped; only the selected blank Session
  * remains visible.
  */
-import type { SessionId, SessionListState, SessionSummary, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
+import type {
+  SessionId, SessionListState, SessionSearchResultItem, SessionSummary, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-client-runtime/client'
 
 /** Group key for Sessions outside every Workspace. */
 export const UNGROUPED_KEY = ''
@@ -41,10 +43,24 @@ export interface GroupNode {
   sessions: readonly SessionNode[]
 }
 
+/** One flat search row combining list metadata with an optional content match. */
+export interface SearchResultNode {
+  id: SessionId
+  title: string
+  workspace: string
+  running: boolean
+  snippet?: string
+}
+
+/** Bounded merged search projection plus the refine-query hint bit. */
+export interface SearchResultSet {
+  items: readonly SearchResultNode[]
+  hasMore: boolean
+}
+
 /** Viewing state consumed by the derivation. */
 export interface TreeView {
   expandedProjects: readonly string[]
-  query: string
 }
 
 interface Group {
@@ -150,16 +166,13 @@ function sessionNode(s: SessionSummary): SessionNode {
 /**
  * Derive the workspace browser groups with every session as a top-level row.
  *
- * Normal mode: every group shows; sessions populate under expanded groups,
- * preserving Host account order. Search mode (non-blank query,
- * case-insensitive display-title substring): expansion state is ignored —
- * matching sessions are forced visible, groups without a display-title or
- * label hit are dropped, and a label-only hit
- * keeps the bare group header. Non-current blank sessions are excluded
- * everywhere; blank placeholders never match a search query.
+ * Every group shows; sessions populate under expanded groups, preserving
+ * Host account order. Blank sessions are excluded except for the selected
+ * provisional New Session row. Content search lives outside this derivation
+ * (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot (`current` feeds containsCurrent).
  * @param workspaces - real workspaces in stable Host order.
- * @param view - local expansion arrays and search query.
+ * @param view - local expansion arrays.
  * @returns group sections in render order.
  */
 export function deriveGroups(
@@ -167,7 +180,6 @@ export function deriveGroups(
   workspaces: readonly WorkspaceView[],
   view: TreeView,
 ): GroupNode[] {
-  const q = view.query.trim().toLowerCase()
   const expandedProjects = new Set(view.expandedProjects)
   const currentGroup = list.current === undefined
     ? undefined
@@ -175,34 +187,18 @@ export function deriveGroups(
         ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
   for (const g of groupByWorkspace(list, workspaces)) {
-    if (q === '') {
-      const expanded = expandedProjects.has(g.key)
-      groups.push({
-        key: g.key,
-        workspaceId: g.workspaceId,
-        cwd: g.cwd,
-        createdAt: g.createdAt,
-        label: g.label,
-        sessionCount: g.sessions.length,
-        expanded,
-        containsCurrent: g.key === currentGroup,
-        sessions: expanded ? g.sessions.map(sessionNode) : [],
-      })
-    } else {
-      const matches = g.sessions.filter(session => !session.blank && sessionTitle(session).toLowerCase().includes(q))
-      if (matches.length === 0 && !g.label.toLowerCase().includes(q)) continue
-      groups.push({
-        key: g.key,
-        workspaceId: g.workspaceId,
-        cwd: g.cwd,
-        createdAt: g.createdAt,
-        label: g.label,
-        sessionCount: g.sessions.length,
-        expanded: matches.length > 0,
-        containsCurrent: g.key === currentGroup,
-        sessions: matches.map(sessionNode),
-      })
-    }
+    const expanded = expandedProjects.has(g.key)
+    groups.push({
+      key: g.key,
+      workspaceId: g.workspaceId,
+      cwd: g.cwd,
+      createdAt: g.createdAt,
+      label: g.label,
+      sessionCount: g.sessions.length,
+      expanded,
+      containsCurrent: g.key === currentGroup,
+      sessions: expanded ? g.sessions.map(sessionNode) : [],
+    })
   }
   return groups
 }
@@ -210,19 +206,16 @@ export function deriveGroups(
 /**
  * Derive the flat session list ("In one list" mode): every session — fork
  * children included — as a top-level row, strictly newest-first. No grouping,
- * no parent/child adjacency. Search mode filters by case-insensitive
- * display-title substring.
+ * no parent/child adjacency. Content search lives outside this derivation
+ * (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot.
- * @param view - the search query (expansion state does not apply).
  * @returns flat rows in render order.
  */
-export function deriveFlat(list: SessionListState, view: Pick<TreeView, 'query'>): SessionNode[] {
-  const q = view.query.trim().toLowerCase()
+export function deriveFlat(list: SessionListState): SessionNode[] {
   const rows: SessionSummary[] = []
   for (const id of list.ids) {
     const s = list.byId[id]
     if (s === undefined || !sessionVisible(s, list.current)) continue
-    if (q !== '' && (s.blank || !sessionTitle(s).toLowerCase().includes(q))) continue
     rows.push(s)
   }
   rows.sort(byRecency)
@@ -236,6 +229,83 @@ export type RelativeTimeUnit = 'now' | 'minutes' | 'hours' | 'days' | 'months' |
 export interface RelativeTime {
   unit: RelativeTimeUnit
   n: number
+}
+
+/**
+ * Merge immediate title/Workspace substring matches with ranked Host content
+ * matches. Local rows lead newest-first, content-only rows retain backend
+ * order, and duplicate sessions receive the backend snippet in place.
+ * @param list - session metadata authority.
+ * @param workspaces - Workspace membership and display labels.
+ * @param query - caller text; surrounding whitespace is ignored.
+ * @param content - ranked Host content-search page.
+ * @param limit - protocol-owned maximum merged row count.
+ * @returns bounded deduplicated flat rows and a refine-query hint bit.
+ */
+export function deriveSearchResults(
+  list: SessionListState,
+  workspaces: readonly WorkspaceView[],
+  query: string,
+  content: { items: readonly SessionSearchResultItem[]; hasMore: boolean },
+  limit: number,
+): SearchResultSet {
+  const q = query.trim().toLowerCase()
+  if (q === '') return { items: [], hasMore: false }
+
+  const workspaceBySession = new Map<SessionId, string>()
+  for (const workspace of workspaces) {
+    for (const sessionId of workspace.sessionIds) {
+      if (!workspaceBySession.has(sessionId)) workspaceBySession.set(sessionId, workspace.title)
+    }
+  }
+  const labelOf = (summary: SessionSummary): string =>
+    workspaceBySession.get(summary.id) ?? projectLabel(summary.cwd)
+  const contentBySession = new Map<SessionId, SessionSearchResultItem>()
+  for (const item of content.items) {
+    if (!contentBySession.has(item.sessionId)) contentBySession.set(item.sessionId, item)
+  }
+
+  const local: SessionSummary[] = []
+  for (const id of list.ids) {
+    const summary = list.byId[id]
+    // Blank placeholders never match a query (their canonical title displays
+    // localized, so matching it would tie search to one language).
+    if (summary === undefined || summary.blank || !sessionVisible(summary, list.current)) continue
+    if (
+      sessionTitle(summary).toLowerCase().includes(q)
+      || labelOf(summary).toLowerCase().includes(q)
+    ) {
+      local.push(summary)
+    }
+  }
+  local.sort(byRecency)
+
+  const ordered: SessionSummary[] = []
+  const included = new Set<SessionId>()
+  const include = (summary: SessionSummary): void => {
+    if (included.has(summary.id)) return
+    included.add(summary.id)
+    ordered.push(summary)
+  }
+  for (const summary of local) include(summary)
+  for (const item of content.items) {
+    const summary = list.byId[item.sessionId]
+    if (summary !== undefined && !summary.blank && sessionVisible(summary, list.current)) include(summary)
+  }
+
+  return {
+    items: ordered.slice(0, limit).map((summary) => {
+      const match = contentBySession.get(summary.id)
+      return {
+        id: summary.id,
+        title: sessionTitle(summary),
+        workspace: labelOf(summary),
+        running: summary.running,
+        ...match === undefined ? {} : { snippet: match.snippet },
+      }
+    }),
+    hasMore: content.hasMore || ordered.length > limit,
+  }
 }
 
 /**
