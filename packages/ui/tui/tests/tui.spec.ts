@@ -10,6 +10,7 @@ import AgentRegistry, {
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage,
   createToolResultMessage,
+  LlmError,
   ReasoningEffortId,
   type LlmCallConfig,
   type LlmModelReasoningInfo,
@@ -3628,6 +3629,96 @@ describe('pi-tui chat lifecycle and transcript', () => {
       expect(reasoningFailed.terminal.output).toContain('Could not read the model catalog: reasoning metadata offline')
     })
     await dispose(reasoningFailed)
+  })
+
+  it('defers a NO_ADAPTER context resolution until the provider registers instead of surfacing an error', async () => {
+    // Loader activation order is service-driven: the TUI can mount before a
+    // configured adapter plugin activates, so the initial resolveModelInfo
+    // fails with NO_ADAPTER. That transient state must not print an error;
+    // the resolution retries on llm/adapters-updated.
+    const adapters = new Set<string>()
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      contextTokens: 50_000,
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelInfo: () => adapters.has('openai-codex')
+          ? Promise.resolve({ context: { contextWindow: 100_000 } })
+          : Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER')),
+      },
+    })
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    // A topology commit that still lacks the route parks the wait again.
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('% context')
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    adapters.add('openai-codex')
+    result.ctx.emit('llm/adapters-updated')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('% context')
+    })
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+
+    // A commit after satisfaction is a no-op for the resolved value.
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+    await dispose(result)
+  })
+
+  it('stops listening for adapter registrations after channel detach', async () => {
+    // The listener disposer rides detachListeners() through the controller's
+    // detach(): after dispose, a registry commit must not re-enter resolution
+    // at all (the isDisposed() guard is a fallback, not the removal).
+    const calls: string[] = []
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      catalog: {
+        providers: [],
+        models: [],
+        resolveModelInfo: (provider) => {
+          calls.push(provider)
+          return Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER'))
+        },
+      },
+    })
+    await tick()
+    const callsAtDetach = calls.length
+    await result.controller.dispose()
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(calls.length).toBe(callsAtDetach)
+    await result.ctx.fiber.dispose()
+  })
+
+  it('drops a deferred NO_ADAPTER resolution when the target moved before the adapter registered', async () => {
+    const result = await setup({
+      agentOptions: { provider: 'openai-codex', model: 'gpt-x' },
+      catalog: {
+        providers: [{ id: 'alpha', name: 'Alpha' }],
+        models: [{ provider: 'alpha', id: 'a1', name: 'Alpha One' }],
+        resolveModelInfo: provider => provider === 'alpha'
+          ? Promise.resolve({ context: { contextWindow: 64_000 } })
+          : Promise.reject(new LlmError('no adapter registered for provider "openai-codex"', 'NO_ADAPTER')),
+      },
+    })
+    await tick()
+    // Switching the model re-resolves and clears the deferred wait, so the
+    // stale route's adapter arriving afterwards must be a no-op.
+    result.terminal.send('/model alpha/a1')
+    result.terminal.send('\r')
+    await vi.waitFor(() => {
+      expect(result.terminal.output).toContain('Model selected: alpha/a1')
+    })
+    result.ctx.emit('llm/adapters-updated')
+    await tick()
+    expect(result.terminal.output).not.toContain('Could not resolve model context')
+    await dispose(result)
   })
 
   it('does not render a model catalog that resolves after TUI disposal', async () => {
