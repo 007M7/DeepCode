@@ -267,7 +267,7 @@ export async function runTui(
   )
   app.current = ctx
   addHarnessSourceSection(ctx, SOURCE_ROOT)
-  if (showFirstRunWelcome && ctx.get('tui') !== undefined) {
+  if (showFirstRunWelcome) {
     await ctx.plugin({
       name: tuiFirstRunWelcomeName,
       inject: tuiFirstRunWelcomeInject,

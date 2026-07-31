@@ -27,6 +27,12 @@ const scriptedConfigPath = fileURLToPath(new URL('./fixtures/tui-scripted.cordis
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
 const firstRunSnapshots = fileURLToPath(new URL('./tui-first-run-snapshots/', import.meta.url))
 const synchronizedFrameEnd = '\x1b[?2026l'
+// Artifact mode gives the inner PTY driver 60 seconds and its execa owner a
+// five-second backstop. Keep Vitest outside both deadlines so the harness can
+// report its own marker, exit, and cleanup failure instead of being cut off.
+const PTY_SMOKE_TEST_TIMEOUT_MS = process.env.DSH_EXAMPLE_MODE === 'lib'
+  ? 75_000
+  : LOADER_SMOKE_TEST_TIMEOUT_MS
 
 /**
  * Seed the isolated process workspace: ordinary files land in `cwd`, personal
@@ -249,7 +255,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
       .toMatchFileSnapshot(join(firstRunSnapshots, `${String(columns)}-columns.expected.txt`))
     expect(output).toContain(TUI_FIRST_RUN_WELCOME_WHALE[tier].unicode[0]!.trim())
     expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps prose and Enter reachable in a low-height real PTY after dropping the whale', async () => {
     const output = await smoke({
@@ -277,7 +283,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('企业微信群')
     expect(output).toContain(`Enter  ${firstRunCopy.continueLabel}`)
     expect(output).not.toContain(TUI_FIRST_RUN_WELCOME_WHALE.minimal.unicode[0]!.trim())
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('shows once and skips the second launch under the same DSH_HOME', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-welcome-twice-'))
@@ -309,7 +315,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it.skipIf(process.platform === 'win32')('keeps the notice eligible when the process exits before Enter', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'dsh-tui-welcome-abort-'))
@@ -342,7 +348,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     } finally {
       await rm(cwd, { recursive: true, force: true })
     }
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('boots pi-tui, sweeps the borderless banner in, enters plan mode, and restores the terminal', async () => {
     // With no configured welcome the borderless banner sweeps in left-to-right;
@@ -366,7 +372,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).not.toContain('╭')
     expect(output).not.toContain('╮')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('switches models, streams a response, answers a user-question dialog, and exits cleanly', async () => {
     const output = await smoke({
@@ -419,7 +425,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('Registered tools')
     expect(output).toContain('ask_user_question')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('loads a local skill via /skill: and delivers its body to the model as a user turn', async () => {
     // The whole user-only invocation path in one keyless boot: `ctx.get('skills')`
@@ -455,7 +461,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).not.toContain('[instructions]')
     expect(output).toContain('Scripted skill body received.')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('adds a watched local skill to live /skill: autocomplete without restarting', async () => {
     const skill = [
@@ -485,7 +491,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     })
     expect(output).toContain('HOT_ADDED_COMPLETION_MARKER')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it.skipIf(process.env.DSH_EXAMPLE_MODE === 'lib')('fuzzy-completes an @file path without reading or submitting the file', async () => {
     const output = await smoke({
@@ -510,7 +516,7 @@ describe('dsh TUI keyless smoke (real Loader tree in a PTY)', () => {
     expect(output).toContain('File · terminal-special-case.t')
     expect(output).toContain('@src/terminal-special-case.ts')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
 })
 
@@ -553,7 +559,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     })
     expect(output).toContain(firstRunCopy.paragraphs[0])
     expect(output).toContain('Resume selector design — DeepSeek Harness')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('exec-replaces the TUI for /resume and restores the same session state', async () => {
     const output = await smoke({
@@ -574,7 +580,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(released).toBeGreaterThanOrEqual(0)
     expect(restored).toBeGreaterThan(released)
     expect(output).toContain('Preserve restored state')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('boots the shipped default config with no arguments and no personal overlay', async () => {
     const output = await smoke({
@@ -589,7 +595,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).not.toContain('╭')
     expect(output).not.toContain('╮')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('applies the personal overlay: config.yaml patches an overlay-inserted row, the invoking directory\'s .env feeds its !!js, and the home .env stays out of the environment', async () => {
     // The whole personal-config chain in one boot, plus the environment layer
@@ -626,7 +632,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('PROJECT OVERLAY READY.')
     expect(output).not.toContain('HOME ENV LEAKED.')
     expect(output).toContain('\u001B[?2004l')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('fails loud instead of booting when the personal config.yaml is invalid', async () => {
     const output = await smoke({
@@ -638,7 +644,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       expectedExitCode: 1,
     })
     expect(output).toContain('must be a top-level YAML array of loader patch entries')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('routes the --resume flag into the launcher session-identity slot, failing loud on a missing id', async () => {
     // The flag path end to end: apps/cli parses `--resume missing-session`,
@@ -653,7 +659,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       expectedExitCode: 1,
     })
     expect(output).toContain('ui-tui: session "missing-session" failed to start:')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('prints the launcher-owned resume command on exit, naming the booted config', async () => {
     // The exit line is built by apps/cli from this invocation, so it must carry
@@ -666,7 +672,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       actions: [{ waitFor: 'scripted TUI ready.', send: '/exit\r' }],
     })
     expect(output).toMatch(/To resume this session: dsh --resume=main-session-[0-9a-f-]{36} --config/)
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps resume working when the personal overlay replaces the whole agent-loop config', async () => {
     // Loader patches replace a targeted `config` key wholesale, so a personal
@@ -701,7 +707,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
       actions: [{ waitFor: 'OVERLAY REPLACED THE CONFIG.', send: '/exit\r' }],
     })
     expect(output).toMatch(/To resume this session: dsh --resume=main-session-[0-9a-f-]{36}/)
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('reports a failing bash command exactly once, as the terminal card exit pill', async () => {
     // The model-facing result ends in `[exit code: 3]`, which the terminal card
@@ -724,7 +730,7 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(output).toContain('SCRIPTED_BASH_FAILED')
     expect(output).toContain('[exit 3]')
     expect(output).not.toContain('[exit code: 3]')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 
   it('tells the model its source path and offers the bundled maintenance skills', async () => {
     // The launcher resolves the checkout root three hops up from apps/cli/{src,lib};
@@ -750,5 +756,5 @@ describe('dsh CLI keyless smoke (apps/cli through the same PTY)', () => {
     expect(context.skillCatalog).toContain("- `dsh-customize`: Customize or maintain any dsh source checkout — the one powering the current DSH process, the installed `dsh` command, or a sibling dsh/deepseek-harness clone. Use before any requested action that alters such a checkout's files or git state. Read-only questions that only inspect the checkout do not trigger this. Do not edit the personal staging checkout directly.")
     expect(context.skillCatalog).toContain('- `dsh-upgrade`: Upgrades a source-installed, personally customized DSH checkout to upstream master while preserving local changes and an unchanged rollback worktree. Use when the user asks to update or upgrade DSH.')
     expect(context.skillCatalog).toContain('- `dsh-upstream-customization`: Classifies personal DSH customizations for upstream contribution and, after explicit per-feature approval, rebuilds one on upstream master and opens a draft pull request. Use when the user asks to contribute, publish, or upstream a local DSH change, or asks whether one is worth proposing.')
-  }, LOADER_SMOKE_TEST_TIMEOUT_MS)
+  }, PTY_SMOKE_TEST_TIMEOUT_MS)
 })
