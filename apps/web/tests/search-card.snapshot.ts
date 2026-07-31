@@ -143,7 +143,7 @@ describe('assembled search card', () => {
     // Wait for chat content to reach the fixture's later turns (the bash sample
     // is turn 65, the grep card turn 66).
     await waitFor(() => {
-      expect(document.querySelector('[data-sample="bash-global"]')).not.toBeNull()
+      expect(document.querySelector('[data-sample="bash"]')).not.toBeNull()
     }, { timeout: 10_000 })
     // The grep turn's keyed SearchRow composes ToolRow: the card is collapsed
     // by default, so wait for the summary row, then expand it to reach the card.
