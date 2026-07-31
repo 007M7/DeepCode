@@ -157,6 +157,29 @@ describe('workspace browser rows', () => {
     expect(screen.queryByRole('button', { name: /工作区/ })).toBeNull()
   })
 
+  it('blank New Session rows carry no menu, no time label, and no hover-card time', () => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid('s-blank'), title: 'ignored', blank: true, running: false, updatedAt: 0,
+      }
+      render(<SessionNodeItem node={node} currentId={node.id} now={0} onOpen={vi.fn()}
+        onRename={vi.fn()} onFork={vi.fn()} onArchive={vi.fn()} t={t} />)
+      // The placeholder has no content yet: no row verbs, no "now" stamp.
+      expect(screen.queryByRole('button', { name: /会话.*的操作/ })).toBeNull()
+      expect(screen.queryByText('刚刚')).toBeNull()
+      // The hover card keeps title + status but drops the timestamp line.
+      const wrapper = screen.getByRole('treeitem').parentElement as HTMLElement
+      fireEvent.pointerEnter(wrapper)
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(screen.getAllByText('新会话').length).toBeGreaterThanOrEqual(2)
+      expect(screen.getByText('空闲')).toBeTruthy()
+      expect(screen.queryByText('刚刚')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('session row menu opens without opening the session and dispatches rename, fork, and archive', () => {
     const onOpen = vi.fn()
     const onRename = vi.fn()

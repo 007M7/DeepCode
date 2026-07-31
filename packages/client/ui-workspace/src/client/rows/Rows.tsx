@@ -175,7 +175,9 @@ function SessionHoverContent({ node, now, t }: { node: SessionNode; now: number;
   return (
     <div className={css.hoverContent}>
       <div className={css.hoverTitle}>{displayTitle(node, t)}</div>
-      <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>
+      {/* Same placeholder rule as the row's trailing cell: no timestamp
+          before the first prompt. */}
+      {!node.blank && <div className={css.hoverTime}>{hoverTimeLabel(node.updatedAt, now, t)}</div>}
       <div className={css.hoverStatus}>
         <StateDot state={node.running ? 'ongoing' : 'done'} />
         <span>{node.running ? t('status.running') : t('status.idle')}</span>
@@ -306,32 +308,38 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
     >
       <span className={css.slot}>{row.running && <StateDot state="ongoing" />}</span>
       <span className={css.title}>{title}</span>
-      <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>
-      <span className={css.rowActions}>
-        <Menu
-          open={menuOpen}
-          onClose={() => { setMenuOpen(false) }}
-          items={sessionMenuItems}
-          onSelect={(id) => {
-            setMenuOpen(false)
-            if (id === 'rename') onRename(node.id, row.title)
-            if (id === 'fork') onFork(node.id)
-            if (id === 'archive') onArchive(node.id)
-          }}
-          portal
-          closeOnPointerLeave
-          anchor={(
-            <button
-              type="button"
-              className={css.iconButton}
-              aria-label={t('actions.session.aria', { name: title })}
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
-            >
-              <IconEllipsisOutline16 />
-            </button>
-          )}
-        />
-      </span>
+      {/* A blank New Session row is a provisional placeholder: nothing has
+          happened in it yet, so a "now" timestamp and the row verbs
+          (rename/fork/archive) would all act on content that does not
+          exist — both trailing cells stay off until the first prompt. */}
+      {!row.blank && <span className={css.time}>{timeLabel(row.updatedAt, now, t)}</span>}
+      {!row.blank && (
+        <span className={css.rowActions}>
+          <Menu
+            open={menuOpen}
+            onClose={() => { setMenuOpen(false) }}
+            items={sessionMenuItems}
+            onSelect={(id) => {
+              setMenuOpen(false)
+              if (id === 'rename') onRename(node.id, row.title)
+              if (id === 'fork') onFork(node.id)
+              if (id === 'archive') onArchive(node.id)
+            }}
+            portal
+            closeOnPointerLeave
+            anchor={(
+              <button
+                type="button"
+                className={css.iconButton}
+                aria-label={t('actions.session.aria', { name: title })}
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+              >
+                <IconEllipsisOutline16 />
+              </button>
+            )}
+          />
+        </span>
+      )}
     </div>
   )
   return (
