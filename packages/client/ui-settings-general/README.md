@@ -2,7 +2,9 @@
 
 English | [中文](README.zh.md)
 
-Settings ownerless-copy plugin: registers everything on the Settings surface that belongs to no single feature — the shell's trigger/header/close chrome content, the General section and its `settings.general.item` slot, and the `settings` dictionaries. Feature-owned rows (Permission, Language, Appearance) and sections (Models) stay with their feature packages.
+Settings ownerless-copy and product-onboarding plugin: registers everything on the Settings surface that belongs to no single feature — the shell's trigger/header/close chrome content, the General section and its `settings.general.item` slot, the `settings` dictionaries, and the first ordered welcome step. Feature-owned rows (Permission, Language, Appearance), sections (Models), and conditional onboarding steps stay with their feature packages.
+
+`src/onboarding-copy.ts` is the single editable owner of the complete Chinese and English notice plus `WELCOME_NOTICE_VERSION`. The Host half registers `ui-onboarding` in the user-settings seam; the browser compares `welcomeNoticeVersion` for exact equality and writes the current value only after Continue succeeds. The path mutation is idempotent across tabs and preserves sibling settings, while `host/settings-changed` makes an externally acknowledged notice advance without a reload. A different version deliberately presents the notice again. The welcome page preserves every authored paragraph, gives the requested clause in the final paragraph the sole emphasis, initially focuses the title, and has no close, Escape, mask-click, or secondary path. None of its copy or acknowledgement enters a Session log or model request.
 
 ## Model Experience
 
