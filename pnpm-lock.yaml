@@ -480,6 +480,9 @@ importers:
       '@deepseek-ai/dsh-workspace-context':
         specifier: workspace:^
         version: link:../../packages/context/workspace-context
+      '@earendil-works/pi-tui':
+        specifier: 0.80.7
+        version: 0.80.7(patch_hash=6c30c5386c0159131e1361023cddf31377f5728962524841964373312c1ed946)
       commander:
         specifier: ^15.0.0
         version: 15.0.0

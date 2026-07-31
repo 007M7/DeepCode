@@ -16,17 +16,17 @@ It uses an architecture where **everything is a plugin**.
 
 ## Install
 
-Install `dsh` with one command:
+Clone the repository, then run the installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+git clone <repo-url>
+cd deepseek-harness
+scripts/install.sh
 ```
 
 The installer requires `git` and Node `^22.19 || >=24`, offers to install `pnpm` when it is missing, and prompts for a DeepSeek API key.
 
 The installer keeps every checkout under `~/.dsh/source`: the master clone at `~/.dsh/source/master` and each install's staging checkout as a git worktree `~/.dsh/source/staging-<timestamp>`. The stable symlink `~/.dsh/source/current` points at the active staging worktree, and `dsh` in `~/.local/bin` links to `current/bin/dsh`, so an upgrade repoints one symlink and the `dsh` on PATH never moves. Re-running the command adds a fresh staging worktree from an updated master and repoints `current` at it. See [`scripts/install.sh`](scripts/install.sh) for alternate install locations and other options.
-
-Running the script from an existing clone (`sh scripts/install.sh`) never clones and never modifies that working tree. It *adopts* the clone: the repository behind the checkout becomes the upgrade base, and a staging worktree branched from the checkout's current `HEAD` lands under `~/.dsh/source` with `current` pointing at it, so a clone anywhere on disk gets the same upgradable layout. Adoption carries committed work only — uncommitted changes stay in the clone.
 
 ## Use DeepSeek Harness
 

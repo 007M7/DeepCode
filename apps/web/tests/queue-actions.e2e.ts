@@ -1,16 +1,16 @@
 // Keyless browser coverage for pending queue actions through the shipped Web
-// composition and real HTTP/SSE wire. A replay override parks the active turn
-// so two ordinary follow-ups remain addressable while the page edits one and
-// removes one. The queue uses an existing recorded model
-// call; this scenario owns only the user-visible mid-turn golden.
+// composition and real HTTP/SSE wire. Replay overrides park consecutive turns
+// so the page can edit and remove exact occurrences, then stop the active turn
+// while proving the preserved Queue advances in FIFO order.
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterEach, describe, expect, it, onTestFailed } from 'vitest'
+import { deriveReplayScript, parseSessionLog, type ReplayEntry } from '@deepseek-ai/dsh-llm-replay'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
@@ -22,6 +22,7 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/queue-actions', import.m
 const FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
 const COLLAPSED_EXPECTED = join(SNAPSHOT_DIR, 'collapsed.expected.md')
 const EDITING_EXPECTED = join(SNAPSHOT_DIR, 'editing.expected.md')
+const PRESERVED_EXPECTED = join(SNAPSHOT_DIR, 'preserved.expected.md')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const MODE = webSnapshotMode()
 
@@ -29,6 +30,12 @@ const ACTIVE_PROMPT = 'Reply with a one-sentence description of event sourcing, 
 const REMOVE = 'Queue item to remove'
 const EDIT = 'Queue item to edit'
 const EDITED = 'Edited queue item'
+const TAIL = 'Queue item preserved after stop'
+
+/** Durable turn-end classifications observed by the scenario. */
+function turnEndReasons(events: readonly SessionEvent[]): string[] {
+  return events.flatMap(event => event.type === 'turn/end' ? [event.data.reason.kind] : [])
+}
 
 describe('web e2e: queue row actions', () => {
   let scaffold: WebScaffold | undefined
@@ -52,13 +59,19 @@ describe('web e2e: queue row actions', () => {
     if (failures.length > 1) throw new AggregateError(failures, 'queue-actions teardown failed')
   })
 
-  it.skipIf(MODE === 'record')('edits and removes exact pending occurrences', async () => {
+  it.skipIf(MODE === 'record')('edits and removes exact occurrences and preserves Queue across stop', async () => {
     overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-queue-actions-'))
     const readyFile = join(overrideDir, '.hang-ready')
+    const nextReadyFile = join(overrideDir, '.next-hang-ready')
     const overridePath = join(overrideDir, 'replay.override.json')
-    await writeFile(overridePath, JSON.stringify({
-      patches: [{ at: 0, entry: { kind: 'hang', readyFile } }],
-    }))
+    const recorded = deriveReplayScript(parseSessionLog(await readFile(FIXTURE, 'utf8')))
+    expect(recorded).toHaveLength(1)
+    const replay: ReplayEntry[] = [
+      { kind: 'hang', readyFile },
+      { kind: 'hang', readyFile: nextReadyFile },
+      recorded[0]!,
+    ]
+    await writeFile(overridePath, JSON.stringify(replay))
 
     const sessionEvents: SessionEvent[] = []
     scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath })
@@ -135,17 +148,34 @@ describe('web e2e: queue row actions', () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
 
-    const editedRow = page.getByText(EDITED, { exact: true }).locator('..')
-    await editedRow.getByRole('button', { name: 'Remove queued message' }).click()
-    await expect.poll(() => page.getByText(EDITED, { exact: true }).count()).toBe(0)
+    await input.fill(TAIL)
+    await input.press('Enter')
+    await expect.poll(
+      () => page.getByRole('button', { name: 'Remove queued message' }).count(),
+      { timeout: 10_000 },
+    ).toBe(2)
+
+    await page.getByRole('button', { name: 'Stop generating' }).click()
+    await expect.poll(() => existsSync(nextReadyFile), { timeout: 15_000 }).toBe(true)
+    await page.getByText(TAIL, { exact: true }).waitFor()
+    await expect.poll(() => page.getByRole('button', { name: 'Remove queued message' }).count())
+      .toBe(1)
+
+    const preservedSnapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(PRESERVED_EXPECTED, preservedSnapshot, MODE)
+
     await page.getByRole('button', { name: 'Stop generating' }).click()
     await settled
+    expect(turnEndReasons(sessionEvents)).toEqual(['aborted', 'aborted', 'completed'])
+    expect(sessionEvents.filter(event => event.type === 'user/message' && event.data.source.kind === 'user'))
+      .toHaveLength(3)
+    await expect.poll(() => page.locator('[data-queue-dock]').count()).toBe(0)
   }, 120_000)
 
   it.skipIf(MODE === 'record')('keeps its snapshot inventory closed', async () => {
     await assertFixtureInventory(
       SNAPSHOT_DIR,
-      ['collapsed.expected.md', 'editing.expected.md', 'ui.expected.md'],
+      ['collapsed.expected.md', 'editing.expected.md', 'preserved.expected.md', 'ui.expected.md'],
     )
   })
 })

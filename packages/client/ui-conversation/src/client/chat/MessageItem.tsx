@@ -1,6 +1,7 @@
 // MessageItem: simple chat nodes — user bubble (right-aligned, with
-// clock + copy / branch IconActions), steering (badged bubble), context
-// injection, compaction marker, retry disclosure, and unknown-surface JSON rows.
+// clock + copy / branch IconActions), steering (same bubble, no actions),
+// context injection, compaction marker, retry disclosure, and
+// unknown-surface JSON rows.
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -166,42 +167,52 @@ function projectUserText(text: string): ReactNode {
   return <>{parts}</>
 }
 
+/** Right-aligned bubble shared by user and steering rows (steering has no actions). */
+function UserStyleBubble({
+  content, actions, t,
+}: {
+  content: readonly unknown[]
+  /** Optional IconActions (or similar) below the bubble; receives the joined text. */
+  actions?: (text: string) => ReactNode
+  t: ChatViewSlotProps['t']
+}): ReactNode {
+  const { text, rest } = contentText(content)
+  const truncated = (total: number): string => t('json.truncated', { total })
+  return (
+    <div className={css.userRow}>
+      <div className={css.bubble}>
+        {projectUserText(text)}
+        {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
+      </div>
+      {actions?.(text)}
+    </div>
+  )
+}
+
 export const MessageItem = memo(function MessageItem({
   node, retryActive = false, onFork, t,
 }: MessageItemProps) {
   const truncated = (total: number): string => t('json.truncated', { total })
   switch (node.kind) {
-    case 'user': {
-      const { text, rest } = contentText(node.content)
+    case 'user':
       return (
-        <div className={css.userRow}>
-          <div className={css.bubble}>
-            {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
-          </div>
-          <MessageIconActions
-            text={text}
-            time={node.time}
-            clock="start"
-            onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
-            className={css.actions}
-            t={t}
-          />
-        </div>
+        <UserStyleBubble
+          content={node.content}
+          t={t}
+          actions={text => (
+            <MessageIconActions
+              text={text}
+              time={node.time}
+              clock="start"
+              onBranch={onFork === undefined ? undefined : () => { onFork(node.seq) }}
+              className={css.actions}
+              t={t}
+            />
+          )}
+        />
       )
-    }
-    case 'steering': {
-      const { text, rest } = contentText(node.content)
-      return (
-        <div className={css.userRow}>
-          <div className={css.bubble}>
-            <span className={css.badge}>{t('message.steering')}</span>
-            {projectUserText(text)}
-            {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
-          </div>
-        </div>
-      )
-    }
+    case 'steering':
+      return <UserStyleBubble content={node.content} t={t} />
     case 'context':
       return (
         <ContextInjectionRow content={node.content} source={node.source} t={t} />

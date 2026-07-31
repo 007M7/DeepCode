@@ -56,7 +56,7 @@ export class InputHub implements InputService {
       slash: () => this.controller(actx),
       popup: () => this.popup(actx),
       queue: queueReadFaceOf(session),
-      defaultSink: (text, mode) => { this.sink(session, text, mode) },
+      defaultSink: (text) => { this.sink(session, text) },
     })
     this.shells.set(id, shell)
     // The one teardown axis: listeners, shell, and map entries all ride the
@@ -123,12 +123,12 @@ export class InputHub implements InputService {
    * exactly one path; a failed first prompt is an ordinary prompt failure
    * (error strip via promptError, draft restored only while untouched).
    */
-  private sink(session: SessionFace, text: string, mode: 'queue' | 'steer'): void {
+  private sink(session: SessionFace, text: string): void {
     if (text === '') return
     const shell = this.shells.get(session.sessionId)
     // Commit, not an editable clear: undo must not resurrect sent content.
     shell?.commitSend()
-    void session.prompt([{ type: 'text', text }], mode).then(
+    void session.prompt([{ type: 'text', text }], 'queue').then(
       (result) => {
         if (!result.ok && shell?.snapshot.draft === '') shell.setDraft(text)
       },

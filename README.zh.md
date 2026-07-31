@@ -16,17 +16,17 @@ DeepSeek Harness（`dsh`）是一款基于 DeepSeek Harness SDK 构建的开源 
 
 ## 安装
 
-使用一条命令安装 `dsh`：
+克隆仓库，然后运行安装器：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/deepseek-harness/deepseek-harness/master/scripts/install.sh | sh
+git clone <repo-url>
+cd deepseek-harness
+scripts/install.sh
 ```
 
 安装器要求系统已安装 `git` 和 Node `^22.19 || >=24`，缺少 `pnpm` 时可代为安装，并会提示输入 DeepSeek API 密钥。
 
 安装器会把所有检出都放在 `~/.dsh/source` 下：master 克隆位于 `~/.dsh/source/master`，每次安装的 staging 检出是一个 git worktree `~/.dsh/source/staging-<时间戳>`。稳定符号链接 `~/.dsh/source/current` 指向当前生效的 staging worktree，`~/.local/bin` 中的 `dsh` 链接到 `current/bin/dsh`，因此升级只需重指一个符号链接，PATH 上的 `dsh` 从不移动。再次运行该命令会基于更新后的 master 新增一个 staging worktree，并把 `current` 重指到它。其他安装位置和选项见 [`scripts/install.sh`](scripts/install.sh)。
-
-从现有克隆中运行该脚本（`sh scripts/install.sh`）不会进行任何克隆，也不会修改该工作树。它会*接管*该克隆：该检出所属的仓库将成为升级基础，以该检出当前的 `HEAD` 为起点创建的 staging worktree 会被放在 `~/.dsh/source` 下，并由 `current` 指向它，因此磁盘上任意位置的克隆都能获得相同的可升级布局。接管只会带入已提交的内容——未提交的更改仍留在克隆中。
 
 ## 使用 DeepSeek Harness
 
