@@ -1,0 +1,117 @@
+/* Search toolview: same geometry/tokens as ToolRow and BashRow (figma
+   Search · summary), plus the search card the row stacks resident under its
+   summary line. */
+
+/* Summary line over the search card; the summary row keeps its own 24px
+   height, so the card is a column around it rather than a change to it. */
+.card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Row indentation matches ToolRow's expanded bodies (16px leading + 6px gap),
+   and replaces the primitive's standalone vertical margin with the flow's. */
+.search {
+  margin: 4px 0 4px 22px;
+}
+
+.root {
+  position: relative; /* sweep-glare overlay anchor */
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  min-width: 0;
+}
+
+/* Running sweep glare — same deepsuite ShimmerText pattern as ToolRow / BashRow. */
+.root[data-state='running']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-search-row-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes dsh-search-row-sweep {
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
+}
+
+.leading {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.title {
+  flex: none;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.sep {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  border-radius: 1px;
+  margin: 0 8px;
+  background: var(--dsw-alias-label-caption);
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The result text for an errored search, indented to the card's own column and
+   in the error tone, standing in for the search card the failure path does not
+   produce. */
+.failure {
+  margin: 4px 0 4px 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* The recovery footer for a capped search: the model-facing result text (its
+   `Full … stored at …` locator) shown below the card in the muted tone, since
+   the card holds only the retained rows. Same column indent as the card body. */
+.recovery {
+  margin: 4px 0 4px 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
+}

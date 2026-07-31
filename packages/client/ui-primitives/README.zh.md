@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` hook（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、DiffBlock，以及 WebBlock。契约：api-contracts v3 §8。
+纯 React 原子组件（零 cordis）：StateDot、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` hook（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、TerminalBlock、DiffBlock、SearchBlock，以及 WebBlock。契约：api-contracts v3 §8。
 
 ## Markdown 渲染
 
@@ -14,6 +14,10 @@
 ## Diff 渲染
 
 `DiffBlock` 将一次文件改动渲染为内联 diff 表层：每个文件一个粗体路径头、删除行（`- `，error token）在新增行（`+ `，success token）之上、同文件第二个 hunk 前一个 `⋯` gap，以及暗色 `└ +A -R · N file(s)` 页脚。各行使用 `white-space: pre` 并横向滚动，因此源码行保留其缩进而不软换行；超过 `maxLines`（默认 16，与 `TerminalBlock` 相同的切分算法）时折叠为头部切片加尾部切片，由展开按钮控制。新建（`oldText: null`）没有删除侧。复制控件写入带前缀的 diff 文本（路径头、`- `/`+ ` 行、gap），使多文件复制保持可归属，并浮在右上角而非占据自己的 banner 行。几何镜像 `CodeBlock`/`TerminalBlock`。`+`/`-` 块形式镜像 TUI 转录的 diff 卡片，使 diff 在两个前端读起来一致。原理：[Web diff 卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-diff-card.md)。
+
+## 搜索结果
+
+`SearchBlock` 渲染一次已完成的搜索,一个组件绘制两种 kind(由 `kind` 判别)。`matches`(grep)把每个文件渲染为粗体路径头加其 `lineNumber: line` 行,每个文件组可折叠;`paths`(glob)渲染扁平路径列表。两者都摊平成一个行列表,由高度上限做头/尾切片(默认 16,与 TerminalBlock 相同的切分算法),且都不软换行——长匹配行或路径横向滚动而非折行。当工具截断结果时,banner 摘要把截断前总数折入(grep 为 `显示 X / 共 N 处匹配 · K 个文件`,glob 为 `显示 X / 共 N 个路径`),使卡片绝不把截断结果呈现为完整;复制控件写入完整结构化结果,无论是否触及上限或哪些组被折叠。几何镜像 CodeBlock/TerminalBlock。原理:[Web 搜索卡片笔记](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.md)。
 
 ## Web 检索
 

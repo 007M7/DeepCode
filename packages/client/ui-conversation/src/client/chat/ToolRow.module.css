@@ -246,21 +246,32 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* The two block-shaped expanded bodies: the code variant's run_code program
-   through CodeBlock (shiki-highlighted TypeScript) and a terminal card's
-   command output through TerminalBlock. Both are drawn by the shared
-   primitive, so only the row's indentation is this file's concern — the margin
-   also replaces each primitive's own standalone vertical spacing with the
-   flow's row rhythm. */
+/* The block-shaped expanded bodies: the code variant's run_code program
+   through CodeBlock (shiki-highlighted TypeScript), a terminal card's command
+   output through TerminalBlock, a diff card through DiffBlock, a read card's
+   line-numbered window through ReadBlock, a search card's grouped matches or
+   path list through SearchBlock, and a web card's citation/source list through
+   WebBlock. All are drawn by the shared primitive, so only the row's
+   indentation is this file's concern — the margin also replaces each
+   primitive's own standalone vertical spacing with the flow's row rhythm. */
 .codeBody,
-.terminalBody {
+.terminalBody,
+.diffBody,
+.readBody,
+.searchBody,
+.webBody {
   margin: 4px 0 4px 4px;
 }
 
-/* A write/edit diff renders through DiffBlock; like the terminal card it draws
-   its own surface, so only the row indentation is this file's concern. */
-.diffBody {
+/* The recovery footer for a capped search: the result text (its `Full … stored
+   at …` locator) below the card in the muted tone, since the card holds only the
+   retained rows. Same column indent as the card body. */
+.searchRecovery {
   margin: 4px 0 4px 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* In-row code renders at the smaller code size (12/18) via each primitive's

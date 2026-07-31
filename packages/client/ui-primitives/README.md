@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/Input, the markdown family (MessageText/MarkdownText/JsonBlock), the read-only JsonTree inspector, the `useAnchoredMaxHeight` hook that clamps a bottom-anchored overlay to the viewport space above its anchor (re-measured on resize, scroll, and a caller-supplied dependency), TerminalBlock, DiffBlock, and WebBlock. Contract: api-contracts v3 §8.
+Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/Input, the markdown family (MessageText/MarkdownText/JsonBlock), the read-only JsonTree inspector, the `useAnchoredMaxHeight` hook that clamps a bottom-anchored overlay to the viewport space above its anchor (re-measured on resize, scroll, and a caller-supplied dependency), TerminalBlock, DiffBlock, SearchBlock, and WebBlock. Contract: api-contracts v3 §8.
 
 ## Markdown rendering
 
@@ -15,6 +15,10 @@ Pure React atoms (zero cordis): StateDot, ic_ds_* icons, Button/Pill/Menu/Modal/
 ## Diff rendering
 
 `DiffBlock` renders a file mutation as an inline diff surface: one bold path header per file, the removed lines (`- `, error token) above the added lines (`+ `, success token), a `⋯` gap before a same-file second hunk, and a dim `└ +A -R · N file(s)` footer. Lines are `white-space: pre` with horizontal scrolling, so a source line holds its indentation instead of soft-wrapping, and the body collapses to a head slice plus a tail slice past `maxLines` (default 16, `TerminalBlock`'s split arithmetic) behind an expand button. A create (`oldText: null`) has no removed side. The copy control writes the prefixed diff text (path headers, `- `/`+ ` lines, the gap) so a multi-file copy stays attributable, and floats in the top-right corner rather than on a banner row of its own. Geometry mirrors `CodeBlock`/`TerminalBlock`. The `+`/`-` block form mirrors the TUI transcript's diff card so a diff reads the same across front ends. Rationale: [the web diff card note](../../../.agents/notes/implemented/feature/2026-07-30-web-diff-card.md).
+
+## Search results
+
+`SearchBlock` renders a completed search, one component for both kinds (discriminated by `kind`). A `matches` (grep) shows each file as a bold path header with its `lineNumber: line` rows, the per-file group collapsible; a `paths` (glob) shows a flat path list. Both flatten to one row list the height cap slices head/tail over (default 16, the TerminalBlock split arithmetic), and neither soft-wraps — a long match line or path scrolls horizontally instead of folding. The banner summary folds the pre-cap total in when the tool capped the result (`显示 X / 共 N 处匹配 · K 个文件` for grep, `显示 X / 共 N 个路径` for glob), so the card never presents a capped result as complete; a copy control writes the whole structured result regardless of the cap or which groups are collapsed. Geometry mirrors CodeBlock/TerminalBlock. Rationale: [the web search card note](../../../.agents/notes/implemented/feature/2026-07-30-web-search-card.md).
 
 ## Web retrieval
 
