@@ -29,7 +29,7 @@ function stubAgent(rawId: string, supplied?: Session): StubAgent {
     id: session.id,
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     get status() { return status },
     ctx: new Context(),
     send: () => {},

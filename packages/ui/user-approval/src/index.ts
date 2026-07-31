@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import { Context, Service } from 'cordis'
 import z from 'schemastery'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, type CallId } from '@deepseek-ai/dsh-llm'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
@@ -212,7 +212,7 @@ export interface Config {
 /**
  * Approval service that applies session policy before answerers and logs every
  * ask/outcome pair to the requesting session. It exposes deterministic policy
- * changes to the model through prompt and pre-step notices.
+ * changes to the model through prompt-submission notices.
  */
 export class ApprovalService extends Service {
   static Config: z<Config> = z.object({
@@ -239,18 +239,21 @@ export class ApprovalService extends Service {
       })
     })
 
-    // Visibility layer 2: the boundary narrator. agent/step runs before the
-    // request history is derived, so the notice is
-    // seen by THIS step's request: idle-time flip-flops coalesce at the
-    // turn's first step (net-zero → nothing), and a mid-turn switch is
-    // narrated no later than the next step. What each session was last told
-    // is in-memory with a log-derived fallback (the folded header's system
-    // text), so restarts lose nothing. Attribution is positional: an
-    // override event after the log's last `request/header` was a runtime
-    // switch by the user; otherwise the configured default moved under the
-    // session (operator/config).
-    const narrated = new WeakMap<Agent['session'], ApprovalPolicy>()
-    ctx.on('agent/step', (agent) => {
+    // Visibility layer 2: pre-step processing narrates a policy delta in the
+    // exact request whose prompt is being finalized. The last request header
+    // is authoritative for what the model was told, so a later listener that
+    // rejects or throws cannot advance narration state. Attribution is
+    // positional: an override event after the log's last `request/header` was
+    // a runtime switch by the user; otherwise the configured default moved
+    // under the session.
+    ctx.on('agent/pre-step', async (
+      agent,
+      _messages,
+      _signal,
+      next,
+    ): Promise<PreStepDecision> => {
+      const decision = await next()
+      if (decision.kind === 'reject') return decision
       const session = agent.session
       const events = session.events
       let overrideIndex = -1
@@ -269,18 +272,23 @@ export class ApprovalService extends Service {
       // for POSITIONAL attribution; the default lives once, in the method.
       const current = this.effectivePolicy(session)
       const header = session.requestHeader()
-      const told = narrated.get(session) ?? toldApprovalPolicy(header?.system)
-      narrated.set(session, current)
+      const told = toldApprovalPolicy(header?.system)
       // Cold start (nothing ever told) narrates nothing — the section about
       // to go out states the truth, and there is no delta to explain.
-      if (told === undefined || told === current) return
+      if (told === undefined || told === current) return decision
       const cause = overrideSource === 'delegation'
         ? 'inherited from the delegating session'
         : overrideIndex > headerIndex ? 'changed by the user' : 'changed by the operator/config'
-      session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
-        source: { kind: 'plugin', plugin: 'user-approval' },
-      }), { surfaceOp: 'append' })
+      return {
+        ...decision,
+        messages: [
+          ...decision.messages,
+          createUserMessage({
+            content: [{ type: 'text', text: `The approval policy changed from "${told}" to "${current}" (${cause}).` }],
+            source: { kind: 'plugin', plugin: 'user-approval' },
+          }),
+        ],
+      }
     })
   }
 

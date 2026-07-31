@@ -668,9 +668,8 @@ describe('Agent.cancel()', () => {
   })
 
   it.each([
-    'prompt-submit',
+    'pre-step',
     'system-prompt',
-    'step',
     'request',
     'stopping',
     'tool',
@@ -690,8 +689,8 @@ describe('Agent.cancel()', () => {
     }
 
     switch (stage) {
-      case 'prompt-submit':
-        ctx.on('agent/prompt-submit', async (subject, _message, signal, next) => {
+      case 'pre-step':
+        ctx.on('agent/pre-step', async (subject, _message, { signal }, next) => {
           if (subject === agent) await blockUntilAbort(signal)
           return next()
         })
@@ -703,11 +702,6 @@ describe('Agent.cancel()', () => {
             await blockUntilAbort(context.signal)
           }
           return next()
-        })
-        break
-      case 'step':
-        ctx.on('agent/step', async (subject, _turn, _step, signal) => {
-          if (subject === agent) await blockUntilAbort(signal)
         })
         break
       case 'request':
@@ -741,7 +735,7 @@ describe('Agent.cancel()', () => {
     agent.cancel({ kind: 'user' })
     await idle
     const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    if (stage === 'prompt-submit') {
+    if (stage === 'pre-step') {
       expect(turnEnd).toBeUndefined()
     } else {
       expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })

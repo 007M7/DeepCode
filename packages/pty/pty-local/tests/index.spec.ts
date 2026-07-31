@@ -42,7 +42,7 @@ function agent(ctx: Context): Agent {
   const id = SessionId('agent')
   const session = new Session(id)
   return {
-    id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx,
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx,
     send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
@@ -249,7 +249,7 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: ownerFiber.ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx: ownerFiber.ctx,
       send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)
@@ -292,7 +292,7 @@ describe('pty-local plugin shape', () => {
     const session = ctx.sessions.create(SessionId('pending-mode-owner'))
     const ownerFiber = await ctx.plugin(() => {})
     const owner: Agent = {
-      id: session.id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: ownerFiber.ctx,
+      id: session.id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx: ownerFiber.ctx,
       send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
     }
     ctx.agents.register(owner)

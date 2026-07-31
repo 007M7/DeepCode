@@ -47,8 +47,7 @@ interface SessionEventMap {
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
    * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` tells them apart. An idle
-   * injection may append this event between turns without running the model.
+   * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
@@ -489,7 +488,7 @@ declare class Session {
 
 ## 轮次的结束原因：`TurnEndReasonMap`
 
-`turn/start` 没有 trigger 字段。已准入的 `user/message` 批次记录进入轮次的内容，`llm/retry` 记录请求恢复，idle 注入则不会打开轮次。`aborted.reason` 保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)。
+`turn/start` 没有 trigger 字段。返回 enter 的 pre-step 所产生的 `user/message` 批次记录进入轮次的内容，`llm/retry` 记录请求恢复，idle 注入则保持待处理，直到后续边界领取并让它进入步骤。`aborted.reason` 保留停止驱动器的类型化 [`AgentCancelCause`](core.md#the-agent-handle)。
 
 ```ts type-equiv
 /**
@@ -517,7 +516,7 @@ interface TurnEndReasonMap {
 
 ## 执行封闭与独立事件
 
-一个轮次包围一次模型循环执行，而不是整个会话日志。空闲注入的 `user/message` 事件和插件所属的纯日志事件可以出现在 `turn/end` 与下一个 `turn/start` 之间；它们占用事件 seq，但不递增轮次编号。持久化会尽快记录每个连续且已接受的事件，而崩溃修复只关闭确实仍处于开放状态的尾部轮次。需要持久性屏障的生产方会显式等待 `ctx.sessions.flush(session)`。
+一个轮次包围一次模型循环执行，而不是整个会话日志。AgentLoop 只会从轮次内返回 enter 的 pre-step 批次记录注入的 `user/message` 事件；插件所属的纯日志事件仍可出现在 `turn/end` 与下一个 `turn/start` 之间，占用事件 seq 但不递增轮次编号。持久化会尽快记录每个连续且已接受的事件，而崩溃修复只关闭确实仍处于开放状态的尾部轮次。需要持久性屏障的生产方会显式等待 `ctx.sessions.flush(session)`。
 
 可选的 `dsh-session/invariant` 配套插件会强制核心拥有的关系：轮次与步骤编号、执行事件封闭，以及同一步骤内的工具调用／结果配对。可合并扩展事件的关系由声明它的插件拥有，因此核心不会仅因没有开放轮次就拒绝未知事件。见[独立事件决策](../../.agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md)。
 
@@ -535,7 +534,7 @@ interface TurnEndReasonMap {
 
 插件可以通过 declaration merging 添加额外的 `SessionEventMap` 类型。这些是**仅日志**事件：不是 `SurfaceEventType`（不携带 `surfaceOp`，不参与派生历史）。事件所有方决定它们属于一个开放的执行轮次，还是可以独立位于轮次之间，并在自己的不变量配套插件中强制所需关系。完整的逐事件枚举（核心与插件贡献的，含 payload 与溯源信息）见生成的[持久化日志事件目录](../persistence-catalog.md)；压缩 seam 的 `compact/*` 语义在 [compaction.md](compaction.md) 中讨论。
 
-钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。轮次中间的钩子点（`PreToolUse`/`PostToolUse`/`Stop`）在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 与轮次开始前的 `UserPromptSubmit` 准入 seam 都不生成 `hook/*` 记录，因为两者都没有已打开的轮次可容纳该记录；被放行的上下文改由其带来源的 `user/message` 作为持久证据（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
+钩子桥接层的 `hook/invoked` / `hook/result` 溯源对（来自 `@deepseek-ai/dsh-hook-protocol`）通过 `handlerId` 关联。轮次中间的钩子点（`PreToolUse`/`PostToolUse`/`Stop`）在 loop 已打开的轮次内触发，因此其 `hook/*` 记录天然位于轮次之内。`SessionStart` 与初始 follow-up 在轮次开始前运行的 `UserPromptSubmit` pre-step 都不生成 `hook/*` 记录，因为二者都没有已打开的轮次可容纳该记录；进入步骤的上下文改由其带来源的 `user/message` 作为持久证据（见[钩子桥接 Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)）。
 
 ## 持久性契约
 

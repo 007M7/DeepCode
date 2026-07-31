@@ -81,7 +81,7 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect((await capture()).payload.transcript_path).toBeNull()
     }, 15_000) // Two real agent/hook subprocess loops need process startup and teardown headroom.
 
-    it('UserPromptSubmit block (exit 2) rejects admission without a turn', async () => {
+    it('UserPromptSubmit block (exit 2) rejects step entry without a turn', async () => {
       const d = dir()
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'b.sh', '#!/usr/bin/env bash\nexit 2\n') }] }] })
       const adapter = new MockAdapter([textResponse('no')])
@@ -109,10 +109,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bridge ctx"}}\'\n') }] }] })
       const adapter = new MockAdapter([textResponse('should not run')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
-      ctx.on('agent/prompt-submit', async () => ({
-        kind: 'block' as const,
-        reason: 'policy veto',
-        discardClaimed: true,
+      ctx.on('agent/pre-step', async () => ({
+        kind: 'reject' as const,
       }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } })); await waitForIdle(ctx, agent)
@@ -126,8 +124,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: sh(d, 'c.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n') }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(join(d, 'hooks.json'), adapter)
-      ctx.on('agent/prompt-submit', async (_agent, messages) => ({
-        kind: 'allow' as const,
+      ctx.on('agent/pre-step', async (_agent, messages) => ({
+        kind: 'enter' as const,
         messages: [{
           ...messages[0]!,
           content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
@@ -144,8 +142,8 @@ export function defineCoverageCases(groups: CoverageGroup | readonly CoverageGro
       expect(req).toContain('rewritten-prompt')
       const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
       expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
-        { kind: 'plugin', plugin: 'hooks-codex' },
         { kind: 'plugin', plugin: 'policy' },
+        { kind: 'plugin', plugin: 'hooks-codex' },
       ])
     })
   })

@@ -71,8 +71,7 @@ describe('plan mode through the agent loop', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('it-plan-seed'), { provider: 'mock', model: 'mock' })
-    // Selected while idle: the pending intent flushes at the first
-    // in-turn agent/step seam, before the first assembly.
+    // Selected while idle: the mode commits immediately, before the first assembly.
     ctx.planMode.set(agent, true)
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'explore the repo' }], source: { kind: 'user' } }))

@@ -63,7 +63,7 @@ async function harness(options: { commands?: boolean; skills?: boolean } = {}): 
 /** Register a live structural agent stub (api-proxy-view precedent: only id/session/status/ctx are read). */
 function stubAgent(ctx: Context, sessionId?: SessionId): Agent {
   const session = ctx.sessions.create(sessionId)
-  const inbox = new Inbox(session)
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {} })
   const agent = {
     id: session.id,
     session,

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-06-30-interception-seams.md
-2026-06-30-interception-seams.md: 4658983e1f098ecd199eecec4408e7c2f134cbf7
-2026-06-30-interception-seams.zh.md: 13b7c56829412773111fcf6d75cc717c51d49c7b
+2026-06-30-interception-seams.md: 07d4ca28030ac5ba8a8c9325851fc34c3072e786
+2026-06-30-interception-seams.zh.md: b71bccdb684c34fb55b11c1b7b0eca7892b23155

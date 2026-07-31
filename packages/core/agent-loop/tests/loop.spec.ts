@@ -94,7 +94,7 @@ describe('agent loop', () => {
     expect(order).toEqual(['turn/start', 'step/start', 'step/end', 'turn/end'])
 
     const types = agent.session.events.map(e => e.type)
-    // Durable inbox receipt and admission bracket the turn-owned transcript.
+    // Durable inbox receipt precedes the turn-owned transcript.
     expect(types[0]).toBe('agent/inbox/spliced')
     expect(types).toContain('turn/start')
     expect(types).toContain('user/message')
@@ -313,7 +313,7 @@ describe('agent loop', () => {
     const steering = agent.session.events.find(e =>
       e.type === 'user/message' && JSON.stringify(e.data.content).includes('change of plans'))
     expect(steering).toBeDefined()
-    // Steering is admitted before the second step's request derives history.
+    // Steering enters history before the second step's request derives it.
     const steeringSeq = steering!.seq
     const secondStepStart = agent.session.events.filter(e => e.type === 'step/start')[1]
     expect(secondStepStart).toBeDefined()
@@ -348,30 +348,30 @@ describe('agent loop', () => {
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('second idle steer')
   })
 
-  it('stops after a throwing step observer and retains steering until a later wakeup', async () => {
+  it('stops after a throwing pre-step listener and retains later steering until a wakeup', async () => {
     const adapter = new MockAdapter([textResponse('recovered')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('failed-steering'), { provider: 'mock', model: 'mock' })
     let fail = true
-    ctx.on('agent/step', (subject) => {
-      if (subject !== agent || !fail) return
+    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
+      if (subject !== agent || !fail) return next()
       fail = false
       subject.steer(createUserMessage({ content: [{ type: 'text', text: 'pending steering' }], source: { kind: 'user' } }))
-      throw new Error('step failed')
+      throw new Error('pre-step failed')
     })
 
     send(agent, 'prompt')
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(0)
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(0)
     expect(agent.inbox.nextStep).toHaveLength(1)
 
     send(agent, 'resume')
     await waitForIdle(ctx, agent)
 
     expect(adapter.requests).toHaveLength(1)
-    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(2)
+    expect(agent.session.events.filter(event => event.type === 'turn/start')).toHaveLength(1)
     expect(agent.session.events.some(event => event.type === 'steering/message')).toBe(false)
     expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('pending steering')
   })
@@ -603,7 +603,7 @@ describe('agent loop', () => {
     expect(headerEvent?.type === 'request/header' && headerEvent.data.header.config.model).toBe('other-model')
   })
 
-  it('agent/step fires once per step before the step is opened', async () => {
+  it('agent/pre-step fires once per proposed step before the step is opened', async () => {
     const adapter = new MockAdapter([
       toolCallResponse('c1', 'echo', {}, 'calling echo'),
       textResponse('done'),
@@ -616,8 +616,9 @@ describe('agent loop', () => {
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     const fires: { turn: number; step: number; signal: AbortSignal }[] = []
-    ctx.on('agent/step', (subject, turn, step, signal) => {
+    ctx.on('agent/pre-step', (subject, _messages, { turn, step, signal }, next) => {
       if (subject === agent) fires.push({ turn, step, signal })
+      return next()
     })
 
     send(agent, 'go')
@@ -630,33 +631,33 @@ describe('agent loop', () => {
     expect(fires.every(({ signal }) => signal instanceof AbortSignal)).toBe(true)
   })
 
-  it('agent/step fires after its step boundary opens and before the request', async () => {
+  it('agent/pre-step fires before its step boundary opens and before the request', async () => {
     const adapter = new MockAdapter([textResponse('ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
-    let boundaryOpen = false
-    ctx.on('agent/step', (subject) => {
+    let boundaryOpen = true
+    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
       if (subject === agent) boundaryOpen = subject.session.events.at(-1)?.type === 'step/start'
+      return next()
     })
 
     send(agent, 'go')
     await waitForIdle(ctx, agent)
 
-    expect(boundaryOpen).toBe(true)
+    expect(boundaryOpen).toBe(false)
     expect(adapter.requests).toHaveLength(1)
   })
 
-  it('a throwing agent/step listener ends the turn (error), not the loop', async () => {
-    // Before step/start, a pre-step throw reaches the turn catch: no step needs
-    // closing, the turn records error, and the loop remains available.
+  it('a throwing agent/pre-step listener fails the proposal, not the loop', async () => {
     const adapter = new MockAdapter([textResponse('second turn ok')])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 
     let throwOnce = true
-    ctx.on('agent/step', () => {
+    ctx.on('agent/pre-step', (_agent, _messages, _context, next) => {
       if (throwOnce) { throwOnce = false; throw new Error('boom in pre-step') }
+      return next()
     })
 
     const errors: Error[] = []
@@ -666,14 +667,11 @@ describe('agent loop', () => {
 
     send(agent, 'first')
     await waitForIdle(ctx, agent)
-    // The first turn failed at step 1 before a model call.
+    // The first proposal failed before opening a turn or calling the model.
     expect(errors.map(error => error.message)).toEqual(['boom in pre-step'])
     expect(adapter.requests.length).toBe(0)
-    const firstTurnEnd = agent.session.events.find(e => e.type === 'turn/end')
-    expect(firstTurnEnd?.type === 'turn/end' && firstTurnEnd.data.reason).toMatchObject({ kind: 'error' })
-    // The step opened-and-closed count stays balanced even though it never ran.
-    const types = agent.session.events.map(e => e.type)
-    expect(types.filter(t => t === 'step/start').length).toBe(types.filter(t => t === 'step/end').length)
+    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
+    expect(agent.session.events.some(event => event.type === 'turn/end')).toBe(false)
 
     // The loop survived: a second prompt runs a normal completed turn.
     send(agent, 'second')

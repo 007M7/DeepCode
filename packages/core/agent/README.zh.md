@@ -50,9 +50,11 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 生命周期边有两个重要的本地注意事项。`agent/created` 在作用域 setup 之后、会话与 agent 注册表条目都存在之后运行。Setup 是受信任、仅用于组合的代码；紧随其后且不可 veto 的 `agent/session-start` 通知是第一个受支持的启动注入点。`agent/disposed` 始终表示确切 agent 已离开注册表。AgentLoop 在其驱动器完全停稳后发出该事件，而有序 teardown 此时可能仍在分离会话并撤销作用域；直接注册的自定义 agent 自行拥有任何更强的驱动器顺序契约。
 
-大多数拦截点都是协作式 waterfall（瀑布式事件）。轮次作用域的异步 seam 接收一个显式 `AbortSignal`，其中 `signal` 紧邻 waterfall 最终的 `next`；监听器可以配合，但不得将它保留为控制另一轮次的权限。`agent/step` 是派生请求前的串行检查点，而 `agent/request-error` 是失败模型请求的恢复 waterfall：它接收请求坐标、规范化失败事实、可用时提供服务的注册项重试策略以及信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`。`agent/turn-stopping` 在本可完成的轮次关闭前运行。普通排队提示词保持原样。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
+大多数拦截点都是协作式 waterfall（瀑布式事件）。`agent/pre-step` 接收独占的已领取 `UserMessage[]`，以及包含拟进入 `turn`、`step` 与取消 `signal` 的 `PreStepContext`；当工具已经要求继续请求时，该批次可以为空。其他轮次作用域异步 seam 仍按位置接收显式 `AbortSignal`。监听器可以配合信号，但不得将它保留为控制另一轮次的权限。`agent/request-error` 是失败模型请求的恢复 waterfall：它接收请求坐标、规范化失败事实、可用时提供服务的注册项重试策略以及信号。拥有恢复权的监听器返回 `{ kind: 'retry' }` 且不调用 `next()`。`agent/turn-stopping` 在本可完成的轮次关闭前运行。信号生命周期由[显式取消决策](../../../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)拥有；作用域分发与终止结算由 [agent 作用域 runtime 设计 Agent Note（agent 决策记录）](../../../.agents/notes/implemented/architecture/2026-07-12-agent-scope-runtime-design.md#three-execution-boundaries-are-deliberately-one-way)拥有。
 
-`PromptDecision.allow.messages` 是提示词拦截所准入的完整、带标识且冻结的批次。包装下游 allow 的监听器会保留该批次，除非有意替换它。block 必须指定 `discardClaimed`；该字段仅影响本次提交的批次，未被此次接纳认领的消息会继续保持待处理。
+`PreStepDecision` 要么是 `{ kind: 'reject' }`，要么是 `{ kind: 'enter', messages }`。enter 分支是拟进入步骤的完整、带标识且冻结的批次。包装下游 enter 的监听器会保留该批次，除非有意替换它；新增消息遵循 waterfall 的自然返回顺序。领取操作已经把候选消息从 inbox 删除，因此 reject 不会保留它们；领取后插入的消息仍等待后续边界。
+
+inbox 的实时通知刻意采用逐消息的最小载荷：`agent/inbox/inserted { message }`、`agent/inbox/claimed { message, turn }` 与 `agent/inbox/discarded { message }`。它们补充持久 `agent/inbox/spliced` 投影，但不引入另一层生命周期封套。
 
 轮次和步骤边界以及模型 token 流是持久 `session/event` 事实，而不是镜像的 `agent/*` 通知。消费方从会话事件流读取 `turn/*`、`step/*` 和 `assistant/chunk`；工具策略与结果观测属于 [`dsh-tools`](../tools/README.md) 记录的完整流水线。
 
@@ -60,10 +62,10 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 每个插件面向的 handle：
 
-- `agent.inbox`：agent 所拥有的持久 `agent/inbox/spliced` 事件投影。`nextTurn` 与 `nextStep` 暴露待处理的 `UserMessage` 值；`splice(target, start, deleteCount, inserted, outcome?)` 使用标准 splice 坐标插入、编辑、移除、准入或取消消息。`MessageId` 是唯一的入队项标识，在消息待处理期间必须保持唯一。
-- `agent.followup(message)`：将一条普通 `next-turn` 消息排队并唤醒驱动器。它不返回完成 handle；消息 id 标识 inbox 和准入事实，而不标识之后的输出或 `turn/end`。
+- `agent.inbox`：agent 所拥有的持久 `agent/inbox/spliced` 事件投影。`nextTurn` 与 `nextStep` 暴露待处理的 `UserMessage` 值。`append`、`prepend`、`update`、`remove` 与 `splice` 用于变更队列；普通删除是持久取消，并发出 `agent/inbox/discarded`。`claim(target)` 通过纯删除 splice 原子移除下一个候选批次，随后由循环发出 `agent/inbox/claimed`。`MessageId` 是唯一的入队项标识，在消息待处理期间必须保持唯一。
+- `agent.followup(message)`：将一条普通 `next-turn` 消息排队并唤醒驱动器。它不返回完成 handle；消息 id 标识 inbox 的插入、领取与丢弃事实，而不标识之后的输出或 `turn/end`。
 - `agent.steer(message)`：将会唤醒的 `next-step` 输入排队。空闲驱动器会调度一个轮次；collecting 和 running 驱动器会在各自的下一步骤边界消费该输入。
-- `agent.inject(message)`：将不会唤醒的 `next-step` 上下文排队。在准入期间或轮次打开时，它会等待下一个安全日志位置；否则立即追加，且不打开轮次。
+- `agent.inject(message)`：将不会唤醒的 `next-step` 上下文排队。collecting 或 running 驱动器会在最近的后续 pre-step 边界领取它；idle 驱动器则会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒驱动器。若某次请求的 pre-step 已经领取完批次，它可能赶不上该请求。
 - `agent.cancel(cause, options?)`：取消活跃驱动器，并在未设置 `options.keepInbox` 时持久取消全部待处理 inbox 工作。空闲取消是空操作。
 - `agent.whenIdle()`：观察整个 agent 达到完全停稳，包括当前驱动器退役前调度的替代工作。它不结算任何特定消息。
 - `agent.session`、`agent.status`、`agent.options`、`agent.id`、`agent.ctx`
@@ -82,7 +84,7 @@ Agent *创建* 由实现 `AgentFactory` 的插件（`dsh-agent-loop`）提供，
 
 #### 模型看到的内容
 
-`send`、`steer` 与 `inject` 会向所属会话提供输入。`agent/prompt-submit`、`agent/step` 和其他已声明事件让插件能够阻止提示词或添加持久请求材料；此接口本身不贡献固定文案。
+`send`、`steer` 与 `inject` 会向所属会话提供输入。`agent/pre-step` 和其他已声明事件让插件能够拒绝拟进入的步骤或添加持久请求材料；此接口本身不贡献固定文案。
 
 #### Token 影响
 

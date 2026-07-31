@@ -40,7 +40,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'running',
     ctx: new Context(),
     send: () => {},
@@ -79,7 +79,17 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/step', turn, step, signal)
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    [],
+    { turn, step, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
 }
 
 function textResponse(text: string): StreamChunk[] {
@@ -282,22 +292,17 @@ describe('durable step context', () => {
     expect(contextTexts(independent)).toHaveLength(1)
   })
 
-  it('runs before ordinary pre-step listeners and skips an already-aborted step', async () => {
+  it('skips an already-aborted prompt submission', async () => {
     const { ctx } = await mount()
     const session = new Session(SessionId('ordering'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
-    let ordinarySawContext = false
-    ctx.on('agent/step', (subject) => {
-      ordinarySawContext = subject.session.events.some(event => event.type === 'user/message')
-    })
 
     await fire(ctx, agent, 1, 1)
     const abort = new AbortController()
     abort.abort()
     await fire(ctx, agent, 1, 2, abort.signal)
 
-    expect(ordinarySawContext).toBe(true)
     expect(contextTexts(session)).toHaveLength(1)
   })
 })
@@ -355,28 +360,24 @@ describe('configuration and lifecycle', () => {
 
 describe('real agent-loop request history', () => {
   it.each([
-    ['throws', 'error'],
-    ['cancels', 'aborted'],
-  ] as const)('retains the durable preparation reading when a later step listener %s', async (mode, reasonKind) => {
+    ['throws'],
+    ['cancels'],
+  ] as const)('does not commit a preparation reading when a downstream pre-step listener %s', async (mode) => {
     const adapter = new ScriptedAdapter([textResponse('unused')])
     const ctx = await loopHarness(adapter)
-    let laterSawReading = false
-    ctx.on('agent/step', (subject) => {
-      laterSawReading = contextTexts(subject.session).length === 1
+    ctx.on('agent/pre-step', (subject, _messages, _context, next) => {
       if (mode === 'throws') throw new Error('later pre-step failure')
       subject.cancel({ kind: 'user' })
+      return next()
     })
     const agent = ctx.agentLoop.create(SessionId(`late-${mode}`), { provider: 'mock', model: 'mock' })
 
     agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
     await agent.whenIdle()
 
-    expect(laterSawReading).toBe(true)
-    expect(contextTexts(agent.session)).toHaveLength(1)
+    expect(contextTexts(agent.session)).toHaveLength(0)
     expect(adapter.requests).toHaveLength(0)
-    expect(agent.session.events.some(event => event.type === 'step/start')).toBe(true)
-    const turnEnd = agent.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason.kind).toBe(reasonKind)
+    expect(agent.session.events.some(event => event.type === 'step/start')).toBe(false)
     await ctx.fiber.dispose()
   })
 
@@ -404,7 +405,7 @@ describe('real agent-loop request history', () => {
     expect(contexts).toHaveLength(adapter.requests.length)
     expect(starts).toHaveLength(adapter.requests.length)
     for (let index = 0; index < contexts.length; index += 1) {
-      expect(contexts[index]!.seq).toBeGreaterThan(starts[index]!.seq)
+      expect(contexts[index]!.seq).toBeLessThan(starts[index]!.seq)
     }
     expect(contexts.every(event => event.data.source.kind === 'plugin'
       && event.data.source.plugin === 'time-context'
@@ -413,7 +414,7 @@ describe('real agent-loop request history', () => {
     const firstRequestText = requestText(adapter.requests[0]!)
     const secondRequestText = requestText(adapter.requests[1]!)
     expect(firstRequestText).toContain('Time sampled while preparing turn 1, step 1:')
-    expect(firstRequestText).toContain('Elapsed since the preceding model-visible message: 0s.')
+    expect(firstRequestText).toContain('Elapsed since the preceding model-visible message: unavailable.')
     expect(firstRequestText).not.toContain('Time sampled while preparing turn 1, step 2:')
     expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 1:')
     expect(secondRequestText).toContain('Time sampled while preparing turn 1, step 2:')

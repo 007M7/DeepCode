@@ -485,7 +485,7 @@ Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types
 type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.splice(target, start, deleteCount, inserted, outcome?)` uses standard splice coordinates, rejects duplicate pending message ids, and records the normalized mutation as durable `agent/inbox/spliced`. Replaying those events reconstructs both `nextTurn` and `nextStep`, including edits, insertion, admission, and cancellation.
+Every pending occurrence is its `UserMessage`; `MessageId` is the sole identity. `Inbox.append`, `prepend`, `update`, `remove`, and `splice` record normalized durable `agent/inbox/spliced` mutations and reject duplicate pending ids. Ordinary removals are cancellations. `claim(target)` atomically removes the proposed step batch through pure deletion splices; the loop separately emits per-message claimed notifications. Whole-queue consumers such as UI projections reconstruct `nextTurn` and `nextStep` from the durable splices, while consumers following one message use the exact `agent/inbox/inserted`, `claimed`, and `discarded` notifications.
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -568,18 +568,18 @@ interface Agent {
   steer(message: UserMessage): void
 
   /**
-   * Append model-facing context without running the model. Admission or an
-   * open turn stages it at the next safe log position; outside that window it
-   * appends immediately without opening a turn. If admission closes without a
-   * turn, a context-only boundary appends immediately; context staged beside
-   * steering remains pending with it.
+   * Queue model-facing context for the next pre-step without waking the
+   * driver. Collecting and running drivers claim it at the nearest later
+   * step boundary; idle drivers leave it pending until follow-up or steering
+   * wakes them. It may miss a request whose pre-step already claimed its
+   * batch. Cancellation or disposal may discard pending context.
    * @param message - identified injected context and its producer provenance.
    */
   inject(message: UserMessage): void
 }
 ```
 
-`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `followup()` returns no handle: its `MessageId` identifies durable inbox and admission facts, not a later assistant output or turn ending. `whenIdle()` observes the whole agent, so callers may call a receipt-to-idle interval a run only when they explicitly own that interval ([decision](../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)). `AgentOptions` is merge-extensible: core declares `provider?`, `model?`, and `maxTokens?` (dispatch requires provider and model after `agent/request`). When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission allows the exact-model adapter default to materialize before the request header, or otherwise leaves provider behavior unchanged. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
+`AgentStatus` is `'idle' | 'running'`, and `SessionId` is branded. Disposal removes the agent from the registry and emits `agent/disposed`; it is not a terminal status value. `running` describes the driver-wide drain interval and may span consecutive queued turns; it does not prove a turn is still open. `followup()` returns no handle: its `MessageId` identifies durable inbox insertion, claim, and discard facts, not a later assistant output or turn ending. `whenIdle()` observes the whole agent, so callers may call a receipt-to-idle interval a run only when they explicitly own that interval ([decision](../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)). `AgentOptions` is merge-extensible: core declares `provider?`, `model?`, and `maxTokens?` (dispatch requires provider and model after `agent/request`). When present, `maxTokens` must be a positive safe integer and caps every conversation-model request; omission allows the exact-model adapter default to materialize before the request header, or otherwise leaves provider behavior unchanged. Persona belongs to `dsh-system-prompt`: an agent-scoped `deployment:persona` may shadow the global default.
 
 The cause is a TypeScript-enforced same-process input. An active cancellation holder copies it into the runtime-only `AbortSignal.reason`; a signal grants cooperating listeners no classification authority. Durable `turn/end` retains the coarse `{ kind: 'aborted' }` outcome; request provenance would require a separate durable event rather than overloading the terminal result.
 
@@ -591,22 +591,31 @@ The process-local initiator carried by `ctx.agents` is the exact `Agent` above, 
 
 ## Interception decisions
 
-Prompt decisions use the same identified `UserMessage` shape as durable user-role input. The allowed batch is authoritative and preserves every message's identity and provenance. Hook bridges map their native decision fields onto this typed result.
+Pre-step decisions use the same identified `UserMessage` shape as durable user-role input. The entered batch is authoritative and preserves every message's identity and provenance. Hook bridges map their native decision fields onto this typed result.
 
 Source: [`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/prompt-submit` returns a `PromptDecision` before a turn opens. Allow supplies the complete admitted batch; block rejects admission without creating turn events and must choose whether to discard the claimed messages. Messages not claimed by that admission remain pending:
+`agent/pre-step` receives the exclusive claimed batch and the proposed step's coordinates and cancellation signal. The initial proposal runs before its turn opens; a tool continuation may submit an empty claimed batch between steps:
 
 ```ts type-equiv
-/**
- * Prompt interception result. An allowed batch replaces the submitted
- * messages; a listener wrapping `next()` preserves that batch unless it
- * intentionally replaces it. A blocked batch explicitly chooses whether to
- * discard the claimed messages; unclaimed work remains pending.
- */
-type PromptDecision =
-  | { kind: 'allow'; messages: UserMessage[] }
-  | { kind: 'block'; reason: string; discardClaimed: boolean }
+/** Coordinates and cancellation for a proposed step. */
+interface PreStepContext {
+  /** Turn that will own the step. */
+  readonly turn: number
+  /** Step proposed by the loop. */
+  readonly step: number
+  /** Current turn cancellation signal. */
+  readonly signal: AbortSignal
+}
+```
+
+It returns a `PreStepDecision`. Reject opens no step. Enter supplies the complete message batch appended after `step/start`; claimed messages omitted by the final decision remain removed, while input inserted after the claim stays pending:
+
+```ts type-equiv
+/** Whether and with which messages the loop enters a proposed step. */
+type PreStepDecision =
+  | { kind: 'reject' }
+  | { kind: 'enter'; messages: UserMessage[] }
 ```
 
 `agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; the default `undefined` leaves the failure terminal.
@@ -616,7 +625,7 @@ type PromptDecision =
 type RequestErrorAction = { kind: 'retry' } | undefined
 ```
 
-`agent/step` is the single serial boundary before request derivation. `agent/turn-stopping` runs when a turn has no tool or steering continuation, before one final steering drain.
+`agent/pre-step` is the single serial boundary before request derivation. `agent/turn-stopping` runs when a turn has no tool or steering continuation, before one final steering drain.
 
 `agent/session-start` carries a `SessionStartSource` (why the session lifecycle began; a bridge keys its SessionStart matcher on it):
 

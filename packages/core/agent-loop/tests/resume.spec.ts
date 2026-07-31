@@ -532,7 +532,7 @@ describe('the session-persistence Agent Note: AgentLoop factory create/resume', 
     await ctx2.fiber.dispose()
   })
 
-  it('an idle inject() survives persist + resume without a synthetic turn', async () => {
+  it('a pending idle inject() survives persist + resume without a synthetic turn', async () => {
     const adapter1 = new MockAdapter([textResponse('answer')])
     const { ctx: ctx1, root } = await persistentHarness(adapter1)
     const a1 = (await ctx1.agents.create({ sessionId: SessionId('inject-sess'), meta: { cwd: '/w' } })).agent

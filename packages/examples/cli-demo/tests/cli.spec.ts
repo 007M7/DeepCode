@@ -430,10 +430,10 @@ describe('runOneShot and executeCli', () => {
       && event.data.source.plugin === 'test')).toBe(false)
   })
 
-  it('correlates a task whose admitted history is replaced', async () => {
+  it('correlates a task whose step history is replaced', async () => {
     const { ctx } = await harness([textResponse('rewritten answer')])
-    ctx.on('agent/prompt-submit', async () => ({
-      kind: 'allow',
+    ctx.on('agent/pre-step', async () => ({
+      kind: 'enter',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'rewritten task' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -446,26 +446,15 @@ describe('runOneShot and executeCli', () => {
     })
   })
 
-  it('settles blocked tasks at whole-agent idle without attributing a result', async () => {
+  it('settles rejected tasks at whole-agent idle without attributing a result', async () => {
     const blocked = await harness([])
-    blocked.ctx.on('agent/prompt-submit', async () => ({
-      kind: 'block' as const,
-      reason: 'denied',
-      discardClaimed: true,
+    blocked.ctx.on('agent/pre-step', async () => ({
+      kind: 'reject' as const,
     }))
     await expect(runOneShot(blocked.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
 
-    const retained = await harness([])
-    retained.ctx.on('agent/prompt-submit', async () => ({
-      kind: 'block' as const,
-      reason: 'deferred',
-      discardClaimed: false,
-    }))
-    await expect(runOneShot(retained.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
-    expect(retained.agent.status).toBe('idle')
-
     const failed = await harness([])
-    failed.ctx.on('agent/prompt-submit', async () => { throw new Error('admission exploded') })
+    failed.ctx.on('agent/pre-step', async () => { throw new Error('pre-step exploded') })
     await expect(runOneShot(failed.ctx, { task: 'task' })).resolves.toMatchObject({ output: '' })
   })
 

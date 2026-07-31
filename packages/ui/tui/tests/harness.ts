@@ -2,6 +2,7 @@ import { createUserMessage, MessageId , createMessage } from '@deepseek-ai/dsh-l
 import { Context } from 'cordis'
 import type { Terminal } from '@earendil-works/pi-tui'
 import AgentRegistry, {
+  agentEvents,
   Inbox,
   type Agent,
   type AgentCancelCause,
@@ -187,11 +188,15 @@ export async function createTuiTestHarness<TerminalType extends Terminal, Exit e
   const injected: ContentBlock[][] = []
   const injectedOptions: UserMessage[] = []
   const cancelled: AgentCancelCause[] = []
+  const inbox = new Inbox(session, {
+    inserted: (message) =>{  agentEvents(ctx, agent).emit('agent/inbox/inserted', { message }) },
+    discarded: (message) =>{  agentEvents(ctx, agent).emit('agent/inbox/discarded', { message }) },
+  })
   const agent: FakeAgent = {
     id: sessionId,
     options: options.agentOptions ?? { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     session,
-    inbox: new Inbox(session),
+    inbox,
     status: options.status ?? 'idle',
     ctx,
     sent,

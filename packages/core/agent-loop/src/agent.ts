@@ -11,6 +11,7 @@ import type {
   AgentStatus,
   CancelOptions,
   InboxTarget,
+  PreStepDecision,
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { Inbox, agentCarrier, agentEvents, assembleContextFor, emitAgentEvent } from '@deepseek-ai/dsh-agent'
@@ -35,11 +36,6 @@ type Phase =
   | { kind: 'idle'; lastTurn: number }
   | { kind: 'collecting'; abort: AbortController; lastTurn: number }
   | { kind: 'running'; abort: AbortController; turn: number; step: number }
-
-type Admission =
-  | { kind: 'empty' }
-  | { kind: 'admitted'; messages: UserMessage[] }
-  | { kind: 'blocked' }
 
 type StepEndReason = Extract<TurnEndReason, { kind: 'completed' | 'max-tokens' }>
 
@@ -71,7 +67,10 @@ export class ReactLoopAgent implements Agent {
     public readonly options: AgentOptions,
     public readonly session: Session,
   ) {
-    this.inbox = new Inbox(session)
+    this.inbox = new Inbox(session, {
+      inserted: (message) =>{  emitAgentEvent(loopCtx, this, 'agent/inbox/inserted', { message }) },
+      discarded: (message) =>{  emitAgentEvent(loopCtx, this, 'agent/inbox/discarded', { message }) },
+    })
     const lastTurn = session.events.findLast(event => event.type === 'turn/start')?.data.turn ?? 0
     this.phase = { kind: 'idle', lastTurn }
     this.scope = createScope(loopCtx, this)
@@ -93,7 +92,7 @@ export class ReactLoopAgent implements Agent {
   }
 
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void {
-    // Waking input cannot join an aborted admission or turn, so it starts the next turn.
+    // Waking input cannot join an aborted pre-step or turn, so it starts the next turn.
     const wakingAfterAbort = wakeup && this.phase.kind !== 'idle' && this.phase.abort.signal.aborted
     const resolvedTarget = wakingAfterAbort ? 'next-turn' : target
     this.inbox.splice(resolvedTarget, Infinity, 0, [message])
@@ -114,13 +113,13 @@ export class ReactLoopAgent implements Agent {
 
   cancel(cause: AgentCancelCause, options: CancelOptions = {}): void {
     if (!options.keepInbox) {
-      this.inbox.splice('next-step', 0, this.inbox.nextStep.length, [], 'canceled')
-      this.inbox.splice('next-turn', 0, this.inbox.nextTurn.length, [], 'canceled')
+      this.inbox.splice('next-step', 0, this.inbox.nextStep.length, [])
+      this.inbox.splice('next-turn', 0, this.inbox.nextTurn.length, [])
     }
     if (this.phase.kind !== 'idle') this.phase.abort.abort(cause)
   }
 
-  /** Reserve a driver before deferring idle admission. */
+  /** Reserve a driver before deferring idle pre-step processing. */
   private scheduleKick(): void {
     if (this.phase.kind !== 'idle') return
     const driver = Promise.withResolvers<void>()
@@ -158,33 +157,22 @@ export class ReactLoopAgent implements Agent {
     }
   }
 
-  private async admit(onTurnBoundary: boolean): Promise<Admission> {
-    if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": admit outside running phase`)
+  private async preStep(target: InboxTarget, position: { turn: number; step: number }): Promise<PreStepDecision> {
+    if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
     const signal = this.phase.abort.signal
-    const claimed = [...this.inbox.nextStep]
-    const outboxLength = claimed.length
-    const queued = onTurnBoundary ? this.inbox.nextTurn[0] : undefined
-    if (queued !== undefined) claimed.push(queued)
-    if (claimed.length === 0) return { kind: 'empty' }
+    const claimed = this.inbox.claim(target)
+    for (const message of claimed) {
+      emitAgentEvent(this.loopCtx, this, 'agent/inbox/claimed', { message, turn: position.turn })
+    }
     const decision = await agentEvents(this.loopCtx, this).waterfall(
-      'agent/prompt-submit', claimed, signal,
-      () => Promise.resolve({ kind: 'allow', messages: claimed }),
+      'agent/pre-step', claimed, { ...position, signal },
+      () => Promise.resolve({ kind: 'enter', messages: claimed }),
     )
     signal.throwIfAborted()
-    if (decision.kind === 'allow') {
-      this.inbox.splice('next-step', 0, outboxLength, [], 'admitted')
-      if (queued !== undefined) this.inbox.splice('next-turn', 0, 1, [], 'admitted')
-      return { kind: 'admitted', messages: decision.messages }
-    }
-    if (decision.discardClaimed) {
-      this.inbox.splice('next-step', 0, outboxLength, [], 'canceled')
-      if (queued !== undefined) this.inbox.splice('next-turn', 0, 1, [], 'canceled')
-    }
-    this.cancel({ kind: 'hook', reason: decision.reason }, { keepInbox: true })
-    return { kind: 'blocked' }
+    return decision
   }
 
-  /** Admitted input stays unowned until `turn/start` commits. */
+  /** Claimed input stays unowned until `turn/start` commits. */
   private async turn(): Promise<boolean> {
     if (this.phase.kind === 'idle') {
       this.throwError(new Error(`agent "${this.id}": turn without driver reservation`))
@@ -195,10 +183,10 @@ export class ReactLoopAgent implements Agent {
     const phase = { kind: 'running' as const, abort, turn: lastTurn, step: 0 }
     this.setPhase(phase)
     signal.throwIfAborted()
-    let admission: Admission
+    let decision: PreStepDecision
     try {
-      admission = await this.admit(true)
-      if (admission.kind !== 'admitted') return false
+      decision = await this.preStep('next-turn', { turn: phase.turn + 1, step: 1 })
+      if (decision.kind === 'reject') return false
       signal.throwIfAborted()
     } catch (error: unknown) {
       if (signal.aborted) throw error
@@ -213,15 +201,13 @@ export class ReactLoopAgent implements Agent {
     let turnEnds: TurnEndReason | null = null
     try {
       while (true) {
-        if (admission.kind === 'admitted') {
-          for (const message of admission.messages) {
-            this.session.append('user/message', message, { surfaceOp: 'append' })
-          }
-        }
         signal.throwIfAborted()
         const step = ++phase.step
         this.session.append('step/start', { turn, step })
         try {
+          for (const message of decision.messages) {
+            this.session.append('user/message', message, { surfaceOp: 'append' })
+          }
           turnEnds = await this.step()
         } finally {
           this.session.append('step/end', { turn, step })
@@ -231,13 +217,13 @@ export class ReactLoopAgent implements Agent {
           await this.loopCtx.serial(agentCarrier(this), 'agent/turn-stopping', this, turn, signal)
           signal.throwIfAborted()
         }
-        admission = await this.admit(false)
-        if (admission.kind === 'blocked') {
+        decision = await this.preStep('next-step', { turn, step: phase.step + 1 })
+        if (decision.kind === 'reject') {
           turnEnds = { kind: 'blocked' }
           return false
         }
         signal.throwIfAborted()
-        if (admission.kind === 'empty' && turnEnds) break
+        if (decision.messages.length === 0 && turnEnds) break
       }
     } catch (error: unknown) {
       if (signal.aborted) {
@@ -263,8 +249,6 @@ export class ReactLoopAgent implements Agent {
   private async step(): Promise<StepEndReason | null> {
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": step outside running phase`)
     const { turn, step, abort: { signal } } = this.phase
-    signal.throwIfAborted()
-    await this.loopCtx.serial(agentCarrier(this), 'agent/step', this, turn, step, signal)
     signal.throwIfAborted()
     const assembly = await this.loopCtx.systemPrompt.assemble(assembleContextFor(this, signal))
     signal.throwIfAborted()

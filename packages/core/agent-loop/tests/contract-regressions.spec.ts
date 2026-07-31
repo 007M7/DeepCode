@@ -67,30 +67,30 @@ describe('addressable inbox operations', () => {
     ])
     const ctx = await harness(adapter)
     const agent = ctx.agentLoop.create(SessionId('inbox-actions'), { provider: 'mock', model: 'mock' })
-    const admission = Promise.withResolvers<undefined>()
+    const preStep = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
-    ctx.on('agent/prompt-submit', async (_subject, messages, _signal, next) => {
+    ctx.on('agent/pre-step', async (_subject, messages, _signal, next) => {
       if (messages[0]?.content[0]?.type === 'text' && messages[0].content[0].text === 'first') {
-        admission.resolve(undefined)
+        preStep.resolve(undefined)
         await release.promise
       }
       return next()
     })
 
     send(agent, 'first')
-    await admission.promise
+    await preStep.promise
     send(agent, 'remove me')
     send(agent, 'edit me')
     const pending = agent.inbox.nextTurn
-    expect(pending.map(inboxText)).toEqual(['first', 'remove me', 'edit me'])
+    expect(pending.map(inboxText)).toEqual(['remove me', 'edit me'])
 
-    const remove = pending[1]!
-    const edit = pending[2]!
-    expect(agent.inbox.splice('next-turn', 2, 1, [freezeMessage({
+    const remove = pending[0]!
+    const edit = pending[1]!
+    expect(agent.inbox.splice('next-turn', 1, 1, [freezeMessage({
       ...edit,
       content: [{ type: 'text', text: 'edited' }],
     })])).toEqual([edit])
-    expect(agent.inbox.splice('next-turn', 1, 1, [])).toEqual([remove])
+    expect(agent.inbox.splice('next-turn', 0, 1, [])).toEqual([remove])
 
     const idle = waitForIdle(ctx, agent)
     release.resolve(undefined)
@@ -316,11 +316,19 @@ describe('abort during tool execution ends the turn', () => {
 
     send(agent, 'leave an unmatched historical call')
     await waitForIdle(ctx, agent)
-    const disposeInjection = ctx.on('agent/step', (subject, turn) => {
-      if (subject === agent && turn === 2) {
+    const disposeInjection = ctx.on('agent/pre-step', async (subject, _messages, { turn }, next) => {
+      const decision = await next()
+      if (subject === agent && turn === 2 && decision.kind === 'enter') {
         disposeInjection()
-        agent.inject(createUserMessage({ content: [{ type: 'text', text: 'new turn context' }], source: { kind: 'plugin', plugin: 'test' } }))
+        return {
+          kind: 'enter' as const,
+          messages: [...decision.messages, createUserMessage({
+            content: [{ type: 'text', text: 'new turn context' }],
+            source: { kind: 'plugin', plugin: 'test' },
+          })],
+        }
       }
+      return decision
     })
     send(agent, 'start a text-only turn')
     await waitForIdle(ctx, agent)
@@ -903,8 +911,7 @@ describe('turn and step boundary recovery', () => {
     expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
   })
 
-  it('preserves reason disposed when a pre-step listener disposes then throws (outer-catch disposed branch)', async () => {
-    // Disposal remains authoritative when the listener also throws.
+  it('contains a pre-step throw after disposal without opening a turn', async () => {
     const adapter = new MockAdapter([textResponse('never reached')])
     const ctx = await balancedHarness(adapter)
     let agent!: Agent
@@ -913,8 +920,8 @@ describe('turn and step boundary recovery', () => {
     }, { inject: ['agentLoop'] }))
 
     let threw = false
-    ctx.on('agent/step', () => {
-      if (threw) return
+    ctx.on('agent/pre-step', (_subject, _messages, _context, next) => {
+      if (threw) return next()
       threw = true
       void fiber.dispose()
       throw new Error('boom pre-step during disposal')
@@ -928,12 +935,9 @@ describe('turn and step boundary recovery', () => {
     await agent.whenIdle()
 
     const e = [...agent.session.events]
-    // Balanced: one turn/start, one turn/end carrying disposed (NOT error).
-    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
-    const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
-    expect(e.some(x => x.type === 'turn/end' && x.data.reason.kind === 'error')).toBe(false)
-    expect(e.some(x => x.type === 'step/start')).toBe(true)
+    expect(e.some(x => x.type === 'turn/start')).toBe(false)
+    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(errorEmits).toHaveLength(0)
   })
 
@@ -1224,9 +1228,8 @@ describe('disposal and cancellation during pre-step assembly', () => {
     expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
   })
 
-  it('disposal during agent/step listeners ends the turn disposed', { timeout: 15000 }, async () => {
-    // Start disposal, then release pre-step; awaiting disposal first would
-    // deadlock on the blocked driver.
+  it('disposal during pre-step prevents the turn from opening', { timeout: 15000 }, async () => {
+    // Start disposal, then release pre-step; awaiting disposal first would deadlock on the blocked driver.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
     const blocker = new Promise<void>(r => void (releasePreStep = r))
@@ -1241,8 +1244,9 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    ctx.on('agent/step', async () => {
+    ctx.on('agent/pre-step', async (_subject, _messages, _context, next) => {
       await blocker
+      return next()
     })
 
     let agent!: Agent
@@ -1261,23 +1265,17 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await disposalDone
     await driverDone(agent)
 
-    // After the agent/step listeners finish, the post-listener cancel/dispose
-    // check catches disposal before any LLM call.
+    // The post-listener cancellation check catches disposal before any turn or LLM call.
     const e = [...agent.session.events]
-    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
-    const turnEnd = e.findLast(x => x.type === 'turn/end')
-    // Disposal wins the post-listener check — reason is `disposed`.
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'disposed' } })
-    expect(e.filter(x => x.type === 'step/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'step/end')).toHaveLength(1)
+    expect(e.some(x => x.type === 'turn/start')).toBe(false)
+    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    // The durable turn/end record is the authoritative turn-boundary signal
-    // (turn boundaries have no agent/* mirror).
+    expect(reasons).toEqual([])
   })
 
-  it('cancel during agent/step listeners ends the turn aborted', { timeout: 15000 }, async () => {
-    // Release agent/step after cancellation to exercise the post-listener check.
+  it('cancel during pre-step prevents the turn from opening', { timeout: 15000 }, async () => {
+    // Release pre-step after cancellation to exercise the post-listener check.
     const adapter = new MockAdapter(['hang'])
     let releasePreStep!: () => void
     const blocker = new Promise<void>(r => void (releasePreStep = r))
@@ -1292,8 +1290,9 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await mountInvariants(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
 
-    ctx.on('agent/step', async () => {
+    ctx.on('agent/pre-step', async (_subject, _messages, _context, next) => {
       await blocker
+      return next()
     })
 
     let agent!: Agent
@@ -1314,14 +1313,11 @@ describe('disposal and cancellation during pre-step assembly', () => {
     await driverDone(agent)
 
     const e = [...agent.session.events]
-    expect(e.filter(x => x.type === 'turn/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'turn/end')).toHaveLength(1)
-    const turnEnd = e.findLast(x => x.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'user' } })
-    expect(e.filter(x => x.type === 'step/start')).toHaveLength(1)
-    expect(e.filter(x => x.type === 'step/end')).toHaveLength(1)
+    expect(e.some(x => x.type === 'turn/start')).toBe(false)
+    expect(e.some(x => x.type === 'turn/end')).toBe(false)
+    expect(e.some(x => x.type === 'step/start')).toBe(false)
     expect(e.some(x => x.type === 'assistant/chunk')).toBe(false)
-    expect(reasons).toEqual([{ kind: 'aborted', reason: { kind: 'user' } }])
+    expect(reasons).toEqual([])
   })
 
   it('disposal during assembly does not leak an LLM call or append assistant/chunk', { timeout: 15000 }, async () => {

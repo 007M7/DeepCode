@@ -58,7 +58,6 @@ function preparing(turn: number, step: number): Session {
     session.append('step/start', { turn, step: priorStep })
     session.append('step/end', { turn, step: priorStep })
   }
-  session.append('step/start', { turn, step })
   return session
 }
 
@@ -93,7 +92,6 @@ describe('time-context invariants', () => {
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    session.append('step/start', { turn: 1, step: 1 })
     appendReading(session, reading())
 
     await ctx.plugin(InvariantService, { enabled: true })
@@ -109,7 +107,6 @@ describe('time-context invariants', () => {
       content: [{ type: 'text', text: 'prepare' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
-    session.append('step/start', { turn: 1, step: 1 })
     appendReading(session, reading('1', '2', 'step context'))
 
     await ctx.plugin(InvariantService, { enabled: true })
@@ -129,17 +126,17 @@ describe('time-context invariants', () => {
     const session = preparing(1, 2)
     session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
     expect(() => { ctx.emit('session/event', session, event(reading('1', '2', 'step context'))) })
-      .toThrow(/inside an open step/)
+      .toThrow(/at a prompt boundary/)
   })
 
-  it('rejects a reading outside an open step', async () => {
+  it('rejects a reading outside a prompt boundary', async () => {
     const ctx = await setup()
     const ended = preparing(1, 1)
-    ended.append('step/end', { turn: 1, step: 1 })
-    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/inside an open step/)
+    ended.append('step/start', { turn: 1, step: 1 })
+    expect(() => { ctx.emit('session/event', ended, event(reading())) }).toThrow(/at a prompt boundary/)
     expect(() => {
       ctx.emit('session/event', new Session(SessionId('time-invariant-empty')), event(reading()))
-    }).toThrow(/inside an open step/)
+    }).toThrow(/at a prompt boundary/)
   })
 
   it.each([

@@ -37,13 +37,13 @@ Status: implemented
 
 ### 成功的持久步骤工作完成后运行自动压力检查
 
-成功调用的压力检查不能在步骤前运行，因为最终的 `agent/request` 路由、提供方输出、工具结果、缓冲上下文与 steering 当时尚不存在。串行的 `agent/post-step(agent, turn, step, signal)` 会在这些事实持久化后、`step/end` 之前触发。`dsh-compact-basic` 通过 `ctx.tokenMeter` 测量规范的已记录请求，因此下一个请求无需推测性覆盖信封即可看到任何替换。压力达到条件后，可选的 `ctx.toolResultPrune` 重写在摘要范围选择前运行；compact-basic 重新测量持久 surface，如果修剪恢复到安全压力便跳过摘要生成。
+成功调用的压力检查在下一个 `agent/pre-step` 运行；此时前一响应、工具结果、缓冲上下文与 steering 已经持久化，而下一个请求尚未派生。`dsh-compact-basic` 通过 `ctx.tokenMeter` 测量规范的已记录请求，因此下一个请求无需推测性覆盖信封即可看到任何替换。压力达到条件后，可选的 `ctx.toolResultPrune` 重写在摘要范围选择前运行；compact-basic 重新测量持久 surface，如果修剪恢复到安全压力便跳过摘要生成。
 
 规范的提供方上下文溢出走另一条路径。失败步骤先关闭，`agent/request-error` 接收原始请求错误。compact-basic 自行持有按 agent 计的溢出次数，在强制执行一次有效且平衡的缩减前先修剪，且仅当 `session.surface.replaceGeneration` 增加时才返回 `{ kind: 'retry' }`；这包括没有摘要范围时仅修剪取得的进展。随后循环关闭失败轮次，开启新的编号重试轮次，并从持久日志重建请求。没有替换、任何替换前的恢复失败、取消、耗尽的上限或无关错误都会保留原始提供方失败。如果修剪已经推进 generation，而后续摘要工作失败，恢复会从该持久的已修剪 surface 重试，除非取消或资源释放胜出。完整生命周期决策见[调用后恢复 Agent Note](../architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)。
 
 ```
 assistant/message → tool/result/context/steering
-await serial agent/post-step          ⟵ pressure compaction inside the successful step
+await waterfall agent/pre-step       ⟵ pressure compaction before the next request
 step/end
 
 provider overflow → step/end
@@ -118,7 +118,7 @@ compact/end      → log-only. Releases the lock (carries `error` on a recoverab
 ## 后果
 
 - **包**：`packages/compact/compact` 提供接口，`compact-basic` 提供后端，`compact-tool-result-prune` 提供可选的确定性重写。`packages/llm/token-meter` 独立拥有回放感知的测量。消费方层推迟。
-- **自动 seam**：`agent/post-step`（`@mode serial`）处理成功调用的压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。通用 `agent/pre-step` 保持为四参数检查点，不携带压缩专属的提示词/前缀 payload。
+- **自动 seam**：`agent/pre-step`（`@mode waterfall`）在请求派生前处理压力，`agent/request-error`（`@mode waterfall`）处理失败步骤关闭后的最终请求失败。pre-step 接收已领取批次与 `PreStepContext`，不携带压缩专属的提示词/前缀 payload。
 - **`SessionEventMap`** 通过可合并扩展的声明合并获得 `compact/start` / `compact/summary` / `compact/end`；`SurfaceEventType` **未被**触及。这些是会话事件，不是 cordis `Events`，因此事件分类门禁无需新增条目。
 - **`dsh-compact`** 拥有 `COMPACT_CHECKPOINT_SOURCE`、`isCompactCheckpointSource(source)`、`toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`。该标记用于跨后端实现识别替换摘要。带缓存的 surface 边缘检查会防止 `compactRegion` 和 `compactIfNeeded` 拆分工具调用/结果对，按 seq 校验当前成员关系，从每个切割点的一条平衡序列回答两侧边缘，并拒绝陈旧或缺失的 seq 与孤立结果。
 - **`dsh-session`** 通过唯一的 surface 管理器校验位置替换、完整溯源信息和仅内容的单节点 `tool/result` 重写。其不变式配套插件将新追加的工具结果视为执行，要求存在已打开的步骤与待处理调用；已校验的替换仍是位于轮次内的重写。

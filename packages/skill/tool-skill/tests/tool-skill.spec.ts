@@ -44,7 +44,7 @@ function agentForCwd(cwd: string): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'idle',
     send: () => {},
     followup: () => {},
@@ -60,7 +60,7 @@ function sessionAgent(session: Session, id = 'tool-skill-agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'running',
     ctx: new Context(),
     send: () => {},
@@ -81,7 +81,18 @@ function openMessageTurn(session: Session, turn = 1): void {
 }
 
 async function fireStep(ctx: Context, agent: Agent, turn: number, step: number): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/step', turn, step, new AbortController().signal)
+  const signal = new AbortController().signal
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    [],
+    { turn, step, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
 }
 
 function catalogMessages(session: Session): Extract<SessionEvent, { type: 'user/message' }>[] {
@@ -102,7 +113,17 @@ async function composePrefix(ctx: Context, cwd: string, signal = new AbortContro
 }
 
 async function composePrefixForAgent(ctx: Context, agent: Agent, signal = new AbortController().signal): Promise<Message[]> {
-  await agentEvents(ctx, agent).serial('agent/step', 1, 1, signal)
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    [],
+    { turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
   return agent.session.deriveMessages()
 }
 
@@ -197,16 +218,30 @@ describe('dsh-tool-skill', () => {
       source: 'runtime',
       content: 'User-only body.',
     })
-    ctx.on('agent/step', (agent) => {
-      agent.session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: 'later contribution' }],
-        source: { kind: 'plugin', plugin: 'later-contribution' },
-      }), { surfaceOp: 'append' })
+    ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+      const decision = await next()
+      if (decision.kind === 'reject') return decision
+      return {
+        ...decision,
+        messages: [
+          ...decision.messages,
+          createUserMessage({
+            content: [{ type: 'text', text: 'later contribution' }],
+            source: { kind: 'plugin', plugin: 'later-contribution' },
+          }),
+        ],
+      }
     })
 
     const prefix = await composePrefix(ctx, '/workspace')
 
     expect(prefix).toEqual([
+      {
+        id: expect.any(String) as unknown,
+        role: 'user',
+        content: [{ type: 'text', text: 'later contribution' }],
+        source: { kind: 'plugin', plugin: 'later-contribution' },
+      },
       {
         id: expect.any(String) as unknown,
         role: 'user',
@@ -228,14 +263,8 @@ describe('dsh-tool-skill', () => {
           ].join('\n'),
         }],
       },
-      {
-        id: expect.any(String) as unknown,
-        role: 'user',
-        content: [{ type: 'text', text: 'later contribution' }],
-        source: { kind: 'plugin', plugin: 'later-contribution' },
-      },
     ])
-    const rendered = JSON.stringify(prefix[0])
+    const rendered = JSON.stringify(prefix[1])
     expect(rendered).not.toContain('whenToUse')
     expect(rendered).not.toContain('secret-source')
     expect(rendered).not.toContain('/secret/path')

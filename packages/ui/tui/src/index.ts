@@ -1234,8 +1234,7 @@ export function createTuiChat(
       return
     }
     if (agent.status === 'running') {
-      // Steering is never subject to prompt admission; an attached snapshot
-      // drains beside it at the same step boundary through the outbox.
+      // The attached snapshot is claimed beside steering at the same step boundary.
       if (attachedContext !== undefined) {
         agent.inject(attachedContext)
       }
@@ -1249,48 +1248,41 @@ export function createTuiChat(
       agent.followup(createUserMessage({ content, source: { kind: 'user' } }))
       return
     }
-    // Idle: the snapshot rides the prompt's admission transaction so a
-    // blocking hook discards both together.
+    // Idle: the snapshot rides the prompt's pre-step decision so rejection
+    // discards both together.
     let cleanedUp = false
     const message: UserMessage = createUserMessage({ content, source: { kind: 'user' } })
-    const acceptedId = message.id
-    const discarded = new Set<MessageId>()
     const cleanup = (): void => {
       // Every completion path detaches both listeners. Keep this
       // idempotent so later cleanup paths cannot double-release them.
       /* v8 ignore next -- unreachable idempotence guard, see above */
       if (cleanedUp) return
       cleanedUp = true
-      detachSubmit()
-      detachSplice()
+      detachPreStep()
+      detachDiscarded()
     }
-    // Prepended so this wrapper is outermost: it observes the exact accepted
-    // message identity whether a downstream hook allows or blocks, then detaches.
-    const detachSubmit = ctx.on('agent/prompt-submit', async (subject, submitted, _signal, next) => {
+    // Prepended so this wrapper is outermost: it observes the exact claimed
+    // message identity whether downstream enters or rejects, then detaches.
+    const detachPreStep = ctx.on('agent/pre-step', async (subject, submitted, _context, next) => {
       if (subject !== agent || !submitted.some(item => item.id === message.id)) return next()
       cleanup()
       const decision = await next()
-      if (decision.kind !== 'allow') return decision
-      return { ...decision, messages: [...decision.messages, attachedContext] }
+      if (decision.kind !== 'enter') return decision
+      return {
+        ...decision,
+        messages: [...decision.messages, attachedContext],
+      }
     }, { prepend: true })
-    // Installed before followup(): an inbox observer can synchronously cancel
+    // Installed before followup(): an inbox observer can synchronously discard
     // the inserted message before followup() returns.
-    const detachSplice = ctx.on('session/event', (session, event) => {
-      if (session !== agent.session || event.type !== 'agent/inbox/spliced'
-        || event.data.target !== 'next-turn' || event.data.outcome !== 'canceled') return
-      const removed = agent.inbox.nextTurn.slice(
-        event.data.start,
-        event.data.start + (event.data.removedCount ?? 0),
-      )
-      for (const item of removed) discarded.add(item.id)
-      if (discarded.has(acceptedId)) cleanup()
+    const detachDiscarded = ctx.on('agent/inbox/discarded', (subject, { message: discarded }) => {
+      if (subject === agent && discarded.id === message.id) cleanup()
     })
     // followup() accepts any typed input and contains listener failures;
     // this guards a future synchronous throw so the wrapper cannot leak.
     /* v8 ignore start -- future-proofing guard, see above */
     try {
       agent.followup(message)
-      if (discarded.has(acceptedId)) cleanup()
     } catch (error: unknown) {
       cleanup()
       throw error
@@ -1449,7 +1441,7 @@ export function createTuiChat(
       if (disposed) return
       editor.addToHistory(text)
       if (editor.getText() === value) editor.setText('')
-      // The snapshot travels with the prompt so a blocking admission hook
+      // The snapshot travels with the prompt so a rejecting pre-step hook
       // discards them together — see dispatchMessage's attached-context path.
       dispatchMessage(prepared.content, prepared.additionalContext)
     }, (error: unknown) => {
@@ -1503,15 +1495,6 @@ export function createTuiChat(
 
   const disposeSessionEvents = ctx.on('session/event', (session, event) => {
     if (session !== agent.session) return
-    if (event.type === 'agent/inbox/spliced' && event.data.target === 'next-step') {
-      const removed = agent.inbox.nextStep.slice(
-        event.data.start,
-        event.data.start + (event.data.removedCount ?? 0),
-      )
-      let changed = false
-      for (const message of removed) changed = pendingSteering.delete(message.id) || changed
-      if (changed) refreshStatus()
-    }
     if (event.type === 'tool/result') fileSearch.invalidate()
     recordEventUsage(tokens, event)
     if (event.type === 'turn/start' && runningStatus !== undefined) runningStatus.turn = event.data.turn
@@ -1525,6 +1508,15 @@ export function createTuiChat(
     }
     renderEvent(event, { addHistory: false, renderChunks: true })
     requestRender()
+  })
+  const removePendingSteering = (subject: Agent, message: UserMessage): void => {
+    if (subject === agent && pendingSteering.delete(message.id)) refreshStatus()
+  }
+  const disposeInboxClaimed = ctx.on('agent/inbox/claimed', (subject, { message }) => {
+    removePendingSteering(subject, message)
+  })
+  const disposeInboxDiscarded = ctx.on('agent/inbox/discarded', (subject, { message }) => {
+    removePendingSteering(subject, message)
   })
   const disposeStatus = ctx.on('agent/status', (subject, status) => {
     if (subject !== agent) return
@@ -1566,6 +1558,8 @@ export function createTuiChat(
     for (const value of promptValues) value.dispose()
     stopBannerReveal()
     disposeSessionEvents()
+    disposeInboxClaimed()
+    disposeInboxDiscarded()
     disposeStatus()
     disposeError()
     disposeAgent()

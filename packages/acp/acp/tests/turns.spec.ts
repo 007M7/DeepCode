@@ -49,7 +49,7 @@ describe('ACP prompt lifecycle', () => {
 
   it('settles after an ordinary plugin failure', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('must not run')] })
-    harness.ctx.on('agent/step', () => { throw new Error('plugin pre-step failed') })
+    harness.ctx.on('agent/pre-step', () => { throw new Error('plugin pre-step failed') })
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
       .resolves.toEqual({ stopReason: 'end_turn' })
@@ -112,10 +112,10 @@ describe('ACP prompt lifecycle', () => {
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
   })
 
-  it('correlates a prompt whose admitted history is replaced', async () => {
+  it('correlates a prompt whose step history is replaced', async () => {
     harness = await makeBridgeHarness({ script: [textResponse('rewritten answer')] })
-    harness.ctx.on('agent/prompt-submit', async () => ({
-      kind: 'allow',
+    harness.ctx.on('agent/pre-step', async () => ({
+      kind: 'enter',
       messages: [createUserMessage({
         content: [{ type: 'text', text: 'rewritten prompt' }],
         source: { kind: 'plugin', plugin: 'test' },
@@ -212,39 +212,21 @@ describe('ACP prompt lifecycle', () => {
     expect(offered).toBe(1)
   })
 
-  it('an admission-blocked prompt settles instead of hanging', async () => {
+  it('a pre-step-rejected prompt settles instead of hanging', async () => {
     harness = await makeBridgeHarness({ script: [] })
-    harness.ctx.on('agent/prompt-submit', async () => ({
-      kind: 'block' as const,
-      reason: 'policy said no',
-      discardClaimed: true,
+    harness.ctx.on('agent/pre-step', async () => ({
+      kind: 'reject' as const,
     }))
     const sessionId = await newSession(harness)
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
       .resolves.toEqual({ stopReason: 'end_turn' })
-    // The blocked prompt opened no turn and streamed nothing.
+    // The rejected prompt opened no turn and streamed nothing.
     expect(messageText(harness)).toBe('')
   })
 
-  it('settles a turnless prompt retained by its admission policy', async () => {
+  it('settles a prompt when pre-step fails before opening a turn', async () => {
     harness = await makeBridgeHarness({ script: [] })
-    harness.ctx.on('agent/prompt-submit', async () => ({
-      kind: 'block' as const,
-      reason: 'defer forever',
-      discardClaimed: false,
-    }))
-    const sessionId = await newSession(harness)
-    const agent = harness.ctx.agents.get(SessionId(sessionId))!
-
-    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))
-      .resolves.toEqual({ stopReason: 'end_turn' })
-    expect(agent.status).toBe('idle')
-    expect(agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
-  })
-
-  it('settles a prompt when admission fails before opening a turn', async () => {
-    harness = await makeBridgeHarness({ script: [] })
-    harness.ctx.on('agent/prompt-submit', async () => { throw new Error('admission exploded') })
+    harness.ctx.on('agent/pre-step', async () => { throw new Error('pre-step exploded') })
     const sessionId = await newSession(harness)
 
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] }))

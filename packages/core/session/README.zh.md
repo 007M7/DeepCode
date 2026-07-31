@@ -65,7 +65,7 @@
 
 `request/header` 记录非历史请求封装的完整规范快照，其原因为 `initial`、`resume` 或 `change`。其可选 `adapterDefaults` 映射会标记由精确模型解析填入的生效 `reasoningEffort` 或 `maxTokens` 值，使下一次请求提议能够将它们与显式对话设置区分开。`foldRequestHeader()` 选择最新快照；旧版增量事件和已移除的 `fallback` 原因会被拒绝。详见[可重建请求 Agent Note](../../../.agents/notes/implemented/architecture/2026-07-05-reconstructable-requests.md)。
 
-`user/message` 会直接存储完整的 `UserMessage`，其中包括路由或提示词准入前创建的标识。无论它是直接人类提示词、合成注入，还是已准入的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围，而空闲注入可以在轮次之间追加并刷新一条 `user/message`，无需运行模型。
+`user/message` 会直接存储完整的 `UserMessage`，其中包括路由或 pre-step 领取前创建的标识。无论它是直接人类提示词、合成注入，还是进入步骤的 Goal Round，都会原样呈现其 `content`；带类型的 `source` 是区分三者的唯一通道，并携带各领域专有的持久事实。`assistant/message`、`tool/result` 和 steering（中途引导）对应的 `steering/message` 也会存储完整的消息值。轮次执行仍由 `turn/start` 与 `turn/end` 包围；`agent.inject()` 会把输入排队，直到某次 pre-step 返回 enter 并在轮次内记录它。
 
 `tool/result` 持久保存一条带标识、user-role 的工具结果消息，以及可选内部失败标识和可选呈现元数据。工具成功时的规范 `value` 和便于人类阅读的规范失败消息只存在于执行本地；渲染后的错误内容是回放权威消息。
 
@@ -75,7 +75,7 @@
 
 `SessionEventMap` 可通过合并扩展：插件使用声明合并添加自身类型（压缩 seam 的 `compact/*`、有界恢复的非 surface `llm/retry`、hook（钩子）桥接层的 `hook/*`）；合并成员会出现在同一目录中。插件拥有其合并事件的关系不变量，包括是否允许纯日志事件出现在轮次之间。需要持久性的生产方通过 `Session` 追加，再等待 `ctx.sessions.flush(session)`，无需虚构一个执行轮次。
 
-此包还定义 `TurnEndReasonMap`，即用于轮次结束、可合并扩展且以 `kind` 为标签的和类型。`turn/start` 只携带轮次编号；之后已准入的 `user/message` 批次记录其输入，`llm/retry` 则记录请求恢复。
+此包还定义 `TurnEndReasonMap`，即用于轮次结束、可合并扩展且以 `kind` 为标签的和类型。`turn/start` 只携带轮次编号；之后进入步骤的 `user/message` 批次记录其输入，`llm/retry` 则记录请求恢复。
 
 被中断的实时轮次以 `{ kind: 'aborted', reason: AgentCancelCause }` 结束，在持久 transcript（文本记录）中保留类型化取消原因。轮次失败携带 `{ kind: 'error', error }`；只有崩溃恢复会合成 `{ kind: 'interrupted' }`。
 

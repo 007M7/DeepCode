@@ -369,8 +369,26 @@ describe('approval policy (the approval/policy fold)', () => {
     return { agent, session }
   }
 
-  const preStep = (ctx: Context, agent: Agent): Promise<void> =>
-    agentEvents(ctx, agent).serial('agent/step', 1, 1, new AbortController().signal)
+  const submitPrompt = async (ctx: Context, agent: Agent): Promise<void> => {
+    const signal = new AbortController().signal
+    const decision = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      [],
+      { turn: 1, step: 1, signal },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
+    if (decision.kind === 'enter') {
+      for (const message of decision.messages) {
+        agent.session.append('user/message', message, { surfaceOp: 'append' })
+      }
+      const configured = ctx.get('approval')?.config.policy ?? 'ask'
+      const current = effectiveApprovalPolicy(agent.session.events) ?? configured
+      appendHeader(
+        agent.session,
+        current === 'never' ? `${NEVER_SENTENCE}\n${NEVER_MARKER}` : ASK_MARKER,
+      )
+    }
+  }
 
   const narrations = (session: Session): string[] => session.events.flatMap(event =>
     event.type === 'user/message'
@@ -487,18 +505,18 @@ describe('approval policy (the approval/policy fold)', () => {
     const ctx = new Context()
     await ctx.plugin(ApprovalService)
     const { agent, session } = sessionAgent('sess-narr-1')
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual([])
     setApprovalPolicy(session, 'never')
     setApprovalPolicy(session, 'ask')
     setApprovalPolicy(session, 'never')
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toHaveLength(1)
     setApprovalPolicy(session, 'ask')
     setApprovalPolicy(session, 'never')
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toHaveLength(1)
   })
 
@@ -509,8 +527,30 @@ describe('approval policy (the approval/policy fold)', () => {
     await ctx.plugin(ApprovalService)
     const { agent, session } = sessionAgent('sess-narr-2')
     appendHeader(session, `persona\n\n${NEVER_SENTENCE}\n${NEVER_MARKER}`)
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual(['The approval policy changed from "never" to "ask" (changed by the operator/config).'])
+  })
+
+  it('retries narration when an outer pre-step listener throws before entry', async () => {
+    const ctx = new Context()
+    let fail = true
+    ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+      const decision = await next()
+      if (fail) {
+        fail = false
+        throw new Error('outer failure')
+      }
+      return decision
+    })
+    await ctx.plugin(ApprovalService)
+    const { agent, session } = sessionAgent('sess-narr-retry')
+    appendHeader(session, ASK_MARKER)
+    setApprovalPolicy(session, 'never')
+
+    await expect(submitPrompt(ctx, agent)).rejects.toThrow('outer failure')
+    await submitPrompt(ctx, agent)
+
+    expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
   })
 
   it('attributes a constructor-seeded policy event to delegation', async () => {
@@ -520,7 +560,7 @@ describe('approval policy (the approval/policy fold)', () => {
     appendHeader(session, ASK_MARKER)
     session.append('approval/policy', { policy: 'never', source: 'delegation' })
 
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
 
     expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (inherited from the delegating session).'])
   })
@@ -530,7 +570,7 @@ describe('approval policy (the approval/policy fold)', () => {
     await ctx.plugin(ApprovalService, { policy: 'never' })
     const { agent, session } = sessionAgent('sess-narr-3')
     appendHeader(session, `persona only\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the operator/config).'])
   })
 
@@ -541,7 +581,7 @@ describe('approval policy (the approval/policy fold)', () => {
     appendHeader(session, `persona only\n${ASK_MARKER}`)
     setApprovalPolicy(session, 'ask')
     appendHeader(session, `persona only\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual([])
   })
 
@@ -550,7 +590,7 @@ describe('approval policy (the approval/policy fold)', () => {
     await ctx.plugin(ApprovalService)
     const { agent, session } = sessionAgent('sess-narr-spoof-prose')
     appendHeader(session, `persona quotes this warning: ${NEVER_SENTENCE}\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual([])
   })
 
@@ -559,7 +599,7 @@ describe('approval policy (the approval/policy fold)', () => {
     await ctx.plugin(ApprovalService, { policy: 'never' })
     const { agent, session } = sessionAgent('sess-narr-unmarked-header')
     appendHeader(session, 'legacy persona-only header')
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual([])
   })
 
@@ -568,7 +608,7 @@ describe('approval policy (the approval/policy fold)', () => {
     await ctx.plugin(ApprovalService)
     const { agent, session } = sessionAgent('sess-narr-spoof-marker')
     appendHeader(session, `persona quotes ${NEVER_MARKER}\n${ASK_MARKER}`)
-    await preStep(ctx, agent)
+    await submitPrompt(ctx, agent)
     expect(narrations(session)).toEqual([])
   })
 
@@ -584,7 +624,7 @@ describe('approval policy (the approval/policy fold)', () => {
 
     appendHeader(live.session, `persona\n${ASK_MARKER}`)
     setApprovalPolicy(live.session, 'never')
-    await preStep(ctx, live.agent)
+    await submitPrompt(ctx, live.agent)
     expect(narrations(live.session)).toEqual(['The approval policy changed from "ask" to "never" (changed by the user).'])
 
     appendHeader(afterDispose.session, `persona\n${ASK_MARKER}`)
@@ -592,7 +632,7 @@ describe('approval policy (the approval/policy fold)', () => {
     await fiber.dispose()
 
     expect(await sectionFor()).toBeUndefined()
-    await preStep(ctx, afterDispose.agent)
+    await submitPrompt(ctx, afterDispose.agent)
     expect(narrations(afterDispose.session)).toEqual([])
   })
 })

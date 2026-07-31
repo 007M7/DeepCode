@@ -12,11 +12,11 @@ Successful calls are not the only pressure signal. A provider can reject a reque
 
 ## Decision
 
-### Successful pressure moves to a durable post-step checkpoint
+### Successful pressure runs at the next pre-step boundary
 
-`agent/pre-step` is narrowed to `(agent, turn, step, signal)`. It remains a generic serial checkpoint before `step/start`, but it carries no compaction-only prompt or prefix fields.
+`agent/pre-step` receives the exclusive claimed message batch plus `{ turn, step, signal }` and returns the final reject/enter decision. It carries no compaction-only prompt or prefix fields.
 
-The loop fires awaited serial `agent/post-step(agent, turn, step, signal)` after assistant output, every dispatched or synthetic tool result, post-tool context, and steering are durable, but before `step/end`. This placement gives pressure policy the complete successful-call state without splitting an assistant tool call from its result. A propagated listener failure is an ordinary turn failure; it never enters model-request recovery. Compact-basic contains its expected operational failures as described below.
+Compact-basic wraps `agent/pre-step` before each proposed request. At a continuation boundary the preceding assistant output, every dispatched or synthetic tool result, post-tool context, and steering are already durable, so pressure policy sees the complete successful-call state without splitting an assistant tool call from its result. At the initial boundary a headerless session has no completed routed request and produces no pressure work. Compact-basic contains operational failures, warns, and delegates without rejecting the proposed step.
 
 `dsh-compact-basic` reads the exact latest routed model from the durable request header only to establish that a completed route exists, then asks the singleton `ctx.tokenMeter` to measure the canonical logged envelope and current surface. It does not fall back to `AgentOptions.model` for automatic pressure. A headerless session has no completed routed request to assess and produces no work; any durable non-empty model name uses the same estimator. Operational measurement or summarization failures warn and continue from the latest durable surface: full history before any replacement, or the pruned surface if pruning already landed.
 
@@ -46,7 +46,7 @@ Unit tests cover the final-adapter normalization boundary, closed-turn retry num
 
 ## Alternatives considered
 
-- **Keep provisional pre-step pressure and add more arguments** — rejected because later routing and request mutation remain outside any earlier snapshot, while generic lifecycle becomes coupled to one plugin.
+- **Add compaction-only fields to pre-step** — rejected because the canonical durable session and token meter already own the measurement input; the generic lifecycle need not carry a second envelope.
 - **Retry the same numbered step** — rejected because recovery appends durable events after the failed boundary. A new step preserves balanced nesting and reconstructability.
 - **Retry whenever `compactIfNeeded` returns a result** — rejected because a custom backend can report success without changing model-visible state. `replaceGeneration` is the authoritative proof.
 - **Let compact-basic parse provider wording** — rejected because classification belongs at adapters and must cover both thrown and in-band delivery.
@@ -54,8 +54,8 @@ Unit tests cover the final-adapter normalization boundary, closed-turn retry num
 
 ## Consequences
 
-Post-step pressure describes the completed routed request, including durable tool results and request-only prefix fields. Optional model-free pruning removes predictable tool-output bulk before summary selection and can independently create retry-worthy progress. Canonical overflow supplies the backstop when no successful usage anchor exists. Recovery is bounded, cancellation-owned, and monotonic: it retries only after a visible surface generation change.
+The next pre-step pressure check describes the preceding completed routed request, including durable tool results and newly claimed input. Optional model-free pruning removes predictable tool-output bulk before summary selection and can independently create retry-worthy progress. Canonical overflow supplies the backstop when no successful usage anchor exists. Recovery is bounded, cancellation-owned, and monotonic: it retries only after a visible surface generation change.
 
-The cost is one additional serial checkpoint on successful steps and adapter-maintained overflow classification. Provider wording and heuristic character density remain maintenance risks. Surface compaction still cannot repair an envelope that alone exceeds the window, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder remains oversized. The optional pruner can repair an otherwise indivisible tool pair when removable text-bearing tool-result content is the bulk.
+The cost is pressure work in the shared pre-step waterfall and adapter-maintained overflow classification. Provider wording and heuristic character density remain maintenance risks. Surface compaction still cannot repair an envelope that alone exceeds the window, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder remains oversized. The optional pruner can repair an otherwise indivisible tool pair when removable text-bearing tool-result content is the bulk.
 
-This Agent Note supersedes only the pre-step automatic-trigger portion of the [compaction capability-seam Agent Note](../feature/2026-06-18-compaction-capability-seam.md). The service split, standalone token meter, balanced range contract, log-recorded lock, summary replacement, and sole `summarize()` subclass hook remain unchanged.
+The [claimed pre-step lifecycle](2026-07-31-claimed-pre-step-inbox-lifecycle.md) supersedes this note's former post-step trigger. The service split, standalone token meter, balanced range contract, log-recorded lock, summary replacement, and sole `summarize()` subclass hook remain unchanged.

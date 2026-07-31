@@ -59,7 +59,7 @@ Events are the service extension API ([catalog](cordis-catalog/events.md), [prod
 ### Event Domains
 
 - **Session events** are durable log facts emitted through `session/event`.
-- **Agent events** carry live `Agent` for status, prompt admission, request shaping, validation, and continuation.
+- **Agent events** carry live `Agent` for inbox notifications, step entry, status, request shaping, validation, and continuation.
 - **Capability events** let owning seams attach policy and adapters without a loop import.
 
 ### Interception Semantics
@@ -80,22 +80,19 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for queued occurrence
-  claim (edit/remove end) -> emit agent/status(running) if starting an interval
-  open the next-step acceptance window
-  -> agent/prompt-submit
-    blocked or failed prompt -> close the window without opening a turn
-      append a context-only caller batch immediately
-      keep steering and context staged beside it pending for a later admitted turn
-    allowed prompt:
+  wait for waking inbox work
+  claim next-step input plus one next-turn message with a pure deletion splice
+  -> emit agent/inbox/claimed({ message, turn }) for each claimed message
+  -> emit agent/status(running) if starting an interval
+  -> agent/pre-step(messages, { turn, step, signal })
+    reject or listener failure -> the claimed batch stays removed; stop the driver
+    enter:
       'turn/start'
-      append prompt + additional contexts as separate 'user/message' events
     STEP loop:
-      agent/step
-      drain injected context and steering (steering bypasses prompt-submit)
+      'step/start'
+      append the returned batch as separate 'user/message' events
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
-      'step/start'
       agent/request (config only) -> prepare adapter defaults/provenance under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
@@ -104,22 +101,25 @@ forever:
         parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
         start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
         model-order result -> ordered tools/post-execute -> 'tool/result'
-      drain accepted tool context and steering
       'step/end'
-      continue for tools or steering unless a result concluded the turn
-      otherwise agent/turn-stopping -> drain -> continue only for steering
-    close the next-step acceptance window
+      tools owe another request or next-step inbox is nonempty
+        -> claim next-step messages
+        -> agent/pre-step (messages may be empty for a tool continuation)
+        -> append the entered batch and continue
+      otherwise agent/turn-stopping -> re-check the next-step inbox
     'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
-  append 'user/message'
-  do not open a turn or run the model
+  queue non-waking next-step context
+  leave it pending until followup or steer wakes the driver
 ```
 
 Each step assembles ordered prompt sections, tool schemas, and variables; unknown references fail the turn. `dsh-system-prompt` owns identity and persona; the loop supplies `provider`, `model`, and `cwd` ([prompt ownership](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)).
 
-Admission-time and active-turn `inject()` stage for the next step; post-tool `additionalContexts` settles after results. Steering shares that staging boundary and requests another step. Idle `inject()` appends immediately without changing turn numbers; persistence drains eagerly.
+`inject()` always queues non-waking `next-step` context. A collecting or running driver claims it at the nearest later prompt boundary; an idle driver leaves it pending until `followup()` or `steer()` wakes the driver. Post-tool `additionalContexts` enter the same next-step inbox after their tool results.
+
+`agent/pre-step` receives the exclusive batch already removed from the inbox and finalizes whether the loop enters the proposed step. Its `PreStepContext` carries the exact upcoming turn and step plus the cancellation signal. `{ kind: 'reject' }` opens no step; `{ kind: 'enter', messages }` supplies the complete batch appended after `step/start`. A tool continuation with no newly claimed inbox input submits an empty batch so listeners can still contribute current-step context. Waterfall rewrites settle only in the final returned `messages` value.
 
 Pruning precedes summaries; overflow retries require durable progress. `agent/request-error` may authorize one retry turn between failed-step and turn close; cancellation wins. Adapter-owned `retryPolicy` makes normal mode bounded; always mode delegates specialized recovery before retrying until success or cancellation ([compaction](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md), [retry foundation](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md), [provider policy](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)).
 
@@ -129,11 +129,11 @@ Final-adapter selection, dispatch, and iteration failures become terminal `finis
 
 Other failures use `agent/error`. Cancellation and disposal beat recovery. Before request-header commit, the turn signal cancels asynchronous model-capability preparation; undispatched tools get synthetic `tool/call`/`ABORTED_BEFORE_DISPATCH` pairs. Effective `cancel(cause)` emits its cause before queue clearing and abort; observers cannot veto; idle calls emit nothing. Durability records user or parent cancellation as `aborted`, teardown as `disposed`; teardown awaits quiescence. The cause affects reporting, not late result-context handling ([decision](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)).
 
-Turn and step events are turn-enclosed; idle injected `user/message` events may sit between turns. Reload closes an interrupted tail with a synthetic turn end. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
+Turn and step events are turn-enclosed; the loop appends injected `user/message` events only from entered batches inside a turn. Reload closes an interrupted tail with a synthetic turn end. After close, only `agent/error` reports failures. Each turn has one [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap).
 
 ### Agent Handles
 
-`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins drive agents with `followup()`, `steer()`, and `inject()`; `cancel()` stops work, while the awaited disposer owns teardown. `followup()` only queues an identified message: its `MessageId` follows durable inbox admission, not a prompt-specific output or turn ending. `agent/status` and `whenIdle()` describe whole-agent activity; only a caller that explicitly owns an activity interval may summarize that interval as a run result ([decision](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
+`ctx.agents` returns `AgentHandle { agent, dispose() }`. Plugins drive agents with `followup()`, `steer()`, and `inject()`; `cancel()` stops work, while the awaited disposer owns teardown. `followup()` only queues an identified message: its `MessageId` follows durable inbox insertion, claiming, and discard notifications, not a prompt-specific output or turn ending. `agent/status` and `whenIdle()` describe whole-agent activity; only a caller that explicitly owns an activity interval may summarize that interval as a run result ([decision](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)).
 
 ### Agent Scope
 
@@ -165,7 +165,7 @@ A swappable capability usually has **interface / implementation / consumer** lay
 
 Exceptions combine LLM interface/consumer, filesystem policy, web registries, and named skill/subagent providers. Subagents spawn fresh, fork a completed-turn prefix, or use ACP children ([subagent.md](core-data-structures/subagent.md)).
 
-`dsh-workspace-context` injects baseline at the first `agent/step` and appends `ctx.fs`-discovered changes through `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. `dsh-paths` owns shared paths.
+`dsh-workspace-context` uses the first `agent/pre-step` to prepend its baseline directly to the next-step inbox, replacing any still-pending predecessor, and appends `ctx.fs`-discovered changes through `tools/post-execute`; its [decision](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) records isolation. Because claim precedes pre-step, that baseline may miss the current request. `dsh-paths` owns shared paths.
 
 ### Bundles And Apps
 
@@ -186,7 +186,7 @@ New behavior attaches to a documented extension point; a loop change updates thi
 | Add filesystem access or policy | implement a `ctx.fs` provider or listen to `fs/*` policy events |
 | Confine spawned processes | use a `ctx.sandbox` backend; consumers wrap argv before spawning |
 | Intercept a request, tool, or turn | use its `agent/*` or `tools/*` event; `agent/turn-stopping` is the stop boundary |
-| Add model-facing context | call `agent.inject()` to append a sourced `user/message` without a turn |
+| Add model-facing context | call `agent.inject()` to queue sourced context for the next admitted request |
 | Add UI or editor integration | drive `ctx.agents`, render from `session/event`; terminal-only overlays use `ctx.tui` |
 | Add durable session state | extend `SessionEventMap`; render and replay from the log |
 | Add asynchronous session-title generation | register the sole `ctx.sessionTitle` provider |

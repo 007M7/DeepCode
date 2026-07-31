@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-agent/inbox
  */
 
+import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
 
 /** One of the two ordered pending-message lists owned by an agent. */
@@ -12,11 +13,22 @@ export type InboxTarget = 'next-turn' | 'next-step'
 /** Mutable state privately owned by an {@link Inbox}. */
 type InboxState = Record<InboxTarget, UserMessage[]>
 
+/** Live notifications committed by inbox mutations. */
+export interface InboxNotifications {
+  /** Publish one inserted message. */
+  inserted(message: UserMessage): void
+  /** Publish one discarded message. */
+  discarded(message: UserMessage): void
+}
+
 /** A replay-once projection that incrementally consumes later inbox splices. */
 export class Inbox {
   private readonly state: InboxState = { 'next-turn': [], 'next-step': [] }
 
-  constructor(private readonly session: Session) {
+  constructor(
+    private readonly session: Session,
+    private readonly notifications: InboxNotifications,
+  ) {
     for (const event of session.events.slice(session.header.seedLength ?? 0)) {
       if (event.type !== 'agent/inbox/spliced') continue
       try {
@@ -32,7 +44,7 @@ export class Inbox {
     return this.state['next-turn']
   }
 
-  /** Input awaiting admission at a step boundary. */
+  /** Input awaiting the next step boundary. */
   get nextStep(): readonly UserMessage[] {
     return this.state['next-step']
   }
@@ -40,6 +52,68 @@ export class Inbox {
   /** Whether either pending-message list contains work. */
   get hasPending(): boolean {
     return this.nextTurn.length > 0 || this.nextStep.length > 0
+  }
+
+  /**
+   * Remove and return the complete batch proposed for one step. The durable
+   * splices are pure deletions; the caller publishes claimed notifications.
+   * @param target - whether this boundary also consumes one queued turn.
+   * @returns next-step input followed by the queued turn, when requested.
+   */
+  claim(target: InboxTarget): UserMessage[] {
+    const claimed = this.mutate('next-step', 0, this.nextStep.length, [], false)
+    if (target === 'next-turn') {
+      claimed.push(...this.mutate('next-turn', 0, 1, [], false))
+    }
+    return claimed
+  }
+
+  /**
+   * Append one message to a pending list and durably record the insertion.
+   * @param target - pending list to extend.
+   * @param message - message to append.
+   * @throws if the message identity is already pending.
+   */
+  append(target: InboxTarget, message: UserMessage): void {
+    this.splice(target, this.state[target].length, 0, [message])
+  }
+
+  /**
+   * Prepend one message to a pending list and durably record the insertion.
+   * @param target - pending list to extend.
+   * @param message - message to prepend.
+   * @throws if the message identity is already pending.
+   */
+  prepend(target: InboxTarget, message: UserMessage): void {
+    this.splice(target, 0, 0, [message])
+  }
+
+  /**
+   * Replace one pending message in place and durably record the mutation.
+   * @param target - pending list containing the message.
+   * @param messageId - identity of the message to replace.
+   * @param newMessage - replacement message.
+   * @returns whether the message was still pending.
+   * @throws if the replacement duplicates another pending message identity.
+   */
+  update(target: InboxTarget, messageId: MessageId, newMessage: UserMessage): boolean {
+    const index = this.state[target].findIndex(message => message.id === messageId)
+    if (index < 0) return false
+    this.splice(target, index, 1, [newMessage])
+    return true
+  }
+
+  /**
+   * Remove one pending message and durably record its cancellation.
+   * @param target - pending list containing the message.
+   * @param messageId - identity of the message to remove.
+   * @returns whether the message was still pending.
+   */
+  remove(target: InboxTarget, messageId: MessageId): boolean {
+    const index = this.state[target].findIndex(message => message.id === messageId)
+    if (index < 0) return false
+    this.splice(target, index, 1, [])
+    return true
   }
 
   /**
@@ -51,7 +125,6 @@ export class Inbox {
    * @param start - splice position.
    * @param deleteCount - maximum number of messages to remove.
    * @param inserted - messages to insert at the resolved position.
-   * @param outcome - terminal disposition of removed messages.
    * @returns messages removed by the splice.
    */
   splice(
@@ -59,7 +132,17 @@ export class Inbox {
     start: number,
     deleteCount: number,
     inserted: UserMessage[],
-    outcome?: 'admitted' | 'canceled',
+  ): UserMessage[] {
+    return this.mutate(target, start, deleteCount, inserted, true)
+  }
+
+  /** Commit one normalized mutation and publish its live notifications. */
+  private mutate(
+    target: InboxTarget,
+    start: number,
+    deleteCount: number,
+    inserted: UserMessage[],
+    discardRemoved: boolean,
   ): UserMessage[] {
     const inbox = this.state[target]
     const truncatedStart = Math.trunc(start)
@@ -73,17 +156,22 @@ export class Inbox {
       inbox.length - actualStart,
     )
     if (actualDeleteCount === 0 && inserted.length === 0) return []
-    const resolvedOutcome = outcome ?? (actualDeleteCount > 0 ? 'canceled' : undefined)
+    const outcome = discardRemoved && actualDeleteCount > 0 ? 'canceled' : undefined
     const splice = {
       target,
       start: actualStart,
       ...(actualDeleteCount === 0 ? {} : { removedCount: actualDeleteCount }),
       inserted,
-      ...(resolvedOutcome === undefined ? {} : { outcome: resolvedOutcome }),
+      ...(outcome === undefined ? {} : { outcome }),
     }
     this.validate(splice)
     const event = this.session.append('agent/inbox/spliced', splice)
-    return inbox.splice(actualStart, actualDeleteCount, ...event.data.inserted)
+    const removed = inbox.splice(actualStart, actualDeleteCount, ...event.data.inserted)
+    if (discardRemoved) {
+      for (const message of removed) this.notifications.discarded(message)
+    }
+    for (const message of event.data.inserted) this.notifications.inserted(message)
+    return removed
   }
 
   /** Apply one normalized durable splice to the projection. */

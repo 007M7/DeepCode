@@ -53,11 +53,11 @@ interface Config {
 
 ### 包内部实体驱动器
 
-实体 `ReactLoopAgent`、其排队输入、outbox 与运行控制均为包内部实现。包根只导出插件／服务／配置契约，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个实体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
+实体 `ReactLoopAgent`、其 inbox 与运行控制均为包内部实现。包根只导出插件／服务／配置契约，包导出映射不提供 `./src/*` 逃逸路径；生命周期拥有方通过 `ctx.agents` 创建 agent，而不是点名、构造或启动驱动器内部组件。一个准备完成的会话只能由一个实体驱动器认领；所有可观测行为都通过会话事件和 `agent/*` 事件分类体系发生。
 
-统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`next-turn` 项加入排队 FIFO，除非 `wakeup: false`，否则会唤醒驱动器；接纳发生在任何轮次开启之前。循环在 `agent/prompt-submit` 之前打开一个私有的 next-step 接收窗口，并在 `turn/end` 之前关闭它。在该窗口内，`steer()` 与 `inject()` 会暂存到同一个 outbox；接纳获准后会开启轮次，记录提示词及其返回的 `additionalContexts`，再于首次请求前排空暂存输入。接纳被阻止或失败时，不会写入提示词或钩子生成的上下文。block 必须通过 `discardClaimed` 选择是否丢弃本次提交的批次；之后到达的 next-step 输入和排队提示词会继续保持待处理，等待后续获准的提示词。窗口之外，steering 会成为唤醒驱动器的排队提示词，而注入会立即追加 `user/message`，不开启轮次也不运行模型。
+统一的 `send()` 原语按（`target` × `wakeup`）路由内容与来源；`followup`/`steer`/`inject` 是它的固定预设别名。`followup()` 追加到 `next-turn` FIFO 并唤醒驱动器，`steer()` 追加到 `next-step` inbox 并唤醒驱动器，`inject()` 则追加到同一个 `next-step` inbox，但不唤醒驱动器。在轮次边界，驱动器会原子领取待处理的 next-step 输入和一条排队提示词；在步骤之间则只领取 next-step 输入。领取通过纯删除 splice 移除批次，并针对每条消息发出 `agent/inbox/claimed { message, turn }`。随后 `agent/pre-step` 返回 reject，或返回拟进入步骤的完整消息。reject 后已领取批次保持已删除；领取后插入的输入仍等待后续处理，而空闲注入会一直等待，直到 follow-up 或 steering 唤醒驱动器。
 
-每次 FIFO 接受项时都会铸造一个 `InboxItemId`，并通过 `agent/inbox/enqueue` 发布完整的单次入队项。`updateInbox()` 持有同步 queued 项边界：编辑会冻结替换内容，但不改变消息标识或位置；移除会发布 discard。编辑会发布 `agent/inbox/update`；steering 项和已被认领的项会返回 `not-found`。认领操作会发布 `agent/inbox/dequeue`，并在提示词接纳前不可逆地移除实时寻址标识，因此竞态中的更新无法改写持久历史；`cancel()` 在不带 `keepInbox` 时会发布 `agent/inbox/discard`。
+每次 inbox 变更都会先发布一条规范化的 `agent/inbox/spliced` 事件，再修改实时投影。因此，插入、编辑、移除、领取与取消都通过同一组标准 splice 坐标回放。普通删除携带 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`；领取使用不带 outcome 的纯删除，随后由循环发出 `agent/inbox/claimed`。每次插入都会发出 `agent/inbox/inserted { message }`。`MessageId` 在两个待处理列表之间保持唯一，同步持久事件观察方可以从 splice 前投影重建被移除的值。
 
 ### 循环生命周期（`agent.ts`）
 
@@ -75,7 +75,7 @@ interface Config {
 
 超出「调用模型、运行工具、重复」的所有内容，都属于监听事件分类体系的插件：
 - 钩子与策略：相关的 `agent/*` 检查点，加上受守卫保护的 `tools/pre-execute` → `tools/execute` → `tools/post-execute` → 定义拥有的 `finalizeContent` → `tools/result` 流水线；确切事件签名与 mode 位于生成的[事件目录](../../../docs/cordis-catalog/events.md)
-- 压缩（compaction）：在 `agent/step` 上观测压力；在 `agent/request-error` 上进行规范的溢出修复
+- 压缩（compaction）：在 `agent/pre-step` 上观测压力；在 `agent/request-error` 上进行规范的溢出修复
 - 模型请求恢复：`dsh-llm-retry` 在 `agent/request-error` 上记录并等待按确切提供方配置的 normal 或无界退避，发出不进入表层的 `llm/retry` 状态，然后返回重试动作
 - 沙箱、权限、计划模式：使用 `tools/pre-execute` 提供可扩展的拒绝／询问，使用 `tools.guard()` 提供单调拥有方策略，使用 `tools/post-execute` 处理结果决定，并使用 `tools/result` 进行最终观测
 - subagent：在循环外部实现为 `ctx.subagents` 提供方；进程内提供方使用 `ctx.agents.create()` 和拥有的 `AgentHandle` 进行 teardown，而通用的 [`ctx.tasks`](../../tasks/tasks/) 与 [`dsh-tool-subagent`](../../subagent/tool-subagent/) 负责后台收集。

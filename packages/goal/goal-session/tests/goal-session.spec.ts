@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
-import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -235,25 +235,28 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(1)
   })
 
-  it('maps a downstream prompt veto to blocked without admitting the round', async () => {
+  it('maps a downstream step rejection to blocked without entering the round', async () => {
     const test = await harness([])
-    test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
-      ? Promise.resolve({ kind: 'block', reason: 'deployment policy', discardClaimed: true })
+    test.ctx.on('agent/pre-step', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
+      ? Promise.resolve({ kind: 'reject' as const })
       : next())
     test.ctx.goals.create(test.agent, { objective: 'respect policy' })
 
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
     expect(goal?.roundsStarted).toBe(0)
-    expect(goal?.blockedReason).toEqual({ code: 'prompt-rejected', message: 'deployment policy' })
+    expect(goal?.blockedReason).toEqual({
+      code: 'prompt-rejected',
+      message: 'Goal round was rejected before entering its step.',
+    })
     expect(test.adapter.requests).toHaveLength(0)
     expect(test.agent.session.events.some(event => event.type === 'turn/start')).toBe(false)
   })
 
   it('does not reserve again when a stopped-goal observer queues cancel-scoped work', async () => {
     const test = await harness([textResponse('human follow-up')])
-    test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
-      ? Promise.resolve({ kind: 'block', reason: 'stop this round', discardClaimed: true })
+    test.ctx.on('agent/pre-step', (_agent, messages, _signal, next) => messages[0]?.source.kind === 'goal'
+      ? Promise.resolve({ kind: 'reject' as const })
       : next())
     test.ctx.on('goal/changed', (agent, change) => {
       if (change.operation === 'block') agent.followup(createUserMessage({ content: [{ type: 'text', text: 'inspect the blocker' }], source: { kind: 'user' } }))
@@ -268,7 +271,7 @@ describe('same-session goal driving', () => {
       .toEqual([{ type: 'text', text: 'inspect the blocker' }])
   })
 
-  it('pauses and drops a reserved round when cancellation lands before admission', async () => {
+  it('pauses and drops a reserved round when cancellation lands before pre-step', async () => {
     const test = await harness([])
     const cancel = onInboxMessage(test.ctx, test.agent, (message) => {
       if (message.source.kind === 'goal') {
@@ -357,7 +360,7 @@ describe('same-session goal driving', () => {
   it('rechecks revision after downstream prompt hooks before admitting', async () => {
     const test = await harness([textResponse('new revision')])
     let edited = false
-    test.ctx.on('agent/prompt-submit', (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', (agent, messages, _signal, next) => {
       if (messages[0]?.source.kind === 'goal' && !edited) {
         edited = true
         const current = test.ctx.goals.get(agent)
@@ -366,7 +369,7 @@ describe('same-session goal driving', () => {
       }
       return next()
     })
-    test.ctx.goals.create(test.agent, { objective: 'edit during admission', maxGoalRounds: 1 })
+    test.ctx.goals.create(test.agent, { objective: 'edit during pre-step', maxGoalRounds: 1 })
 
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'blocked')
 
@@ -464,7 +467,7 @@ describe('same-session goal driving', () => {
     // attempt through cancel-requested) and THEN throws: the catch finds no
     // matching reservation and must not reschedule a paused goal.
     let fired = false
-    test.ctx.on('agent/prompt-submit', async (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', async (agent, messages, _signal, next) => {
       if (messages[0]?.source.kind === 'goal' && !fired) {
         fired = true
         agent.cancel({ kind: 'user' })
@@ -483,15 +486,15 @@ describe('same-session goal driving', () => {
     expect(test.ctx.goals.get(test.agent)).toMatchObject({ phase: 'paused' })
   })
 
-  it('fails closed when a downstream admission hook throws', async () => {
+  it('fails closed when a downstream pre-step hook throws', async () => {
     const test = await harness([])
     // Registered after goal-session's own listener: the throw propagates back
-    // through goal-session's next() await, dropping the whole admission.
+    // through goal-session's next() await, dropping the whole step proposal.
     let threw = false
-    test.ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', async (_agent, messages, _signal, next) => {
       if (messages[0]?.source.kind === 'goal' && !threw) {
         threw = true
-        throw new Error('downstream admission hook exploded')
+        throw new Error('downstream pre-step hook exploded')
       }
       return next()
     })
@@ -610,20 +613,20 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
-  it('fails a pre-admission read closed even when the first disarm attempt throws', async () => {
+  it('fails an initial pre-step read closed even when the first disarm attempt throws', async () => {
     const test = await harness([textResponse('retry after containment')])
     let armed = true
     onInboxMessage(test.ctx, test.agent, (message) => {
       if (message.source.kind !== 'goal' || message.source.round <= 0 || !armed) return
       armed = false
       vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
-        throw new Error('admission projection failed')
+        throw new Error('pre-step projection failed')
       })
       vi.spyOn(test.ctx.goals, 'disarm').mockImplementationOnce(() => {
         throw 'disarm failed'
       })
     })
-    test.ctx.goals.create(test.agent, { objective: 'retry stale admission', maxGoalRounds: 1 })
+    test.ctx.goals.create(test.agent, { objective: 'retry stale pre-step', maxGoalRounds: 1 })
 
     await waitForGoal(test.ctx, test.agent, goal => goal?.phase === 'blocked')
 
@@ -633,7 +636,7 @@ describe('same-session goal driving', () => {
   it('fails a post-hook read closed before the prompt can enter history', async () => {
     const test = await harness([])
     let armed = true
-    test.ctx.on('agent/prompt-submit', (_agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', (_agent, messages, _signal, next) => {
       if (messages[0]?.source.kind === 'goal' && armed) {
         armed = false
         vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => {
@@ -705,17 +708,17 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
-  it('blocks admission when downstream cancellation clears the reservation', async () => {
+  it('rejects the step when downstream cancellation clears the reservation', async () => {
     const test = await harness([])
     let cancelled = false
-    test.ctx.on('agent/prompt-submit', (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', (agent, messages, _signal, next) => {
       if (messages[0]?.source.kind === 'goal' && !cancelled) {
         cancelled = true
         agent.cancel({ kind: 'user' })
       }
       return next()
     })
-    test.ctx.goals.create(test.agent, { objective: 'cancel during admission' })
+    test.ctx.goals.create(test.agent, { objective: 'cancel during pre-step' })
 
     const goal = await waitForGoal(test.ctx, test.agent, current => current?.phase === 'paused')
     await test.agent.whenIdle()
@@ -881,14 +884,12 @@ describe('same-session goal driving', () => {
   it('does not re-block a goal the downstream veto already saw cancelled', async () => {
     const test = await harness([])
     let vetoed = false
-    test.ctx.on('agent/prompt-submit', (agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', (agent, messages, _signal, next) => {
       if (messages[0]?.source.kind === 'goal' && !vetoed) {
         vetoed = true
         agent.cancel({ kind: 'user' })
-        return Promise.resolve<PromptDecision>({
-          kind: 'block',
-          reason: 'cancelled by policy',
-          discardClaimed: true,
+        return Promise.resolve<PreStepDecision>({
+          kind: 'reject',
         })
       }
       return next()
@@ -905,16 +906,16 @@ describe('same-session goal driving', () => {
     expect(test.adapter.requests).toHaveLength(0)
   })
 
-  it('awaits an unadmitted reservation stuck in admission during teardown without cancelling', async () => {
+  it('awaits a claimed reservation stuck in pre-step during teardown without cancelling', async () => {
     const test = await harness([])
     let release: (() => void) | undefined
-    test.ctx.on('agent/prompt-submit', async (_agent, messages, _signal, next) => {
+    test.ctx.on('agent/pre-step', async (_agent, messages, _signal, next) => {
       if (messages[0]?.source.kind === 'goal' && release === undefined) {
         await new Promise<void>((resolve) => { release = resolve })
       }
       return next()
     })
-    test.ctx.goals.create(test.agent, { objective: 'unload during admission' })
+    test.ctx.goals.create(test.agent, { objective: 'unload during pre-step' })
     await vi.waitFor(() => { expect(release).toBeDefined() })
 
     const disposal = Promise.resolve(test.driver.dispose())

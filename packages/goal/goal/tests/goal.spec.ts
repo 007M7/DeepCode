@@ -24,7 +24,7 @@ interface StubAgent {
   drain(): void
 }
 
-/** Number the next balanced one-shot injection turn. */
+/** Number the next balanced test-fixture turn. */
 function nextTurn(session: Session): number {
   return session.events.reduce((max, event) => event.type === 'turn/start' ? Math.max(max, event.data.turn) : max, 0) + 1
 }
@@ -44,7 +44,7 @@ function stubAgentForSession(session: Session): StubAgent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     ctx: new Context(),
     get status() { return status },
     send: () => {},

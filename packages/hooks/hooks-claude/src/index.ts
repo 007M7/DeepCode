@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
@@ -197,11 +197,6 @@ export function apply(ctx: Context, config: Config): void {
     return [ours, ...theirs ?? []]
   }
 
-  /** Append hook context to an admitted inbox batch. */
-  function appendPromptContext(theirs: UserMessage[], ours: UserMessage): UserMessage[] {
-    return [...theirs, ours]
-  }
-
   // SessionStart injects context when its detached hook resolves; a slow hook
   // may miss the first request.
   // TODO(session-start-gating): add a startup gate before promising first-turn delivery.
@@ -216,26 +211,23 @@ export function apply(ctx: Context, config: Config): void {
       }))
   })
 
-  // --- UserPromptSubmit → PromptDecision. The prompt text is the payload; no
+  // --- UserPromptSubmit → PreStepDecision. The prompt text is the payload; no
   // matcher subject (CC ignores matchers for this event). ---
-  ctx.on('agent/prompt-submit', async (agent, messages, signal, next): Promise<PromptDecision> => {
+  ctx.on('agent/pre-step', async (agent, messages, { signal }, next): Promise<PreStepDecision> => {
+    if (messages.length === 0) return next()
     const content = messages.flatMap(message => message.content)
     const merged = await runPoint('UserPromptSubmit', '', promptPayload(ctx, agent, content), { agent, signal })
     if (merged.decision === 'deny') {
-      return {
-        kind: 'block',
-        reason: merged.reason ?? 'blocked by UserPromptSubmit hook',
-        discardClaimed: true,
-      }
+      return { kind: 'reject' }
     }
-    // Delegate so later listeners may still rewrite or block, then prepend our
-    // context only to a downstream allow decision.
+    // Delegate so later listeners may still rewrite or reject, then prepend our
+    // context only to a downstream enter decision.
     const downstream = await next()
     const ours = contextFrom(merged)
-    if (!ours || downstream.kind !== 'allow') return downstream
+    if (!ours || downstream.kind !== 'enter') return downstream
     return {
-      kind: 'allow',
-      messages: appendPromptContext(downstream.messages, ours),
+      kind: 'enter',
+      messages: [...downstream.messages, ours],
     }
   })
 

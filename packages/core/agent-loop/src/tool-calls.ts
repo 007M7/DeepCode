@@ -42,7 +42,7 @@ interface GroupOutcome {
  * Ordinary completion and abort commit started-call results in order. Abort
  * drains them, records synthetic results for unstarted calls, and returns with
  * the signal still aborted after accepting started-call context through the
- * caller-supplied acceptor (the machine stages it on its outbox for the next
+ * caller-supplied acceptor (the machine stages it in its next-step inbox for the
  * step boundary). An internal scheduler failure stops new dispatches, drains
  * already-started dispatches, and rejects with the first failure without
  * fabricating tool results.

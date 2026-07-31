@@ -495,10 +495,8 @@ export function defineCoverageCases(group: CoverageGroup): void {
       const adapter = new MockAdapter([textResponse('should not run')])
       const ctx = await harness(path, adapter)
       // A later listener that blocks every prompt (registered AFTER the bridge).
-      ctx.on('agent/prompt-submit', async () => ({
-        kind: 'block' as const,
-        reason: 'policy veto',
-        discardClaimed: true,
+      ctx.on('agent/pre-step', async () => ({
+        kind: 'reject' as const,
       }))
       const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
       agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
@@ -511,15 +509,15 @@ export function defineCoverageCases(group: CoverageGroup): void {
     })
 
     it('preserves separate bridge and downstream prompt contexts with framing and metadata', async () => {
-    // Both the bridge hook and a later prompt-submit listener attach context; the
+    // Both the bridge hook and a later pre-step listener attach context; the
     // request must see both as separately sourced durable events.
       const d = dir()
       const s = sh(d, 'ctx.sh', '#!/usr/bin/env bash\necho \'{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"from-bridge"}}\'\n')
       const path = hooks(d, { UserPromptSubmit: [{ hooks: [{ type: 'command', command: s }] }] })
       const adapter = new MockAdapter([textResponse('ok')])
       const ctx = await harness(path, adapter)
-      ctx.on('agent/prompt-submit', async (_agent, messages) => ({
-        kind: 'allow' as const,
+      ctx.on('agent/pre-step', async (_agent, messages) => ({
+        kind: 'enter' as const,
         messages: [{
           ...messages[0]!,
           content: [{ type: 'text' as const, text: 'rewritten-prompt' }],
@@ -540,8 +538,8 @@ export function defineCoverageCases(group: CoverageGroup): void {
       expect(userMsg?.type === 'user/message' && userMsg.data.content.some(b => b.type === 'text' && b.text === 'rewritten-prompt')).toBe(true)
       const contexts = events(agent).filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
       expect(contexts.map(event => event.type === 'user/message' && event.data.source)).toEqual([
-        { kind: 'plugin', plugin: 'hooks-claude' },
         { kind: 'plugin', plugin: 'policy' },
+        { kind: 'plugin', plugin: 'hooks-claude' },
       ])
     })
 

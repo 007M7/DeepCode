@@ -11,7 +11,7 @@ import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compa
 import type { Session } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, assertNever } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, LlmCallConfig } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 // Type-only: makes the optional sibling service available to `ctx.get()`.
 import type {} from '@deepseek-ai/dsh-compact-tool-result-prune'
 import {
@@ -135,24 +135,26 @@ export class BasicCompactService extends CompactService {
       )
     }
 
-    ctx.on('agent/step', async (
+    ctx.on('agent/pre-step', async (
       agent: Agent,
-      _turn: number,
-      _step: number,
-      signal: AbortSignal,
-    ) => {
-      if (signal.aborted) return
-      try {
-        const result = await this.compactIfNeeded(agent, 'pressure', signal)
-        if (result !== null) logResult(result, 'step pressure')
-      } catch (error: unknown) {
-        if (error instanceof TargetPressureConfigError) {
-          if (this.warnedPressureConfigTargets.has(error.targetKey)) return
-          this.warnedPressureConfigTargets.add(error.targetKey)
+      _messages,
+      { signal },
+      next,
+    ): Promise<PreStepDecision> => {
+      if (!signal.aborted) {
+        try {
+          const result = await this.compactIfNeeded(agent, 'pressure', signal)
+          if (result !== null) logResult(result, 'step pressure')
+        } catch (error: unknown) {
+          if (error instanceof TargetPressureConfigError) {
+            if (this.warnedPressureConfigTargets.has(error.targetKey)) return next()
+            this.warnedPressureConfigTargets.add(error.targetKey)
+          }
+          const message = error instanceof Error ? error.message : String(error)
+          ctx.logger.warn(`step compaction failed: ${message}; continuing the turn`)
         }
-        const message = error instanceof Error ? error.message : String(error)
-        ctx.logger.warn(`step compaction failed: ${message}; continuing the turn`)
       }
+      return next()
     })
 
     ctx.on('agent/status', (agent, status) => {

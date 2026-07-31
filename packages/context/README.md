@@ -8,7 +8,7 @@ Product plugins that add model-visible request context without defining a tool. 
 |---|---|---|
 | `session-reference/` | Bounded current-surface snapshots of other sessions | `ctx.sessionReferences` |
 | `time-context/` | Durable per-step current time and elapsed-time context | (none) |
-| `tmux-context/` | Durable per-turn context with this agent's tmux pane/window location | (listens on `agent/step`, reads `ctx.bash`) |
-| `workspace-context/` | `AGENTS.md`/`CLAUDE.md` workspace context loader | (listens on `agent/step` + `tools/post-execute`) |
+| `tmux-context/` | Durable per-turn context with this agent's tmux pane/window location | (listens on `agent/pre-step`, reads `ctx.bash`) |
+| `workspace-context/` | `AGENTS.md`/`CLAUDE.md` workspace context loader | (listens on `agent/pre-step` + `tools/post-execute`) |
 
 The [`workspace-context` decision record](../../.agents/notes/implemented/feature/2026-06-24-workspace-context.md) explains its per-agent/session isolation and lifecycle split.

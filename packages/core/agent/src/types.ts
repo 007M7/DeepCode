@@ -42,21 +42,26 @@ export interface CancelOptions {
 /**
  * An agent's lifecycle state, emitted on every transition as `agent/status`:
  * `idle` means no driver is scheduled or active; `running` begins when a
- * cancellable admission is scheduled and lasts while the driver drains,
+ * cancellable pre-step processing is scheduled and lasts while the driver drains,
  * closes, or checkpoints turns. Disposal removes the agent from its registry;
  * it is not a third observable status.
  */
 export type AgentStatus = 'idle' | 'running'
 
-/**
- * Prompt interception result. An allowed batch replaces the submitted
- * messages; a listener wrapping `next()` preserves that batch unless it
- * intentionally replaces it. A blocked batch explicitly chooses whether to
- * discard the claimed messages; unclaimed work remains pending.
- */
-export type PromptDecision =
-  | { kind: 'allow'; messages: UserMessage[] }
-  | { kind: 'block'; reason: string; discardClaimed: boolean }
+/** Coordinates and cancellation for a proposed step. */
+export interface PreStepContext {
+  /** Turn that will own the step. */
+  readonly turn: number
+  /** Step proposed by the loop. */
+  readonly step: number
+  /** Current turn cancellation signal. */
+  readonly signal: AbortSignal
+}
+
+/** Whether and with which messages the loop enters a proposed step. */
+export type PreStepDecision =
+  | { kind: 'reject' }
+  | { kind: 'enter'; messages: UserMessage[] }
 
 /** One failed model-request attempt presented to recovery listeners. */
 export interface RequestFailureContext {
@@ -135,11 +140,11 @@ export interface Agent {
   steer(message: UserMessage): void
 
   /**
-   * Append model-facing context without running the model. Admission or an
-   * open turn stages it at the next safe log position; outside that window it
-   * appends immediately without opening a turn. If admission closes without a
-   * turn, a context-only boundary appends immediately; context staged beside
-   * steering remains pending with it.
+   * Queue model-facing context for the next pre-step without waking the
+   * driver. Collecting and running drivers claim it at the nearest later
+   * step boundary; idle drivers leave it pending until follow-up or steering
+   * wakes them. It may miss a request whose pre-step already claimed its
+   * batch. Cancellation or disposal may discard pending context.
    * @param message - identified injected context and its producer provenance.
    */
   inject(message: UserMessage): void
@@ -178,6 +183,30 @@ declare module 'cordis' {
      * @mode emit
      */
     'agent/status'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void
+    /**
+     * One message entered the live inbox.
+     * @param agent - the agent whose inbox changed.
+     * @param event - the inserted message.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/inbox/inserted'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+    /**
+     * One message left the inbox for a turn.
+     * @param agent - the agent whose inbox changed.
+     * @param event - the claimed message and owning turn.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/inbox/claimed'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void
+    /**
+     * One message was discarded from the live inbox.
+     * @param agent - the agent whose inbox changed.
+     * @param event - the discarded message.
+     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+     * @mode emit
+     */
+    'agent/inbox/discarded'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
     // ---- session lifecycle (emit) ----
     /**
      * The session lifecycle began, once before the first turn. Use
@@ -193,30 +222,15 @@ declare module 'cordis' {
 
     // ---- the machine's extension seams ----
     /**
-     * Allow, rewrite, or block one claimed inbox batch before it becomes
-     * model-visible or opens a turn. Call `next()` for the unchanged default. The
-     * signal controls only this admission attempt; listeners may cooperate with
-     * it but must not retain it for a later attempt or turn.
-     * @param agent - the agent whose driver claimed the batch.
-     * @param messages - the claimed messages.
-     * @param signal - the current turn's explicit abort signal.
+     * Reject a proposed step or replace the messages that enter it. Calling
+     * `next()` preserves the current messages.
+     * @param agent - the agent proposing the step.
+     * @param messages - messages removed from the inbox for this step.
+     * @param context - proposed turn and step coordinates plus cancellation.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */
-    'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
-    /**
-     * Awaited serial checkpoint before EVERY request of a turn is built (the
-     * first as well as each post-tools continuation). The single "between
-     * steps" extension point: inject context, steer, or edit the session log
-     * here — the request's history derives from the log right after this settles.
-     * @param agent - the agent about to send a request.
-     * @param turn - the open turn number.
-     * @param step - the step number about to open.
-     * @param signal - the turn abort signal.
-     * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
-     * @mode serial
-     */
-    'agent/step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
+    'agent/pre-step'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
     /**
      * Replace the frozen call configuration. `await next()` yields the config
      * the machine would use (agent options on the first request, the logged
@@ -284,7 +298,7 @@ declare module '@deepseek-ai/dsh-session' {
       start: number
       removedCount?: number
       inserted: UserMessage[]
-      outcome?: 'admitted' | 'canceled'
+      outcome?: 'canceled'
     }
   }
 }

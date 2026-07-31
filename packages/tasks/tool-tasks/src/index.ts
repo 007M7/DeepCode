@@ -218,11 +218,9 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   // Use the exact lifecycle owner; reusable ids could resolve to a replacement.
-  // Delivery into a tearing-down owner is well-defined: the loop treats
-  // disposal like any cancel, so the notice appends as durable idle context
-  // (still attached and persisted during owner cleanup, presented on resume);
-  // after detach it lands in an unreferenced in-memory log and is dropped
-  // with it.
+  // Delivery targets the exact lifecycle owner. The notice waits in its
+  // next-step inbox until another step claims it; disposal before that
+  // boundary discards it with the owner.
   ctx.tasks.onTaskDone((snapshot, owner) => {
     if (snapshot.reported || owner === undefined) return
     owner.inject(createUserMessage({

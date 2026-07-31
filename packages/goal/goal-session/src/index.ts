@@ -6,7 +6,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { FiberState } from 'cordis'
 import type { Context } from 'cordis'
-import type { Agent, PromptDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -17,8 +17,6 @@ export { renderGoalRoundPrompt } from './prompt.ts'
 
 export const name = 'goal-session'
 export const inject = ['agents', 'goals', 'sessions']
-
-const STALE_ROUND_REASON = 'stale goal-round reservation'
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
 interface RoundIdentity {
@@ -125,12 +123,6 @@ export function apply(ctx: Context): void {
     }
   }
 
-  /** Remove only this driver's still-pending reservation. */
-  function cancelReservation(agent: Agent, attempt: RoundAttempt): void {
-    const index = agent.inbox.nextTurn.findIndex(message => message.id === attempt.messageId)
-    if (index >= 0) agent.inbox.splice('next-turn', index, 1, [], 'canceled')
-  }
-
   /** Process admitted work at quiescence, then reserve at most one next round. */
   async function drive(state: DriverState): Promise<void> {
     const { agent } = state
@@ -204,7 +196,7 @@ export function apply(ctx: Context): void {
 
   /** Coalesce triggers onto one agent-local serialized driver. */
   function requestDrive(state: DriverState): void {
-    /* v8 ignore next -- teardown may race a final trigger after synchronously closing admission */
+    /* v8 ignore next -- teardown may race a final trigger after synchronously closing the step fence */
     if (state.stopping) return
     state.requested = true
     if (state.run !== undefined) return
@@ -238,7 +230,7 @@ export function apply(ctx: Context): void {
     })
   }
 
-  // One composite effect keeps the admission fence installed until this
+  // One composite effect keeps the step fence installed until this
   // plugin's own scheduling tasks settle.
   ctx.effect(function* () {
     ctx.on('agent/error', (agent) => {
@@ -329,7 +321,7 @@ export function apply(ctx: Context): void {
       && source.round === goal.roundsStarted + 1
     }
 
-    ctx.on('agent/prompt-submit', async (agent, messages, signal, next): Promise<PromptDecision> => {
+    ctx.on('agent/pre-step', async (agent, messages, { signal }, next): Promise<PreStepDecision> => {
       const submitted = messages.find(message => isGoalRoundSource(message.source))
       if (submitted === undefined) return next()
       const { content, source } = submitted
@@ -339,7 +331,7 @@ export function apply(ctx: Context): void {
       try {
         valid = validReservation(state, content, source)
       } catch (error: unknown) {
-        ctx.logger.warn(`goal-session: admission check failed for agent "${agent.id}": ${renderThrown(error)}`)
+        ctx.logger.warn(`goal-session: pre-step check failed for agent "${agent.id}": ${renderThrown(error)}`)
         disarm(state)
       }
       if (!valid) {
@@ -347,30 +339,28 @@ export function apply(ctx: Context): void {
         if (attempt !== undefined && sameRound(source, attempt)) {
           attempt.stale = true
           state.attempt = undefined
-          cancelReservation(agent, attempt)
         }
         requestDrive(state)
-        return { kind: 'block', reason: STALE_ROUND_REASON, discardClaimed: false }
+        return { kind: 'reject' }
       }
-      let decision: PromptDecision
+      let decision: PreStepDecision
       try {
         decision = await next()
       } catch (error: unknown) {
         if (signal.aborted) throw error
-        // A throwing downstream hook drops the whole admission: the loop
+        // A throwing downstream hook drops the whole step proposal: the loop
         // returns to idle without a turn, so a still-queued reservation would
         // starve every later drive pass. Clear it and let the driver
         // reschedule the round.
         const attempt = state.attempt
         if (attempt !== undefined && sameRound(source, attempt) && attempt.phase === 'queued') {
           state.attempt = undefined
-          cancelReservation(agent, attempt)
           requestDrive(state)
         }
         throw error
       }
       if (signal.aborted) return decision
-      if (decision.kind === 'block') {
+      if (decision.kind === 'reject') {
         const attempt = state.attempt
         if (attempt !== undefined && sameRound(source, attempt)) state.attempt = undefined
         const goal = currentGoal(state)
@@ -378,7 +368,7 @@ export function apply(ctx: Context): void {
           && goal.phase === 'active' && goal.activation === 'armed') {
           ctx.goals.block(agent, goalRef(goal), {
             code: 'prompt-rejected',
-            message: decision.reason,
+            message: 'Goal round was rejected before entering its step.',
           })
         }
         return decision
@@ -386,7 +376,7 @@ export function apply(ctx: Context): void {
       try {
         valid = validReservation(state, content, source)
       } catch (error: unknown) {
-        ctx.logger.warn(`goal-session: post-admission check failed for agent "${agent.id}": ${renderThrown(error)}`)
+        ctx.logger.warn(`goal-session: post-decision check failed for agent "${agent.id}": ${renderThrown(error)}`)
         disarm(state)
         valid = false
       }
@@ -395,10 +385,9 @@ export function apply(ctx: Context): void {
         if (attempt !== undefined && sameRound(source, attempt)) {
           attempt.stale = true
           state.attempt = undefined
-          cancelReservation(agent, attempt)
         }
         requestDrive(state)
-        return { kind: 'block', reason: STALE_ROUND_REASON, discardClaimed: false }
+        return { kind: 'reject' }
       }
       return decision
     })

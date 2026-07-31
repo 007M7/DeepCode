@@ -24,7 +24,7 @@ class SnapshotAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    // The snapshot rides the prompt's admission: the loop appends the
+    // The snapshot rides the prompt's pre-step result: the loop appends the
     // prompt first, then its additional contexts (the branch-wide ordering
     // for plugin-sourced context).
     const [prompt, context] = options.messages.slice(-2)

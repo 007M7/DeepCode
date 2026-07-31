@@ -33,7 +33,7 @@ A fully configured agent and live session were published. Setup is composition-o
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:160`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:171`](../../packages/core/agent/src/types.ts)
 
 ### `agent/disposed` — emit
 
@@ -53,7 +53,7 @@ An agent left the registry; AgentLoop emits this after driver quiescence and sco
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:169`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:180`](../../packages/core/agent/src/types.ts)
 
 ### `agent/error` — emit
 
@@ -75,30 +75,85 @@ A step or turn errored. The machine reports a failure here (plus the logger) eve
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:270`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:281`](../../packages/core/agent/src/types.ts)
 
-### `agent/prompt-submit` — waterfall
+### `agent/inbox/claimed` — emit
 
-Allow, rewrite, or block one claimed inbox batch before it becomes model-visible or opens a turn. Call `next()` for the unchanged default. The signal controls only this admission attempt; listeners may cooperate with it but must not retain it for a later attempt or turn.
+One message left the inbox for a turn.
 
 ```ts cordis-catalog
 /**
- * Allow, rewrite, or block one claimed inbox batch before it becomes
- * model-visible or opens a turn. Call `next()` for the unchanged default. The
- * signal controls only this admission attempt; listeners may cooperate with
- * it but must not retain it for a later attempt or turn.
- * @param agent - the agent whose driver claimed the batch.
- * @param messages - the claimed messages.
- * @param signal - the current turn's explicit abort signal.
+ * One message left the inbox for a turn.
+ * @param agent - the agent whose inbox changed.
+ * @param event - the claimed message and owning turn.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/claimed'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+
+Source: [`packages/core/agent/src/types.ts:201`](../../packages/core/agent/src/types.ts)
+
+### `agent/inbox/discarded` — emit
+
+One message was discarded from the live inbox.
+
+```ts cordis-catalog
+/**
+ * One message was discarded from the live inbox.
+ * @param agent - the agent whose inbox changed.
+ * @param event - the discarded message.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/discarded'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+
+Source: [`packages/core/agent/src/types.ts:209`](../../packages/core/agent/src/types.ts)
+
+### `agent/inbox/inserted` — emit
+
+One message entered the live inbox.
+
+```ts cordis-catalog
+/**
+ * One message entered the live inbox.
+ * @param agent - the agent whose inbox changed.
+ * @param event - the inserted message.
+ * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
+ * @mode emit
+ */
+'agent/inbox/inserted'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void
+```
+
+Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+
+Source: [`packages/core/agent/src/types.ts:193`](../../packages/core/agent/src/types.ts)
+
+### `agent/pre-step` — waterfall
+
+Reject a proposed step or replace the messages that enter it. Calling `next()` preserves the current messages.
+
+```ts cordis-catalog
+/**
+ * Reject a proposed step or replace the messages that enter it. Calling
+ * `next()` preserves the current messages.
+ * @param agent - the agent proposing the step.
+ * @param messages - messages removed from the inbox for this step.
+ * @param context - proposed turn and step coordinates plus cancellation.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
-'agent/prompt-submit'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>
+'agent/pre-step'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>
 ```
 
-Types: [Agent](../core-data-structures/core.md) · [PromptDecision](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
+Types: [Agent](../core-data-structures/core.md) · [PreStepDecision](../core-data-structures/core.md) · [PreStepContext](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [UserMessage](../core-data-structures/session.md)
 
-Source: [`packages/core/agent/src/types.ts:205`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:216`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request` — waterfall
 
@@ -122,7 +177,7 @@ Replace the frozen call configuration. `await next()` yields the config the mach
 
 Types: [Agent](../core-data-structures/core.md) · [LlmCallConfig](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:231`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:242`](../../packages/core/agent/src/types.ts)
 
 ### `agent/request-error` — waterfall
 
@@ -145,7 +200,7 @@ Handle one failed model-request attempt before the loop retries or closes its st
 
 Types: [Agent](../core-data-structures/core.md) · [RequestErrorAction](../core-data-structures/core.md) · [RequestFailureContext](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:243`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:254`](../../packages/core/agent/src/types.ts)
 
 ### `agent/session-start` — emit
 
@@ -167,7 +222,7 @@ The session lifecycle began, once before the first turn. Use `agent.inject()` to
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md) · [SessionStartSource](../core-data-structures/core.md)
 
-Source: [`packages/core/agent/src/types.ts:191`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:202`](../../packages/core/agent/src/types.ts)
 
 ### `agent/status` — emit
 
@@ -188,31 +243,7 @@ Agent status changed (`idle` ⇄ `running`). A waking delivery enters `running` 
 
 Types: [Agent](../core-data-structures/core.md) · [AgentStatus](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:179`](../../packages/core/agent/src/types.ts)
-
-### `agent/step` — serial
-
-Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation). The single "between steps" extension point: inject context, steer, or edit the session log here — the request's history derives from the log right after this settles.
-
-```ts cordis-catalog
-/**
- * Awaited serial checkpoint before EVERY request of a turn is built (the
- * first as well as each post-tools continuation). The single "between
- * steps" extension point: inject context, steer, or edit the session log
- * here — the request's history derives from the log right after this settles.
- * @param agent - the agent about to send a request.
- * @param turn - the open turn number.
- * @param step - the step number about to open.
- * @param signal - the turn abort signal.
- * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
- * @mode serial
- */
-'agent/step'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void
-```
-
-Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
-
-Source: [`packages/core/agent/src/types.ts:218`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:190`](../../packages/core/agent/src/types.ts)
 
 ### `agent/turn-stopping` — serial
 
@@ -238,7 +269,7 @@ The turn is about to close: the model owes no response (no live tool calls, no f
 
 Types: [Agent](../core-data-structures/core.md) · [Scoped](../core-data-structures/scope.md)
 
-Source: [`packages/core/agent/src/types.ts:258`](../../packages/core/agent/src/types.ts)
+Source: [`packages/core/agent/src/types.ts:269`](../../packages/core/agent/src/types.ts)
 
 ## `agent-loop/*`
 

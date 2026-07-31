@@ -118,7 +118,12 @@
     },
     {
       "doc": "docs/core-data-structures/core.md",
-      "symbol": "PromptDecision",
+      "symbol": "PreStepContext",
+      "source": "packages/core/agent/src/types.ts"
+    },
+    {
+      "doc": "docs/core-data-structures/core.md",
+      "symbol": "PreStepDecision",
       "source": "packages/core/agent/src/types.ts"
     },
     {

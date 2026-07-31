@@ -18,22 +18,23 @@ export const name = 'time-context-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
-/** Derive the open step in which a time-context reading may append. */
+/** Derive the next request boundary at which a time-context reading may append. */
 function preparationPosition(history: readonly SessionEvent[], fail: InvariantFailure): { turn: number; step: number } {
   for (const event of history.slice().reverse()) {
     switch (event.type) {
-      case 'step/start':
-        return event.data
       case 'step/end':
+        return { turn: event.data.turn, step: event.data.step + 1 }
       case 'turn/start':
+        return { turn: event.data.turn, step: 1 }
+      case 'step/start':
       case 'turn/end':
-        fail('time-context reading must be appended inside an open step')
+        fail('time-context reading must be appended at a prompt boundary')
         break
       default:
         break
     }
   }
-  fail('time-context reading must be appended inside an open step')
+  fail('time-context reading must be appended at a prompt boundary')
 }
 
 /** Validate one plugin-attributed time reading against its session position and timestamp. */

@@ -1,0 +1,41 @@
+# Agent Note：在单一 pre-step 决策前领取 inbox 输入
+
+Status: implemented
+
+[English](2026-07-31-claimed-pre-step-inbox-lifecycle.md) | 中文
+
+## 问题
+
+循环此前把一个步骤边界拆成提示词准备、提示词准入与串行 step hook。准入结果可以保留或丢弃已领取输入，实时队列事件还携带了与持久 inbox 状态重复的形状。插件不得不在修改 inbox、改写已提交批次与直接追加会话历史之间选择，而观察方无法依赖一套明确顺序。
+
+单次出现专属的 inbox wrapper 也重复了每个 `UserMessage` 已有的标识。它把插入、编辑、领取、取消、重连投影与步骤进入合并成一套协议，但仅追加会话本就拥有持久队列投影。
+
+## 决策
+
+每个拟议步骤之前，`Inbox.claim(target)` 会原子移除完整批次：全部 `next-step` 消息，以及轮次边界上的一条 `next-turn` 消息。领取会记录规范化、不带 outcome 的纯删除 `agent/inbox/spliced`。随后，循环针对每条已领取消息发出一次 `agent/inbox/claimed { message, turn }`，并用该独占批次与 `{ turn, step, signal }` 等待唯一的 `agent/pre-step` waterfall（瀑布式事件）。
+
+`PreStepDecision` 为 `{ kind: 'reject' } | { kind: 'enter'; messages: UserMessage[] }`。reject 不会打开轮次或步骤，并让已领取批次保持已删除。enter 提供在 `step/start` 后以 `user/message` 追加的完整批次。包装 `next()` 的监听器会保留下游变更，除非有意替换，因此全部消息改写只在最终返回值中一次性结算。系统不再存在 `agent/prompt-prepare`、`agent/prompt-submit` 或 `agent/step` seam。
+
+持久 inbox 仍是两份通过 `MessageId` 寻址的 `UserMessage[]` 列表。`append`、`prepend`、`update`、`remove` 与 `splice` 会提交规范化 splice。每次插入发出 `agent/inbox/inserted { message }`；普通删除记录 `outcome: 'canceled'` 并发出 `agent/inbox/discarded { message }`。这些实时事件不增加 placement、outcome 或批次字段。
+
+两类事件表面服务不同消费方。跟踪单条消息的观察方使用 `agent/inbox/inserted`、`claimed` 与 `discarded`。包括 Web 队列投影和重连基线在内的整体队列消费方使用持久 `agent/inbox/spliced` 流；UI 编辑与移除经 `Inbox.splice()` 或其他 Inbox 变更方法进入，从而让同一投影记录所有变化。
+
+必须对当前步骤进行原子改写的插件从 `agent/pre-step` 返回消息。只需要稍后上下文的插件可以直接修改 `agent.inbox`。Workspace context 刻意采用较弱的时序：它把当前带来源上下文 prepend 到 `next-step`，替换仍在等待的确切前序消息，并且不修改当前 pre-step 决策。
+
+已归档的[可寻址队列项决策](../../archived/feature/2026-07-29-addressable-queue-operations.md)描述了已被取代的单次出现 wrapper 设计。现在由 `MessageId` 负责寻址，而保留的 Host 队列镜像根据持久 splice 投影派生快照。
+
+## 曾考虑的替代方案
+
+**保留分离的 prepare 与 admit hook。** 这样准备阶段可以在领取前修改 inbox，准入阶段可以在领取后改写，但同一边界会出现两个顺序表面，取消归属也会变得模糊。
+
+**reject 时把已领取批次重新入队。** 这看似保留重试行为，却会让否决隐式修改队列；若不为每个竞态加围栏，还会复制后续工作，并使 claim 无法成为原子所有权转移。
+
+**在每个实时事件上携带 placement 与 outcome。** 持久 splice 已经拥有这些事实。实时通知重复它们会建立可能漂移的第二份契约，而持有确切消息标识的消费方并不需要这些字段。
+
+## 验证
+
+Agent-loop 覆盖固定先领取再 pre-step 的顺序、实时事件的确切载荷、打开任何轮次前的 reject、最终批次改写、领取后插入的输入、监听器失败与取消。Inbox 和消费方测试固定纯领取删除、普通删除的 canceled 结果、workspace-context 的延后插入与替换、plan/goal/hook 行为、UI 清理、压缩、检查点以及恢复后的持久投影。生成的事件与类型目录只公开新的 seam 与载荷。
+
+## 后果
+
+循环在每个步骤前只有一个需等待的决策，对输入也只有一次所有权转移。已领取消息不会隐式返回 inbox；后续插入保持独立。实时事件与其他 inbox 通知保持对称，但不镜像持久元数据；插件可以显式选择精确的当前步骤改写，或普通的后续 inbox 投递。

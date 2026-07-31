@@ -176,7 +176,7 @@ function stubAgent(cwd?: string, seed: SessionEvent[] = []): Agent {
     id: SessionId('a1'),
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'idle',
     send: () => {},
     followup: () => {},
@@ -231,7 +231,25 @@ function appendAdditionalContexts(agent: Agent, result: { additionalContexts?: U
 const composedPrefixes = new WeakMap<object, Message[]>()
 
 async function composeBaselinePrefix(ctx: Context, agent: Agent): Promise<Message[]> {
-  await agentEvents(ctx, agent).serial('agent/step', 1, 1, AbortSignal.timeout(1000))
+  const signal = AbortSignal.timeout(1000)
+  await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    [],
+    { turn: 1, step: 1, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  const claimed = agent.inbox.claim('next-step')
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    claimed,
+    { turn: 1, step: 2, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: claimed }),
+  )
+  const entered = decision.kind === 'enter' ? decision.messages : []
+  for (const message of entered) {
+    const event = agent.session.append('user/message', message, { surfaceOp: 'append' })
+    ctx.emit('session/event', agent.session, event)
+  }
   const prefix = agent.session.deriveMessages()
   composedPrefixes.set(agent, prefix)
   return prefix
@@ -1000,7 +1018,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('injects one durable baseline contribution on the first step only', async () => {
+  it('queues and later commits one durable baseline contribution', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1016,6 +1034,66 @@ describe('workspace context request injection', () => {
       expect(second).toEqual(first)
       expect(agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')).toHaveLength(1)
       expect(derivedText(agent)).toContain('repo rule')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves the current pre-step batch unchanged while queuing the baseline', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+      const prompt = createUserMessage({
+        content: [{ type: 'text', text: 'current prompt' }],
+        source: { kind: 'user' },
+      })
+
+      const decision = await agentEvents(ctx, agent).waterfall(
+        'agent/pre-step',
+        [prompt],
+        { turn: 1, step: 1, signal: AbortSignal.timeout(1000) },
+        () => Promise.resolve({ kind: 'enter' as const, messages: [prompt] }),
+      )
+
+      expect(decision).toEqual({ kind: 'enter', messages: [prompt] })
+      expect(agent.inbox.nextStep).toHaveLength(1)
+      expect(blocksText(agent.inbox.nextStep[0]?.content)).toContain('Instructions from: AGENTS.md')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('retries a baseline contribution removed by an outer pre-step listener', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), 'repo rule')
+      const ctx = new Context()
+      const removeBaseline = ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+        const decision = await next()
+        return decision.kind === 'reject'
+          ? decision
+          : {
+            ...decision,
+            messages: decision.messages.filter(message =>
+              message.source.kind !== 'workspace-instructions'),
+          }
+      })
+      await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
+      const agent = stubAgent(root)
+
+      expect(await composeBaselinePrefix(ctx, agent)).toEqual([])
+      removeBaseline()
+      expect(blocksText((await composeBaselinePrefix(ctx, agent))[0]?.content))
+        .toContain('Instructions from: AGENTS.md')
     } finally {
       await rm(root, { recursive: true, force: true })
       await rm(home, { recursive: true, force: true })
@@ -1154,7 +1232,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('places workspace instructions before later step contributors such as a skills catalog', async () => {
+  it('keeps an independent pre-step contribution after the queued workspace context', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {
@@ -1162,8 +1240,16 @@ describe('workspace context request injection', () => {
       await write(join(root, 'AGENTS.md'), 'repo rule')
       const ctx = new Context()
       await mountWorkspaceContext(ctx, { dshHome: home, maxBytes: 65536 })
-      ctx.on('agent/step', (agent) => {
-        agent.session.append('user/message', createUserMessage({ content: [{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }], source: { kind: 'plugin', plugin: 'test-skills' } }), { surfaceOp: 'append' })
+      ctx.on('agent/pre-step', async (_agent, _messages, _context, next) => {
+        const decision = await next()
+        if (decision.kind === 'reject') return decision
+        return {
+          ...decision,
+          messages: [
+            ...decision.messages,
+            createUserMessage({ content: [{ type: 'text', text: '<system-reminder>Available skills</system-reminder>' }], source: { kind: 'plugin', plugin: 'test-skills' } }),
+          ],
+        }
       })
 
       const prefix = await composeBaselinePrefix(ctx, stubAgent(root))
@@ -1420,7 +1506,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('aborts an in-flight baseline stream with the step signal', async () => {
+  it('aborts an in-flight baseline stream with the prompt signal', async () => {
     const root = join(await tempRepo(), 'virtual-repo')
     const home = join(await tempRepo(), 'virtual-home')
     const ctx = new Context()
@@ -1432,7 +1518,12 @@ describe('workspace context request injection', () => {
       await ctx.plugin(workspaceContext, { dshHome: home, maxBytes: 65536 })
       const controller = new AbortController()
       const reason = new Error('cancel prefix')
-      const pending = agentEvents(ctx, stubAgent(root)).serial('agent/step', 1, 1, controller.signal)
+      const pending = agentEvents(ctx, stubAgent(root)).waterfall(
+        'agent/pre-step',
+        [],
+        { turn: 1, step: 1, signal: controller.signal },
+        () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+      )
 
       await fs.started.promise
       controller.abort(reason)
@@ -1662,7 +1753,7 @@ describe('workspace context request injection', () => {
     }
   })
 
-  it('cleans up its agent/step listener when the plugin fiber is disposed', async () => {
+  it('cleans up its pre-step listener when the plugin fiber is disposed', async () => {
     const root = await tempRepo()
     const home = await tempRepo()
     try {

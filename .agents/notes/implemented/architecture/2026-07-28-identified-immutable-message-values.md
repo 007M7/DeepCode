@@ -12,13 +12,13 @@ This made identity a routing side effect rather than a message invariant. Produc
 
 ## Decision
 
-`@deepseek-ai/dsh-llm` owns one `Message` value with required `id`, `role`, `content`, and `source`. `MessageId` is opaque and shared by user, assistant, and tool-result messages. A message receives its id at creation, before routing, prompt admission, durable append, or request projection. The same id survives every representation boundary.
+`@deepseek-ai/dsh-llm` owns one `Message` value with required `id`, `role`, `content`, and `source`. `MessageId` is opaque and shared by user, assistant, and tool-result messages. A message receives its id at creation, before inbox routing, claim, pre-step rewriting, durable append, or request projection. The same id survives every representation boundary.
 
 `createMessage(input)` is the canonical role-generic creation boundary. It mints a `MessageId`, detaches the supplied role, content, and source, and deep-freezes the complete value before returning it. `createUserMessage({ content, source })` fixes the user role for prompt and context producers. `createAssistantMessage({ content, source })` fixes both the assistant role and the model source kind, so model-output producers supply only content and model provenance. All creation helpers exclude an input id so callers cannot accidentally present creation as import. `freezeMessage(message)` is the separate import or transformation boundary: it detaches and deep-freezes a message whose identity already exists, without minting a replacement.
 
 The helpers live in `dsh-llm` beside the base message vocabulary because their complete contracts depend only on that vocabulary. `createToolResultMessage()` belongs with the other creation helpers: it couples a tool call id to the exact user-role tool-result block and source without depending on session state or events. `dsh-session` consumes complete messages rather than owning their construction.
 
-The `Agent` interface accepts a complete `UserMessage` through `followup`, `steer`, and `inject`. These operations never allocate or return identity; they freeze an imported value whose id the caller already holds. Prompt admission receives that message directly. A content rewrite creates a frozen replacement with the same id, while an additional context is a separately created `UserMessage` with its own id.
+The `Agent` interface accepts a complete `UserMessage` through `followup`, `steer`, and `inject`. These operations never allocate or return identity; they freeze an imported value whose id the caller already holds. Inbox claims and `agent/pre-step` receive that message directly. A content rewrite creates a frozen replacement with the same id, while an additional context is a separately created `UserMessage` with its own id.
 
 Durable message-producing events store complete messages. `user/message` stores its `UserMessage` directly; `assistant/message`, `tool/result`, and `steering/message` wrap their role-specialized message beside event-local position, usage, failure, or presentation facts. Session derivation returns those frozen values instead of reconstructing anonymous messages. Assistant assembly creates a model-sourced message when a response completes, and tool execution creates a tool-sourced message when a result is committed.
 
@@ -38,7 +38,7 @@ Any operation that changes only the representation of an existing semantic messa
 
 Every message producer must choose creation or import explicitly, and tests construct complete values rather than partial content/source records. UUID generation moves outward to the first semantic creation point, so deterministic fixtures that provide an existing id use `freezeMessage()` instead of `createMessage()`.
 
-Live inbox events, durable events, derived history, and model requests can correlate one message without content equality or envelope-specific ids. Prompt admission and UI attachment cleanup can compare `MessageId` before a turn exists. Deep freezing prevents a producer, hook, or observer from changing the value after identity is established.
+Live inbox events, durable events, derived history, and model requests can correlate one message without content equality or envelope-specific ids. Claim policy and UI attachment cleanup can compare `MessageId` before a turn exists. Deep freezing prevents a producer, hook, or observer from changing the value after identity is established.
 
 The shared representation removes the old `UserMessageData`/`AgentMessage` split and folds provider provenance into typed message sources. Event envelopes still own facts that are not message semantics, such as turn and step position, token usage, internal tool failure identity, and presentation metadata.
 

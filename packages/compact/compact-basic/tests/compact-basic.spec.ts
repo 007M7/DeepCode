@@ -1369,8 +1369,11 @@ describe('default one-shot summarizer', () => {
 })
 
 describe('automatic listener and loader composition', () => {
-  function postStep(ctx: Context, owner: Agent, signal = SIGNAL): Promise<unknown> {
-    return agentEvents(ctx, owner).serial('agent/step', 1, 1, signal)
+  function preStep(ctx: Context, owner: Agent, signal = SIGNAL) {
+    return agentEvents(ctx, owner).waterfall(
+      'agent/pre-step', [], { turn: 1, step: 1, signal },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
   }
 
   function recover(
@@ -1394,23 +1397,23 @@ describe('automatic listener and loader composition', () => {
     return Object.assign(new Error(message), { code: CONTEXT_WINDOW_EXCEEDED_CODE })
   }
 
-  it('compacts post-step above threshold using the durable routed model and remains idle below it', async () => {
+  it('compacts before a step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
       thresholdRatio: 0.5,
       retainTokens: 180,
     })
     const pressured = conversation(4)
-    await postStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
+    await preStep(ctx, agent(pressured, 'unconfigured-agent-fallback'))
     expect(pressured.events.some(event => event.type === 'compact/summary')).toBe(true)
 
     const small = conversation(1)
-    await postStep(ctx, agent(small, MODEL))
+    await preStep(ctx, agent(small, MODEL))
     expect(small.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(compact.calls).toHaveLength(1)
   })
 
-  it('skips post-step pressure when the step signal is already aborted', async () => {
+  it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactService(ctx, {
       thresholdRatio: 0.5,
@@ -1419,8 +1422,8 @@ describe('automatic listener and loader composition', () => {
     const pressured = conversation(4)
     const compactIfNeeded = vi.spyOn(compact, 'compactIfNeeded')
 
-    await expect(postStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
-      .resolves.toBeUndefined()
+    await expect(preStep(ctx, agent(pressured, MODEL), AbortSignal.abort('step aborted')))
+      .resolves.toEqual({ kind: 'enter', messages: [] })
 
     expect(compactIfNeeded).not.toHaveBeenCalled()
     expect(pressured.events.some(event => event.type === 'compact/start')).toBe(false)
@@ -1437,7 +1440,7 @@ describe('automatic listener and loader composition', () => {
     compact.error = 'temporary failure'
     const session = conversation(4)
 
-    await expect(postStep(ctx, agent(session, MODEL))).resolves.toBeUndefined()
+    await expect(preStep(ctx, agent(session, MODEL))).resolves.toEqual({ kind: 'enter', messages: [] })
     expect(warnings).toContainEqual(expect.stringContaining('temporary failure'))
     expect(session.events.some(event => event.type === 'compact/summary')).toBe(false)
   })
@@ -1457,8 +1460,8 @@ describe('automatic listener and loader composition', () => {
     })
     const session = conversation(4)
 
-    await postStep(ctx, agent(session, MODEL))
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
 
     expect(warnings).toEqual([
       expect.stringContaining(`no context capacity for ${MODEL}/${MODEL}`),
@@ -1475,8 +1478,8 @@ describe('automatic listener and loader composition', () => {
     })
     const session = conversation(4)
 
-    await postStep(ctx, agent(session, MODEL))
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
 
     expect(warnings).toEqual([
       expect.stringContaining('retainTokens (500) must be less than threshold tokens 500'),
@@ -1759,7 +1762,7 @@ describe('automatic listener and loader composition', () => {
       retainTokens: 180,
     })
     const session = conversation(4)
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
     const summaries = session.events.filter(event => event.type === 'compact/summary').length
     expect(summaries).toBe(1)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
@@ -1774,7 +1777,7 @@ describe('automatic listener and loader composition', () => {
       retainTokens: 180,
     })
     const session = conversation(4)
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
   })
@@ -1803,7 +1806,7 @@ describe('automatic listener and loader composition', () => {
     await fiber.dispose()
 
     const session = conversation(4)
-    await postStep(ctx, agent(session, MODEL))
+    await preStep(ctx, agent(session, MODEL))
     expect(session.events.some(event => event.type === 'compact/start')).toBe(false)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
   })

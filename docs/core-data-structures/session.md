@@ -47,8 +47,7 @@ interface SessionEventMap {
    * (the queued message claimed for this turn), a synthetic `agent.inject()`
    * context (file-change notices, subdir AGENTS.md, skill content, cron
    * notifications, …), or an admitted goal continuation round. All three
-   * project their `content` verbatim; `source` tells them apart. An idle
-   * injection may append this event between turns without running the model.
+   * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
   /** Raw stream chunk — token-level replay fidelity. */
@@ -485,7 +484,7 @@ An explicit `boundary` lets callers fork from any stable between-turn position, 
 
 ## Why a turn ended: `TurnEndReasonMap`
 
-`turn/start` has no trigger field. The admitted `user/message` batch records what entered the turn, `llm/retry` records request recovery, and idle injection opens no turn. `aborted.reason` retains the typed [`AgentCancelCause`](core.md#the-agent-handle) that stopped the driver.
+`turn/start` has no trigger field. The entered `user/message` batch records what entered each step, `llm/retry` records request recovery, and idle injection remains pending until a waking delivery reaches a later pre-step. `aborted.reason` retains the typed [`AgentCancelCause`](core.md#the-agent-handle) that stopped the driver.
 
 ```ts type-equiv
 /**
@@ -513,7 +512,7 @@ interface TurnEndReasonMap {
 
 ## Execution enclosure and standalone events
 
-A turn encloses one model-loop execution, not the whole session log. Idle injected `user/message` events and plugin-owned log-only events may appear between `turn/end` and the next `turn/start`; they consume event seqs without incrementing turn numbers. Persistence eagerly records every contiguous accepted event, while crash repair closes only a genuinely open trailing turn. A producer that needs a durability barrier explicitly awaits `ctx.sessions.flush(session)`.
+A turn encloses one model-loop execution, not the whole session log. AgentLoop records injected `user/message` events only from entering pre-step batches inside a turn; plugin-owned log-only events may still appear between `turn/end` and the next `turn/start`, consuming event seqs without incrementing turn numbers. Persistence eagerly records every contiguous accepted event, while crash repair closes only a genuinely open trailing turn. A producer that needs a durability barrier explicitly awaits `ctx.sessions.flush(session)`.
 
 The optional `dsh-session/invariant` companion enforces the relations owned by core: turn and step numbering, execution-event enclosure, and same-step tool call/result pairing. Merge-extensible event relations belong to the plugin that declares them, so core does not reject an unknown event merely because no turn is open. See [the standalone-event decision](../../.agents/notes/implemented/simplification/2026-07-28-remove-synthetic-log-only-turns.md).
 
@@ -531,7 +530,7 @@ Activity ordering excludes the boundary through `lastActivityTime(events)`: pick
 
 A plugin may declaration-merge extra `SessionEventMap` types. These are **log-only**: NOT `SurfaceEventType`s (they carry no `surfaceOp` and contribute nothing to derived history). Their owner decides whether they belong to an open execution turn or may stand between turns, and enforces any relation in its own invariant companion. The full per-event enumeration — core and plugin-contributed alike, with payloads and provenance — is the generated [persistence log event catalog](../persistence-catalog.md); the compaction seam's `compact/*` semantics are discussed on [compaction.md](compaction.md).
 
-The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` and the pre-turn `UserPromptSubmit` admission seam get no `hook/*` record because neither has an open turn to enclose one; allowed context is instead evidenced by its sourced `user/message` (see [the hook-bridges Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)).
+The hook bridges' `hook/invoked` / `hook/result` provenance pairs (from `@deepseek-ai/dsh-hook-protocol`) correlate by `handlerId`. The mid-turn hook points (`PreToolUse`/`PostToolUse`/`Stop`) fire inside the loop's open turn, so their `hook/*` records are turn-enclosed by construction. `SessionStart` and the pre-turn `UserPromptSubmit` pre-step seam get no `hook/*` record because neither has an open turn to enclose one; entered context is instead evidenced by its sourced `user/message` (see [the hook-bridges Agent Note](../../.agents/notes/implemented/feature/2026-06-30-hook-bridges.md)).
 
 ## Durability contract
 

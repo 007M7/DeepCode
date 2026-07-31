@@ -59,7 +59,7 @@
 ### 事件域
 
 - **会话事件**是通过 `session/event` 发出的持久日志事实。
-- **Agent 事件**携带活跃 `Agent`，用于状态、提示词准入、请求塑形、验证和续跑。
+- **Agent 事件**携带活跃 `Agent`，用于 inbox 通知、步骤进入、状态、请求塑形、验证和续跑。
 - **功能事件**让所属服务边界无需导入循环即可附加策略和适配器。
 
 ### 拦截语义
@@ -80,22 +80,19 @@ choose declarative identity and fresh/resume path
   -> enter session + agent -> session/created -> agent/created
   -> enable driving -> agent/session-start(source) -> start driver
 forever:
-  wait for queued occurrence
-  claim (edit/remove end) -> emit agent/status(running) if starting an interval
-  open the next-step acceptance window
-  -> agent/prompt-submit
-    blocked or failed prompt -> close the window without opening a turn
-      append a context-only caller batch immediately
-      keep steering and context staged beside it pending for a later admitted turn
-    allowed prompt:
+  wait for waking inbox work
+  claim next-step input plus one next-turn message with a pure deletion splice
+  -> emit agent/inbox/claimed({ message, turn }) for each claimed message
+  -> emit agent/status(running) if starting an interval
+  -> agent/pre-step(messages, { turn, step, signal })
+    reject or listener failure -> the claimed batch stays removed; stop the driver
+    enter:
       'turn/start'
-      append prompt + additional contexts as separate 'user/message' events
     STEP loop:
-      agent/step
-      drain injected context and steering (steering bypasses prompt-submit)
+      'step/start'
+      append the returned batch as separate 'user/message' events
       assemble system prompt and tool schemas
       snapshot the derived messages (the reconstruction boundary)
-      'step/start'
       agent/request (config only) -> prepare adapter defaults/provenance under turn signal -> log request/header -> llm/stream (frozen, registration-bound)
       'assistant/chunk'
       'assistant/message'
@@ -104,22 +101,25 @@ forever:
         parallel -> rolling pool, <= maxParallelToolCalls; reclassify-at-start; scheduler failure -> stop starts, drain dispatches
         start -> 'tool/call' -> ordered tools/pre-execute -> concurrent tools/execute
         model-order result -> ordered tools/post-execute -> 'tool/result'
-      drain accepted tool context and steering
       'step/end'
-      continue for tools or steering unless a result concluded the turn
-      otherwise agent/turn-stopping -> drain -> continue only for steering
-    close the next-step acceptance window
+      tools owe another request or next-step inbox is nonempty
+        -> claim next-step messages
+        -> agent/pre-step (messages may be empty for a tool continuation)
+        -> append the entered batch and continue
+      otherwise agent/turn-stopping -> re-check the next-step inbox
     'turn/end' -> agent/settled
   start the next waking queued message, or emit agent/status(idle)
 
 idle inject:
-  append 'user/message'
-  do not open a turn or run the model
+  queue non-waking next-step context
+  leave it pending until followup or steer wakes the driver
 ```
 
 每个步骤都会组装有序提示词片段、工具 schema 和变量；未知引用会使该轮次失败。`dsh-system-prompt` 负责身份和角色设定；循环提供 `provider`、`model` 和 `cwd`（[提示词归属](../.agents/notes/implemented/architecture/2026-07-05-prompt-variables-and-tool-guidance-ownership.md)）。
 
-接纳期间和活跃轮次内的 `inject()` 会为下一步骤暂存；工具执行后的 `additionalContexts` 会在结果记录完毕后落定。steering 与其共用这一暂存边界，并请求再执行一个步骤。空闲状态下的 `inject()` 会立即追加，且不改变轮次编号；持久化层会尽快排空。
+`inject()` 始终将不会唤醒的上下文排入 `next-step`。collecting 或 running 驱动器会在最近的后续提示词边界领取它；idle 驱动器则会让它保持待处理，直至 `followup()` 或 `steer()` 唤醒驱动器。工具执行后的 `additionalContexts` 会在对应工具结果之后进入同一个 next-step inbox。
+
+`agent/pre-step` 接收已经从 inbox 删除的独占批次，并最终决定循环是否进入拟议步骤。它的 `PreStepContext` 携带准确的 turn、step 与取消 signal。`{ kind: 'reject' }` 不会打开步骤；`{ kind: 'enter', messages }` 提供在 `step/start` 后追加的完整批次。当工具 continuation 没有新领取的 inbox 输入时，批次为空，listener 仍可为当前步骤贡献上下文。waterfall 的全部改写只在最终返回的 `messages` 中一次性结算。
 
 裁剪先于摘要；溢出重试必须取得持久进展。`agent/request-error` 可以在失败步骤与轮次关闭之间授权一个重试轮次；取消优先。适配器拥有的 `retryPolicy` 使 normal mode 保持有界；always mode 先委托专门恢复，再持续重试直至成功或取消（[压缩](../.agents/notes/implemented/architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md)、[重试基础](../.agents/notes/implemented/architecture/2026-06-21-bounded-llm-request-recovery.md)、[提供方策略](../.agents/notes/implemented/feature/2026-07-24-provider-retry-policies.md)）。
 
@@ -129,11 +129,11 @@ idle inject:
 
 其他故障使用 `agent/error`。取消和资源释放优先于恢复。在提交请求头之前，轮次信号会取消异步模型能力准备；尚未分派的工具会得到合成的 `tool/call`/`ABORTED_BEFORE_DISPATCH` 对。实际生效的 `cancel(cause)` 在清空队列和中止前发出原因；观察方不能否决；空闲调用不发事件。持久化层将用户或父级取消记录为 `aborted`，拆卸记录为 `disposed`；拆卸会等待完全停稳。原因只影响报告方式，不影响延迟完成的结果上下文处理（[决策](../.agents/notes/implemented/architecture/2026-07-16-explicit-turn-cancellation.md)）。
 
-轮次和步骤事件均位于轮次边界内；空闲时注入的 `user/message` 可以位于两个轮次之间。重新加载会用合成的轮次结束事件闭合中断尾部。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
+轮次和步骤事件均位于轮次边界内；loop 只会在轮次内从进入步骤的批次追加注入的 `user/message`。重新加载会用合成的轮次结束事件闭合中断尾部。关闭后仅由 `agent/error` 报告故障。每个轮次有一个 [TurnEndReason](core-data-structures/session.md#why-a-turn-ended-turnendreasonmap)。
 
 ### Agent 句柄
 
-`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件用 `followup()`、`steer()` 和 `inject()` 驱动 agent；`cancel()` 停止工作，而拆卸由需等待完成的 disposer 负责。`followup()` 只会将一条带标识的消息排队：其 `MessageId` 跟踪持久 inbox 准入，而不标识某个提示词特有的输出或轮次结束。`agent/status` 与 `whenIdle()` 描述整个 agent 的活动；只有显式拥有某个活动区间的调用方才能将该区间概括为一次运行的结果（[决策](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
+`ctx.agents` 返回 `AgentHandle { agent, dispose() }`。插件用 `followup()`、`steer()` 和 `inject()` 驱动 agent；`cancel()` 停止工作，而拆卸由需等待完成的 disposer 负责。`followup()` 只会将一条带标识的消息排队：其 `MessageId` 跟踪持久 inbox 的插入、领取与丢弃通知，而不标识某个提示词特有的输出或轮次结束。`agent/status` 与 `whenIdle()` 描述整个 agent 的活动；只有显式拥有某个活动区间的调用方才能将该区间概括为一次运行的结果（[决策](../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。
 
 ### Agent 作用域
 
@@ -165,7 +165,7 @@ idle inject:
 
 例外情况包括 LLM（大语言模型）合并接口和消费方、文件系统整合策略、web 使用注册表、skill 和 subagent 使用具名提供方。subagent 可以通过 spawn 创建全新实例、fork 一个已完成轮次的前缀，或使用 ACP（Agent Client Protocol）子 agent（[subagent.md](core-data-structures/subagent.md)）。
 
-`dsh-workspace-context` 在第一次 `agent/step` 注入基线，并通过 `tools/post-execute` 追加 `ctx.fs` 发现的变更；其[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)记录隔离方式。`dsh-paths` 负责共享路径。
+`dsh-workspace-context` 在第一次 `agent/pre-step` 将基线直接 prepend 到 next-step inbox，并替换仍在等待的前序消息；它通过 `tools/post-execute` 追加 `ctx.fs` 发现的变更。其[决策](../.agents/notes/implemented/feature/2026-06-24-workspace-context.md)记录隔离方式。由于领取发生在 pre-step 之前，该基线可能赶不上当前请求。`dsh-paths` 负责共享路径。
 
 ### 组合包与应用
 
@@ -186,7 +186,7 @@ idle inject:
 | 添加文件系统访问或策略 | 实现 `ctx.fs` 提供方，或监听 `fs/*` 策略事件 |
 | 限制生成的进程 | 使用 `ctx.sandbox` 后端；消费方在生成前包装 argv |
 | 拦截请求、工具或轮次 | 使用相应的 `agent/*` 或 `tools/*` 事件；`agent/turn-stopping` 是停止边界 |
-| 添加模型可见上下文 | 调用 `agent.inject()`，追加带来源的 `user/message`，但不创建轮次 |
+| 添加模型可见上下文 | 调用 `agent.inject()`，将带来源的上下文排入下一次获准请求 |
 | 添加 UI 或编辑器集成 | 驱动 `ctx.agents`，从 `session/event` 渲染；仅终端浮层使用 `ctx.tui` |
 | 添加持久会话状态 | 扩展 `SessionEventMap`；从日志渲染和回放 |
 | 添加异步会话标题生成 | 注册唯一的 `ctx.sessionTitle` 提供方 |

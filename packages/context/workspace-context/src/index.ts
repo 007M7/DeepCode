@@ -10,8 +10,9 @@
  */
 
 import type { Context } from 'cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { createUserMessage, type MessageId } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { PostToolDecision, ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { Config, resolveConfig, type ResolvedConfig } from './config.ts'
 import { loadBaselineInstructionSet } from './files.ts'
@@ -27,6 +28,7 @@ import {
   rollbackPendingInstructionChanges,
   workspaceContextMessage,
   type InstructionVersionCache,
+  type InstructionVersionState,
   type InstructionVersionUpdate,
   type PendingInstructionChange,
 } from './state.ts'
@@ -60,6 +62,10 @@ export function apply(ctx: Context, config: Config): void {
   const instructionVersions: InstructionVersionCache = new WeakMap()
   const pendingVersionUpdates = new Map<ToolExecutionToken, InstructionVersionUpdate[]>()
   const baselineLoaded = new WeakSet<object>()
+  const pendingBaselineCommits = new WeakMap<object, {
+    messageIds: Set<MessageId>
+    versions: Map<string, InstructionVersionState>
+  }>()
   // Sessions whose lifecycle start this mount witnessed. A startup or resume
   // emits agent/session-start before the first step; a hot remount attaches to
   // an already-live session and never sees it. Resumes always re-compose the
@@ -78,18 +84,43 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.on('session/event', (session, event) => {
     observeInstructionSessionEvent(session, event, pendingNestedChanges, instructionVersions)
+    const pending = pendingBaselineCommits.get(session)
+    if (pending === undefined || event.type !== 'user/message'
+      || !pending.messageIds.delete(event.data.id) || pending.messageIds.size > 0) return
+    baselineSessions.add(session)
+    if (pending.versions.size === 0) instructionVersions.delete(session)
+    else instructionVersions.set(session, pending.versions)
+    baselineLoaded.add(session)
+    pendingBaselineCommits.delete(session)
   })
 
-  ctx.on('agent/step', async (agent: Agent, _turn, _step, signal): Promise<void> => {
-    if (baselineLoaded.has(agent.session)) return
+  ctx.on('agent/pre-step', async (
+    agent: Agent,
+    _messages,
+    { signal },
+    next,
+  ): Promise<PreStepDecision> => {
+    const decision = await next()
+    if (signal.aborted || baselineLoaded.has(agent.session)) return decision
+    const previous = pendingBaselineCommits.get(agent.session)
+    if (decision.kind === 'enter' && previous !== undefined
+      && [...previous.messageIds].every(id => decision.messages.some(message => message.id === id))) {
+      return decision
+    }
+    if (previous !== undefined) {
+      for (const id of previous.messageIds) agent.inbox.remove('next-step', id)
+      pendingBaselineCommits.delete(agent.session)
+    }
     if (resolved.maxBytes <= 0 || !Number.isFinite(resolved.maxBytes)) {
       baselineLoaded.add(agent.session)
-      return
+      pendingBaselineCommits.delete(agent.session)
+      return decision
     }
     const fileSystem = ctx.get('fs')
     if (fileSystem === undefined) {
       baselineLoaded.add(agent.session)
-      return
+      pendingBaselineCommits.delete(agent.session)
+      return decision
     }
     /* v8 ignore next -- normal agents carry an absolute session cwd. */
     const cwd = agent.session.header.cwd ?? process.cwd()
@@ -104,34 +135,52 @@ export function apply(ctx: Context, config: Config): void {
       signal,
     }, fileSystem)
     const baseline = baselineInstructionState(instructions?.included ?? [])
-    baselineSessions.add(agent.session)
-    instructionVersions.set(agent.session, baseline.versions)
+    const candidateVersions: InstructionVersionCache = new WeakMap()
+    candidateVersions.set(agent.session, new Map(baseline.versions))
+    const contexts: UserMessage[] = []
 
     const update = await reconcileInstructionContext(
       agent,
       resolved,
       pendingNestedChanges,
-      instructionVersions,
+      candidateVersions,
       fileSystem,
       { includeBaselineScopes: false, signal },
     )
     if (update !== undefined) {
-      agent.session.append('user/message', update.context, { surfaceOp: 'append' })
-      applyInstructionVersionUpdates(agent.session, update.versionUpdates, instructionVersions)
+      contexts.push(update.context)
+      applyInstructionVersionUpdates(agent.session, update.versionUpdates, candidateVersions)
     }
     const keepVisibleBaseline = !lifecycleWitnessed.has(agent.session) && hasVisibleBaseline(agent)
     if (!keepVisibleBaseline && instructions !== undefined && instructions.rendered.text.length > 0) {
       const baselineMessage = workspaceContextMessage(instructions.rendered.text)
-      agent.session.append('user/message', createUserMessage({
+      contexts.push(createUserMessage({
         content: baselineMessage.content,
         source: {
           kind: 'workspace-instructions',
           baseline: true,
           changes: [...baseline.changes.values()],
         },
-      }), { surfaceOp: 'append' })
+      }))
     }
-    baselineLoaded.add(agent.session)
+    const versions = candidateVersions.get(agent.session)
+      ?? new Map<string, InstructionVersionState>()
+    if (contexts.length === 0) {
+      baselineSessions.add(agent.session)
+      if (versions.size === 0) instructionVersions.delete(agent.session)
+      else instructionVersions.set(agent.session, versions)
+      baselineLoaded.add(agent.session)
+      pendingBaselineCommits.delete(agent.session)
+      return decision
+    }
+    pendingBaselineCommits.set(agent.session, {
+      messageIds: new Set(contexts.map(context => context.id)),
+      versions,
+    })
+    for (const context of contexts.toReversed()) {
+      agent.inbox.prepend('next-step', context)
+    }
+    return decision
   })
 
   ctx.on('tools/post-execute', async (

@@ -89,7 +89,7 @@ async function waitFor(predicate: () => boolean, timeout = 5000, interval = 10):
 }
 
 describe('hooks-claude bridge — UserPromptSubmit', () => {
-  it('a UserPromptSubmit hook that exits 2 rejects admission without a turn', async () => {
+  it('a UserPromptSubmit hook that exits 2 rejects step entry without a turn', async () => {
     // UserPromptSubmit ignores its malformed matcher field, then exit 2 blocks
     // with the reason on stderr.
     const dir = mkdtempSync(join(tmpdir(), 'dsh-hooks-claude-'))
@@ -108,7 +108,7 @@ describe('hooks-claude bridge — UserPromptSubmit', () => {
     // The prompt was blocked before the model and before a turn opened.
     expect(adapter.requests).toHaveLength(0)
     expect(events(agent).some(e => e.type === 'turn/start')).toBe(false)
-    // Admission has no open turn in which turn-scoped hook provenance could live.
+    // Pre-step has no open turn in which turn-scoped hook provenance could live.
     expect(events(agent).some(e => e.type === 'hook/invoked' || e.type === 'hook/result')).toBe(false)
   })
 

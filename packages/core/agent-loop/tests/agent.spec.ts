@@ -50,7 +50,37 @@ describe('Agent', () => {
       .toEqual({ kind: 'plugin', plugin: '' })
   })
 
-  it('idle inject() rejects invalid input before append', async () => {
+  it('emits exact inserted, claimed, and discarded inbox messages', async () => {
+    const ctx = await harness(new MockAdapter([textResponse('ok')]))
+    const agent = ctx.agentLoop.create(SessionId('inbox-events'), { provider: 'mock', model: 'mock' })
+    const inserted: unknown[] = []
+    const claimed: unknown[] = []
+    const discarded: unknown[] = []
+    ctx.on('agent/inbox/inserted', (subject, event) => {
+      if (subject === agent) inserted.push(event)
+    })
+    ctx.on('agent/inbox/claimed', (subject, event) => {
+      if (subject === agent) claimed.push(event)
+    })
+    ctx.on('agent/inbox/discarded', (subject, event) => {
+      if (subject === agent) discarded.push(event)
+    })
+    const context = createUserMessage({
+      content: [{ type: 'text', text: 'discard me' }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    agent.inject(context)
+    agent.inbox.remove('next-step', context.id)
+    const prompt = createUserMessage({ content: [{ type: 'text', text: 'run' }], source: { kind: 'user' } })
+    agent.followup(prompt)
+    await agent.whenIdle()
+
+    expect(inserted).toEqual([{ message: context }, { message: prompt }])
+    expect(discarded).toEqual([{ message: context }])
+    expect(claimed).toEqual([{ message: prompt, turn: 1 }])
+  })
+
+  it('idle inject() rejects invalid input before enqueue', async () => {
     const ctx = await harness(new MockAdapter([textResponse('ok')]))
     const agent = ctx.agentLoop.create(SessionId('a1'), { provider: 'mock', model: 'mock' })
 

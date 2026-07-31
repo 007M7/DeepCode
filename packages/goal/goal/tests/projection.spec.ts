@@ -35,7 +35,7 @@ function liveAgent(ctx: Context, session: Session): Agent {
     id: session.id,
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     ctx,
     get status() { return status },
     send: () => {},

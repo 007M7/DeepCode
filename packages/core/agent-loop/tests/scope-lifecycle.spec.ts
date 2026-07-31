@@ -1066,7 +1066,7 @@ describe('agent scope lifecycle', () => {
     await waitForIdle(ctx, agent)
     expect(reentered).toBe(true)
 
-    // Idle again: the reentrant admission was already claimed and settled (its
+    // Idle again: the reentrant batch was already claimed and settled (its
     // prompt was blocked by nothing, so it ran) — arm a SECOND reentry that
     // fires from the disposal cancel's idle transition itself.
     reentered = false

@@ -560,7 +560,7 @@ export class GoalService extends Service {
     return view
   }
 
-  /** Accept one mutation into the agent log/FIFO, cache, and live event stream. */
+  /** Accept one mutation into the agent injection queue, cache, and live event stream. */
   private commit(agent: Agent, cache: GoalCache, change: GoalChangeMeta, activation: GoalActivation): void {
     const ref = goalChangeRef(change)
     const pending: PendingGoalChange = { change, activation, applied: false }

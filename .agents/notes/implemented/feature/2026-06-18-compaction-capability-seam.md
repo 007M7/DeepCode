@@ -37,13 +37,13 @@ An earlier draft put the full algorithm (the retention walk, token-summing, text
 
 ### Automatic pressure runs after successful durable step work
 
-Successful-call pressure cannot run at pre-step because final `agent/request` routing, provider output, tool results, buffered context, and steering do not exist there. Serial `agent/post-step(agent, turn, step, signal)` fires after those facts are durable and before `step/end`. `dsh-compact-basic` measures the canonical logged request through `ctx.tokenMeter`, so the next request sees any replacement without a speculative envelope override. Once pressure qualifies, optional `ctx.toolResultPrune` rewriting runs before summary selection; compact-basic remeasures the durable surface and skips summarization if pruning restores safe pressure.
+Successful-call pressure runs at the next `agent/pre-step`, after the preceding response, tool results, buffered context, and steering are durable and before the next request is derived. `dsh-compact-basic` measures the canonical logged request through `ctx.tokenMeter`, so the next request sees any replacement without a speculative envelope override. Once pressure qualifies, optional `ctx.toolResultPrune` rewriting runs before summary selection; compact-basic remeasures the durable surface and skips summarization if pruning restores safe pressure.
 
 Canonical provider context overflow takes a separate path. The failed step closes and `agent/request-error` receives the original request error. Compact-basic owns its per-agent overflow count, prunes before forcing one useful balanced reduction, and returns `{ kind: 'retry' }` only if `session.surface.replaceGeneration` increases, including pruning-only progress when no summary range exists. The loop then closes the failed turn, opens a new numbered retry turn, and reconstructs its request from the durable log. No replacement, a recovery failure before any replacement, cancellation, an exhausted cap, or an unrelated error preserves the original provider failure. If pruning already advanced the generation before later summary work fails, recovery retries from that durable pruned surface unless cancellation or disposal wins. The complete lifecycle decision is in the [after-call recovery Agent Note](../architecture/2026-07-10-after-call-compaction-pressure-and-overflow-recovery.md).
 
 ```
 assistant/message → tool/result/context/steering
-await serial agent/post-step          ⟵ pressure compaction inside the successful step
+await waterfall agent/pre-step       ⟵ pressure compaction before the next request
 step/end
 
 provider overflow → step/end
@@ -118,7 +118,7 @@ Two failure paths, both documented:
 ## Consequences
 
 - **Packages**: `packages/compact/compact` supplies the interface, `compact-basic` supplies the backend, and `compact-tool-result-prune` supplies optional deterministic rewriting. `packages/llm/token-meter` owns replay-aware measurement independently. The consumer tier is deferred.
-- **Automatic seams**: `agent/post-step` (`@mode serial`) handles successful-call pressure and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. Generic `agent/pre-step` remains a four-argument checkpoint with no compaction-only prompt/prefix payload.
+- **Automatic seams**: `agent/pre-step` (`@mode waterfall`) handles pressure before request derivation and `agent/request-error` (`@mode waterfall`) handles final request failures after the failed step closes. Pre-step receives the claimed batch and `PreStepContext`, with no compaction-only prompt/prefix payload.
 - **`SessionEventMap`** gains `compact/start` / `compact/summary` / `compact/end` by declaration merging (merge-extensible); `SurfaceEventType` is **not** touched. These are session events, not cordis `Events`, so the event-taxonomy gate needs no entry.
 - **`dsh-compact`** owns `COMPACT_CHECKPOINT_SOURCE`, `isCompactCheckpointSource(source)`, `toolPairingBalancedBefore(session, seq)`, and `toolPairingBalancedAfter(session, seq)`. The marker identifies replacement summaries across backend implementations. The cached surface-edge checks prevent `compactRegion` and `compactIfNeeded` from splitting a tool-call/result pair, validate current membership by seq, answer both edges from one per-cut balance sequence, and reject stale or missing seqs and orphan results.
 - **`dsh-session`** validates positional replacement, complete provenance, and content-only single-node `tool/result` rewrites through its one surface manager. Its invariant companion treats fresh appended tool results as executions that require an open step and pending call; validated replacements remain turn-enclosed rewrites.

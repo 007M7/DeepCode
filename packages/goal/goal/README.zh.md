@@ -21,7 +21,7 @@
 
 最多只有一个当前目标。创建操作会生成 revision 为 1、phase 为 active 的目标并启用续行。未完成的目标必须编辑、转换或清除；已完成目标可以由拥有全局未使用过的 id 的目标替换。编辑会保留 phase、blocker reason 与 activation。暂停、完成、阻塞和清除都会停用续行。阻塞会记录策略自有的 lower-kebab-case 代码和规范化的自由文本说明；提供方限制、配置预算、执行错误与请求人工输入都使用这一种持久 phase，不会扩增生命周期状态。只有配置的 Round 上限仍有剩余容量时，resume 才接受已停止 phase 或 phase 为 active 但已停用续行的目标；它会清除原 blocker reason。phase 为 active 且已启用续行的目标会拒绝冗余操作。
 
-每次非 clear 变更都会通过 `agent.inject()` 追加完整的版本化快照；clear 则追加带 revision 的 tombstone。模型可见的 `user/message` 内容与其带类型的 `{ kind: 'goal', change }` 来源必须完全一致。回放会拒绝形状错误、来源／内容漂移、不连续 revision、非法生命周期转换、每目标时间戳非单调，以及不连续的 Goal Round。挂钟时间倒退时，变更时间戳会限制在不早于上一次目标更新的值。
+每次变更都会通过 `agent.inject()` 把完整的版本化快照排队；clear 使用带 revision 的 tombstone。后续返回 enter 的 pre-step 会把它记录为模型可见的 `user/message`，其内容与带类型的 `{ kind: 'goal', change }` 来源必须完全一致。回放会拒绝形状错误、来源／内容漂移、不连续 revision、非法生命周期转换、每目标时间戳非单调，以及不连续的 Goal Round。挂钟时间倒退时，变更时间戳会限制在不早于上一次目标更新的值。
 
 注入可以立即追加，也可能在活跃工具批次 FIFO 中等待。服务会在内存中叠加已接受的待处理变更，并在每个完全一致的载荷进入日志时逐一完成对账，因此连续的模型工具变更可以看到自身最新 revision，而不会把尚未记录的缓存当作持久状态。可重入追加观察者会且只会看到每项已接受变更一次；增量回放会把游标保留在第一个损坏事件处。追加或入队成功后才触发 `goal/changed`；监听器失败会被隔离处理。
 

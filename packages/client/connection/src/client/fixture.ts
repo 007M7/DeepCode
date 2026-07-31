@@ -413,7 +413,7 @@ function viewFor(event: SessionEvent, log: readonly SessionEvent[]): ToolEventVi
  * Fixture parallel of the plan unit's double-event fold: `command/run`
  * records named `plan` set the wanted target (`off` → false, else true);
  * `plan/mode` commits and clears it. `wanted` is exposed for the prompt
- * boundary (the fixture's agent/step parallel).
+ * boundary (the fixture's step/start parallel).
  */
 function foldPlan(log: readonly SessionEvent[]): { active: boolean; pending: boolean; wanted: boolean | null } {
   let active = false
@@ -1189,7 +1189,7 @@ export function createFixtureApi(options: FixtureOptions = {}): ApiProxy {
         nextTurn.set(id, turn + 1)
         setRunning(id, true)
         append(id, { type: 'turn/start', data: { turn } })
-        // Boundary flush parallel (the host's agent/step seam): an outstanding
+        // Boundary flush parallel (the host's step/start observer): an outstanding
         // /plan selection commits as plan/mode inside the opened turn.
         const plan = foldPlan(logOf(id))
         if (plan.wanted !== null && plan.wanted !== plan.active) {

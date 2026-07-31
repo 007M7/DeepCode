@@ -493,7 +493,7 @@ type SessionEvent<T extends SessionEventType = SessionEventType> = {
 type InboxTarget = 'next-turn' | 'next-step'
 ```
 
-每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.splice(target, start, deleteCount, inserted, outcome?)` 使用标准 splice 坐标，拒绝重复的待处理消息 id，并将规范化变更记录为持久 `agent/inbox/spliced`。回放这些事件可以重建 `nextTurn` 和 `nextStep`，包括编辑、插入、准入与取消。
+每个待处理入队项就是其 `UserMessage`；`MessageId` 是唯一标识。`Inbox.append`、`prepend`、`update`、`remove` 与 `splice` 会记录规范化的持久 `agent/inbox/spliced` 变更，并拒绝重复的待处理 id。普通删除表示取消。`claim(target)` 通过纯删除 splice 原子移除拟进入步骤的批次；循环另行逐条发出 claimed 通知。UI 投影等整体队列消费方通过持久 splice 重建 `nextTurn` 与 `nextStep`，而跟踪单条消息的消费方使用精确的 `agent/inbox/inserted`、`claimed` 与 `discarded` 通知。
 
 ```ts type-equiv
 /** Options for {@link Agent.cancel}. */
@@ -576,18 +576,18 @@ interface Agent {
   steer(message: UserMessage): void
 
   /**
-   * Append model-facing context without running the model. Admission or an
-   * open turn stages it at the next safe log position; outside that window it
-   * appends immediately without opening a turn. If admission closes without a
-   * turn, a context-only boundary appends immediately; context staged beside
-   * steering remains pending with it.
+   * Queue model-facing context for the next pre-step without waking the
+   * driver. Collecting and running drivers claim it at the nearest later
+   * step boundary; idle drivers leave it pending until follow-up or steering
+   * wakes them. It may miss a request whose pre-step already claimed its
+   * batch. Cancellation or disposal may discard pending context.
    * @param message - identified injected context and its producer provenance.
    */
   inject(message: UserMessage): void
 }
 ```
 
-`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。`followup()` 不返回 handle：其 `MessageId` 标识持久 inbox 与准入事实，而不标识之后的助手输出或轮次结束。`whenIdle()` 观察整个 agent，因此只有显式拥有从回执到 idle 这一完整区间的调用方才能将其称为一次运行（[决策](../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
+`AgentStatus` 为 `'idle' | 'running'`，`SessionId` 是品牌类型。dispose（资源释放）会把 agent 从注册表移除并发出 `agent/disposed`；它不是一个终态 status 值。`running` 描述整个驱动器的排空区间，可能跨越连续的排队轮次；它不能证明某个轮次仍然打开。`followup()` 不返回 handle：其 `MessageId` 标识持久 inbox 的插入、领取与丢弃事实，而不标识之后的助手输出或轮次结束。`whenIdle()` 观察整个 agent，因此只有显式拥有从回执到 idle 这一完整区间的调用方才能将其称为一次运行（[决策](../../.agents/notes/implemented/architecture/2026-07-30-followup-enqueue-and-owned-runs.md)）。`AgentOptions` 可合并扩展：core 声明 `provider?`、`model?` 与 `maxTokens?`（在 `agent/request` 后，分发要求 provider 与 model 都存在）。提供 `maxTokens` 时，它必须是正安全整数，并限制每次对话模型请求的输出；省略时，系统会在写入请求 header 前填入确切模型的适配器默认值，否则提供方行为保持不变。Persona 归 `dsh-system-prompt` 所有：agent 作用域的 `deployment:persona` 可以遮蔽全局默认值。
 
 cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有者会将它复制到仅运行时的 `AbortSignal.reason`；signal 不授予协作监听器任何分类权限。持久 `turn/end` 保留粗粒度 `{ kind: 'aborted' }` 结果；若需记录请求 provenance，应使用单独的持久事件，而不是让终态结果承担额外含义。
 
@@ -599,22 +599,31 @@ cause 是由 TypeScript 强制约束的同进程输入。活跃的取消持有�
 
 ## 拦截决策
 
-提示词决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。获准批次具有权威性，并保留每条消息的标识与 provenance。钩子桥接层把其原生决策字段映射到这一类型化结果上。
+pre-step 决策使用与持久 user-role 输入相同、带标识的 `UserMessage` 形状。进入步骤的批次具有权威性，并保留每条消息的标识与 provenance。钩子桥接层把其原生决策字段映射到这一类型化结果上。
 
 源码：[`packages/core/agent/src/types.ts`](../../packages/core/agent/src/types.ts)
 
-`agent/prompt-submit` 在轮次打开前返回 `PromptDecision`。allow 提供完整的准入批次；block 拒绝准入且不产生任何轮次事件，并且必须选择是否丢弃已领取的消息。未被此次接纳领取的消息会继续保持待处理：
+`agent/pre-step` 接收独占的已领取批次，以及拟进入步骤的坐标与取消 signal。首次提案发生在轮次打开前；工具 continuation 可以在步骤之间提交空的已领取批次：
 
 ```ts type-equiv
-/**
- * Prompt interception result. An allowed batch replaces the submitted
- * messages; a listener wrapping `next()` preserves that batch unless it
- * intentionally replaces it. A blocked batch explicitly chooses whether to
- * discard the claimed messages; unclaimed work remains pending.
- */
-type PromptDecision =
-  | { kind: 'allow'; messages: UserMessage[] }
-  | { kind: 'block'; reason: string; discardClaimed: boolean }
+/** Coordinates and cancellation for a proposed step. */
+interface PreStepContext {
+  /** Turn that will own the step. */
+  readonly turn: number
+  /** Step proposed by the loop. */
+  readonly step: number
+  /** Current turn cancellation signal. */
+  readonly signal: AbortSignal
+}
+```
+
+它返回 `PreStepDecision`。reject 不会打开步骤。enter 提供在 `step/start` 后追加的完整消息批次；最终决策省略的已领取消息保持已删除，而领取后插入的输入仍留待后续处理：
+
+```ts type-equiv
+/** Whether and with which messages the loop enters a proposed step. */
+type PreStepDecision =
+  | { kind: 'reject' }
+  | { kind: 'enter'; messages: UserMessage[] }
 ```
 
 `agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 返回 `{ kind: 'retry' }` 且不调用 `next()`；默认的 `undefined` 会让失败保持终态。
@@ -624,7 +633,7 @@ type PromptDecision =
 type RequestErrorAction = { kind: 'retry' } | undefined
 ```
 
-`agent/step` 是请求推导前唯一的串行边界。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
+`agent/pre-step` 是请求推导前唯一的串行边界。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
 
 `agent/session-start` 携带 `SessionStartSource`（会话生命周期为何开始；桥接层据此匹配其 SessionStart）：
 

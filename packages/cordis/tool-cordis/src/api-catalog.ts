@@ -1201,11 +1201,32 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'A step or turn errored.',
   },
   {
-    name: 'agent/prompt-submit',
+    name: 'agent/inbox/claimed',
+    mode: 'emit',
+    signature: '\'agent/inbox/claimed\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage; turn: number }): void',
+    jsDoc: '/**\n * One message left the inbox for a turn.\n * @param agent - the agent whose inbox changed.\n * @param event - the claimed message and owning turn.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message left the inbox for a turn.',
+  },
+  {
+    name: 'agent/inbox/discarded',
+    mode: 'emit',
+    signature: '\'agent/inbox/discarded\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
+    jsDoc: '/**\n * One message was discarded from the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the discarded message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message was discarded from the live inbox.',
+  },
+  {
+    name: 'agent/inbox/inserted',
+    mode: 'emit',
+    signature: '\'agent/inbox/inserted\'(this: Scoped<Agent>, agent: Agent, event: { message: UserMessage }): void',
+    jsDoc: '/**\n * One message entered the live inbox.\n * @param agent - the agent whose inbox changed.\n * @param event - the inserted message.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
+    summary: 'One message entered the live inbox.',
+  },
+  {
+    name: 'agent/pre-step',
     mode: 'waterfall',
-    signature: '\'agent/prompt-submit\'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], signal: AbortSignal, next: () => Promise<PromptDecision>): Promise<PromptDecision>',
-    jsDoc: '/**\n * Allow, rewrite, or block one claimed inbox batch before it becomes\n * model-visible or opens a turn. Call `next()` for the unchanged default. The\n * signal controls only this admission attempt; listeners may cooperate with\n * it but must not retain it for a later attempt or turn.\n * @param agent - the agent whose driver claimed the batch.\n * @param messages - the claimed messages.\n * @param signal - the current turn\'s explicit abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
-    summary: 'Allow, rewrite, or block one claimed inbox batch before it becomes model-visible or opens a turn.',
+    signature: '\'agent/pre-step\'(this: Scoped<Agent>, agent: Agent, messages: UserMessage[], context: PreStepContext, next: () => Promise<PreStepDecision>): Promise<PreStepDecision>',
+    jsDoc: '/**\n * Reject a proposed step or replace the messages that enter it. Calling\n * `next()` preserves the current messages.\n * @param agent - the agent proposing the step.\n * @param messages - messages removed from the inbox for this step.\n * @param context - proposed turn and step coordinates plus cancellation.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode waterfall\n */',
+    summary: 'Reject a proposed step or replace the messages that enter it.',
   },
   {
     name: 'agent/request',
@@ -1234,13 +1255,6 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'agent/status\'(this: Scoped<Agent>, agent: Agent, status: AgentStatus): void',
     jsDoc: '/**\n * Agent status changed (`idle` ⇄ `running`). A waking delivery enters\n * `running` synchronously after reserving cancellation; `idle` means no\n * driver remains scheduled or active.\n * @param agent - the agent whose status flipped.\n * @param status - the status just entered (the transition\'s destination).\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode emit\n */',
     summary: 'Agent status changed (`idle` ⇄ `running`).',
-  },
-  {
-    name: 'agent/step',
-    mode: 'serial',
-    signature: '\'agent/step\'(this: Scoped<Agent>, agent: Agent, turn: number, step: number, signal: AbortSignal): Promise<void> | void',
-    jsDoc: '/**\n * Awaited serial checkpoint before EVERY request of a turn is built (the\n * first as well as each post-tools continuation). The single "between\n * steps" extension point: inject context, steer, or edit the session log\n * here — the request\'s history derives from the log right after this settles.\n * @param agent - the agent about to send a request.\n * @param turn - the open turn number.\n * @param step - the step number about to open.\n * @param signal - the turn abort signal.\n * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.\n * @mode serial\n */',
-    summary: 'Awaited serial checkpoint before EVERY request of a turn is built (the first as well as each post-tools continuation).',
   },
   {
     name: 'agent/turn-stopping',
@@ -1919,7 +1933,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Inbox',
-    declaration: 'export class Inbox {\n    constructor(private readonly session: Session);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[], outcome?: \'admitted\' | \'canceled\'): UserMessage[];\n}',
+    declaration: 'export class Inbox {\n    constructor(private readonly session: Session, private readonly notifications: InboxNotifications);\n    get nextTurn(): readonly UserMessage[];\n    get nextStep(): readonly UserMessage[];\n    get hasPending(): boolean;\n    claim(target: InboxTarget): UserMessage[];\n    append(target: InboxTarget, message: UserMessage): void;\n    prepend(target: InboxTarget, message: UserMessage): void;\n    update(target: InboxTarget, messageId: MessageId, newMessage: UserMessage): boolean;\n    remove(target: InboxTarget, messageId: MessageId): boolean;\n    splice(target: InboxTarget, start: number, deleteCount: number, inserted: UserMessage[]): UserMessage[];\n}',
+  },
+  {
+    name: 'InboxNotifications',
+    declaration: 'export interface InboxNotifications {\n    inserted(message: UserMessage): void;\n    discarded(message: UserMessage): void;\n}',
   },
   {
     name: 'InboxTarget',
@@ -2040,6 +2058,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PreparedReferencedMessage',
     declaration: 'export interface PreparedReferencedMessage {\n    content: ContentBlock[];\n    additionalContext?: UserMessage;\n}',
+  },
+  {
+    name: 'PreStepContext',
+    declaration: 'export interface PreStepContext {\n    readonly turn: number;\n    readonly step: number;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
+    name: 'PreStepDecision',
+    declaration: 'export type PreStepDecision = {\n    kind: \'reject\';\n} | {\n    kind: \'enter\';\n    messages: UserMessage[];\n};',
   },
   {
     name: 'PresetOption',
@@ -2807,7 +2833,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'TurnEndReasonMap',
-    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: AgentCancelCause;\n    };\n    error: {\n        kind: \'error\';\n        error: unknown;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
+    declaration: 'export interface TurnEndReasonMap {\n    completed: {\n        kind: \'completed\';\n    };\n    aborted: {\n        kind: \'aborted\';\n        reason: AgentCancelCause;\n    };\n    blocked: {\n        kind: \'blocked\';\n    };\n    error: {\n        kind: \'error\';\n        error: unknown;\n    };\n    \'max-tokens\': {\n        kind: \'max-tokens\';\n    };\n    interrupted: {\n        kind: \'interrupted\';\n    };\n}',
   },
   {
     name: 'TypertContribution',

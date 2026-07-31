@@ -96,7 +96,7 @@ function sessionAgent(session: Session, id = 'agent'): Agent {
     id: SessionId(id),
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     status: 'running',
     ctx: new Context(),
     send: () => {},
@@ -135,7 +135,17 @@ async function fire(
   step: number,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  await agentEvents(ctx, agent).serial('agent/step', turn, step, signal)
+  const decision = await agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    [],
+    { turn, step, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+  )
+  if (decision.kind === 'enter') {
+    for (const message of decision.messages) {
+      agent.session.append('user/message', message, { surfaceOp: 'append' })
+    }
+  }
 }
 
 afterEach(() => {
@@ -365,19 +375,11 @@ describe('tmux-context no-op paths', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('spawn refused'))
   })
 
-  it('skips an already-aborted step and runs before ordinary agent/step listeners', async () => {
+  it('skips an already-aborted prompt submission', async () => {
     const { ctx } = await mount({}, true)
     const session = new Session(SessionId('ordering'))
     const agent = sessionAgent(session)
     openMessageTurn(session, 1)
-    let ordinarySawContext = false
-    ctx.on('agent/step', (subject) => {
-      ordinarySawContext = subject.session.events.some(
-        event => event.type === 'user/message'
-          && event.data.source.kind === 'plugin'
-          && event.data.source.plugin === 'tmux-context',
-      )
-    })
 
     const abort = new AbortController()
     abort.abort()
@@ -385,7 +387,6 @@ describe('tmux-context no-op paths', () => {
     expect(contextTexts(session)).toHaveLength(0)
 
     await fire(ctx, agent, 1, 1)
-    expect(ordinarySawContext).toBe(true)
     expect(contextTexts(session)).toHaveLength(1)
   })
 })

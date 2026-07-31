@@ -16,7 +16,7 @@ interface Harness {
   readonly plugin: Awaited<ReturnType<Context['plugin']>>
 }
 
-/** Append one idle injection using the public Agent contract (idle inject wraps in a one-shot injection turn, per turn enclosure). */
+/** Commit one injected message as an already admitted turn for the Agent test double. */
 function appendInjection(session: Session, input: UserMessage): void {
   const lastStart = session.events.findLast(event => event.type === 'turn/start')
   const turn = (lastStart?.data.turn ?? 0) + 1
@@ -34,7 +34,7 @@ function stubAgent(ctx: Context, id: string): { agent: Agent; session: Session }
     id: session.id,
     options: {},
     session,
-    inbox: new Inbox(session),
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }),
     ctx: new Context(),
     get status() { return status },
     send: () => {},

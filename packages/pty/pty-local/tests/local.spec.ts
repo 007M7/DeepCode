@@ -35,7 +35,7 @@ function stubAgent(ctx: Context, rawId: string): Agent {
   const scope = ctx.plugin(() => {})
   const session = new Session(id)
   return {
-    id, options: {}, session, inbox: new Inbox(session), status: 'idle', ctx: scope.ctx,
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {} }), status: 'idle', ctx: scope.ctx,
     send: () => {}, followup: () => {}, steer: () => {}, inject: () => {}, cancel() {}, whenIdle: () => Promise.resolve(),
   }
 }
