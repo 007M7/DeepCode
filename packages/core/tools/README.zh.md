@@ -13,7 +13,7 @@ tools:
   mode: native   # native (default) | code | both
 ```
 
-`native` 以函数定义的形式贡献可见工具。`code` 贡献保留的 `run_code` 传输和生成的 `tools:sdk` 段；`both` 同时贡献两种形式。不能注册、遮蔽、限制或移除该保留传输。非原生模式要求所加载 `ctx.codeRuntime` 的 `language` 有已注册的 SDK 渲染器（TypeScript 经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)，Python 经 [`dsh-code-runtime-python`](../../code-runtime/code-runtime-python/README.md)）；没有渲染器的运行时语言会让提示词组装响亮失败；如果 `systemPrompt.toolOrder` 条目指向当前模式未贡献的工具，系统会拒绝组装提示词。`system-prompt/assemble` 监听器可以替换注册表贡献；它返回的组装结果具有权威性，因此该监听器负责保留可用的 Code Mode 协议。
+`native` 以函数定义的形式贡献可见工具。`code` 贡献保留的 `run_code` 传输和生成的 `tools:sdk` 段；`both` 同时贡献两种形式。不能注册、遮蔽、限制或移除该保留传输。非原生模式要求所加载 `ctx.codeRuntime` 的 `language` 有已注册的 SDK 渲染器（TypeScript 经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)，Python 经 `dsh-code-runtime-python`）；没有渲染器的运行时语言会让提示词组装响亮失败；如果 `systemPrompt.toolOrder` 条目指向当前模式未贡献的工具，系统会拒绝组装提示词。`system-prompt/assemble` 监听器可以替换注册表贡献；它返回的组装结果具有权威性，因此该监听器负责保留可用的 Code Mode 协议。
 
 ### 公开 API
 
@@ -145,7 +145,7 @@ agent loop 将连续的 `parallel` 调用归入有界滚动池，并把每个 `e
 
 #### 模型看到的内容
 
-Code Mode 会公开生成的 [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools)、下方 SDK 说明，以及按所加载运行时语言生成的精确 SDK 块（TypeScript 的 `declare const tools` 块，或 Python 的 `tools` 声明）。`both` 会同时公开普通 schema 与此 Code Mode 接口。说明与 SDK 块随所加载运行时的语言切换；下方展示 TypeScript 风格（经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)），Python 风格（经 [`dsh-code-runtime-python`](../../code-runtime/code-runtime-python/README.md)）形状相同，只是换成 Python 语法（`await tools.name(args)`、异体名用下标访问、`print(...)` 与顶层 `return`）。
+Code Mode 会公开生成的 [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools)、下方 SDK 说明，以及按所加载运行时语言生成的精确 SDK 块（TypeScript 的 `declare const tools` 块，或 Python 的 `tools` 声明）。`both` 会同时公开普通 schema 与此 Code Mode 接口。说明与 SDK 块随所加载运行时的语言切换；下方展示 TypeScript 风格（经 [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)），Python 风格（经 `dsh-code-runtime-python`）形状相同，只是换成 Python 语法（`await tools.name(args)`、异体名用下标访问、`print(...)` 与顶层 `return`）。
 
 ##### Code Mode SDK 说明
 

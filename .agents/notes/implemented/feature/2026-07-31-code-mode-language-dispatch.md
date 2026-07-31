@@ -25,8 +25,12 @@ Both tables are read with `Object.hasOwn` before use so a language named `toStri
 
 `py-types.ts` renders the same unified tool-schema vocabulary `jsonSchemaToTs` covers, targeting Python: `jsonSchemaToPy` emits a type expression per JSON-schema node, and `renderToolsSdkPy` assembles named `TypedDict`s for each visible tool's arguments and canonical output plus a `tools` object with usage instructions equivalent to the TypeScript flavor. Unsupported raw constructs degrade rather than throwing during assembly, matching the TypeScript renderer's contract. The output is deterministic — lexicographic tool order, byte-identical text for an unchanged tool set — so the prompt stays prefix-cache-friendly.
 
-## Rejected alternatives
+## Alternatives considered
 
 - **A `language` config field on `ToolRegistry`.** Deployment would then have two places to name the language (the loaded runtime and the tools config) that can disagree; the loaded runtime is the single source of truth, so the registry reads it rather than duplicating it.
 - **Importing the Python backend into `code-mode.ts` to detect it.** That would couple the tool layer to a concrete backend and force the protocol/backend PRs to land first. Runtime dispatch on `language` keeps the layer backend-agnostic and independently shippable.
 - **A default renderer for an unknown language.** A silent fallback would emit a TypeScript SDK over, e.g., a Ruby runtime — the model would see instructions in the wrong language. Failing loud at assembly is the repository's misconfiguration stance.
+
+## Consequences
+
+Adding a backend language is a table entry plus its renderer, with no change to `agent-loop` or the registry structure. The two tables (`SDK_RENDERERS`, `RUN_CODE_FLAVORS`) must stay in step: a language present in one but not the other is a latent inconsistency the `Object.hasOwn` guards turn into a loud failure rather than a wrong-language prompt. The tool layer stays free of any concrete backend dependency, so it lands and is testable on master ahead of the Python protocol and backend; the cost is that a `python` runtime cannot actually be exercised end to end until that backend ships, so this PR's coverage is unit-level (the renderer output and the dispatch/rejection paths) rather than a real Python run.

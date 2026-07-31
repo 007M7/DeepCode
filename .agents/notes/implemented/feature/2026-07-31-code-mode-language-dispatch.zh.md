@@ -25,8 +25,12 @@ Code Mode 只生成一种 SDK 形态：TypeScript。`ToolRegistry` 为 `tools:sd
 
 `py-types.ts` 渲染 `jsonSchemaToTs` 所覆盖的同一套统一工具 schema 词汇，目标为 Python：`jsonSchemaToPy` 为每个 JSON-schema 节点发出一个类型表达式，`renderToolsSdkPy` 为每个可见工具的参数与规范输出装配具名 `TypedDict`，再加一个带用法说明的 `tools` 对象，与 TypeScript 形态等价。不支持的原始构造在装配时降级而非抛错，与 TypeScript 渲染器的契约一致。输出是确定性的——工具按字典序排列，工具集不变时文本逐字节相同——因此 prompt 保持 prefix-cache 友好。
 
-## 被否决的备选方案
+## Alternatives considered
 
 - **在 `ToolRegistry` 上加一个 `language` 配置字段。** 那样部署方就会有两处命名语言（所加载的运行时与 tools 配置）且可能相互矛盾；所加载的运行时是唯一真相来源，故注册表读取它而不复制它。
 - **把 Python 后端 import 进 `code-mode.ts` 来检测它。** 那会把工具层耦合到具体后端，并迫使协议/后端 PR 先落地。按 `language` 运行时分发使该层保持后端无关、可独立发布。
 - **为未知语言提供默认渲染器。** 静默回退会在比如 Ruby 运行时上发出 TypeScript SDK——模型会看到错误语言的指令。在装配处 fail loud 是本仓库对错误配置的立场。
+
+## Consequences
+
+新增一门后端语言就是一条表项加它的渲染器，不动 `agent-loop`，也不动注册表结构。两张表（`SDK_RENDERERS`、`RUN_CODE_FLAVORS`）必须同步：某语言只在其一而不在另一是潜在的不一致，`Object.hasOwn` 守卫会把它变成一次 loud failure，而不是错误语言的 prompt。工具层不依赖任何具体后端，因此它能先于 Python 协议和后端在 master 上落地并可测；代价是在该后端发布前无法真正端到端跑一个 `python` 运行时，故本 PR 的覆盖是 unit 级（渲染器输出与分发/拒绝路径），而非真实的 Python 运行。

@@ -13,7 +13,7 @@ tools:
   mode: native   # native (default) | code | both
 ```
 
-`native` contributes visible tools as function definitions. `code` contributes the reserved `run_code` transport and generated `tools:sdk` section; `both` contributes both forms. The reserved transport cannot be registered, shadowed, restricted, or removed. Non-native modes require a `ctx.codeRuntime` whose `language` has a registered SDK renderer (TypeScript via [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md), Python via [`dsh-code-runtime-python`](../../code-runtime/code-runtime-python/README.md)); a runtime language with no renderer fails prompt assembly loudly, and a `systemPrompt.toolOrder` entry for a tool the mode does not contribute rejects prompt assembly. A `system-prompt/assemble` listener may replace the registry's contributions; its returned assembly is authoritative, so that listener owns preserving a usable Code Mode protocol.
+`native` contributes visible tools as function definitions. `code` contributes the reserved `run_code` transport and generated `tools:sdk` section; `both` contributes both forms. The reserved transport cannot be registered, shadowed, restricted, or removed. Non-native modes require a `ctx.codeRuntime` whose `language` has a registered SDK renderer (TypeScript via [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md), Python via `dsh-code-runtime-python`); a runtime language with no renderer fails prompt assembly loudly, and a `systemPrompt.toolOrder` entry for a tool the mode does not contribute rejects prompt assembly. A `system-prompt/assemble` listener may replace the registry's contributions; its returned assembly is authoritative, so that listener owns preserving a usable Code Mode protocol.
 
 ### Public API
 
@@ -145,7 +145,7 @@ Prefix-stable while visible definitions and their order are unchanged. Registrat
 
 #### What the model sees
 
-Code Mode exposes the generated [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools), the SDK instructions below, and the generated exact SDK block for the loaded runtime's language (the TypeScript `declare const tools` block, or the Python `tools` declaration). `both` exposes normal schemas and this Code Mode surface. The instructions and SDK block match the loaded runtime's language; the TypeScript flavor (via [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)) is shown below, and the Python flavor (via [`dsh-code-runtime-python`](../../code-runtime/code-runtime-python/README.md)) is the same shape with Python syntax (`await tools.name(args)`, subscript access for exotic names, `print(...)` and top-level `return`).
+Code Mode exposes the generated [`run_code` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tools), the SDK instructions below, and the generated exact SDK block for the loaded runtime's language (the TypeScript `declare const tools` block, or the Python `tools` declaration). `both` exposes normal schemas and this Code Mode surface. The instructions and SDK block match the loaded runtime's language; the TypeScript flavor (via [`dsh-code-runtime-worker`](../../code-runtime/code-runtime-worker/README.md)) is shown below, and the Python flavor (via `dsh-code-runtime-python`) is the same shape with Python syntax (`await tools.name(args)`, subscript access for exotic names, `print(...)` and top-level `return`).
 
 ##### Code Mode SDK instructions
 
