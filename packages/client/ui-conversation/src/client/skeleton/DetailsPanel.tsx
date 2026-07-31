@@ -11,9 +11,9 @@ import { CodeBlock, DiffBlock, ReadBlock, SearchBlock, TerminalBlock, WebBlock }
 import { shallowEqual } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConversationSnapshot, RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DetailsSlotProps } from '../contract/slots.ts'
-import { searchCardModel } from '../contract/search-card-model.ts'
 import { readCardModel } from '../contract/read-card-model.ts'
 import { diffCardModel } from '../contract/diff-card-model.ts'
+import { searchCardModel } from '../contract/search-card-model.ts'
 import { terminalBlockLabels, terminalCardModel } from '../contract/terminal-card-model.ts'
 import { webCardModel } from '../contract/web-card-model.ts'
 import { resultText, type ToolCallBlock } from '../contract/tool-call-model.ts'
@@ -131,15 +131,16 @@ export function DetailsPanel({ useSession, useSessions, sessionId, useStore, clo
  * The Output section's body for the selected call. A terminal-card call — a
  * shell command's call/result views — renders through the shared TerminalBlock
  * at the primitive's own full height allowance, so column-aligned output keeps
- * its alignment and scrolls sideways instead of folding. A search-card call —
- * a `grep`/`glob` result view — renders through the shared SearchBlock at the
- * same full height allowance, with a capped search's recovery footer below it.
- * A read-card call renders through the shared ReadBlock at that same full height,
- * so the whole returned window is line-numbered and highlighted. A diff-card
- * call — a write/edit's applied change — renders through the shared DiffBlock at
- * the same full height. A web-card call — a `web_search`/`web_fetch` result —
- * renders through WebBlock at its own full source-list allowance. Every other
- * call, and a running call with no card yet, keeps the flattened text form.
+ * its alignment and scrolls sideways instead of folding. A read-card call
+ * renders through the shared ReadBlock at that same full height, so the whole
+ * returned window is line-numbered and highlighted. A diff-card call — a
+ * write/edit's applied change — renders through the shared DiffBlock at the same
+ * full height. A search-card call — a `grep`/`glob` result view — renders
+ * through the shared SearchBlock at the same full height allowance, with a
+ * capped search's recovery footer below it. A web-card call — a
+ * `web_search`/`web_fetch` result — renders through WebBlock at its own full
+ * source-list allowance. Every other call, and a running call with no card yet,
+ * keeps the flattened text form.
  * @param props.material - the selected call's material from {@link materialFor}.
  * @param props.cwd - the session workspace root, resolving the terminal view's cwd.
  * @param props.t - the panel's locale seat, passed down as a plain prop.
@@ -159,6 +160,12 @@ function OutputBody({ material, cwd, t }: { material: CallMaterial; cwd: string 
       </>
     )
   }
+  const read = readCardModel(material.block, cwd)
+  // The panel takes the primitive's own default cap, not the row's tighter one:
+  // it is the single-call reading surface, so the whole window is available.
+  if (read !== null) return <ReadBlock {...read} className={css.read} />
+  const diff = diffCardModel(material.block)
+  if (diff !== null) return <DiffBlock {...diff.card} className={css.cardBody} />
   const search = searchCardModel(material.block)
   if (search !== null) {
     return (
@@ -172,12 +179,6 @@ function OutputBody({ material, cwd, t }: { material: CallMaterial; cwd: string 
       </>
     )
   }
-  const read = readCardModel(material.block, cwd)
-  // The panel takes the primitive's own default cap, not the row's tighter one:
-  // it is the single-call reading surface, so the whole window is available.
-  if (read !== null) return <ReadBlock {...read} className={css.read} />
-  const diff = diffCardModel(material.block)
-  if (diff !== null) return <DiffBlock {...diff.card} className={css.cardBody} />
   const web = webCardModel(material.block)
   // Full source-list allowance here (the panel is the single-call reading
   // surface); the chat rows cap it at CHAT_WEB_MAX_SOURCES. Below the card the

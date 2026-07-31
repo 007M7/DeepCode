@@ -13,6 +13,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import { IconCheckOutline16 } from './icons/index.tsx'
+import { usePointerGrace } from './pointer-grace.ts'
 import css from './Menu.module.css'
 
 /** Selectable row (optionally with a nested submenu). */
@@ -69,8 +70,10 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
  * from the anchor rect (repositions on scroll/resize while open). Use when an
  * ancestor's overflow clipping would crop the in-place list; default false
  * keeps the pure-CSS in-place behavior.
- * @param props.closeOnPointerLeave - close the list when the pointer leaves
- * it (default false keeps it open until outside click/Escape/selection).
+ * @param props.closeOnPointerLeave - close the list once the pointer has left
+ * both trigger and list for the pointer grace (default false keeps it open
+ * until outside click/Escape/selection). The grace makes the 4px trigger->list
+ * gap and a brief overshoot survivable; coming back cancels the close.
  * @param props.compact - use reduced menu typography and spacing.
  * @param props.getAnchorRect - portal mode only: supply the anchor rect
  * directly (e.g. from a host-owned trigger button) instead of measuring the
@@ -102,6 +105,7 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
   const listRef = useRef<HTMLDivElement>(null)
   const [openSubmenuId, setOpenSubmenuId] = useState<string | null>(null)
   const [fixedPos, setFixedPos] = useState<CSSProperties | null>(null)
+  const { arm: armClose, cancel: cancelClose } = usePointerGrace(onClose)
 
   // Portal mode: fixed-position the list from the anchor rect before paint;
   // track the anchor while open (capture-phase scroll catches nested panes).
@@ -179,6 +183,14 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
     }
   }, [open, onClose])
 
+  // A close from selection/Escape/outside click outruns a pending grace close;
+  // left armed it would shut a list reopened inside the grace window. Its own
+  // effect, not the listener effect above: that one re-runs on every `onClose`
+  // identity change and would cancel the grace mid-transit.
+  useEffect(() => {
+    if (!open) cancelClose()
+  }, [open, cancelClose])
+
   // The submenu card is absolutely positioned outside the list box; the
   // scroll clip would crop it, so only submenu-free menus get the height cap.
   const scrollable = !items.some(entry => !isSeparator(entry) && !isLabel(entry) && entry.submenu !== undefined && entry.submenu.length > 0)
@@ -251,7 +263,6 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
       className={clsx(css.list, compact && css.compactList, scrollable && css.scrollable, portal && css.portal, side === 'top' && !portal && css.sideTop, align === 'end' && !portal && css.alignEnd)}
       style={portal ? fixedPos ?? MEASURE_STYLE : undefined}
       role="menu"
-      onPointerLeave={closeOnPointerLeave ? () => { onClose() } : undefined}
       // React portals bubble synthetic events through the REACT tree: without
       // this stop, an item click re-fires the anchor row's own onClick
       // (open/toggle) after onSelect.
@@ -268,8 +279,17 @@ export function Menu({ open, anchor, items, selectedId, onSelect, onClose, align
     </div>
   )
 
+  // Pointer-leave dismissal watches the WRAPPER, not the list: React's
+  // enter/leave traversal runs over the React tree, so trigger and portaled
+  // list are one region here. Aiming back at the trigger, or crossing the 4px
+  // gap between them, therefore never counts as leaving.
   return (
-    <span ref={rootRef} className={clsx(css.root, className)}>
+    <span
+      ref={rootRef}
+      className={clsx(css.root, className)}
+      onPointerEnter={closeOnPointerLeave ? cancelClose : undefined}
+      onPointerLeave={closeOnPointerLeave ? () => { if (open) armClose() } : undefined}
+    >
       {anchor}
       {portal ? (list !== false && createPortal(list, document.body)) : list}
     </span>

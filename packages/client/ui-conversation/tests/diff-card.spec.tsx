@@ -12,7 +12,7 @@ import type {
   ConversationSnapshot, RunningToolCall, SessionId, SessionListState, ToolResultNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-client-connection/client'
-import type { SelectionTarget, ToolRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { SelectionTarget } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { CHAT_DIFF_MAX_LINES, diffCardModel } from '../src/client/contract/diff-card-model.ts'
@@ -23,6 +23,9 @@ import { FileMutationRow, fileMutationToolview } from '../src/client/toolviews/f
 import { zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
+
+/** FileMutationRow's full prop shape (ToolRow runtime share + conversation locale seat). */
+type FileMutationRowProps = Parameters<typeof FileMutationRow>[0]
 
 const SID = 's1' as SessionId
 
@@ -155,14 +158,23 @@ describe('FileMutationRow diff card', () => {
     phase: 'ready',
   })
 
-  const rowProps = (block: RunningToolCall | ToolResultNode, toolName = 'edit'): ToolRowProps => ({
+  const rowProps = (block: RunningToolCall | ToolResultNode, toolName = 'edit'): FileMutationRowProps => ({
     callId: 'c1', toolName, block, openFile: vi.fn(), cwd: '/w/app',
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
-  } as unknown as ToolRowProps)
+    t,
+  } as unknown as FileMutationRowProps)
 
-  it('renders the applied diff under the summary row, without an expand gesture', () => {
+  /** The whole summary row is the expand toggle (ToolRow's unified interaction). */
+  const toggleRow = (view: { container: HTMLElement }) => {
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+  }
+
+  it('collapses to the summary row; expanding reveals the applied diff card', () => {
     const view = render(<FileMutationRow {...rowProps(settled())} />)
-    // The diff card is resident (no expand toggle needed).
+    // The diff card is collapsed by default — not in the DOM until expanded.
+    expect(view.container.querySelector('[data-diff]')).toBeNull()
+    expect(view.queryByText('hello fixture')).toBeNull()
+    toggleRow(view)
     expect(view.container.querySelector('[data-diff]')).not.toBeNull()
     expect(view.getByText('hello fixture')).toBeTruthy()
     expect(view.getByText('复制')).toBeTruthy()
@@ -171,6 +183,7 @@ describe('FileMutationRow diff card', () => {
   it('the summary is a path link that opens the tool path through the host', () => {
     const openFile = vi.fn()
     const view = render(<FileMutationRow {...{ ...rowProps(settled()), openFile }} />)
+    // The path link rides the collapsed summary, so it opens without expanding.
     fireEvent.click(view.getByRole('button', { name: 'notes/demo.txt' }))
     // The row passes the tool's own path; the injected openFile resolves it
     // against the session cwd (apply.ts), so the row must not resolve twice.
@@ -184,6 +197,8 @@ describe('FileMutationRow diff card', () => {
       callView: { card: 'diff', title: 'Write notes/new.txt', diffs: [{ path: 'notes/new.txt', oldText: null, newText: 'hello fixture' }] },
       resultView: { card: 'diff', title: 'Write notes/new.txt', diffs: [{ path: 'notes/new.txt', oldText: null, newText: 'hello fixture' }] },
     }), 'write')} />)
+    // The footer counts live inside the collapsed diff card.
+    toggleRow(view)
     expect(view.getByText('└ +1 -0 · 1 file')).toBeTruthy()
   })
 
@@ -197,13 +212,16 @@ describe('FileMutationRow diff card', () => {
 
   it('a mutation call with no diff view renders the summary row alone', () => {
     const view = render(<FileMutationRow {...rowProps(settled({ callView: null, resultView: null }))} />)
+    // No diff material: expanding shows the args-JSON body, never a diff card.
+    expect(view.container.querySelector('[data-diff]')).toBeNull()
+    toggleRow(view)
     expect(view.container.querySelector('[data-diff]')).toBeNull()
   })
 
   it('surfaces the result text when an errored mutation has no diff card', () => {
     // write/edit return undefined from presentResult on isError, so the failure
-    // has no diff — the row shows the model-facing error text instead of a bare
-    // red dot.
+    // has no diff — ToolRow shows the model-facing error text as the collapsed
+    // summary's first line (errorSummary) instead of a bare red dot.
     const view = render(<FileMutationRow {...rowProps(settled({
       isError: true, callView: null, resultView: null,
       content: [{ type: 'text', text: 'old_string not found in notes/demo.txt' }],
@@ -220,12 +238,13 @@ describe('FileMutationRow diff card', () => {
     expect(view.getByText('ToolError: sandbox_denied')).toBeTruthy()
   })
 
-  it('shows no failure text for a successful diff or a running call', () => {
+  it('shows no error summary for a successful diff or a running call', () => {
+    // ToolRow's error-color summary line is set only on the error state.
     const ok = render(<FileMutationRow {...rowProps(settled())} />)
-    expect(ok.container.querySelector('[class*="_failure_"]')).toBeNull()
+    expect(ok.container.querySelector('[class*="_errorSummary_"]')).toBeNull()
     cleanup()
     const run = render(<FileMutationRow {...rowProps(running())} />)
-    expect(run.container.querySelector('[class*="_failure_"]')).toBeNull()
+    expect(run.container.querySelector('[class*="_errorSummary_"]')).toBeNull()
   })
 
   it('shows the stopped state when the call was interrupted', () => {
@@ -234,7 +253,8 @@ describe('FileMutationRow diff card', () => {
       error: { name: 'ToolError', code: 'interrupted' },
     }))} />)
     expect(view.container.querySelector('[data-state="stopped"]')).not.toBeNull()
-    // The visually-hidden status label carries the stopped semantic for AT.
+    // The amber StateDot is aria-hidden, so ToolRow carries the state to AT as
+    // visually-hidden text; without it a stopped row is a colour-only signal.
     expect(view.getByText('已停止')).toBeTruthy()
   })
 
@@ -250,12 +270,12 @@ describe('FileMutationRow diff card', () => {
 
 describe('fileMutationToolview registration', () => {
   it('registers one component under both edit and write, and each disposes', () => {
-    const registered: { key: string; disposed: boolean }[] = []
+    const registered: { key: string; locale: unknown; disposed: boolean }[] = []
     const disposers: (() => void)[] = []
     const ctx = {
       slots: {
-        register: ({ key }: { name: string; key: string }) => {
-          const entry = { key, disposed: false }
+        register: ({ key, locale }: { name: string; key: string; locale?: string }) => {
+          const entry = { key, locale, disposed: false }
           registered.push(entry)
           const dispose = () => { entry.disposed = true }
           disposers.push(dispose)
@@ -265,6 +285,8 @@ describe('fileMutationToolview registration', () => {
     }
     fileMutationToolview.apply(ctx as never)
     expect(registered.map(r => r.key).sort()).toEqual(['edit', 'write'])
+    // Both keys claim the conversation locale seat ToolRow's body copy needs.
+    expect(registered.map(r => r.locale)).toEqual(['conversation', 'conversation'])
     // The registrant's inject seam is the load-order contract the row relies on.
     expect(fileMutationToolview.inject).toEqual(['slots', 'conversation'])
     // Disposal removes each contribution (packages/AGENTS.md registry contract).

@@ -27,6 +27,14 @@ Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 
 
 `DSH_TOOLS_MODE` 为整个 Web／无头进程选择工具呈现模式：`native`（未设置时的 schema 默认值）、`code`（仅含 `run_code` 的 Code Mode 线路）或 `both`；任何其他值都会经由 `dsh-tools` 配置 schema 在启动时明确报错。它是一个临时 seam——Loader 组合是静态的，因此该设置作用于整个进程——待 Web UI 负责逐会话工具模式选择后便会移除；TUI 界面会忽略该变量并固定为 `native`。
 
+[`core-web.cordis.yml`](config/core-web.cordis.yml) 是一个可选启用的 `dsh web --config` 覆盖层：它保留已交付的 Web 宿主、浏览器、Workspace、持久化与权限组合，同时将默认的原生模型界面精简为以所有者为作用域的持久 `bash` 以及 `str_replace_editor`。PTY 后端和编辑器分别消费现有的 Web 沙箱与文件系统提供方。持久 shell 处于打开状态时，会阻止所属会话更改权限模式；因此，在较宽权限下创建的 shell 无法在降权后继续存活。`DSH_TOOLS_MODE` 仍控制由此得到的双工具注册表采用原生／Code Mode 呈现。
+
+在源码 checkout 中，用以下命令启动这个精简 Web profile：
+
+```sh
+pnpm run dsh web --config apps/cli/config/core-web.cordis.yml
+```
+
 每个 `dsh` 界面——TUI、Web 与无头——都默认上报会话遥测（该行位于共享的 `base.cordis.yml`）：每条会话日志事件以 OTLP/HTTP 日志记录的形式、按 10 秒批处理节奏流向 `https://harness-telemetry.deepseeksvc.com/v1/logs`。`DSH_TELEMETRY_OTLP_URL` 可将 exporter 指向其他 collector；将 `DSH_TELEMETRY_DISABLED` 设为**任意非空值**——包括 `0` 或 `false`——都会在该行加载前将其关停（隐私开关取「宁可误关、不可误开」）。该组合当前未挂载任何脱敏规则：导出记录即原始捕获副本，包含消息正文、工具参数与结果、以及会话工作目录路径。部署口径见 [web-telemetry-default-mount Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-telemetry-default-mount.md)。
 
 MCP 服务器不是交付默认值,因为默认值必须点名一台:`@deepseek-ai/dsh-mcp-client` 每一行只挂载一台服务器,并把它作为子进程 spawn,该进程不经 `ctx.bash`,因此也不受沙箱策略约束。该包是本 CLI 的运行时依赖,所以已安装的 `dsh` 无需源码检出即可从 `$DSH_HOME/config.yaml` 或 `--config` 覆盖层挂载你自己的服务器:
