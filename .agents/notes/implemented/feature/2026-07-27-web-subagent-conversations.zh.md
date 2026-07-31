@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-由会话支撑的 subagent 具有持久化身份、持久化 transcript（文本记录）与直接 child 目录，但 Web 客户端除此之外只能看到普通会话谱系。它无法区分 subagent 与 fork、获知描述符 mode，或在不使用会恢复 agent（智能体）的普通历史路径的情况下查看冷态 child。
+由会话支撑的 subagent 具有持久化身份、持久化 transcript（文本记录）与直接 child 目录，但普通会话谱系无法将它们与 fork 区分开，也无法证明其描述符 mode 与继续执行授权。否则，绑定到 agent（智能体）的通用 Host 操作可能在其直接 parent 继续执行 owner 之外恢复或驱动 child。
 
 浏览器必须遵守[可继续 subagent 契约](../../implemented/feature/2026-07-28-continuable-subagent-conversations.md)：一个可继续 child 在进程内最多只能有一项 Activation，只能通过确切的存活直接 parent 接受后续工作，并将 agent inbox 用作唯一的 FIFO。查看历史不得创建 Activation。inbox 消息一经接受，HTTP 调用方既不拥有其执行过程，也不会获得取消句柄。
 
@@ -17,6 +17,8 @@ UI 还必须遵守[持久化目录](../../implemented/feature/2026-07-22-durable
 Web 产品通过页头操作公开选中会话中由会话支撑的直接 subagent。用户可以懒加载展开后代目录，并在现有对话区域中打开任一 mode。one-shot child 永久只读。可继续 child 只有在其确切直接 parent agent 存活时才接受用户后续消息；否则，其持久化 transcript 仍然可读，并附带恢复说明。
 
 每个打开的 child 都携带目录派生地址 `{ parentSessionId, childSessionId, mode }`。选择专用历史与提示词传输的是包含 mode 的地址，而不是谱系或粗粒度 origin 标记。历史操作会从持久化存储读取会话，而不触发激活。可继续提示词操作会调用 `ctx.subagents.followup()`，并在 inbox 接受消息时以 `{ messageId }` 成功返回；它不会 steer 打开的轮次、公开 Activation、等待完成或返回结果。
+
+通用 Host 领域遵守同一所有权边界。`session.history` 与 `session.fork` 的源端会读取已附加 Session 或检查持久化存储，而不获取 Agent；history 从所检查的确切前缀归并冷态投影值，fork 则发布一个普通的独立会话。绑定到 Agent 的通用会话、命令与目标路由会对由会话支撑的 subagent 返回 `agent-busy`；显式 id 的 `session.create` 接纳与仅针对已附加会话的队列控件亦然。拒绝分类器接受粗粒度 `origin` 标记、会话自身后缀中的 `subagent/descriptor`，或 parent 对其确切的存活运行时所有权；这些信号只会阻止通用路径取得所有权，绝不取代目录 mode 或直接 parent 授权。
 
 已寻址 child 对话不提供普通 Stop 操作。`SubagentService.followup()` 只负责消息被 inbox 接受前的准入，并有意不公开任何 child 取消操作。后续取消设计需要显式的授权与生命周期契约，而不能回退到 `session.cancel`。
 
@@ -43,7 +45,7 @@ Figma 中的 [subagent 列表](https://www.figma.com/design/jRBBK7zBgcszdVWQ0Fh5
 
 one-shot 行始终会用文案替代输入框，说明执行记录为只读。可继续行仅在 `parentAvailable` 为 false 时如此。启用后，即使 child 正在运行，其 Send 操作也会准入另一个 FIFO 轮次，绝不会变成 Stop。提示词失败会通过普通错误行为保留草稿。
 
-已寻址 child 视图不提供绑定到 agent 的辅助控件。具体而言，模型选择器与 `/model` contribution 不会调用普通 `session.models` 或 `session.selectModel`，因为任一路径都会在直接 parent 继续执行 seam 之外激活持久化 child 历史。
+已寻址 child 视图不提供绑定到 agent 的辅助控件。具体而言，模型选择器与 `/model` contribution 不会调用普通 `session.models` 或 `session.selectModel`；Host 也会拒绝任何意外调用，而不是在直接 parent 继续执行 seam 之外激活持久化 child 历史。
 
 ## 宿主适配器与协议契约
 
@@ -56,6 +58,8 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 网关会将 parent 缺失、目录条目缺失或为 diagnostic、child 不可恢复或未授权、请求取消以及继续执行准入暂时不可用等失败映射为类型化 RPC 错误。它不会公开描述符或提供方细节。list／prompt 竞态属于正常情况：权威依据是提示词操作的结果，而不是更早的可用性或活动快照。
 
 查看持久化历史本身不会创建 mux 订阅。当后续消息物化冷态 child Activation 时，现有 Host 与 mux 流会发布其生命周期与事件。重新连接时，系统通过 `subagent.history` 重建已寻址窗口。
+
+普通 `session.history` 路由对于普通会话和 subagent 会话同样只执行观察，但它既不携带目录地址，也不授予继续执行权限。每条需要 Agent 的普通路由都会在恢复冷会话前经过共享所有权栅栏；`session.cancel` 与 `session.updateQueue` 会直接执行同一检查，因为它们有意只查询已附加的 Agent。
 
 适配器仍位于 `dsh-host-apiproxy`；`dsh-host-webserver` 仍作为载体。浏览器代码通过现有连接包（package）导入契约，绝不直接访问宿主 `ctx`，从而保持 [GUI RPC 分层](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md)。
 
@@ -75,7 +79,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 
 ## 备选方案
 
-**复用普通会话 API。** 不予采纳，因为普通历史可能恢复 child，而普通提示词会在缺少直接 parent 继续执行授权的情况下驱动它。
+**对已寻址 child 使用普通会话 API。** 不予采纳，因为通用历史不携带目录 mode 校验，而绑定到 Agent 的通用控件会有意拒绝 subagent，不会授予直接 parent 继续执行授权。
 
 **将适配器放入 webserver。** 不予采纳，因为目录与继续执行是通道无关的客户端功能；webserver 只承载已校验的消息。
 
@@ -96,6 +100,7 @@ one-shot 行始终会用文案替代输入框，说明执行记录为只读。�
 ## 测试
 
 - 宿主协议测试固定 schema、id 回显、mode 校验、非激活式历史、确切 parent 强制要求、FIFO 准入回执、取消与脱敏后的失败映射。
+- 通用 Host 测试固定在不发布 Agent 的情况下读取已附加与冷态历史及执行 fork、冷态投影归并、按描述符／origin／运行时 owner 拒绝、拒绝显式 id 接纳，以及直接队列控制栅栏。
 - 客户端对象测试固定已保留与已恢复的地址、one-shot 只读拒绝、历史路由、可继续提示词路由、已寻址对话不提供取消、屏蔽绑定到 agent 的模型控件、实时活动状态翻转与成员刷新。
 - jsdom 测试固定混合 mode 行、diagnostic、后代懒加载展开、直接 parent 地址、键盘行为与两种只读原因。
 - 无密钥的组装 Web 快照包含一个 inactive 的可继续 child、一个 inactive 的 one-shot sibling 和一个持久化 grandchild；它会在不激活的情况下展开、打开持久化历史、准入一条用户 FIFO 后续消息、归并 child mux 事件，并证明 one-shot 历史仍然只读。

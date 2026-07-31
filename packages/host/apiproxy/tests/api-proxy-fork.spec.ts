@@ -1,13 +1,13 @@
 /** Session-fork boundaries, lineage, and inherited model routing. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from 'cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import UserInteractionService from '@deepseek-ai/dsh-user-interaction'
 import type { RpcRequest } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
@@ -91,6 +91,49 @@ describe('sessions.fork', () => {
     ])
     expect(child?.header.parentSession).toBe(source.id)
     expect(child?.header.cwd).toBe('/proj')
+    await ctx.fiber.dispose()
+  })
+
+  it('forks a persisted subagent without resuming its Agent', async () => {
+    const ctx = await composed()
+    const sourceId = sid('session-cold-subagent')
+    const parentId = sid('session-cold-parent')
+    const header: SessionHeader = {
+      version: 0,
+      id: sourceId,
+      createdAt: 1,
+      cwd: '/proj',
+      parentSession: parentId,
+      origin: 'subagent',
+    }
+    const events = [
+      { type: 'turn/start', seq: 0, time: 1, data: { turn: 1, trigger: { kind: 'message', source: { kind: 'user' } } } },
+      {
+        type: 'user/message',
+        seq: 1,
+        time: 2,
+        data: createUserMessage({ content: [{ type: 'text', text: 'work' }], source: { kind: 'user' } }),
+        surfaceOp: 'append',
+      },
+      { type: 'turn/end', seq: 2, time: 3, data: { turn: 1, reason: { kind: 'completed' } } },
+    ] as SessionEvent[]
+    ctx.provide('sessionPersistence', {
+      list: () => Promise.resolve([header]),
+      inspect: () => Promise.resolve({ meta: header, events }),
+    } as never)
+    const resume = vi.spyOn(ctx.agents, 'resume')
+
+    const response = await api(ctx).sessions.fork(request({ sessionId: sourceId }))
+
+    expect(response.result.ok).toBe(true)
+    if (!response.result.ok) return
+    expect(resume).not.toHaveBeenCalled()
+    expect(ctx.agents.get(sourceId)).toBeUndefined()
+    expect(ctx.sessions.get(response.result.value.sessionId)?.header).toMatchObject({
+      parentSession: sourceId,
+      cwd: '/proj',
+    })
+    expect(ctx.sessions.get(response.result.value.sessionId)?.header.origin).toBeUndefined()
     await ctx.fiber.dispose()
   })
 

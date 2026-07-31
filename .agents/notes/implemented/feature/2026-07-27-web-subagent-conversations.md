@@ -6,7 +6,7 @@ English | [中文](2026-07-27-web-subagent-conversations.zh.md)
 
 ## Problem
 
-Session-backed subagents have durable identities, persisted transcripts, and a direct-child catalog, but the Web client otherwise sees only ordinary session lineage. It cannot distinguish a subagent from a fork, discover descriptor mode, or view a cold child without using the ordinary history path that resumes an Agent.
+Session-backed subagents have durable identities, persisted transcripts, and a direct-child catalog, but ordinary session lineage cannot distinguish them from forks or prove their descriptor mode and continuation authority. Generic Agent-bound Host operations can otherwise resume or drive a child outside its direct-parent continuation owner.
 
 The browser must preserve the [continuable subagent contract](../../implemented/feature/2026-07-28-continuable-subagent-conversations.md): a continuable child has at most one process-local Activation, accepts later work only through the exact live direct parent, and uses the Agent inbox as its sole FIFO. Viewing history must not create an Activation. Once an inbox message is accepted, the HTTP caller neither owns its execution nor gains a cancellation handle.
 
@@ -17,6 +17,8 @@ The UI must also preserve the [durable catalog](../../implemented/feature/2026-0
 The Web product exposes the selected session's direct session-backed subagents from a header action. Users can lazily expand descendant catalogs and open either mode in the existing conversation region. A one-shot child is permanently read-only. A continuable child accepts human follow-ups only while its exact direct-parent Agent is live; otherwise its persisted transcript remains readable with a recovery explanation.
 
 Every opened child carries a catalog-derived address `{ parentSessionId, childSessionId, mode }`. The mode-bearing address, not lineage or the coarse origin marker, selects dedicated history and prompt transports. History reads the persisted session without activation. A continuable prompt calls `ctx.subagents.followup()` and succeeds at inbox acceptance with `{ messageId }`; it does not steer an open turn, expose an Activation, wait for completion, or return an outcome.
+
+The generic Host domain preserves the same ownership boundary. `session.history` and the source side of `session.fork` read an attached Session or inspect persistence without acquiring an Agent; history folds cold projection values from that exact inspected prefix, while a fork publishes an ordinary independent session. Generic Agent-bound session, command, and goal routes return `agent-busy` for session-backed subagents, as do explicit-id `session.create` adoption and attached-only queue controls. The denial classifier accepts the coarse `origin` marker, a `subagent/descriptor` in the session's own suffix, or exact live runtime ownership by the parent; these signals only prevent generic ownership and never replace catalog mode or direct-parent authorization.
 
 The ordinary Stop action is absent from addressed child conversations. `SubagentService.followup()` owns admission only until inbox acceptance and intentionally exposes no public child cancellation operation. A later cancellation design needs an explicit authority and lifecycle contract rather than falling through to `session.cancel`.
 
@@ -43,7 +45,7 @@ Selecting a row records its exact address before opening the resident client `Se
 
 A one-shot row always replaces the composer with copy explaining that the execution record is read-only. A continuable row does so only while `parentAvailable` is false. When enabled, its Send action admits another FIFO turn even if the child is currently running; it never becomes Stop. Prompt failures retain the draft through the ordinary error behavior.
 
-Agent-bound auxiliary controls are unavailable in addressed child views. In particular, the model selector and `/model` contribution do not call ordinary `session.models` or `session.selectModel`, because either route would activate persisted child history outside the direct-parent continuation seam.
+Agent-bound auxiliary controls are unavailable in addressed child views. In particular, the model selector and `/model` contribution do not call ordinary `session.models` or `session.selectModel`; the Host also rejects any accidental call instead of activating persisted child history outside the direct-parent continuation seam.
 
 ## Host adapter and wire contract
 
@@ -56,6 +58,8 @@ Agent-bound auxiliary controls are unavailable in addressed child views. In part
 The gateway maps missing parent, missing or diagnostic catalog entries, not-resumable and unauthorized children, request cancellation, and temporarily unavailable continuation admission to typed RPC errors. It does not expose descriptor or provider details. A list/prompt race is normal: the prompt result, not the earlier availability or activity snapshot, is authoritative.
 
 Viewing persisted history creates no mux subscription by itself. When a follow-up materializes a cold child Activation, the existing Host and mux streams publish its lifecycle and events. Reconnect rebuilds the addressed window through `subagent.history`.
+
+The ordinary `session.history` route is likewise observation-only for both ordinary and subagent sessions, but it does not carry the catalog address or grant continuation authority. Every ordinary route that needs an Agent resolves through the shared ownership fence before cold resume; `session.cancel` and `session.updateQueue` apply the same check directly because they intentionally query only attached Agents.
 
 The adapter stays in `dsh-host-apiproxy`; `dsh-host-webserver` remains a carrier. Browser code imports the contract through the existing connection package and never reaches host `ctx`, preserving the [GUI RPC layering](../../implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md).
 
@@ -75,7 +79,7 @@ The shipped Web composition mounts SQLite session query beside JSONL persistence
 
 ## Alternatives considered
 
-**Reuse ordinary session APIs.** Rejected because ordinary history may resume the child and ordinary prompt drives it without direct-parent continuation authority.
+**Use ordinary session APIs for addressed children.** Rejected because generic history carries no catalog-mode verification, while Agent-bound generic controls deliberately reject subagents rather than granting direct-parent continuation authority.
 
 **Put the adapter in the webserver.** Rejected because catalog and continuation are channel-independent client capabilities; the webserver only carries validated messages.
 
@@ -96,6 +100,7 @@ The shipped Web composition mounts SQLite session query beside JSONL persistence
 ## Testing
 
 - Host protocol tests pin schemas, id echoing, mode verification, non-activating history, exact-parent enforcement, FIFO admission receipts, cancellation, and sanitized failure mapping.
+- Generic Host tests pin attached and cold history and forks without Agent publication, cold projection folding, descriptor/origin/runtime-owner denial, explicit-id adoption denial, and the direct queue-control fence.
 - Client object tests pin retained and restored addresses, one-shot read-only rejection, history routing, continuable prompt routing, no addressed cancellation, suppression of Agent-bound model controls, live activity flips, and membership refresh.
 - jsdom tests pin mixed-mode rows, diagnostics, lazy descendant disclosure, direct-parent addresses, keyboard behavior, and both read-only reasons.
 - The keyless assembled Web snapshot contains an inactive continuable child, an inactive one-shot sibling, and a persisted grandchild; it expands without activation, opens persisted history, admits a human FIFO follow-up, reconciles child mux events, and proves one-shot history remains read-only.
