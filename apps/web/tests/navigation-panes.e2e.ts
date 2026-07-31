@@ -23,6 +23,7 @@ import { newEnglishPage, saveFailureShot } from './support.ts'
 const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/navigation-panes', import.meta.url))
 const SEED = join(SNAPSHOT_DIR, 'seed.jsonl')
 const TRAJECTORY_EXPECTED = join(SNAPSHOT_DIR, 'trajectory.expected.md')
+const SEARCH_EXPECTED = join(SNAPSHOT_DIR, 'search-results.expected.md')
 const TERMINAL_EXPECTED = join(SNAPSHOT_DIR, 'terminal-card.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
@@ -95,39 +96,39 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     expect(calls.map(e => e.data.name).sort()).toEqual(['bash', 'read', 'read'])
   }, 400_000)
 
-  it.skipIf(MODE === 'record')('opens the seeded session and renders both turns from the log', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-open'))
-    // Expand the collapsed group row, then open the revealed session row.
-    const groupRow = page.locator('[role="treeitem"]').first()
-    await groupRow.waitFor({ timeout: 15_000 })
-    await groupRow.click()
-    const sessionRow = page.locator('[role="treeitem"]').nth(1)
-    await sessionRow.waitFor({ timeout: 10_000 })
-    await sessionRow.click()
+  it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
+    const search = page.getByPlaceholder('Search name, keywords', { exact: false })
+    // The cold row has not been opened, so only the persisted log can satisfy
+    // this query. First search lazily reconciles the SQLite content index.
+    await search.fill('zzzqx-no-such-session')
+    await page.getByText('No matching sessions').waitFor({ timeout: 30_000 })
+    await expect.poll(
+      () => page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem').count(),
+      { timeout: 10_000 },
+    ).toBe(0)
+
+    await search.fill('WATERFALL')
+    const resultTree = page.getByRole('tree', { name: 'Search results' })
+    const result = resultTree.getByRole('treeitem')
+    await expect.poll(() => result.count(), { timeout: 30_000 }).toBe(1)
+    await expect.poll(() => result.getByText('WATERFALL', { exact: false }).count(), {
+      timeout: 10_000,
+    }).toBeGreaterThanOrEqual(1)
+    const snapshot = (await captureStableAria(page, '[class*="listArea"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(SEARCH_EXPECTED, snapshot, MODE)
+
+    await result.click()
+    // Search navigation addresses the session, not a specific event, and the
+    // query remains until the user explicitly clears it.
+    await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('WATERFALL')
     await expect.poll(() => page.getByText('FIRST_DONE', { exact: true }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
     await expect.poll(() => page.getByRole('heading', { name: 'Navigation Summary' }).count(), { timeout: 15_000 }).toBe(1)
-  }, 90_000)
-
-  it.skipIf(MODE === 'record')('filters the sidebar tree by title through the search box', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
-    // Runs after the session is open: a cold summary carries no title (the
-    // sidebar shows the cwd basename), and the durable title lands with the
-    // attach subscription's baseline — which is itself worth pinning: search
-    // matches the title the user sees, not a hidden cold field.
-    const search = page.getByPlaceholder('Search name, keywords', { exact: false })
-    await expect.poll(() => page.getByText('NavScenario', { exact: false }).count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(1)
-    // Negative: a garbage query empties the tree (group rows hide too).
-    await search.fill('zzzqx-no-such-session')
-    await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBe(0)
-    // Positive: a title word narrows to the matched session + its group,
-    // force-expanded by search mode (case-insensitive client-side filter).
-    await search.fill('navscenario')
-    await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(2)
-    // Clear restores the unfiltered tree.
     await page.getByRole('button', { name: 'Clear search' }).click()
     await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
-  }, 60_000)
+  }, 90_000)
 
   it.skipIf(MODE === 'record')('renders the trajectory ledger and opens its local record inspector', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
@@ -285,7 +286,8 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     expect(slotErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
     await assertFixtureInventory(SNAPSHOT_DIR, [
-      'seed.jsonl', 'trajectory.expected.md', 'terminal-card.expected.md',
+      'seed.jsonl', 'search-results.expected.md', 'trajectory.expected.md',
+      'terminal-card.expected.md',
     ])
   })
 })
