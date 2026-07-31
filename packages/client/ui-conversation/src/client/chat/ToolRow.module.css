@@ -246,15 +246,27 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* The two block-shaped expanded bodies: the code variant's run_code program
-   through CodeBlock (shiki-highlighted TypeScript) and a terminal card's
-   command output through TerminalBlock. Both are drawn by the shared
-   primitive, so only the row's indentation is this file's concern — the margin
-   also replaces each primitive's own standalone vertical spacing with the
-   flow's row rhythm. */
+/* The block-shaped expanded bodies: the code variant's run_code program
+   through CodeBlock (shiki-highlighted TypeScript), a terminal card's command
+   output through TerminalBlock, and a search card's grouped matches or path
+   list through SearchBlock. All are drawn by the shared primitive, so only the
+   row's indentation is this file's concern — the margin also replaces each
+   primitive's own standalone vertical spacing with the flow's row rhythm. */
 .codeBody,
-.terminalBody {
+.terminalBody,
+.searchBody {
   margin: 4px 0 4px 4px;
+}
+
+/* The recovery footer for a capped search: the result text (its `Full … stored
+   at …` locator) below the card in the muted tone, since the card holds only the
+   retained rows. Same column indent as the card body. */
+.searchRecovery {
+  margin: 4px 0 4px 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--dsw-font-xs-13);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* A write/edit diff renders through DiffBlock; like the terminal card it draws

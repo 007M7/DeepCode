@@ -92,6 +92,16 @@ interface SessionEventMap {
    */
   'request/header': { header: EpochHeader; reason: RequestHeaderReason }
   /**
+   * Registration-bound context metadata for the route a request resolved to,
+   * appended inside its step beside `request/header` and only when the route
+   * or capacity differs from the last record. It is log-only and deliberately
+   * NOT part of {@link EpochHeader}: capacity is adapter metadata about a
+   * route, not an input the request was built from, so it must not participate
+   * in request reconstruction or header equality. `contextWindow` is absent
+   * when the route's adapter advertises no capacity.
+   */
+  'request/context': RequestContext
+  /**
    * Marks the end of a constructor seed. Events before it have smaller seq
    * values and came from the seed (resume, fork, or replay); this lifecycle
    * produced none of them. An explicitly supplied empty seed puts the marker
@@ -169,6 +179,26 @@ interface EpochHeader {
 ```
 
 规范形式：空系统提示词和空工具列表都表示为字段缺失，与请求构建方式一致。包含已移除的 `request/header-delta` 事件或完整快照原因为 `fallback` 的旧版 v0 日志，会在 seed、append 和持久化加载边界被拒绝，而不会以不完整方式回放。
+
+### 路由容量事件：`request/context`
+
+请求所解析到的路由的上下文元数据是独立的已记录状态，在同一步骤内紧随 `request/header` 追加，且仅在提供方、模型或容量与上一条记录不同时追加。它保持在 `EpochHeader` 之外，因为该类型是由 `headerEquals` 逐字段比较的重建契约：容量描述的是路由，不是请求输入，把它折叠进去会让一次容量变化被登记为请求信封的 `change`，也会把适配器元数据拉进 loop 的重建不变式。与 `request/header` 一样，它不是 `SurfaceEventType`，也不产生 LLM 消息。`session.requestContext()` 以增量方式归并最新一条记录。适配器不公布容量的路由会以缺失 `contextWindow` 的形式记录，因此新记录可以清除较早路由的容量。
+
+```ts type-equiv
+/**
+ * Registration-bound context metadata of one resolved model route. Adapter
+ * metadata about a route rather than a request input, which is why it lives
+ * outside {@link EpochHeader}.
+ */
+interface RequestContext {
+  /** Registered provider route the metadata was resolved through. */
+  provider: string
+  /** Provider-owned model id the metadata belongs to. */
+  model: string
+  /** Maximum combined request and response context in tokens; absent when the adapter advertises none. */
+  contextWindow?: number
+}
+```
 
 ## `SessionEvent<T>`：一条日志条目
 
@@ -431,6 +461,14 @@ declare class Session {
    * @returns the folded header, or undefined when no header event exists yet.
    */
   requestHeader(): EpochHeader | undefined;
+  /**
+   * The route metadata in force after the log's last `request/context` event —
+   * what the NEXT request deduplicates against — or undefined before any such
+   * record. Maintained incrementally like {@link requestHeader}, so a per-step
+   * read costs O(new events).
+   * @returns the folded context record, or undefined when none exists yet.
+   */
+  requestContext(): RequestContext | undefined;
   /**
    * Derive the LLM message history by walking the ordered sequences of
    * message-producing events maintained by `surfaceOp` markers. The

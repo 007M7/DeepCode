@@ -39,9 +39,9 @@ PTY 冒烟测试的启动器把 `$DSH_HOME` 隔离到每个测试自己的目录
 ## Consequences
 
 - 在任意目录运行 `dsh`（以及 `pnpm run demo:tui`）即可零仓库改动地使用个人提供方/模型；已针对个人 Anthropic 代理与 Opus 4.8 端到端验证，包括一次 bash 工具往返。
-- 由于按 id 定位的补丁替换整个 `config`，个人覆盖必须复述它保留的基础字段，并可能随基础配置项形态变化而漂移；loader 的「配置项未找到/名称不匹配」警告是仅有的诊断。
+- 由于按 id 定位的补丁替换整个 `config`，个人覆盖必须复述它保留的基础字段，并可能随基础配置项形态变化而漂移；诊断手段是 loader 的「配置项未找到/名称不匹配」警告和 [`dsh --dump-config`](2026-07-30-dsh-dump-config.md)（打印这些补丁合成出的配置树）。
 - 个人补丁只在被启动文件自身的树里解析 id，因此嵌套 include 的 overlay（Code Mode）不会被个性化；这些叶子的实际运行等价性暂缓。
-- `dsh-app-boot` 依赖 `js-yaml`（外加一份只用于加载的 include `!!js` YAML 类型副本），并与 `apps/cli` 一样依赖 `@deepseek-ai/dsh-paths` 以获取 `resolveDshHome`。
+- `dsh-app-boot` 依赖 `js-yaml`，并直接导入 include 的 `!!js` YAML 方言（`entryListSchema`）；与 `apps/cli` 一样依赖 `@deepseek-ai/dsh-paths` 以获取 `resolveDshHome`。
 - PR #443 落地时，`apps/cli/src/bin.ts` 的分发链与 `apps/cli/package.json` 的依赖列表会产生文本冲突；两者都按并集解决（他们的 `web`/`-p` 分支加上我们的默认 TUI 分支）。
 
 ## Testing
