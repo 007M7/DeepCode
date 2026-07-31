@@ -61,7 +61,7 @@ describe('web e2e: approval takeover keeps its actions reachable', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
 
   afterAll(async () => {

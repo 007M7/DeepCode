@@ -68,7 +68,7 @@ describe('web e2e: queue row actions', () => {
     const tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
     onTestFailed(() => saveFailureShot(page, 'web-e2e-queue-actions'))
 
     const input = page.locator('textarea').first()

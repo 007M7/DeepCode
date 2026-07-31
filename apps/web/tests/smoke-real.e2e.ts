@@ -20,7 +20,7 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
@@ -455,7 +455,12 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
     const tsxLoader = pathToFileURL(createRequire(join(REPO_ROOT, 'package.json')).resolve('tsx')).href
     child = spawn(
       process.execPath,
-      ['--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port)],
+      [
+        '--import', tsxLoader, join(REPO_ROOT, 'apps/cli/src/bin.ts'), 'web', '--port', String(port),
+        // Pin the in-browser picker: the shipped `-auto` row would resolve to
+        // the native OS chooser on this bind, and no page can drive that.
+        '--config', fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)),
+      ],
       {
         cwd: sessionsDir,
         env: {
@@ -496,7 +501,7 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY || notReady.length > 0)('web smoke
   it('2+3 empty-state first send completes a real model round', async () => {
     onTestFailed(() => saveFailureShot(page, 'w5-first-round'))
     // Fresh world: connect a Workspace so the composer starts live.
-    await connectFreshWorkspace(page)
+    await connectFreshWorkspace(page, sessionsDir)
     const input = page.locator('textarea').first()
     await input.waitFor({ timeout: 10_000 })
     await screen(page, '02-empty-state')

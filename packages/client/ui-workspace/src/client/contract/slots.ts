@@ -5,16 +5,19 @@
  *   the whole browsing region (section header, search, grouped/flat session
  *   list, workspace dialogs). It registers this package's viewing store and
  *   consumes the shell's two-fact owner share (wide / expandSidebar).
- * - WorkspacePicker fills the conversation empty-state hole (menu +
- *   create dialogs shared with the browser).
+ * - WorkspacePicker fills the conversation empty-state hole (menu + error
+ *   dialog shared with the browser).
  *
  * Each registration also declares one **directory-flow hole** (`single`
  * kind): the slot a composed picker package's client half fills with its
  * picking interaction — a renderless native-chooser driver or an in-app
- * browsing dialog. ui-workspace owns the trigger (the "Open local folder…"
- * menu entry, shown only while the hole is occupied) and the adoption
+ * browsing dialog. ui-workspace owns the trigger (the "Add workspace…"
+ * entry, present only while the hole is occupied) and the adoption
  * semantics (`createWorkspace({ path })`, the conflict/error dialog, Choose
- * again); the occupant owns everything between `open` and the picked path.
+ * again); the occupant owns everything between `open` and the picked path,
+ * including creating a new directory to hand back. That occupant-owned
+ * creation is why adding a workspace has a single route: an unoccupied hole
+ * leaves the surface with no add affordance at all.
  * Two holes exist because the two menu surfaces are independent slot entries
  * and a hole has exactly one declaring entry — they carry the same owner
  * contract and the same occupant.
@@ -65,7 +68,7 @@ export type DirectoryFlowSlotName =
  * Directory-picking share both trigger surfaces consume. Occupancy rides the
  * inject face's reserved `hooks` compartment: the renderer binds the source
  * into the `useDirectoryFlow` selector hook, so an empty hole hides the
- * "Open local folder…" entry reactively and the surface withdraws an open
+ * "Add workspace…" entry reactively and the surface withdraws an open
  * flow whose occupant unloaded mid-interaction (nobody is left to cancel).
  */
 export type DirectoryPickingInjected = {
@@ -125,8 +128,8 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
    * the Host response/changed frame; failures leave the order unchanged.
    */
   insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
-  /** Explicitly create or adopt a real Workspace before targeting a Session. */
-  createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
+  /** Adopt a picked host directory as a real Workspace before targeting a Session. */
+  createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
 }
 
 /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
@@ -144,8 +147,8 @@ export type WorkspaceBrowserProps =
  * supplies the implicit index signature required by the registry.
  */
 export type WorkspacePickerInjected = DirectoryPickingInjected & {
-  /** Explicitly create or adopt a real Workspace before targeting a Session. */
-  createWorkspace: (input: { name: string } | { path: string }) => Promise<WorkspaceView>
+  /** Adopt a picked host directory as a real Workspace before targeting a Session. */
+  createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
 }
 
 /**

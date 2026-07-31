@@ -500,23 +500,26 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
-  it('rail create-workspace toggles the create-only picker in place, without expanding', () => {
+  it('rail add-workspace raises the directory flow in place, with no menu and no expansion', () => {
     const expandSidebar = vi.fn()
     mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加工作区' }))
     expect(expandSidebar).not.toHaveBeenCalled()
-    // createOnly: existing workspaces are not listed, only the create actions.
+    // Adding is the header's only action, so the gesture IS that action: no
+    // one-row popover, and existing workspaces stay in the tree below.
+    expect(screen.queryByRole('menu')).toBeNull()
     expect(screen.queryByRole('menuitem', { name: 'alpha' })).toBeNull()
-    expect(screen.getByRole('menuitem', { name: '打开本地文件夹…' })).toBeTruthy()
-    // Toggle: open and close in place.
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.getByTestId('directory-flow')).toBeTruthy()
+  })
 
-    // Escape closes the picker through its own onClose.
-    fireEvent.click(screen.getByRole('button', { name: '创建工作区' }))
-    expect(screen.getByRole('menu')).toBeTruthy()
-    fireEvent.keyDown(document, { key: 'Escape' })
-    expect(screen.queryByRole('menu')).toBeNull()
+  it('hides the add button when no directory-flow occupant is composed', () => {
+    mount({
+      useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => false, subscribe: () => () => {} }),
+    })
+    // Nothing to add with, so the header offers no dead button.
+    expect(screen.queryByRole('button', { name: '添加工作区' })).toBeNull()
+    expect(screen.getByText('alpha')).toBeTruthy()
   })
 
   it('drag reorder reports the anchor to insertSessionBefore and skips no-op drops', () => {
