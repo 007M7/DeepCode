@@ -27,6 +27,8 @@ seam 同时把可移植标识符子集收窄为 `[A-Za-z_][A-Za-z0-9_]*`（记�
 
 本 PR 只交付 seam 扩展与 worker 对它的采用。这里不交付任何 Python 后端、`py-types` 渲染器或 Code Mode 的语言分发——它们是本 stack 中依赖这些导出的后续 PR。seam README 中仅描述 worker 的措辞保持不变，理由相同：链接到一个尚不存在的 `dsh-code-runtime-python` README 会破坏死链 gate。
 
+`RESERVED_BINDING_GLOBALS` 当前编码了尚未合并的 Python bootstrap 的具体设计：它恰好 seed `__builtins__`/`__name__`，并把程序包装在 `__dsh_main__` 之下。任何 seed 额外模块 global（`__doc__`、`__loader__`、`__spec__`、`__file__`、`__package__` 等）的 Python 后端 PR 必须在同一改动中扩宽此集合，正如新增一门语言即扩宽 `PORTABLE_RESERVED_WORDS`——bootstrap 会 seed 却不在集合中的名称，正是本契约要防止的可移植性分裂。
+
 ## Alternatives considered
 
 **每个后端声明自己的排除集。** 拒绝：这让可移植承诺变成逐后端成立。调用方在 worker 上测过的绑定列表可能被 Python 拒绝，而这正是 seam 存在要防止的分裂。

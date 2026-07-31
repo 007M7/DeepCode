@@ -66,26 +66,11 @@ const ELU_POLL_INTERVAL_MS = 25
 const MIN_OUTPUT_BYTES = 4
 
 /**
- * The seam's cross-language reserved-word union: the portable-identifier
- * contract promises a namespace list valid here is valid on every backend, so
- * a Python keyword like `lambda` is refused even though it is a legal JS
- * parameter name.
- */
-const RESERVED_WORDS = PORTABLE_RESERVED_WORDS
-
-/**
  * The seam's language-portable identifier subset (see
  * `CodeBindingNamespace.global`): no `$`, which is JS-only spelling — the same
  * namespace list must be usable against every backend regardless of language.
  */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
-
-/**
- * The seam's shared error-member exclusions (plus the dunder rule below):
- * enforced identically here and in the Python backend so an errorClass valid
- * on one backend is valid on all.
- */
-const RESERVED_ERROR_PROPERTIES = RESERVED_ERROR_MEMBERS
 
 /**
  * The shell a program is wrapped in for the type-strip, matching the
@@ -335,14 +320,17 @@ export class WorkerCodeRuntime extends CodeRuntime {
   private validateBindings(request: CodeRunRequest): Map<string, CodeBindingNamespace> {
     const bindings = new Map<string, CodeBindingNamespace>()
     for (const namespace of request.bindings) {
-      if (!IDENTIFIER.test(namespace.global) || RESERVED_WORDS.has(namespace.global)) {
+      if (!IDENTIFIER.test(namespace.global) || PORTABLE_RESERVED_WORDS.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: binding global ${JSON.stringify(namespace.global)} is not a usable identifier`)
       }
       // RESERVED_BINDING_GLOBALS is the seam's shared backend-owned set:
       // `console` is THIS backend's log-capture slot; the dunder entries are
-      // the Python bootstrap's — refused here too so the namespace list stays
+      // the Python backend's — refused here too so the namespace list stays
       // portable across backends.
-      if (RESERVED_BINDING_GLOBALS.has(namespace.global) || bindings.has(namespace.global)) {
+      if (RESERVED_BINDING_GLOBALS.has(namespace.global)) {
+        throw new Error(`dsh-code-runtime-worker: reserved binding global ${JSON.stringify(namespace.global)}`)
+      }
+      if (bindings.has(namespace.global)) {
         throw new Error(`dsh-code-runtime-worker: duplicate binding global ${JSON.stringify(namespace.global)}`)
       }
       bindings.set(namespace.global, namespace)
@@ -352,14 +340,17 @@ export class WorkerCodeRuntime extends CodeRuntime {
     for (const namespace of request.bindings) {
       const descriptor = namespace.errorClass
       if (!descriptor) continue
-      if (!IDENTIFIER.test(descriptor.name) || RESERVED_WORDS.has(descriptor.name)) {
+      if (!IDENTIFIER.test(descriptor.name) || PORTABLE_RESERVED_WORDS.has(descriptor.name)) {
         throw new Error(`dsh-code-runtime-worker: binding error class ${JSON.stringify(descriptor.name)} is not a usable identifier`)
       }
-      if (RESERVED_BINDING_GLOBALS.has(descriptor.name) || bindings.has(descriptor.name) || errorClassNames.has(descriptor.name)) {
+      if (RESERVED_BINDING_GLOBALS.has(descriptor.name)) {
+        throw new Error(`dsh-code-runtime-worker: reserved binding global ${JSON.stringify(descriptor.name)}`)
+      }
+      if (bindings.has(descriptor.name) || errorClassNames.has(descriptor.name)) {
         throw new Error(`dsh-code-runtime-worker: duplicate injected global ${JSON.stringify(descriptor.name)}`)
       }
       const member = descriptor.memberNameProperty
-      if (member.length === 0 || RESERVED_ERROR_PROPERTIES.has(member) || DUNDER_MEMBER.test(member)) {
+      if (member.length === 0 || RESERVED_ERROR_MEMBERS.has(member) || DUNDER_MEMBER.test(member)) {
         throw new Error(`dsh-code-runtime-worker: binding error member property ${JSON.stringify(descriptor.memberNameProperty)} is not usable`)
       }
       errorClassNames.add(descriptor.name)

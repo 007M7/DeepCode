@@ -27,6 +27,8 @@ The constants live at the seam even though only one backend ships in this PR: th
 
 This PR delivers only the seam extension and the worker's adoption of it. No Python backend, `py-types` renderer, or Code Mode language dispatch ships here — they are later PRs in the stack that depend on these exports. The seam README's worker-only wording is left unchanged for the same reason: linking to a `dsh-code-runtime-python` README that does not yet exist would break the dead-link gate.
 
+`RESERVED_BINDING_GLOBALS` currently encodes the not-yet-merged Python bootstrap's concrete design: it seeds exactly `__builtins__`/`__name__` and wraps the program under `__dsh_main__`. The Python-backend PR that seeds any additional module global (`__doc__`, `__loader__`, `__spec__`, `__file__`, `__package__`, …) MUST widen this set in the same change, exactly as adding a language widens `PORTABLE_RESERVED_WORDS` — a name the bootstrap seeds but the set omits is the portability split this contract exists to prevent.
+
 ## Alternatives considered
 
 **Each backend declares its own exclusions.** Rejected: it makes the portability promise per-backend. A binding list the caller tested on the worker could be refused by Python, which is exactly the split the seam exists to prevent.

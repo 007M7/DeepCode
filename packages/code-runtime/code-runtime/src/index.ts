@@ -20,19 +20,23 @@ export type {
 /**
  * Binding globals EVERY backend refuses because SOME backend owns the slot in
  * the program's namespace: `console` (the worker's log capture), and
- * `__dsh_main__`/`__builtins__`/`__name__` (the Python bootstrap's wrapper
- * and seeded module globals), and `__debug__`. One shared set — rather than each backend
- * refusing only its own slots — keeps the portability promise real: a
- * namespace list valid on one backend is valid on all, so a caller cannot
- * pick a name that works on the worker and collides on Python (or vice
- * versa). Dunder-form names are additionally covered by the identifier rule
- * on `CodeBindingNamespace.global` only when they fail it; `__name__` et al.
- * ARE valid identifiers, hence this explicit set. `__debug__` is listed for a
- * different reason than a collision: CPython compiles a bare `__debug__`
- * reference to the constant `True` and rejects any assignment to the name at
- * COMPILE time, so an injected global under that name is unreachable from the
- * program — accepted by validation, unusable on the Python backend, which is
- * exactly the split the shared set exists to prevent.
+ * `__dsh_main__`/`__builtins__`/`__name__` (the Python backend's bootstrap
+ * wrapper and seeded module globals — that backend is a later PR in this
+ * stack, see the [portable-identifier Agent
+ * Note](../../../../.agents/notes/implemented/architecture/2026-07-31-code-runtime-portable-identifier-seam.md)),
+ * and `__debug__`. One shared set — rather than each backend refusing only its
+ * own slots — keeps the portability promise real: a namespace list valid on
+ * one backend is valid on all, so a caller cannot pick a name that works on
+ * the worker and collides on Python (or vice versa). `__name__` et al. ARE
+ * valid portable identifiers, so the identifier rule on
+ * `CodeBindingNamespace.global` never rejects them — hence this explicit set.
+ * (Error members differ: {@link DUNDER_MEMBER} refuses every dunder form
+ * wholesale; binding globals refuse only the names listed here.) `__debug__`
+ * is listed for a different reason than a collision: CPython compiles a bare
+ * `__debug__` reference to the constant `True` and rejects any assignment to
+ * the name at COMPILE time, so an injected global under that name is
+ * unreachable from the program — accepted by validation, unusable on the
+ * Python backend, which is exactly the split the shared set exists to prevent.
  */
 export const RESERVED_BINDING_GLOBALS: ReadonlySet<string> = new Set([
   'console',
@@ -54,8 +58,11 @@ export const RESERVED_ERROR_MEMBERS: ReadonlySet<string> = new Set([
   'args', 'with_traceback', 'add_note',
 ])
 
-/** Dunder form (`__*__`): object-protocol slots in Python, refused as {@link RESERVED_ERROR_MEMBERS | error members} on every backend. */
-export const DUNDER_MEMBER = /^__.*__$/
+/**
+ * Dunder form (`__x__`, non-empty middle): object-protocol slots in Python,
+ * refused as {@link RESERVED_ERROR_MEMBERS | error members} on every backend.
+ */
+export const DUNDER_MEMBER = /^__.+__$/
 
 /**
  * Reserved words of EVERY shipped backend language (ECMAScript ∪ Python),

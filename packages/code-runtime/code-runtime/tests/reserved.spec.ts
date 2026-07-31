@@ -35,6 +35,9 @@ describe('seam-owned portable identifier exclusions', () => {
     expect(DUNDER_MEMBER.test('_private')).toBe(false)
     expect(DUNDER_MEMBER.test('name')).toBe(false)
     expect(DUNDER_MEMBER.test('__mid')).toBe(false)
+    // `__` has an empty middle — not a real CPython dunder, so not matched.
+    expect(DUNDER_MEMBER.test('__')).toBe(false)
+    expect(DUNDER_MEMBER.test('____')).toBe(true)
   })
 
   it('PORTABLE_RESERVED_WORDS is the union of ECMAScript and Python reserved words', () => {
