@@ -72,7 +72,7 @@ occurrence 表与 chip 三投影：
 - 每个实体 Session 只有一个 `SessionInputShell`（facade），随 session scope 创建和拆除；无 session 时不造 input machine。`ConversationRoot` 自身是 `session-maybe` 常驻外壳，持有 HeroShell、Workspace picker、composer stack 与 chain fallback 外框。
 - composer bar 是一个无条件渲染的 `session-maybe` slot entry：无 session 时同一个 InputBar 以惰性态渲染（machine face 缺席、`disabled` owner prop），`connectWorkspace` 返回 blank session 后同一实例转为 live——textarea DOM 在无 session → blank 切换及其后每次 phase 翻转中都不重建；`ConversationRoot`、Hero 与布局骨架全程保持。
 - ConversationRoot 的 Hero 判据是 `sessionId === undefined || (composerPhase === 'blank' && (openState === 'open' || openState === 'loading'))`。首次 submit 同步进入 engaging，失败也保留 composer 与错误上下文，不退回 blank Hero；sidebar 的 blank 位只在 prompt 成功受理后翻 false。
-- 发送统一在 hub defaultSink：乐观清稿后只走 `session.prompt {mode:'queue'|'steer'}`；失败且 live draft 仍为空才回填，用户已经继续输入则不覆盖。不存在 Draft materialize 或 attach 事务。
+- 发送统一在 hub defaultSink：乐观清稿后只走 `session.prompt` 且固定 `mode:'queue'`（Web UI 无 steer 入口；host 线缆上的 `mode:'steer'` 不经此 machine）；失败且 live draft 仍为空才回填，用户已经继续输入则不覆盖。不存在 Draft materialize 或 attach 事务。
 - blank Hero 改选 Workspace 时，外壳调用 `connectWorkspace`；目标 session 不同时把非空 draft 从当前 shell 搬到目标 shell，再 open 新 id，旧 blank session 留存但不再 current。
 - Notifier 双位契约：`dirty`（快照新鲜度，`ensureFresh` 拉取可清）与 `notifyPending`（通知欠账，只有 flush 清）各自独立——拉取不得吞推送，对象层推订阅者（watchTransaction）依赖这一保证。
 

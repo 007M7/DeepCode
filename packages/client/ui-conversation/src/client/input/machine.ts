@@ -112,7 +112,6 @@ export class InputMachine {
   private inflight: {
     readonly attempt: SubmitAttempt
     readonly controller: AbortController
-    readonly mode: 'queue' | 'steer'
   } | undefined
   private log: Transaction[] = []
   private redoStack: Transaction[] = []
@@ -163,7 +162,7 @@ export class InputMachine {
         this.paste = undefined
         return []
       }
-      case 'enter': return this.onEnter(ev.mode)
+      case 'enter': return this.onEnter()
       case 'adjudicated': return this.onAdjudicated(ev.attempt, ev.outcome)
       case 'adjudication-failed': return this.onAdjudicationFailed(ev.attempt, ev.message)
       case 'submit-settled': return this.onSubmitSettled(ev)
@@ -462,18 +461,18 @@ export class InputMachine {
   // ---- submit plane ----
 
   /** Mint the next SubmitAttempt and take the in-flight slot. */
-  private beginAttempt(mode: 'queue' | 'steer'): SubmitAttempt {
+  private beginAttempt(): SubmitAttempt {
     const controller = new AbortController()
     this.seq += 1
     const attempt: SubmitAttempt = { seq: this.seq, signal: controller.signal, draftSnapshot: this.draft }
-    this.inflight = { attempt, controller, mode }
+    this.inflight = { attempt, controller }
     return attempt
   }
 
-  private onEnter(mode: 'queue' | 'steer'): InputEffect[] {
+  private onEnter(): InputEffect[] {
     if (this.phase === 'adjudicating' || this.phase === 'submitting') return []
     if (this.phase === 'claimed' && this.claim !== undefined) {
-      const attempt = this.beginAttempt(mode)
+      const attempt = this.beginAttempt()
       this.phase = 'submitting'
       this.paste = undefined
       return [{ type: 'begin-submit', attempt, claim: this.claim, args: argsAfter(this.draft, this.claim.token) }]
@@ -482,11 +481,11 @@ export class InputMachine {
     if (trimmed === '') return []
     this.paste = undefined
     if (trimmed.startsWith('/')) {
-      const attempt = this.beginAttempt(mode)
+      const attempt = this.beginAttempt()
       this.phase = 'adjudicating'
       return [{ type: 'adjudicate', attempt, draft: this.draft }]
     }
-    return [{ type: 'default-sink', draft: this.draft, mode }]
+    return [{ type: 'default-sink', draft: this.draft }]
   }
 
   private onAdjudicated(attempt: SubmitAttempt, outcome: Extract<InputEvent, { type: 'adjudicated' }>['outcome']): InputEffect[] {
@@ -507,7 +506,7 @@ export class InputMachine {
     this.inflight = undefined
     this.phase = 'plain'
     return outcome === undefined
-      ? [{ type: 'default-sink', draft: attempt.draftSnapshot, mode: flight.mode }]
+      ? [{ type: 'default-sink', draft: attempt.draftSnapshot }]
       : []
   }
 

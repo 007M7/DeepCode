@@ -1,8 +1,8 @@
 // MessageItem: the four simple node kinds — user bubble (right-aligned, with
-// clock + copy / branch / edit IconActions), steering (badged bubble), context
-// injection and unknown-surface JSON rows. Props are frozen node slices off
-// the snapshot cache; memo holds across streaming because unchanged nodes
-// keep their references.
+// clock + copy / branch / edit IconActions), steering (same bubble, no
+// actions), context injection and unknown-surface JSON rows. Props are frozen
+// node slices off the snapshot cache; memo holds across streaming because
+// unchanged nodes keep their references.
 
 import { memo } from 'react'
 import type { ReactNode } from 'react'
@@ -94,7 +94,6 @@ export const MessageItem = memo(function MessageItem({ node, onFork, t }: Messag
       return (
         <div className={css.userRow}>
           <div className={css.bubble}>
-            <span className={css.badge}>{t('message.steering')}</span>
             {projectUserText(text)}
             {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
           </div>
