@@ -680,6 +680,7 @@ export class ReactLoopAgent implements Agent {
       session.append('request/header', { header, reason: 'change' })
     }
 
+    // TODO: This looks like code smell.
     // Context metadata for the route this request resolved to, recorded from the same
     // registration-bound lookup that prepared the call (no second resolve).
     // A route with unknown capacity is still recorded so it clears any older
