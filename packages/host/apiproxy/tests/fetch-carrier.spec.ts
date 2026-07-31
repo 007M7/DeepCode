@@ -349,6 +349,68 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(skills.result).toEqual({ ok: true, value: { skills: [{ name: 'commit-helper', description: 'Git commits' }] } })
   })
 
+  it('lets command.execute finish after the 30-second default unary deadline', async () => {
+    vi.useFakeTimers()
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
+      const controller = new AbortController()
+      setTimeout(() => {
+        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+      }, milliseconds)
+      return controller.signal
+    })
+    try {
+      const api = fakeApi()
+      api.commands.execute = async (request) => {
+        await new Promise(resolve => setTimeout(resolve, 30_001))
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { matched: true, commandId: CommandId('cmd-slow') } },
+        }
+      }
+      const execution = client(api).commands.execute({ sessionId: 's' as never, line: '/slow' })
+      const assertion = expect(execution).resolves.toMatchObject({
+        result: { ok: true, value: { matched: true, commandId: 'cmd-slow' } },
+      })
+
+      await Promise.all([
+        vi.advanceTimersByTimeAsync(30_001),
+        assertion,
+      ])
+      expect(timeoutSpy).not.toHaveBeenCalled()
+    } finally {
+      timeoutSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps caller and connection aborts on command.execute', async () => {
+    const api = fakeApi()
+    const started = Promise.withResolvers<AbortSignal>()
+    api.commands.execute = async (request, signal) => {
+      started.resolve(signal)
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      }
+      return {
+        rpcId: request.rpcId,
+        result: { ok: false, error: { code: 'cancelled', message: 'aborted', details: {} } },
+      }
+    }
+    const controller = new AbortController()
+    const execution = client(api).commands.execute(
+      { sessionId: 's' as never, line: '/hang' },
+      controller.signal,
+    )
+    const handlerSignal = await started.promise
+
+    controller.abort(new Error('connection closed'))
+
+    await expect(execution).rejects.toThrow('connection closed')
+    expect(handlerSignal.aborted).toBe(true)
+  })
+
   it('propagates the carrier Request signal into command.execute', async () => {
     const handler = toFetchHandler(fakeApi())
     const controller = new AbortController()
