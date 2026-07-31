@@ -23,7 +23,7 @@
 
 `SessionResultFilter` 覆盖 id、可空 cwd、创建时间范围、可空父级和来源可用性。`SessionEventResultFilter` 覆盖 seq/时间范围、事件类型、表层和语义文本。过滤器数组使用 AND；同一列表子句内的值使用 OR。空列表值不匹配任何内容，范围包含端点，而格式错误的范围或封闭联合值以 `SESSION_QUERY_INVALID_FILTER` 失败。
 
-文本子句刻意与 FTS 提供方无关：调用方文本会被转义为不区分大小写的 Unicode 正则表达式，每段连续空白匹配一个或多个空白字符。它是字面语义文本扫描，而非全文查询。`extractSessionEventText()` 和 `buildSessionEventSearchDocuments()` 定义共享的第一方文档投影；结构边界、流分片、请求 header 和未知声明合并变体不产生文档。
+文本子句刻意与 FTS 提供方无关：调用方文本会被转义为不区分大小写的 Unicode 正则表达式，每段连续空白匹配一个或多个空白字符。它是字面语义文本扫描，而非全文查询。`extractSessionEventText()` 和 `buildSessionEventSearchDocuments()` 定义共享的第一方文档投影；推理（reasoning）块、结构边界、流分片、请求 header 和未知声明合并变体不产生文档。
 
 ## 全文方法
 

@@ -221,6 +221,28 @@ describe('sessions', () => {
     ])
     await runtime.dispose()
   })
+
+  it('answers search with an empty page until a scenario declares hits, recording every call', async () => {
+    const runtime = await runtimeWithFrame()
+    await runtime.sessions.add({ id: 's1' })
+    const signal = new AbortController().signal
+    expect(runtime.sessions.searchResultLimit).toBeGreaterThan(0)
+    await expect(runtime.sessions.search('marker', signal))
+      .resolves.toEqual({ ok: true, value: { items: [], hasMore: false } })
+    runtime.sessions.stubSearch(query => ({
+      items: [{ sessionId: 's1' as SessionId, snippet: `hit: ${query}` }],
+      hasMore: true,
+    }))
+    await expect(runtime.sessions.search('marker', signal)).resolves.toEqual({
+      ok: true,
+      value: { items: [{ sessionId: 's1', snippet: 'hit: marker' }], hasMore: true },
+    })
+    expect(runtime.sessions.calls).toEqual([
+      { method: 'search', args: ['marker', signal] },
+      { method: 'search', args: ['marker', signal] },
+    ])
+    await runtime.dispose()
+  })
 })
 
 describe('stores', () => {

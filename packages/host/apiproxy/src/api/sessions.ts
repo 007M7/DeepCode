@@ -175,10 +175,27 @@ export type PromptContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
 
+/** One session-content search result; display metadata stays owned by `session.list`. */
+export interface SessionSearchItem {
+  sessionId: SessionId
+  /** Plain-text excerpt around the strongest matching visible message. */
+  snippet: string
+}
+
 /** Session-domain unary methods (the map keys session.* of RpcMethodMap). */
 export interface SessionsApi {
   /** Lists persisted sessions (updatedAt descending). v1 returns everything; cursor is a reserved seat, unimplemented. */
   list(request: RpcRequest<{ cursor?: string }>): Promise<RpcResponse<{ items: SessionSummary[] }>>
+
+  /**
+   * Searches the current user/assistant/steering message surface across
+   * sessions visible to `list`. Results contain at most 20 sessions and carry
+   * no continuation cursor; `hasMore` asks the client to refine the query.
+   */
+  search(
+    request: RpcRequest<{ query: string }>,
+    signal: AbortSignal,
+  ): Promise<RpcResponse<{ items: SessionSearchItem[]; hasMore: boolean }>>
 
   /**
    * Creates a real session and its idle agent. At most one of `workspaceId` /

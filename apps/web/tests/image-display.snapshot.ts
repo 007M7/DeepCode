@@ -97,7 +97,7 @@ function boot(search = '?fixture'): void {
 
 /** Open the fixture history session (the alpha log carrying the turn-65 image pair) and wait for its gallery. */
 async function openFixtureSession(): Promise<void> {
-  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  const tree = await screen.findByRole('tree', { name: '会话' }, { timeout: 10_000 })
   const group = (await within(tree).findAllByText('fixture'))
     .map(el => el.closest<HTMLElement>('[role="treeitem"]'))
     .find(el => el?.getAttribute('aria-expanded') !== null)
@@ -164,19 +164,19 @@ it('renders the history image pair through the authorized attachment route and o
 it('accepts pasted images into the composer rail in order and removes them', async () => {
   boot('?fixture=empty')
 
-  await screen.findByPlaceholderText('Choose a workspace to start', {}, { timeout: 10_000 })
-  fireEvent.click(screen.getAllByRole('button', { name: 'Choose workspace' })
+  await screen.findByPlaceholderText('选择一个工作区开始', {}, { timeout: 10_000 })
+  fireEvent.click(screen.getAllByRole('button', { name: '选择工作区' })
     .find(el => el.getAttribute('aria-haspopup') === 'menu')!)
-  fireEvent.click(await screen.findByRole('menuitem', { name: 'Create a new workspace' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Create a new workspace' })
-  fireEvent.change(within(dialog).getByRole('textbox', { name: 'New workspace name' }), {
+  fireEvent.click(await screen.findByRole('menuitem', { name: '新建工作区' }))
+  const dialog = await screen.findByRole('dialog', { name: '新建工作区' })
+  fireEvent.change(within(dialog).getByRole('textbox', { name: '新工作区名称' }), {
     target: { value: 'image-input' },
   })
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Create workspace' }))
+  fireEvent.click(within(dialog).getByRole('button', { name: '创建工作区' }))
 
   // Image-only send arming is pinned at package level (input-bar.spec.tsx);
   // this assembled lane pins the intake chain over the built graph.
-  const textarea = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
+  const textarea = await screen.findByPlaceholderText('描述你想要构建的内容', {}, { timeout: 10_000 })
   const image = new File([new Uint8Array([137, 80, 78, 71])], 'pasted.png', { type: 'image/png' })
   fireEvent.paste(textarea, {
     clipboardData: {

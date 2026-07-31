@@ -199,6 +199,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   const patches: PatchOptions[] = [
     ...surfacePatches,
     { id: 'session-persistence-jsonl', config: { root: persistenceRoot } },
+    { id: 'session-query-sqlite', config: { path: ':memory:', openAt: 'first-search' } },
     // storage-json's './.storages' yml default is cwd-relative and resolves
     // per write; the scaffold restores the original cwd after boot, so the
     // row gets an absolute temp root (removed with the workspace at close).
