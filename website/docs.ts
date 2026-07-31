@@ -37,6 +37,8 @@ export interface DocsPage {
   section: string
   /** Stable order within the section. */
   order: number
+  /** Heading levels included in this page's VitePress outline. */
+  outline?: number | readonly [number, number] | 'deep' | false
   /** Additional repository paths that resolve to this page. */
   sourceAliases?: string[]
 }
@@ -49,6 +51,7 @@ interface MirroredPage {
   sidebar: Record<DocsLocale, DocsSidebar | null>
   section: Record<DocsLocale, string>
   order: number
+  outline?: DocsPage['outline']
   sourceAliases?: string[] | Partial<Record<DocsLocale, string[]>>
 }
 
@@ -79,6 +82,7 @@ function mirroredPages(pages: MirroredPage[]): DocsPage[] {
       sidebar: page.sidebar[locale],
       section: page.section[locale],
       order: page.order,
+      ...(page.outline === undefined ? {} : { outline: page.outline }),
       ...(aliases === undefined ? {} : { sourceAliases: aliases }),
     }
   }))
@@ -288,8 +292,8 @@ const reference = mirroredPages([
     ['docs/tool-catalog.md', 'reference/tool-catalog.md', 'Tool Schema', 'Tool schemas'],
     ['docs/cordis-catalog/services.md', 'reference/cordis-catalog/services.md', '服务', 'Services'],
     ['docs/cordis-catalog/events.md', 'reference/cordis-catalog/events.md', '事件', 'Events'],
-    ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events'],
-  ] as const).map(([source, route, rootLabel, enLabel], order): MirroredPage => ({
+    ['docs/persistence-catalog.md', 'reference/persistence-catalog.md', '持久化事件', 'Persistence events', 'deep'],
+  ] as const).map(([source, route, rootLabel, enLabel, outline], order): MirroredPage => ({
     source,
     route,
     contentLocale: 'en-US',
@@ -297,6 +301,7 @@ const reference = mirroredPages([
     sidebar: { root: 'zh-reference', en: 'en-reference' },
     section: { root: '生成参考', en: 'Generated reference' },
     order,
+    ...(outline === undefined ? {} : { outline }),
   })),
   ...([
     ['context.md', 'Context', 'Context'],
