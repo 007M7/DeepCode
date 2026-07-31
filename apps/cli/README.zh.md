@@ -23,6 +23,8 @@ TUI 界面：
 
 Web 和无头界面启动 `base.cordis.yml` 与 `web.cordis.yml`，随后应用 `$DSH_HOME/config.yaml`；显式的 `--config <path>` 会替代该个人覆盖。除此之外，两者共享同一套组合：两者都将调用目录视为默认项目和 Workspace 根目录，除非通过 `--workspace-root <path>` 覆盖，否则会在该根目录下创建具名 Workspace；它们会把适用的 `AGENTS.md`/`CLAUDE.md` 指令加载到每个 agent-loop 请求前缀中，渲染预算为 65,536 字节，选用首条消息模型标题，采用与 TUI 相同的有界暂时性模型请求重试策略，并挂载一个可丢弃的内存 SQLite 内容索引服务。该服务在启动时处于 ACTIVE 状态，但其 `node:sqlite` 模块与数据库句柄分别要到首次内容搜索才会导入和打开。这样可使 Node 22 在尚未使用搜索时的启动输出不出现 SQLite 实验性警告；首次实际搜索仍可能发出运行时警告。每个服务实例独占自己的数据库，因此并行调用既不会共享不受支持的 SQLite 状态，也不会留下派生索引文件，首次搜索还会惰性对账实时日志与持久化日志。无头界面唯一的差异是监听操作系统分配的端口（并行 `dsh -p` 运行绝不冲突；stderr 打印的 URL 会在浏览器中打开实时会话）。两者都需要先构建前端 dist 和客户端 bundle（`pnpm run build && pnpm run build:web`）。
 
+共享组合把新建 TUI、Web 和无头会话的权限默认设为 `workspace-write` preset（`workspace-write` 文件模式加 `ask` 审批策略）。由沙箱强制约束的 bash 与文件系统修改只能写入会话工作区和平台临时根目录；读取、网络访问和进程可见性不受该策略约束。浏览器可以应答一次性审批请求，并提供 Access 选择器；TUI 提供 `/permission`，但没有审批请求应答者，因此自动请求更宽权限的重试会以拒绝方式关闭，直到用户主动更改会话 preset。`DSH_PERMISSION_MODE` 会更改进程回退值，而「通用」设置中已存储的「权限」值只适用于之后的会话，不会更改已打开的会话。
+
 已交付的 TUI 和 Web 组合会注册原生 DeepSeek 适配器，以及 pi-ai 的 OpenAI 和 Anthropic 提供方配置。凭据和端点覆盖来自启动分层环境中的提供方标准变量对：`DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL`、`OPENAI_API_KEY` / `OPENAI_BASE_URL` 和 `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`。
 
 每个界面也都只注册 `web_search` 这一个 Web 工具。搜索使用 DeepSeek 的 Anthropic 兼容 Messages 端点，每次调用都会解析同一个 `DEEPSEEK_API_KEY` 凭据引用，并接受独立的 `DEEPSEEK_SEARCH_BASE_URL` 端点覆盖；每次搜索都是一次辅助模型请求，会产生独立的延迟与 token 成本。`web_fetch` 仍处于禁用状态，组合也未挂载默认抓取提供方；需要任意页面抓取能力的部署必须通过覆盖层选择启用。部署决策及其安全边界见[默认 Web 搜索 Agent Note](../../.agents/notes/implemented/feature/2026-07-31-web-default-search.md)。

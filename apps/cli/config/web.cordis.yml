@@ -36,50 +36,6 @@
     apiKey: !!js process.env.DEEPSEEK_API_KEY
     baseURL: !!js process.env.DEEPSEEK_BASE_URL
 
-# The web surface replaces the unrestricted local executors with the shared
-# sandbox policy. Its default preserves the previous unrestricted behavior;
-# DSH_PERMISSION_MODE and the browser permission picker can confine a session.
-- insert:
-    - id: sandbox
-      name: '@deepseek-ai/dsh-sandbox-local'
-
-    - id: sandbox-policy
-      name: '@deepseek-ai/dsh-sandbox-policy'
-      config:
-        mode: !!js process.env.DSH_PERMISSION_MODE ?? 'danger-full-access'
-        workspaceRoot: !!js process.cwd()
-
-    - id: bash-sandbox
-      name: '@deepseek-ai/dsh-bash-sandbox'
-
-    - id: approval
-      name: '@deepseek-ai/dsh-user-approval'
-      config:
-        policy: !!js "(process.env.DSH_PERMISSION_MODE ?? 'danger-full-access') === 'danger-full-access' ? 'never' : 'ask'"
-
-    - id: permission
-      name: '@deepseek-ai/dsh-permission'
-      config:
-        presets:
-          read-only:
-            sandbox: read-only
-            approval: ask
-          workspace-write:
-            sandbox: workspace-write
-            approval: ask
-          danger-full-access:
-            sandbox: danger-full-access
-            approval: never
-
-    - id: fs-sandbox
-      name: '@deepseek-ai/dsh-fs-sandbox'
-
-- id: bash-local
-  disabled: true
-
-- id: fs-local
-  disabled: true
-
 # ── web-only host rows, the transport layer, and the browser roster ─────────
 
 # `dshClient` rows are the browser roster the modules node half scans into
