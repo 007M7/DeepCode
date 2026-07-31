@@ -1,0 +1,13 @@
+# Opt-in reference for @modelcontextprotocol/server-memory 2026.7.4. Install
+# the pinned executable first; DSH starts it but does not run a package manager.
+- insert:
+    - id: memory-mcp-reference
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: reference_memory
+        transport: stdio
+        command: mcp-server-memory
+        cwd: !!js process.cwd()
+        env:
+          MEMORY_FILE_PATH: !!js >-
+            (() => { const path = process.getBuiltinModule('node:path'); const os = process.getBuiltinModule('node:os'); const crypto = process.getBuiltinModule('node:crypto'); const configured = process.env.DSH_HOME; const root = configured !== undefined && configured.trim().length > 0 ? configured : path.join(os.homedir(), '.dsh'); const user = process.env.DSH_MEMORY_USER_ID?.trim() || 'default'; const scope = crypto.createHash('sha256').update(user).digest('hex').slice(0, 16); return path.join(path.resolve(root), `mcp-reference-memory-${scope}.jsonl`) })()
